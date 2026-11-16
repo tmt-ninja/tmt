@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { ImageDownload } from './image-download.js';
 import { followedSystem, type DesignSystemSource } from './design-system.js';
 import { mountRenderer, sourceFrameKey } from './renderer.js';
-import type { PageScheme, RenderState, SelectionRect } from './renderer.js';
+import type { OutlineSnapshot, PageScheme, RenderState, SelectionRect } from './renderer.js';
 import type { QuoteSelector } from './thread-records.js';
 import { toolbarInset } from './toolbar-inset.js';
 import type { PageSnapshot, PageView } from './transport.js';
@@ -90,6 +90,7 @@ export function usePageRenderer({
   const [anchorsChecked, setAnchorsChecked] = useState(false);
   // Until the frame reports what its page paints, the cards keep the app theme.
   const [pageScheme, setPageScheme] = useState<PageScheme>();
+  const [outline, setOutline] = useState<OutlineSnapshot>();
   // A shell item can open the page at one exact element; when it is not there, say so once.
   const [missingAnchor, setMissingAnchor] = useState<string>();
   const revealed = useRef('');
@@ -160,6 +161,7 @@ export function usePageRenderer({
   const { onSlots, onQuestions, onReadings, onEditLocks } = layers;
   useEffect(() => {
     const controller = new AbortController();
+    setOutline(undefined);
     if (view.pageType === 'shell') {
       host.current?.replaceChildren();
       setState('ready');
@@ -202,6 +204,7 @@ export function usePageRenderer({
       onEditLocks,
       onQuestions,
       onReadings,
+      onOutline: setOutline,
       // The phone title block scrolls away; it takes viewport room but is not a fixed inset.
       viewportInset: () => toolbarInset(toolbar.current),
       frameLead: () => bandSize.current,
@@ -296,5 +299,5 @@ export function usePageRenderer({
     });
   }, [renderSource, renderer]);
 
-  return { resolved, anchorsChecked, pageScheme, missingAnchor };
+  return { resolved, anchorsChecked, pageScheme, missingAnchor, outline };
 }

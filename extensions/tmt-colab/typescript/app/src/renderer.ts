@@ -221,6 +221,49 @@ export function rendererUrl(baseUri: string): string {
  * can impersonate its bootstrap: this handshake grants no application authority. */
 export type PageScheme = 'light' | 'dark';
 
+/** A bounded, cosmetic heading report from the current untrusted frame. */
+export type OutlineEntry = { level: 2 | 3; text: string; top: number };
+export type OutlineSnapshot = { snapshot: number; entries: OutlineEntry[] };
+
+export function admitOutline(
+  value: unknown,
+  renderId: string,
+  previous: number,
+): OutlineSnapshot | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const report = value as Record<string, unknown>;
+  if (
+    Object.keys(report).length !== 4 ||
+    report.type !== 'colab.render.outline' ||
+    report.renderId !== renderId ||
+    !Number.isSafeInteger(report.snapshot) ||
+    (report.snapshot as number) <= previous ||
+    !Array.isArray(report.entries) ||
+    report.entries.length > 200
+  )
+    return null;
+  const encoder = new TextEncoder();
+  const entries: OutlineEntry[] = [];
+  for (const item of report.entries) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const entry = item as Record<string, unknown>;
+    if (
+      Object.keys(entry).length !== 3 ||
+      (entry.level !== 2 && entry.level !== 3) ||
+      typeof entry.text !== 'string' ||
+      !entry.text.trim() ||
+      [...entry.text].length > 256 ||
+      encoder.encode(entry.text).length > 1024 ||
+      typeof entry.top !== 'number' ||
+      !Number.isFinite(entry.top) ||
+      Math.abs(entry.top) > 1_000_000
+    )
+      return null;
+    entries.push({ level: entry.level, text: entry.text, top: entry.top });
+  }
+  return { snapshot: report.snapshot as number, entries };
+}
+
 export async function mountRenderer(
   host: HTMLElement,
   source: string,
@@ -264,6 +307,7 @@ export async function mountRenderer(
     onEditLocks?(positions: EditLockPosition[], checked?: boolean): void;
     onQuestions?(questions: QuestionAnchor[], reviews: ReviewAnchor[], checked?: boolean): void;
     onReadings?(readings: QuestionAnchor[], checked?: boolean): void;
+    onOutline?(outline: OutlineSnapshot): void;
     images?: DocumentImageInput;
     /** How Colab frames the page; absent is `freeform`, which leaves the author's layout alone. */
     layout?: PageLayout;
@@ -298,6 +342,7 @@ export async function mountRenderer(
     readings?: ReadingRenderBlock[],
   ): void;
   scrollAnchor(id: string): void;
+  scrollOutline(snapshot: number, index: number): void;
   /** Restore focus to a currently admitted marker, without granting page authority. */
   focusThread(id: string): void;
   /** Mark the passage of the thread whose window is open (null: none), which the page draws in its
@@ -372,6 +417,7 @@ export async function mountRenderer(
   let pendingUpdate: { requestId: string; settle(result: SourceUpdate): void } | undefined;
   let pendingDesign: { requestId: string; settle(result: SourceUpdate): void } | undefined;
   let updates = 0;
+  let outline: OutlineSnapshot = { snapshot: -1, entries: [] };
   let designUpdates = 0;
   let updateHeightPending = false;
   let pendingScroll: { top: number; until: number; scrollY: number } | undefined;
@@ -697,11 +743,14 @@ export async function mountRenderer(
           box.scrollTo({ top: Math.max(0, within), behavior: 'instant' });
           return;
         }
+        const outlineInset =
+          options.onOutline && outline.entries.length >= 3 && window.innerWidth <= 640 ? 48 : 0;
         const top =
           frame.getBoundingClientRect().top +
           window.scrollY +
           (innerScroll ? 0 : value.top) -
-          inset();
+          inset() -
+          outlineInset;
         const limit = document.documentElement.scrollHeight - window.innerHeight;
         window.scrollTo({ top: Math.max(0, Math.min(limit, top)), behavior: 'instant' });
         // The frame may not have its full height yet: finish the scroll once it grows.
@@ -808,6 +857,7 @@ export async function mountRenderer(
     )
       return;
     ready = true;
+    if (outline.snapshot >= 0) options.onOutline?.(outline);
     readyWaiters.splice(0).forEach((resume) => resume());
     if (!settled) settleTimer = setTimeout(settle, SETTLE_GRACE_MS);
     // A choice can change between source init and the bound acknowledgement.
@@ -940,8 +990,17 @@ export async function mountRenderer(
     pendingDesign?.settle('remount');
   };
   channel.port1.onmessage = (event: MessageEvent<unknown>) => {
-    if (stopped || !ready) return;
+    if (stopped) return;
     const value = event.data as Record<string, unknown> | null;
+    if (value?.type === 'colab.render.outline') {
+      const admitted = admitOutline(value, snapshot.renderId, outline.snapshot);
+      if (admitted) {
+        outline = admitted;
+        if (ready) options.onOutline?.(admitted);
+      }
+      return;
+    }
+    if (!ready) return;
     if (value?.type === 'colab.render.parent-page-views' && value.renderId === snapshot.renderId) {
       if (!Array.isArray(value.positions) || value.positions.length !== parentPageViews.length)
         return;
@@ -1895,6 +1954,23 @@ export async function mountRenderer(
     questions,
     threadReferences,
     scrollAnchor,
+    scrollOutline: (version: number, index: number) => {
+      if (
+        stopped ||
+        !ready ||
+        version !== outline.snapshot ||
+        !Number.isSafeInteger(index) ||
+        index < 0 ||
+        index >= outline.entries.length
+      )
+        return;
+      channel.port1.postMessage({
+        type: 'colab.render.outline-jump',
+        renderId: snapshot.renderId,
+        snapshot: version,
+        index,
+      });
+    },
     focusThread,
     select,
     scrollReading: (id: string) => {

@@ -451,10 +451,12 @@ function PageFloatingActions({
 /** A structured page's visible headings, kept in the trusted parent alongside the blocks. */
 function PageOutline({
   headings,
-  stage,
+  locate,
+  compact = false,
 }: {
   headings: readonly { id: string; title: string; level: number }[];
-  stage: React.RefObject<HTMLDivElement | null>;
+  locate(id: string): { top(): number; scrollTo(): void } | undefined;
+  compact?: boolean;
 }) {
   const phone = useMedia('(max-width: 640px)');
   const [preference, setPreference] = useState<boolean | undefined>(() => {
@@ -465,7 +467,7 @@ function PageOutline({
       return undefined;
     }
   });
-  const expanded = preference ?? !phone;
+  const expanded = preference ?? (!phone && !compact);
   const [current, setCurrent] = useState(0);
   useEffect(() => {
     if (headings.length < 3) return;
@@ -474,10 +476,8 @@ function PageOutline({
       const edge = (bar?.getBoundingClientRect().bottom ?? 0) + (innerWidth <= 640 ? 64 : 24);
       let active = 0;
       headings.forEach((heading, index) => {
-        const node = stage.current?.querySelector<HTMLElement>(
-          `[data-block-id="${CSS.escape(heading.id)}"]`,
-        );
-        if (node && node.getBoundingClientRect().top <= edge) active = index;
+        const node = locate(heading.id);
+        if (node && node.top() <= edge) active = index;
       });
       setCurrent(active);
     };
@@ -488,13 +488,14 @@ function PageOutline({
       window.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
     };
-  }, [headings, stage]);
+  }, [headings, locate]);
   if (headings.length < 3) return null;
   return (
     <nav className="page-outline" aria-label={text.pageOutline}>
       <button
         type="button"
         className="page-outline-toggle"
+        aria-label={compact && !phone ? text.outline : undefined}
         aria-expanded={expanded}
         onClick={() => {
           const next = !expanded;
@@ -522,9 +523,7 @@ function PageOutline({
                 type="button"
                 aria-current={index === current ? 'location' : undefined}
                 onClick={() => {
-                  const target = stage.current?.querySelector<HTMLElement>(
-                    `[data-block-id="${CSS.escape(heading.id)}"]`,
-                  );
+                  const target = locate(heading.id);
                   setCurrent(index);
                   if (innerWidth <= 640) {
                     setPreference(false);
@@ -534,10 +533,8 @@ function PageOutline({
                       /* Optional preference. */
                     }
                     // Closing the phone list changes the target's position in the page.
-                    requestAnimationFrame(() =>
-                      target?.scrollIntoView({ block: 'start', behavior: 'instant' }),
-                    );
-                  } else target?.scrollIntoView({ block: 'start', behavior: 'instant' });
+                    requestAnimationFrame(() => target?.scrollTo());
+                  } else target?.scrollTo();
                 }}
               >
                 {heading.title}
@@ -2339,6 +2336,7 @@ function OpenPage({
     anchorsChecked: frameAnchorsChecked,
     pageScheme,
     missingAnchor,
+    outline: frameOutline,
   } = usePageRenderer({
     snapshot,
     view,
@@ -2393,6 +2391,50 @@ function OpenPage({
       onImageDownload: (image) => attachmentDownload.requestImage(image),
     },
   });
+  const htmlHeadings = useMemo(
+    () =>
+      (frameOutline?.entries ?? []).map((entry, index) => ({
+        id: String(index),
+        title: entry.text,
+        level: entry.level,
+      })),
+    [frameOutline],
+  );
+  const locateHtmlHeading = useCallback(
+    (id: string) => {
+      const index = Number(id);
+      const entry = frameOutline?.entries[index];
+      const frame = host.current?.querySelector('iframe');
+      if (!entry || !frame || !frameOutline) return undefined;
+      const version = frameOutline.snapshot;
+      return {
+        top: () => frame.getBoundingClientRect().top + entry.top,
+        scrollTo: () => renderer.current?.scrollOutline(version, index),
+      };
+    },
+    [frameOutline, host, renderer],
+  );
+  const locateStructuredHeading = useCallback((id: string) => {
+    const node = structuredStage.current?.querySelector<HTMLElement>(
+      `[data-block-id="${CSS.escape(id)}"]`,
+    );
+    if (!node) return undefined;
+    return {
+      top: () => node.getBoundingClientRect().top,
+      scrollTo: () => node.scrollIntoView({ block: 'start', behavior: 'instant' }),
+    };
+  }, []);
+  const [htmlGutter, setHtmlGutter] = useState(false);
+  useEffect(() => {
+    const node = host.current;
+    if (!node) return;
+    const measure = () =>
+      setHtmlGutter(view.layout === 'column' && (node.clientWidth - 28 - 1280) / 2 >= 228);
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    measure();
+    return () => observer.disconnect();
+  }, [host, view.layout]);
   // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
   // A reply or a status change elsewhere leaves this list as it was, so the document is not told
   // to highlight again.
@@ -3191,6 +3233,15 @@ function OpenPage({
               ))}
             </ul>
           )}
+          {view.pageType !== 'blocks' && htmlHeadings.length >= 3 && (
+            <div className="html-outline" data-compact={!htmlGutter || undefined}>
+              <PageOutline
+                headings={htmlHeadings}
+                locate={locateHtmlHeading}
+                compact={!htmlGutter}
+              />
+            </div>
+          )}
           <div className="frame-host" ref={host} hidden={view.pageType === 'blocks'} />
           {view.pageType === 'blocks' && view.blocks && (
             <div
@@ -3198,7 +3249,7 @@ function OpenPage({
               data-outline={outlineHeadings.length >= 3 || undefined}
             >
               <Suspense fallback={null}>
-                <PageOutline headings={outlineHeadings} stage={structuredStage} />
+                <PageOutline headings={outlineHeadings} locate={locateStructuredHeading} />
                 <div
                   className="structured-page-stage"
                   ref={structuredStage}

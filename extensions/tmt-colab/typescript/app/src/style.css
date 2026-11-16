@@ -406,7 +406,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .structured-page-stage {
   box-sizing: border-box;
   max-width: 1280px;
-  margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
+  margin-inline: var(--tmt-ui-header-padding-inline) calc(var(--colab-lane) + 12px);
   padding-block-start: 16px;
 }
 .structured-layout[data-outline] {
@@ -414,7 +414,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   grid-template-columns: 188px minmax(0, 1fr);
   align-items: start;
   gap: 40px;
-  margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
+  margin-inline: var(--tmt-ui-header-padding-inline) calc(var(--colab-lane) + 12px);
 }
 .structured-layout[data-outline] .structured-page-stage {
   margin-inline: 0;
@@ -499,9 +499,72 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .page-outline :is(button):focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
+/* HTML owns the full frame width: the outline overlays the gutter or the page, never a grid column. */
+.html-outline {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 52;
+  width: 188px;
+  pointer-events: none;
+}
+.html-outline .page-outline {
+  pointer-events: auto;
+  background: var(--tmt-ui-surface-sheet);
+}
+.html-outline[data-compact] .page-outline {
+  width: max-content;
+  max-width: 188px;
+  padding: var(--tmt-ui-space-s);
+  background: var(--tmt-ui-surface-sheet);
+}
+@media (min-width: 641px) {
+  .html-outline[data-compact] .page-outline {
+    top: calc(var(--page-bar-size) - 34px);
+    margin-block-start: -34px;
+    padding: 0;
+    background: transparent;
+    pointer-events: none;
+  }
+  .html-outline[data-compact] .page-outline-toggle {
+    width: 34px;
+    min-height: 34px;
+    justify-content: center;
+    background: var(--tmt-ui-surface-sheet);
+    pointer-events: auto;
+  }
+  .html-outline[data-compact] .page-outline-list {
+    margin-block-start: 0;
+    background: var(--tmt-ui-surface-sheet);
+    pointer-events: auto;
+  }
+  .html-outline[data-compact] .page-outline-desktop,
+  .html-outline[data-compact] .page-outline-chevron {
+    display: none;
+  }
+  .html-outline[data-compact] .page-outline-icon {
+    display: block;
+  }
+}
 @media (max-width: 640px) {
+  .html-outline {
+    position: sticky;
+    inset: auto;
+    top: var(--page-bar-size);
+    width: 100%;
+  }
+  .html-outline .page-outline {
+    position: static;
+  }
+  .html-outline[data-compact] .page-outline {
+    width: auto;
+    max-width: none;
+    padding: 0 var(--tmt-ui-header-padding-inline);
+  }
   .structured-page-stage [data-block-id] {
     scroll-margin-top: calc(var(--page-bar-size) + 64px);
+  }
+  .structured-page-stage {
+    margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
   }
   .structured-layout[data-outline] {
     display: block;

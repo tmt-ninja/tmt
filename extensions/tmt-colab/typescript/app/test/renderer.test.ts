@@ -3,6 +3,7 @@ import { runInNewContext } from 'node:vm';
 import { expect, test, vi } from 'vite-plus/test';
 import { shareParentPageViews } from '../src/parent-page-view.js';
 import {
+  admitOutline,
   isRenderRectangle,
   MAX_RENDER_SOURCE_BYTES,
   rendererUrl,
@@ -11,6 +12,26 @@ import {
 
 const html = readFileSync(new URL('../public/renderer.html', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
+test('the frame outline admits only bounded current snapshots', () => {
+  const entry = { level: 2, text: 'A heading', top: 120 };
+  const report = {
+    type: 'colab.render.outline',
+    renderId: 'current',
+    snapshot: 2,
+    entries: [entry],
+  };
+  expect(admitOutline(report, 'current', 1)).toEqual({ snapshot: 2, entries: [entry] });
+  for (const invalid of [
+    { ...report, renderId: 'old' },
+    { ...report, snapshot: 1 },
+    { ...report, entries: Array(201).fill(entry) },
+    { ...report, entries: [{ ...entry, level: 4 }] },
+    { ...report, entries: [{ ...entry, text: 'x'.repeat(257) }] },
+    { ...report, entries: [{ ...entry, top: Infinity }] },
+    { ...report, entries: [{ ...entry, extra: true }] },
+  ])
+    expect(admitOutline(invalid, 'current', 1)).toBeNull();
+});
 test('selection and saved-anchor rectangles share exact bounded cosmetic admission', () => {
   const rect = { x: 12, y: 40, width: 200, height: 24 };
   expect(isRenderRectangle(rect)).toBe(true);

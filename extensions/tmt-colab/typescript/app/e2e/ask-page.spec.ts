@@ -823,6 +823,134 @@ for (const width of [1440, 390])
     await expect(page.getByRole('navigation', { name: 'Page outline' })).toHaveCount(0);
   });
 
+for (const width of [1440, 390])
+  test(`HTML outline follows visible headings and jumps without resizing the frame at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await run(page, 'mount');
+    await run(page, 'authored', '<h2>Only one</h2><h3>Only two</h3>');
+    await expect(
+      page.frameLocator('#ask-page-fixture iframe').getByRole('heading', { name: 'Only two' }),
+    ).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Page outline' })).toHaveCount(0);
+    await run(
+      page,
+      'authored',
+      '<h2>First <span hidden>secret</span>section</h2><p style="height:900px">First body</p><h3>Second section</h3><p style="height:900px">Second body</p><h2>Third section</h2><p style="height:900px">Third body</p><h2 hidden>Hidden section</h2><tmt-question><h2>Question heading</h2></tmt-question>',
+    );
+    const outline = page.getByRole('navigation', { name: 'Page outline' });
+    await expect(outline).toBeVisible();
+    const frame = page.locator('#ask-page-fixture iframe');
+    const frameWidth = (await frame.boundingBox())!.width;
+    const toggle = outline.locator('.page-outline-toggle');
+    if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+    await expect(outline.getByRole('button', { name: /section$/ })).toHaveText([
+      'First section',
+      'Second section',
+      'Third section',
+    ]);
+    await outline.getByRole('button', { name: 'Second section' }).click();
+    if (width === 390) await expect(toggle).toContainText('Second section');
+    else
+      await expect(outline.getByRole('button', { name: 'Second section' })).toHaveAttribute(
+        'aria-current',
+        'location',
+      );
+    await expect(
+      page
+        .frameLocator('#ask-page-fixture iframe')
+        .getByRole('heading', { name: 'Second section' }),
+    ).toBeInViewport();
+    if (width === 390) {
+      const heading = page
+        .frameLocator('#ask-page-fixture iframe')
+        .getByRole('heading', { name: 'Second section' });
+      await expect
+        .poll(
+          async () =>
+            (await heading.boundingBox())!.y -
+            ((await outline.boundingBox())!.y + (await outline.boundingBox())!.height),
+        )
+        .toBeGreaterThanOrEqual(-1);
+    }
+    expect((await frame.boundingBox())!.width).toBe(frameWidth);
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    if (width === 390) await expect(toggle).toContainText('Third section');
+    else
+      await expect(outline.getByRole('button', { name: 'Third section' })).toHaveAttribute(
+        'aria-current',
+        'location',
+      );
+    await page
+      .frameLocator('#ask-page-fixture iframe')
+      .locator('body')
+      .evaluate((body) => {
+        const heading = body.ownerDocument.createElement('h3');
+        heading.textContent = 'Added section';
+        body.append(heading);
+      });
+    if (width === 390) await toggle.click();
+    await expect(outline.getByRole('button', { name: 'Added section' })).toBeVisible();
+  });
+
+test('HTML outline follows and jumps within the bounded inner-scroll fallback', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(
+    page,
+    'authored',
+    '<style>body{margin:0}.grow{height:calc(100vh + 120px)}</style><h2>First</h2><div class="grow"></div><h3>Second</h3><div class="grow"></div><h2>Third</h2>',
+  );
+  const frame = page.locator('#ask-page-fixture iframe');
+  await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');
+  const outline = page.getByRole('navigation', { name: 'Page outline' });
+  const toggle = outline.locator('.page-outline-toggle');
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+  await outline.getByRole('button', { name: 'Second', exact: true }).click();
+  await expect(
+    page
+      .frameLocator('#ask-page-fixture iframe')
+      .getByRole('heading', { name: 'Second', exact: true }),
+  ).toBeInViewport();
+  await expect(outline.getByRole('button', { name: 'Second', exact: true })).toHaveAttribute(
+    'aria-current',
+    'location',
+  );
+});
+
+test('HTML outline uses a wide column gutter and keeps full pages at their original frame width', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2200, height: 900 });
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(page, 'setLayout', { layout: 'column' });
+  await run(page, 'authored', '<h2>First</h2><h3>Second</h3><h2>Third</h2>');
+  const frame = page.locator('#ask-page-fixture iframe');
+  const outline = page.getByRole('navigation', { name: 'Page outline' });
+  await expect(outline).toBeVisible();
+  await expect(outline.locator('.page-outline-toggle')).toHaveAttribute('aria-expanded', 'true');
+  const heading = page
+    .frameLocator('#ask-page-fixture iframe')
+    .getByRole('heading', { name: 'First', exact: true });
+  await expect
+    .poll(
+      async () =>
+        (await heading.boundingBox())!.x -
+        ((await outline.boundingBox())!.x + (await outline.boundingBox())!.width),
+    )
+    .toBeGreaterThanOrEqual(40);
+  const width = (await frame.boundingBox())!.width;
+  await run(page, 'setLayout', { layout: 'full' });
+  await expect(outline.locator('.page-outline-toggle')).toHaveAttribute('aria-expanded', 'false');
+  expect((await frame.boundingBox())!.width).toBe(width);
+});
+
 test('a structured block opens the normal annotation and sends its quoted comment', async ({
   page,
 }) => {
@@ -887,6 +1015,7 @@ test('a structured text selection can ask an agent with the selected quote', asy
 
 for (const kind of ['duplicate', 'image', 'mockup'] as const)
   test(`a ${kind} block comment stays on the chosen block`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
     await run(page, 'mount', { structured: true, structuredKind: kind, commentOnly: true });
     const chosen = page.locator(`[data-block-id="${id(99)}"]`);
@@ -904,6 +1033,8 @@ for (const kind of ['duplicate', 'image', 'mockup'] as const)
     else expect(thread.anchor.quote).toBeUndefined();
     await annotation.getByRole('button', { name: 'Collapse thread', exact: true }).click();
     await expect(chosen.getByRole('button', { name: 'Open comment 1' })).toBeVisible();
+    const marker = (await chosen.getByRole('button', { name: 'Open comment 1' }).boundingBox())!;
+    expect(marker.x + marker.width).toBeLessThanOrEqual(1440 - 8);
     await expect(other.getByRole('button', { name: 'Open comment 1' })).toHaveCount(0);
     if (kind === 'duplicate') {
       await run(page, 'changeStructuredBlock', id(99));
