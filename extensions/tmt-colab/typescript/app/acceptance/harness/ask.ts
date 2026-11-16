@@ -323,7 +323,54 @@ export async function selectInRenderer(page: Page, selector: string): Promise<vo
       selection.removeAllRanges();
       selection.addRange(range);
     });
-  await expect(page.getByTestId('selection-ask')).toBeVisible();
+  try {
+    await expect(page.getByTestId('selection-ask')).toBeVisible();
+  } catch (error) {
+    try {
+      const selection = await page
+        .frameLocator('iframe')
+        .locator('html')
+        .evaluate((node) => node.ownerDocument.getSelection()?.toString() ?? null, {
+          timeout: 1_000,
+        })
+        .catch(() => null);
+      const state = await page.evaluate(() => {
+        const box = (node: Element | null) => {
+          if (!node) return null;
+          const { x, y, width, height } = node.getBoundingClientRect();
+          return { x, y, width, height };
+        };
+        const ask = document.querySelector('[data-testid="selection-ask"]');
+        const style = ask ? getComputedStyle(ask) : null;
+        const active = document.activeElement;
+        return {
+          ask: {
+            exists: ask !== null,
+            box: box(ask),
+            display: style?.display ?? null,
+            visibility: style?.visibility ?? null,
+          },
+          viewport: { width: innerWidth, height: innerHeight },
+          mobileTitle: document.querySelector('.page-mobile-title') !== null,
+          frameHost: box(document.querySelector('.frame-host')),
+          iframe: box(document.querySelector('iframe')),
+          activeElement: active
+            ? { tag: active.tagName, class: active.getAttribute('class') }
+            : null,
+          sourceDrawer: document.querySelector('[data-panel="source"]') !== null,
+        };
+      });
+      const diagnostic = JSON.stringify({ selection, ...state });
+      if (error instanceof Error) error.message += ` · selection diagnostic ${diagnostic}`;
+      await test.info().attach('selection-ask-diagnostic', {
+        body: diagnostic,
+        contentType: 'application/json',
+      });
+    } catch {
+      // Diagnostics must not replace the original assertion failure.
+    }
+    throw error;
+  }
 }
 
 /**
