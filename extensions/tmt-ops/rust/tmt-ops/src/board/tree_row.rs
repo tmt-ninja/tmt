@@ -13,15 +13,30 @@ use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::{components::strip, style::TextFlow};
 use unicode_width::UnicodeWidthStr;
 
-fn minute_role(rate: Option<u128>, depth: tmt_cli_style::Depth) -> Role {
-    if depth == tmt_cli_style::Depth::None {
-        return Role::Text;
+fn minute_style(rate: Option<u128>, look: Look) -> Style {
+    if look.depth == tmt_cli_style::Depth::None {
+        return look.role(Role::Text);
     }
-    match rate {
-        None | Some(0) => Role::Dim,
-        Some(1..1_000) => Role::Muted,
-        Some(_) => Role::Text,
-    }
+    let Some(rate) = rate else {
+        return look.role(Role::Dim);
+    };
+    use tmt_tui::components::design_system::HeatLevel;
+    let level = match rate {
+        0 => HeatLevel::Zero,
+        1..500 => HeatLevel::One,
+        500..2_000 => HeatLevel::Two,
+        2_000..5_000 => HeatLevel::Three,
+        5_000..10_000 => HeatLevel::Four,
+        _ => HeatLevel::Five,
+    };
+    let ramp = tmt_cli_style::theme::screen::neutral_ramp(&look.theme, look.depth, level.into());
+    let old_role = match rate {
+        0 => Role::Dim,
+        1..1_000 => Role::Muted,
+        _ => Role::Text,
+    };
+    let base = look.role(old_role);
+    ramp.bg.map_or(base, |color| base.fg(color))
 }
 
 /// Where the agent's name sits among the spans of its cell: pin, branch, lead mark, name.
@@ -350,10 +365,10 @@ pub(in crate::board) fn paint(
                 Line::styled(fit(&row.session, Align::Left), look.role(Role::Muted))
             }
             AgentsField::Activity => Line::styled("", look.role(Role::Muted)),
-            AgentsField::PerMinute => {
-                let role = minute_role(row.minute_rate, look.depth);
-                Line::styled(fit(&row.minute, Align::Right), look.role(role))
-            }
+            AgentsField::PerMinute => Line::styled(
+                fit(&row.minute, Align::Right),
+                minute_style(row.minute_rate, look),
+            ),
             AgentsField::Tokens => {
                 painted.tokens = Some(cell);
                 Line::styled(
@@ -425,17 +440,56 @@ mod tests {
     use super::*;
 
     #[test]
-    fn minute_heat_uses_only_grey_roles_and_plain_no_color() {
-        use tmt_cli_style::Depth;
-        for (value, role) in [
-            (None, Role::Dim),
-            (Some(0), Role::Dim),
-            (Some(1), Role::Muted),
-            (Some(1_000), Role::Text),
-            (Some(20_000), Role::Text),
+    fn minute_heat_uses_six_neutral_ramp_steps_and_plain_no_color() {
+        for base in [
+            tmt_cli_style::Base::Tmt,
+            tmt_cli_style::Base::TmtLight,
+            tmt_cli_style::Base::Terminal,
         ] {
-            assert_eq!(minute_role(value, Depth::TrueColor), role);
-            assert_eq!(minute_role(value, Depth::None), Role::Text);
+            for depth in [
+                tmt_cli_style::Depth::TrueColor,
+                tmt_cli_style::Depth::Ansi16,
+            ] {
+                let look = Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                for (value, step) in [
+                    (0, 0),
+                    (1, 1),
+                    (499, 1),
+                    (500, 2),
+                    (1_999, 2),
+                    (2_000, 3),
+                    (4_999, 3),
+                    (5_000, 4),
+                    (9_999, 4),
+                    (10_000, 5),
+                ] {
+                    let expected =
+                        tmt_cli_style::theme::screen::neutral_ramp(&look.theme, depth, step).bg;
+                    assert_eq!(
+                        minute_style(Some(value), look).fg,
+                        expected,
+                        "{base:?} {depth:?} {value}"
+                    );
+                }
+            }
+        }
+        let plain = Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+            depth: tmt_cli_style::Depth::None,
+        };
+        for value in [
+            None,
+            Some(0),
+            Some(499),
+            Some(500),
+            Some(2_000),
+            Some(5_000),
+            Some(10_000),
+        ] {
+            assert_eq!(minute_style(value, plain), plain.role(Role::Text));
         }
     }
 
