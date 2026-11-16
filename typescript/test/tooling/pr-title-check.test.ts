@@ -361,19 +361,25 @@ describe('pull-request title gate', () => {
     expect(result.ok).toBe(false);
     expect(result.components).toContain('tmt-remote');
   });
-  it('accepts a conventional title on the same change and any title off released paths', () => {
+  it('requires the same conventional title off released paths and with no changed paths', () => {
     expect(check('fix(tmt-remote): keep door origins stable', [remotePath]).ok).toBe(true);
-    expect(
-      check('Reword the browser addon readme', [
-        'extensions/tmt-remote/typescript/browser-addon/README.md',
-      ]).components
-    ).toEqual([]);
-    expect(
-      check('Reword the browser addon readme', [
-        'extensions/tmt-remote/typescript/browser-addon/README.md',
-      ]).ok
-    ).toBe(true);
-    expect(check('', ['extensions/tmt-remote/typescript/browser-addon/README.md']).ok).toBe(true);
+    for (const paths of [
+      ['extensions/tmt-remote/typescript/browser-addon/README.md'],
+      ['extensions/tmt-remote/typescript/browser-addon/src/popup.css'],
+      [],
+    ]) {
+      expect(check('fix(remote): use Palette B radius tokens in add-on popup', paths)).toEqual({
+        components: [],
+        ok: true,
+      });
+      for (const title of [
+        'style(remote): use Palette B radius tokens in add-on popup',
+        'Reword the browser addon readme',
+        '',
+      ]) {
+        expect(check(title, paths)).toEqual({ components: [], ok: false });
+      }
+    }
   });
   it('rejects an empty or capitalized title when a released component changes', () => {
     for (const title of ['', 'Squad: capitalized type', 'fux: typo', 'feature(cli): unknown type'])
@@ -461,17 +467,33 @@ describe('real pull-request gate command', () => {
       expect(result.summary).toContain('separate PR title check runs on edits');
       expect(result.stdout).toBe(result.summary);
     }));
-  it('passes once the title is fixed and for a PR that changes no released component', () =>
+  it('requires a conventional correction even when no released component changes', () =>
     gateFixture((invoke) => {
-      expect(
-        invoke({ title: 'fix(tmt-remote): keep door origins stable', files: [remotePath] }).status
-      ).toBe(0);
-      const docsOnly = invoke({
-        title: 'Reword the browser addon readme',
-        files: ['extensions/tmt-remote/typescript/browser-addon/README.md'],
+      const released = invoke({
+        title: 'fix(tmt-remote): keep door origins stable',
+        files: [remotePath],
       });
-      expect(docsOnly.status).toBe(0);
-      expect(docsOnly.summary).toContain('No released component changed');
+      expect(released.status).toBe(0);
+      const files = ['extensions/tmt-remote/typescript/browser-addon/src/popup.css'];
+      const invalid = invoke({
+        title: 'style(remote): use Palette B radius tokens in add-on popup',
+        files,
+      });
+      expect(invalid.status).toBe(1);
+      expect(released.summary).toContain('Every PR title must follow the approved syntax');
+      expect(invalid.summary).toContain(
+        'style(remote): use Palette B radius tokens in add-on popup'
+      );
+      expect(invalid.summary).toContain('Every PR title must follow the approved syntax');
+      expect(invalid.summary).not.toContain('This PR changes released component(s)');
+      expect(invalid.stdout).toBe(invalid.summary);
+      const corrected = invoke({
+        title: 'fix(remote): use Palette B radius tokens in add-on popup',
+        files,
+      });
+      expect(corrected.status).toBe(0);
+      expect(corrected.summary).toContain('Every PR title must follow the approved syntax');
+      expect(corrected.stdout).toBe(corrected.summary);
     }));
   it('fails closed when the title cannot be read', () =>
     gateFixture((invoke) => {
