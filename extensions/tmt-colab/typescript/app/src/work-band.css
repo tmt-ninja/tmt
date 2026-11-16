@@ -115,7 +115,7 @@
   position: absolute;
   z-index: 60;
   top: calc(100% + var(--tmt-ui-space-s));
-  left: var(--work-popover-shift, 0px);
+  right: 0;
   width: min(36rem, calc(100vw - 2 * var(--tmt-ui-space-m)));
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
@@ -130,6 +130,8 @@
     visibility 0s linear var(--tmt-ui-motion-base);
 }
 .work-body-transition[data-open='true'] {
+  left: var(--work-popover-shift, 0px);
+  right: auto;
   grid-template-rows: 1fr;
   opacity: 1;
   visibility: visible;
