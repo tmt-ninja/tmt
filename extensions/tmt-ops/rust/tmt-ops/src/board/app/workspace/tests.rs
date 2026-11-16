@@ -5977,6 +5977,10 @@ fn forms_failed_read_retains_stale_observation_and_successful_empty_closes_it() 
     let held = &app.workspace_snapshot().unwrap();
     assert!(held.forms_stale);
     assert_eq!(held.forms.as_ref().unwrap().len(), 1);
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("◆ stale form"), "{screen}");
+    assert!(screen.contains("◆ stale question form"), "{screen}");
+    assert!(screen.contains("current status unavailable"), "{screen}");
     let mut fresh = board();
     fresh
         .view

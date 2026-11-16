@@ -249,13 +249,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
         };
         for form in forms.iter().filter(|form| &form.identity_id == identity_id) {
-            push(match form.kind.as_str() {
-                "question" => "◆ Question form",
-                "permission" => "◆ Permission form",
-                _ => "◆ Plan approval",
+            push(match (snapshot.forms_stale, form.kind.as_str()) {
+                (true, "question") => "◆ stale question form",
+                (true, "permission") => "◆ stale permission form",
+                (true, _) => "◆ stale plan approval",
+                (false, "question") => "◆ Question form",
+                (false, "permission") => "◆ Permission form",
+                (false, _) => "◆ Plan approval",
             });
             if snapshot.forms_stale {
-                push("Form status unavailable; last observed form.");
+                push("Stale · last observed form; current status unavailable.");
             }
             if form.truncated {
                 push("Truncated · read-only");
@@ -271,12 +274,17 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     && row["presence"] == "active")
                     || super::overview::actions::host(row, app.invoker_tmux).is_ok()
             });
-            let hint = match (jump_key, terminal_available) {
-                (Some(key), true) => format!(
+            let hint = match (snapshot.forms_stale, jump_key, terminal_available) {
+                (true, Some(key), true) => format!(
+                    "Stale form · {} jump to check terminal",
+                    super::view::footer::key_label(&key)
+                ),
+                (true, _, _) => "Stale form · terminal jump unavailable.".into(),
+                (false, Some(key), true) => format!(
                     "{} jump · answer in terminal",
                     super::view::footer::key_label(&key)
                 ),
-                _ => "Answer in terminal · jump unavailable.".into(),
+                (false, _, _) => "Answer in terminal · jump unavailable.".into(),
             };
             push(&hint);
             for question in &form.questions {

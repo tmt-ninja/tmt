@@ -780,19 +780,26 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                     .map_or(
                         (state.clone(), state_primary_width, state_attention.clone()),
                         |form| {
-                            let marker = if snapshot.forms_stale {
-                                "◆ form?"
+                            let (marker, role) = if snapshot.forms_stale {
+                                ("◆ stale form", Role::Muted)
                             } else {
-                                "◆ form"
+                                ("◆ form", Role::Waiting)
                             };
                             let summary = crate::board::notes::single_line(&form.summary());
                             (
                                 Line::from(vec![
-                                    Span::styled(marker, look.role(Role::Waiting)),
-                                    Span::styled(format!(" {summary}"), look.role(Role::Text)),
+                                    Span::styled(marker, look.role(role)),
+                                    Span::styled(
+                                        format!(" {summary}"),
+                                        look.role(if snapshot.forms_stale {
+                                            Role::Muted
+                                        } else {
+                                            Role::Text
+                                        }),
+                                    ),
                                 ]),
                                 Some(unicode_width::UnicodeWidthStr::width(marker)),
-                                vec![true, false],
+                                vec![true, snapshot.forms_stale],
                             )
                         },
                     ),
