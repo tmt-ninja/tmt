@@ -800,14 +800,13 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
                     }
                 })
                 .collect();
-            let input = app.view.as_ref().unwrap().home_rate["product"]
-                .input
-                .clone();
             let seeds = std::collections::BTreeMap::from([(MEMBER.into(), Some(seed))]);
-            app.meters
-                .get_mut("product")
-                .unwrap()
-                .seed(&input, &seeds, now, false);
+            let mut view = app.view.take().unwrap();
+            view.home_rate.get_mut("product").unwrap().history = Some(seeds);
+            let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
+            snapshot.tabs = app.tabs.clone();
+            snapshot.view = Ok(view);
+            app.apply(snapshot);
 
             let rate = match state {
                 "activity-heat-zero" => 0,
