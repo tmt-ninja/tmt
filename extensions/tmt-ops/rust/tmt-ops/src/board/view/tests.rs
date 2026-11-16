@@ -1125,7 +1125,19 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                         .iter()
                         .find(|(row, ..)| row.as_ref() == Some(&target))
                         .unwrap();
+                    let hint = crate::board::app::workspace::tests::open_hint_cells(
+                        &buffer,
+                        Rect::new(*x, *y, *cells, 1),
+                    );
                     for column in *x..*x + *cells {
+                        if let Some(area) = hint.as_ref().filter(|area| area.contains(&column)) {
+                            crate::board::app::workspace::tests::assert_open_hint_cell(
+                                &buffer[(column, *y)],
+                                look,
+                                column - area.start,
+                            );
+                            continue;
+                        }
                         assert_eq!(
                             buffer[(column, *y)].bg,
                             look.selection().bg.unwrap_or_default(),

@@ -291,6 +291,7 @@ An agent's explicitly marked inline code (`! command`) or a fenced block whose b
 with `! ` is also a selectable mention. It opens the same adjacent menu, titled Command,
 with the complete command above Run in Terminal N, Run in a new terminal and Copy command.
 Opening does nothing; choosing Run confirms submission to that member's idle terminal shell.
+Run has no single-key accelerator: select its row and press Enter, or click the row. `y` copies.
 Copy removes only the leading `! ` marker. Run is unavailable for multiline/hidden input or
 when the whole command cannot fit at once; resize or copy instead. Use an empty shell prompt.
 An uncertain submission is never retried automatically. Ordinary shell fences, `!!` and

@@ -366,13 +366,14 @@ pub enum Choice {
         identity: String,
         terminal: String,
     },
-    /// A link's popover: open the address, copy it, or show all of it.
+    /// A command confirmed from the anchored popover for this member.
     CommandRun {
         target: super::workspace::OpsTarget,
         terminal: Option<String>,
         command: String,
         screen: ratatui::layout::Rect,
     },
+    /// A link's popover: open the address, copy it, or show all of it.
     LinkOpen(String),
     LinkCopy(String),
     LinkShow {

@@ -2365,6 +2365,47 @@ fn selected_squad_discloses_existing_usage_facts_without_private_lead_fields() {
     });
 }
 
+/// The explicitly advertised jump hint keeps its keycap and muted label inside the
+/// otherwise selected row. Locate it by the visible label, never renderer geometry.
+pub(in crate::board) fn open_hint_cells(
+    buffer: &ratatui::buffer::Buffer,
+    row: Rect,
+) -> Option<std::ops::Range<u16>> {
+    let text: String = (row.x..row.right())
+        .map(|x| buffer[(x, row.y)].symbol())
+        .collect();
+    let offset = text.find(" z open")?;
+    let start = row.x + text[..offset].chars().count() as u16;
+    Some(start..start + 7)
+}
+
+pub(in crate::board) fn assert_open_hint_cell(
+    cell: &ratatui::buffer::Cell,
+    look: crate::look::Look,
+    offset: u16,
+) {
+    let mut expected = ratatui::buffer::Cell::default();
+    expected.set_style(look.selection());
+    if offset < 3 {
+        expected.set_style(tmt_cli_style::theme::screen::keycap(
+            &look.theme,
+            look.depth,
+            false,
+        ));
+    } else {
+        expected.set_style(look.role(tmt_cli_style::Role::Muted));
+        // On a solid selected row the frame normalizes muted words to its text ink.
+        if look.selection().bg.is_some()
+            && !expected
+                .modifier
+                .contains(ratatui::style::Modifier::REVERSED)
+        {
+            expected.fg = look.role(tmt_cli_style::Role::Text).fg.unwrap_or_default();
+        }
+    }
+    assert_eq!(cell.style(), expected.style());
+}
+
 #[test]
 fn selected_tree_rows_keep_uniform_reverse_fallback_and_clipped_hit_bounds() {
     use ratatui::style::Modifier;
@@ -2404,8 +2445,13 @@ fn selected_tree_rows_keep_uniform_reverse_fallback_and_clipped_hit_bounds() {
                 };
                 let buffer = terminal.backend().buffer();
                 let selection = look.selection();
+                let hint = open_hint_cells(buffer, Rect::new(hit.x, hit.y, hit.width, 1));
                 for x in hit.x..hit.x + hit.width {
                     let cell = &buffer[(x, hit.y)];
+                    if let Some(area) = hint.as_ref().filter(|area| area.contains(&x)) {
+                        assert_open_hint_cell(cell, look, x - area.start);
+                        continue;
+                    }
                     if let Some(background) = selection.bg {
                         assert_eq!(cell.bg, background);
                     } else {
@@ -3556,8 +3602,14 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                             } else {
                                 0
                             } as u16;
+                            let hint =
+                                open_hint_cells(buffer, Rect::new(hit.x, hit.y, hit.width, 1));
                             for x in hit.x..hit.x + hit.width {
                                 let cell = &buffer[(x, hit.y)];
+                                if let Some(area) = hint.as_ref().filter(|area| area.contains(&x)) {
+                                    assert_open_hint_cell(cell, look, x - area.start);
+                                    continue;
+                                }
                                 // The first state area on the row holds the activity words.
                                 let in_task = app
                                     .workspace_state_cells
