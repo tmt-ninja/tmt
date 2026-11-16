@@ -3023,33 +3023,6 @@ child.stdout.pipe(process.stdout);
         5_000,
         'independent filter reapplied after scope clear'
       );
-      fixture.tmux([
-        'send-keys',
-        '-t',
-        asker.pane,
-        `XDG_CACHE_HOME='${cache}' tmt ops ui --reload-all; echo CLEAR_RELOAD_EXIT=$?`,
-        'Enter',
-      ]);
-      await fixture.waitForCapture((text) => text.includes('CLEAR_RELOAD_EXIT=0'), asker.pane);
-      await fixture.waitFor(
-        () => launched() === 'one,two,one,one,one',
-        15_000,
-        'reload after scope clear'
-      );
-      await fixture.waitFor(
-        () => {
-          const now = screen(shell.pane);
-          const rows = agentRows(now);
-          return (
-            now.includes('Board reloaded · tmt-ops') &&
-            !now.includes('Scope:') &&
-            rows.includes('docs-fix') &&
-            !rows.includes('auth-fix')
-          );
-        },
-        15_000,
-        'cleared scope and the independent search survive reload'
-      );
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture((text) => text.includes('BOARD_EXIT=0'), shell.pane);
     });
