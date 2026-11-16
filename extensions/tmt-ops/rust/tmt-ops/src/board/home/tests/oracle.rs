@@ -967,7 +967,7 @@ fn provider_form_frames(styles: &mut Styles) -> Vec<Value> {
                 .as_mut()
                 .unwrap()
                 .workspace
-                .forms_stale = false;
+                .forms_stale = state == "form-truncated";
             app
         },
         |captured, app| {
