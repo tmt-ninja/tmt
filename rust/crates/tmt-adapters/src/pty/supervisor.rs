@@ -114,6 +114,23 @@ fn shell_name(program: &std::ffi::OsStr) -> Option<String> {
     tmt_pty_protocol::display_name(name.trim_start_matches('-'))
 }
 
+/// Resolve the expected image before starting it; never adopt an arbitrary later
+/// image as the shell. macOS sh(1) documents its /bin/sh re-exec selector. If that
+/// selector is unknown, Run refuses rather than guessing the dispatcher's fallback.
+fn shell_executable(program: &std::ffi::OsStr) -> Option<PathBuf> {
+    let path = fs::canonicalize(program).ok()?;
+    #[cfg(target_os = "macos")]
+    if path == Path::new("/bin/sh") {
+        let selected = fs::canonicalize("/private/var/select/sh").ok()?;
+        return matches!(
+            selected.to_str(),
+            Some("/bin/bash" | "/bin/dash" | "/bin/zsh")
+        )
+        .then_some(selected);
+    }
+    Some(path)
+}
+
 /// The socket and lock files of a running supervisor, removed when it ends. Ids
 /// are never reused, so removing the lock cannot split a lock domain.
 struct Files {
@@ -315,6 +332,8 @@ pub struct Supervisor {
     /// An extra terminal's shell name (#6112): the started program's file name
     /// without a login dash, cleaned as display text.
     shell_name: Option<String>,
+    /// The selected shell binary, separate from its untrusted display name.
+    shell_executable: Option<PathBuf>,
     // Drop order: the files go before the lock is released.
     _files: Files,
     _lock: Flock<File>,
@@ -402,6 +421,7 @@ impl Supervisor {
         fcntl(&terminal.master, FcntlArg::F_SETFL(OFlag::O_NONBLOCK))?;
         let slave_path = ttyname(&terminal.slave)?;
         let settings = tcgetattr(&terminal.slave)?;
+        let shell_executable = extra.as_ref().and_then(|_| shell_executable(name));
         let child = spawn(name, arguments, &environment, terminal.slave)?;
         Ok(Self {
             listener,
@@ -434,6 +454,7 @@ impl Supervisor {
             paused: false,
             foreground: (Instant::now(), false),
             shell_name: extra.as_ref().and_then(|_| shell_name(name)),
+            shell_executable,
             terminal: extra.map(|extra| (extra, Instant::now())),
             _files: files,
             _lock: lock,
@@ -1134,7 +1155,17 @@ impl Supervisor {
                                         && group.as_raw().unsigned_abs() == child.id()
                                 })
                             });
-                        if !foreground_is_shell || !self.input.is_empty() {
+                        // `exec` can keep the shell's PID and foreground group. Only the
+                        // kernel's executable path, never a display name, confirms its image.
+                        let shell_unchanged =
+                            self.shell_executable.as_ref().is_some_and(|expected| {
+                                self.child
+                                    .as_ref()
+                                    .and_then(|child| i32::try_from(child.id()).ok())
+                                    .and_then(tmt_sys::process_executable)
+                                    .is_some_and(|actual| Path::new(&actual) == expected)
+                            });
+                        if !foreground_is_shell || !shell_unchanged || !self.input.is_empty() {
                             TerminalRunResult::Busy
                         } else {
                             if self.screen.screen().bracketed_paste() {

@@ -132,6 +132,23 @@ fn a_member_opens_lists_types_into_and_closes_its_own_terminals() {
         "{opened}"
     );
 
+    // A new-terminal Run uses exactly open -> run, before any view or manual input.
+    let fresh = world.root.join("fresh-command");
+    let submitted = call(
+        &world,
+        "terminal.run",
+        serde_json::json!({"identityId":identity,"terminalId":terminal,"command":format!("printf '%s' 'fresh command' > '{}'", fresh.display())}),
+    );
+    assert_eq!(submitted["submitted"], true, "{submitted}");
+    let deadline = Instant::now() + WAIT;
+    while std::fs::read_to_string(&fresh).unwrap_or_default() != "fresh command" {
+        assert!(
+            Instant::now() < deadline,
+            "the fresh shell did not run the command"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
     // Each call is a new process, as after an Ops board restart: the terminal is found again,
     // only under its own member.
     assert_eq!(listed(&world, &identity), std::slice::from_ref(&terminal));

@@ -553,8 +553,11 @@ directory}` once the new supervisor names its owner. `terminalId` and `pane` are
   The operation uses the shell's current directory; no cwd, argv or new process is supplied.
   Core checks the member's current binding, then the terminal supervisor compares its recorded
   identity and owner process PID/start against that launch and checks the shell is in the
-  foreground immediately before queuing input. Unknown foreground evidence or pending input
-  refuses. This foreground check does not inspect or clear the shell's editable command line;
+  foreground immediately before queuing input. The kernel executable path must also match
+  the selected shell binary (including the macOS `/bin/sh` selector when known): an
+  executable changed by `exec` refuses even if it kept its PID/group. Unknown foreground/image
+  evidence or pending input refuses. These checks do not inspect or clear the shell's editable
+  command line or distinguish a builtin/multi-call mode that keeps the same executable;
   Run is for a shell prompt with an empty input line.
   Refusals with no submitted input are `TERMINAL_STALE` (different owner/launch),
   `TERMINAL_BUSY` (not an idle foreground shell), `TERMINAL_ENDED`, `TERMINAL_NOT_FOUND`,

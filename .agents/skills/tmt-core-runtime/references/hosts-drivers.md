@@ -489,7 +489,9 @@ resume` of an identity whose kept terminal runs no agent relaunch there with the
   `tmt_sys::process_name`, both through `display_name`; the released `Terminal` reply keeps
   its bytes because a released decoder refuses trailing ones. `TerminalRun` (`0x30`, bit 5)
   compares the terminal's recorded identity and owner PID/start with Core's fresh binding,
-  refuses unknown/busy foreground evidence or pending input, and queues one bounded command
+  confirms the kernel executable path still matches the selected shell binary (never a
+  display name), refuses unknown/busy/replaced images or pending input, and queues one
+  bounded command
   plus Enter on the same loop. No older-supervisor raw-input fallback or uncertain replay
   exists; the public [terminal operation](../../../../contracts/extension-api.md#terminals-under-a-member)
   owns its bounds and refusals. `pty::terminal` asks
