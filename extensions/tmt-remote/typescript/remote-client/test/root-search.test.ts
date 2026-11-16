@@ -94,7 +94,12 @@ function fixture(load?: (entry: string) => Promise<SearchModule>) {
     mountSearchSession(_container, next) {
       options = next;
       events.push('mount');
-      return { open: () => events.push('open'), dispose: () => events.push('dispose') };
+      return {
+        open: async () => {
+          events.push('open');
+        },
+        dispose: () => events.push('dispose'),
+      };
     },
   };
   const search = new RootSearch({

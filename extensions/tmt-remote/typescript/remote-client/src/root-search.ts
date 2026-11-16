@@ -9,7 +9,7 @@ import {
 import type { ShellAnswer, ShellItem } from '@tmt/browser-ui/shell';
 
 export interface SearchSession {
-  open(opener: HTMLButtonElement): void;
+  open(opener: HTMLButtonElement): Promise<void>;
   dispose(): void;
 }
 
@@ -184,7 +184,7 @@ export class RootSearch {
           placeholder: 'Search TMT…',
         });
       }
-      if (current()) this.session.open(opener);
+      if (current()) await this.session.open(opener);
     } catch {
       if (!current()) return;
       this.session?.dispose();
