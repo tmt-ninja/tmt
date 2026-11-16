@@ -23,6 +23,74 @@ async function panelTheme(page: Page, chip: Locator, theme: string) {
 
 test.afterEach(disposeActiveWorlds);
 
+test('CLI work fields and to-do numbers appear on the owner page', async () => {
+  await withWorld(async (world) => {
+    world.linkExtensions();
+    await world.startAgent('gui-3');
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const created = colab([
+      'page',
+      'create',
+      '--title',
+      'Release plan',
+      '--project',
+      'Colab',
+      '--no-open',
+    ]);
+    colab([
+      'page',
+      'set',
+      created.pageId,
+      '--owner',
+      'gui-3',
+      '--priority',
+      'high',
+      '--next',
+      'Review the result',
+    ]);
+    colab(['block', 'insert', created.pageId, '--type', 'todo', '--text', 'Ship the fix']);
+    for (const title of ['Investigate', 'Implement', 'Verify'])
+      colab(['subpage', 'create', created.pageId, '--title', title]);
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'work-fields-owner');
+    const page = await openPage(door, browser, created);
+    await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-1');
+    await expect(page.getByText('↑ Priority high', { exact: true })).toBeVisible();
+    await expect(page.getByText('gui-3', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '3 sub-pages' })).toBeVisible();
+    await expect(page.getByText('COLAB-2', { exact: true })).toBeVisible();
+    await expect(page.locator('[data-block-id]').filter({ hasText: 'Ship the fix' })).toBeVisible();
+    const todo = page.getByRole('checkbox', { name: 'Ship the fix' });
+    await todo.check();
+    await expect(todo).toBeChecked();
+    await todo.uncheck();
+    await expect(todo).not.toBeChecked();
+    await expect(page.getByText('COLAB-2', { exact: true })).toBeVisible();
+    const captures = process.env.COLAB_WORK_FIELDS_CAPTURE_DIR;
+    if (captures) {
+      mkdirSync(captures, { recursive: true });
+      for (const width of [1440, 800, 390])
+        for (const theme of ['light', 'dark']) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.evaluate((value) => {
+            document.documentElement.dataset.theme = value;
+          }, theme);
+          await page.screenshot({
+            path: `${captures}/work-fields-${width}-${theme}.png`,
+            animations: 'disabled',
+          });
+        }
+    }
+    colab(['share', 'mode', created.pageId, 'link', '--yes']);
+    const link = colab(['share', 'link', 'add', created.pageId, '--yes']);
+    const reader = await openReaderLink(world, door, link.readerPath, 'work-fields-reader');
+    await expect(reader.page.getByText('↑ Priority high', { exact: true })).toBeVisible();
+    await expect(reader.page.getByText('gui-3', { exact: true })).toBeVisible();
+    await expect(reader.page.locator('.colab-work-number:visible')).toHaveCount(0);
+  });
+});
+
 test('manual state persists, an empty page offers Add to the owner only, and share readers have no owner controls', async () => {
   await withWorld(async (world) => {
     const created = createPage(world, 'Status panel', '<h1>Status panel source</h1>');

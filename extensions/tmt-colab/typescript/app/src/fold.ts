@@ -6,6 +6,7 @@ import {
   STATE_BYTES,
   WRITE_TAIL_BYTES,
   WRITE_TAIL_UPDATES,
+  WORK_FIELD_KEYS,
   validateProjection,
   validateOwn,
   type FoldCommand,
@@ -123,6 +124,7 @@ export class Fold {
             ...(Object.hasOwn(value.projection, 'attachments') ? ['attachments'] : []),
             ...(Object.hasOwn(value.projection, 'work') ? ['work'] : []),
             ...(Object.hasOwn(value.projection, 'pageState') ? ['pageState'] : []),
+            ...WORK_FIELD_KEYS.filter((key) => Object.hasOwn(value.projection, key)),
           ]);
           validateProjection(value.projection);
           validateOwn(value.projection.own);
@@ -160,6 +162,7 @@ export class Fold {
           ...(Object.hasOwn(event.data as object, 'blocks') ? ['blocks'] : []),
           ...(Object.hasOwn(event.data as object, 'work') ? ['work'] : []),
           ...(Object.hasOwn(event.data as object, 'pageState') ? ['pageState'] : []),
+          ...WORK_FIELD_KEYS.filter((key) => Object.hasOwn(event.data as object, key)),
           ...(Object.hasOwn(event.data as object, 'creator') ? ['creator'] : []),
           ...(Object.hasOwn(event.data as object, 'questions') ? ['questions'] : []),
           ...(Object.hasOwn(event.data as object, 'template') ? ['template'] : []),
@@ -200,6 +203,10 @@ export class Fold {
             blocks: value.blocks,
             work: value.work,
             pageState: value.pageState,
+            owner: value.owner,
+            priority: value.priority,
+            next: value.next,
+            blocked: value.blocked,
             own: value.own,
           })
         )
@@ -226,6 +233,10 @@ export class Fold {
           ...(Object.hasOwn(value, 'blocks') ? { blocks: value.blocks } : {}),
           ...(Object.hasOwn(value, 'work') ? { work: value.work } : {}),
           ...(Object.hasOwn(value, 'pageState') ? { pageState: value.pageState } : {}),
+          ...(Object.hasOwn(value, 'owner') ? { owner: value.owner } : {}),
+          ...(Object.hasOwn(value, 'priority') ? { priority: value.priority } : {}),
+          ...(Object.hasOwn(value, 'next') ? { next: value.next } : {}),
+          ...(Object.hasOwn(value, 'blocked') ? { blocked: value.blocked } : {}),
           ...(Object.hasOwn(value, 'creator') ? { creator: value.creator } : {}),
           ...(Object.hasOwn(value, 'questions') ? { questions: value.questions } : {}),
           ...(Object.hasOwn(value, 'template') ? { template: value.template } : {}),
@@ -273,6 +284,7 @@ export class Fold {
       ...(Object.hasOwn(base, 'attachments') ? ['attachments'] : []),
       ...(Object.hasOwn(base, 'work') ? ['work'] : []),
       ...(Object.hasOwn(base, 'pageState') ? ['pageState'] : []),
+      ...WORK_FIELD_KEYS.filter((key) => Object.hasOwn(base, key)),
     ]);
     validateProjection(base);
     validateProjection({ ...base, source });

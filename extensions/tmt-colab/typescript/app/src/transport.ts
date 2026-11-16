@@ -18,6 +18,8 @@ import type { OwnState, Projection } from './fold-protocol.js';
 import type { BlocksResult, MetadataAction, SubpageBatchResult, WorkAction } from './save.js';
 import type { BlockOp } from './block-model.js';
 export interface PageView extends Projection {
+  /** Owner-local labels for admitted to-do blocks, absent to readers. */
+  readonly todoNumbers?: Readonly<Record<string, string>>;
   /** The local, per-binding order of the content this view shows: higher is newer. It orders views
    * of one binding only and is never sent over the wire (#6005). */
   readonly seq?: number;
@@ -47,6 +49,7 @@ import type { PageActivity, PageId, ProjectPins } from './bootstrap.js';
 import type { DraftStore } from './draft-store.js';
 import type { ExpiryInfo } from './expiry.js';
 export interface PageSummary extends Partial<ExpiryInfo> {
+  readonly workNumber?: string;
   readonly state?: PageView['state'];
   readonly progress?: PageView['progress'];
   readonly stateError?: 'page-unavailable';
@@ -67,6 +70,11 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly pageType?: Projection['pageType'];
 }
 export interface PageSnapshot extends PageSummary {
+  readonly todoNumbers?: PageView['todoNumbers'];
+  readonly owner?: Projection['owner'];
+  readonly priority?: Projection['priority'];
+  readonly next?: Projection['next'];
+  readonly blocked?: Projection['blocked'];
   /** The page's chosen layout (`meta.layout`); absent is `freeform`. */
   readonly layout?: Projection['layout'];
   /** Why a canvas page draws its own frame (`meta.layoutReason`). */

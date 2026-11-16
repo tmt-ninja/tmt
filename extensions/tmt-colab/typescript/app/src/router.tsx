@@ -1758,9 +1758,14 @@ function OpenPage({
     discussionPending: snapshot.discussionPending,
     pageType: snapshot.pageType,
     blocks: snapshot.blocks,
+    todoNumbers: snapshot.todoNumbers,
     convertedAt: snapshot.convertedAt,
     shell: snapshot.shell,
     work: snapshot.work,
+    owner: snapshot.owner,
+    priority: snapshot.priority,
+    next: snapshot.next,
+    blocked: snapshot.blocked,
     archived: snapshot.archived,
     source: snapshot.source,
     title: snapshot.title,
@@ -2731,6 +2736,8 @@ function OpenPage({
   const workControls = !design ? (
     <PageWorkBand
       work={view.work}
+      priority={view.priority}
+      owner={view.owner}
       pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
       binding={archived || liveError ? undefined : snapshot.binding}
       transport={transport}
@@ -2767,6 +2774,7 @@ function OpenPage({
       />
       {!design && (
         <ColabHeader
+          workNumber={snapshot.workNumber}
           embedded={embedded}
           remoteMenu={false}
           remoteChip={false}
@@ -3173,7 +3181,11 @@ function OpenPage({
       </BrowserDrawer>
       <div className="workspace">
         {phone && workControls && (
-          <MobileWorkTitle title={view.title || snapshot.title} onSize={setWorkBandSize}>
+          <MobileWorkTitle
+            title={view.title || snapshot.title}
+            workNumber={snapshot.workNumber}
+            onSize={setWorkBandSize}
+          >
             {workControls}
           </MobileWorkTitle>
         )}
@@ -3280,6 +3292,7 @@ function OpenPage({
                   <LazyStructuredPage
                     onSettle={setBlockSettler}
                     blocks={view.blocks}
+                    todoNumbers={view.todoNumbers}
                     seq={view.seq}
                     annotationMode={canSelect && selectionMode}
                     annotations={blockAnchors}

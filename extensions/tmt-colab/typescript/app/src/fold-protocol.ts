@@ -15,6 +15,8 @@ import {
 import {
   validatePageCreator,
   validateQuestionRegistry,
+  validateRegisteredAgent,
+  type RegisteredAgent,
   type PageCreator,
   type RegisteredQuestion,
 } from './question-registry.js';
@@ -41,6 +43,7 @@ export const WRITE_TAIL_BYTES = 4 * 1024 * 1024;
 export const READ_TAIL_UPDATES = 5_000;
 export const STATE_BYTES = 24 * 1024 * 1024;
 export const BASELINE_UPDATE_BYTES = STATE_BYTES + UPDATE_BYTES + 1024;
+export const WORK_FIELD_KEYS = ['owner', 'priority', 'next', 'blocked'] as const;
 export type OwnRoot = 'threads' | 'intents' | 'messages' | 'replies';
 export type FoldCommand =
   | { type: 'apply' | 'check'; updates: Uint8Array[]; own?: OwnUpdate[] }
@@ -94,6 +97,10 @@ export interface Projection {
   /** An ordinary page's sub-pages and summary (`meta.work`); never on a dashboard. */
   work?: StoredWork;
   pageState?: 'todo' | 'in-progress' | 'done';
+  owner?: RegisteredAgent;
+  priority?: 'high' | 'normal' | 'low';
+  next?: string;
+  blocked?: string;
   attachments?: attachment.AttachmentDescriptor[];
   /** The time (ms) a page was converted in place to blocks (`meta.convertedAt`); a page of blocks
    * alone has it. */
@@ -249,7 +256,11 @@ export function validateProjection(value: unknown): asserts value is Projection 
   const blocksPage = (value as Projection).pageType === 'blocks';
   // A dashboard has none of these; a page of blocks has a creator, questions and a state, and what
   // it was made from, but no template; an ordinary page has them all.
-  if (['creator', 'questions', 'pageState'].some((key) => Object.hasOwn(value, key)))
+  if (
+    ['creator', 'questions', 'pageState', ...WORK_FIELD_KEYS].some((key) =>
+      Object.hasOwn(value, key),
+    )
+  )
     requireValue(
       !Object.hasOwn(value, 'shell') && (!Object.hasOwn(value, 'pageType') || blocksPage),
     );
@@ -282,6 +293,21 @@ export function validateProjection(value: unknown): asserts value is Projection 
     requireValue(
       ['todo', 'in-progress', 'done'].includes((value as Projection).pageState as string),
     );
+  const workFields = value as Projection;
+  if (Object.hasOwn(value, 'owner')) validateRegisteredAgent(workFields.owner);
+  if (Object.hasOwn(value, 'priority'))
+    requireValue(['high', 'normal', 'low'].includes(workFields.priority as string));
+  for (const key of ['next', 'blocked'] as const) {
+    if (Object.hasOwn(value, key)) {
+      const line = workFields[key];
+      requireValue(
+        typeof line === 'string' &&
+          [...line].length > 0 &&
+          [...line].length <= 200 &&
+          !/[\p{Cc}\p{Cs}]/u.test(line),
+      );
+    }
+  }
   if (Object.hasOwn(value, 'template')) validateTemplateMark((value as Projection).template);
   if (Object.hasOwn(value, 'fromTemplate'))
     validateTemplateSource((value as Projection).fromTemplate);
@@ -376,6 +402,10 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     a.title === b.title &&
     Object.hasOwn(a, 'pageState') === Object.hasOwn(b, 'pageState') &&
     a.pageState === b.pageState &&
+    WORK_FIELD_KEYS.every(
+      (key) =>
+        Object.hasOwn(a, key) === Object.hasOwn(b, key) && canonical(a[key]) === canonical(b[key]),
+    ) &&
     a.publisherAgent === b.publisherAgent &&
     a.originalAuthor === b.originalAuthor &&
     Object.hasOwn(a, 'creator') === Object.hasOwn(b, 'creator') &&

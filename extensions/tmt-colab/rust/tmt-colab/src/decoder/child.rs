@@ -642,17 +642,27 @@ fn prepare_content(
             let key = structured.kind.key();
             let meta = doc.get_or_insert_map("meta");
             let mut tx = doc.transact_mut();
-            match expected["meta"].get(key) {
-                Some(value) => {
-                    meta.insert(
-                        &mut tx,
-                        key,
-                        Any::from_json(&value.to_string()).map_err(|_| DecodeFault::Rejected)?,
-                    );
-                }
-                // A cleared value (a template mark) leaves the key absent.
-                None => {
-                    meta.remove(&mut tx, key);
+            let keys: Vec<&str> = if structured.kind == StructuredKind::WorkFields {
+                crate::page_state::WORK_FIELDS
+                    .into_iter()
+                    .filter(|key| structured.body.get(*key).is_some())
+                    .collect()
+            } else {
+                vec![key]
+            };
+            for key in keys {
+                match expected["meta"].get(key) {
+                    Some(value) => {
+                        meta.insert(
+                            &mut tx,
+                            key,
+                            Any::from_json(&value.to_string())
+                                .map_err(|_| DecodeFault::Rejected)?,
+                        );
+                    }
+                    None => {
+                        meta.remove(&mut tx, key);
+                    }
                 }
             }
             updates.push(tx.encode_update_v1());
@@ -1669,6 +1679,11 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     let wire: WireBaseline =
         serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
     if wire.version != 1
+        || wire.work_fields.as_ref().is_some_and(|v| {
+            crate::page_state::validate_work_edit(v).is_err()
+                || v.as_object()
+                    .is_some_and(|fields| fields.values().any(Value::is_null))
+        })
         || wire
             .page_state
             .as_ref()
@@ -1737,6 +1752,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                 attachments: wire.attachments.as_ref(),
                 work: wire.work.as_ref(),
                 page_state: wire.page_state.as_ref(),
+                work_fields: wire.work_fields.as_ref(),
                 converted_at: wire.converted_at.as_ref(),
                 legacy_layout: wire.legacy_layout.as_ref(),
             };
@@ -1745,7 +1761,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
             }
             // Work rides on an ordinary page's single baseline update, never on a shell or on the
             // chunked creation of a new page.
-            if wire.page_state.is_some() && (shell.is_some() || chunk_bytes.is_some()) {
+            if (wire.page_state.is_some() || wire.work_fields.is_some())
+                && (shell.is_some() || chunk_bytes.is_some())
+            {
                 return Err(DecodeFault::InvalidInput);
             }
             if let Some(work) = &wire.work {
@@ -1856,6 +1874,14 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("pageState") != wire.page_state.as_ref() {
+        return Err(DecodeFault::Rejected);
+    }
+    if producing
+        && crate::page_state::WORK_FIELDS.into_iter().any(|key| {
+            projection["meta"].get(key)
+                != wire.work_fields.as_ref().and_then(|fields| fields.get(key))
+        })
+    {
         return Err(DecodeFault::Rejected);
     }
     if producing && projection["meta"].get("convertedAt") != wire.converted_at.as_ref() {
@@ -1989,11 +2015,21 @@ struct BaselineMeta<'a> {
     attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
     work: Option<&'a Value>,
     page_state: Option<&'a Value>,
+    work_fields: Option<&'a Value>,
     converted_at: Option<&'a Value>,
     legacy_layout: Option<&'a Value>,
 }
 impl BaselineMeta<'_> {
     fn insert(&self, meta: &MapRef, txn: &mut TransactionMut) {
+        if let Some(fields) = self.work_fields.and_then(Value::as_object) {
+            for (key, value) in fields {
+                meta.insert(
+                    txn,
+                    key.as_str(),
+                    Any::from_json(&value.to_string()).expect("validated work field"),
+                );
+            }
+        }
         for (key, value) in [
             ("creator", self.creator),
             ("questions", self.questions),
@@ -2092,6 +2128,7 @@ mod baseline_tests {
                 title,
                 &BaselineMeta {
                     page_state: None,
+                    work_fields: None,
                     converted_at: None,
                     legacy_layout: None,
                     creator: None,

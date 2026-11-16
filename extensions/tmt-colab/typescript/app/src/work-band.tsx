@@ -20,6 +20,8 @@ type RowSlots = Pick<
 >;
 export interface WorkBandProps {
   onSize?(height: number): void;
+  priority?: 'high' | 'normal' | 'low';
+  owner?: { id: string; name: string };
   pageState?: PageState | null;
   /** This page's own state chip; the owner's is a menu of its own, which never toggles the band. */
   stateControl?: ReactNode;
@@ -42,10 +44,12 @@ export interface WorkBandProps {
 /** On phones the page title and work controls scroll together as one content block. */
 export function MobileWorkTitle({
   title,
+  workNumber,
   onSize,
   children,
 }: {
   title: string;
+  workNumber?: string;
   onSize(height: number): void;
   children: ReactNode;
 }) {
@@ -64,7 +68,14 @@ export function MobileWorkTitle({
   }, [onSize]);
   return (
     <div className="page-mobile-title" ref={element}>
-      <h1>{title}</h1>
+      <h1>
+        {workNumber && (
+          <>
+            <span className="colab-work-number">{workNumber}</span>{' '}
+          </>
+        )}
+        {title}
+      </h1>
       {children}
     </div>
   );
@@ -82,6 +93,8 @@ function StateChip({ state }: { state?: PageState | null }) {
 /** Title-row state and sub-page count; the count opens the editable sub-page tree. */
 export function WorkBand({
   onSize,
+  priority,
+  owner,
   pageState,
   stateControl,
   subpages,
@@ -144,6 +157,10 @@ export function WorkBand({
     <section ref={section} className="work-band" aria-label={t.label}>
       <div className="work-head" data-empty={empty}>
         <span className="work-head-chip">{stateControl ?? <StateChip state={pageState} />}</span>
+        {priority && priority !== 'normal' && (
+          <span className="work-quiet">{priority === 'high' ? t.priorityHigh : t.priorityLow}</span>
+        )}
+        {owner && <span className="work-quiet">{owner.name}</span>}
         {!empty && (
           <button
             type="button"

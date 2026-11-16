@@ -92,6 +92,7 @@ export const text = {
   blockText: {
     paragraph: 'Type / for blocks',
     heading: 'Heading',
+    todo: 'To-do',
   },
   blockActions: {
     label: 'Block actions',
@@ -780,6 +781,8 @@ export const text = {
     unknownPage: 'Unknown page',
     subpages: 'Sub-pages',
     pageState: 'Page state',
+    priorityHigh: '↑ Priority high',
+    priorityLow: 'Priority low',
     savingState: 'Saving state…',
     taskState: {
       todo: 'To do',

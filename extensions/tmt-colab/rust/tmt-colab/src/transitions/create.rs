@@ -23,6 +23,7 @@ pub(super) struct Selection<'a> {
     pub blocks: bool,
     pub page: &'a str,
     pub title: &'a str,
+    pub project: Option<&'a str>,
     pub source: &'a str,
     pub publisher_agent: Option<&'a str>,
     pub creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
@@ -57,6 +58,7 @@ impl Engine {
             blocks,
             page,
             title,
+            project,
             source,
             publisher_agent,
             creation_recipient,
@@ -71,6 +73,7 @@ impl Engine {
             || ((shell || blocks) && layout.is_some())
             || (shell && blocks)
             || title.is_empty()
+            || project.is_some_and(|name| !crate::projects::valid(name))
             || publisher_agent.is_some_and(|v| !crate::decoder::valid_publisher_agent(v))
         {
             return Err(OwnerFault::Invalid.into());
@@ -157,6 +160,9 @@ impl Engine {
             crate::question_registry::admit_source(source, &meta, page, None)?;
         }
         let mut selection = serde_json::json!({"pageId":page,"title":title,"source":source});
+        if let Some(project) = project {
+            selection["project"] = serde_json::json!(project);
+        }
         if let Some(creator) = creator_selection {
             selection["creator"] = creator.clone();
         }
@@ -230,6 +236,7 @@ impl Engine {
                 };
                 let input = BaselineInput {
                     page_state: None,
+                    work_fields: None,
                     converted_at: None,
                     legacy_layout: None,
                     creator: creator.as_ref(),
@@ -286,6 +293,12 @@ impl Engine {
                 tx.append_statement(&shared)?;
                 statements.push(shared);
                 tx.put_epoch_secret(page, 1, &prepared.secret)?;
+                if let Some(project) = project {
+                    tx.set_projects(&[(page.to_owned(), vec![project.to_owned()])])?;
+                }
+                if !shell {
+                    tx.allocate_work_number(page, project)?;
+                }
                 let (states, _) = fold::verify_log(&tx.log()?, key, page)?;
                 let authority = states.last().ok_or(OwnerFault::Invalid)?;
                 let devices = tx.devices()?;

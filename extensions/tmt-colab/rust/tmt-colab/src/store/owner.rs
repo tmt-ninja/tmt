@@ -384,6 +384,9 @@ impl OwnerTransaction<'_> {
             .tx
             .execute("INSERT OR IGNORE INTO projects(name) VALUES (?)", [name])?
             == 1;
+        if added {
+            super::work_numbers::ensure_project(self.tx, name)?;
+        }
         Ok(added)
     }
     /// A write that added a name leaves the space within `SPACE_PROJECTS`. A space that already
@@ -561,6 +564,13 @@ impl OwnerTransaction<'_> {
                 if !valid(to) || from == to || !exists(from)? {
                     return Err(OwnerFault::Invalid.into());
                 }
+                let target_exists = exists(to)?;
+                if !target_exists {
+                    self.tx.execute(
+                        "UPDATE project_meta SET name=? WHERE name=?",
+                        params![to, from],
+                    )?;
+                }
                 self.add_project(to)?;
                 self.tx.execute(
                     "INSERT OR IGNORE INTO page_projects(page,project)
@@ -574,12 +584,22 @@ impl OwnerTransaction<'_> {
                     params![to, from],
                 )?;
                 self.remove_project(from)?;
+                self.tx
+                    .execute("DELETE FROM project_meta WHERE name=?", [from])?;
             }
             Change::Delete(name) => {
                 if !exists(name)? {
                     return Err(OwnerFault::Invalid.into());
                 }
                 self.remove_project(name)?;
+                self.tx
+                    .execute("DELETE FROM project_meta WHERE name=?", [name])?;
+            }
+            Change::Prefix { name, prefix } => {
+                if !exists(name)? {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                super::work_numbers::set_prefix(self.tx, name, prefix)?;
             }
             Change::Pins(names) => self.set_project_pins(names)?,
         }
@@ -609,6 +629,52 @@ impl OwnerTransaction<'_> {
         self.tx
             .execute("INSERT INTO pages(page,epoch) VALUES (?,'1')", [page])?;
         Ok(())
+    }
+
+    pub(crate) fn allocate_work_number(
+        &mut self,
+        item: &str,
+        project: Option<&str>,
+    ) -> Result<String> {
+        Ok(super::work_numbers::allocate(self.tx, item, project)?)
+    }
+
+    pub(crate) fn allocate_todo_numbers(&mut self, page: &str, blocks: &[String]) -> Result<()> {
+        let project: Option<String> = self
+            .tx
+            .query_row(
+                "SELECT project FROM page_projects WHERE page=? ORDER BY project LIMIT 1",
+                [page],
+                |row| row.get(0),
+            )
+            .optional()?;
+        for block in blocks {
+            super::work_numbers::allocate(self.tx, &format!("{page}:{block}"), project.as_deref())?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn todo_numbers(
+        &self,
+        page: &str,
+        blocks: &[String],
+    ) -> Result<std::collections::BTreeMap<String, String>> {
+        let mut numbers = std::collections::BTreeMap::new();
+        for block in blocks {
+            let item = format!("{page}:{block}");
+            let number: Option<(String, i64)> = self
+                .tx
+                .query_row(
+                    "SELECT prefix,n FROM work_numbers WHERE item=?",
+                    [item],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            if let Some((prefix, n)) = number {
+                numbers.insert(block.clone(), format!("{prefix}-{n}"));
+            }
+        }
+        Ok(numbers)
     }
 
     pub(crate) fn page_epoch(&self, page: &str) -> Result<Option<String>> {

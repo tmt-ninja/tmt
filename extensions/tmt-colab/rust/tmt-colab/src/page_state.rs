@@ -9,6 +9,33 @@ pub(crate) fn validate_action(action: &str, body: &serde_json::Value) -> crate::
     crate::closed::require(crate::decoder::valid_page_state(&body["state"]))
 }
 
+/// The four optional work fields are signed content, not an authorization grant.
+pub(crate) const WORK_FIELDS: [&str; 4] = ["owner", "priority", "next", "blocked"];
+
+pub(crate) fn valid_work_field(key: &str, value: &serde_json::Value) -> bool {
+    match key {
+        "owner" => crate::question_registry::validate_agent(value).is_ok(),
+        "priority" => matches!(value.as_str(), Some("high" | "normal" | "low")),
+        "next" | "blocked" => value.as_str().is_some_and(|value| {
+            !value.is_empty()
+                && value.chars().count() <= 200
+                && !value.chars().any(char::is_control)
+        }),
+        _ => false,
+    }
+}
+
+/// Null clears a field; omission leaves it unchanged. At least one field must be named.
+pub(crate) fn validate_work_edit(body: &serde_json::Value) -> crate::closed::Result<()> {
+    let object = body.as_object().ok_or(crate::closed::Invalid)?;
+    crate::closed::require(!object.is_empty())?;
+    for (key, value) in object {
+        crate::closed::require(WORK_FIELDS.contains(&key.as_str()))?;
+        crate::closed::require(value.is_null() || valid_work_field(key, value))?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Progress {

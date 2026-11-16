@@ -697,6 +697,10 @@ pub fn read_shell(
 pub struct WorkPage {
     #[serde(skip)]
     pub state: String,
+    #[serde(skip)]
+    pub fields: serde_json::Value,
+    #[serde(skip)]
+    pub todo_ids: Vec<String>,
     pub space_id: String,
     pub page_id: String,
     pub title: String,
@@ -764,8 +768,35 @@ pub(crate) fn read_work_or_shell(
     let children = crate::work::children(work).map_err(|_| Fault::Invalid)?;
     let summary = work.get("summary").cloned();
     let legacy = (work["version"] == 1).then(|| work.clone());
+    let mut todos: Vec<_> = view
+        .blocks
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|blocks| blocks.iter())
+        .filter(|(_, block)| block["type"] == "todo")
+        .map(|(id, block)| {
+            (
+                block["parent"].as_str().unwrap_or_default().to_owned(),
+                block["pos"].as_str().unwrap_or_default().to_owned(),
+                id.clone(),
+            )
+        })
+        .collect();
+    todos.sort();
     Ok(Some(WorkPage {
         state: view.meta["pageState"].as_str().unwrap_or("todo").to_owned(),
+        fields: serde_json::Value::Object(
+            crate::page_state::WORK_FIELDS
+                .into_iter()
+                .filter_map(|name| {
+                    view.meta
+                        .get(name)
+                        .map(|value| (name.to_owned(), value.clone()))
+                })
+                .collect(),
+        ),
+        todo_ids: todos.into_iter().map(|(_, _, id)| id).collect(),
         space_id: key.space_id.clone(),
         page_id: page.into(),
         title: view.title,
@@ -914,6 +945,7 @@ pub fn prepare_publication_with_clock<'a>(
         author,
         Sealing {
             kind: PublicationKind::Content,
+            todo_blocks: &[],
             updates: &updates,
             revision,
             source: edit.source,
@@ -1032,6 +1064,21 @@ fn prepare_structured(
             receipt,
         ));
     };
+    let mut seen_todos = std::collections::BTreeSet::new();
+    let todo_blocks: Vec<String> = if action.kind == crate::decoder::StructuredKind::Blocks {
+        receipt
+            .as_ref()
+            .and_then(|receipt| receipt["ops"].as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|op| op["id"].as_str())
+            .filter(|id| prepared.projection["blocks"][*id]["type"] == "todo")
+            .filter(|id| seen_todos.insert((*id).to_owned()))
+            .map(str::to_owned)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let frozen = freeze(
         key,
         page,
@@ -1039,6 +1086,7 @@ fn prepare_structured(
         author,
         Sealing {
             kind: PublicationKind::Content,
+            todo_blocks: &todo_blocks,
             updates: &updates,
             revision,
             // The page's own source: an action never changes it (a shell's is empty).
@@ -1074,6 +1122,7 @@ pub(crate) fn prepare_own_publication(
         author,
         Sealing {
             kind: PublicationKind::Own,
+            todo_blocks: &[],
             updates: &[update.to_vec()],
             revision,
             source,
@@ -1187,6 +1236,7 @@ impl Author {
 }
 struct Sealing<'a> {
     kind: crate::publication::PublicationKind,
+    todo_blocks: &'a [String],
     updates: &'a [Vec<u8>],
     revision: String,
     source: &'a str,
@@ -1206,6 +1256,7 @@ fn freeze(
     use crate::publication::{Manifest, MembershipHead, NativeEvidence, PublicationEntry};
     let Sealing {
         kind,
+        todo_blocks,
         updates,
         revision,
         source,
@@ -1292,6 +1343,7 @@ fn freeze(
         packet_bytes: packet.len(),
         packet_hash: values::encode_binary(&crypto::digest(&packet)),
         native_evidence: Some(NativeEvidence {
+            todo_blocks: todo_blocks.to_vec(),
             source_sha256: hex(&crypto::digest(source.as_bytes())),
             memory_limit,
             chain_hash: values::encode_binary(&crypto::digest(&chain)),
@@ -1504,6 +1556,7 @@ pub fn commit_publication(
                     return Err(crate::store::Fault::Gap.into());
                 }
             }
+            tx.allocate_todo_numbers(&original.page_id, &evidence.todo_blocks)?;
             let last = entries.last().ok_or(Fault::Invalid)?;
             Ok(Ok(Outcome::Committed {
                 key: original.clone(),

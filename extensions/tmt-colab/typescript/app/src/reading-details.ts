@@ -13,6 +13,41 @@ export const READING_DETAILS_BYTES = 192 * 1024;
 export const READING_DETAILS_PAGES = 20;
 export const NEEDS_PASSAGES = 20;
 export const LATEST_POINTS = 160;
+
+/** Owner-local labels for an admitted set of to-do blocks; a missing label is never invented. */
+export async function readWorkNumbers(
+  mount: URL,
+  pageId: string,
+  blocks: readonly string[],
+  signal?: AbortSignal,
+): Promise<Record<string, string>> {
+  requireValue(validReadingId(pageId) && blocks.length <= 2048 && blocks.every(validReadingId));
+  const response = await fetch(new URL('api/work-numbers', mount), {
+    method: 'POST',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pageId, blocks }),
+    signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(10_000)]),
+  });
+  const value = await jsonResponse(response, READING_DETAILS_BYTES);
+  exactKeys(value, ['pageId', 'numbers']);
+  requireValue(
+    value.pageId === pageId &&
+      value.numbers !== null &&
+      typeof value.numbers === 'object' &&
+      !Array.isArray(value.numbers),
+  );
+  const allowed = new Set(blocks);
+  const result: Record<string, string> = {};
+  for (const [id, number] of Object.entries(value.numbers)) {
+    requireValue(
+      allowed.has(id) && typeof number === 'string' && /^[A-Z]{1,6}-[1-9][0-9]{0,18}$/.test(number),
+    );
+    result[id] = number;
+  }
+  return result;
+}
 export interface ReadingDescriptor {
   id: string;
   title: string;

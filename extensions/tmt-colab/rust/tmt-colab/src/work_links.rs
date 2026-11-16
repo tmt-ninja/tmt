@@ -213,6 +213,7 @@ mod tests {
 
     fn page(state: &str, children: &[&str]) -> Option<PageWork> {
         Some(PageWork {
+            fields: serde_json::json!({}),
             state: state.into(),
             children: children.iter().map(|id| (*id).to_owned()).collect(),
             legacy: false,

@@ -1183,6 +1183,9 @@ impl Snapshot {
             StructuredKind::PageState if !shell => {
                 crate::page_state::validate_action(&edit.action, &edit.body)
             }
+            StructuredKind::WorkFields if !shell && edit.action == "page.set" => {
+                crate::page_state::validate_work_edit(&edit.body)
+            }
             StructuredKind::Template if ordinary => {
                 crate::template_marks::apply(&edit.action, &edit.body).map(drop)
             }
@@ -1270,6 +1273,7 @@ impl Snapshot {
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
             let view = BaselineInput {
                 page_state: None,
+                work_fields: None,
                 converted_at: None,
                 legacy_layout: None,
                 creator: None,

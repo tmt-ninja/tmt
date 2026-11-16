@@ -252,6 +252,7 @@ export async function mountedTransport(
                 expiresAtMs: policy.expiresAtMs,
                 warnings: policy.warnings,
                 projects: page.projects,
+                workNumber: page.workNumber,
                 ...(page.pinned ? { pinned: true } : {}),
                 summary: page.summary,
                 state: page.state,

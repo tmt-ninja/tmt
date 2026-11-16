@@ -261,19 +261,6 @@ a.work-row-title:hover {
   .tmt-ui-topbar-title .tmt-ui-topbar-title-chips:has(.work-band) {
     display: contents;
   }
-  .work-count-wide {
-    display: none;
-  }
-  .work-count-compact {
-    display: inline;
-  }
-  .work-head .work-state-control .tmt-ui-menu-value {
-    display: block;
-    max-width: 2.5rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
   .work-head .work-state-control .tmt-ui-menu-trigger {
     gap: 0;
     padding-inline: var(--tmt-ui-space-xs);
@@ -287,11 +274,15 @@ a.work-row-title:hover {
   .work-toggle {
     padding-inline: var(--tmt-ui-space-xs);
   }
-  .work-toggle .work-chevron {
-    display: none;
-  }
 }
 @media (max-width: 640px) {
+  .work-band {
+    max-width: 100%;
+  }
+  .work-head {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
   .page-mobile-title {
     box-sizing: border-box;
     padding: var(--tmt-ui-space-l) var(--tmt-ui-header-padding-inline);

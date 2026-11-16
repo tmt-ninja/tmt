@@ -880,6 +880,28 @@ fn serve(
         }
         return;
     }
+    if request.method == "POST"
+        && !request.upgrade
+        && request.path == registration::WORK_NUMBERS_PATH
+    {
+        let result = registration
+            .ok_or(registration::Code::Unavailable)
+            .and_then(|service| {
+                service
+                    .lock()
+                    .map_err(|_| registration::Code::Unavailable)?
+                    .work_numbers(request.context.as_deref(), &request.body)
+            });
+        let (status, body) = match result {
+            Ok(bytes) => (200, bytes),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
+        return;
+    }
     if request.method == "GET"
         && !request.upgrade
         && let Some(page) = summary_details_page(&request.path)
@@ -1932,6 +1954,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | "/api/session"
             | "/api/serve-release"
             | "/api/pages"
+            | registration::WORK_NUMBERS_PATH
             | TEMPLATES
             | management::PATH
             | management::LOCAL_PATH

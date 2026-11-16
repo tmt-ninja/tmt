@@ -71,6 +71,14 @@ struct Context {
     owner: bool,
     grant_revision: u64,
 }
+pub(crate) const WORK_NUMBERS_PATH: &str = "/api/work-numbers";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WorkNumbersRequest {
+    page_id: String,
+    blocks: Vec<String>,
+}
 impl Context {
     fn parse(raw: Option<&str>) -> std::result::Result<Self, Code> {
         let c: Self = serde_json::from_str(raw.ok_or(Code::Denied)?).map_err(|_| Code::Denied)?;
@@ -431,6 +439,39 @@ impl Registration {
         *self.list_token.borrow_mut() = Some((generation, token.clone()));
         Ok(token)
     }
+    /// Owner-local labels for only the named blocks; never allocates on a read.
+    pub fn work_numbers(
+        &self,
+        context: Option<&str>,
+        body: &[u8],
+    ) -> std::result::Result<Vec<u8>, Code> {
+        Context::parse(context)?;
+        let request: WorkNumbersRequest =
+            serde_json::from_slice(body).map_err(|_| Code::Invalid)?;
+        values::generated_id(&request.page_id).map_err(|_| Code::Invalid)?;
+        if request.blocks.len() > crate::limits::BLOCKS {
+            return Err(Code::Invalid);
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for block in &request.blocks {
+            values::generated_id(block).map_err(|_| Code::Invalid)?;
+            if !seen.insert(block) {
+                return Err(Code::Invalid);
+            }
+        }
+        let numbers = self
+            .store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                if tx.page_epoch(&request.page_id)?.is_none() {
+                    return Err(crate::store::owner::OwnerFault::Invalid.into());
+                }
+                tx.todo_numbers(&request.page_id, &request.blocks)
+            })
+            .map_err(map_error)?;
+        serde_json::to_vec(&serde_json::json!({"pageId":request.page_id,"numbers":numbers}))
+            .map_err(|_| Code::Unavailable)
+    }
+
     /// Complete cached chapter metadata. The owner read checks authority and the current
     /// fingerprint without subscribing, touching activity or decoding on this request path.
     pub fn page_summary_details(

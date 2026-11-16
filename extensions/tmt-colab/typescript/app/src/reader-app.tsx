@@ -194,6 +194,8 @@ export function ReaderApp({
           state.kind === 'ready' && !shell && !phone ? (
             <WorkBand
               onSize={setWorkBandSize}
+              owner={state.view.owner}
+              priority={state.view.priority}
               subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
               pageState={
                 state.view.state === undefined ? (state.view.pageState ?? 'todo') : state.view.state
@@ -313,6 +315,8 @@ export function ReaderApp({
               {phone && (
                 <MobileWorkTitle title={title || text.unknownPageTitle} onSize={setWorkBandSize}>
                   <WorkBand
+                    owner={state.view.owner}
+                    priority={state.view.priority}
                     subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
                     pageState={
                       state.view.state === undefined

@@ -1,4 +1,4 @@
-import { ProgressReads, readReadingDetails } from './reading-details.js';
+import { ProgressReads, readReadingDetails, readWorkNumbers } from './reading-details.js';
 import { readEditLocks } from './edit-locks.js';
 import { canonical } from './closed.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
@@ -138,6 +138,9 @@ export class Live implements PageBinding {
   #attempts = 0;
   #diagnosing: LiveOpen | null = null;
   #projection: PageView = { source: '', title: '' };
+  #todoNumbers: Record<string, string> = {};
+  #todoKey = '';
+  #todoGeneration = 0;
   #threadProjection?: { connection: Connection; admission: Admission; view: PageView };
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #verifiedAsks = new VerifiedAsks();
@@ -354,7 +357,33 @@ export class Live implements PageBinding {
       this.#projection.source === this.#progressSource &&
       canonical({ work: this.#projection.work, state: this.#projection.state }) ===
         this.#progressKey;
-    return structuredClone({ ...this.#projection, progress: current ? this.#progress : null });
+    return structuredClone({
+      ...this.#projection,
+      todoNumbers: this.#todoNumbers,
+      progress: current ? this.#progress : null,
+    });
+  }
+  #refreshTodoNumbers(value: PageView) {
+    const ids = Object.entries(value.blocks ?? {})
+      .filter(([, block]) => block.type === 'todo' && block.deleted === undefined)
+      .map(([id]) => id)
+      .sort();
+    const key = ids.join(',');
+    if (key === this.#todoKey) return;
+    this.#todoKey = key;
+    const generation = ++this.#todoGeneration;
+    if (ids.length === 0) {
+      this.#todoNumbers = {};
+      return;
+    }
+    void readWorkNumbers(this.mount, this.page.pageId, ids, this.signal)
+      .then((numbers) => {
+        if (!this.#closed && generation === this.#todoGeneration) {
+          this.#todoNumbers = numbers;
+          this.#publish();
+        }
+      })
+      .catch(() => {});
   }
   #publish() {
     this.#listeners.forEach((listener) => listener.publish(this.#view()));
@@ -463,6 +492,7 @@ export class Live implements PageBinding {
         (value) => {
           if (!this.#owns(open)) return;
           this.#admitted = { ...structuredClone(value), seq: ++this.#contentSeq };
+          this.#refreshTodoNumbers(value);
           const progressKey = canonical({ work: value.work, state: value.state });
           if (progressKey !== this.#progressKey || value.source !== this.#progressSource) {
             this.#progressKey = progressKey;
@@ -694,6 +724,7 @@ export class Live implements PageBinding {
     this.signal?.throwIfAborted();
     return {
       id: this.page.pageId,
+      workNumber: this.page.workNumber,
       sharing: this.page.sharing,
       ...this.#view(),
       title: this.#projection.title || text.unknownPageTitle,

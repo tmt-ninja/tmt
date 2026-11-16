@@ -39,6 +39,10 @@ impl Prepared {
         let layout = crate::decoder::layout_of_meta(&view.meta);
         let baseline_input = BaselineInput {
             page_state: view.meta.get("pageState"),
+            work_fields: crate::page_state::WORK_FIELDS
+                .iter()
+                .any(|key| view.meta.get(*key).is_some())
+                .then_some(&view.meta),
             converted_at: view.meta.get("convertedAt"),
             legacy_layout: view.meta.get("legacyLayout"),
             creator: view.meta.get("creator"),

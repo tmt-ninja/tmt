@@ -45,6 +45,7 @@ pub fn command() -> Command {
         .mut_arg("json",|arg|arg.global(true)).subcommand_required(true)
         .subcommand(command_spec!("ls","List every project with its page count","tmt colab project ls --json","Reads only; archived pages count, and a project with no page is listed.").alias("list"))
         .subcommand(command_spec!("create","Create a project with no page yet","tmt colab project create launch","Creating a project that exists changes nothing. Add pages with `project add`.").arg(Arg::new("name").required(true).index(1).help("The new project")))
+        .subcommand(command_spec!("set","Set a project's work prefix","tmt colab project set launch --prefix REL","Existing work numbers remain unchanged.").arg(Arg::new("name").required(true).index(1)).arg(Arg::new("prefix").long("prefix").required(true).value_name("PREFIX")))
         .subcommand(command_spec!("add","Put a page in projects","tmt colab project add 10000000-0000-4000-8000-000000000001 launch 'q4 plan'","A name no project has yet creates it. Adding a project the page is already in changes nothing. Last writer wins: the command replaces the page's whole project set.").arg(crate::cli_grammar::page()).arg(names("Projects to add")))
         .subcommand(command_spec!("remove","Take a page out of projects","tmt colab project remove 10000000-0000-4000-8000-000000000001 launch","Removing a project the page is not in changes nothing. The project stays, even with no page left.").alias("rm").arg(crate::cli_grammar::page()).arg(names("Projects to remove")))
         .subcommand(command_spec!("rename","Rename a project","tmt colab project rename launch release","Archived pages are included. Renaming onto an existing project merges the two: a page in both keeps one entry. No page is deleted.").arg(Arg::new("name").required(true).index(1).help("The project to rename")).arg(Arg::new("to").required(true).index(2).help("Its new name")))
@@ -250,6 +251,19 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 .into(),
             ));
             json!({"spaceId":key.space_id,"name":name,"pinned":position.is_some(),"position":position,"changed":changed})
+        }
+        "set" => {
+            let name = &names[0];
+            counts.get(name).ok_or_else(|| not_found(name))?;
+            let prefix = args.get_one::<String>("prefix").expect("prefix");
+            manage(
+                &layout,
+                &key,
+                &json!({"action":"prefix","name":name,"prefix":prefix}),
+            )?;
+            rows.push(("project", name.clone()));
+            rows.push(("prefix", prefix.clone()));
+            json!({"spaceId":key.space_id,"name":name,"prefix":prefix})
         }
         "create" => {
             let name = &names[0];

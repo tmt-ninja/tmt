@@ -405,6 +405,7 @@ fn grammar() -> Command {
                                     .arg(cli_page_check::strict())
                                     .arg(Arg::new("creator").long("creator").value_name("NAME|UUID").help("Creator for new drafts; uses the invoking identity when known, otherwise leaves no creator"))
                                     .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
+                                    .arg(Arg::new("project").long("project").value_name("NAME").help("Assign the page to a project at creation"))
                                     .arg(Arg::new("file").long("file").value_name("path|-")
                                         .value_parser(clap::value_parser!(std::path::PathBuf)))
                                     .arg(Arg::new("html").long("html").action(ArgAction::SetTrue)
@@ -446,7 +447,8 @@ fn grammar() -> Command {
                     .subcommand(cli_edit_locks::unlock_command())
                     .subcommand(cli_layout::command())
                     .subcommand(cli_metadata::creator_command())
-                    .subcommand(cli_metadata::state_command()),
+                    .subcommand(cli_metadata::state_command())
+                    .subcommand(cli_metadata::set_command()),
             )
             .subcommand(
                 tmt_cli_style::command(&EXPORT)
@@ -981,7 +983,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     if command == "reclaim" {
         return cli_storage::page(root, args);
     }
-    if command == "creator" || command == "state" {
+    if command == "creator" || command == "state" || command == "set" {
         return cli_metadata::run(root, command, args);
     }
     if command == "create" && !args.get_flag("html") {

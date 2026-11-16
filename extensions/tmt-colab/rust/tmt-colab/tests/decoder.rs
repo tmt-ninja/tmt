@@ -100,6 +100,7 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
     }});
     let view = || BaselineInput {
         page_state: None,
+        work_fields: None,
         converted_at: None,
         legacy_layout: None,
         creator: None,
@@ -155,6 +156,7 @@ fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base()
     use tmt_colab::decoder::{ContentBatch, ContentEdit, StructuredEdit, StructuredKind};
     let view = || BaselineInput {
         page_state: None,
+        work_fields: None,
         converted_at: None,
         legacy_layout: None,
         creator: None,
@@ -254,6 +256,7 @@ fn registry_metadata_survives_baselines_edits_and_preserves_content_authority() 
         .produce_page(
             BaselineInput {
                 page_state: None,
+                work_fields: None,
                 converted_at: None,
                 legacy_layout: None,
                 creator: Some(&creator),
@@ -319,6 +322,7 @@ fn registry_metadata_survives_baselines_edits_and_preserves_content_authority() 
         .produce_baseline(
             BaselineInput {
                 page_state: None,
+                work_fields: None,
                 converted_at: None,
                 legacy_layout: None,
                 creator: rewritten.projection["meta"].get("creator"),
@@ -520,6 +524,7 @@ fn template_marks_survive_baselines_and_edits_and_the_mark_is_set_and_cleared_by
 fn work_view<'a>(source: &'a [u8], work: Option<&'a serde_json::Value>) -> BaselineInput<'a> {
     BaselineInput {
         page_state: None,
+        work_fields: None,
         converted_at: None,
         legacy_layout: None,
         creator: None,
@@ -1570,6 +1575,7 @@ fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
         page_state: None,
+        work_fields: None,
         converted_at: None,
         legacy_layout: None,
         creator: None,
@@ -1650,6 +1656,7 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
             .produce_baseline(
                 BaselineInput {
                     page_state: None,
+                    work_fields: None,
                     converted_at: None,
                     legacy_layout: None,
                     creator: None,
@@ -1729,6 +1736,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
         page_state: None,
+        work_fields: None,
         converted_at: None,
         legacy_layout: None,
         creator: None,
@@ -1947,6 +1955,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
         .produce_baseline(
             BaselineInput {
                 page_state: None,
+                work_fields: None,
                 converted_at: None,
                 legacy_layout: None,
                 creator: None,
@@ -2069,6 +2078,7 @@ fn a_page_source_larger_than_one_update_is_produced_as_ordered_updates_that_rebu
         .produce_page(
             BaselineInput {
                 page_state: None,
+                work_fields: None,
                 converted_at: None,
                 legacy_layout: None,
                 work: None,
@@ -2190,6 +2200,7 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
             .produce_page(
                 BaselineInput {
                     page_state: None,
+                    work_fields: None,
                     converted_at: None,
                     legacy_layout: None,
                     creator: None,
@@ -2676,6 +2687,7 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
             .produce_page(
                 BaselineInput {
                     page_state: None,
+                    work_fields: None,
                     converted_at: None,
                     legacy_layout: None,
                     creator: None,
@@ -2775,6 +2787,7 @@ fn prepared_edit(decoder: &mut Decoder, old: &str, new: &str) -> (Vec<u8>, Vec<V
         .produce_baseline(
             BaselineInput {
                 page_state: None,
+                work_fields: None,
                 converted_at: None,
                 legacy_layout: None,
                 work: None,
@@ -3112,6 +3125,7 @@ fn page_state_action_preserves_source_and_remains_in_the_next_baseline() {
         .produce_baseline(
             BaselineInput {
                 page_state: after.projection["meta"].get("pageState"),
+                work_fields: None,
                 converted_at: None,
                 legacy_layout: None,
                 ..work_view(source, None)
@@ -3197,6 +3211,7 @@ fn a_restore_after_the_purge_is_not_found_and_resurrects_nothing() {
 
     let view = || BaselineInput {
         page_state: None,
+        work_fields: None,
         converted_at: None,
         legacy_layout: None,
         creator: None,
@@ -3697,6 +3712,7 @@ fn a_baseline_of_a_page_of_blocks_keeps_its_metadata() {
     let attachments = tmt_colab_model::attachment::DocumentAttachments::default();
     let plain = || BaselineInput {
         page_state: Some(&state),
+        work_fields: None,
         creator: None,
         questions: None,
         template: None,

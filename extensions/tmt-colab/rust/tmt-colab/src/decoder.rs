@@ -177,6 +177,7 @@ pub enum StructuredKind {
     Creator,
     Template,
     PageState,
+    WorkFields,
     /// The page's `blocks` root (a structured page), edited by one validated batch of ops.
     Blocks,
     /// One revision-fenced conversion from HTML to an empty blocks page.
@@ -192,6 +193,7 @@ impl StructuredKind {
             Self::Creator => "creator",
             Self::Template => "template",
             Self::PageState => "pageState",
+            Self::WorkFields => "owner",
             Self::Blocks => "blocks",
             Self::Conversion => "convertedAt",
         }
@@ -269,6 +271,8 @@ pub struct BaselineInput<'a> {
     pub work: Option<&'a Value>,
     /// Manual page state; an absent value reads as todo.
     pub page_state: Option<&'a Value>,
+    /// Existing work fields, retained when producing the next epoch baseline.
+    pub work_fields: Option<&'a Value>,
     /// `meta.convertedAt`, the time (ms) a page was converted in place to blocks; only a page of
     /// blocks has it, and a new epoch keeps it.
     pub converted_at: Option<&'a Value>,
@@ -992,6 +996,19 @@ impl Decoder {
             layout: view.layout.cloned(),
             work: view.work.cloned(),
             page_state: view.page_state.cloned(),
+            work_fields: view
+                .work_fields
+                .map(|meta| {
+                    Value::Object(
+                        crate::page_state::WORK_FIELDS
+                            .into_iter()
+                            .filter_map(|key| {
+                                meta.get(key).map(|value| (key.to_owned(), value.clone()))
+                            })
+                            .collect(),
+                    )
+                })
+                .filter(|value| value.as_object().is_some_and(|fields| !fields.is_empty())),
             converted_at: view.converted_at.cloned(),
             legacy_layout: view.legacy_layout.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
@@ -1378,6 +1395,20 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
                 expected["meta"]["pageState"] = state.clone();
             }
         }
+        StructuredKind::WorkFields if !shell && edit.action == "page.set" => {
+            crate::page_state::validate_work_edit(&edit.body)
+                .map_err(|_| DecodeFault::InvalidInput)?;
+            let meta = expected["meta"]
+                .as_object_mut()
+                .ok_or(DecodeFault::InvalidInput)?;
+            for (key, value) in edit.body.as_object().ok_or(DecodeFault::InvalidInput)? {
+                if value.is_null() {
+                    meta.remove(key);
+                } else {
+                    meta.insert(key.clone(), value.clone());
+                }
+            }
+        }
         StructuredKind::Template if ordinary => {
             match crate::template_marks::apply(&edit.action, &edit.body)
                 .map_err(|_| DecodeFault::InvalidInput)?
@@ -1574,6 +1605,8 @@ struct WireBaseline {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     page_state: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    work_fields: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     converted_at: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     legacy_layout: Option<Value>,
@@ -1698,6 +1731,9 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 "shell" => crate::shell::validate(v).is_err(),
                 "work" => crate::work::validate(v).is_err(),
                 "pageState" => !valid_page_state(v),
+                "owner" | "priority" | "next" | "blocked" => {
+                    !crate::page_state::valid_work_field(k, v)
+                }
                 _ => true,
             }) {
                 return Err(DecodeFault::InvalidOutput);
@@ -1720,6 +1756,10 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                         "template",
                         "fromTemplate",
                         "pageState",
+                        "owner",
+                        "priority",
+                        "next",
+                        "blocked",
                     ]
                     .iter()
                     .any(|key| meta.contains_key(*key)))

@@ -279,6 +279,7 @@ impl Running {
                         operation_id: "40000000-0000-4000-8000-0000000000b1",
                         expected_revision: 0,
                         action: tmt_colab::transitions::OwnerAction::CreateBlocks {
+                            project: None,
                             page: PAGE,
                             title: "Pictures",
                             publisher_agent: None,

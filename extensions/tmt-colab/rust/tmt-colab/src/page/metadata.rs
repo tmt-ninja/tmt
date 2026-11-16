@@ -52,6 +52,17 @@ pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
             crate::page_state::validate_action(action, body).map_err(|_| invalid())?;
             Ok(StructuredKind::PageState)
         }
+        "page.set" => {
+            let mut checked = body.clone();
+            if let Some(owner) = body.get("owner") {
+                if !owner.is_null() && !owner.as_str().is_some_and(valid_selector) {
+                    return Err(invalid().into());
+                }
+                checked["owner"] = Value::Null;
+            }
+            crate::page_state::validate_work_edit(&checked).map_err(|_| invalid())?;
+            Ok(StructuredKind::WorkFields)
+        }
         "creator.set" => {
             crate::question_registry::validate_creator_selection(body).map_err(|_| invalid())?;
             // A browser never chooses the editor's machine attribution.
@@ -141,6 +152,15 @@ pub fn prepare(
     let kind = validate(&edit.action, &edit.body)?;
     let body = if edit.action == "question.agent" {
         resolve_question_agent(&edit.body)?
+    } else if edit.action == "page.set" {
+        let mut body = edit.body.clone();
+        if let Some(selector) = edit.body.get("owner").and_then(Value::as_str) {
+            body["owner"] = crate::edit_request::metadata::resolve_selection(
+                crate::core::identity_lookup(selector),
+            )?["agent"]
+                .clone();
+        }
+        body
     } else {
         edit.body.clone()
     };

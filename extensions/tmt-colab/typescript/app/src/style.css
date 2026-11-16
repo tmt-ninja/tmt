@@ -60,6 +60,12 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 /* The drag ghost shows the block's first line only. */
+.tmt-block-todo-number {
+  color: var(--tmt-ui-color-secondary);
+  font-variant-numeric: tabular-nums;
+  margin-inline-end: var(--tmt-ui-space-s);
+  white-space: nowrap;
+}
 .tmt-block-ghost-line {
   min-width: 0;
   overflow: hidden;

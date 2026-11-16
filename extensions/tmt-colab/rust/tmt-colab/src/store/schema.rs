@@ -187,6 +187,13 @@ const MIGRATIONS: &[&str] = &[
     r#"
     SELECT 1;
     "#,
+    // Schema 23: owner-local display numbers. Issued pairs survive deletion and project changes.
+    r#"
+    CREATE TABLE project_meta(name TEXT PRIMARY KEY, prefix TEXT NOT NULL UNIQUE) WITHOUT ROWID;
+    CREATE TABLE work_counters(prefix TEXT PRIMARY KEY, next INTEGER NOT NULL CHECK(next>0)) WITHOUT ROWID;
+    CREATE TABLE work_numbers(item TEXT PRIMARY KEY, prefix TEXT NOT NULL, n INTEGER NOT NULL,
+        UNIQUE(prefix,n)) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// The schema whose step rewrites stored object envelopes as binary v2 (#5876).
@@ -286,6 +293,9 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
         tx.execute_batch(sql)?;
         if index + 1 == OBJECTS_V2 {
             convert_objects_v2(&tx)?;
+        }
+        if index + 1 == 23 {
+            super::work_numbers::backfill(&tx)?;
         }
         tx.pragma_update(None, "user_version", (index + 1) as u32)?;
     }

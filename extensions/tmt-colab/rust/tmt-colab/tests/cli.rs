@@ -1474,7 +1474,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
         DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
-        ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=4")
         .unwrap();
     let stored_pages: Vec<(String, String)> = conn
         .prepare("SELECT page, epoch FROM pages ORDER BY page")
@@ -1487,7 +1487,8 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
     let before = fs::read(&db).unwrap();
     failure(&pilot, &["ls", "--json"], "COLAB_STORE_OUTDATED");
     assert_eq!(fs::read(&db).unwrap(), before);
-    pilot.start();
+    let started = pilot.start();
+    assert!(started.get("error").is_none(), "serve failed: {started}");
     assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
     assert_eq!(pilot.call(&["ls", "--json"])["pages"][0]["pageId"], PAGE);
     pilot.stop();
@@ -1577,7 +1578,7 @@ fn serve_rewrites_v1_object_envelopes_as_v2_under_the_same_hash() {
             .unwrap();
         }
     }
-    conn.execute_batch("PRAGMA user_version=21").unwrap();
+    conn.execute_batch("DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=21").unwrap();
     drop(conn);
     failure(&pilot, &["ls", "--json"], "COLAB_STORE_OUTDATED");
     pilot.start();
@@ -1600,7 +1601,7 @@ fn serve_rewrites_v1_object_envelopes_as_v2_under_the_same_hash() {
     assert_eq!(
         conn.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .unwrap(),
-        22
+        tmt_colab::store::SCHEMA_VERSION
     );
     drop(conn);
     // A second open changes nothing.
@@ -6281,7 +6282,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6402,7 +6403,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=6",
         )
         .unwrap();
     assert_eq!(
@@ -13437,6 +13438,250 @@ fn subpage_show_refreshes_fingerprints_after_page_edits() {
             json!([parent])
         );
     }
+}
+
+#[test]
+fn structured_todo_keeps_its_number_after_edit_delete_and_restore() {
+    let pilot = Pilot::new(None);
+    let made = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Work",
+        "--project",
+        "Colab",
+        "--no-open",
+        "--json",
+    ]);
+    let page = made["pageId"].as_str().unwrap();
+    let inserted = pilot.call(&[
+        "block", "insert", page, "--type", "todo", "--text", "Ship", "--json",
+    ]);
+    let block = inserted["blockIds"][0].as_str().expect("block ID");
+    let number = || {
+        let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+            .unwrap()
+            .unwrap();
+        tmt_colab::store::Store::read(&layout)
+            .unwrap()
+            .work_number(&format!("{page}:{block}"))
+            .unwrap()
+    };
+    assert_eq!(number().as_deref(), Some("COLAB-2"));
+    pilot.call(&["block", "delete", page, block, "--json"]);
+    pilot.call(&["block", "restore", page, block, "--json"]);
+    assert_eq!(number().as_deref(), Some("COLAB-2"));
+}
+
+#[test]
+fn migration_numbers_existing_pages_in_creation_order() {
+    let mut pilot = Pilot::new(None);
+    let make = |title: &str| {
+        pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            title,
+            "--project",
+            "Colab",
+            "--no-open",
+            "--json",
+        ])["pageId"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let first = make("First");
+    let second = make("Second");
+    let todo = pilot.call(&[
+        "block",
+        "insert",
+        &first,
+        "--type",
+        "todo",
+        "--text",
+        "Existing task",
+        "--json",
+    ])["blockIds"][0]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let db = rusqlite::Connection::open(pilot.root.join("selected/colab/space.db")).unwrap();
+    db.execute_batch("DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version=22;").unwrap();
+    drop(db);
+    let started = pilot.start();
+    assert!(started.get("error").is_none(), "serve failed: {started}");
+    let first_number = pilot.call(&["show", &first, "--json"]);
+    let second_number = pilot.call(&["show", &second, "--json"]);
+    assert_eq!(first_number["page"]["workNumber"], "COLAB-1");
+    assert_eq!(second_number["page"]["workNumber"], "COLAB-2");
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        tmt_colab::store::Store::read(&layout)
+            .unwrap()
+            .work_number(&format!("{first}:{todo}"))
+            .unwrap()
+            .as_deref(),
+        Some("COLAB-3")
+    );
+    pilot.stop();
+}
+
+#[test]
+fn project_work_numbers_survive_rename_delete_recreation_and_prefix_collisions() {
+    let pilot = Pilot::new(None);
+    let create = |title: &str, project: &str| {
+        let made = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            title,
+            "--project",
+            project,
+            "--no-open",
+            "--json",
+        ]);
+        let id = made["pageId"].as_str().unwrap();
+        pilot.call(&["show", id, "--json"])["page"]["workNumber"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(create("First", "Alpha"), "ALPHA-1");
+    pilot.call(&["project", "rename", "Alpha", "Beta", "--json"]);
+    assert_eq!(create("Second", "Beta"), "ALPHA-2");
+    pilot.call(&["project", "delete", "Beta", "--json"]);
+    assert_eq!(create("Third", "Alpha"), "ALPHA-3");
+    create("Fourth", "Gamma");
+    let conflict = pilot
+        .command()
+        .args(["project", "set", "Gamma", "--prefix", "ALPHA", "--json"])
+        .output()
+        .unwrap();
+    assert!(!conflict.status.success());
+    assert_eq!(create("Fifth", "Gamma"), "GAMMA-2");
+}
+
+#[test]
+fn page_work_fields_and_number_survive_edits_and_conflicts() {
+    let pilot = Pilot::new(None);
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--html",
+        "--title",
+        "Work",
+        "--project",
+        "Colab",
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    let before = pilot.call(&["page", "read", page, "--json"]);
+    let stale = before["revision"].as_str().unwrap();
+    pilot.call(&[
+        "page",
+        "set",
+        page,
+        "--owner",
+        "50000000-0000-1000-8000-000000000001",
+        "--priority",
+        "high",
+        "--next",
+        "Review",
+        "--blocked",
+        "Waiting",
+        "--json",
+    ]);
+    let shown = pilot.call(&["show", page, "--json"]);
+    assert_eq!(shown["page"]["workNumber"], "COLAB-1");
+    assert_eq!(shown["page"]["priority"], "high");
+    assert_eq!(
+        shown["page"]["owner"]["id"],
+        "50000000-0000-1000-8000-000000000001"
+    );
+    assert_eq!(shown["page"]["next"], "Review");
+    assert_eq!(shown["page"]["blocked"], "Waiting");
+    let list = pilot.call(&["ls", "--json"]);
+    let row = list["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["pageId"] == page)
+        .unwrap();
+    assert_eq!(row["workNumber"], "COLAB-1");
+    assert_eq!(row["next"], "Review");
+    {
+        let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+            .unwrap()
+            .unwrap();
+        let _lock = layout.serve_lock().unwrap();
+        let key = tmt_colab::keyring::Keyring::read(&layout).unwrap();
+        let mut store = tmt_colab::store::Store::write_existing(&layout).unwrap();
+        let head = store
+            .owner_head(&key.space_id, &key.owner_public())
+            .unwrap()
+            .unwrap();
+        let mut engine = tmt_colab::transitions::Engine::with_decoder_config(
+            support::decoder_config(BINARY.into()),
+        )
+        .unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        engine
+            .advance_epoch(
+                &mut store,
+                &key,
+                tmt_colab::transitions::EpochAdvance {
+                    operation_id: "40000000-0000-4000-8000-000000000098",
+                    expected_revision: head.revision,
+                    page,
+                },
+                now,
+            )
+            .unwrap();
+        store.close().unwrap();
+    }
+    assert_eq!(
+        pilot.call(&["show", page, "--json"])["page"]["next"],
+        "Review"
+    );
+    let refused = pilot
+        .command()
+        .args([
+            "page",
+            "set",
+            page,
+            "--priority",
+            "low",
+            "--expected-revision",
+            stale,
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert_eq!(
+        pilot.call(&["show", page, "--json"])["page"]["priority"],
+        "high"
+    );
+    pilot.call(&[
+        "page",
+        "set",
+        page,
+        "--clear-owner",
+        "--clear-next",
+        "--clear-blocked",
+        "--json",
+    ]);
+    let cleared = pilot.call(&["show", page, "--json"]);
+    assert!(cleared["page"].get("owner").is_none());
+    assert!(cleared["page"].get("next").is_none());
+    assert!(cleared["page"].get("blocked").is_none());
 }
 
 #[test]
