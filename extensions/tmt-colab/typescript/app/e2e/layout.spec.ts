@@ -64,8 +64,11 @@ for (const width of [1440, 390])
         (await page.evaluate(() => document.documentElement.clientWidth)) - column.x,
       );
       const header = (await bar.boundingBox())!;
-      const panel = (await page.locator('.work-band:visible').boundingBox())!;
-      expect(rect?.y).toBe(header.y + header.height + lead + panel.height);
+      const phoneTitle = page.locator('.page-mobile-title:visible');
+      const titleBlock = width <= 640 ? await phoneTitle.boundingBox() : null;
+      expect(rect?.y).toBe(
+        titleBlock ? titleBlock.y + titleBlock.height : header.y + header.height + lead,
+      );
       expect(rect?.height).toBeGreaterThanOrEqual(900 - rect!.y);
       // The frame ends the document: a page taller than the room grows it (window scroll mode), so
       // the bottom is the frame's, not a fixed 900 that depends on the runner's fonts. The frame
@@ -86,10 +89,7 @@ for (const width of [1440, 390])
       // The header holds no access chip at any width (#4116), so the title keeps its room.
       await expect(heading).toBeVisible();
       if (width < 480)
-        await expect(title.locator('.tmt-ui-topbar-title-current')).toHaveAttribute(
-          'title',
-          'Release notes',
-        );
+        await expect(phoneTitle.getByRole('heading', { name: 'Release notes' })).toBeVisible();
       // The shell's rail carries the TMT mark; the bar keeps none (a phone's menu button opens the rail).
       await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
       if (width >= 480)
@@ -98,7 +98,9 @@ for (const width of [1440, 390])
       // The bar draws no brand (the rail names the module); its title slot holds the page's one
       // heading and no title row repeats it.
       await expect(bar.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
-      await expect(title.getByRole('heading', { level: 1 })).toHaveCount(1);
+      await expect(page.getByRole('heading', { name: 'Release notes', exact: true })).toHaveCount(
+        1,
+      );
       await expect(page.locator('.colab-title-row')).toHaveCount(0);
       // The module and the connection identity stay in the title group's accessible name.
       await expect(title.locator('.colab-topbar-identity')).toHaveAttribute(
@@ -494,7 +496,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
   );
   const bar = page.locator('.tmt-ui-topbar:visible');
   const header = bar.locator('.tmt-ui-topbar-title');
-  const heading = header.getByRole('heading', { name: title, exact: true });
+  const heading = header.locator('h1').filter({ hasText: title });
   await expect(heading).toBeVisible();
   await expect(header.locator('.tmt-ui-caption')).toBeVisible();
   await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
@@ -519,7 +521,9 @@ test('one-row fitting retains full labels, stable content and compact action aut
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
-    await expect(heading).toBeVisible();
+    const visibleHeading = width <= 640 ? page.locator('.page-mobile-title:visible h1') : heading;
+    await expect(visibleHeading).toBeVisible();
+    await expect(visibleHeading).toHaveText(title);
     const actions = bar.getByRole('navigation', { name: 'Page actions' });
     await expect(actions.getByRole('button')).toHaveCount(1);
     const more = actions.getByRole('button', { name: 'More', exact: true });

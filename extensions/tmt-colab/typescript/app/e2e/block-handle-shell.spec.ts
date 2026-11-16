@@ -128,8 +128,14 @@ for (const width of [1440, 800, 390])
     // State is now inside the title bar, not a separate row aligned with the blocks.
     const bar = (await page.locator('.tmt-ui-topbar:visible').boundingBox())!;
     const state = (await page.locator('.work-head-chip').boundingBox())!;
-    expect(state.y).toBeGreaterThanOrEqual(bar.y);
-    expect(state.y + state.height).toBeLessThanOrEqual(bar.y + bar.height);
+    if (width <= 640) {
+      const title = (await page.locator('.page-mobile-title h1').boundingBox())!;
+      expect(state.y).toBeGreaterThanOrEqual(title.y + title.height);
+      expect(state.x + state.width).toBeLessThanOrEqual(width);
+    } else {
+      expect(state.y).toBeGreaterThanOrEqual(bar.y);
+      expect(state.y + state.height).toBeLessThanOrEqual(bar.y + bar.height);
+    }
     // The page title, where the bar shows it at the page's edge (beside the sidebar).
     if (width > 900) expect(text).toBe(await textEdge(page, '.tmt-ui-topbar-title h1'));
   });

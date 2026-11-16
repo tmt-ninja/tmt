@@ -121,10 +121,10 @@ test('Save as template names the page, refuses a taken name with a suggestion, a
   // Use template turns into its mark alone, so the title keeps a readable width.
   const width = (locator: Locator) => async () => (await locator.boundingBox())?.width ?? 0;
   await expect.poll(width(page.getByRole('button', { name: 'Use template' }))).toBeLessThan(48);
-  await expect.poll(width(page.locator('.tmt-ui-topbar-title-current'))).toBeGreaterThan(64);
+  await expect.poll(width(page.locator('.page-mobile-title h1'))).toBeGreaterThan(64);
   const needs = page.getByRole('button', { name: 'Needs you: 1', exact: true });
   await expect(needs).toBeVisible();
-  const title = page.locator('.tmt-ui-shell-bar:visible .tmt-ui-topbar-title-current');
+  const title = page.locator('.page-mobile-title h1');
   await expect(title).toBeVisible();
   expect((await title.boundingBox())!.width).toBeGreaterThan(0);
   const bounds = (await needs.boundingBox())!;

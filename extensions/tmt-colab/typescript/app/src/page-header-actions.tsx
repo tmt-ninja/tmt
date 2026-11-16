@@ -261,13 +261,6 @@ export function PageHeaderActions({
               },
             ]
           : []),
-        ...(sharedBar && phone
-          ? (['light', 'dark', 'system'] as const).map((theme) => ({
-              key: theme,
-              label: text.themeChoice[theme],
-              checked: choice === theme,
-            }))
-          : []),
         { key: 'about', label: text.aboutPage, leadingIcon: <Info /> },
       ],
     },
