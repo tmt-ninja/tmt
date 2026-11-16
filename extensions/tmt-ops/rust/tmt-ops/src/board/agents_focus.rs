@@ -250,17 +250,21 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         };
         for form in forms.iter().filter(|form| &form.identity_id == identity_id) {
             push(match (snapshot.forms_stale, form.kind.as_str()) {
-                (true, "question") => "◆ stale question form",
-                (true, "permission") => "◆ stale permission form",
-                (true, _) => "◆ stale plan approval",
+                (true, "question") => "◆ Question form · stale",
+                (true, "permission") => "◆ Permission form · stale",
+                (true, _) => "◆ Plan approval · stale",
                 (false, "question") => "◆ Question form",
                 (false, "permission") => "◆ Permission form",
                 (false, _) => "◆ Plan approval",
             });
             if snapshot.forms_stale {
-                push("Stale · last observed form; current status unavailable.");
+                push(if form.truncated {
+                    "Last observed · current status unavailable · truncated, read-only"
+                } else {
+                    "Last observed · current status unavailable"
+                });
             }
-            if form.truncated {
+            if form.truncated && !snapshot.forms_stale {
                 push("Truncated · read-only");
             }
             let jump_key = super::view::footer::effective_key(
@@ -276,10 +280,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             });
             let hint = match (snapshot.forms_stale, jump_key, terminal_available) {
                 (true, Some(key), true) => format!(
-                    "Stale form · {} jump to check terminal",
+                    "{} jump · check the terminal",
                     super::view::footer::key_label(&key)
                 ),
-                (true, _, _) => "Stale form · terminal jump unavailable.".into(),
+                (true, _, _) => "Check the terminal · jump unavailable.".into(),
                 (false, Some(key), true) => format!(
                     "{} jump · answer in terminal",
                     super::view::footer::key_label(&key)

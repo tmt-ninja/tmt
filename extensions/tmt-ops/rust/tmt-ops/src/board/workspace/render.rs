@@ -776,21 +776,33 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 OpsTarget::Member { identity_id, .. } => snapshot
                     .forms
                     .as_ref()
-                    .and_then(|forms| forms.iter().find(|form| &form.identity_id == identity_id))
+                    .and_then(|forms| {
+                        let mut matching =
+                            forms.iter().filter(|form| &form.identity_id == identity_id);
+                        matching.next().map(|form| (form, 1 + matching.count()))
+                    })
                     .map_or(
                         (state.clone(), state_primary_width, state_attention.clone()),
-                        |form| {
+                        |(form, count)| {
                             let (marker, role) = if snapshot.forms_stale {
-                                ("◆ stale form", Role::Muted)
+                                ("◆ stale form".to_owned(), Role::Muted)
+                            } else if count > 1 {
+                                (format!("◆ {count} forms"), Role::Waiting)
                             } else {
-                                ("◆ form", Role::Waiting)
+                                ("◆ form".to_owned(), Role::Waiting)
                             };
-                            let summary = crate::board::notes::single_line(&form.summary());
+                            let summary = if count > 1 && !snapshot.forms_stale {
+                                String::new()
+                            } else {
+                                format!(" {}", crate::board::notes::single_line(&form.summary()))
+                            };
+                            let marker_width =
+                                unicode_width::UnicodeWidthStr::width(marker.as_str());
                             (
                                 Line::from(vec![
                                     Span::styled(marker, look.role(role)),
                                     Span::styled(
-                                        format!(" {summary}"),
+                                        summary,
                                         look.role(if snapshot.forms_stale {
                                             Role::Muted
                                         } else {
@@ -798,7 +810,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                                         }),
                                     ),
                                 ]),
-                                Some(unicode_width::UnicodeWidthStr::width(marker)),
+                                Some(marker_width),
                                 vec![true, snapshot.forms_stale],
                             )
                         },
