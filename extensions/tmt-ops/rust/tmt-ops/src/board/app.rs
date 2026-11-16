@@ -6628,44 +6628,46 @@ mod token_window_tests {
 
     #[test]
     fn home_sample_retains_live_member_tracks_without_reloading_the_view() {
-        let now = Instant::now();
-        let mut app = home(now);
-        let before = app.view.as_ref().unwrap().document.clone();
-        let at = now + Duration::from_secs(10);
-        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
-        app.agents_live.begin(&app, at);
-        let reading = app.agents_live.member(&app, "a").expect("sampled identity");
-        assert_eq!(reading.minute.unwrap().tokens, 150);
-        assert_eq!(
-            reading.activity[11],
-            Some(150.0),
-            "the open cell shows observed tokens immediately"
-        );
-        let closed = now + Duration::from_secs(300);
-        app.agents_live.begin(&app, closed);
-        let reading = app.agents_live.member(&app, "a").unwrap();
-        assert!(
-            reading.activity[10] == Some(150.0),
-            "the completed cell moves left at its boundary"
-        );
-        assert_eq!(
-            app.view.as_ref().unwrap().document,
-            before,
-            "receipt does not reload the view"
-        );
-        let at = now + Duration::from_secs(75);
-        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
-        app.agents_live.begin(&app, at);
-        assert_eq!(
-            app.agents_live
-                .member(&app, "a")
-                .unwrap()
-                .minute
-                .unwrap()
-                .tokens,
-            0
-        );
-        assert_eq!(app.view.as_ref().unwrap().document, before);
+        crate::status::with_now_ms(3_600_000, || {
+            let now = Instant::now();
+            let mut app = home(now);
+            let before = app.view.as_ref().unwrap().document.clone();
+            let at = now + Duration::from_secs(10);
+            assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+            app.agents_live.begin(&app, at);
+            let reading = app.agents_live.member(&app, "a").expect("sampled identity");
+            assert_eq!(reading.minute.unwrap().tokens, 150);
+            assert_eq!(
+                reading.activity[11],
+                Some(150.0),
+                "the open cell shows observed tokens immediately"
+            );
+            let closed = now + Duration::from_secs(300);
+            app.agents_live.begin(&app, closed);
+            let reading = app.agents_live.member(&app, "a").unwrap();
+            assert!(
+                reading.activity[10] == Some(150.0),
+                "the completed cell moves left at its boundary"
+            );
+            assert_eq!(
+                app.view.as_ref().unwrap().document,
+                before,
+                "receipt does not reload the view"
+            );
+            let at = now + Duration::from_secs(75);
+            assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+            app.agents_live.begin(&app, at);
+            assert_eq!(
+                app.agents_live
+                    .member(&app, "a")
+                    .unwrap()
+                    .minute
+                    .unwrap()
+                    .tokens,
+                0
+            );
+            assert_eq!(app.view.as_ref().unwrap().document, before);
+        });
     }
 
     #[test]
