@@ -571,7 +571,11 @@ Shared completion counts treat references as attributes, including linked open i
 a known positive count; the state and unread words keep their width first. If the full
 `N todo` suffix does not fit, the suffix is omitted.
 The shared track solver keeps header, row and hit geometry aligned. The Agents tree
-shows twelve five-minute activity cells and a token-per-minute column alongside the
-selected TOK range; narrow layouts drop HOST, activity, then TOK/min. TOK/min remains
-token-based in cost mode. Pending/unavailable counts stay
+shows twelve grey activity cells for the saved 1m, 5m, 10m or 1h window and a
+smoothed token-per-minute column alongside the selected TOK range. `b` and the
+header hit cycle the window; the workspace preference saves it through CAS. Narrow
+layouts drop HOST, activity, then TOK/min. TOK/min remains token-based in cost mode.
+A pinned ten-minute five-second history seed replaces overlapping hour slices; missing fine evidence cannot invent short-cell values. Visible working rows, count-ups,
+attention flashes and squad marks admit bounded frame clocks. The workspace motion
+preference suppresses these effects, and inactive motion has no animation deadline. Pending/unavailable counts stay
 distinct from known zero in the global header; none adds a row suffix.

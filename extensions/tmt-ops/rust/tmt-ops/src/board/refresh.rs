@@ -538,12 +538,14 @@ pub(super) struct HistoryJob {
     cursor: Option<u64>,
     targets: BTreeMap<String, (crate::config::TokenRate, super::rate::Input)>,
     demand: Option<super::rate::history::Demand>,
+    fresh_recent: bool,
 }
 
 pub(crate) struct HistoryRead {
     pub owner: String,
     pub targets: BTreeMap<String, (crate::config::TokenRate, super::rate::Input)>,
     pub seeds: super::rate::history::Seeds,
+    pub reseed_recent: bool,
     pub(in crate::board) retained: Option<(
         super::rate::history::rollup::Request,
         super::rate::history::rollup::Seeds,
@@ -558,6 +560,11 @@ impl HistoryJob {
         (&self.owner, self.demand)
     }
 
+    #[cfg(test)]
+    pub(super) fn test_fresh_recent(&self) -> bool {
+        self.fresh_recent
+    }
+
     pub(super) fn requested(
         app: &App,
         demand: Option<super::rate::history::Demand>,
@@ -567,7 +574,12 @@ impl HistoryJob {
         }
         let mut job = Self::new(app.current.as_deref()?, app.view.as_ref()?)?;
         job.demand = demand;
+        job.fresh_recent = false;
         Some(job)
+    }
+
+    pub(super) fn refresh_recent(&mut self) {
+        self.fresh_recent = true;
     }
 
     fn new(owner: &str, view: &View) -> Option<Self> {
@@ -584,6 +596,7 @@ impl HistoryJob {
             cursor: None,
             targets,
             demand: None,
+            fresh_recent: true,
         })
     }
 
@@ -603,7 +616,12 @@ impl HistoryJob {
             .flat_map(|(_, input)| input.resumes.keys().cloned())
             .collect();
         let now = crate::status::now_ms();
-        let seeds = cache.load(core, ids.clone(), longest, self.cursor, now);
+        let seeds = if self.fresh_recent {
+            cache.invalidate_recent();
+            cache.load(core, ids.clone(), longest, self.cursor, now)
+        } else {
+            Default::default()
+        };
         cache.retain_demand(self.demand);
         let retained = self.demand.and_then(|demand| demand.chart).map(|request| {
             (
@@ -627,6 +645,7 @@ impl HistoryJob {
             owner: self.owner,
             targets: self.targets,
             seeds,
+            reseed_recent: self.fresh_recent,
             retained,
             quota,
             observed,
@@ -979,10 +998,21 @@ fn serve(
         };
         let mut wanted = None;
         let mut checklist = Vec::new();
-        let mut requested_history = None;
+        let mut requested_history: Option<(HistoryJob, u64)> = None;
         for work in std::iter::once(received).chain(pending.try_iter()) {
             match work {
-                Work::History { job, generation } => requested_history = Some((job, generation)),
+                Work::History {
+                    mut job,
+                    generation,
+                } => {
+                    if let Some((previous, previous_generation)) = &requested_history
+                        && *previous_generation == generation
+                        && previous.fresh_recent
+                    {
+                        job.fresh_recent = true;
+                    }
+                    requested_history = Some((job, generation));
+                }
                 Work::Checklist(task) => checklist.push(task),
                 Work::Reload(reload) => wanted = Some(reload),
             }
@@ -996,6 +1026,7 @@ fn serve(
             }
         }
         wanted = wanted.filter(|reload| generation.load(Ordering::Acquire) == reload.generation);
+        let mut force_recent = false;
         if let Some((mut job, expected)) = requested_history
             && generation.load(Ordering::Acquire) == expected
         {
@@ -1003,6 +1034,7 @@ fn serve(
                 // An already requested full load still comes first and uses
                 // the newest demand with its freshly acquired workspace inputs.
                 reload.demand = job.demand;
+                force_recent = job.fresh_recent;
             } else {
                 if let Some((reload, _, _)) = &mut last
                     && reload.generation == expected
@@ -1037,11 +1069,12 @@ fn serve(
             wanted.squad.clone(),
             wanted.generation,
             wanted.preview_panes,
-            last.as_ref().is_none_or(|(previous, _, _)| {
-                previous.squad != wanted.squad
-                    || previous.generation != wanted.generation
-                    || previous.demand != wanted.demand
-            }),
+            force_recent
+                || last.as_ref().is_none_or(|(previous, _, _)| {
+                    previous.squad != wanted.squad
+                        || previous.generation != wanted.generation
+                        || previous.demand != wanted.demand
+                }),
         );
         if generation.load(Ordering::Acquire) != wanted.generation {
             continue;
@@ -3328,6 +3361,7 @@ printf '%s\n' '{{}}'
                 cursor: None,
                 targets: BTreeMap::new(),
                 demand: Some(demand),
+                fresh_recent: true,
             },
         })
         .unwrap();
@@ -3351,6 +3385,7 @@ printf '%s\n' '{{}}'
                     cursor: None,
                     targets: BTreeMap::new(),
                     demand: None,
+                    fresh_recent: true,
                 });
                 loaded
             },
@@ -3381,6 +3416,7 @@ printf '%s\n' '{{}}'
                         cursor: None,
                         targets: BTreeMap::new(),
                         demand: None,
+                        fresh_recent: owner == "superseded",
                     },
                 })
                 .unwrap();
@@ -3405,6 +3441,10 @@ printf '%s\n' '{{}}'
                     };
                     assert_eq!(expected, 3);
                     assert_eq!(job.owner, "current");
+                    assert!(
+                        job.fresh_recent,
+                        "coalescing retains the earlier fresh request"
+                    );
                     assert_eq!(job.cursor, Some(99));
                     reads.set(reads.get() + 1);
                     true
@@ -3522,6 +3562,7 @@ printf '%s\n' '{{}}'
                                 owner: job.owner.clone(),
                                 targets: job.targets.clone(),
                                 seeds: seeds.clone(),
+                                reseed_recent: true,
                                 observed: Ok(fresh.resumes.clone()),
                                 retained: None,
                                 quota: None,
@@ -3544,6 +3585,7 @@ printf '%s\n' '{{}}'
                             owner: job.owner,
                             targets: job.targets,
                             seeds: seeds.clone(),
+                            reseed_recent: true,
                             observed: Ok(fresh.resumes.clone()),
                             retained: None,
                             quota: None,
@@ -3623,6 +3665,7 @@ esac
                 cursor: None,
                 targets: [("product".into(), (settings, input))].into(),
                 demand: None,
+                fresh_recent: true,
             };
             let read = job.complete(&core, &mut Default::default());
             let request: Value =
@@ -3657,6 +3700,7 @@ esac
                     )]
                     .into(),
                     demand: Some(super::super::rate::history::Demand { chart, quota }),
+                    fresh_recent: true,
                 };
                 let read = job.complete(&core, &mut Default::default());
                 let calls: Vec<Value> = std::fs::read_to_string(world.0.join("requests"))
@@ -3721,6 +3765,7 @@ esac
                         cursor: None,
                         targets: BTreeMap::new(),
                         demand: None,
+                        fresh_recent: true,
                     });
                     loaded
                 },

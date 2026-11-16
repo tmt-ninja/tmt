@@ -508,10 +508,12 @@ to retry. A newer answer revision stays unread until that answer is seen. Existi
 local read cutoffs migrate once; the cutoff compares answeredAtMs, conservatively
 keeping a capture settled after the cutoff unread.
 
-The Agents tree shows SQUAD / AGENT, STATE, HOST, ACTIVITY 1h, TOK/min,
+The Agents tree shows SQUAD / AGENT, STATE, HOST, ACTIVITY, TOK/min,
 TOK for the selected range, and ◷ when space permits. A Muted `*` before a name
-marks a lead. Activity uses twelve five-minute cells. TOK/min always shows tokens,
-including in cost mode; the TOK range column switches between tokens and cost.
+marks a lead. `b` or a click on the ACTIVITY header cycles 1m, 5m, 10m and 1h;
+the header names the saved window and the twelve grey cells run oldest to newest.
+TOK/min is a smoothed token rate, including in cost mode; the TOK range column
+switches between tokens and cost. Workspace settings can turn motion off.
 Missing evidence is `—`, while an observed zero is `0`; partial totals are marked `~`.
 Narrow tables drop HOST, ACTIVITY and TOK/min in that order. ◷ is the total **timers owned** by that member in the row's
 room, paused included: known zero is `0`, unavailable is `—`. Digest/runtime

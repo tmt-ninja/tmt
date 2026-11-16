@@ -13,6 +13,17 @@ use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::{components::strip, style::TextFlow};
 use unicode_width::UnicodeWidthStr;
 
+fn minute_role(rate: Option<u128>, depth: tmt_cli_style::Depth) -> Role {
+    if depth == tmt_cli_style::Depth::None {
+        return Role::Text;
+    }
+    match rate {
+        None | Some(0) => Role::Dim,
+        Some(1..1_000) => Role::Muted,
+        Some(_) => Role::Text,
+    }
+}
+
 /// Where the agent's name sits among the spans of its cell: pin, branch, lead mark, name.
 const NAME_SPAN: usize = 5;
 
@@ -66,6 +77,7 @@ pub(in crate::board) struct Row<'a> {
     pub tokens_bold: bool,
     pub minute: String,
     pub minute_bold: bool,
+    pub minute_rate: Option<u128>,
     pub session: String,
     pub timers: Option<u32>,
     pub selected: bool,
@@ -338,14 +350,10 @@ pub(in crate::board) fn paint(
                 Line::styled(fit(&row.session, Align::Left), look.role(Role::Muted))
             }
             AgentsField::Activity => Line::styled("", look.role(Role::Muted)),
-            AgentsField::PerMinute => Line::styled(
-                fit(&row.minute, Align::Right),
-                look.role(if row.minute == "—" {
-                    Role::Dim
-                } else {
-                    Role::Text
-                }),
-            ),
+            AgentsField::PerMinute => {
+                let role = minute_role(row.minute_rate, look.depth);
+                Line::styled(fit(&row.minute, Align::Right), look.role(role))
+            }
             AgentsField::Tokens => {
                 painted.tokens = Some(cell);
                 Line::styled(
@@ -370,7 +378,12 @@ pub(in crate::board) fn paint(
                 )
             }
         };
-        line.style = style(look, row, line.style, false);
+        line.style = style(
+            look,
+            row,
+            line.style,
+            matches!(field, AgentsField::PerMinute),
+        );
         for (index, span) in line.spans.iter_mut().enumerate() {
             let attention = matches!(field, AgentsField::State)
                 && row.state_attention.get(index).copied().unwrap_or(false);
@@ -382,7 +395,9 @@ pub(in crate::board) fn paint(
         {
             span.style = label_chip(label, look).style;
         }
-        if (matches!(field, AgentsField::PerMinute) && row.minute_bold)
+        if (matches!(field, AgentsField::PerMinute)
+            && look.depth != tmt_cli_style::Depth::None
+            && (row.minute_bold || row.minute_rate.is_some_and(|rate| rate >= 10_000)))
             || (matches!(field, AgentsField::Tokens) && row.tokens_bold)
         {
             line.style = line.style.add_modifier(Modifier::BOLD);
@@ -408,6 +423,21 @@ pub(in crate::board) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn minute_heat_uses_only_grey_roles_and_plain_no_color() {
+        use tmt_cli_style::Depth;
+        for (value, role) in [
+            (None, Role::Dim),
+            (Some(0), Role::Dim),
+            (Some(1), Role::Muted),
+            (Some(1_000), Role::Text),
+            (Some(20_000), Role::Text),
+        ] {
+            assert_eq!(minute_role(value, Depth::TrueColor), role);
+            assert_eq!(minute_role(value, Depth::None), Role::Text);
+        }
+    }
 
     #[test]
     fn idle_rows_preserve_attention_and_selected_styles() {
@@ -468,6 +498,7 @@ mod tests {
                     tokens_bold: false,
                     minute: "—".into(),
                     minute_bold: false,
+                    minute_rate: None,
                     session: String::new(),
 
                     timers: None,
@@ -569,6 +600,7 @@ mod tests {
                 tokens_bold: false,
                 minute: "—".into(),
                 minute_bold: false,
+                minute_rate: None,
                 session: String::new(),
 
                 timers: None,
@@ -609,6 +641,7 @@ mod tests {
             tokens_bold: false,
             minute: String::new(),
             minute_bold: false,
+            minute_rate: None,
             session: String::new(),
             timers: None,
             selected: false,
@@ -673,6 +706,7 @@ mod tests {
                 tokens_bold: false,
                 minute: "—".into(),
                 minute_bold: false,
+                minute_rate: None,
                 session: String::new(),
 
                 timers: Some(0),
@@ -745,6 +779,7 @@ mod tests {
                         tokens_bold: false,
                         minute: "—".into(),
                         minute_bold: false,
+                        minute_rate: None,
                         session: String::new(),
 
                         timers: None,

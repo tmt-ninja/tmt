@@ -214,6 +214,25 @@ impl App {
             })
     }
 
+    pub(in crate::board) fn motion_off(&self) -> bool {
+        self.workspace_snapshot()
+            .is_some_and(|snapshot| snapshot.preferences.motion_off)
+            || self
+                .view
+                .as_ref()
+                .and_then(|view| view.home.as_ref())
+                .is_some_and(|home| home.reduced_motion)
+    }
+
+    pub(in crate::board) fn toggle_motion(&mut self) -> Effect {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return self.say("The workspace has not loaded.");
+        };
+        let mut next = snapshot.preferences.clone();
+        next.motion_off = !next.motion_off;
+        self.workspace_save(next)
+    }
+
     pub(in crate::board) fn cycle_activity_window(&mut self) -> Effect {
         let Some(snapshot) = self.workspace_snapshot() else {
             return self.say("The workspace has not loaded.");
@@ -816,7 +835,8 @@ impl App {
                     && (source.is_some_and(|source| source == "workspace default")
                         || ((matches!(event.as_str(), "e" | "i" | "z")
                             || (self.shell.tab == OpsTab::Digest
-                                && matches!(event.as_str(), "u" | "[")))
+                                && matches!(event.as_str(), "u" | "["))
+                            || (self.shell.tab == OpsTab::Agents && event == "b"))
                             && source.is_none()))
                 {
                     keys.insert(event, action);
@@ -1613,6 +1633,20 @@ impl App {
             choice: Choice::WorkspaceLayout(layout),
         })
         .collect();
+        entries.push(MenuEntry {
+            chip: None,
+            separator: false,
+            key: String::new(),
+            label: format!(
+                "Motion: {}",
+                if snapshot.preferences.motion_off {
+                    "off"
+                } else {
+                    "on"
+                }
+            ),
+            choice: Choice::Motion,
+        });
         for window in crate::config::DigestWindow::ALL {
             entries.push(MenuEntry {
                 chip: None,

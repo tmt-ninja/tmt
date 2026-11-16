@@ -222,6 +222,11 @@ pub(in crate::board) struct Cache {
 }
 
 impl Cache {
+    pub fn invalidate_recent(&mut self) {
+        self.key = None;
+        self.seeds.clear();
+    }
+
     pub fn retained(
         &mut self,
         core: &Core,
@@ -392,12 +397,11 @@ impl RetainedCache {
     }
 }
 
-/// Acquire only one longest window; overlapping shorter windows are never added.
+/// Acquire the longest window, replacing its recent coarse slices with finer
+/// evidence at the same cut; overlapping windows are never added.
 pub fn load(core: &Core, ids: BTreeSet<String>, longest: TokenWindow) -> Seeds {
     let window = longest.milliseconds().min(3_600_000);
-    let mut seeds = read_window(core, ids, window, 120, |response, row| {
-        Seed::read(response, row, window)
-    });
+    let mut seeds = read_recent(core, ids, window);
     if window != 3_600_000 {
         return seeds;
     }
@@ -410,22 +414,61 @@ pub fn load(core: &Core, ids: BTreeSet<String>, longest: TokenWindow) -> Seeds {
         }
     }
     for (cut, ids) in cuts {
-        let fine = read_window_at(core, ids, 60_000, 12, Some(cut), |response, row| {
-            Seed::read_at(response, row, 60_000, 12, Some(cut))
+        // Five-second evidence covers 1m, 5m and 10m activity cells without
+        // splitting the hour seed's thirty-second buckets.
+        let fine = read_window_at(core, ids, 600_000, 120, Some(cut), |response, row| {
+            Seed::read_at(response, row, 600_000, 120, Some(cut))
         });
         for (id, fine) in fine {
-            let Some(entry) = seeds.get_mut(&id) else {
-                continue;
-            };
-            let valid = match (entry.as_mut(), fine) {
-                (Some(seed), Some(fine)) => seed.replace_recent(fine).is_some(),
-                _ => false,
-            };
-            // Without the fine interval, the hour aggregate cannot truthfully
-            // supply five-second activity cells.
-            if !valid {
-                *entry = None;
+            if let (Some(seed), Some(fine)) = (seeds.get_mut(&id).and_then(Option::as_mut), fine) {
+                // Failed or unaligned fine history leaves the known coarse
+                // seed intact; the activity projection rejects split evidence.
+                let _ = seed.replace_recent(fine);
             }
+        }
+    }
+    seeds
+}
+
+/// Pin every later roster batch to the first valid five-second cut.
+fn read_recent(core: &Core, ids: BTreeSet<String>, window: u64) -> Seeds {
+    let ids: Vec<_> = ids.into_iter().collect();
+    let mut seeds = BTreeMap::new();
+    let mut cut = None;
+    for batch in ids.chunks(32) {
+        let requested = cut;
+        let mut input = json!({"identityIds": batch, "windowsMs": [window], "maxBuckets": 120});
+        if let Some(through) = requested {
+            input["throughMs"] = json!(through);
+        }
+        let response = core.api("consumption.history", input);
+        if cut.is_none()
+            && let Ok(value) = &response
+            && let (Some(as_of), Some(through)) =
+                (value["asOfMs"].as_u64(), value["throughMs"].as_u64())
+            && as_of <= SAFE
+            && value["resolutionMs"] == SLOT_MS
+            && through == as_of / SLOT_MS * SLOT_MS
+        {
+            cut = Some(through);
+        }
+        for id in batch {
+            let seed = response.as_ref().ok().and_then(|value| {
+                let mut matching = value["identities"]
+                    .as_array()?
+                    .iter()
+                    .filter(|row| row["id"] == *id);
+                let row = matching.next()?;
+                if matching.next().is_some() {
+                    return None;
+                }
+                if requested.is_some() {
+                    Seed::read_at(value, row, window, 120, requested)
+                } else {
+                    Seed::read(value, row, window)
+                }
+            });
+            seeds.insert(id.clone(), seed);
         }
     }
     seeds
@@ -539,6 +582,72 @@ mod tests {
                 .is_none()
         );
         assert_eq!(coarse.buckets.len(), 2);
+    }
+
+    #[test]
+    fn recent_activity_reads_use_one_pinned_cut_and_replace_without_double_counting() {
+        let dir =
+            std::env::temp_dir().join(format!("ops-fine-history-{}", crate::id::new_v4().unwrap()));
+        std::fs::create_dir(&dir).unwrap();
+        let through = 3_600_000_u64;
+        let window = |span: u64, bucket: u64, tokens: u64| {
+            let from = through - span;
+            let buckets: Vec<_> = (0..span / bucket)
+                .map(|i| {
+                    json!({
+                        "fromMs":from + i * bucket, "toMs":from + (i + 1) * bucket,
+                        "inputTokens":tokens, "outputTokens":0, "cachedInputTokens":0,
+                        "coveredMs":bucket, "complete":true, "gap":false, "discontinuous":false
+                    })
+                })
+                .collect();
+            json!({"windowMs":span,"fromMs":from,"toMs":through,"bucketMs":bucket,"buckets":buckets})
+        };
+        let response = json!({"asOfMs":through,"throughMs":through,"resolutionMs":5_000,
+        "retainedFromMs":0,"identities":[{"id":"a","found":true,"availableFromMs":null,
+        "lastSampleAtMs":null,"latest":null,"reporting":true,"windows":[
+            window(3_600_000,30_000,6), window(600_000,5_000,1), window(60_000,5_000,1)
+        ]}]});
+        let response_path = dir.join("response");
+        let calls = dir.join("calls");
+        let fake = dir.join("tmt");
+        std::fs::write(&response_path, response.to_string()).unwrap();
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                "#!/bin/sh\n[ \"$1\" = api ] || exit 2\ncat >> '{}'\nprintf '\n' >> '{}'\ncat '{}'\n",
+                calls.display(),
+                calls.display(),
+                response_path.display()
+            ),
+        );
+        let ids = std::iter::once("a".to_owned())
+            .chain((0..32).map(|n| format!("z{n:02}")))
+            .collect();
+        let seeds = load(&Core::at(fake), ids, TokenWindow::HOUR);
+        let seed = seeds["a"].as_ref().unwrap();
+        assert_eq!(seed.buckets.len(), 220);
+        assert_eq!(
+            seed.buckets
+                .iter()
+                .map(|slice| slice.input_tokens)
+                .sum::<u64>(),
+            720
+        );
+        let requests: Vec<Value> = std::fs::read_to_string(&calls)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0]["input"]["windowsMs"], json!([3_600_000]));
+        assert_eq!(requests[1]["input"]["windowsMs"], json!([3_600_000]));
+        assert_eq!(requests[2]["input"]["windowsMs"], json!([600_000]));
+        assert_eq!(requests[2]["input"]["maxBuckets"], 120);
+        for request in &requests[1..] {
+            assert_eq!(request["input"]["throughMs"], through);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

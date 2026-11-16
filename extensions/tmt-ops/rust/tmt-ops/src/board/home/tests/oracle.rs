@@ -717,6 +717,110 @@ fn measure_exchanges_frames(styles: &mut Styles) -> Vec<Value> {
     frames
 }
 
+/// Fixed activity-window and live-state scenes for decoded text, styles and hits.
+#[inline(never)]
+fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
+    use crate::board::workspace::OpsTarget;
+    use crate::config::ActivityWindow;
+    use std::time::{Duration, Instant};
+    scene_group(
+        styles,
+        &[
+            "activity-1m",
+            "activity-5m",
+            "activity-10m",
+            "activity-1h",
+            "activity-count-mid",
+            "activity-count-settled",
+            "activity-working",
+            "activity-heat-zero",
+            "activity-heat-low",
+            "activity-heat-normal",
+            "activity-heat-high",
+            "activity-row-flash",
+            "activity-squad",
+            "activity-motion-off",
+            "activity-partial",
+        ],
+        |_| grid(&[160, 80], &[36]),
+        |state, look, width, height| {
+            let mut app = metered(look);
+            let window = match state {
+                "activity-1m" => ActivityWindow::Minute,
+                "activity-5m" => ActivityWindow::FiveMinutes,
+                "activity-10m" => ActivityWindow::TenMinutes,
+                _ => ActivityWindow::Hour,
+            };
+            let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+            workspace.preferences.activity_window = window;
+            workspace.preferences.motion_off = state == "activity-motion-off";
+            let member = workspace.roster.members.get_mut(MEMBER).unwrap();
+            member.activity.phase = crate::board::activity::Phase::Working;
+            member.activity.since_ms = Some(NOW - 192_000);
+            if state == "activity-row-flash" {
+                workspace.roster.squads[0]
+                    .member_states
+                    .get_mut(MEMBER)
+                    .unwrap()
+                    .waiting = true;
+            }
+            if state == "activity-squad" {
+                app.workspace.expanded.clear();
+            }
+            app.overview_rows.borrow_mut().clear();
+            let now = Instant::now();
+            let rate = match state {
+                "activity-heat-zero" => 0,
+                "activity-heat-low" => 500,
+                "activity-heat-normal" => 5_000,
+                "activity-heat-high" => 20_000,
+                _ => 2_000,
+            };
+            app.agents_live
+                .set_capture_rate(MEMBER, rate, state == "activity-heat-high", now);
+            if state == "activity-row-flash" {
+                let key = format!(
+                    "{:?}",
+                    OpsTarget::Member {
+                        room_id: Some(ROOM.into()),
+                        identity_id: MEMBER.into()
+                    }
+                );
+                let future = now + Duration::from_secs(60);
+                app.agents_live
+                    .row_flash(key.clone(), false, false, 0, true, future);
+                app.agents_live.row_flash(key, true, false, 0, true, future);
+            }
+            if state == "activity-count-mid" || state == "activity-count-settled" {
+                // Establish actual visible geometry, then place the count at a deterministic frame.
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render(frame, &app))
+                    .unwrap();
+                if let Some(target) = app.overview_member_usage(MEMBER) {
+                    let key = format!("agents:member:{MEMBER}:range:1h");
+                    let mut counters = app.home_counters.borrow_mut();
+                    let mut start = target;
+                    start.tokens /= 2;
+                    counters.live_value(key.clone(), Some(start), false, now);
+                    counters.live_value(key, Some(target), false, now);
+                    counters.tick(
+                        now + if state == "activity-count-mid" {
+                            Duration::from_millis(250)
+                        } else {
+                            Duration::from_millis(800)
+                        },
+                    );
+                }
+            }
+            app
+        },
+        |captured, app| {
+            captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()))
+        },
+    )
+}
+
 /// Paste attachments and forms share their scene owner with decoded review.
 fn paste_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
@@ -1244,6 +1348,7 @@ macro_rules! oracle_groups {
         $group!(7, 16, measure_frames($styles));
         $group!(7, 24, search_frames($styles));
         $group!(7, 36, measure_exchanges_frames($styles));
+        $group!(7, 120, agents_activity_frames($styles));
         $group!(8, 228, paste_frames($styles));
         $group!(7, 60, file_chip_frames($styles));
         $group!(7, 144, quote_frames($styles));

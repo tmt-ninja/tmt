@@ -68,7 +68,7 @@ impl Input {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Counter {
+pub(super) struct Counter {
     key: (String, String, String),
     input: u64,
     output: u64,
@@ -96,7 +96,7 @@ pub(in crate::board) fn resume_model(resume: &Value) -> Option<&str> {
 }
 
 impl Counter {
-    fn read(resume: &Value) -> Option<Self> {
+    pub(super) fn read(resume: &Value) -> Option<Self> {
         let value = &resume["consumption"];
         let number = |key: &str| value[key].as_u64().filter(|n| *n <= SAFE);
         let counter = Self {
@@ -128,6 +128,23 @@ impl Counter {
             && counter.input + counter.output <= SAFE
             && !(complete && gap))
             .then_some(counter)
+    }
+
+    /// A continuous, monotonic counter pair. None means rebaseline.
+    pub(super) fn delta(&self, previous: &Self) -> Option<u64> {
+        if !self.usable
+            || !previous.usable
+            || self.key != previous.key
+            || self.sequence < previous.sequence
+            || self.observed < previous.observed
+            || (self.sequence == previous.sequence && self != previous)
+        {
+            return None;
+        }
+        let input = self.input.checked_sub(previous.input)?;
+        let output = self.output.checked_sub(previous.output)?;
+        self.cached.checked_sub(previous.cached)?;
+        input.checked_add(output)
     }
 }
 
@@ -199,9 +216,6 @@ struct Bucket {
     gap: bool,
     /// Whole core rollup tokens cannot be split at a shorter window boundary.
     source_from: Option<u64>,
-    /// Source interval for every padded history slot, used to avoid placing
-    /// coarse evidence into an activity cell it crosses.
-    source_bounds: Option<(u64, u64)>,
     /// Keep source-backed duration distinct from live receipt evidence. History
     /// padding slots carry no independent token or duration observation.
     origin: BucketOrigin,
@@ -594,7 +608,6 @@ impl Rate {
                     }
                     *bucket = Bucket {
                         slot: Some(slot),
-                        source_bounds: Some((slice.from_ms, slice.to_ms)),
                         evidence: slice.complete,
                         gap: !slice.complete || slice.gap || slice.discontinuous,
                         origin: BucketOrigin::History {
@@ -662,7 +675,6 @@ impl Rate {
                         evidence: slice.complete || slice.covered_ms > 0,
                         gap: !slice.complete || slice.gap || slice.discontinuous,
                         source_from: Some(slice.from_ms),
-                        source_bounds: Some((slice.from_ms, slice.to_ms)),
                         origin: BucketOrigin::History {
                             covered_ms: u32::try_from(slice.covered_ms).ok(),
                         },
@@ -838,7 +850,7 @@ impl Rate {
             .saturating_mul(SLOT_MS)
     }
     pub fn trend(&self, now: u64, window: TokenWindow) -> [Option<f64>; 8] {
-        Self::trend_of(self.members.values(), now, window)
+        Self::trend_of(self.members.values(), now, window, false)
     }
 
     /// Member focus and squad rows use the same admitted buckets and bounds.
@@ -848,13 +860,23 @@ impl Rate {
         now: u64,
         window: TokenWindow,
     ) -> [Option<f64>; N] {
-        Self::trend_of(self.members.get(id).into_iter(), now, window)
+        Self::trend_of(self.members.get(id).into_iter(), now, window, false)
+    }
+
+    pub fn member_activity<const N: usize>(
+        &self,
+        id: &str,
+        now: u64,
+        window: TokenWindow,
+    ) -> [Option<f64>; N] {
+        Self::trend_of(self.members.get(id).into_iter(), now, window, true)
     }
 
     fn trend_of<'a, const N: usize>(
         members: impl Iterator<Item = &'a Member> + Clone,
         now: u64,
         window: TokenWindow,
+        whole_cells: bool,
     ) -> [Option<f64>; N] {
         assert!(N > 0, "trend requires a nonempty bucket grid");
         let bar_slots = (window.milliseconds() / SLOT_MS).div_ceil(N as u64);
@@ -869,11 +891,13 @@ impl Rate {
                     .slot
                     .is_some_and(|slot| (first..=last).contains(&slot))
                 {
-                    let cell_from = first.saturating_mul(SLOT_MS);
-                    let cell_to = last.saturating_add(1).saturating_mul(SLOT_MS);
-                    if bucket
-                        .source_bounds
-                        .is_some_and(|(from, to)| from < cell_from || to > cell_to)
+                    // History padding is not independently measured. Only its
+                    // final slot owns the whole source interval and its tokens.
+                    if whole_cells
+                        && matches!(bucket.origin, BucketOrigin::History { .. })
+                        && bucket
+                            .source_from
+                            .is_none_or(|from| from < first.saturating_mul(SLOT_MS))
                     {
                         continue;
                     }

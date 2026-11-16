@@ -199,6 +199,90 @@ fn accented(app: &App, buffer: &Buffer, x: u16, y: u16) -> bool {
 const LISTS: [&str; 1] = ["squads"];
 
 #[test]
+fn working_turn_timer_and_spinner_respect_motion_preference() {
+    use crate::board::{activity::Phase, view::ClockSurface};
+    let now_ms = 1_800_000_000_000;
+    crate::status::with_now_ms(now_ms, || {
+        let mut app = open(SavingsUnit::Tokens);
+        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let member = workspace.roster.members.get_mut(MEMBER).unwrap();
+        member.activity.phase = Phase::Working;
+        member.activity.since_ms = Some(now_ms - 192_000);
+        let buffer = frame(&app, 160);
+        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(text.contains("working 3m12s"), "{text}");
+        assert!(
+            app.frame_clocks
+                .borrow()
+                .iter()
+                .any(|clock| matches!(clock, ClockSurface::WorkingTurn { motion: true, .. }))
+        );
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .motion_off = true;
+        frame(&app, 160);
+        assert!(
+            app.frame_clocks
+                .borrow()
+                .iter()
+                .any(|clock| matches!(clock, ClockSurface::WorkingTurn { motion: false, .. }))
+        );
+        assert!(
+            !app.frame_clocks
+                .borrow()
+                .iter()
+                .any(|clock| matches!(clock, ClockSurface::SquadBreath))
+        );
+    });
+}
+
+#[test]
+fn squad_activity_sums_known_members_and_preserves_unknown_cells() {
+    use crate::board::agents_live::AgentsLiveUsage;
+    let mut app = open(SavingsUnit::Tokens);
+    let room = app.workspace_snapshot().unwrap().roster.squads[0]
+        .room_id
+        .clone();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .members
+        .push("second".into());
+    app.agents_live.begin(&app, Instant::now());
+    app.agents_live.usage.borrow_mut().insert(
+        MEMBER.into(),
+        AgentsLiveUsage {
+            minute: None,
+            activity: [Some(2.0); 12],
+        },
+    );
+    let mut second = [Some(3.0); 12];
+    second[4] = None;
+    app.agents_live.usage.borrow_mut().insert(
+        "second".into(),
+        AgentsLiveUsage {
+            minute: None,
+            activity: second,
+        },
+    );
+    let total = app.agents_live.squad_activity(&app, &room);
+    assert_eq!(total[0], Some(5.0));
+    assert_eq!(total[4], None);
+}
+
+#[test]
 fn activity_header_and_b_cycle_the_same_saved_window() {
     use crate::config::ActivityWindow;
     for (current, next_window) in [

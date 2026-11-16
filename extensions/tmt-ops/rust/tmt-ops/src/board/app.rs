@@ -413,6 +413,7 @@ pub enum Choice {
     /// The shared saved TOK range for Agents and Digest.
     TokRange(crate::config::TokRange),
     ActivityWindow,
+    Motion,
     /// A click on an Agents column header: sort by it, or reverse it.
     SortBy(super::header_sort::Header),
     /// A click on an exchange matrix cell: Talk opens with the row's agent.
@@ -1636,6 +1637,9 @@ impl App {
             }
         }
         if sampled {
+            if let Ok(rows) = resumes {
+                self.agents_live.observe_rates(rows, now);
+            }
             self.usage_chart.get_mut().invalidate_data();
             self.agents_live.invalidate();
         }
@@ -1764,7 +1768,9 @@ impl App {
             else {
                 continue;
             };
-            meter.seed(&current.input, &read.seeds, now, false);
+            if read.reseed_recent {
+                meter.seed(&current.input, &read.seeds, now, false);
+            }
             if let Some((_, seeds)) = &read.retained {
                 meter.seed_retained(&current.input, seeds, now);
             }
@@ -3397,6 +3403,7 @@ impl App {
             Choice::DigestBasis => super::digest_dashboard::open_basis(self),
             Choice::TokRange(range) => self.select_tok_range(range),
             Choice::ActivityWindow => self.cycle_activity_window(),
+            Choice::Motion => self.toggle_motion(),
             Choice::SortBy(header) => self.sort_by_header(header),
             Choice::ExchangeCell { sender, recipient } => {
                 self.open_exchange_pair(&sender, &recipient)
@@ -6459,6 +6466,7 @@ mod token_window_tests {
             owner: super::super::ALL.into(),
             targets: [("product".into(), (rate.settings, rate.input.clone()))].into(),
             seeds: BTreeMap::new(),
+            reseed_recent: true,
             observed: Ok(super::super::rate::tests::input(400).resumes),
             retained: None,
             quota: app.quota_history_visible().then(Default::default),
@@ -6539,6 +6547,7 @@ mod token_window_tests {
                 owner,
                 targets: [("product".into(), (settings, input))].into(),
                 seeds: BTreeMap::new(),
+                reseed_recent: true,
                 observed: Err(()),
                 retained: None,
                 quota: app.quota_history_visible().then(Default::default),

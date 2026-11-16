@@ -280,13 +280,61 @@ fn live_cell(
     )
 }
 
+fn member_counter_key(app: &App, id: &str) -> String {
+    format!("agents:member:{id}:range:{}", app.tok_range().argument())
+}
+
+fn squad_token_digits(
+    app: &App,
+    cell: Rect,
+    members: &[String],
+    complete: bool,
+    reduced: bool,
+    now: std::time::Instant,
+) -> Option<String> {
+    if cell.is_empty() {
+        return None;
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut counters = app.home_counters.borrow_mut();
+    let mut total = 0_u128;
+    let mut partial = !complete;
+    let mut known = false;
+    for id in members {
+        if !seen.insert(id) {
+            continue;
+        }
+        let reading = app.overview_member_usage(id);
+        partial |= reading.is_none_or(|reading| reading.partial);
+        let key = member_counter_key(app, id);
+        if let Some(value) = counters.live_value(key.clone(), reading, reduced, now) {
+            known = true;
+            total = total.saturating_add(value);
+            counters.visible(
+                &key,
+                cell,
+                String::new(),
+                tmt_cli_style::grid::Align::Right,
+                true,
+            );
+        }
+    }
+    known.then(|| {
+        format!(
+            "{}{}",
+            if partial { "~" } else { "" },
+            crate::source::tokens(total)
+        )
+    })
+}
+
 fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_ms: u64) {
     use super::columns::{self, AgentsField as Field};
     let Some(snapshot) = app.workspace_snapshot() else {
         return;
     };
     let look = app.look();
-    let reduced = look.depth == tmt_cli_style::Depth::None
+    let reduced = snapshot.preferences.motion_off
         || app
             .view
             .as_ref()
@@ -580,10 +628,31 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 .find(|(field, _)| *field == Field::State)
                 .map_or(0, |(_, rect)| usize::from(rect.width));
             let mut checklist_hit = None;
-            let (state, state_primary_width, state_attention) = if let Some(label) =
+            let (state, state_primary_width, state_attention) = if let Some(mut label) =
                 app.activity_label_in_frame(row, now, now_ms)
             {
-                let projection = columns::activity_projection(app, row, &label, state_width);
+                if label.state == "working"
+                    && let Some(at) = label.at
+                {
+                    label.age = Some(crate::board::activity::turn_age(now_ms, at));
+                }
+                let mut projection = columns::activity_projection(app, row, &label, state_width);
+                if label.state == "working"
+                    && let Some(first) = projection.primary.first_mut()
+                    && first.text == "●"
+                {
+                    if !reduced {
+                        first.text = crate::board::view::feedback_glyph(now_ms, true).to_owned();
+                    }
+                    if !reduced || label.at.is_some() {
+                        app.frame_clocks.borrow_mut().push(
+                            crate::board::view::ClockSurface::WorkingTurn {
+                                at: label.at.unwrap_or(now_ms),
+                                motion: !reduced,
+                            },
+                        );
+                    }
+                }
                 let width = projection
                     .primary
                     .iter()
@@ -663,6 +732,23 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         app.cron_glyphs,
                     )
                 };
+                if squad.is_some()
+                    && !reduced
+                    && members.iter().any(|member| member.state == Some("working"))
+                    && state.spans.iter().any(|span| span.content == "●")
+                {
+                    app.frame_clocks
+                        .borrow_mut()
+                        .push(crate::board::view::ClockSurface::SquadBreath);
+                    if (now_ms / 600) % 2 == 0 {
+                        for span in &mut state.spans {
+                            if span.content == "●" {
+                                span.style =
+                                    span.style.add_modifier(ratatui::style::Modifier::BOLD);
+                            }
+                        }
+                    }
+                }
                 let used = state.width();
                 let suffix = columns::todo_span(app, row, used, state_width, false);
                 if let Some(suffix) = suffix {
@@ -701,11 +787,16 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
             let (tokens, tokens_bold) = if !plain {
                 if let Some((_, slot)) = slots.iter().find(|(field, _)| *field == Field::Tokens) {
                     let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
-                    let key = format!(
-                        "agents:{:?}:range:{}",
-                        row.target,
-                        app.tok_range().argument()
-                    );
+                    let key = match &row.target {
+                        OpsTarget::Member { identity_id, .. } => {
+                            member_counter_key(app, identity_id)
+                        }
+                        _ => format!(
+                            "agents:{:?}:range:{}",
+                            row.target,
+                            app.tok_range().argument()
+                        ),
+                    };
                     if app.tok_money() {
                         live_cell(
                             app,
@@ -716,6 +807,23 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                             reduced,
                             now,
                         )
+                    } else if let OpsTarget::Squad(room) = &row.target {
+                        snapshot
+                            .roster
+                            .squads
+                            .iter()
+                            .find(|squad| &squad.room_id == room)
+                            .and_then(|squad| {
+                                squad_token_digits(
+                                    app,
+                                    cell,
+                                    &squad.members,
+                                    squad.observation == OpsObservation::Complete,
+                                    reduced,
+                                    now,
+                                )
+                            })
+                            .map_or((tokens, false), |digits| (digits, false))
                     } else {
                         live_cell(
                             app,
@@ -742,7 +850,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 _ => None,
             }
             .filter(|_| !plain);
-            let (minute, minute_bold) = if let Some((_, slot)) =
+            let (minute, mut minute_bold) = if let Some((_, slot)) =
                 slots.iter().find(|(field, _)| *field == Field::PerMinute)
             {
                 let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
@@ -758,6 +866,18 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
             } else {
                 ("—".into(), false)
             };
+            if !reduced {
+                let sample_flash = match &row.target {
+                    OpsTarget::Member { identity_id, .. } => {
+                        app.agents_live.rate_flash(identity_id, now)
+                    }
+                    OpsTarget::Squad(room) => app.agents_live.squad_rate_flash(app, room, now),
+                    _ => None,
+                };
+                if let Some(flash) = sample_flash {
+                    minute_bold = flash;
+                }
+            }
             let painted = crate::board::tree_row::paint(
                 frame.buffer_mut(),
                 stripe,
@@ -791,6 +911,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                     tokens_bold,
                     minute,
                     minute_bold,
+                    minute_rate: minute_reading.map(|reading| reading.tokens),
                     session: match &row.target {
                         OpsTarget::Member { identity_id, .. } => {
                             safe(&app.member_session_evidence(identity_id).compact())
@@ -805,16 +926,20 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 },
                 look,
             );
-            if let OpsTarget::Member { identity_id, .. } = &row.target
+            if matches!(row.target, OpsTarget::Member { .. } | OpsTarget::Squad(_))
                 && let Some((_, slot)) = slots.iter().find(|(field, _)| *field == Field::Activity)
             {
                 use tmt_tui::components::design_system::{self as ds, Component};
                 let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
                 if !cell.is_empty() {
-                    let values = app
-                        .agents_live
-                        .member(app, identity_id)
-                        .map_or([None; 12], |usage| usage.activity);
+                    let values = match &row.target {
+                        OpsTarget::Member { identity_id, .. } => app
+                            .agents_live
+                            .member(app, identity_id)
+                            .map_or([None; 12], |usage| usage.activity),
+                        OpsTarget::Squad(room) => app.agents_live.squad_activity(app, room),
+                        _ => [None; 12],
+                    };
                     let values = values
                         .into_iter()
                         .map(|value| match value {
@@ -854,6 +979,39 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         &look.theme,
                         look.depth,
                     );
+                }
+            }
+            if matches!(row.target, OpsTarget::Member { .. }) {
+                let waiting = row
+                    .activity
+                    .as_ref()
+                    .is_some_and(|activity| activity.waiting);
+                let blocked = row.state.as_deref() == Some("blocked");
+                let stage = app.agents_live.row_flash(
+                    format!("{:?}", row.target),
+                    waiting,
+                    blocked,
+                    app.unread_target(&row.target).total as u64,
+                    !reduced,
+                    now,
+                );
+                if stage > 0 && look.depth != tmt_cli_style::Depth::None {
+                    let role = if stage == 2 {
+                        Role::Selection
+                    } else {
+                        Role::Track
+                    };
+                    let fill = tmt_cli_style::theme::screen::fill(
+                        &look.theme,
+                        role,
+                        look.depth,
+                        tmt_cli_style::theme::screen::Fill::Solid,
+                    );
+                    if let Some(background) = fill.bg {
+                        for x in stripe.x..stripe.right() {
+                            frame.buffer_mut()[(x, stripe.y)].set_bg(background);
+                        }
+                    }
                 }
             }
             if let Some(hit) = checklist_hit {

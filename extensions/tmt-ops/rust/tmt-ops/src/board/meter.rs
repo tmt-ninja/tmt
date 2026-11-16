@@ -18,11 +18,13 @@ struct Animation {
     to: f64,
     start: Instant,
     next: Instant,
+    duration: Duration,
 }
 
 impl Animation {
     fn value(&self, now: Instant) -> f64 {
-        let t = now.saturating_duration_since(self.start).as_secs_f64() / DURATION.as_secs_f64();
+        let t =
+            now.saturating_duration_since(self.start).as_secs_f64() / self.duration.as_secs_f64();
         self.from + (self.to - self.from) * (1.0 - (1.0 - t.min(1.0)).powi(3))
     }
 }
@@ -44,6 +46,7 @@ impl Counter {
         immediate: bool,
         animate_initial: bool,
         now: Instant,
+        duration: Duration,
     ) {
         let Some(tokens) = target else {
             self.target = None;
@@ -62,6 +65,7 @@ impl Counter {
                 to,
                 start: now,
                 next: now + FRAME,
+                duration,
             });
         }
         self.target = Some(tokens);
@@ -82,7 +86,7 @@ impl Counter {
             && now >= animation.next
         {
             self.displayed = animation.value(now);
-            let end = animation.start + DURATION;
+            let end = animation.start + animation.duration;
             if now >= end {
                 self.displayed = animation.to;
                 self.animation = None;
@@ -267,6 +271,7 @@ impl Meter {
             self.settings.reduced_motion,
             true,
             now,
+            DURATION,
         );
         self.reading = reading;
         self.trend = self.rate.trend(ms, self.window);
@@ -361,7 +366,7 @@ impl Meter {
         let cell_ms = window.milliseconds() / N as u64;
         let closed = self.milliseconds(now) / cell_ms * cell_ms;
         self.rate
-            .member_trend(id, closed.saturating_sub(super::rate::SLOT_MS), window)
+            .member_activity(id, closed.saturating_sub(super::rate::SLOT_MS), window)
     }
 
     pub(in crate::board) fn history(&self) -> &Rate {

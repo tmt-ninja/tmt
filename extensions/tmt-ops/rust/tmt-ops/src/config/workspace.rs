@@ -200,6 +200,7 @@ pub struct OpsPreferences {
     pub layout: OpsLayout,
     pub tok_range: TokRange,
     pub activity_window: ActivityWindow,
+    pub motion_off: bool,
     pub savings_unit: super::SavingsUnit,
     pub overview_panels: Option<PanelSetting<OverviewPanel>>,
     pub digest_panels: Option<PanelSetting<DigestPanel>>,
@@ -929,6 +930,11 @@ impl Config {
                             invalid("`workspace.activity_window` must be 1m, 5m, 10m or 1h.")
                         })?;
                 }
+                "motion" => {
+                    result.motion_off = !item
+                        .as_bool()
+                        .ok_or_else(|| invalid("`workspace.motion` must be true or false."))?;
+                }
                 // The Digest window is view state now; an older file still loads.
                 "digest_window" => {}
                 "savings_unit" => {
@@ -1011,6 +1017,7 @@ impl Config {
             document["workspace"]["reverse"] = value(next.reversed);
             document["workspace"]["tok_range"] = value(next.tok_range.argument());
             document["workspace"]["activity_window"] = value(next.activity_window.argument());
+            document["workspace"]["motion"] = value(!next.motion_off);
             document["workspace"]["savings_unit"] = value(next.savings_unit.argument());
             document["workspace"]["layout"] = value(match next.layout {
                 OpsLayout::Auto => "auto",
@@ -2295,6 +2302,7 @@ mod tests {
             layout: OpsLayout::Stack,
             tok_range: TokRange::default(),
             activity_window: ActivityWindow::default(),
+            motion_off: false,
             savings_unit: super::super::SavingsUnit::Cost,
             overview_panels: None,
             digest_panels: None,
@@ -2413,6 +2421,28 @@ mod tests {
             !fs::read_to_string(config.path())
                 .unwrap()
                 .contains("digest_window")
+        );
+    }
+
+    #[test]
+    fn motion_preference_uses_compare_and_swap_and_preserves_other_settings() {
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        let expected = config.workspace_preferences().unwrap();
+        assert!(!expected.motion_off);
+        let mut next = expected.clone();
+        next.motion_off = true;
+        config.save_workspace_preferences(&expected, &next).unwrap();
+        assert_eq!(fixture.config().workspace_preferences().unwrap(), next);
+        assert!(
+            config
+                .save_workspace_preferences(&expected, &expected)
+                .is_err()
+        );
+        assert!(
+            self::config("[workspace]\nmotion='off'\n")
+                .workspace_preferences()
+                .is_err()
         );
     }
 

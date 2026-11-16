@@ -99,6 +99,7 @@ fn working_and_idle_rows_keep_their_distinct_styles_in_all_looks() {
         (Base::Tmt, Depth::None),
     ] {
         let mut app = board();
+        disable_motion(&mut app);
         let look = crate::look::Look {
             theme: Theme::new(base),
             depth,
