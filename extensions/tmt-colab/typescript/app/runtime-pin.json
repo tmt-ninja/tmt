@@ -10,10 +10,10 @@
   "chunks": [
     {
       "name": "base",
-      "path": "assets/colab-runtime-base-c1affc936f2ec7de.js",
-      "sha256": "c1affc936f2ec7de0c1705d0a40669edf831fa300b4efbe9d6549c16e29ddde8",
-      "length": 302930,
-      "gzip": 81007
+      "path": "assets/colab-runtime-base-f0e20756cbafac7e.js",
+      "sha256": "f0e20756cbafac7eab097b2208b7244f7c1ddba6d01ab6d00e7a9f7b1ddd1586",
+      "length": 303735,
+      "gzip": 81228
     },
     {
       "name": "react",
@@ -78,7 +78,7 @@
   },
   "binder": {
     "path": "assets/colab-standalone-binder.js",
-    "sha256": "b0c34acf580e87a37e928aaf22ee217da4989be1725788fa71bc908c969bbdd3",
+    "sha256": "607479db620c447e5a336bb4399c5a9723d5e0b30747ce21f97e6466afcfd28f",
     "length": 70379
   }
 }

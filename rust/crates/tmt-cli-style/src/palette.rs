@@ -32,6 +32,8 @@ fn sixteen(role: crate::Role) -> Option<AnsiColor> {
     use crate::Role;
     match role {
         Role::Accent | Role::Unread => Some(AnsiColor::Blue),
+        Role::MatrixBatch => Some(AnsiColor::BrightBlue),
+        Role::MatrixUrgent => Some(AnsiColor::BrightYellow),
         Role::Working => Some(AnsiColor::Green),
         Role::Waiting => Some(AnsiColor::Yellow),
         Role::Blocked => Some(AnsiColor::Red),

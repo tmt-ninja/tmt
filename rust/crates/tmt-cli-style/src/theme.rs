@@ -22,6 +22,10 @@ pub enum Role {
     Dim,
     /// Focus, the selected tab, keys and links in prose.
     Accent,
+    /// Batch glyph in the Ops delivery matrix and its legend.
+    MatrixBatch,
+    /// Urgent glyph in the Ops delivery matrix and its legend.
+    MatrixUrgent,
     /// Waiting on you; anything that needs attention.
     Waiting,
     /// A member at work; success.
@@ -53,11 +57,13 @@ pub enum Role {
 }
 
 impl Role {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 20] = [
         Self::Text,
         Self::Muted,
         Self::Dim,
         Self::Accent,
+        Self::MatrixBatch,
+        Self::MatrixUrgent,
         Self::Waiting,
         Self::Working,
         Self::Review,
@@ -81,6 +87,8 @@ impl Role {
             Self::Muted => "muted",
             Self::Dim => "dim",
             Self::Accent => "accent",
+            Self::MatrixBatch => "matrix-batch",
+            Self::MatrixUrgent => "matrix-urgent",
             Self::Waiting => "waiting",
             Self::Working => "working",
             Self::Review => "review",
@@ -308,6 +316,8 @@ impl Base {
             Role::Muted => Paint::Ansi(AnsiColor::White),
             Role::Dim => Paint::Dimmed,
             Role::Accent | Role::Unread => Paint::Ansi(AnsiColor::Blue),
+            Role::MatrixBatch => Paint::Ansi(AnsiColor::BrightBlue),
+            Role::MatrixUrgent => Paint::Ansi(AnsiColor::BrightYellow),
             Role::Waiting => Paint::Ansi(AnsiColor::Yellow),
             Role::Working => Paint::Ansi(AnsiColor::Green),
             Role::Review => Paint::Ansi(AnsiColor::Magenta),
@@ -330,6 +340,8 @@ impl Base {
             Role::Muted => ((0xB0, 0xB0, 0xB0), (0x62, 0x62, 0x62)),
             Role::Dim => ((0x85, 0x85, 0x85), (0x76, 0x76, 0x76)),
             Role::Accent | Role::Unread => ((0x7A, 0xA2, 0xF7), (0x1F, 0x5F, 0xBF)),
+            Role::MatrixBatch => ((0x8D, 0xB8, 0xFF), (0x24, 0x54, 0xA4)),
+            Role::MatrixUrgent => ((0xEB, 0xCB, 0x68), (0x79, 0x5B, 0x00)),
             Role::Waiting => ((0xFF, 0x9E, 0x64), (0x96, 0x50, 0x27)),
             Role::Working => ((0x9E, 0xCE, 0x6A), (0x4F, 0x6A, 0x33)),
             Role::Review => ((0xBB, 0x9A, 0xF7), (0x78, 0x47, 0xBD)),
@@ -350,7 +362,12 @@ impl Base {
 
     fn mono(role: Role) -> Paint {
         match role {
-            Role::Text | Role::Working | Role::Link | Role::Code => Paint::Plain,
+            Role::Text
+            | Role::Working
+            | Role::Link
+            | Role::Code
+            | Role::MatrixBatch
+            | Role::MatrixUrgent => Paint::Plain,
             Role::Muted | Role::Dim | Role::Track => Paint::Dimmed,
             Role::Accent
             | Role::Waiting
@@ -553,6 +570,28 @@ pub mod screen {
     pub enum Fill {
         Solid,
         Lighter,
+    }
+
+    /// An Ops delivery-matrix glyph and its soft tile surface. Terminal and mono
+    /// looks keep the glyph itself; no background colour is assumed there.
+    pub fn matrix_tile(theme: &Theme, role: Role, depth: Depth) -> Style {
+        let ink = style(theme, role, depth);
+        if depth != Depth::TrueColor
+            || matches!(theme.base, super::Base::Terminal | super::Base::Mono)
+        {
+            return ink;
+        }
+        let light = theme.base == super::Base::TmtLight;
+        let (dark, bright) = match role {
+            Role::Working => ((0x1f, 0x2b, 0x1c), (0xe8, 0xf0, 0xdd)),
+            Role::MatrixUrgent => ((0x2f, 0x28, 0x18), (0xff, 0xf3, 0xcf)),
+            Role::MatrixBatch => ((0x1b, 0x23, 0x36), (0xe7, 0xee, 0xff)),
+            Role::Blocked => ((0x3a, 0x1f, 0x26), (0xfc, 0xe8, 0xe9)),
+            Role::Waiting => ((0x3a, 0x2a, 0x1f), (0xff, 0xef, 0xe2)),
+            _ => return ink,
+        };
+        let (r, g, b) = if light { bright } else { dark };
+        ink.bg(ScreenColor::Rgb(r, g, b))
     }
 
     const LIGHTER_PERCENT: u16 = 20;

@@ -331,6 +331,29 @@ fn screens_get_the_same_style() {
         screen::style(&tmt, Role::Blocked, Depth::None),
         ratatui::style::Style::new()
     );
+    for (role, name) in [
+        (Role::Working, "matrix-direct-soft"),
+        (Role::MatrixUrgent, "matrix-urgent-soft"),
+        (Role::MatrixBatch, "matrix-batch-soft"),
+        (Role::Blocked, "matrix-blocked-soft"),
+        (Role::Waiting, "waiting-soft"),
+    ] {
+        for (base, mode) in [(Base::Tmt, "dark"), (Base::TmtLight, "light")] {
+            let expected =
+                Paint::parse(design_tokens()["surface"][name][mode].as_str().unwrap()).unwrap();
+            let Paint::Rgb(r, g, b) = expected else {
+                panic!("RGB surface")
+            };
+            assert_eq!(
+                screen::matrix_tile(&Theme::new(base), role, Depth::TrueColor).bg,
+                Some(ScreenColor::Rgb(r, g, b))
+            );
+        }
+        assert_eq!(
+            screen::matrix_tile(&tmt, role, Depth::None),
+            ratatui::style::Style::new()
+        );
+    }
 }
 
 #[cfg(feature = "ratatui")]
@@ -404,6 +427,20 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
         ("light", &["#FFFFFF"][..]),
     ] {
         let color = |role: Role| tokens["color"][role.name()][mode].as_str().unwrap();
+        for (role, surface) in [
+            (Role::Working, "matrix-direct-soft"),
+            (Role::MatrixUrgent, "matrix-urgent-soft"),
+            (Role::MatrixBatch, "matrix-batch-soft"),
+            (Role::Blocked, "matrix-blocked-soft"),
+            (Role::Waiting, "waiting-soft"),
+        ] {
+            let fill = tokens["surface"][surface][mode].as_str().unwrap();
+            assert!(
+                contrast(color(role), fill) >= 4.5,
+                "{mode} {} on {surface}",
+                role.name()
+            );
+        }
         let backgrounds = [tokens["surface"]["paper"][mode].as_str().unwrap()];
         for role in Role::ALL.into_iter().filter(|role| {
             !matches!(

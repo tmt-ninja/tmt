@@ -35,6 +35,13 @@ fn serde_and_grapheme_cells_round_trip_without_partial_wide_characters() {
     let decoded: GaugeProps = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded.filled_role.0, Role::Working);
     assert!(serde_json::from_str::<Token>("\"unknown\"").is_err());
+    for role in [Role::MatrixBatch, Role::MatrixUrgent] {
+        let encoded = serde_json::to_string(&Token(role)).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Token>(&encoded).unwrap(),
+            Token(role)
+        );
+    }
     let mut grid = CellGrid::new(Size {
         width: 3,
         height: 1,
