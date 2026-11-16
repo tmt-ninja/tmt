@@ -575,3 +575,53 @@ mod board {
         );
     }
 }
+
+#[test]
+fn new_terminal_command_keeps_the_confirmed_terminal_and_never_replays_uncertain_submission() {
+    let scratch = crate::test_support::Scratch::new("command-terminal");
+    let executable = scratch.join("core");
+    let terminal = format!("term_{}", "1".repeat(32));
+    crate::test_support::write_ready_executable(
+        &executable,
+        &format!(
+            r#"#!/bin/sh
+request=$(cat)
+printf '%s\n' "$request" >> '{}/calls'
+case "$request" in
+  *'"operation":"terminal.open"'*) printf '%s\n' '{{"terminalId":"{terminal}","socket":"/tmp/inert-command-terminal.sock"}}' ;;
+  *'"operation":"terminal.run"'*) printf '%s\n' '{{"error":{{"code":"TERMINAL_RUN_UNCONFIRMED","message":"The command may have been submitted; do not retry automatically."}}}}'; exit 1 ;;
+  *) exit 9 ;;
+esac
+"#,
+            scratch.display()
+        ),
+    );
+    let completed = complete(
+        &Core::at(executable),
+        Task::Run {
+            identity: MEMBER.into(),
+            terminal: None,
+            command: "printf '%s' 'one value'".into(),
+        },
+    );
+    assert!(
+        matches!(&completed, Completed::Ran { opened: Some(opened), outcome: Err(message), .. } if opened.id == terminal && message.contains("do not retry"))
+    );
+    let calls: Vec<serde_json::Value> = std::fs::read_to_string(scratch.join("calls"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0]["operation"], "terminal.open");
+    assert_eq!(calls[1]["operation"], "terminal.run");
+    assert_eq!(
+        calls[1]["input"],
+        serde_json::json!({"identityId":MEMBER,"terminalId":terminal,"command":"printf '%s' 'one value'"})
+    );
+    let mut held = Terminals::default();
+    let applied = held.finished(completed, 1);
+    assert_eq!(applied.select, Some((MEMBER.into(), terminal.clone())));
+    assert!(held.row(MEMBER, &terminal).is_some());
+    assert!(held.offer(&[], None, 2).is_none());
+}

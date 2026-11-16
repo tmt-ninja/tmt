@@ -287,6 +287,15 @@ session search/scope and reveals hidden squads without changing shared preferenc
 Esc or a click outside closes the menu. The menu flips above a mention near the
 bottom edge and never covers it. NO_COLOR keeps the underline.
 
+An agent's explicitly marked inline code (`! command`) or a fenced block whose body starts
+with `! ` is also a selectable mention. It opens the same adjacent menu, titled Command,
+with the complete command above Run in Terminal N, Run in a new terminal and Copy command.
+Opening does nothing; choosing Run confirms submission to that member's idle terminal shell.
+Copy removes only the leading `! ` marker. Run is unavailable for multiline/hidden input or
+when the whole command cannot fit at once; resize or copy instead. Use an empty shell prompt.
+An uncertain submission is never retried automatically. Ordinary shell fences, `!!` and
+full-width markers do not become command mentions.
+
 ## Reloading open boards
 
 An open board reloads itself in place, keeping its pid, shell section, exact selection, scroll,
@@ -581,7 +590,10 @@ order, never the selection or a message.
 In Agents, `n` opens New member on any row. `N` creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
 member row, `m` manages a squad or moves an agent in place, and `x` opens Close and
 delete for the selected agent. Leave a squad with `m` to Common pool or Edit's Squad field. The Agents footer is one line of the keys the selected
-row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit`.
+row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  / search  ? help  q quit`.
+The selected member's name row shows its effective jump key, for example `z open`, when
+available and there is room after the name. Authored bindings win; unavailable hints are
+hidden. Talk, Measure and Checklist remain available through their keys and right-pane tabs.
 Squad, Common pool and Hidden group rows show their own keys. Narrow widths drop whole row
 keys from the right and keep search, help and quit; every other key still works and is listed in `?`.
 While the reply pane is focused, its selection guidance takes that line.
@@ -1256,7 +1268,7 @@ No command accepts an actor override or uses a member filter as assignment.
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ls`                                                   | Without `--room`, the caller's own list. Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                  |
 | `show`                                                 | `--checklist UUID --item UUID\|PREFIX`                                                                                                                          |
-| `counts`                                               | Optional repeated `--member UUID` (at most 32; default the room's roster); open, unarchived items per member; reads create nothing                           |
+| `counts`                                               | Optional repeated `--member UUID` (at most 32; default the room's roster); open, unarchived items per member; reads create nothing                              |
 | `add TITLE`                                            | Agent verb, no `--room` needed: optional `--body TEXT --reference HTTP(S)`; adds to the caller's own list and prints `#Title (3f2a)`                            |
 | `done ITEM`                                            | Agent verb, no `--room` needed: short id, UUID prefix or UUID; completes at the item's current revision                                                         |
 | `events`                                               | Optional `--member`, `--after CURSOR` (default 0), `--limit COUNT` (1 to 500, default 100); reads create nothing                                                |

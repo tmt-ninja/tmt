@@ -186,6 +186,32 @@ fn a_member_opens_lists_types_into_and_closes_its_own_terminals() {
         "the terminal is not the member: {who}"
     );
 
+    // The public command owner refuses another member and hidden/multiline input without
+    // typing anything, then submits the exact quoted command once to the selected shell.
+    let ran = world.root.join("command-result");
+    let command = format!(
+        "printf '%s' 'one quoted value' > '{}'; printf 'RUN-%s\\n' DONE",
+        ran.display()
+    );
+    let request = |id: &str, command: &str| serde_json::json!({"identityId": id, "terminalId": terminal, "command": command});
+    let refused = call(&world, "terminal.run", request(&other, &command));
+    assert_eq!(refused["error"]["code"], "TERMINAL_STALE", "{refused}");
+    assert!(!ran.exists());
+    let invalid = call(
+        &world,
+        "terminal.run",
+        request(&identity, &(command.clone() + "\n")),
+    );
+    assert_eq!(invalid["error"]["code"], "API_INPUT_INVALID", "{invalid}");
+    assert!(!ran.exists());
+    let submitted = call(&world, "terminal.run", request(&identity, &command));
+    assert_eq!(
+        submitted,
+        serde_json::json!({"identityId": identity, "terminalId": terminal, "submitted": true})
+    );
+    view.output_until("RUN-DONE");
+    assert_eq!(fs::read_to_string(&ran).unwrap(), "one quoted value");
+
     // Never a pane, binding or Talk target.
     let rows = world.json(&["ls", "--json"]);
     assert_eq!(rows["identities"].as_array().unwrap().len(), rows_before);
@@ -217,6 +243,16 @@ fn a_member_opens_lists_types_into_and_closes_its_own_terminals() {
         assert!(Instant::now() < deadline, "never busy: {terminals}");
         std::thread::sleep(Duration::from_millis(50));
     }
+    let refused_run = call(
+        &world,
+        "terminal.run",
+        serde_json::json!({"identityId": identity, "terminalId": terminal, "command": format!("printf bad > '{}'", ran.display())}),
+    );
+    assert_eq!(
+        refused_run["error"]["code"], "TERMINAL_BUSY",
+        "{refused_run}"
+    );
+    assert_eq!(fs::read_to_string(&ran).unwrap(), "one quoted value");
     let refused = close(&world, &terminal, false);
     assert_eq!(refused["error"]["code"], "TERMINAL_BUSY", "{refused}");
     assert!(socket.exists(), "a refused close leaves it running");

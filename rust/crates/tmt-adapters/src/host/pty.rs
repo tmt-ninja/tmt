@@ -1394,6 +1394,7 @@ mod tests {
                         close: false,
                         terminal: false,
                         terminal_detail: false,
+                        terminal_run: false,
                     },
                     Control::Resume => ControlReply::Applied(true),
                     other => panic!("unexpected {other:?}"),
@@ -1424,6 +1425,7 @@ mod tests {
                 close: false,
                 terminal: false,
                 terminal_detail: false,
+                terminal_run: false,
             },
             ControlReply::Applied(true),
         ] {
@@ -1474,6 +1476,7 @@ mod tests {
                 close: true,
                 terminal: false,
                 terminal_detail: false,
+                terminal_run: false,
             },
             Control::Relaunch { .. } => relaunch,
             Control::Inspect => ControlReply::State {

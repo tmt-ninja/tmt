@@ -74,7 +74,7 @@ Supervisor to client:
 | `0x88` | `SnapshotData` | 1 to 16 KiB | The next bytes of the snapshot. |
 | `0x89` | `SnapshotEnd` | size | The snapshot is complete and was taken at this size. |
 
-Kinds `0x20` to `0x2f` and `0xa0` to `0xaf` are Core's controls on the same socket.
+Kinds `0x20` to `0x30` and `0xa0` to `0xaf` are Core's controls on the same socket.
 They are not part of this stream and a view must not send or interpret them.
 
 ## Snapshot

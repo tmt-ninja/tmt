@@ -969,6 +969,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                     selected,
                     unread: app.unread_target(&row.target).total > 0,
                     in_conversation,
+                    open_hint: app.member_open_hint(&row.target),
                     query: &app.workspace.query,
                 },
                 look,

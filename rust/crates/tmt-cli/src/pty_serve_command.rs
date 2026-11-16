@@ -48,6 +48,8 @@ pub fn execute(
                 Some(tmt_adapters::pty::TerminalOf {
                     owner: terminal.owner,
                     created_ms: terminal.created_ms,
+                    member_pid: terminal.member_pid,
+                    member_start: terminal.member_start.clone(),
                     member_alive: tmt_adapters::pty::terminal::member_alive(
                         terminal.member_pid,
                         terminal.member_start,

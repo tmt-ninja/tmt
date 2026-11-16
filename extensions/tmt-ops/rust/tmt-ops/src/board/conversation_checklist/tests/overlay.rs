@@ -483,7 +483,10 @@ fn c_is_checklist_on_a_member_and_n_still_creates_a_squad_on_a_squad_row() {
         "N no longer opens the list"
     );
     let screen = paint_wide(&app);
-    assert!(screen.contains("C checklist"), "the footer names the verb");
+    assert!(
+        !screen.contains("C checklist"),
+        "the visible tab owns this key hint"
+    );
     assert!(
         screen.contains(" C  Checklist"),
         "the chip shows its key as a keycap, as the tab labels do: {screen}"

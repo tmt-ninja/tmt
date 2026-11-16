@@ -99,6 +99,9 @@ pub struct TerminalOf {
     pub owner: String,
     /// When it was opened, in Unix milliseconds.
     pub created_ms: u64,
+    /// Exact member process incarnation recorded at open.
+    pub member_pid: u64,
+    pub member_start: String,
     /// Whether the owner's member supervisor still runs (its PID and start time), asked
     /// once per `OWNER_CHECK`.
     pub member_alive: Box<dyn FnMut() -> bool + Send>,
@@ -1039,7 +1042,8 @@ impl Supervisor {
     }
 
     /// Controls share the supervisor's serialization with the stream. No control
-    /// creates key activity, resizes the terminal or captures scrollback.
+    /// creates key activity, resizes the terminal or captures scrollback. TerminalRun
+    /// is an explicit human-confirmed submission to an extra shell, serialized here.
     fn control(&mut self, index: usize, request: Control) {
         // Nothing runs to listen or launch after the program ended, so a wait that
         // arrives then is answered at once instead of never.
@@ -1102,7 +1106,51 @@ impl Supervisor {
                 close: true,
                 terminal: self.terminal.is_some(),
                 terminal_detail: self.terminal.is_some(),
+                terminal_run: self.terminal.is_some(),
             },
+            Control::TerminalRun {
+                owner,
+                member_pid,
+                member_start,
+                command,
+            } => {
+                use tmt_pty_protocol::TerminalRunResult;
+                let result = match &self.terminal {
+                    None => TerminalRunResult::Stale,
+                    Some((terminal, _))
+                        if terminal.owner != owner
+                            || terminal.member_pid != member_pid
+                            || terminal.member_start != member_start =>
+                    {
+                        TerminalRunResult::Stale
+                    }
+                    Some(_) if self.child.is_none() || self.closing => TerminalRunResult::Ended,
+                    Some(_) => {
+                        // Unknown foreground evidence refuses, rather than treating it as idle.
+                        let foreground_is_shell =
+                            tcgetpgrp(self.master.as_fd()).ok().is_some_and(|group| {
+                                self.child.as_ref().is_some_and(|child| {
+                                    group.as_raw() > 0
+                                        && group.as_raw().unsigned_abs() == child.id()
+                                })
+                            });
+                        if !foreground_is_shell || !self.input.is_empty() {
+                            TerminalRunResult::Busy
+                        } else {
+                            if self.screen.screen().bracketed_paste() {
+                                self.input.extend(b"\x1b[200~");
+                            }
+                            self.input.extend(command.as_bytes());
+                            if self.screen.screen().bracketed_paste() {
+                                self.input.extend(b"\x1b[201~");
+                            }
+                            self.input.push_back(b'\r');
+                            TerminalRunResult::Submitted
+                        }
+                    }
+                };
+                ControlReply::TerminalRan(result)
+            }
             Control::Terminal => match &self.terminal {
                 Some((terminal, _)) => ControlReply::Terminal {
                     owner: terminal.owner.clone(),

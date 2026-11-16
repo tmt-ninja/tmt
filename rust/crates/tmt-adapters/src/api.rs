@@ -72,6 +72,7 @@ const OPS: &[&str] = &[
     "terminal.resume",
     "terminal.relaunch",
     "terminal.open",
+    "terminal.run",
     "terminal.list",
     "terminal.close",
     "forms.list",
@@ -265,6 +266,12 @@ pub enum Request {
     TerminalRelaunch {
         identity_id: String,
         kind: crate::pty::protocol::RelaunchKind,
+    },
+    /// Submits one confirmed command to the current member launch's idle extra shell.
+    TerminalRun {
+        identity_id: String,
+        terminal_id: String,
+        command: String,
     },
     /// Opens an extra terminal under a member on any host (#6301).
     TerminalOpen {
@@ -517,6 +524,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "terminal.resume" => terminal::decode_resume(input)?,
         "terminal.relaunch" => terminal::decode_relaunch(input)?,
         "terminal.open" => terminal::decode_open(input)?,
+        "terminal.run" => terminal::decode_run(input)?,
         "terminal.list" => terminal::decode_list(input)?,
         "terminal.close" => terminal::decode_close(input)?,
         "forms.list" => forms::decode_list(input)?,
@@ -743,6 +751,11 @@ impl Session {
                 terminal::relaunch(paths, storage, &identity_id, kind)
             }
             Request::TerminalOpen { identity_id } => terminal::open(paths, storage, &identity_id),
+            Request::TerminalRun {
+                identity_id,
+                terminal_id,
+                command,
+            } => terminal::run(paths, storage, &identity_id, &terminal_id, &command),
             Request::TerminalList { identity_id } => terminal::list(paths, storage, &identity_id),
             Request::TerminalListMany { identity_ids } => {
                 terminal::list_many(paths, storage, &identity_ids)

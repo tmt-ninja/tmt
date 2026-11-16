@@ -154,6 +154,7 @@ remain independent of storage access.
 | `terminal.resume`        | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `resumed`: continues a built-in-host member stopped by job control (see [below](#resume-a-paused-member))                                                                                                                 |
 | `terminal.relaunch`      | `identityId` (canonical UUID), `kind`: `resume`, `new` or `shell`                                                                                                             | `identityId`, `relaunched`: starts a program on the kept terminal of a built-in-host member whose program ended, or a new terminal when its supervisor is gone (see [below](#relaunch-on-a-kept-terminal))                              |
 | `terminal.open`          | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `terminalId`, `socket`, `pane`, `directory`: opens an extra terminal under a member on any host (see [below](#terminals-under-a-member))                                                                                  |
+| `terminal.run`           | `identityId`, `terminalId`, `command`                                                                                                                                         | `identityId`, `terminalId`, `submitted: true`; confirmed submission, never command completion                                                                                                                                           |
 | `terminal.list`          | `identityId` (canonical UUID), or `identityIds` (1 to 256)                                                                                                                    | `identityId`, `terminals`: a member's extra terminals on any host, read-only; `lists` for `identityIds` (see [below](#terminals-under-a-member))                                                                                        |
 | `terminal.close`         | `terminalId`, optional `force` (bool)                                                                                                                                         | `terminalId`, `closed`: closes one extra terminal (see [below](#terminals-under-a-member))                                                                                                                                              |
 | `forms.list`             | optional `identityId` (canonical UUID)                                                                                                                                        | `forms`: the open provider forms, oldest first (see [below](#provider-forms))                                                                                                                                                           |
@@ -542,6 +543,27 @@ directory}` once the new supervisor names its owner. `terminalId` and `pane` are
   opens cannot pass 8. `TERMINAL_OPEN_FAILED` means nothing was started.
   `TERMINAL_OPEN_UNCONFIRMED` names the terminal id in its message: it may be running,
   so a caller lists or closes it and never opens again to retry.
+- `terminal.run` `{identityId, terminalId, command}` submits one human-confirmed command
+  to an existing extra terminal's shell. It answers `{identityId, terminalId, submitted: true}`
+  after the supervisor queues the exact command as paste plus Enter. This confirms submission,
+  not execution or exit. The command is nonblank UTF-8, at most 4096 bytes, one line with no
+  control, bidi or hidden formatting characters; violations are `API_INPUT_INVALID`.
+  Extensions show the entire command verbatim before offering Run; opening a mention is
+  read-only and choosing Run is the person's confirmation. Multi-line commands are Copy only.
+  The operation uses the shell's current directory; no cwd, argv or new process is supplied.
+  Core checks the member's current binding, then the terminal supervisor compares its recorded
+  identity and owner process PID/start against that launch and checks the shell is in the
+  foreground immediately before queuing input. Unknown foreground evidence or pending input
+  refuses. This foreground check does not inspect or clear the shell's editable command line;
+  Run is for a shell prompt with an empty input line.
+  Refusals with no submitted input are `TERMINAL_STALE` (different owner/launch),
+  `TERMINAL_BUSY` (not an idle foreground shell), `TERMINAL_ENDED`, `TERMINAL_NOT_FOUND`,
+  or `TERMINAL_RUN_UNSUPPORTED` (older supervisor; there is no raw-input fallback), plus the
+  ordinary member presence errors. `TERMINAL_RUN_UNCONFIRMED` means input may have been queued;
+  never retry it automatically. Each explicit call is a new submission, with no replay or
+  idempotency guarantee. Opening a new terminal and submitting are separate calls: on any
+  unconfirmed open, stop; after a confirmed open, call run once and retain the terminal even
+  if run refuses. This local same-user operation grants no Remote/browser execution scope.
 - `terminal.list` `{identityId}` answers `{identityId, terminals: [{terminalId,
 socket, pane, busy, createdMs, shell?, program?}]}`, oldest first, with the same identity errors. It
   opens no stream and types nothing. All supervisors are asked at once within 500 ms;

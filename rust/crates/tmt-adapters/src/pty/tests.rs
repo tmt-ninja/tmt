@@ -920,6 +920,7 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
             close: true,
             terminal: false,
             terminal_detail: false,
+            terminal_run: false,
         }
     );
     let deadline = Instant::now() + WAIT;
@@ -1723,6 +1724,8 @@ fn start_terminal(
     launch.terminal = Some(super::TerminalOf {
         owner: "11111111-1111-4111-8111-111111111111".into(),
         created_ms: 1_762_300_000_000,
+        member_pid: 123,
+        member_start: "test-start".into(),
         member_alive: Box::new(move || alive.load(std::sync::atomic::Ordering::SeqCst)),
     });
     let supervisor = Supervisor::start(launch).expect("start the terminal");
@@ -1781,6 +1784,7 @@ fn an_extra_terminal_names_its_owner_and_says_when_a_program_holds_it() {
             close: true,
             terminal: true,
             terminal_detail: true,
+            terminal_run: true,
         }
     );
     assert!(matches!(
@@ -1859,4 +1863,36 @@ fn an_extra_terminal_ends_when_its_member_is_gone() {
         kill(Pid::from_raw(terminal.pid as i32), None).is_err(),
         "its program was hung up"
     );
+}
+
+#[test]
+fn terminal_command_refuses_a_different_launch_without_typing_into_the_shell() {
+    use tmt_pty_protocol::{Control, ControlReply, TerminalRunResult};
+    let terminal = start_terminal(&["sh", "-i"], alive());
+    let mut client = terminal.connect();
+    let output = terminal._root.path.join("command-ran");
+    let command = format!(
+        "printf ok > '{}'; printf 'FENCE-%s\\n' DONE",
+        output.display()
+    );
+    let request = |pid, start: &str| Control::TerminalRun {
+        owner: "11111111-1111-4111-8111-111111111111".into(),
+        member_pid: pid,
+        member_start: start.into(),
+        command: command.clone(),
+    };
+    for (pid, start) in [(124, "test-start"), (123, "different-start")] {
+        assert_eq!(
+            client.control(request(pid, start), WAIT).unwrap(),
+            ControlReply::TerminalRan(TerminalRunResult::Stale)
+        );
+        assert!(!output.exists());
+    }
+    assert_eq!(
+        client.control(request(123, "test-start"), WAIT).unwrap(),
+        ControlReply::TerminalRan(TerminalRunResult::Submitted)
+    );
+    collect(&mut client, says("FENCE-DONE"));
+    assert_eq!(std::fs::read_to_string(output).unwrap(), "ok");
+    close(&terminal.directory, &terminal.id);
 }

@@ -225,27 +225,6 @@ fn fit_hints(mut hints: Vec<Hint>, tail: Vec<Hint>, width: usize) -> Vec<Hint> {
         .iter()
         .position(|(_, word)| word == "note")
         .map(|at| (at, hints.remove(at)));
-    // Keep Checklist where it fits by yielding the redundant Talk key, then Measure.
-    // If neither makes enough room, retain the usual right-to-left drop order.
-    if hints.iter().any(|(_, word)| word == "checklist")
-        && hint_text(&hints.iter().chain(&tail).cloned().collect::<Vec<_>>()).width() > width
-    {
-        let mut compact = hints.clone();
-        for word in ["talk", "measure"] {
-            if let Some(at) = compact
-                .iter()
-                .position(|(key, label)| label == word && key != "⏎")
-            {
-                compact.remove(at);
-                if hint_text(&compact.iter().chain(&tail).cloned().collect::<Vec<_>>()).width()
-                    <= width
-                {
-                    hints = compact;
-                    break;
-                }
-            }
-        }
-    }
     while hint_text(&hints.iter().chain(&tail).cloned().collect::<Vec<_>>()).width() > width {
         if hints.pop().is_none() {
             return tail
@@ -425,9 +404,6 @@ fn agents_legend(app: &App) -> Option<Hints> {
             (Ui::MoveMembership, "m", "move"),
             (Ui::RemoveMember, "x", "close"),
             (Ui::MemberSession, "R", "resume"),
-            (Ui::PaneTalk, "T", "talk"),
-            (Ui::PaneMeasure, "M", "measure"),
-            (Ui::MemberNotes, "C", "checklist"),
         ]
     } else {
         match app.workspace.selected {
@@ -1219,7 +1195,7 @@ mod tests {
         });
         assert_eq!(
             agents_hints(&member, 1000).unwrap(),
-            "↑↓←→ move  ⏎ talk  l label  n new  e edit  r rename  m move  x close  T talk  M measure  C checklist  / search  ? help  q quit"
+            "↑↓←→ move  ⏎ talk  l label  n new  e edit  r rename  m move  x close  / search  ? help  q quit"
         );
         let squad = agents_hints(&selected(OpsTarget::Squad(ROOM.into())), 1000).unwrap();
         assert!(
@@ -1272,17 +1248,25 @@ mod tests {
     }
 
     #[test]
-    fn hundred_column_member_footer_yields_talk_before_checklist() {
+    fn member_footer_omits_redundant_tabs_while_their_keys_remain_bound() {
         use crate::board::app::workspace::tests::{MEMBER, ROOM};
         let app = selected(crate::board::workspace::OpsTarget::Member {
             room_id: Some(ROOM.into()),
             identity_id: MEMBER.into(),
         });
         let line = agents_hints(&app, 100).unwrap();
-        assert!(line.contains("C checklist"), "{line}");
-        assert!(!line.contains("T talk"), "{line}");
+        for hint in ["T talk", "M measure", "C checklist"] {
+            assert!(!line.contains(hint), "{line}");
+        }
+        for (key, verb) in [
+            ("T", crate::action::OpsUiAction::PaneTalk),
+            ("M", crate::action::OpsUiAction::PaneMeasure),
+            ("C", crate::action::OpsUiAction::MemberNotes),
+        ] {
+            assert_eq!(app.bindings()[key].verb, crate::action::Verb::Ui(verb));
+        }
         assert!(line.contains("⏎ talk"), "{line}");
-        assert!(!line.contains("l label"), "{line}");
+
         assert!(
             agents_hints(&app, 1000)
                 .unwrap()
@@ -1322,14 +1306,8 @@ mod tests {
             );
             let kept = line.trim_end_matches("/ search  ? help  q quit");
             let kept = kept.replace("l label  ", "");
-            let ordered = kept.replace("C checklist  ", "");
-            let original = whole
-                .replace("l label  ", "")
-                .replace("T talk  ", "")
-                .replace("M measure  ", "")
-                .replace("C checklist  ", "");
             assert!(
-                whole.replace("l label  ", "").starts_with(&kept) || original.starts_with(&ordered),
+                whole.replace("l label  ", "").starts_with(&kept),
                 "{width}: row keys retain display order: {line}"
             );
         }

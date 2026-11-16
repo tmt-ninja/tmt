@@ -167,7 +167,7 @@ impl MenuSurface {
         let rows: Vec<ListRow> = (heading..entries.len())
             .map(|index| ListRow {
                 id: row_id(index),
-                disabled: matches!(entries[index].choice, Choice::Rule),
+                disabled: matches!(entries[index].choice, Choice::Rule | Choice::Heading),
             })
             .collect();
         Self {
@@ -228,7 +228,13 @@ impl MenuSurface {
         list.geometry
             .iter()
             .rev()
-            .find(|row| row.visible.contains(at))
+            .find(|row| {
+                row.visible.contains(at)
+                    && self
+                        .rows
+                        .iter()
+                        .any(|held| held.id == row.id && !held.disabled)
+            })
             .and_then(|row| row.id.strip_prefix("entry-")?.parse().ok())
     }
 
@@ -274,7 +280,7 @@ impl MenuSurface {
             .zip(&self.rows)
             .map(|(entry, row)| {
                 let label = if entry.separator { "─".repeat(usize::from(body.width.saturating_sub(8))) } else if self.leading_chips { format!("    {}", entry.label) } else { entry.label.clone() };
-                serde_json::json!({"id": row.id, "disabled": matches!(entry.choice, Choice::Unavailable(_)) || entry.separator, "key": if matches!(self.template, Template::Dropdown { .. }) { format!(" {}",entry.key) } else { entry.key.clone() }, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": label})
+                serde_json::json!({"id": row.id, "disabled": matches!(entry.choice, Choice::Unavailable(_) | Choice::Heading) || entry.separator, "key": if matches!(self.template, Template::Dropdown { .. }) { format!(" {}",entry.key) } else { entry.key.clone() }, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": label})
             })
             .collect();
         let footer = self.room_picker_footer.as_deref().unwrap_or(FOOTER);

@@ -454,6 +454,16 @@ cold default; interactive sort changes only the current layer.
 `member_links` owns the current-frame resolved-reference rectangles and conversation
 read-focus cursor. It reuses the existing action menu surface within an adjacent
 clipped rectangle; no separate popup/widget family or source authority is added.
+Command mentions use the same targets and source-byte occurrence map: `commands` is the
+single explicit-marker recognizer, and `command_popover` uses the link menu's 40-cell full-text
+chunks and 48-wide placement. Run choices exist only when the entire single-line command fits
+at once; resizing requires reopening. Display normalization cannot silently rewrite runnable
+command bytes. Confirmation queues the existing `member_terminals` lane, which calls Core's
+[terminal.run](../../../../contracts/extension-api.md#terminals-under-a-member) once, optionally
+after one confirmed open, and retains an opened terminal on refusal or uncertainty.
+The selected row's effective jump key uses `keycap::control_span`, yields to its name and
+shares strip admission, so loading, editors, search and overlays hide it;
+Agents footer legends omit redundant Talk/Measure/Checklist keys without unbinding them.
 See [member references and source](board-notebooks.md#inert-text-and-independent-notebooksource-utilities).
 
 ## Decisions and composers

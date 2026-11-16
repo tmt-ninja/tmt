@@ -367,6 +367,12 @@ pub enum Choice {
         terminal: String,
     },
     /// A link's popover: open the address, copy it, or show all of it.
+    CommandRun {
+        target: super::workspace::OpsTarget,
+        terminal: Option<String>,
+        command: String,
+        screen: ratatui::layout::Rect,
+    },
     LinkOpen(String),
     LinkCopy(String),
     LinkShow {
@@ -3393,6 +3399,12 @@ impl App {
                 self.close_terminal_confirmed(&identity, &terminal)
             }
             Choice::AddToNotes(seed) => self.add_to_notes(seed),
+            Choice::CommandRun {
+                target,
+                terminal,
+                command,
+                screen,
+            } => self.command_run(&target, terminal.as_deref(), &command, screen),
             Choice::LinkOpen(url) => self.link_open(url),
             Choice::LinkCopy(url) => self.link_copy(url),
             Choice::LinkShow { url, anchor } => self.link_show(&url, anchor),
@@ -3995,6 +4007,7 @@ impl App {
             return match target {
                 super::member_links::Target::Url(url) => self.link_popover(&url, anchor),
                 super::member_links::Target::File(path) => self.file_popover(&path, anchor),
+                super::member_links::Target::Command(shown) => self.command_popover(&shown, anchor),
                 super::member_links::Target::Member(_) => Effect::None,
             };
         }

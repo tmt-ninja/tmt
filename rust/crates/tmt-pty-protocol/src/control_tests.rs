@@ -14,6 +14,12 @@ fn core_controls_round_trip_separately_from_attach_frames() {
         Control::Capabilities,
         Control::Terminal,
         Control::TerminalDetail,
+        Control::TerminalRun {
+            owner: "11111111-1111-4111-8111-111111111111".into(),
+            member_pid: 123,
+            member_start: "start-token".into(),
+            command: "printf '%s' 'hello world'".into(),
+        },
         Control::AwaitLaunch,
         Control::WaitLauncher,
         Control::LaunchReady { pane_pid: 123 },
@@ -46,7 +52,7 @@ fn core_controls_round_trip_separately_from_attach_frames() {
         Control::Close,
     ] {
         let frame = ClientMessage::Control(request);
-        assert!((0x20..=0x2f).contains(&frame.kind()));
+        assert!((0x20..=0x30).contains(&frame.kind()));
         round_trip(frame);
     }
     for answer in [
@@ -81,6 +87,10 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             relaunching: false,
         },
         ControlReply::Launched("committed-marker".into()),
+        ControlReply::TerminalRan(TerminalRunResult::Submitted),
+        ControlReply::TerminalRan(TerminalRunResult::Stale),
+        ControlReply::TerminalRan(TerminalRunResult::Busy),
+        ControlReply::TerminalRan(TerminalRunResult::Ended),
         ControlReply::Applied(true),
         ControlReply::Applied(false),
         ControlReply::Capabilities {
@@ -89,6 +99,7 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             close: true,
             terminal: false,
             terminal_detail: false,
+            terminal_run: false,
         },
         ControlReply::Capabilities {
             resume: false,
@@ -96,6 +107,7 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             close: false,
             terminal: false,
             terminal_detail: false,
+            terminal_run: false,
         },
         ControlReply::Capabilities {
             resume: true,
@@ -103,6 +115,7 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             close: true,
             terminal: false,
             terminal_detail: false,
+            terminal_run: false,
         },
         ControlReply::Capabilities {
             resume: false,
@@ -110,6 +123,7 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             close: true,
             terminal: true,
             terminal_detail: false,
+            terminal_run: false,
         },
         ControlReply::Terminal {
             owner: "11111111-1111-4111-8111-111111111111".into(),
@@ -261,16 +275,18 @@ fn capability_flags_ignore_unknown_bits_and_need_exactly_one_byte() {
             close: true,
             terminal: true,
             terminal_detail: true,
+            terminal_run: true,
         })
     );
     assert_eq!(
-        ServerMessage::read(0xa5, &[0xe0]).unwrap(),
+        ServerMessage::read(0xa5, &[0xc0]).unwrap(),
         ServerMessage::Control(ControlReply::Capabilities {
             resume: false,
             relaunch: false,
             close: false,
             terminal: false,
             terminal_detail: false,
+            terminal_run: false,
         })
     );
     // A supervisor from #5926 grants resume only: Core sends it no Relaunch or Close.
@@ -282,6 +298,7 @@ fn capability_flags_ignore_unknown_bits_and_need_exactly_one_byte() {
             close: false,
             terminal: false,
             terminal_detail: false,
+            terminal_run: false,
         })
     );
     assert!(ServerMessage::read(0xa5, &[]).is_err());
@@ -502,4 +519,29 @@ fn a_terminal_detail_reply_is_strict_and_bounded() {
     );
     payload.truncate(payload.len() - 3);
     assert!(ServerMessage::read(0xa7, &payload).is_err(), "a short name");
+}
+
+#[test]
+fn terminal_run_refuses_hidden_multiline_empty_and_oversized_commands() {
+    for command in [
+        "",
+        "   ",
+        "echo a\necho b",
+        "echo a\r",
+        "echo \u{1b}[0m",
+        "echo \u{202e}hidden",
+    ] {
+        assert!(!valid_command(command), "{command:?}");
+        let frame = Control::TerminalRun {
+            owner: "owner".into(),
+            member_pid: 1,
+            member_start: "start".into(),
+            command: command.into(),
+        };
+        assert!(ClientMessage::read(frame.kind(), &frame.encode()[5..]).is_err());
+    }
+    assert!(!valid_command(&"x".repeat(COMMAND_LIMIT + 1)));
+    assert!(valid_command(&"x".repeat(COMMAND_LIMIT)));
+    assert!(ControlReply::read(0xa8, &[4]).is_err());
+    assert!(ControlReply::read(0xa8, &[0, 0]).is_err());
 }

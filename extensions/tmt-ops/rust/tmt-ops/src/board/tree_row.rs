@@ -107,6 +107,8 @@ pub(in crate::board) struct Row<'a> {
     pub unread: bool,
     /// Focus is in this agent's conversation: the row takes the conversation tint and a bold name.
     pub in_conversation: bool,
+    /// An effective open hint in the name cell; it yields to the existing name.
+    pub open_hint: Option<Line<'static>>,
     pub query: &'a str,
 }
 #[derive(Default)]
@@ -434,6 +436,24 @@ pub(in crate::board) fn paint(
         {
             name.style = name.style.add_modifier(Modifier::BOLD);
         }
+        if matches!(field, AgentsField::Agent)
+            && let Some(hint) = &row.open_hint
+            && let Some(name) = line.spans.get(NAME_SPAN)
+        {
+            // The fitted name is padded to its whole cell. Only that trailing padding can
+            // yield to the hint; a clipped name keeps all its existing cells and ellipsis.
+            let padding = name.content.len() - name.content.trim_end_matches(' ').len();
+            let remaining = usize::from(cell.width).saturating_sub(line.width()) + padding;
+            // Keep the pane edge free as well as the gap after the name.
+            if remaining > hint.width() + 1 {
+                let name = &mut line.spans[NAME_SPAN];
+                name.content = name.content.trim_end_matches(' ').to_owned().into();
+                line.spans
+                    .push(Span::raw(" ".repeat(remaining - hint.width() - 1)));
+                line.spans.extend(hint.spans.clone());
+                line.spans.push(Span::raw(" "));
+            }
+        }
         strip::paint_left(
             buffer,
             cell,
@@ -574,6 +594,7 @@ mod tests {
                     selected,
                     unread,
                     in_conversation: false,
+                    open_hint: None,
                     query: "",
                 };
                 let mut buffer = Buffer::empty(Rect::new(0, 0, 30, 1));
@@ -676,6 +697,7 @@ mod tests {
                 selected: false,
                 unread: false,
                 in_conversation: false,
+                open_hint: None,
                 query: "",
             },
             look,
@@ -697,7 +719,7 @@ mod tests {
         let label = crate::config::WorkspaceLabels::default()
             .definitions
             .remove(0);
-        let row = Row {
+        let mut row = Row {
             source,
             label: Some(&label),
             expanded: false,
@@ -716,8 +738,40 @@ mod tests {
             selected: false,
             unread: false,
             in_conversation: false,
+            open_hint: None,
             query: "",
         };
+        for width in 1..=40 {
+            let area = Rect::new(0, 0, width, 1);
+            let mut before = Buffer::empty(area);
+            row.open_hint = None;
+            paint(
+                &mut before,
+                area,
+                &[(AgentsField::Agent, area)],
+                &row,
+                app.look(),
+            );
+            let name: String = before.content.iter().map(|cell| cell.symbol()).collect();
+            row.open_hint = Some(Line::from(" z open"));
+            let mut after = Buffer::empty(area);
+            paint(
+                &mut after,
+                area,
+                &[(AgentsField::Agent, area)],
+                &row,
+                app.look(),
+            );
+            let shown: String = after.content.iter().map(|cell| cell.symbol()).collect();
+            assert!(
+                shown.starts_with(name.trim_end()),
+                "hint clipped name at width {width}: {name:?} -> {shown:?}"
+            );
+            if width == 40 {
+                assert!(shown.contains("z open"), "{shown}");
+            }
+        }
+        row.open_hint = None;
         let area = Rect::new(0, 0, 7, 1);
         let mut buffer = Buffer::empty(area);
         let painted = paint(
@@ -782,6 +836,7 @@ mod tests {
                 selected: true,
                 unread: false,
                 in_conversation: false,
+                open_hint: None,
                 query: "",
             },
             look,
@@ -855,6 +910,7 @@ mod tests {
                         selected,
                         unread: false,
                         in_conversation,
+                        open_hint: None,
                         query: "",
                     },
                     look,

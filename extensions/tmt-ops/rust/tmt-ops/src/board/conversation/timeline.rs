@@ -155,13 +155,13 @@ impl<'a> Paint<'a> {
         );
     }
     fn body(&mut self, text: &str, muted: bool, note: note_source::Source) -> Range<usize> {
-        let text = sanitize(text);
         let mapped = markdown::render_conversation_with_members(
-            &text,
+            text,
             self.width.saturating_sub(exchange_view::BODY_INDENT).max(1),
             self.look,
             Some(self.inventory),
         );
+        let text = sanitize(text);
         let message = self.copy.messages.len();
         self.copy.messages.push(text);
         let start = self.lines.len();
