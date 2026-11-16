@@ -564,7 +564,7 @@ fn sampled_member_minute_is_painted_in_the_live_column() {
 fn sampled_member_activity_is_painted_oldest_to_newest() {
     let row = sampled_member_row();
     assert!(
-        row.contains("···········█"),
+        row.contains("▁▁▁▁▁▁▁▁▁▁▁█"),
         "the oldest-to-newest activity cells: {row}"
     );
 }
@@ -898,7 +898,7 @@ fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
             activity: [Some(0.0); 12],
         },
     );
-    assert_eq!(activity_text(&app), "············");
+    assert_eq!(activity_text(&app), "▁▁▁▁▁▁▁▁▁▁▁▁");
     let mut partial = [None; 12];
     partial[9] = Some(0.0);
     partial[11] = Some(120.0);
@@ -908,7 +908,7 @@ fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
         .get_mut(MEMBER)
         .unwrap()
         .activity = partial;
-    assert_eq!(activity_text(&app), "         · █");
+    assert_eq!(activity_text(&app), "·········▁·█");
 }
 
 #[test]
