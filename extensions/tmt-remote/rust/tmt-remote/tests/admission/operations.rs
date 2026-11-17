@@ -3447,14 +3447,17 @@ fn provider_form_answers_retain_the_first_outcome_across_prune_without_resending
         );
     }
     fs::remove_file(core.root.join("forms-error")).unwrap();
-    for (kind, truncated, code) in [
-        ("question", true, "FORM_ANSWER_INVALID"),
-        ("planApproval", true, "FORM_ANSWER_INVALID"),
-        ("permission", false, "FORM_DELIVERY_UNSUPPORTED"),
+    for (kind, truncated, answerable, code) in [
+        ("question", true, true, "FORM_ANSWER_INVALID"),
+        ("planApproval", true, true, "FORM_ANSWER_INVALID"),
+        ("permission", false, true, "FORM_DELIVERY_UNSUPPORTED"),
+        ("question", false, false, "FORM_DELIVERY_UNSUPPORTED"),
     ] {
         let mut f = provider_form(&form);
         f["kind"] = json!(kind);
         f["truncated"] = json!(truncated);
+        f["answerable"] = json!(answerable);
+        f["answerIn"] = json!(if answerable { "client" } else { "terminal" });
         fs::write(core.root.join("forms"), json!({"forms":[f]}).to_string()).unwrap();
         let before = core
             .calls()
@@ -3505,6 +3508,65 @@ fn provider_form_answers_retain_the_first_outcome_across_prune_without_resending
             .count(),
         before
     );
+    // A failed observation is definitely pre-delivery, even after the durable marker.
+    for (label, page) in [
+        ("unavailable", "not-json".to_owned()),
+        ("malformed", json!({"forms":{}}).to_string()),
+        (
+            "over-bound",
+            json!({"forms":[{"oversized":"x".repeat(1024 * 1024)}]}).to_string(),
+        ),
+    ] {
+        fs::write(core.root.join("forms"), page).unwrap();
+        let operation = uuid_v4().unwrap();
+        let answers_before = core
+            .calls()
+            .iter()
+            .filter(|c| c["operation"] == "forms.answer")
+            .count();
+        let refused = form_answer(
+            &owner,
+            &ops,
+            &session,
+            sequence,
+            &operation,
+            &form,
+            json!({"choices":[[0]]}),
+        );
+        sequence += 1;
+        assert_eq!(
+            refused,
+            json!({"operationId":operation,"formId":form,"state":"refused","reason":"REMOTE_CORE_UNAVAILABLE"}),
+            "pre-read {label} is not delivery uncertainty"
+        );
+        assert_eq!(
+            core.calls()
+                .iter()
+                .filter(|c| c["operation"] == "forms.answer")
+                .count(),
+            answers_before,
+            "pre-read {label} never answers"
+        );
+        let calls = core.calls().len();
+        assert_eq!(
+            form_answer(
+                &owner,
+                &core.operations(),
+                &session,
+                sequence,
+                &operation,
+                &form,
+                json!({"choices":[[0]]})
+            ),
+            refused
+        );
+        sequence += 1;
+        assert_eq!(
+            core.calls().len(),
+            calls,
+            "pre-read refusal replay never calls Core"
+        );
+    }
     // Crash boundary: adoption is durable even when execution never reaches Core.
     let marker_id = uuid_v4().unwrap();
     let input = json!({"version":1,"operation":"forms.answer","input":{"operationId":marker_id,"formId":form,"answer":{"choices":[[0]]}}});

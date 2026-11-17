@@ -213,7 +213,7 @@ fn answer_input(permit: &MessagePermit) -> Result<AnswerInput, RemoteError> {
     }
     Ok(input)
 }
-fn outcome(id: &str, form: &str, result: Result<Value, RemoteError>) -> Value {
+fn outcome(id: &str, form: &str, result: Result<Value, RemoteError>, attempted: bool) -> Value {
     match result {
         Ok(value) if value["formId"] == form && value["delivered"] == true => {
             json!({"operationId":id,"formId":form,"state":"accepted","delivered":true})
@@ -237,6 +237,9 @@ fn outcome(id: &str, form: &str, result: Result<Value, RemoteError>) -> Value {
             }
             value
         }
+        _ if !attempted => {
+            json!({"operationId":id,"formId":form,"state":"refused","reason":"REMOTE_CORE_UNAVAILABLE"})
+        }
         _ => {
             json!({"operationId":id,"formId":form,"state":"uncertain","reason":"REMOTE_CORE_UNCERTAIN"})
         }
@@ -254,10 +257,10 @@ fn gate(page: Value, id: &str) -> Result<(), RemoteError> {
             "A truncated form is answered in the terminal.",
         ));
     }
-    if f["kind"] == "permission" {
+    if f["kind"] == "permission" || f["answerable"] != true || f["answerIn"] != "client" {
         return Err(RemoteError::new(
             "FORM_DELIVERY_UNSUPPORTED",
-            "A permission form is answered in the terminal.",
+            "A terminal-only form is answered in the terminal.",
         ));
     }
     Ok(())
@@ -281,7 +284,11 @@ impl Operations {
         permit.revalidate()?;
         let checked = observed
             .and_then(|v| read_response("forms.list", &v))
+            .map_err(|_| {
+                RemoteError::new("REMOTE_CORE_UNAVAILABLE", "Provider forms are unavailable.")
+            })
             .and_then(|v| gate(v, &input.form_id));
+        let mut attempted = false;
         let result = match checked {
             Err(error) => Err(error),
             Ok(()) => {
@@ -309,6 +316,7 @@ impl Operations {
                             code: "",
                         },
                     )?;
+                    attempted = true;
                     let result = self.api(ask.to_string().as_bytes());
                     tx.commit().map_err(database)?;
                     Ok(result)
@@ -320,7 +328,7 @@ impl Operations {
                 }
             }
         };
-        let payload = outcome(&input.operation_id, &input.form_id, result);
+        let payload = outcome(&input.operation_id, &input.form_id, result, attempted);
         let metadata = permit.sessions.operation_response(
             &permit.grant,
             &input.operation_id,

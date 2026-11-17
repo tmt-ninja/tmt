@@ -1655,7 +1655,7 @@ The answer takes Core's documented choice lists and optional Other texts, or the
 plan decision. Remote validates only the bounded structural shape (answer JSON at
 most 16 KiB), not whether an option exists or fits the form; Core remains the
 validator. A pre-read refuses a missing form, any truncated form (including a plan)
-or a permission form before forwarding an answer. It does not replace Core's
+or a terminal-only form before forwarding an answer. It does not replace Core's
 freshness, sent-state, host/version or option checks. Only `{formId,answer}` reaches
 Core; Remote's `operationId` must equal the signed envelope ID. The actual Core
 answer runs under the existing live-grant and durable effect fence.
@@ -1668,14 +1668,19 @@ fresh adoption may invoke it. The result is `{operationId,formId,state:"accepted
 delivered:true}`, or `{operationId,formId,state:"refused"|"uncertain",reason,message?}`.
 Documented Core `FORM_*` codes, including `FORM_DELIVERY_UNSUPPORTED` and
 `FORM_DELIVERY_UNCERTAIN`, are preserved; a bounded plain Core message may accompany
-them. Unknown/malformed or lost delivery stays uncertain. Same-ID replay and
+them. A failed, malformed or oversized pre-read settles as `refused` with
+`REMOTE_CORE_UNAVAILABLE` and no Core message because no answer was attempted.
+Unknown/malformed or lost outcomes during or after an answer call stay uncertain.
+Same-ID replay and
 `operation.show` observe the stored first outcome and never call Core again, even
 after restart or journal pruning. An unfinished/crashed marker is uncertain;
 only its original in-flight invocation may settle Core's result. A settled
 uncertain outcome never authorizes resend. Reusing an ID for another answer is
 `REMOTE_INTENT_CONFLICT`. The existing 30-day recovery horizon and operation cap
 apply; capacity pruning keeps form outcomes during retention and never drops live
-uncertain answers. There is no automatic answer retry or new control endpoint.
+uncertain answers. Retaining form outcomes can exhaust the shared operation cap
+and block new adoptions until finished records age out; live uncertain answers
+remain retained. There is no automatic answer retry or new control endpoint.
 
 The SDK `forms(session)` reuses the verified Session lane and exposes `list`,
 `cursor`, `answer({operationId,formId,answer})` and `operation(operationId)`; creating
