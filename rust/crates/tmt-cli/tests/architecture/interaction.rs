@@ -15,6 +15,58 @@ use syn::visit::{self, Visit};
 pub const MIGRATING: &[(&str, &str)] =
     &[("tmt-cli", "consent.rs"), ("tmt-cli", "skill_reminder.rs")];
 
+/// Ordinary commands already migrated to paired reports. Extend with each batch.
+const REPORT_COMMANDS: &[&str] = &["config_command.rs", "init_command.rs", "notes_command.rs"];
+
+pub fn report_violations(sources: &[Source]) -> Vec<String> {
+    let mut violations = Vec::new();
+    for source in sources.iter().filter(|source| {
+        source.package == "tmt-cli" && REPORT_COMMANDS.contains(&source.file.as_str())
+    }) {
+        let mut visitor = ReportVisitor { bypass: false };
+        visitor.visit_file(&source.syntax);
+        if visitor.bypass {
+            violations.push(format!(
+                "tmt-cli/{}: migrated command bypasses CliOutput",
+                source.file
+            ));
+        }
+    }
+    violations
+}
+
+struct ReportVisitor {
+    bypass: bool,
+}
+
+impl<'ast> Visit<'ast> for ReportVisitor {
+    fn visit_item(&mut self, item: &'ast syn::Item) {
+        if production(item) {
+            visit::visit_item(self, item);
+        }
+    }
+    fn visit_expr_field(&mut self, field: &'ast syn::ExprField) {
+        if matches!(&field.member, syn::Member::Named(name) if name == "json") {
+            self.bypass = true;
+        }
+        visit::visit_expr_field(self, field);
+    }
+    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        if call.method == "publish" || call.method == "is_terminal" {
+            self.bypass = true;
+        }
+        visit::visit_expr_method_call(self, call);
+    }
+    fn visit_path(&mut self, path: &'ast syn::Path) {
+        if path.segments.iter().any(|part| {
+            part.ident == "OutputMode" || part.ident == "CliOutput" || part.ident == "stream"
+        }) {
+            self.bypass = true;
+        }
+        visit::visit_path(self, path);
+    }
+}
+
 /// Files in the guarded crates that test a terminal themselves.
 pub fn findings(sources: &[Source]) -> BTreeSet<(String, String)> {
     let mut found = BTreeSet::new();
@@ -98,6 +150,30 @@ mod tests {
             file: file.into(),
             syntax: syn::parse_file(text).unwrap(),
         }
+    }
+
+    #[test]
+    fn migrated_reports_cannot_branch_on_mode_or_publish_directly() {
+        for text in [
+            "fn f(mode: OutputMode) { if mode.json {} }",
+            "fn f(error: Failure) { error.publish(mode); }",
+            "fn f() { tmt_cli_style::stream::stdout(false); }",
+            "fn f() { CliOutput::new(false); }",
+        ] {
+            assert_eq!(
+                report_violations(&[source("tmt-cli", "init_command.rs", text)]).len(),
+                1,
+                "{text}"
+            );
+        }
+        assert!(
+            report_violations(&[source(
+                "tmt-cli",
+                "init_command.rs",
+                "fn f() -> Report { Report } "
+            )])
+            .is_empty()
+        );
     }
 
     #[test]

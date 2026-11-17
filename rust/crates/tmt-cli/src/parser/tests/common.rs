@@ -457,3 +457,36 @@ fn unknown_argument_json_keeps_the_original_clap_message() {
     };
     assert_eq!(command, args(&["identity", "--bogus-flag"]));
 }
+
+#[test]
+fn output_boundary_inventory_keeps_reports_and_protocols_distinct() {
+    use crate::invocation::OutputBoundary;
+    for words in [
+        &["init"][..],
+        &["config", "show"][..],
+        &["notes", "path"][..],
+    ] {
+        assert_eq!(
+            parsed(words).invocation.output_boundary(),
+            OutputBoundary::Paired
+        );
+    }
+    for (words, boundary) in [
+        (&["help"][..], OutputBoundary::Exact),
+        (&["api"][..], OutputBoundary::Protocol),
+        (&["attach", "worker"][..], OutputBoundary::Interactive),
+        (&["talk", "worker", "hello"][..], OutputBoundary::Streaming),
+        (&["whoami"][..], OutputBoundary::Legacy),
+    ] {
+        assert_eq!(
+            parsed(words).invocation.output_boundary(),
+            boundary,
+            "{words:?}"
+        );
+    }
+    let extension = crate::parser::parse(&args(&["myext", "--json"])).unwrap();
+    assert_eq!(
+        extension.invocation.output_boundary(),
+        OutputBoundary::External
+    );
+}

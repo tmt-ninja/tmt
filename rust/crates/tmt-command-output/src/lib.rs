@@ -333,6 +333,28 @@ impl Error for Failure {
     }
 }
 
+impl tmt_cli_style::Render for Failure {
+    fn human(
+        &self,
+        _stdout: &mut dyn Write,
+        mut stderr: &mut dyn Write,
+        _stdout_terminal: tmt_cli_style::Terminal,
+        stderr_terminal: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        self.write_human(&mut stderr, stderr_terminal)
+    }
+
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", self.document())
+    }
+}
+
+impl tmt_cli_style::RenderFailure for Failure {
+    fn exit_status(&self) -> u8 {
+        self.status
+    }
+}
+
 impl From<tmt_adapters::config::ConfigError> for Failure {
     fn from(error: tmt_adapters::config::ConfigError) -> Self {
         Self::new(error.code, error.message.clone(), 1).caused_by(error)
