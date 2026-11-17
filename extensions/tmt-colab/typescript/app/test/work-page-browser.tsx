@@ -122,6 +122,7 @@ export function mountWorkPage(
   owner = false,
   scenario: 'tree' | 'empty' | 'many' | 'filled' | 'work-fields' = 'tree',
   tall = false,
+  activityState?: 'working' | 'possibly-stalled',
 ) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
@@ -209,10 +210,10 @@ export function mountWorkPage(
     state: manualState,
     pageState: manualState,
     workFacts: {
-      state: scenario === 'work-fields' ? 'blocked' : 'working',
+      state: activityState ?? (scenario === 'work-fields' ? 'blocked' : 'working'),
       known: true,
       pulls:
-        scenario === 'work-fields'
+        scenario === 'work-fields' && !activityState
           ? [
               {
                 url: 'https://github.com/example/project/pull/42',
@@ -226,15 +227,20 @@ export function mountWorkPage(
               },
             ]
           : [],
-      activity: { state: 'working', lastActivityMs: 880000, observedAtMs: 1000000 },
-      asOfMs: 1000000,
+      activity: {
+        state: 'working',
+        lastActivityMs: activityState === 'possibly-stalled' ? 1000000 : 9880000,
+        observedAtMs: 10000000,
+      },
+      lastActivityAtMs: 9880000,
+      asOfMs: 10000000,
     },
     ...(scenario === 'work-fields'
       ? {
           priority: 'high' as const,
           owner: { id: id(88), name: 'gui-3' },
           next: 'Review the mockup',
-          blocked: 'Waiting for Core',
+          ...(activityState ? {} : { blocked: 'Waiting for Core' }),
         }
       : {}),
     ...(current ? { work: current } : {}),

@@ -914,6 +914,8 @@ fn serve(
                 device,
                 page,
                 projection,
+                never_written,
+                last_activity_at_ms,
                 prefix,
                 fingerprint,
             } = service
@@ -924,16 +926,35 @@ fn serve(
             let stop = server
                 .owner_page_token(&device, &page)
                 .ok_or(registration::Code::Denied)?;
-            let Some(projection) = projection else {
-                return Ok(
-                    serde_json::json!({"pageId":page,"known":false,"pulls":[],"state":"unknown","activity":null,"asOfMs":registration::now_ms()?}),
-                );
+            let projection = match projection {
+                Some(projection) => projection,
+                None if never_written => crate::summary::SummaryProjection {
+                    summary: crate::summary::Summary {
+                        comments: 0,
+                        waiting: false,
+                        needs_you: 0,
+                        author: None,
+                        work: None,
+                    },
+                    readings: Vec::new(),
+                    needs: Vec::new(),
+                    latest: None,
+                    pr_links: Some(Vec::new()),
+                    todo_counts: Some((0, 0)),
+                },
+                None => {
+                    return Ok(
+                        serde_json::json!({"pageId":page,"known":false,"pulls":[],"state":"unknown","activity":null,"lastActivityAtMs":last_activity_at_ms,"asOfMs":registration::now_ms()?}),
+                    );
+                }
             };
             let fields = projection.summary.work.as_ref().map(|work| &work.fields);
             let owner = fields
                 .and_then(|fields| fields.pointer("/owner/id"))
                 .and_then(serde_json::Value::as_str);
-            let activity = owner.and_then(|owner| browser.work_facts.activity(owner, &stop));
+            let activity_read = owner.map(|owner| browser.work_facts.activity(owner, &stop));
+            let mut busy_unknown = activity_read.as_ref().is_some_and(|read| read.busy_unknown);
+            let activity = activity_read.and_then(|read| read.observation);
             let owner_activity = match activity.as_ref().map(|activity| activity.state.as_str()) {
                 Some("working") => crate::work_index::OwnerActivity::Working {
                     last_activity_ms: activity
@@ -954,13 +975,15 @@ fn serve(
             // A page may link many PRs; keep one refresh bounded even when every provider is slow.
             let fact_deadline = Instant::now() + Duration::from_secs(30);
             for link in projection.pr_links.unwrap_or_default() {
-                let fact = browser.work_facts.observe(
+                let observed = browser.work_facts.observe(
                     &browser.layout,
                     &link,
                     prefix.as_deref(),
                     &stop,
                     || !stop.load(Ordering::Acquire) && Instant::now() < fact_deadline,
                 );
+                busy_unknown |= observed.busy_unknown;
+                let fact = observed.fact;
                 statuses.push(match fact.as_ref() {
                     Some(fact) if fact.state == "open" => crate::work_index::PullRequestFact::Open,
                     Some(fact) if fact.state == "merged" => {
@@ -994,7 +1017,7 @@ fn serve(
                 as_of,
             );
             let activity = activity.map(|activity| serde_json::json!({"state":activity.state,"lastActivityMs":activity.last_activity_ms,"observedAtMs":activity.observed_at_ms}));
-            let result = serde_json::json!({"pageId":page,"known":known,"pulls":pulls,"state":state,"activity":activity,"asOfMs":as_of});
+            let result = serde_json::json!({"pageId":page,"known":known,"pulls":pulls,"state":state,"activity":activity,"lastActivityAtMs":last_activity_at_ms,"asOfMs":as_of});
             let current = service
                 .lock()
                 .map_err(|_| registration::Code::Unavailable)?
@@ -1003,7 +1026,7 @@ fn serve(
             if current != fingerprint || stop.load(Ordering::Acquire) {
                 return Err(registration::Code::Unavailable);
             }
-            if let Ok(store) = Store::write_existing(&browser.layout) {
+            if !busy_unknown && let Ok(store) = Store::write_existing(&browser.layout) {
                 let _ = store.remember_work_status(&page, &fingerprint, &result);
             }
             if stop.load(Ordering::Acquire) {

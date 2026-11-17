@@ -68,8 +68,11 @@ pub fn computed_state(
 ) -> &'static str {
     let complete = todos.is_some_and(|(done, total)| done == total)
         && prs.is_some_and(|items| {
-            (!items.is_empty() || todos.is_some_and(|(_, total)| total > 0))
-                && items.iter().all(|item| {
+            let relevant = items
+                .iter()
+                .filter(|item| **item != PullRequestFact::Closed);
+            (relevant.clone().next().is_some() || todos.is_some_and(|(_, total)| total > 0))
+                && relevant.into_iter().all(|item| {
                     matches!(
                         item,
                         PullRequestFact::Merged {
@@ -329,6 +332,68 @@ mod tests {
                 2 * STALL_THRESHOLD_MS
             ),
             "unknown"
+        );
+    }
+
+    #[test]
+    fn released_html_and_closed_pull_requests_do_not_block_completion() {
+        let released = PullRequestFact::Merged {
+            released: Some(true),
+        };
+        assert_eq!(
+            computed_state(
+                Some((0, 0)),
+                false,
+                false,
+                Some(&[released]),
+                OwnerActivity::Other,
+                0
+            ),
+            "done"
+        );
+        assert_eq!(
+            computed_state(
+                Some((0, 0)),
+                false,
+                false,
+                Some(&[released, PullRequestFact::Closed]),
+                OwnerActivity::Other,
+                0
+            ),
+            "done"
+        );
+        assert_eq!(
+            computed_state(
+                Some((0, 0)),
+                false,
+                false,
+                Some(&[PullRequestFact::Closed]),
+                OwnerActivity::Other,
+                0
+            ),
+            "discussing"
+        );
+        assert_eq!(
+            computed_state(
+                Some((0, 0)),
+                false,
+                false,
+                Some(&[]),
+                OwnerActivity::Other,
+                0
+            ),
+            "discussing"
+        );
+        assert_eq!(
+            computed_state(
+                None,
+                false,
+                false,
+                Some(&[released]),
+                OwnerActivity::Other,
+                0
+            ),
+            "discussing"
         );
     }
 

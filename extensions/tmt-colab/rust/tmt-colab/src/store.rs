@@ -891,6 +891,16 @@ impl Store {
             .map(|ms| u64::try_from(ms).map_err(|_| Fault::Invalid))
             .transpose()
     }
+    /// True only when this page has never retained a receipt or checkpoint in any epoch.
+    pub(crate) fn page_never_written(&self, page: &str) -> StoreResult<bool> {
+        bounded_id(page)?;
+        let exists: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM receipts WHERE page=?1 UNION ALL SELECT 1 FROM checkpoints WHERE page=?1)",
+            params![page],
+            |row| row.get(0),
+        )?;
+        Ok(!exists)
+    }
     /// Bounded namespace inventory, including checkpoint-only namespaces. This
     /// read transaction prevents an epoch transition between admission and reads.
     pub fn namespaces(&self, page: &str, epoch: u64) -> StoreResult<Vec<(String, Namespace)>> {

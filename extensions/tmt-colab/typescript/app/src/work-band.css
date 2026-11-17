@@ -12,6 +12,11 @@
   font: var(--tmt-ui-command-size) / 1.5 var(--tmt-ui-font-body);
 }
 
+/* Keep status details above the following project controls when the phone row wraps. */
+.work-band:has(.work-page-state[aria-expanded='true']) {
+  z-index: 2;
+}
+
 /* The head: the whole row toggles the list (or, with nothing attached, opens Add). */
 .work-head {
   box-sizing: border-box;

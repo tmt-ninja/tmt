@@ -304,7 +304,7 @@ impl super::Store {
         })
     }
 
-    /// Current cached work display for CLI consumers; stale or malformed data is unknown.
+    /// Cached work display for CLI consumers; changed fingerprints and malformed data are unknown.
     pub fn cached_work_status_with_fingerprints(
         &self,
         key: &crate::keyring::Keyring,
@@ -377,7 +377,6 @@ impl super::Store {
             }
             .into();
         }
-        value["asOfMs"] = now.into();
         Ok(Some(value))
     }
 }
@@ -441,6 +440,27 @@ pub(super) fn backfill(connection: &Connection) -> StoreResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_status_keeps_its_observation_time_on_later_reads() {
+        let root =
+            std::env::temp_dir().join(format!("tmt-work-status-time-{}", std::process::id()));
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let key = crate::keyring::Keyring::open(&layout).unwrap();
+        let store = crate::store::Store::open(&layout).unwrap();
+        let page = "20000000-0000-4000-8000-000000000001";
+        let cached = serde_json::json!({"pageId":page,"state":"waiting-ci","asOfMs":123});
+        store.remember_work_status(page, "same", &cached).unwrap();
+        let fingerprints = std::collections::BTreeMap::from([(page.to_owned(), "same".to_owned())]);
+        let later = store
+            .cached_work_status_with_fingerprints(&key, page, 999_999, Some(&fingerprints))
+            .unwrap()
+            .unwrap();
+        assert_eq!(later["asOfMs"], 123);
+        assert_eq!(later["state"], "waiting-ci");
+        store.close().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn default_prefixes_resolve_collisions_and_names_without_letters() {

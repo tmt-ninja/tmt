@@ -185,7 +185,8 @@ fn fold_details(
                     .count(),
                 todos.len(),
             )
-        });
+        })
+        .or_else(|| folded.blocks.is_none().then_some((0, 0)));
     let todos = if active {
         crate::page::todo_ids(folded.blocks.as_ref())
     } else {

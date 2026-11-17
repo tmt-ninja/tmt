@@ -2,7 +2,7 @@ import { useNeedsYouVersions } from './use-needs-you-versions.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
-import { PageWorkBand } from './work-band-live.js';
+import { PageStateMenu, PageWorkBand } from './work-band-live.js';
 import { MobileWorkTitle, WorkPullChips } from './work-band.js';
 import { useMedia } from './use-media.js';
 import { usePageWorkflow } from './use-page-workflow.js';
@@ -1647,6 +1647,7 @@ function OpenPage({
   const toolbar = useRef<HTMLElement>(null);
   const [workBandSize, setWorkBandSize] = useState(0);
   const [addingSubpage, setAddingSubpage] = useState(false);
+  const [manualStateOpen, setManualStateOpen] = useState(false);
   const addSubpageDraft = useRef<import('./page-list-search.js').SearchEdit | undefined>(undefined);
   const {
     reset: resetPageLinks,
@@ -2944,6 +2945,17 @@ function OpenPage({
                   !archived &&
                   !liveError
                 }
+                canSetPageState={
+                  !design &&
+                  !!snapshot.binding?.canWork?.() &&
+                  !!snapshot.binding?.canMetadata?.() &&
+                  !!snapshot.binding?.metadata &&
+                  !!snapshot.binding?.metadataRevision &&
+                  (view.state === undefined ? view.pageState : view.state) != null &&
+                  state === 'ready' &&
+                  !archived &&
+                  !liveError
+                }
                 parentTitle={hierarchy.parentPage?.title}
                 pin={pin}
                 creatorLabel={creatorName(view)}
@@ -2973,6 +2985,8 @@ function OpenPage({
                     routing.open(`/pages/${hierarchy.parentPage.id}`);
                   } else if (action === 'add-subpage') {
                     setAddingSubpage(true);
+                  } else if (action === 'page-state') {
+                    setManualStateOpen(true);
                   } else if (action === 'put-under') {
                     setChoosingParent(true);
                   } else if (action === 'archive') {
@@ -2992,6 +3006,17 @@ function OpenPage({
           }
         />
       )}
+      <BrowserDrawer
+        open={manualStateOpen}
+        title={text.workBand.pageState}
+        panel="page-state"
+        onDismiss={() => setManualStateOpen(false)}
+      >
+        <PageStateMenu
+          binding={snapshot.binding}
+          state={view.state === undefined ? view.pageState : view.state}
+        />
+      </BrowserDrawer>
       <TemplateDialogs
         key={`template:${snapshot.id}`}
         kind={templateDialog}

@@ -200,6 +200,19 @@ function ComputedStatus({
         : ['needs-you', 'waiting-ci', 'waiting-release', 'possibly-stalled'].includes(state)
           ? 'waiting'
           : 'muted';
+  const prNumber = (wanted: 'open' | 'merged') =>
+    facts?.pulls
+      .find(({ fact }) => fact?.state === wanted)
+      ?.url.split('/')
+      .at(-1);
+  const reason =
+    state === 'blocked'
+      ? t.statusReason.blocked(blocked)
+      : state === 'waiting-ci'
+        ? t.statusReason['waiting-ci'](prNumber('open'))
+        : state === 'waiting-release'
+          ? t.statusReason['waiting-release'](prNumber('merged'))
+          : t.statusReason[state];
   return (
     <UiTheme theme={theme}>
       <Popover>
@@ -228,17 +241,17 @@ function ComputedStatus({
           }}
         >
           <strong>{label}</strong>
-          {blocked && <p>{t.blockedNote(blocked)}</p>}
+          <p>{reason}</p>
           {facts?.activity && (
             <p>
-              {facts.activity.state} ·{' '}
+              {t.activityState[facts.activity.state]} ·{' '}
               {t.factAge(relativeTime(facts.activity.observedAtMs, facts.asOfMs))}
             </p>
           )}
           {facts?.pulls.map(({ url, fact }) => (
             <p key={url}>
               PR #{url.split('/').at(-1)} ·{' '}
-              {fact?.tag ? t.releasedIn(fact.tag) : (fact?.state ?? t.unknown)}
+              {fact?.tag ? t.releasedIn(fact.tag) : fact ? t.pullState[fact.state] : t.unknown}
               {fact?.checks && <> · {t.checks[fact.checks]}</>}
               {fact?.state === 'open' && !fact.checks && <> · {t.checksUnavailable}</>}
               {fact && <> · {t.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>}
@@ -320,7 +333,13 @@ function RowStateMenu({ row, write }: { row: SubpageRow; write(next: string): Pr
 }
 
 /** The verified label moves only when the owner's admitted stream publishes the commit. */
-function PageStateMenu({ binding, state }: { binding?: PageBinding; state?: PageState | null }) {
+export function PageStateMenu({
+  binding,
+  state,
+}: {
+  binding?: PageBinding;
+  state?: PageState | null;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const revision = useRef<Promise<string | undefined>>(undefined);

@@ -113,15 +113,13 @@ export function MobileWorkTitle({
         {title}
       </h1>
       <div className="page-mobile-title-chips">{children}</div>
-      {(next || blocked || facts?.activity?.lastActivityMs != null) && (
+      {(next || blocked || facts?.lastActivityAtMs != null) && (
         <div className="page-work-notes">
           {blocked && <span>{blocked}</span>}
           {next && <span>{text.workBand.nextNote(next)}</span>}
-          {facts?.activity?.lastActivityMs != null && (
+          {facts?.lastActivityAtMs != null && (
             <span>
-              {text.workBand.lastActivity(
-                relativeTime(facts.activity.lastActivityMs, facts.asOfMs),
-              )}
+              {text.workBand.lastActivity(relativeTime(facts.lastActivityAtMs, facts.asOfMs))}
             </span>
           )}
         </div>
@@ -134,7 +132,11 @@ export function WorkPullChips({ facts }: { facts?: WorkFactView }) {
   return facts?.pulls.map(({ url, fact }) => (
     <a className={ui.countChip} href={url} key={url} target="_blank" rel="noreferrer">
       PR #{url.split('/').at(-1)} ·{' '}
-      {fact?.tag ? text.workBand.releasedIn(fact.tag) : (fact?.state ?? text.workBand.unknown)}
+      {fact?.tag
+        ? text.workBand.releasedIn(fact.tag)
+        : fact
+          ? text.workBand.pullState[fact.state]
+          : text.workBand.unknown}
       {fact && !fact.tag && facts.asOfMs - fact.observedAtMs >= PR_STALE_MS && (
         <> · {text.workBand.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>
       )}

@@ -39,6 +39,7 @@ export type PageHeaderAction =
   | 'archive'
   | 'put-under'
   | 'add-subpage'
+  | 'page-state'
   | 'open-parent'
   | 'template-save'
   | 'template-settings'
@@ -76,6 +77,7 @@ export function PageHeaderActions({
   canArchive = false,
   canMove = false,
   canAddSubpage = false,
+  canSetPageState = false,
   parentTitle,
   onConvert,
   onRevert,
@@ -95,6 +97,7 @@ export function PageHeaderActions({
   canArchive?: boolean;
   canMove?: boolean;
   canAddSubpage?: boolean;
+  canSetPageState?: boolean;
   parentTitle?: string;
   onConvert?(): void;
   onRevert?(): void;
@@ -150,6 +153,7 @@ export function PageHeaderActions({
     })),
     ...(canMove ? [{ key: 'put-under', label: text.workBand.putUnder }] : []),
     ...(canAddSubpage ? [{ key: 'add-subpage', label: text.workBand.addSubpage }] : []),
+    ...(canSetPageState ? [{ key: 'page-state', label: text.workBand.manualPageState }] : []),
     { key: 'questions', label: text.metadata.questionsItem },
     { key: 'creator', label: text.metadata.creatorItem(creatorLabel) },
     ...(!readOnly ? [{ key: 'agents', label: text.agentStatus }] : []),
@@ -205,6 +209,7 @@ export function PageHeaderActions({
               },
             ]
           : []),
+        ...(canSetPageState ? [{ key: 'page-state', label: text.workBand.manualPageState }] : []),
         ...(parentTitle
           ? [
               {
@@ -283,6 +288,7 @@ export function PageHeaderActions({
         key === 'archive' ||
         key === 'put-under' ||
         key === 'add-subpage' ||
+        key === 'page-state' ||
         key === 'open-parent' ||
         key === 'agents' ||
         key === 'manage' ||

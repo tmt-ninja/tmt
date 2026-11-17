@@ -62,6 +62,76 @@ test('an open linked PR supplies the owner page status', async () => {
   });
 });
 
+test('a released HTML page with no to-dos is done', async () => {
+  await withWorld(async (world) => {
+    const merged = JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            state: 'MERGED',
+            mergeCommit: { oid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+            commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
+          },
+        },
+      },
+    });
+    writeFileSync(
+      join(world.root, 'wrap', 'gh'),
+      `#!/bin/sh
+case "$4" in
+  graphql) printf '%s\n' '${merged}' ;;
+  *releases*) printf '%s\n' '["v1.0.0"]' ;;
+  *compare*) printf '%s\n' '{"status":"behind"}' ;;
+  *) exit 1 ;;
+esac
+`,
+      { mode: 0o700 },
+    );
+    const created = createPage(
+      world,
+      'Released HTML',
+      '<p><a href="https://github.com/example/project/pull/42">Review</a></p>',
+    );
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'released-html-owner');
+    const page = await openPage(door, browser, created);
+    await expect(page.getByRole('button', { name: 'Done, show status details' })).toBeVisible();
+    await expect(page.getByText(/^Last activity /)).toBeVisible();
+    const shown = JSON.parse(run(world, world.binaries.colab, ['show', created.pageId, '--json']));
+    expect(shown.page.computedStatus.state).toBe('done');
+  });
+});
+
+test('new empty parent and sub-page show discussing with page activity', async () => {
+  await withWorld(async (world) => {
+    world.linkExtensions();
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const parent = colab([
+      'page',
+      'create',
+      '--structured',
+      '--title',
+      'Empty parent',
+      '--no-open',
+    ]);
+    colab(['subpage', 'create', parent.pageId, '--title', 'Empty child']);
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'empty-work-owner');
+    const page = await openPage(door, browser, parent);
+    await expect(
+      page.getByRole('button', { name: 'Discussing, show status details' }),
+    ).toBeVisible();
+    await expect(page.getByText(/^Last activity /)).toBeVisible();
+    await page.getByRole('button', { name: '1 sub-page' }).click();
+    await page.getByRole('link', { name: 'Empty child' }).click();
+    await expect(page.getByRole('heading', { name: /Empty child/ })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Discussing, show status details' }),
+    ).toBeVisible();
+  });
+});
+
 test('CLI work fields and to-do numbers appear on the owner page', async () => {
   await withWorld(async (world) => {
     world.linkExtensions();
@@ -245,11 +315,6 @@ test('manual state persists, an empty page offers Add to the owner only, and sha
     const band = page.getByRole('region', { name: 'Work on this page' });
     // An empty page keeps its state in the title and offers Add in the page menu.
     await expect(band.locator('.work-toggle')).toHaveCount(0);
-    await page.getByRole('button', { name: 'More', exact: true }).click();
-    await expect(page.getByRole('menuitem', { name: 'Add a sub-page' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    // Manual state remains writable through the CLI; the owner UI shows computed status.
-    colab(['page', 'state', created.pageId, 'done']);
     const status = band
       .locator('.work-head-chip')
       .getByRole('button', { name: /show status details/ });
@@ -258,6 +323,14 @@ test('manual state persists, an empty page offers Add to the owner only, and sha
     await expect(page.locator('.work-status-details')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(status).toBeFocused();
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: 'Add a sub-page' })).toBeVisible();
+    await page.getByRole('menuitem', { name: 'Manual page state…' }).click();
+    const stateDrawer = page.getByRole('dialog', { name: 'Page state' });
+    await stateDrawer.getByRole('button', { name: /^Page state:/ }).click();
+    await page.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
+    await expect.poll(() => colab(['show', created.pageId]).page.state).toBe('done');
+    await stateDrawer.getByRole('button', { name: 'Close Page state' }).click();
     const after = colab(['show', created.pageId]);
     expect(after.page.state).toBe('done');
     expect(after.page.progress).toEqual(before.page.progress);

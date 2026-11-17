@@ -16,6 +16,7 @@ export const LATEST_POINTS = 160;
 
 export interface WorkFactView {
   asOfMs: number;
+  lastActivityAtMs?: number | null;
   state:
     | 'done'
     | 'blocked'
@@ -59,7 +60,22 @@ export async function readWorkFacts(
     signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(120_000)]),
   });
   const value = await jsonResponse(response, READING_DETAILS_BYTES);
-  exactKeys(value, ['pageId', 'known', 'pulls', 'state', 'activity', 'asOfMs']);
+  exactKeys(value, [
+    'pageId',
+    'known',
+    'pulls',
+    'state',
+    'activity',
+    'asOfMs',
+    ...(value && typeof value === 'object' && 'lastActivityAtMs' in value
+      ? ['lastActivityAtMs']
+      : []),
+  ]);
+  if ('lastActivityAtMs' in value)
+    requireValue(
+      value.lastActivityAtMs === null ||
+        (Number.isSafeInteger(value.lastActivityAtMs) && Number(value.lastActivityAtMs) >= 0),
+    );
   requireValue(Number.isSafeInteger(value.asOfMs) && Number(value.asOfMs) >= 0);
   requireValue(
     value.pageId === pageId &&

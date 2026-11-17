@@ -159,7 +159,16 @@ struct State {
 #[derive(Default)]
 pub struct Facts {
     state: Mutex<State>,
+    // A small mirror can be read while the one in-flight GitHub request owns `state`.
+    retained: Mutex<HashMap<String, Fact>>,
     activities: Mutex<HashMap<String, ActivityEntry>>,
+    retained_activities: Mutex<HashMap<String, OwnerObservation>>,
+}
+
+pub struct FactRead {
+    pub fact: Option<Fact>,
+    /// No retained fact existed while another GitHub read held the shared lock.
+    pub busy_unknown: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -171,6 +180,10 @@ pub struct OwnerObservation {
 struct ActivityEntry {
     cursor: Value,
     activity: OwnerObservation,
+}
+pub struct ActivityRead {
+    pub observation: Option<OwnerObservation>,
+    pub busy_unknown: bool,
 }
 fn core_api(operation: &str, input: Value, stop: &AtomicBool) -> Option<Value> {
     let executable = tmt_invoke::invoking_tmt().ok()?;
@@ -196,8 +209,27 @@ fn core_api(operation: &str, input: Value, stop: &AtomicBool) -> Option<Value> {
 }
 impl Facts {
     /// Re-read only on caller events; a cursor read alone never refreshes observation age.
-    pub fn activity(&self, owner: &str, stop: &AtomicBool) -> Option<OwnerObservation> {
-        let mut cache = self.activities.try_lock().ok()?;
+    pub fn activity(&self, owner: &str, stop: &AtomicBool) -> ActivityRead {
+        let mut cache = match self.activities.try_lock() {
+            Ok(cache) => cache,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                let observation = self
+                    .retained_activities
+                    .lock()
+                    .ok()
+                    .and_then(|cache| cache.get(owner).cloned());
+                return ActivityRead {
+                    busy_unknown: observation.is_none(),
+                    observation,
+                };
+            }
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                return ActivityRead {
+                    observation: None,
+                    busy_unknown: true,
+                };
+            }
+        };
         let read = || -> Option<(Value, OwnerObservation)> {
             let cursor = core_api("changes.cursor", json!({}), stop)?
                 .get("cursor")?
@@ -238,7 +270,10 @@ impl Facts {
         match read() {
             Some((cursor, activity)) => {
                 if !cache.contains_key(owner) && cache.len() >= 1024 {
-                    return None;
+                    return ActivityRead {
+                        observation: None,
+                        busy_unknown: true,
+                    };
                 }
                 cache.insert(
                     owner.to_owned(),
@@ -247,12 +282,18 @@ impl Facts {
                         activity: activity.clone(),
                     },
                 );
-                Some(activity)
+                if let Ok(mut retained) = self.retained_activities.lock() {
+                    retained.insert(owner.to_owned(), activity.clone());
+                }
+                ActivityRead {
+                    observation: Some(activity),
+                    busy_unknown: false,
+                }
             }
-            None => {
-                cache.remove(owner);
-                None
-            }
+            None => ActivityRead {
+                observation: cache.get(owner).map(|entry| entry.activity.clone()),
+                busy_unknown: false,
+            },
         }
     }
 }
@@ -384,7 +425,7 @@ fn releases(
     open: &dyn Fn() -> bool,
     call: &GhCall,
 ) -> Option<Vec<String>> {
-    let endpoint = format!("repos/{}/{}/releases?per_page=10", link.owner, link.repo);
+    let endpoint = format!("repos/{}/{}/releases?per_page=100", link.owner, link.repo);
     let value = call(
         &[
             arg("api"),
@@ -396,7 +437,7 @@ fn releases(
         open,
     )?;
     let items = value.as_array()?;
-    if items.len() > 10 {
+    if items.len() > 100 {
         return None;
     }
     items
@@ -443,9 +484,11 @@ impl Facts {
         prefix: Option<&str>,
         stop: &AtomicBool,
         open: impl Fn() -> bool,
-    ) -> Option<Fact> {
-        self.observe_with(layout, link, prefix, stop, &open, &gh)
+    ) -> FactRead {
+        self.observe_result(layout, link, prefix, stop, &open, &gh)
     }
+
+    #[cfg(test)]
     fn observe_with(
         &self,
         layout: &crate::keyring::Layout,
@@ -455,13 +498,72 @@ impl Facts {
         open: &dyn Fn() -> bool,
         call: &GhCall<'_>,
     ) -> Option<Fact> {
+        self.observe_result(layout, link, prefix, stop, open, call)
+            .fact
+    }
+
+    fn observe_result(
+        &self,
+        layout: &crate::keyring::Layout,
+        link: &PullLink,
+        prefix: Option<&str>,
+        stop: &AtomicBool,
+        open: &dyn Fn() -> bool,
+        call: &GhCall<'_>,
+    ) -> FactRead {
         if !open() {
-            return None;
+            return FactRead {
+                fact: None,
+                busy_unknown: false,
+            };
         }
-        let mut state = self.state.try_lock().ok()?;
         let key = format!("{}\n{}", link.url(), prefix.unwrap_or(""));
+        let mut state = match self.state.try_lock() {
+            Ok(state) => state,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                let fact = self
+                    .retained
+                    .lock()
+                    .ok()
+                    .and_then(|cache| cache.get(&key).cloned());
+                return FactRead {
+                    busy_unknown: fact.is_none(),
+                    fact,
+                };
+            }
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                return FactRead {
+                    fact: None,
+                    busy_unknown: true,
+                };
+            }
+        };
+        let fact = self.observe_locked(layout, link, prefix, stop, open, call, &mut state, &key);
+        if let Some(fact) = &fact
+            && let Ok(mut retained) = self.retained.lock()
+        {
+            retained.insert(key, fact.clone());
+        }
+        FactRead {
+            fact,
+            busy_unknown: false,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn observe_locked(
+        &self,
+        layout: &crate::keyring::Layout,
+        link: &PullLink,
+        prefix: Option<&str>,
+        stop: &AtomicBool,
+        open: &dyn Fn() -> bool,
+        call: &GhCall<'_>,
+        state: &mut State,
+        key: &str,
+    ) -> Option<Fact> {
         let now = Instant::now();
-        if !state.prs.contains_key(&key) && state.prs.len() >= 1024 {
+        if !state.prs.contains_key(key) && state.prs.len() >= 1024 {
             let oldest = state
                 .prs
                 .iter()
@@ -469,8 +571,11 @@ impl Facts {
                 .min_by_key(|(_, entry)| entry.due)
                 .map(|(key, _)| key.clone())?;
             state.prs.remove(&oldest);
+            if let Ok(mut retained) = self.retained.lock() {
+                retained.remove(&oldest);
+            }
         }
-        if let Some(held) = state.prs.get(&key)
+        if let Some(held) = state.prs.get(key)
             && (held.due > now
                 || held
                     .fact
@@ -496,7 +601,7 @@ impl Facts {
                 observed_at_ms,
             };
             state.prs.insert(
-                key,
+                key.to_owned(),
                 PrEntry {
                     due: now + PR_INTERVAL,
                     fact: Some(fact.clone()),
@@ -505,7 +610,7 @@ impl Facts {
             );
             return Some(fact);
         }
-        let cached_merged = state.prs.get(&key).and_then(|held| {
+        let cached_merged = state.prs.get(key).and_then(|held| {
             held.fact
                 .as_ref()
                 .filter(|f| f.state == "merged")
@@ -529,7 +634,7 @@ impl Facts {
             .map(|(_, held)| (held.due, held.fact.clone(), held.merge.clone()));
         if let Some((due, None, _)) = &shared {
             state.prs.insert(
-                key,
+                key.to_owned(),
                 PrEntry {
                     due: *due,
                     fact: None,
@@ -549,7 +654,7 @@ impl Facts {
         };
         let Some((mut fact, merge)) = result else {
             state.prs.insert(
-                key,
+                key.to_owned(),
                 PrEntry {
                     due: now + PR_INTERVAL,
                     fact: None,
@@ -599,6 +704,7 @@ impl Facts {
                 for tag in tags
                     .iter()
                     .filter(|tag| prefix.is_none_or(|prefix| tag.starts_with(prefix)))
+                    .take(10)
                 {
                     let comparison_key = (link.url(), sha.to_owned(), tag.clone());
                     let answer = state.comparisons.get(&comparison_key).copied().or_else(|| {
@@ -655,7 +761,7 @@ impl Facts {
             }
         }
         state.prs.insert(
-            key,
+            key.to_owned(),
             PrEntry {
                 due: now + PR_INTERVAL,
                 fact: Some(fact.clone()),
@@ -689,6 +795,52 @@ mod tests {
     }
 
     #[test]
+    fn busy_reader_uses_retained_facts_and_marks_a_missing_fact() {
+        let root = std::env::temp_dir().join(format!("tmt-work-facts-busy-{}", std::process::id()));
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let link = PullLink::parse("https://github.com/acme/app/pull/12").unwrap();
+        let missing = PullLink::parse("https://github.com/acme/app/pull/13").unwrap();
+        let facts = Facts::default();
+        facts.retained.lock().unwrap().insert(
+            format!("{}\n", link.url()),
+            Fact {
+                state: "open".into(),
+                checks: Some("PENDING".into()),
+                released: None,
+                tag: None,
+                observed_at_ms: 123,
+            },
+        );
+        let _in_flight = facts.state.lock().unwrap();
+        let stop = AtomicBool::new(false);
+        let no_call = |_: &[String], _: &AtomicBool, _: &dyn Fn() -> bool| -> Option<Value> {
+            panic!("a busy read must not launch another request")
+        };
+        let held = facts.observe_result(&layout, &link, None, &stop, &|| true, &no_call);
+        assert!(!held.busy_unknown);
+        assert_eq!(held.fact.unwrap().observed_at_ms, 123);
+        let absent = facts.observe_result(&layout, &missing, None, &stop, &|| true, &no_call);
+        assert!(absent.busy_unknown);
+        assert!(absent.fact.is_none());
+        facts.retained_activities.lock().unwrap().insert(
+            "owner".into(),
+            OwnerObservation {
+                state: "working".into(),
+                last_activity_ms: Some(100),
+                observed_at_ms: 123,
+            },
+        );
+        let _activity_in_flight = facts.activities.lock().unwrap();
+        let held_activity = facts.activity("owner", &stop);
+        assert!(!held_activity.busy_unknown);
+        assert_eq!(held_activity.observation.unwrap().observed_at_ms, 123);
+        let absent_activity = facts.activity("another", &stop);
+        assert!(absent_activity.busy_unknown);
+        assert!(absent_activity.observation.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn owner_page_release_is_retained_and_not_polled_again() {
         let root = std::env::temp_dir().join(format!("tmt-work-facts-{}", std::process::id()));
         let layout = crate::keyring::Layout::open(&root).unwrap();
@@ -702,8 +854,12 @@ mod tests {
                     json!({"data":{"repository":{"pullRequest":{"state":"MERGED","mergeCommit":{"oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}}}}}),
                 )
             } else if args.get(1).is_some_and(|s| s.contains("releases?")) {
-                Some(json!(["app-v1.0.0"]))
+                assert!(args[1].ends_with("per_page=100"));
+                let mut tags: Vec<String> = (0..12).map(|n| format!("other-v{n}")).collect();
+                tags.push("app-v1.0.0".into());
+                Some(json!(tags))
             } else if args.get(1).is_some_and(|s| s.contains("compare/")) {
+                assert!(args[1].contains("app-v1.0.0"));
                 Some(json!({"status":"behind"}))
             } else {
                 None

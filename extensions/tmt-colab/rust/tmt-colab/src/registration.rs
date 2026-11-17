@@ -90,6 +90,8 @@ pub(crate) struct WorkFactsInput {
     pub device: String,
     pub page: String,
     pub projection: Option<crate::summary::SummaryProjection>,
+    pub never_written: bool,
+    pub last_activity_at_ms: Option<u64>,
     pub prefix: Option<String>,
     pub fingerprint: String,
 }
@@ -537,8 +539,16 @@ impl Registration {
             .map_err(|_| Code::Unavailable)?;
         Ok(WorkFactsInput {
             device,
-            page: request.page_id,
             projection,
+            never_written: self
+                .store
+                .page_never_written(&request.page_id)
+                .map_err(|_| Code::Unavailable)?,
+            last_activity_at_ms: self
+                .store
+                .last_activity_ms(&request.page_id)
+                .map_err(|_| Code::Unavailable)?,
+            page: request.page_id,
             prefix,
             fingerprint,
         })

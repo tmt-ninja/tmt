@@ -6427,7 +6427,7 @@ page must be open on its admitted sync connection for a read; closing it or movi
 cancels its in-flight request. At most one GitHub read is in flight per owner service. Open PRs
 are read at most once per 60 seconds; each command has a five-second deadline, and a page refresh
 starts no further GitHub commands after its 30-second budget. Release lists are read at most once per repository per five
-minutes and contain at most the newest ten releases including prereleases. A failed read backs off;
+minutes and fetch at most the newest 100 releases including prereleases; after applying the page's prefix, at most the newest ten matching tags are compared. A failed read backs off;
 missing `gh`, logged-out access, unknown checks and unproven release facts remain unknown. A
 successful comparison is retained per PR, merge and candidate tag; a positive release and tag are
 retained and never polled again for that filter. The reader requests only the checks rollup state.
@@ -6435,14 +6435,16 @@ No GitHub output is added to page HTML, and share readers receive none of these 
 
 The owner browser may POST `{pageId}` to `/api/work-facts` only while its owner sync connection
 for that page is open. The reply is `{pageId,known,pulls,state,activity,asOfMs}`: `pulls` holds
-only admitted PR URLs and bounded derived facts, `activity` is a bounded local observation or null,
-and unavailable data stays unknown. Activity is read from `identities.status` for the admitted
+only admitted PR URLs and bounded derived facts, `activity` is a bounded local owner-agent observation
+or null, and `lastActivityAtMs` is the page's owner-local admitted activity time or null. A page
+with no retained receipts or checkpoints in any epoch has no links or to-dos and is discussing;
+unavailable written pages remain unknown. Activity is read from `identities.status` for the admitted
 owner on page open, visibility, owner sync events and PR refresh, after comparing `changes.cursor`;
 there is no activity timer or watcher. A missed update between those events is accepted. An
 activity observation older than the named provisional stall threshold cannot claim working or
 possibly stalled. Last activity is not a heartbeat. The current owner-local result is retained by
 page fingerprint for `ls --json` and `show --json` as `computedStatus`; these reads do not start
-GitHub requests. A missing, stale or failed observation is unknown. The threshold is provisional;
+GitHub requests. The retained `asOfMs` is the observation time and can be old; reads do not restamp it. A missing, stale or failed observation is unknown. The threshold is provisional;
 the user has not chosen it. There is no automatic stalled-work follow-up in this version.
 
 A structured to-do block also receives an owner-local number, keyed by its page and stable block
