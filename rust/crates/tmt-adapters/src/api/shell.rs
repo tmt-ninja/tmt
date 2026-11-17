@@ -74,13 +74,26 @@ pub(super) fn run(
         )
         .map_err(|_| no_directory())?;
     let cwd = verified_cwd(&entry, &probe)?;
-    let result = UnixCommandRunner.run_shell_in(command, Path::new(&cwd), Duration::from_secs(120), 65_536).map_err(|error| {
+    let mut interrupt = crate::interrupt::Interrupt::install_termination().map_err(|_| {
+        Fault::new(
+            "SHELL_RUN_FAILED",
+            "Shell cancellation could not be prepared. Nothing was run.",
+        )
+    })?;
+    interrupt.defer_emergency_exit();
+    let result = UnixCommandRunner.run_shell_in_interrupt(command, Path::new(&cwd), Duration::from_secs(120), 65_536, Some(&interrupt)).map_err(|error| {
         if matches!(error.kind, CommandFailure::Spawn) && !error.cleanup_failed() {
             Fault::new("SHELL_RUN_FAILED", "The shell could not be started. Nothing was run.")
         } else {
             Fault::new("SHELL_RUN_UNCONFIRMED", "The shell may have started; its result could not be confirmed. Do not retry automatically.")
         }
     })?;
+    if result.cancelled {
+        return Err(Fault::new(
+            "SHELL_RUN_CANCELLED",
+            "Shell cancelled; its process group was terminated and reaped.",
+        ));
+    }
     serde_json::to_vec(&json!({
         "identityId": identity_id, "cwd":cwd,
         "stdout":String::from_utf8_lossy(&result.stdout),

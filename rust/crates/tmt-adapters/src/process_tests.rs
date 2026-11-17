@@ -20,6 +20,65 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CLEANUP_WAIT: Duration = Duration::from_secs(2);
 
 #[test]
+fn shell_signal_fixture() {
+    let Some(root) = std::env::var_os("TMT_TEST_SHELL_SIGNAL_ROOT") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    let mut interrupt = crate::interrupt::Interrupt::install_termination().unwrap();
+    interrupt.defer_emergency_exit();
+    let command = format!(
+        "echo $$ > '{}/shell-pid'; echo ready > '{}/ready'; exec sleep 30",
+        root.display(),
+        root.display()
+    );
+    let result = UnixCommandRunner
+        .run_shell_in_interrupt(
+            &command,
+            &root,
+            Duration::from_secs(30),
+            65_536,
+            Some(&interrupt),
+        )
+        .unwrap();
+    assert!(result.cancelled);
+}
+
+#[test]
+fn sigterm_cancels_and_reaps_the_shell_process_group() {
+    use crate::test_support::TestChild;
+    use std::process::{Command, Stdio};
+    let root = TestDirectory::new();
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "process_tests::shell_signal_fixture",
+            "--nocapture",
+        ])
+        .env("TMT_TEST_SHELL_SIGNAL_ROOT", &root.path)
+        .env_remove("TMUX")
+        .env_remove("TMUX_PANE")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut fixture = TestChild::new(child);
+    fixture.wait_for_content(&root.path.join("ready"), "ready\n", Duration::from_secs(5));
+    let shell_pid = fs::read_to_string(root.path.join("shell-pid"))
+        .unwrap()
+        .trim()
+        .parse::<i32>()
+        .unwrap();
+    kill(
+        Pid::from_raw(i32::try_from(fixture.child.id()).unwrap()),
+        nix::sys::signal::Signal::SIGTERM,
+    )
+    .unwrap();
+    assert!(fixture.wait_for_exit(Duration::from_secs(3)).success());
+    assert_eq!(kill(Pid::from_raw(shell_pid), None), Err(Errno::ESRCH));
+}
+
+#[test]
 fn shell_run_uses_the_supplied_verified_directory() {
     let root = TestDirectory::new();
     let result = UnixCommandRunner

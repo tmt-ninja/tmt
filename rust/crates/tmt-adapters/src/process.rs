@@ -52,6 +52,7 @@ pub(crate) struct ShellOutput {
     pub signal: Option<i32>,
     pub timed_out: bool,
     pub truncated: bool,
+    pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -375,6 +376,7 @@ impl CommandRunner for UnixCommandRunner {
 
 impl UnixCommandRunner {
     /// Run a command in an already-verified directory, owning its process group.
+    #[cfg(test)]
     pub(crate) fn run_shell_in(
         &self,
         command: &str,
@@ -382,6 +384,28 @@ impl UnixCommandRunner {
         timeout: Duration,
         limit: usize,
     ) -> Result<ShellOutput, CommandError> {
+        self.run_shell_in_interrupt(command, directory, timeout, limit, None)
+    }
+
+    pub(crate) fn run_shell_in_interrupt(
+        &self,
+        command: &str,
+        directory: &std::path::Path,
+        timeout: Duration,
+        limit: usize,
+        interrupt: Option<&crate::interrupt::Interrupt>,
+    ) -> Result<ShellOutput, CommandError> {
+        if interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted) {
+            return Ok(ShellOutput {
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+                exit_code: None,
+                signal: None,
+                timed_out: false,
+                truncated: false,
+                cancelled: true,
+            });
+        }
         let shell = std::env::var_os("SHELL")
             .filter(|value| std::path::Path::new(value).is_absolute())
             .unwrap_or_else(|| "/bin/sh".into());
@@ -418,35 +442,61 @@ impl UnixCommandRunner {
             truncated: &truncated,
         };
         let read = {
-            let communication = child
+            let mut communication = child
                 .job
                 .communicate()
                 .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
-            communication
-                .limit_time(deadline.saturating_duration_since(Instant::now()))
-                .read_to(&mut stdout, &mut stderr)
+            loop {
+                if interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted) {
+                    break Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "Shell cancelled",
+                    ));
+                }
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    break Err(io::Error::new(io::ErrorKind::TimedOut, "Shell deadline"));
+                }
+                communication = communication.limit_time(left.min(INTERRUPT_SLICE));
+                match communication.read_to(&mut stdout, &mut stderr) {
+                    Err(error) if error.kind() == io::ErrorKind::TimedOut => continue,
+                    result => break result,
+                }
+            }
         };
+        let cancelled = interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted);
         let mut timed_out = false;
         if let Err(error) = read {
-            if !truncated.get() && error.kind() != io::ErrorKind::TimedOut {
+            if !cancelled && !truncated.get() && error.kind() != io::ErrorKind::TimedOut {
                 let mut failure = CommandError::io(CommandFailure::Io, error);
                 failure.cleanup_error = child.cleanup().err();
                 return Err(failure);
             }
-            timed_out = !truncated.get();
+            timed_out = !cancelled && !truncated.get();
         }
-        let status = if timed_out || truncated.get() {
+        let status = if cancelled || timed_out || truncated.get() {
             None
         } else {
-            match remaining(deadline) {
-                Ok(left) => child
+            loop {
+                if interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted) {
+                    break None;
+                }
+                let Ok(left) = remaining(deadline) else {
+                    break None;
+                };
+                if let Some(status) = child
                     .job
-                    .wait_timeout(left)
-                    .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?,
-                Err(_) => None,
+                    .wait_timeout(left.min(INTERRUPT_SLICE))
+                    .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?
+                {
+                    break Some(status);
+                }
             }
         };
-        if status.is_none() && !truncated.get() {
+        let cancelled = cancelled
+            || (status.is_none()
+                && interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted));
+        if status.is_none() && !truncated.get() && !cancelled {
             timed_out = true;
         }
         if status.is_some() {
@@ -465,6 +515,7 @@ impl UnixCommandRunner {
             signal: status.and_then(|value| value.signal()),
             timed_out,
             truncated: truncated.get(),
+            cancelled,
         })
     }
     /// Spawn under a caller's short-lived ownership guard, then wait outside it.
