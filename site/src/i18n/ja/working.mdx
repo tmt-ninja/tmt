@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/working.mdx
-sourceRevision: 68599fb098c6781fe6fd7cbb27998d804a3d35b9
+sourceRevision: 740b8f899ae6ad85456538b561d9bf55917d7a5e
 title: 起動して、送り、返事を受け取る
 ---
 
@@ -46,6 +46,8 @@ agent がセッションを確認する前に再開に失敗すると、tmt は�
 <Mdx.h3 id="rename-retire-and-create-names">名前の変更、廃止、作成</Mdx.h3>
 
 名前は全体で共通で、保存しない限り一時的です。`tmt mv` は名前を変え、会話、role、notes、メタデータ、room、履歴をすべて引き継ぎます。変更前に送られたリクエストは引き続き届きますが、新しいリクエストには新しい名前を使います。`tmt rm` は名前を廃止し、ペインは動かしたままにします。保存済みの名前には `--force` が必要です。その場合は role と preamble も消えますが、やり取りは残ります。
+
+記録された agent が実行中、一時停止中、または状態を確認できない場合、`tmt rm` は `--force` があっても `AGENT_RUNNING` で拒否します。先に `tmt stop <name>` を実行するか、そのペインで agent を終了してください。ホストを確認できない場合は接続を回復してから再試行します。手動で紐付けたペインに agent の記録がない場合は、通常どおり削除できます。
 
 <Cmd>{`
 $ tmt mv reviewer code-review
@@ -146,8 +148,7 @@ $ tmt x --identity coordinator
 - **`!` は `！` に変わります。** メッセージで agent の shell モードが起動しないよう、ASCII の `!` は全角の `！` で送ります。そのため `if (!ready)` のようなコードは、配信時にバイト単位では一致しません。保存されるリクエストには元のテキストが残ります。
 - **uncertain なら確認します。** テキストがペインに届いた可能性を否定できない場合、`talk` は `DELIVERY_UNCERTAIN` で失敗し、自動では再送しません。`tmt check` で見てから判断してください。タイムアウトや静かなペインだけでは、何も実行されなかったとは分かりません。
 - **tmux は承認待ちを認識できません。** 配信済みでも、agent が実行できる状態とは限りません。host が、agent はユーザーの承認や回答を待っていると報告した場合、`talk` は `DELIVERY_AWAITING_APPROVAL` で失敗します。何も送られず、リクエストはキューに残ります。tmt がプロンプトを回避して入力することはありません。agent が処理を続けてから再試行してください。
-- **ペインがなければ貼り付けません。** 終了した、または関連付けのない宛先には inbox で届けます。shell に貼り付けることはありません。
-- **`--inbox` はキューへの追加だけです。** agent が準備できていてもライブ配信は試みず、オンラインになっても過去のリクエストは配信されません。受信者が `tmt inbox` で取り出す必要があります。出力にはその説明と受信者用のコマンドが表示されます。`--json` では `notification: "not_attempted"` と `waitingFor: "recipient_inbox_pull"` も返ります。ライブ配信には通常の `talk` を使ってください。
+- **ペインがなければ貼り付けません。** 終了した、または未接続の受信者には inbox にリクエストを置き、shell には送りません。ライブ配信は試みず、オンラインになっても過去のリクエストは自動配信されません。受信者が `tmt inbox` で取り出します。出力は次のコマンドを示し、JSON には `notification: "not_attempted"` と `waitingFor: "recipient_inbox_pull"` が入ります。ペインのある agent に対して、送信者がキューだけの配信を選ぶオプションは `talk` にありません。
 - **inbox の仕事を待ちます。** `tmt x listen --identity reviewer` は inbox に新しい仕事が届くのを待ちます。`--timeout` まで待機して終了し、バックグラウンドの listener は残りません。
 - **各プロンプトで通知します。** agent の hook を入れると（[`tmt setup`](#tmt-setup) を参照）、inbox に未処理の項目がある間、agent が送信するプロンプトに1行が加わります。例は `Incoming X items: 2 unacknowledged; pull with tmt inbox --identity '4f3793b4-…' --json` です。含まれる identity は agent 自身の ID です。待機中の項目がなければ表示されず、配信方法も変わりません。
 

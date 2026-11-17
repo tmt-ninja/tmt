@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: e614b520623f4ccdd51c692a9be5cca642beddce
+sourceRevision: af4b76a8007ffdfcaef8a213063d2ab1ca6981cb
 title: 設定與疑難排解
 ---
 
@@ -24,19 +24,22 @@ $ tmt config set exchange.retentionDays 30 --global
 $ tmt config rm pasteEnterDelayMs                 # drop this folder's override
 `}</Cmd>
 
-| 設定                               | 預設值   | 用途                                                                                                                     | 設定方式                   |
-| ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
-| `preambleMode`                     | `always` | `always` 或 `disabled`：請求是否附帶接收者的 preamble                                                                    | `config set`，兩種範圍皆可 |
-| `preambleEvery`                    | `3`      | 每隔幾次請求附帶 preamble；`0` 表示停用                                                                                  | `config set`，兩種範圍皆可 |
-| `pasteEnterDelayMs`                | `500`    | 貼上訊息到按 Enter 之間等待的毫秒數；`0` 表示不等待                                                                      | `config set`，兩種範圍皆可 |
-| `exchange.retentionDays`           | `90`     | 新請求與回覆保留的天數，範圍為 1 到 3650                                                                                 | `config set --global`      |
-| `ui.paneBadge`                     | `on`     | [窗格徽章](/drivers/tmux#the-pane-badge)                                                                                 | `config set --global`      |
-| `notes.compactionReminder`         | `true`   | 已儲存的 Claude 或 Codex agent 壓縮對話後，提醒它重讀並更新[筆記](/working#notes-roles-and-preambles)；`true` 或 `false` | `config set --global`      |
-| `notifications.replyBatchWindowMs` | `5000`   | 回覆通知合併為一次貼上前等待的毫秒數，最多 60000；`0` 表示逐則送出                                                       | `config set --global`      |
-| `notifications.typingQuietMs`      | `2000`   | 停止輸入幾毫秒後才貼上合併的回覆通知，最多 30000；`0` 表示不等待                                                         | `config set --global`      |
-| `defaults.timeout`                 | `180`    | `talk` 等待回覆的秒數                                                                                                    | 編輯 `config.json`         |
-| `defaults.pollInterval`            | `1`      | `talk` 等待時，每次檢查的間隔秒數                                                                                        | 編輯 `config.json`         |
-| `defaults.captureLines`            | `100`    | `tmt check` 顯示的行數                                                                                                   | 編輯 `config.json`         |
+| 設定                               | 預設值       | 用途                                                                                                                     | 設定方式                   |
+| ---------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
+| `preambleMode`                     | `always`     | `always` 或 `disabled`：請求是否附帶接收者的 preamble                                                                    | `config set`，兩種範圍皆可 |
+| `preambleEvery`                    | `3`          | 每隔幾次請求附帶 preamble；`0` 表示停用                                                                                  | `config set`，兩種範圍皆可 |
+| `pasteEnterDelayMs`                | `500`        | 貼上訊息到按 Enter 之間等待的毫秒數；`0` 表示不等待                                                                      | `config set`，兩種範圍皆可 |
+| `exchange.retentionDays`           | `90`         | 新請求與回覆保留的天數，範圍為 1 到 3650                                                                                 | `config set --global`      |
+| `ui.paneBadge`                     | `on`         | [窗格徽章](/drivers/tmux#the-pane-badge)                                                                                 | `config set --global`      |
+| `user.name`                        | 系統登入名稱 | Ops board 與 Colab 使用的個人 identity 名稱；1–64 個字元；與 agent 同名時使用 `<name>-user`                              | `config set --global`      |
+| `notes.compactionReminder`         | `true`       | 已儲存的 Claude 或 Codex agent 壓縮對話後，提醒它重讀並更新[筆記](/working#notes-roles-and-preambles)；`true` 或 `false` | `config set --global`      |
+| `notifications.replyBatchWindowMs` | `5000`       | 回覆通知合併為一次貼上前等待的毫秒數，最多 60000；`0` 表示逐則送出                                                       | `config set --global`      |
+| `notifications.typingQuietMs`      | `2000`       | 停止輸入幾毫秒後才貼上合併的回覆通知，最多 30000；`0` 表示不等待                                                         | `config set --global`      |
+| `defaults.timeout`                 | `180`        | `talk` 等待回覆的秒數                                                                                                    | 編輯 `config.json`         |
+| `defaults.pollInterval`            | `1`          | `talk` 等待時，每次檢查的間隔秒數                                                                                        | 編輯 `config.json`         |
+| `defaults.captureLines`            | `100`        | `tmt check` 顯示的行數                                                                                                   | 編輯 `config.json`         |
+
+`user.name` 沒有需要輸入的預設值：未設定時，tmt 使用作業系統登入名稱，並在首次需要時建立 identity。它只能全域設定，沒有可用 `config rm` 移除的資料夾覆寫。變更後會選用該名稱對應的 identity，僅在需要時建立；原 identity 保留歷史。Digest 不會將以此使用者 identity 傳送的訊息合併為批次，但仍會檢查接收就緒狀態與核准。`tmt ops squad me <name>` 與 `tmt config set user.name <name> --global` 設定同一個值。
 
 「兩種範圍」是指目前的資料夾，或加上 `--global` 套用到所有資料夾。全域檔案是 tmt 設定目錄 `~/.config/tmt/` 裡的 `config.json`。資料夾的覆寫值則放在執行 tmt 時所在資料夾的 `tmt.json`。`tmt config show` 會印出兩個路徑。tmt 會保留它不認得的欄位，`config show` 則顯示實際使用的值與來源。
 

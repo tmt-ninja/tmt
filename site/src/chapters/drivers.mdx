@@ -11,19 +11,23 @@ $ tmt run builder codex          # same for Codex
 $ tmt setup                      # optional: connect every agent found, after your OK
 `}</Cmd>
 
-Without setup, every agent still works: tmt talks to it through its pane. `tmt setup` adds what only the agent itself can tell tmt. It learns which conversation belongs to which name, so `tmt resume` reopens the right one, and a short "who you are and what's waiting" summary is given at start. `tmt setup` shows exactly which settings it will change and asks first; `tmt setup claude` or `tmt setup codex` does the same for one agent, and `--remove` undoes it.
+Without setup, every agent still works: tmt talks to it through its pane. `tmt setup` adds what only the agent itself can tell tmt. It learns which conversation belongs to which name, so `tmt resume` reopens the right one, and a short "who you are and what's waiting" summary is given at start. `tmt setup` shows exactly which settings it will change and asks first; `tmt setup claude`, `tmt setup codex` or `tmt setup agy` does the same for one agent, and `--remove` undoes it.
 
 | Driver      | Kind    | Works without setup                                                         | After `tmt setup`                                                        |
 | ----------- | ------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | tmux        | host    | everything                                                                  | nothing more needed                                                      |
 | Claude Code | runtime | talk, reply, `tmt run`                                                      | exact resume, start-of-session context, running/ended state              |
 | Codex       | runtime | talk, reply, `tmt run`; on a shared server it asks for `--identity` instead | exact resume, exact thread match on a shared server, running/ended state |
+| agy         | runtime | talk, reply, `tmt run`                                                      | exact resume, start-of-session context, running/ended state              |
 
 ### The built-in drivers
 
 - [tmux](/drivers/tmux): the host driver. Where agents live and how to type into them.
 - [Claude Code](/drivers/claude-code): a runtime driver, with exact resume, start-of-session context and an optional message channel.
 - [Codex](/drivers/codex): a runtime driver, safe even when several panes share one Codex server.
+- agy: the built-in runtime driver for the Antigravity CLI, with exact resume and start-of-session context.
+
+Pi also has a built-in runtime driver. `tmt run <name> pi` supplies its per-launch integration; it does not install lifecycle hooks in a global Pi settings file.
 
 ### Herdr: ships with tmt, approved on first use
 
@@ -39,7 +43,7 @@ The approval carries over when tmt upgrades. If a new release's driver asks for 
 
 ### Usage counters
 
-Usage is opt-in. `tmt setup --usage` (or `tmt setup claude --usage`, `tmt setup codex --usage`) also adds a hook that runs when a turn ends and records how much the agent has used:
+Usage is opt-in. `tmt setup --usage` (or `tmt setup claude --usage`, `tmt setup codex --usage`, `tmt setup agy --usage`) also adds a hook that runs when a turn ends and records how much the agent has used:
 
 - **Context size**, in `resume.usage`: `tokens` is what the next request re-sends, and `windowTokens` is the context window when the provider states it (Codex does, Claude Code doesn't).
 - **Consumption**, in `resume.consumption`: the tokens of completed requests. `inputTokens` includes cached input, `outputTokens` is the output, reasoning included, and the total is input plus output.
@@ -60,12 +64,6 @@ $ tmt driver rm screen
 
 The first ones planned:
 
-<Soon
-  items={[
-    ["Pi", "runtime"],
-    ["Cursor Agent", "runtime"],
-    ["agy", "runtime"],
-  ]}
-/>
+<Soon items={[["Cursor Agent", "runtime"]]} />
 
 To write one, see [Build a driver](/develop/drivers).
