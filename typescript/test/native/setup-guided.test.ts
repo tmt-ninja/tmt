@@ -172,7 +172,7 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
       expect(refused.stdout).toContain('!  gemini');
       expect(refused.stdout).toContain('✗  agy');
       expect(refused.stdout).toContain('~/.claude/settings.json');
-      expect(refused.stdout).toContain('not found: pi · opencode · muse');
+      expect(refused.stdout).toContain('not found: pi · opencode · muse · cursor-agent');
       expect(refused.stderr).toContain('nothing was changed');
       expectError(await runCli(sandbox, ['setup', '--json']), 'SETUP_CONSENT_REQUIRED');
       expect(tree(sandbox.root)).toEqual(before);
@@ -189,6 +189,7 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
         { name: 'pi', state: 'absent' },
         { name: 'opencode', state: 'absent' },
         { name: 'muse', state: 'absent' },
+        { name: 'cursor-agent', state: 'absent' },
       ]);
       const plan = report.plan as { kind: string; driver: string | null; path: string }[];
       expect(plan.filter((item) => item.kind === 'hooks').map((item) => item.driver)).toEqual([

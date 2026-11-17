@@ -129,8 +129,22 @@ mod tests {
                 .map(|item| item.agent.unwrap().name())
                 .collect::<Vec<_>>(),
             vec![
-                "claude", "claude", "codex", "codex", "gemini", "gemini", "agy", "agy", "pi", "pi",
-                "opencode", "opencode", "muse", "muse"
+                "claude",
+                "claude",
+                "codex",
+                "codex",
+                "gemini",
+                "gemini",
+                "agy",
+                "agy",
+                "pi",
+                "pi",
+                "opencode",
+                "opencode",
+                "muse",
+                "muse",
+                "cursor-agent",
+                "cursor-agent"
             ]
         );
         assert_eq!(

@@ -251,6 +251,7 @@ pub const MODE_EMBEDDED: &str = "embedded";
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::CODEX,
+    identify_caller: Some(identify_caller),
     env: &["CODEX_HOME", "CODEX_SQLITE_HOME"],
     locate,
     runtime: Some(super::Runtime {
@@ -258,7 +259,6 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
         driver: || Box::new(CodexRuntime),
         lifecycle: || Box::new(CodexLifecycle),
         channel: Some(|| Box::new(channel::CodexChannel)),
-        identify_caller: Some(identify_caller),
     }),
 };
 

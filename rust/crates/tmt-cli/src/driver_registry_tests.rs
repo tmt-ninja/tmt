@@ -21,6 +21,7 @@ static DESCRIPTOR: DriverDescriptor = DriverDescriptor {
 
 static MODULE: DriverDefinition = DriverDefinition {
     descriptor: &DESCRIPTOR,
+    identify_caller: None,
     env: &[],
     locate: |environment| Locations {
         config_dirs: vec![environment.home().join(".fixture-agent")],

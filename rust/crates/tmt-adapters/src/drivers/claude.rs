@@ -313,6 +313,7 @@ pub const MODE_DEFAULT: &str = "default";
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::CLAUDE,
+    identify_caller: None,
     env: &["CLAUDE_CONFIG_DIR"],
     locate,
     runtime: Some(super::Runtime {
@@ -320,7 +321,6 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
         driver: || Box::new(ClaudeRuntime),
         lifecycle: || Box::new(ClaudeLifecycle),
         channel: Some(|| Box::new(channel::ClaudeChannel)),
-        identify_caller: None,
     }),
 };
 

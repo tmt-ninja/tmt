@@ -35,7 +35,16 @@ type InstallDocument = {
   readonly installed: InstallItem[];
 };
 
-const PROVIDERS = ['claude', 'codex', 'gemini', 'agy', 'pi', 'opencode', 'muse'] as const;
+const PROVIDERS = [
+  'claude',
+  'codex',
+  'gemini',
+  'agy',
+  'pi',
+  'opencode',
+  'muse',
+  'cursor-agent',
+] as const;
 
 function canonicalSkill(): Buffer {
   return readFileSync(
@@ -81,6 +90,7 @@ function targetFor(sandbox: Sandbox, provider: (typeof PROVIDERS)[number]): stri
     case 'gemini':
     case 'opencode':
     case 'muse':
+    case 'cursor-agent':
       return path.join(sandbox.home, '.agents', 'skills', 'tmt');
   }
 }
@@ -341,7 +351,7 @@ describe('native installation process contract', () => {
         installed: PROVIDERS.flatMap((agent, index) =>
           expectedInstalled(
             targets[agent],
-            [true, true, false, true, true, false, false][index],
+            [true, true, false, true, true, false, false, false][index],
             agent
           )
         ),

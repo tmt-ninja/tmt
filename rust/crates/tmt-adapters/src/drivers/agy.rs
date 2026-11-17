@@ -42,6 +42,7 @@ const VALUE_FLAGS: &[&str] = &[
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::AGY,
+    identify_caller: None,
     env: &["ANTIGRAVITY_APP_DATA_DIR"],
     locate,
     runtime: Some(super::Runtime {
@@ -49,7 +50,6 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
         driver: || Box::new(AgyRuntime),
         lifecycle: || Box::new(AgyLifecycle),
         channel: None,
-        identify_caller: None,
     }),
 };
 

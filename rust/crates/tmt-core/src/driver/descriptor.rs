@@ -50,7 +50,7 @@ pub enum UsageHook {
 
 /// How much of a driver's session TMT can observe. `Full` drivers declare
 /// lifecycle hooks and a runtime, so activity, model, consumption, resume and
-/// channels exist; `Basic` drivers are detected and given skills only, so those
+/// channels exist; `Basic` drivers may identify callers but have no lifecycle, so those
 /// fields stay blank rather than idle. A registry test pins
 /// each level to the declared capabilities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,8 +150,19 @@ pub static MUSE: DriverDescriptor = DriverDescriptor {
     folds_queued_text: false,
 };
 
+pub static CURSOR: DriverDescriptor = DriverDescriptor {
+    name: "cursor-agent",
+    executables: &["cursor-agent"],
+    hooks: None,
+    hue: Hue::Neutral,
+    support: Support::Basic,
+    folds_queued_text: false,
+};
+
 /// Every built-in driver, in detection and `install all` order.
-pub static ALL: [&DriverDescriptor; 7] = [&CLAUDE, &CODEX, &GEMINI, &AGY, &PI, &OPENCODE, &MUSE];
+pub static ALL: [&DriverDescriptor; 8] = [
+    &CLAUDE, &CODEX, &GEMINI, &AGY, &PI, &OPENCODE, &MUSE, &CURSOR,
+];
 
 /// The built-in driver with this name, ignoring ASCII case.
 pub fn named(name: &str) -> Option<&'static DriverDescriptor> {
@@ -228,7 +239,7 @@ mod tests {
         assert_eq!(named("codex").unwrap().support, Support::Full);
         assert_eq!(named("agy").unwrap().support, Support::Full);
         assert_eq!(named("pi").unwrap().support, Support::Full);
-        for basic in ["gemini", "opencode", "muse"] {
+        for basic in ["gemini", "opencode", "muse", "cursor-agent"] {
             assert_eq!(named(basic).unwrap().support, Support::Basic, "{basic}");
         }
     }
@@ -253,6 +264,9 @@ mod tests {
             ("claude", Some("claude")),
             ("pi", Some("pi")),
             ("pi-calc", None),
+            ("/fixture/bin/cursor-agent", Some("cursor-agent")),
+            ("agent", None),
+            ("cursor-agent-server", None),
             ("python3", None),
             ("node", None),
             ("Gemini", None),

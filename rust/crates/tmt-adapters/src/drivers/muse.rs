@@ -3,6 +3,7 @@
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::MUSE,
+    identify_caller: None,
     env: &[],
     locate,
     runtime: None,

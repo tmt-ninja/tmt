@@ -2,6 +2,7 @@
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::GEMINI,
+    identify_caller: None,
     env: &[],
     locate,
     runtime: None,
