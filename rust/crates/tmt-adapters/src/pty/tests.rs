@@ -44,7 +44,7 @@ impl Member {
     }
 
     fn start_with(program: &[&str], configure: impl FnOnce(Supervisor) -> Supervisor) -> Self {
-        let root = TestDirectory::new();
+        let root = TestDirectory::short();
         let directory = root.path.join("pty");
         let supervisor = configure(
             Supervisor::start(launch(&directory, "pty_test", program))
@@ -758,7 +758,7 @@ fn a_second_supervisor_for_the_member_is_refused_and_a_dead_ones_socket_is_repla
     member.finish().unwrap();
 
     // A killed supervisor leaves its socket behind; its lock died with it.
-    let root = TestDirectory::new();
+    let root = TestDirectory::short();
     let directory = root.path.join("pty");
     ensure_private_directory(&directory).unwrap();
     drop(UnixListener::bind(socket_path(&directory, "pty_old")).unwrap());
@@ -806,7 +806,7 @@ fn starting_a_different_member_reclaims_unlocked_neighbours_and_preserves_live_o
 
 #[test]
 fn an_unlocked_neighbour_without_a_socket_is_left_alone() {
-    let root = TestDirectory::new();
+    let root = TestDirectory::short();
     let directory = root.path.join("pty");
     ensure_private_directory(&directory).unwrap();
     let starting = "pty_starting";
@@ -822,7 +822,7 @@ fn an_unlocked_neighbour_without_a_socket_is_left_alone() {
 
 #[test]
 fn startup_reclamation_stops_after_64_directory_entries() {
-    let root = TestDirectory::new();
+    let root = TestDirectory::short();
     let directory = root.path.join("pty");
     ensure_private_directory(&directory).unwrap();
     // First prove that a reclaimable pair is actually removed; directory entry
@@ -868,7 +868,7 @@ fn startup_reclamation_stops_after_64_directory_entries() {
 
 #[test]
 fn a_start_that_cannot_proceed_leaves_nothing_behind() {
-    let root = TestDirectory::new();
+    let root = TestDirectory::short();
 
     // A directory other users can enter.
     let open = root.path.join("open");
@@ -1718,7 +1718,7 @@ fn start_terminal(
     program: &[&str],
     alive: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Member {
-    let root = TestDirectory::new();
+    let root = TestDirectory::short();
     let directory = root.path.join("pty");
     let mut launch = launch(&directory, "term_test", program);
     // Interactive shell cases must not read the caller's startup files.

@@ -1,7 +1,7 @@
 use std::{
-    fs,
-    path::Path,
-    path::PathBuf,
+    fs::{self, DirBuilder},
+    os::unix::fs::DirBuilderExt,
+    path::{Path, PathBuf},
     process::{Child, ExitStatus},
     sync::atomic::{AtomicU64, Ordering},
     thread,
@@ -15,14 +15,28 @@ pub(crate) struct TestDirectory {
 
 impl TestDirectory {
     pub fn new() -> Self {
+        Self::create_in(&std::env::temp_dir(), "tmt-native-adapter")
+    }
+
+    /// Short root for Unix domain socket tests whose socket paths stay bounded by
+    /// `sockaddr_un` (`100` bytes); macOS per-user `TMPDIR` already uses ~48 bytes.
+    pub fn short() -> Self {
+        Self::create_in(Path::new("/tmp"), "tmt-a")
+    }
+
+    fn create_in(base: &Path, prefix: &str) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "tmt-native-adapter-{}-{}",
+        let path = base.join(format!(
+            "{prefix}-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        // Refuse to reuse an existing directory; cleanup owns only this creation.
-        fs::create_dir(&path).expect("create unique adapter test directory");
+        // Non-recursive creation fails if the name already exists; mode 0o700
+        // keeps shared /tmp roots owner-only from creation.
+        DirBuilder::new()
+            .mode(0o700)
+            .create(&path)
+            .expect("create unique adapter test directory");
         Self { path }
     }
 }
@@ -379,5 +393,20 @@ mod tests {
         );
         drop(child);
         assert_reaped(pid);
+    }
+
+    #[test]
+    fn short_directory_is_private_and_removed_on_drop() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = TestDirectory::short();
+        let path = directory.path.clone();
+        let mode = fs::symlink_metadata(&path)
+            .expect("inspect short test directory")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
+        drop(directory);
+        assert!(!path.exists());
     }
 }

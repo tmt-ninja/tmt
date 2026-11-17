@@ -1140,7 +1140,7 @@ mod tests {
         use tmt_core::identity::Lifetime;
         use tmt_pty_protocol::{ClientMessage, Decoder, Frame, ServerMessage, Size, VERSION};
 
-        let root = TestDirectory::new();
+        let root = TestDirectory::short();
         let directory = root.path.join("pty");
         crate::private_file::ensure_private_directory(&directory).unwrap();
         let socket = directory.join("pty_test.sock");
@@ -1301,7 +1301,7 @@ mod tests {
             os::unix::net::UnixListener,
         };
         use tmt_pty_protocol::{ClientMessage, Decoder, Frame, ServerMessage, Size, VERSION};
-        let root = crate::test_support::TestDirectory::new();
+        let root = crate::test_support::TestDirectory::short();
         let directory = root.path.join("pty");
         crate::private_file::ensure_private_directory(&directory).unwrap();
         let socket = directory.join("pty_resume.sock");
