@@ -156,10 +156,44 @@ else: raise RuntimeError('unexpected operation')
 "#).unwrap();
         executable_fixture::write_executable(
             &root.join("tmt"),
-            &format!(
-                "exec /usr/bin/python3 '{}' \"$@\"",
-                root.join("core.py").display()
-            ),
+            &r#"root='@ROOT@'
+if [ "$#" -eq 1 ] && [ "$1" = api ] && [ -d "$root/api-fixtures" ]; then
+    set -eu
+    IFS= read -r wire || [ -n "$wire" ] || exit 2
+    id=${wire#*'"operationId":"'}
+    id=${id%%'"'*}
+    case "$id" in ''|*[!0-9a-f-]*) exit 2;; esac
+    [ "${#id}" -eq 36 ] || exit 2
+    seed="$root/api-fixtures/$id"
+    [ -d "$seed" ] || exit 2
+    IFS= read -r expected < "$seed/show"
+    if [ "$wire" = "$expected" ]; then
+        printf '%s\n' "$wire" >> "$root/calls"
+        if [ -f "$root/receipt-$id" ]; then
+            IFS= read -r receipt < "$root/receipt-$id"
+            printf '%s\n' "$receipt"
+        else
+            printf '%s\n' '{"error":{"code":"DISPATCH_NOT_FOUND","message":"absent"}}'
+            exit 1
+        fi
+    else
+        IFS= read -r expected < "$seed/create"
+        [ "$wire" = "$expected" ] || exit 2
+        printf '%s\n' "$wire" >> "$root/calls"
+        if [ -f "$root/receipt-$id" ]; then
+            printf '%s\n' '{"error":{"code":"DUPLICATE_TEST_SEND","message":"second create"}}'
+            exit 1
+        fi
+        IFS= read -r receipt < "$seed/receipt"
+        printf '%s\n' "$receipt" > "$root/receipt-$id"
+        IFS= read -r answer < "$seed/answer"
+        printf '%s\n' "$answer"
+    fi
+    exit 0
+fi
+exec /usr/bin/python3 "$root/core.py" "$@"
+"#
+            .replace("@ROOT@", root.to_str().unwrap()),
         )
         .unwrap();
         Self { root }

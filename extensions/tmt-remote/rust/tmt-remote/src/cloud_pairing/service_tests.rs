@@ -123,7 +123,26 @@ impl Clock for Ports {
         self.clock.now()
     }
     fn wait_until(&self, until: u64, cancel: &dyn Cancellation) -> bool {
-        self.clock.wait_until(until, cancel)
+        let thread = std::thread::current().id();
+        let mut ready = self.wire.readiness.lock().unwrap();
+        let observed = ready.observed.get(&thread).copied().unwrap_or(0);
+        while ready.generation == observed && !cancel.cancelled() {
+            let remaining = until.saturating_sub(self.clock.now().monotonic_ms);
+            if remaining == 0 {
+                break;
+            }
+            // HTTP commits drive readiness, including a commit just before this wait.
+            // Keep the existing deadline and bounded cancellation responsiveness.
+            ready = self
+                .wire
+                .ready
+                .wait_timeout(ready, Duration::from_millis(remaining.min(10)))
+                .unwrap()
+                .0;
+        }
+        let generation = ready.generation;
+        ready.observed.insert(thread, generation);
+        !cancel.cancelled()
     }
 }
 impl Jitter for Ports {
@@ -161,6 +180,13 @@ impl ReceiptAnswers {
         receipt && self.lose_next.swap(false, Ordering::AcqRel)
     }
 }
+#[derive(Default)]
+struct Readiness {
+    generation: u64,
+    // Each polling thread observes broadcasts independently; one waiter cannot consume
+    // another's ready state, including a commit that arrived just before wait_until.
+    observed: std::collections::HashMap<std::thread::ThreadId, u64>,
+}
 struct Wire {
     docs: Mutex<BTreeMap<String, Value>>,
     commits: Mutex<Vec<Value>>,
@@ -173,6 +199,8 @@ struct Wire {
     invite_answer: Mutex<Option<Value>>,
     deny_invite_queries: AtomicBool,
     receipt_answers: ReceiptAnswers,
+    readiness: Mutex<Readiness>,
+    ready: std::sync::Condvar,
 }
 impl Wire {
     fn new() -> Self {
@@ -188,6 +216,8 @@ impl Wire {
             invite_answer: Mutex::new(None),
             deny_invite_queries: AtomicBool::new(false),
             receipt_answers: ReceiptAnswers::default(),
+            readiness: Mutex::new(Readiness::default()),
+            ready: std::sync::Condvar::new(),
         }
     }
     fn route(&self, service: &Arc<Service>) {
@@ -426,6 +456,11 @@ impl Http for Wire {
             docs.insert(name.into(), doc);
         }
         drop(docs);
+        if !writes.is_empty() {
+            let mut ready = self.readiness.lock().unwrap();
+            ready.generation += 1;
+            self.ready.notify_all();
+        }
         if self.lost_invite_delete_reply.swap(false, Ordering::AcqRel)
             && writes.iter().any(|w| {
                 w["delete"]

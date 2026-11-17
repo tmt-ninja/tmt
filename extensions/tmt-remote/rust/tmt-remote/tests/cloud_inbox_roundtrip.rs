@@ -880,7 +880,7 @@ fn dense_backlog_over_the_round_cap_drains_after_restart_without_repeating_effec
         lose_response_for: Mutex::new(None),
     });
     let bound = tmt_remote::journal::OPERATIONS as usize;
-    let total = bound + 3;
+    let total = bound + 1; // The smallest backlog that crosses the real round cap.
     // Keep the real per-peer sending budget and transport-storage cap intact. The
     // original peer stays quiet, so its checkpoint cannot pin machine progress.
     for first in (0..total).step_by(tmt_remote::budgets::SENDS as usize) {
@@ -909,6 +909,23 @@ fn dense_backlog_over_the_round_cap_drains_after_restart_without_repeating_effec
             .unwrap();
         for ordinal in first..(first + tmt_remote::budgets::SENDS as usize).min(total) {
             let id = format!("99999999-9999-4999-8999-{:012x}", ordinal + 1);
+            // Immutable expected public API bytes; every real Core invocation still has to
+            // match them and record its own durable effect before a receipt is returned.
+            let seed = world.core.root.join("api-fixtures").join(&id);
+            std::fs::create_dir_all(&seed).unwrap();
+            let show = json!({"version":1,"operation":"dispatch.show","input":{"operationId":id}});
+            let create = json!({"version":1,"operation":"dispatch.create","originator":"anonymous","input":{"operationId":id,"recipientIds":[TARGET],"message":format!("[remote: Backlog peer {group}]\none backlog effect"),"kind":"request"}});
+            let receipt = json!({"operationId":id,"items":[{"recipientId":TARGET,"requestId":format!("req_{id}"),"acceptance":"queued"}]});
+            let mut answer = receipt.clone();
+            answer["wake"] = json!({"status":"uncertain","paneAttempted":true});
+            for (name, value) in [
+                ("show", show),
+                ("create", create),
+                ("receipt", receipt),
+                ("answer", answer),
+            ] {
+                std::fs::write(seed.join(name), format!("{value}\n")).unwrap();
+            }
             let payload = json!({"version":1,"operation":"dispatch.create","originator":"anonymous","createdAtMs":NOW,"input":{"operationId":id,"recipientIds":[TARGET],"expectedName":"target","message":"one backlog effect","kind":"request"}}).to_string();
             let exact = signed_request_as(&peer, &id, "dispatch.create", &payload, |bytes| {
                 key.sign(bytes).to_bytes()
