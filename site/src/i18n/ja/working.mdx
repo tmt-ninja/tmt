@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/working.mdx
-sourceRevision: 740b8f899ae6ad85456538b561d9bf55917d7a5e
+sourceRevision: 0c9db822e3e4f88a052a20bf5c57d289dff59557
 title: 起動して、送り、返事を受け取る
 ---
 
@@ -47,7 +47,7 @@ agent がセッションを確認する前に再開に失敗すると、tmt は�
 
 名前は全体で共通で、保存しない限り一時的です。`tmt mv` は名前を変え、会話、role、notes、メタデータ、room、履歴をすべて引き継ぎます。変更前に送られたリクエストは引き続き届きますが、新しいリクエストには新しい名前を使います。`tmt rm` は名前を廃止し、ペインは動かしたままにします。保存済みの名前には `--force` が必要です。その場合は role と preamble も消えますが、やり取りは残ります。
 
-記録された agent が実行中、一時停止中、または状態を確認できない場合、`tmt rm` は `--force` があっても `AGENT_RUNNING` で拒否します。先に `tmt stop <name>` を実行するか、そのペインで agent を終了してください。ホストを確認できない場合は接続を回復してから再試行します。手動で紐付けたペインに agent の記録がない場合は、通常どおり削除できます。
+記録された agent が実行中、一時停止中、または状態を確認できない場合、`tmt rm` は `--force` があっても `AGENT_RUNNING` で拒否します。先に `tmt stop <name>` を実行するか、そのペインで agent を終了してください。host を確認できない場合は接続を回復してから再試行します。手動で紐付けたペインに agent の記録がない場合は、通常どおり削除できます。
 
 <Cmd>{`
 $ tmt mv reviewer code-review
@@ -148,7 +148,7 @@ $ tmt x --identity coordinator
 - **`!` は `！` に変わります。** メッセージで agent の shell モードが起動しないよう、ASCII の `!` は全角の `！` で送ります。そのため `if (!ready)` のようなコードは、配信時にバイト単位では一致しません。保存されるリクエストには元のテキストが残ります。
 - **uncertain なら確認します。** テキストがペインに届いた可能性を否定できない場合、`talk` は `DELIVERY_UNCERTAIN` で失敗し、自動では再送しません。`tmt check` で見てから判断してください。タイムアウトや静かなペインだけでは、何も実行されなかったとは分かりません。
 - **tmux は承認待ちを認識できません。** 配信済みでも、agent が実行できる状態とは限りません。host が、agent はユーザーの承認や回答を待っていると報告した場合、`talk` は `DELIVERY_AWAITING_APPROVAL` で失敗します。何も送られず、リクエストはキューに残ります。tmt がプロンプトを回避して入力することはありません。agent が処理を続けてから再試行してください。
-- **ペインがなければ貼り付けません。** 終了した、または未接続の受信者には inbox にリクエストを置き、shell には送りません。ライブ配信は試みず、オンラインになっても過去のリクエストは自動配信されません。受信者が `tmt inbox` で取り出します。出力は次のコマンドを示し、JSON には `notification: "not_attempted"` と `waitingFor: "recipient_inbox_pull"` が入ります。ペインのある agent に対して、送信者がキューだけの配信を選ぶオプションは `talk` にありません。
+- **ペインがなければ貼り付けません。** 終了した、または未接続の受信者には inbox にリクエストを置き、shell には送りません。ライブ配信は試みず、オンラインになっても過去のリクエストは自動配信されません。受信者が `tmt inbox` で取り出します。出力は受信者が次に使うコマンドを示し、JSON には `notification: "not_attempted"` と `waitingFor: "recipient_inbox_pull"` が入ります。ペインのある agent に対して、送信者がキューだけの配信を選ぶオプションは `talk` にありません。
 - **inbox の仕事を待ちます。** `tmt x listen --identity reviewer` は inbox に新しい仕事が届くのを待ちます。`--timeout` まで待機して終了し、バックグラウンドの listener は残りません。
 - **各プロンプトで通知します。** agent の hook を入れると（[`tmt setup`](#tmt-setup) を参照）、inbox に未処理の項目がある間、agent が送信するプロンプトに1行が加わります。例は `Incoming X items: 2 unacknowledged; pull with tmt inbox --identity '4f3793b4-…' --json` です。含まれる identity は agent 自身の ID です。待機中の項目がなければ表示されず、配信方法も変わりません。
 
@@ -175,7 +175,7 @@ notes には保存済みの identity が必要で、一時的な identity では
   <code>tmt setup</code>
 </Mdx.h3>
 
-ファイルシステムだけを調べて、このマシンの agent を見つけます。agent を起動することはありません。見つかった agent には tmt の skill を追加します。Claude Code と Codex がインストールされていれば、会話の開始と終了を tmt に伝える lifecycle hook も追加します。これにより `tmt resume` とバッジの情報が保たれ、新しいセッションには短い要約が渡されます。不足する agent の変更を計画し、公式拡張機能と同梱 skill も提案してから、一度確認します。
+ファイルシステムだけを調べて、このマシンの agent を見つけます。agent を起動することはありません。見つかった agent には tmt の skill を追加します。Claude Code、Codex、agy がインストールされていれば、会話の開始と終了を tmt に伝える lifecycle hook も追加します。これにより `tmt resume` とバッジの情報が保たれ、新しいセッションには短い要約が渡されます。不足する agent の変更を計画し、公式拡張機能と同梱 skill も提案してから、一度確認します。
 
 <Cmd>{`
 $ tmt setup              # find agents, show the plan, ask once
@@ -187,7 +187,7 @@ $ tmt setup codex --remove
 
 setup は正常なインストール済みバイナリーを保ち、検証済みリリースから不足する同梱 skill の追加を再試行します。Remote を Colab より先にインストールします。1項目が失敗しても完了した項目は残り、独立した項目は続行できます。Remote が失敗すると Colab の設定は行いません。結果には対応が必要な項目と setup の再実行方法が表示されます。これらの拡張機能をインストールしても、ブラウザーのペアリングや deploy の承認は行われません。
 
-tmt の hook 以外の既存設定はバイト単位で保たれ、先にバックアップを作ります。hook が失敗しても agent の動作を妨げません。バックアップは設定ファイルの隣にある非公開の `.tmt-setup-backups` フォルダーに置かれ、古いものも残ります。tmt が削除や移動をすることはありません。32個を超えても変更は適用しますが、警告とフォルダーの場所を表示するので、自分で整理できます。`--usage` は任意の[使用量カウンター](/drivers#usage-counters)を追加します。
+tmt の hook 以外の既存設定はバイト単位で保たれ、先にバックアップを作ります。hook が失敗しても agent の動作を妨げません。バックアップは設定ファイルの隣にある非公開の `.tmt-setup-backups` フォルダーに置かれ、古いものも残ります。tmt が削除や移動をすることはありません。32個を超えても変更は適用しますが、警告とフォルダーの場所を表示するので、自分で整理できます。`--no-usage` は既定で有効な[使用量カウンター](/drivers#usage-counters)を無効にします。
 
 <Mdx.h3 id="tmt-uninstall">
   <code>tmt uninstall</code>

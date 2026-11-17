@@ -31,7 +31,7 @@ $ tmt config rm pasteEnterDelayMs                 # drop this folder's override
 | `pasteEnterDelayMs`                | `500`      | 粘贴消息与按下 Enter 之间的间隔，单位为毫秒；`0` 表示不等待                                                              | `config set`，两种范围均可 |
 | `exchange.retentionDays`           | `90`       | 新请求及其回复的保留天数，范围为 1 到 3650                                                                               | `config set --global`      |
 | `ui.paneBadge`                     | `on`       | [窗格徽标](/drivers/tmux#the-pane-badge)                                                                                 | `config set --global`      |
-| `user.name`                        | 系统登录名 | Ops board 和 Colab 使用的个人 identity 名称；1–64 个字符；与 agent 重名时使用 `<name>-user`                              | `config set --global`      |
+| `user.name`                        | 系统登录名 | Ops 看板和 Colab 使用的个人 identity 名称；1–64 个字符；与 agent 重名时使用 `<name>-user`                                | `config set --global`      |
 | `notes.compactionReminder`         | `true`     | 已保存的 Claude 或 Codex agent 压缩会话后，提醒它重读并更新[笔记](/working#notes-roles-and-preambles)；`true` 或 `false` | `config set --global`      |
 | `notifications.replyBatchWindowMs` | `5000`     | 将回复行合并为一次粘贴前的等待时间，单位为毫秒，最大为 60000；`0` 表示逐条发送                                           | `config set --global`      |
 | `notifications.typingQuietMs`      | `2000`     | 停止输入多久后才粘贴合并的回复，单位为毫秒，最大为 30000；`0` 表示不等待                                                 | `config set --global`      |

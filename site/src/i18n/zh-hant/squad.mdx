@@ -78,7 +78,7 @@ Checklist · builder
 [x] Record the build result     builder · 5m
 `}</Code>
 
-<Caption>清單示例。勾選項目會完成該待辦事項；等待回覆的請求仍須另外答覆。</Caption>
+<Caption>清單範例。勾選項目會完成該待辦事項；等待回覆的請求仍須另外答覆。</Caption>
 
 Agent 可用三個簡短命令維護自己的對話清單。同時加入多個 squad 時，請加上 `--room` 並指定精確的 room UUID。請使用自己執行 `add` 或 `ls` 得到的短項目 ID，不要使用下方的範例 ID。
 
@@ -106,7 +106,7 @@ $ tmt ops squad checklist ls --room 44444444-4444-4444-8444-444444444444 --membe
 
 在 Settings 選擇 **Token window**，查看已完成請求的總量。輸入加輸出只會把快取輸入計算一次。請同時查看涵蓋標記：缺少讀數不代表零，token 總量也不等於費用。
 
-Digest 的 **Est. ctx avoided** 是透過批次處理省下多少上下文輸入的估計，不是實測的計費 token、輪次或金額節省。它的範圍與 Agents 的 token 時間窗獨立。讀取任何總量時，都要一起看涵蓋範圍。
+Digest 的 **Est. ctx avoided** 是透過批次處理省下多少上下文輸入的估計，不是實測的計費 token、輪次或金額節省。它的範圍與 Agents 的 token 時間範圍獨立。讀取任何總量時，都要一起看涵蓋範圍。
 
 <Mdx.h3 id="make-it-yours">依你的方式設定</Mdx.h3>
 
@@ -119,13 +119,13 @@ $ tmt ops ui --tab digest
 $ tmt ops squad config show --squad product
 `}</Cmd>
 
-重複指定 `--squad` 可限制這次 board 工作階段的範圍，不會改寫已儲存的隱藏 squad 設定。具名的 `--view` 各自保留目的地、選取、搜尋與窗格配置。**Reset view** 清除此檢視層，不會移除 squad 成員或其工作。原地重新載入會保留目前視圖與位置。
+重複指定 `--squad` 可限制這次 board 工作階段的範圍，不會改寫已儲存的隱藏 squad 設定。具名的 `--view` 各自保留目的地、選取、搜尋與窗格配置。**Reset view** 清除此視圖層，不會移除 squad 成員或其工作。原地重新載入會保留目前視圖與位置。
 
 <Mdx.h3 id="layout-rows-lines-and-panes">配置：列、顯示行與窗格</Mdx.h3>
 
 互動式 Agents 樹狀清單與對話有自己的配置。拖曳可見分隔線可調整相鄰窗格大小；按兩下可還原預設值。小型終端機會維持可用的最小尺寸，也可能只顯示聚焦窗格。窗格比例屬於具名視圖。
 
-自訂 rows、columns、sections 與 `[tabs.<name>]` 設定仍用於獨立的命令列成員檢視。它們不會新增互動式 shell 分頁，也不會重新排列 Agents 樹狀清單。可用 `tmt ops squad ls --tab <name> --json` 讀取。[Ops skill](https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md) 提供詳細設定參考。
+自訂 rows、columns、sections 與 `[tabs.<name>]` 設定仍用於獨立的命令列成員視圖。它們不會新增互動式 shell 分頁，也不會重新排列 Agents 樹狀清單。可用 `tmt ops squad ls --tab <name> --json` 讀取。[Ops skill](https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-ops/skills/tmt-ops/SKILL.md) 提供詳細設定參考。
 
 <Mdx.h3 id="colors-and-themes">顏色與主題</Mdx.h3>
 
