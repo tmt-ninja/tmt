@@ -454,33 +454,32 @@ fn publish<D: Recovery>(
     publish_gated(paths, store, |_| Ok(true), due, capture)
 }
 
-fn publish_gated<D: Recovery>(
+struct PreviousDocument<D> {
+    bytes: Option<Vec<u8>>,
+    snapshot: Option<D>,
+    catalogue: Option<tmt_core::workspace::generations::Catalogue>,
+}
+
+fn acquire_publication_lock(
     paths: &ConfigPaths,
-    store: Store<'_>,
-    admit: impl FnOnce(&Path) -> io::Result<bool>,
-    due: impl FnOnce(Option<u64>) -> bool,
-    capture: impl FnOnce() -> io::Result<D>,
-) -> io::Result<bool> {
+    directory: &Path,
+) -> io::Result<Option<nix::fcntl::Flock<fs::File>>> {
     fs::create_dir_all(&paths.global_dir)?;
     private_directory(&paths.global_dir.join("workspace"))?;
-    let directory = store.directory(paths);
-    private_directory(&directory)?;
-    let _lock = match crate::file_lock::exclusive(&directory.join("publication.lock")) {
-        Ok(lock) => lock,
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
-        Err(error) => return Err(error),
-    };
-    if !admit(&directory)? {
-        return Ok(false);
+    private_directory(directory)?;
+    match crate::file_lock::exclusive(&directory.join("publication.lock")) {
+        Ok(lock) => Ok(Some(lock)),
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
+        Err(error) => Err(error),
     }
+}
+
+fn read_previous<D: Recovery>(directory: &Path) -> io::Result<PreviousDocument<D>> {
     let destination = directory.join("latest.json");
     // A malformed legacy projection is not permission to replace user bytes,
     // even when a separately committed catalogue still permits recovery.
     let legacy = match crate::bounded_file::read_no_follow(&destination, MAX_BYTES) {
-        Ok(bytes) => {
-            D::decode(&bytes)?;
-            Some(bytes)
-        }
+        Ok(bytes) => Some((D::decode(&bytes)?, bytes)),
         Err(crate::bounded_file::FileReadError::Io(error))
             if error.kind() == io::ErrorKind::NotFound =>
         {
@@ -488,41 +487,103 @@ fn publish_gated<D: Recovery>(
         }
         Err(error) => return Err(io::Error::other(error)),
     };
-    let catalogue = generations::read(&directory)?;
-    let previous = match &catalogue {
-        Some(catalogue) => Some(generations::acquire::<D>(
-            &directory,
-            catalogue.latest().expect("nonempty catalogue"),
-        )?),
-        None => legacy,
+    let catalogue = generations::read(directory)?;
+    let (bytes, snapshot) = match &catalogue {
+        Some(catalogue) => {
+            let (bytes, snapshot) = generations::acquire_snapshot::<D>(
+                directory,
+                catalogue.latest().expect("nonempty catalogue"),
+            )?;
+            (Some(bytes), Some(snapshot))
+        }
+        None => match legacy {
+            Some((snapshot, bytes)) => (Some(bytes), Some(snapshot)),
+            None => (None, None),
+        },
     };
-    let previous_snapshot = previous
-        .as_ref()
-        .map(|bytes| D::decode(bytes))
-        .transpose()?;
-    let previous_ms = previous_snapshot.as_ref().map(D::captured_at_ms);
-    if !due(previous_ms) {
-        return Ok(false);
-    }
+    Ok(PreviousDocument {
+        bytes,
+        snapshot,
+        catalogue,
+    })
+}
+
+fn commit_under_lock<D: Recovery>(
+    directory: &Path,
+    store: Store<'_>,
+    previous: PreviousDocument<D>,
+    capture: impl FnOnce() -> io::Result<D>,
+) -> io::Result<bool> {
     let snapshot = capture()?;
     if !snapshot.belongs_to(store) {
         return Err(io::Error::other("Workspace socket changed."));
     }
     let bytes = snapshot.encode()?;
-    if previous_snapshot.is_some_and(|mut previous| {
+    if previous.snapshot.is_some_and(|mut previous| {
         previous.set_captured_at_ms(snapshot.captured_at_ms());
         previous == snapshot
     }) {
         return Ok(false);
     }
     generations::publish(
-        &directory,
-        previous.as_deref(),
+        directory,
+        previous.bytes.as_deref(),
         &snapshot,
         &bytes,
-        catalogue,
+        previous.catalogue,
     )?;
     Ok(true)
+}
+
+fn publish_gated<D: Recovery>(
+    paths: &ConfigPaths,
+    store: Store<'_>,
+    admit: impl FnOnce(&Path) -> io::Result<bool>,
+    due: impl FnOnce(Option<u64>) -> bool,
+    capture: impl FnOnce() -> io::Result<D>,
+) -> io::Result<bool> {
+    let directory = store.directory(paths);
+    let Some(_lock) = acquire_publication_lock(paths, &directory)? else {
+        return Ok(false);
+    };
+    if !admit(&directory)? {
+        return Ok(false);
+    }
+    let previous = read_previous::<D>(&directory)?;
+    let previous_ms = previous.snapshot.as_ref().map(D::captured_at_ms);
+    if !due(previous_ms) {
+        return Ok(false);
+    }
+    commit_under_lock(&directory, store, previous, capture)
+}
+
+/// Reads and verifies the recorded recovery document once under `publication.lock`
+/// before admitting and capturing, avoiding duplicate pre-lock reads and decodes.
+fn publish_recorded(
+    paths: &ConfigPaths,
+    directory: &Path,
+    admit: impl FnOnce(&Path, &tmt_core::workspace::WorkspaceServer) -> io::Result<bool>,
+    capture: impl FnOnce(&tmt_core::workspace::WorkspaceServer) -> io::Result<WorkspaceSnapshot>,
+) -> io::Result<bool> {
+    let Some(_lock) = acquire_publication_lock(paths, directory)? else {
+        return Ok(false);
+    };
+    let previous = read_previous::<WorkspaceSnapshot>(directory)?;
+    let server = previous
+        .snapshot
+        .as_ref()
+        .ok_or_else(|| io::Error::other("Recorded workspace snapshot missing."))?
+        .server
+        .clone();
+    if paths.workspace_directory(&server.socket) != directory {
+        return Err(io::Error::other("Recorded workspace socket changed."));
+    }
+    if !admit(directory, &server)? {
+        return Ok(false);
+    }
+    commit_under_lock(directory, Store::Socket(&server.socket), previous, || {
+        capture(&server)
+    })
 }
 
 /// All optional work shares one finite deadline. Errors are advisory to callers.

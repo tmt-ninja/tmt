@@ -133,6 +133,14 @@ pub(super) fn accept(
     Ok(true)
 }
 pub fn acquire<D: Recovery>(directory: &Path, entry: &WorkspaceGeneration) -> io::Result<Vec<u8>> {
+    Ok(acquire_snapshot::<D>(directory, entry)?.0)
+}
+
+/// Acquires and decodes one generation once so callers avoid re-decoding the same verified bytes.
+pub(super) fn acquire_snapshot<D: Recovery>(
+    directory: &Path,
+    entry: &WorkspaceGeneration,
+) -> io::Result<(Vec<u8>, D)> {
     let filename = path(directory, &entry.id);
     owned_file(&filename)?;
     let bytes = bounded_file::read_no_follow(&filename, MAX_BYTES).map_err(io::Error::other)?;
@@ -146,7 +154,7 @@ pub fn acquire<D: Recovery>(directory: &Path, entry: &WorkspaceGeneration) -> io
     {
         return Err(invalid());
     }
-    Ok(bytes)
+    Ok((bytes, snapshot))
 }
 fn record<D: Recovery>(snapshot: &D, bytes: &[u8]) -> WorkspaceGeneration {
     let (panes, agents) = snapshot.counts();

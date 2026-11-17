@@ -131,6 +131,17 @@ pub trait CommandRunner {
         None
     }
 
+    /// Batched native observations for a set of PIDs, or None to fall back to `ps`.
+    fn process_observations(
+        &self,
+        pids: &[u64],
+        deadline: Instant,
+    ) -> Option<Vec<runtime::ProcessObservation>> {
+        pids.iter()
+            .map(|pid| self.process_observation(*pid, deadline))
+            .collect()
+    }
+
     /// A native parent PID, or None to retain the bounded ps fallback.
     fn process_parent(&self, _pid: u64, _deadline: Instant) -> Option<u64> {
         None
@@ -237,6 +248,14 @@ impl<R: CommandRunner + ?Sized> CommandRunner for &R {
         (**self).process_observation(pid, deadline)
     }
 
+    fn process_observations(
+        &self,
+        pids: &[u64],
+        deadline: Instant,
+    ) -> Option<Vec<runtime::ProcessObservation>> {
+        (**self).process_observations(pids, deadline)
+    }
+
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         (**self).execute(request)
     }
@@ -301,6 +320,14 @@ impl CommandRunner for SupervisedProbeRunner {
         process_info::observe(pid, deadline)
     }
 
+    fn process_observations(
+        &self,
+        pids: &[u64],
+        deadline: Instant,
+    ) -> Option<Vec<runtime::ProcessObservation>> {
+        process_info::observe_batch(pids, deadline)
+    }
+
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         let result = start_command(request, false)?.wait();
         if result.as_ref().is_err_and(|error| {
@@ -355,6 +382,14 @@ impl CommandRunner for UnixCommandRunner {
         deadline: Instant,
     ) -> Option<runtime::ProcessObservation> {
         process_info::observe(pid, deadline)
+    }
+
+    fn process_observations(
+        &self,
+        pids: &[u64],
+        deadline: Instant,
+    ) -> Option<Vec<runtime::ProcessObservation>> {
+        process_info::observe_batch(pids, deadline)
     }
 
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {

@@ -1,6 +1,6 @@
 //! Invocation-owned coalescing and the recorded-socket public backstop.
 use super::{
-    CAPTURE_BUDGET, Store, capture_builtin, capture_snapshot, decode, generations, publish_gated,
+    CAPTURE_BUDGET, Store, capture_builtin, capture_snapshot, publish_gated, publish_recorded,
 };
 use crate::{
     bounded_file,
@@ -15,7 +15,7 @@ use std::{
 use tmt_core::{
     endpoint::{ProcessIncarnation, ServerEvidence},
     host::HostKind,
-    workspace::{MAX_BYTES, WorkspaceServer, WorkspaceSnapshot, builtin::BuiltinSnapshot},
+    workspace::{WorkspaceServer, WorkspaceSnapshot, builtin::BuiltinSnapshot},
 };
 const CADENCE: &str = "capture-attempt.json";
 const PERIOD_MS: u64 = 30_000;
@@ -92,7 +92,10 @@ fn admit(directory: &Path, process: &ProcessIncarnation, now_ms: u64) -> io::Res
         attempted_at_ms: now_ms,
     })
     .map_err(io::Error::other)?;
-    crate::private_file::replace(&path, &bytes)?;
+    // capture-attempt.json is only an ephemeral 30s coalesce stamp; no recovery,
+    // baseline, restore, or ownership path reads it after a restart, so losing it
+    // on a crash at worst admits one extra advisory capture attempt sooner.
+    crate::private_file::replace_ephemeral(&path, &bytes)?;
     Ok(true)
 }
 /// The built-in store has no one server incarnation: its members' hooks coalesce on time
@@ -133,7 +136,9 @@ fn admit_period(directory: &Path, now_ms: u64) -> io::Result<bool> {
         attempted_at_ms: now_ms,
     })
     .map_err(io::Error::other)?;
-    crate::private_file::replace(&path, &bytes)?;
+    // Ephemeral 30s built-in coalesce stamp; no recovery or ownership path reads it,
+    // so losing it on a crash at worst admits one extra advisory capture attempt sooner.
+    crate::private_file::replace_ephemeral(&path, &bytes)?;
     Ok(true)
 }
 
@@ -267,10 +272,13 @@ fn failure_reason(error: &io::Error, deadline: Instant) -> CaptureReason {
 /// No socket discovery or server enrollment: only private, previously captured
 /// records. All candidates share one acquisition deadline and cadence owner.
 pub fn capture_recorded(paths: &ConfigPaths) -> io::Result<WorkspaceCaptureReport> {
+    if !enabled(paths)? {
+        return Ok(WorkspaceCaptureReport::default());
+    }
     let host = Host::for_workspace_socket();
     let now_ms = crate::request_runtime::wall_time_ms();
     let deadline = Instant::now() + CAPTURE_BUDGET;
-    let mut report = recorded_with(paths, now_ms, deadline, |previous, deadline| {
+    let mut report = recorded_with_enabled(paths, now_ms, deadline, |previous, deadline| {
         if native(previous.process.pid(), deadline).as_ref() != Some(&previous.process) {
             return Err(ServerFailure::NotCurrent.into());
         }
@@ -280,21 +288,31 @@ pub fn capture_recorded(paths: &ConfigPaths) -> io::Result<WorkspaceCaptureRepor
         }
         Ok(snapshot)
     })?;
-    recorded_builtin(paths, &mut report, now_ms, deadline, |deadline| {
+    recorded_builtin_enabled(paths, &mut report, now_ms, deadline, |deadline| {
         capture_builtin(paths, deadline)
     })?;
     Ok(report)
 }
+#[cfg_attr(not(test), allow(dead_code))]
 fn recorded_with(
+    paths: &ConfigPaths,
+    now_ms: u64,
+    deadline: Instant,
+    capture: impl FnMut(&WorkspaceServer, Instant) -> io::Result<WorkspaceSnapshot>,
+) -> io::Result<WorkspaceCaptureReport> {
+    if !enabled(paths)? {
+        return Ok(WorkspaceCaptureReport::default());
+    }
+    recorded_with_enabled(paths, now_ms, deadline, capture)
+}
+
+fn recorded_with_enabled(
     paths: &ConfigPaths,
     now_ms: u64,
     deadline: Instant,
     mut capture: impl FnMut(&WorkspaceServer, Instant) -> io::Result<WorkspaceSnapshot>,
 ) -> io::Result<WorkspaceCaptureReport> {
     let mut report = WorkspaceCaptureReport::default();
-    if !enabled(paths)? {
-        return Ok(report);
-    }
     let root = paths.global_dir.join("workspace");
     match owned(&root, true) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(report),
@@ -313,39 +331,24 @@ fn recorded_with(
             report.skip(CaptureReason::Deadline);
             continue;
         }
-        let load = (|| {
-            owned(&entry.path(), true)?;
-            let bytes = match generations::read(&entry.path())? {
-                Some(catalogue) => generations::acquire::<WorkspaceSnapshot>(
-                    &entry.path(),
-                    catalogue.latest().expect("nonempty catalogue"),
-                )?,
-                None => bounded_file::read_no_follow(&entry.path().join("latest.json"), MAX_BYTES)
-                    .map_err(io::Error::other)?,
-            };
-            let snapshot = decode(&bytes)?;
-            if paths.workspace_directory(&snapshot.server.socket) != entry.path() {
-                return Err(io::Error::other("Recorded workspace socket changed."));
-            }
-            Ok::<_, io::Error>(snapshot.server)
-        })();
-        let Ok(previous) = load else {
+        if owned(&entry.path(), true).is_err() {
             report.skip(CaptureReason::Refused);
             continue;
-        };
-        examine(
+        }
+        examine_recorded(
             paths,
+            &entry.path(),
             &mut report,
             deadline,
-            Store::Socket(&previous.socket),
-            |directory| admit(directory, &previous.process, now_ms),
-            || capture(&previous, deadline),
+            |directory, previous| admit(directory, &previous.process, now_ms),
+            |previous| capture(previous, deadline),
         );
     }
     Ok(report)
 }
 
 /// The built-in store, only once an event or hook created it: the backstop never initializes it.
+#[cfg_attr(not(test), allow(dead_code))]
 fn recorded_builtin(
     paths: &ConfigPaths,
     report: &mut WorkspaceCaptureReport,
@@ -356,6 +359,16 @@ fn recorded_builtin(
     if !enabled(paths)? {
         return Ok(());
     }
+    recorded_builtin_enabled(paths, report, now_ms, deadline, capture)
+}
+
+fn recorded_builtin_enabled(
+    paths: &ConfigPaths,
+    report: &mut WorkspaceCaptureReport,
+    now_ms: u64,
+    deadline: Instant,
+    capture: impl FnOnce(Instant) -> io::Result<BuiltinSnapshot>,
+) -> io::Result<()> {
     match owned(&paths.builtin_workspace_directory(), true) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(_) => {
@@ -395,17 +408,7 @@ fn examine<D: super::Recovery>(
     let published = publish_gated(
         paths,
         store,
-        |directory| {
-            if Instant::now() >= deadline {
-                gate.set(Some(CaptureReason::Deadline));
-                return Ok(false);
-            }
-            let admitted = admit(directory)?;
-            if !admitted {
-                gate.set(Some(CaptureReason::NotDue));
-            }
-            Ok(admitted)
-        },
+        |directory| gate_admit(deadline, &gate, || admit(directory)),
         |_| true,
         || {
             attempted = true;
@@ -413,6 +416,57 @@ fn examine<D: super::Recovery>(
             capture().inspect_err(|error| failure.set(Some(failure_reason(error, deadline))))
         },
     );
+    record_outcome(report, published, attempted, &gate, &failure);
+}
+
+fn examine_recorded(
+    paths: &ConfigPaths,
+    directory: &Path,
+    report: &mut WorkspaceCaptureReport,
+    deadline: Instant,
+    admit: impl FnOnce(&Path, &WorkspaceServer) -> io::Result<bool>,
+    capture: impl FnOnce(&WorkspaceServer) -> io::Result<WorkspaceSnapshot>,
+) {
+    let mut attempted = false;
+    let gate = Cell::new(None);
+    let failure = Cell::new(None);
+    let published = publish_recorded(
+        paths,
+        directory,
+        |directory, previous| gate_admit(deadline, &gate, || admit(directory, previous)),
+        |previous| {
+            attempted = true;
+            report.attempted += 1;
+            capture(previous)
+                .inspect_err(|error| failure.set(Some(failure_reason(error, deadline))))
+        },
+    );
+    record_outcome(report, published, attempted, &gate, &failure);
+}
+
+fn gate_admit(
+    deadline: Instant,
+    gate: &Cell<Option<CaptureReason>>,
+    admit: impl FnOnce() -> io::Result<bool>,
+) -> io::Result<bool> {
+    if Instant::now() >= deadline {
+        gate.set(Some(CaptureReason::Deadline));
+        return Ok(false);
+    }
+    let admitted = admit()?;
+    if !admitted {
+        gate.set(Some(CaptureReason::NotDue));
+    }
+    Ok(admitted)
+}
+
+fn record_outcome(
+    report: &mut WorkspaceCaptureReport,
+    published: io::Result<bool>,
+    attempted: bool,
+    gate: &Cell<Option<CaptureReason>>,
+    failure: &Cell<Option<CaptureReason>>,
+) {
     match (published, attempted) {
         (Ok(true), _) => report.published += 1,
         (Ok(false), true) => report.count(CaptureReason::Unchanged),

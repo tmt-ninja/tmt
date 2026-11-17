@@ -108,6 +108,17 @@ fn decode_refusal(value: Option<String>) -> rusqlite::Result<Option<StartRefusal
         .transpose()
 }
 
+const RETAINED_COLUMNS: &str = "r.harness, r.harness, r.runtime_mode, r.provider_session_id, \
+     r.driver_state_version, r.driver_state, r.stale_at_ms, r.resume_pending_at_ms, r.channel";
+
+fn decode_retained(row: &Row<'_>, offset: usize) -> rusqlite::Result<RetainedSession> {
+    let value = decode_preferences(row, offset)?;
+    Ok(RetainedSession {
+        session: value.remembered.ok_or(rusqlite::Error::InvalidQuery)?,
+        channel: value.channel,
+    })
+}
+
 pub(super) fn preferences(
     connection: &Connection,
     identity_id: &str,
@@ -131,23 +142,46 @@ pub(super) fn preferences(
     ).optional().map(|value| value.unwrap_or_default())
         .map_err(|error| classify(error, "Read session preferences"))?;
     let mut query = connection
-        .prepare(
-            "SELECT harness, harness, runtime_mode, provider_session_id, driver_state_version,
-         driver_state, stale_at_ms, resume_pending_at_ms, channel FROM identity_resume_records r JOIN identities i ON i.id = r.identity_id
-         WHERE r.identity_id = ? AND i.retired_at_ms IS NULL ORDER BY harness",
-        )
+        .prepare(&format!(
+            "SELECT {RETAINED_COLUMNS} FROM identity_resume_records r JOIN identities i ON i.id = r.identity_id
+             WHERE r.identity_id = ? AND i.retired_at_ms IS NULL ORDER BY r.harness"
+        ))
         .map_err(|error| classify(error, "Read retained driver sessions"))?;
     preferences.retained = query
-        .query_map([identity_id], |row| {
-            let value = decode_preferences(row, 0)?;
-            Ok(RetainedSession {
-                session: value.remembered.ok_or(rusqlite::Error::InvalidQuery)?,
-                channel: value.channel,
-            })
-        })
+        .query_map([identity_id], |row| decode_retained(row, 0))
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|error| classify(error, "Decode retained driver sessions"))?;
     Ok(preferences)
+}
+
+pub(super) fn retained_sessions_for_ids(
+    connection: &Connection,
+    identity_ids: &[&str],
+) -> Result<std::collections::HashMap<String, Vec<RetainedSession>>, StorageError> {
+    let mut by_identity: std::collections::HashMap<String, Vec<RetainedSession>> =
+        std::collections::HashMap::new();
+    if identity_ids.is_empty() {
+        return Ok(by_identity);
+    }
+    let placeholders = vec!["?"; identity_ids.len()].join(",");
+    let mut query = connection
+        .prepare(&format!(
+            "SELECT r.identity_id, {RETAINED_COLUMNS} FROM identity_resume_records r \
+             JOIN identities i ON i.id = r.identity_id \
+             WHERE r.identity_id IN ({placeholders}) AND i.retired_at_ms IS NULL \
+             ORDER BY r.identity_id, r.harness"
+        ))
+        .map_err(|error| classify(error, "Read retained driver sessions"))?;
+    let rows = query
+        .query_map(rusqlite::params_from_iter(identity_ids), |row| {
+            Ok((row.get::<_, String>(0)?, decode_retained(row, 1)?))
+        })
+        .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        .map_err(|error| classify(error, "Decode retained driver sessions"))?;
+    for (identity_id, retained) in rows {
+        by_identity.entry(identity_id).or_default().push(retained);
+    }
+    Ok(by_identity)
 }
 
 pub(super) fn decode_preferences(

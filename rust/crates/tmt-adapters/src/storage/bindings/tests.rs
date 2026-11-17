@@ -752,3 +752,193 @@ fn a_binding_stores_its_host_and_reads_any_other_host_by_name() {
         .unwrap();
     storage.close().unwrap();
 }
+
+#[test]
+fn workspace_projections_match_per_identity_preferences_and_resume_records() {
+    use tmt_core::binding::session::{
+        DriverState, HarnessId, ProviderSessionId, RememberedSession, RetainedSession, RuntimeMode,
+        SessionPreferences,
+    };
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let primary_server = server();
+    let other_server = ServerEvidence {
+        host: tmt_core::host::HostKind::Tmux,
+        server_id: "223e4567-e89b-42d3-a456-426614174000".into(),
+        socket_path: "/tmp/tmux-other.sock".into(),
+        server_pid: 42,
+        server_start_time: "other-start".into(),
+    };
+    let mut expected_socket = Vec::new();
+    let mut all_ids = Vec::new();
+    for (index, (name, pane_id, socket_server, prefs)) in [
+        (
+            "Agent A",
+            Some("%1"),
+            &primary_server,
+            SessionPreferences {
+                preferred_harness: Some(HarnessId::new("claude").unwrap()),
+                remembered: Some(RememberedSession {
+                    harness: HarnessId::new("claude").unwrap(),
+                    mode: RuntimeMode::new("default").unwrap(),
+                    provider_session: ProviderSessionId::new("sess-a").unwrap(),
+                    state: Some(DriverState::new(1, "{\"ok\":true}").unwrap()),
+                    stale_at_ms: Some(123),
+                    resume_pending_at_ms: Some(456),
+                }),
+                retained: vec![
+                    RetainedSession {
+                        session: RememberedSession {
+                            harness: HarnessId::new("codex").unwrap(),
+                            mode: RuntimeMode::new("independent").unwrap(),
+                            provider_session: ProviderSessionId::new("ret-a-codex").unwrap(),
+                            state: None,
+                            stale_at_ms: None,
+                            resume_pending_at_ms: Some(789),
+                        },
+                        channel: Some(true),
+                    },
+                    RetainedSession {
+                        session: RememberedSession {
+                            harness: HarnessId::new("pi").unwrap(),
+                            mode: RuntimeMode::new("default").unwrap(),
+                            provider_session: ProviderSessionId::new("ret-a-pi").unwrap(),
+                            state: None,
+                            stale_at_ms: Some(99),
+                            resume_pending_at_ms: None,
+                        },
+                        channel: None,
+                    },
+                ],
+                channel: Some(true),
+            },
+        ),
+        (
+            "Agent B",
+            Some("%2"),
+            &primary_server,
+            SessionPreferences {
+                preferred_harness: Some(HarnessId::new("codex").unwrap()),
+                remembered: None,
+                retained: vec![RetainedSession {
+                    session: RememberedSession {
+                        harness: HarnessId::new("claude").unwrap(),
+                        mode: RuntimeMode::new("default").unwrap(),
+                        provider_session: ProviderSessionId::new("ret-b-claude").unwrap(),
+                        state: None,
+                        stale_at_ms: None,
+                        resume_pending_at_ms: None,
+                    },
+                    channel: None,
+                }],
+                channel: None,
+            },
+        ),
+        (
+            "Agent C",
+            Some("%3"),
+            &primary_server,
+            SessionPreferences::default(),
+        ),
+        (
+            "Agent Other",
+            Some("%4"),
+            &other_server,
+            SessionPreferences {
+                preferred_harness: Some(HarnessId::new("pi").unwrap()),
+                remembered: None,
+                retained: vec![RetainedSession {
+                    session: RememberedSession {
+                        harness: HarnessId::new("codex").unwrap(),
+                        mode: RuntimeMode::new("default").unwrap(),
+                        provider_session: ProviderSessionId::new("ret-other").unwrap(),
+                        state: None,
+                        stale_at_ms: None,
+                        resume_pending_at_ms: None,
+                    },
+                    channel: Some(false),
+                }],
+                channel: None,
+            },
+        ),
+        (
+            "Unbound Saved",
+            None,
+            &primary_server,
+            SessionPreferences {
+                preferred_harness: Some(HarnessId::new("claude").unwrap()),
+                remembered: None,
+                retained: vec![RetainedSession {
+                    session: RememberedSession {
+                        harness: HarnessId::new("codex").unwrap(),
+                        mode: RuntimeMode::new("default").unwrap(),
+                        provider_session: ProviderSessionId::new("ret-unbound").unwrap(),
+                        state: None,
+                        stale_at_ms: None,
+                        resume_pending_at_ms: None,
+                    },
+                    channel: None,
+                }],
+                channel: Some(false),
+            },
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let identity = create_or_resolve(&mut storage, name, Lifetime::Saved)
+            .unwrap()
+            .identity;
+        if let Some(pane_id) = pane_id {
+            storage
+                .with_binding_transaction(|records| {
+                    records.insert_binding(
+                        &identity,
+                        socket_server,
+                        &pane(pane_id, 100 + index as u64),
+                    )
+                })
+                .unwrap();
+        }
+        storage
+            .with_binding_transaction(|records| {
+                records.set_session_preferences(&identity.id, &prefs)
+            })
+            .unwrap();
+        let entry = storage
+            .with_binding_transaction(|records| records.entry_by_id(&identity.id))
+            .unwrap()
+            .unwrap();
+        let preferences = storage.session_preferences(&identity.id).unwrap();
+        if pane_id.is_some() && socket_server.socket_path == primary_server.socket_path {
+            expected_socket.push((entry.clone(), preferences.clone()));
+        }
+        all_ids.push((identity.id, (entry, preferences)));
+    }
+    storage.close().unwrap();
+
+    let normalize = |mut rows: Vec<(
+        tmt_core::binding::BindingEntry,
+        tmt_core::binding::session::SessionPreferences,
+    )>| {
+        rows.sort_by(|left, right| left.0.identity.id.cmp(&right.0.identity.id));
+        rows
+    };
+    let project = |rows: Vec<tmt_core::workspace::StoredIdentity>| {
+        normalize(
+            rows.into_iter()
+                .map(|row| (row.entry, row.preferences))
+                .collect(),
+        )
+    };
+    let actual_socket = project(
+        Storage::workspace_identities(&fixture.database, &primary_server.socket_path).unwrap(),
+    );
+    assert_eq!(actual_socket, normalize(expected_socket));
+
+    let id_refs: Vec<&str> = all_ids.iter().map(|(id, _)| id.as_str()).collect();
+    let actual_plan =
+        project(Storage::workspace_plan_identities(&fixture.database, &id_refs).unwrap());
+    let expected_plan = normalize(all_ids.into_iter().map(|(_, row)| row).collect());
+    assert_eq!(actual_plan, expected_plan);
+}
