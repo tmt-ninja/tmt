@@ -341,7 +341,7 @@ fn paint_cells(frame: &mut Frame, app: &App, source: &mut Source, surfaces: &[Su
                 frame.buffer_mut()[(column, y)].set_style(style);
             }
         }
-        if !source.surface.target.is_terminal() {
+        if !source.surface.target.targets_terminal() {
             source.control = menu::paint(frame, app, source.surface.area, end, first);
         }
     }
@@ -903,7 +903,7 @@ impl App {
                 let range = (count > 1)
                     .then(|| click_range(&surface, row, column, count))
                     .flatten();
-                let terminal_surface = surface.target.is_terminal();
+                let terminal_surface = surface.target.targets_terminal();
                 let selection = if Some(surface.area) == state.response_area {
                     let key = state.active.clone()?;
                     let rendered = state.sessions.get(&key)?.rendered.as_ref()?;
@@ -965,7 +965,7 @@ impl App {
                     surface.area == source.surface.area
                         && surface.target == source.surface.target
                         && surface.text.as_str() == source.surface.text.as_str()
-                }) && (!source.surface.target.is_terminal()
+                }) && (!source.surface.target.targets_terminal()
                     || matches!(&source.surface.target, RowTarget::Workspace(target) if Some(target) == selected_workspace.as_ref())));
                 if !fresh {
                     if let Some(selection) = &mut state.selection {
@@ -997,7 +997,7 @@ impl App {
                         surface.area == source.surface.area
                             && surface.target == source.surface.target
                             && surface.text.as_str() == source.surface.text.as_str()
-                    }) || (source.surface.target.is_terminal()
+                    }) || (source.surface.target.targets_terminal()
                         && !matches!(&source.surface.target, RowTarget::Workspace(target) if Some(target) == selected_workspace.as_ref())))
                 {
                     state.selection = None;

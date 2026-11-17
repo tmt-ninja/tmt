@@ -552,7 +552,7 @@ pub enum RowTarget {
 }
 
 impl RowTarget {
-    pub(in crate::board) fn is_terminal(&self) -> bool {
+    pub(in crate::board) fn targets_terminal(&self) -> bool {
         matches!(
             self,
             Self::Workspace(super::workspace::OpsTarget::Terminal { .. })
