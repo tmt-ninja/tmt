@@ -9,7 +9,7 @@ use serde_json::json;
 use std::io::{self, Write};
 use tmt_adapters::{
     config::ConfigPaths,
-    drivers::Registry,
+    drivers::{DriverDefinition, HookFormat, Registry},
     setup::{
         self, SetupEnvironment, UsageHook,
         provider_mod::{self, ModStep, PendingMod},
@@ -83,10 +83,8 @@ fn run(
     if status {
         return show_status(&drivers, provider, mode).map(|()| 0);
     }
-    let environment = SetupEnvironment::capture(&drivers).map_err(failure)?;
-    let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
-    let recorded = record::read(&global).map_err(failure)?;
     if provider.is_none() {
+        let environment = SetupEnvironment::capture(&drivers).map_err(failure)?;
         let mut output = tmt_cli_style::stream::stdout(mode.json);
         let terminal = output.terminal();
         return guided::run(
@@ -99,6 +97,21 @@ fn run(
             terminal,
         );
     }
+    if let Some(driver) = provider
+        .and_then(|name| drivers.find(name))
+        .filter(|driver| {
+            driver
+                .descriptor
+                .hooks
+                .is_some_and(HookFormat::is_per_launch)
+        })
+    {
+        let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
+        return run_per_launch(driver, &global, remove, usage, yes, mode);
+    }
+    let global = ConfigPaths::discover().map_err(Failure::from)?.global_dir;
+    let environment = SetupEnvironment::capture(&drivers).map_err(failure)?;
+    let recorded = record::read(&global).map_err(failure)?;
     let selected = provider.and_then(|name| drivers.find(name));
     let plans = selected
         .map_or_else(|| drivers.with_hooks().collect(), |value| vec![value])
@@ -311,6 +324,94 @@ fn collection_document(document: &mut serde_json::Value, provider: &str, enabled
     }
 }
 
+fn run_per_launch(
+    driver: &'static DriverDefinition,
+    global: &std::path::Path,
+    remove: bool,
+    usage: UsageHook,
+    yes: bool,
+    mode: OutputMode,
+) -> Result<u8, Failure> {
+    let entries = record::read_per_launch(global).map_err(failure)?;
+    let before = record::per_launch_usage(&entries, driver.name());
+    let usage_after = !remove && record::per_launch_policy(&entries, driver.name(), usage);
+    let changed = if remove {
+        before.is_some()
+    } else {
+        before != Some(usage_after)
+    };
+    let mut output = tmt_cli_style::stream::stdout(mode.json);
+    let terminal = output.terminal();
+    let record_path = record::path(global);
+    if !mode.json {
+        writeln!(
+            output,
+            "{} {} usage consent in {}\nHooks: loaded automatically per launch (no provider settings file changed).",
+            if remove { "Remove TMT's saved" } else { "Configure" },
+            driver.name(),
+            record_path.display()
+        )
+        .map_err(failure)?;
+        if usage_after {
+            writeln!(output, "{USAGE_NOTE}").map_err(failure)?;
+        } else if !remove {
+            writeln!(output, "{ANSWERS_NOTE}").map_err(failure)?;
+            writeln!(output, "{}", collection_off(driver.name())).map_err(failure)?;
+        }
+    }
+    if !crate::consent::ask(
+        &mut output,
+        yes,
+        mode,
+        crate::consent::Consent {
+            code: "SETUP_CONSENT_REQUIRED",
+            refusal: "Review setup interactively, or pass --yes to approve the requested provider changes.",
+            question: "Apply this plan",
+            declined: "No changes made.",
+        },
+        failure,
+    )? {
+        return Ok(0);
+    }
+    let result = if remove {
+        record::forget_per_launch(global, driver.name())
+    } else {
+        record::remember_per_launch(global, driver.name(), usage_after)
+    };
+    result.map_err(|error| {
+        Failure::new(
+            "SETUP_ERROR",
+            format!("The setup record could not be updated: {error}"),
+            1,
+        )
+        .suggestion(format!("run tmt setup {} again", driver.name()))
+    })?;
+    if mode.json {
+        let mut document = json!({
+            "provider": driver.name(),
+            "changed": changed,
+            "removed": remove,
+            "perLaunch": true,
+        });
+        collection_document(&mut document, driver.name(), usage_after);
+        writeln!(output, "{document}").map_err(failure)?;
+    } else if changed {
+        tmt_cli_style::message::success(
+            &mut output,
+            terminal,
+            &format!(
+                "{} {} usage consent",
+                if remove { "Removed" } else { "Configured" },
+                driver.name()
+            ),
+        )
+        .map_err(failure)?;
+    } else {
+        writeln!(output, "Already current; no changes made.").map_err(failure)?;
+    }
+    Ok(0)
+}
+
 /// Settings-only inspection: no consent, provider execution, record adoption or DB.
 fn show_status(
     drivers: &Registry,
@@ -319,12 +420,33 @@ fn show_status(
 ) -> Result<(), Failure> {
     let selected: Vec<_> = match provider {
         Some(name) => drivers.find(name).into_iter().collect(),
-        None => drivers.with_hooks().collect(),
+        None => drivers
+            .iter()
+            .filter(|driver| {
+                driver
+                    .descriptor
+                    .hooks
+                    .is_some_and(|hooks| hooks.is_installed() || hooks.is_per_launch())
+            })
+            .collect(),
     };
     let mut integrations = Vec::new();
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let recorded = record::read(&paths.global_dir).map_err(failure)?;
+    let recorded_per_launch = record::read_per_launch(&paths.global_dir).map_err(failure)?;
     for driver in selected {
+        if driver
+            .descriptor
+            .hooks
+            .is_some_and(HookFormat::is_per_launch)
+        {
+            let mut row = json!({"provider": driver.name(), "perLaunch": true});
+            let enabled =
+                record::per_launch_usage(&recorded_per_launch, driver.name()) == Some(true);
+            collection_document(&mut row, driver.name(), enabled);
+            integrations.push(row);
+            continue;
+        }
         let path = setup::provider_settings(driver).map_err(failure)?;
         let evaluated = setup::read_provider_settings(driver, &path)
             .map_err(|error| error.to_string())

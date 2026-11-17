@@ -25,6 +25,19 @@ pub struct RecordedHooks {
     pub usage: Option<bool>,
 }
 
+/// Persisted usage collection consent for a [`crate::drivers::HookFormat::PerLaunch`] driver.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RecordedPerLaunch {
+    pub driver: String,
+    pub usage: bool,
+}
+
+#[derive(Default, Clone, PartialEq, Eq)]
+struct SetupDocument {
+    hooks: Vec<RecordedHooks>,
+    per_launch: Vec<RecordedPerLaunch>,
+}
+
 /// Resolve the default from the same installation record used by uninstall.
 /// Legacy lifecycle-only records cannot distinguish an old opt-out, so keep
 /// them disabled until the user explicitly enables collection.
@@ -56,6 +69,31 @@ pub fn usage_opted_out(entries: &[RecordedHooks], driver: &str, settings: &Path)
     })
 }
 
+/// Saved usage choice for a `PerLaunch` driver (`None` when the user has not consented).
+pub fn per_launch_usage(entries: &[RecordedPerLaunch], driver: &str) -> Option<bool> {
+    entries
+        .iter()
+        .find(|entry| entry.driver == driver)
+        .map(|entry| entry.usage)
+}
+
+/// Resolve the usage choice for a `PerLaunch` driver: explicit flags override saved consent;
+/// `Keep` preserves unconsented `false`, while `Default` enables collection during explicit setup
+/// unless previously turned off.
+pub fn per_launch_policy(
+    entries: &[RecordedPerLaunch],
+    driver: &str,
+    requested: super::UsageHook,
+) -> bool {
+    use super::UsageHook;
+    match requested {
+        UsageHook::Install => true,
+        UsageHook::Remove => false,
+        UsageHook::Keep => per_launch_usage(entries, driver).unwrap_or(false),
+        UsageHook::Default => per_launch_usage(entries, driver).unwrap_or(true),
+    }
+}
+
 pub fn path(global: &Path) -> PathBuf {
     global.join("setup-record.json")
 }
@@ -73,16 +111,30 @@ fn invalid(file: &Path) -> io::Error {
 /// Every recorded hook installation, sorted. A missing record is empty; an
 /// unreadable or invalid one is an error and is never overwritten.
 pub fn read(global: &Path) -> io::Result<Vec<RecordedHooks>> {
+    Ok(read_document(global)?.hooks)
+}
+
+/// Every recorded `PerLaunch` consent entry, sorted. Missing record is empty; unreadable or
+/// invalid fails closed.
+pub fn read_per_launch(global: &Path) -> io::Result<Vec<RecordedPerLaunch>> {
+    Ok(read_document(global)?.per_launch)
+}
+
+fn read_document(global: &Path) -> io::Result<SetupDocument> {
     let file = path(global);
     if !files::exists(&file)? {
-        return Ok(Vec::new());
+        return Ok(SetupDocument::default());
     }
     if !std::fs::symlink_metadata(&file)?.is_file() {
         return Err(invalid(&file));
     }
     let bytes = bounded_file::read(&file, MAXIMUM_BYTES).map_err(|_| invalid(&file))?;
     let document: Value = serde_json::from_slice(&bytes).map_err(|_| invalid(&file))?;
-    if document.as_object().is_none_or(|object| object.len() != 2) || document["version"] != 1 {
+    let Some(root) = document.as_object() else {
+        return Err(invalid(&file));
+    };
+    let valid_keys = root.len() == 2 || (root.len() == 3 && root.contains_key("perLaunch"));
+    if !valid_keys || document["version"] != 1 {
         return Err(invalid(&file));
     }
     let entries = document["hooks"].as_array().ok_or_else(|| invalid(&file))?;
@@ -122,40 +174,99 @@ pub fn read(global: &Path) -> io::Result<Vec<RecordedHooks>> {
         .collect::<io::Result<Vec<_>>>()?;
     hooks.sort();
     hooks.dedup();
-    Ok(hooks)
+    let per_launch = match root.get("perLaunch") {
+        None => Vec::new(),
+        Some(value) => {
+            let items = value.as_array().ok_or_else(|| invalid(&file))?;
+            if items.len() > MAXIMUM_HOOKS {
+                return Err(invalid(&file));
+            }
+            let mut list = items
+                .iter()
+                .map(|entry| {
+                    let fields = entry
+                        .as_object()
+                        .filter(|fields| fields.len() == 2)
+                        .ok_or_else(|| invalid(&file))?;
+                    let driver = fields
+                        .get("driver")
+                        .and_then(Value::as_str)
+                        .filter(|name| !name.is_empty())
+                        .ok_or_else(|| invalid(&file))?;
+                    let usage = fields
+                        .get("usage")
+                        .and_then(Value::as_bool)
+                        .ok_or_else(|| invalid(&file))?;
+                    Ok(RecordedPerLaunch {
+                        driver: driver.to_owned(),
+                        usage,
+                    })
+                })
+                .collect::<io::Result<Vec<_>>>()?;
+            list.sort();
+            list.dedup();
+            list
+        }
+    };
+    Ok(SetupDocument { hooks, per_launch })
 }
 
 /// Record `hooks`, replacing any entry for the same driver and settings file.
 /// Recording what is already recorded leaves the file untouched.
 pub fn remember(global: &Path, hooks: RecordedHooks) -> io::Result<()> {
-    update(global, |entries| {
-        entries
+    update_document(global, |document| {
+        document
+            .hooks
             .retain(|entry| (&entry.driver, &entry.settings) != (&hooks.driver, &hooks.settings));
-        entries.push(hooks);
+        document.hooks.push(hooks);
     })
 }
 
 /// Drop the entry for this driver and settings file, if any.
 pub fn forget(global: &Path, driver: &str, settings: &Path) -> io::Result<()> {
-    update(global, |entries| {
-        entries.retain(|entry| {
+    update_document(global, |document| {
+        document.hooks.retain(|entry| {
             (entry.driver.as_str(), entry.settings.as_path()) != (driver, settings)
         });
     })
 }
 
-fn update(global: &Path, change: impl FnOnce(&mut Vec<RecordedHooks>)) -> io::Result<()> {
+/// Record per-launch usage consent for `driver`. Recording what is already recorded leaves the
+/// file untouched.
+pub fn remember_per_launch(global: &Path, driver: &str, usage: bool) -> io::Result<()> {
+    if driver.is_empty() {
+        return Err(invalid(&path(global)));
+    }
+    update_document(global, |document| {
+        document.per_launch.retain(|entry| entry.driver != driver);
+        document.per_launch.push(RecordedPerLaunch {
+            driver: driver.to_owned(),
+            usage,
+        });
+    })
+}
+
+/// Drop per-launch usage consent for `driver`, if any.
+pub fn forget_per_launch(global: &Path, driver: &str) -> io::Result<()> {
+    update_document(global, |document| {
+        document.per_launch.retain(|entry| entry.driver != driver);
+    })
+}
+
+fn update_document(global: &Path, change: impl FnOnce(&mut SetupDocument)) -> io::Result<()> {
     std::fs::create_dir_all(global)?;
     let _lock = crate::file_lock::exclusive(&global.join("setup-record.lock"))?;
-    let before = read(global)?;
-    let mut entries = before.clone();
-    change(&mut entries);
-    entries.sort();
-    entries.dedup();
-    if entries == before {
+    let before = read_document(global)?;
+    let mut document = before.clone();
+    change(&mut document);
+    document.hooks.sort();
+    document.hooks.dedup();
+    document.per_launch.sort();
+    document.per_launch.dedup();
+    if document == before {
         return Ok(());
     }
-    publish(global, &entries)
+    publish_document(global, &document)
 }
 
 /// Hold the consent record stable across refresh publication. A legacy file
@@ -168,8 +279,9 @@ pub(super) fn refresh<T>(
     action: impl FnOnce() -> io::Result<T>,
 ) -> io::Result<T> {
     let _lock = crate::file_lock::exclusive(&global.join("setup-record.lock"))?;
-    let mut entries = read(global)?;
-    let Some(entry) = entries
+    let mut document = read_document(global)?;
+    let Some(entry) = document
+        .hooks
         .iter_mut()
         .find(|entry| entry.driver == expected.driver && entry.settings == expected.settings)
     else {
@@ -184,32 +296,42 @@ pub(super) fn refresh<T>(
     }
     if entry.usage.is_none() && !usage {
         entry.usage = Some(false);
-        publish(global, &entries)?;
+        publish_document(global, &document)?;
     }
     action()
 }
 
-fn publish(global: &Path, entries: &[RecordedHooks]) -> io::Result<()> {
+fn publish_document(global: &Path, document: &SetupDocument) -> io::Result<()> {
     let file = path(global);
-    if entries.len() > MAXIMUM_HOOKS {
+    if document.hooks.len() > MAXIMUM_HOOKS || document.per_launch.len() > MAXIMUM_HOOKS {
         return Err(invalid(&file));
     }
-    let hooks = entries
+    let hooks = document
+        .hooks
         .iter()
         .map(|entry| {
-            let mut document = json!({
+            let mut item = json!({
                 "driver": entry.driver,
                 "settings": entry.settings.to_str().ok_or_else(|| invalid(&file))?,
                 "launcher": entry.launcher.to_str().ok_or_else(|| invalid(&file))?,
             });
             if let Some(usage) = entry.usage {
-                document["usage"] = json!(usage);
+                item["usage"] = json!(usage);
             }
-            Ok(document)
+            Ok(item)
         })
         .collect::<io::Result<Vec<_>>>()?;
-    let bytes = serde_json::to_vec_pretty(&json!({"version": 1, "hooks": hooks}))
-        .map_err(io::Error::other)?;
+    let mut root = json!({"version": 1, "hooks": hooks});
+    if !document.per_launch.is_empty() {
+        root["perLaunch"] = json!(
+            document
+                .per_launch
+                .iter()
+                .map(|entry| json!({"driver": entry.driver, "usage": entry.usage}))
+                .collect::<Vec<_>>()
+        );
+    }
+    let bytes = serde_json::to_vec_pretty(&root).map_err(io::Error::other)?;
     files::atomic_write(&file, &bytes)
 }
 
@@ -317,11 +439,67 @@ mod tests {
             r#"{"version":2,"hooks":[]}"#,
             r#"{"version":1,"hooks":[{"driver":"claude","settings":"relative","launcher":"/t"}]}"#,
             r#"{"version":1,"hooks":[{"driver":"claude","settings":"/s"}]}"#,
+            r#"{"version":1,"hooks":[],"perLaunch":[{"driver":"","usage":true}]}"#,
+            r#"{"version":1,"hooks":[],"perLaunch":[{"driver":"pi","usage":null}]}"#,
+            r#"{"version":1,"hooks":[],"extra":[]}"#,
         ] {
             fs::write(path(&root.path), document).unwrap();
             assert!(read(&root.path).is_err(), "{document}");
+            assert!(read_per_launch(&root.path).is_err(), "{document}");
             assert!(remember(&root.path, hooks("claude", "/s")).is_err());
+            assert!(remember_per_launch(&root.path, "pi", true).is_err());
             assert_eq!(fs::read_to_string(path(&root.path)).unwrap(), document);
         }
+    }
+
+    #[test]
+    fn per_launch_consent_is_preserved_alongside_hooks_and_fails_closed() {
+        use crate::setup::UsageHook::{Default, Install, Keep, Remove};
+        let root = TestDirectory::new();
+        assert!(read_per_launch(&root.path).unwrap().is_empty());
+        assert_eq!(per_launch_usage(&[], "pi"), None);
+        assert!(!per_launch_policy(&[], "pi", Keep));
+        assert!(per_launch_policy(&[], "pi", Default));
+
+        remember(&root.path, hooks("claude", "/home/.claude/settings.json")).unwrap();
+        remember_per_launch(&root.path, "pi", true).unwrap();
+        let bytes = fs::read(path(&root.path)).unwrap();
+        // Re-recording identical consent leaves the record file untouched.
+        remember_per_launch(&root.path, "pi", true).unwrap();
+        assert_eq!(fs::read(path(&root.path)).unwrap(), bytes);
+        assert_eq!(
+            read(&root.path).unwrap(),
+            [hooks("claude", "/home/.claude/settings.json")]
+        );
+        let entries = read_per_launch(&root.path).unwrap();
+        assert_eq!(per_launch_usage(&entries, "pi"), Some(true));
+        assert!(per_launch_policy(&entries, "pi", Keep));
+
+        // Explicitly disabling preserves the opt-out on Default until --usage overrides it.
+        remember_per_launch(&root.path, "pi", false).unwrap();
+        let entries = read_per_launch(&root.path).unwrap();
+        assert_eq!(per_launch_usage(&entries, "pi"), Some(false));
+        assert!(!per_launch_policy(&entries, "pi", Default));
+        assert!(per_launch_policy(&entries, "pi", Install));
+        assert!(!per_launch_policy(&entries, "pi", Remove));
+
+        // Hooks writes preserve perLaunch entries and forgetting removes perLaunch cleanly.
+        forget(
+            &root.path,
+            "claude",
+            Path::new("/home/.claude/settings.json"),
+        )
+        .unwrap();
+        assert_eq!(
+            per_launch_usage(&read_per_launch(&root.path).unwrap(), "pi"),
+            Some(false)
+        );
+        forget_per_launch(&root.path, "pi").unwrap();
+        assert!(read_per_launch(&root.path).unwrap().is_empty());
+        assert!(
+            !fs::read_to_string(path(&root.path))
+                .unwrap()
+                .contains("perLaunch")
+        );
     }
 }

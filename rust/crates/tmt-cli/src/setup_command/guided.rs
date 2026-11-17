@@ -30,6 +30,12 @@ use tmt_cli_style::{
     value,
 };
 
+struct PerLaunchConsent {
+    provider: &'static str,
+    before: Option<bool>,
+    usage: bool,
+}
+
 struct Plan {
     detections: Vec<(&'static DriverDefinition, Detection)>,
     /// Core skill targets, one row per target; the driver installs it.
@@ -37,6 +43,8 @@ struct Plan {
     owned: Vec<SkillTarget>,
     /// Every hook-capable present driver's plan, current or not.
     hooks: Vec<SetupPlan>,
+    /// Present per-launch drivers whose usage consent is persisted in `setup-record.json`.
+    per_launch: Vec<PerLaunchConsent>,
     /// The managed mod each consenting driver keeps, when it is not as wanted yet (#5187).
     mods: Vec<PendingMod>,
     /// Present hook-capable drivers whose settings could not be read or planned.
@@ -52,6 +60,12 @@ impl Plan {
         self.hooks.iter().filter(|plan| plan.change.changed())
     }
 
+    fn per_launch_changes(&self) -> impl Iterator<Item = &PerLaunchConsent> {
+        self.per_launch
+            .iter()
+            .filter(|entry| entry.before != Some(entry.usage))
+    }
+
     fn mod_changes(&self) -> impl Iterator<Item = &PendingMod> {
         self.mods.iter().filter(|pending| pending.changes())
     }
@@ -60,6 +74,7 @@ impl Plan {
         self.core_changes().next().is_none()
             && self.owned.is_empty()
             && self.hook_changes().next().is_none()
+            && self.per_launch_changes().next().is_none()
             && self.mod_changes().next().is_none()
     }
 }
@@ -87,6 +102,7 @@ fn plan_for(
     provider: Option<&str>,
 ) -> Result<Plan, Failure> {
     let recorded = record::read(global).map_err(failure)?;
+    let recorded_per_launch = record::read_per_launch(global).map_err(failure)?;
     let detections = drivers
         .detect(env)
         .into_iter()
@@ -109,13 +125,28 @@ fn plan_for(
     }
     let owned = skill_installation::plan_owned(global, &roots).map_err(failure)?;
     let mut hooks = Vec::new();
+    let mut per_launch = Vec::new();
     let mut kept = Vec::new();
     for (driver, detection) in &detections {
-        if !matches!(detection, Detection::Present { .. })
-            || !driver
-                .descriptor
-                .hooks
-                .is_some_and(tmt_core::driver::descriptor::HookFormat::is_installed)
+        if !matches!(detection, Detection::Present { .. }) {
+            continue;
+        }
+        if driver
+            .descriptor
+            .hooks
+            .is_some_and(tmt_core::driver::descriptor::HookFormat::is_per_launch)
+        {
+            per_launch.push(PerLaunchConsent {
+                provider: driver.name(),
+                before: record::per_launch_usage(&recorded_per_launch, driver.name()),
+                usage: record::per_launch_policy(&recorded_per_launch, driver.name(), usage),
+            });
+            continue;
+        }
+        if !driver
+            .descriptor
+            .hooks
+            .is_some_and(tmt_core::driver::descriptor::HookFormat::is_installed)
         {
             continue;
         }
@@ -158,6 +189,7 @@ fn plan_for(
         core,
         owned,
         hooks,
+        per_launch,
         mods,
         kept,
     })
@@ -237,6 +269,20 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
             ),
         ]);
     }
+    for entry in plan.per_launch_changes() {
+        changes.row([
+            Cell::styled("usage", Token::Dim),
+            Cell::from(entry.provider),
+            Cell::styled(
+                if entry.usage {
+                    "per-launch usage collection on (saved in setup record)"
+                } else {
+                    "per-launch usage collection off (saved in setup record)"
+                },
+                Token::Dim,
+            ),
+        ]);
+    }
     for pending in plan.mod_changes() {
         changes.row([
             Cell::styled("mod", Token::Dim),
@@ -250,6 +296,7 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
     let change_count = plan.core_changes().count()
         + plan.owned.len()
         + plan.hook_changes().count()
+        + plan.per_launch_changes().count()
         + plan.mod_changes().count();
     let mut sections = vec![Section {
         title: "agents",
@@ -284,10 +331,17 @@ fn present(output: &mut impl Write, terminal: Terminal, plan: &Plan) -> std::io:
     for hooks in plan.hooks.iter().filter(|hooks| !hooks.usage) {
         writeln!(output, "{}", super::collection_off(hooks.provider))?;
     }
-    if plan.hook_changes().any(|hooks| !hooks.usage) {
+    for entry in plan.per_launch.iter().filter(|entry| !entry.usage) {
+        writeln!(output, "{}", super::collection_off(entry.provider))?;
+    }
+    if plan.hook_changes().any(|hooks| !hooks.usage)
+        || plan.per_launch_changes().any(|entry| !entry.usage)
+    {
         writeln!(output, "{}", super::ANSWERS_NOTE)?;
     }
-    if plan.hook_changes().any(|hooks| hooks.usage) {
+    if plan.hook_changes().any(|hooks| hooks.usage)
+        || plan.per_launch_changes().any(|entry| entry.usage)
+    {
         writeln!(output, "{USAGE_NOTE}")?;
     }
     for pending in plan.mods.iter().filter(|pending| !pending.changes()) {
@@ -322,6 +376,10 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
     changes.extend(plan.hook_changes().map(
         |hooks| json!({"kind": "hooks", "driver": hooks.provider, "path": hooks.change.path}),
     ));
+    changes.extend(
+        plan.per_launch_changes()
+            .map(|entry| json!({"kind": "usage", "driver": entry.provider, "usage": entry.usage})),
+    );
     changes.extend(plan.mod_changes().map(|pending| {
         let mut change =
             json!({"kind": "mod", "driver": pending.provider(), "path": pending.target()});
@@ -330,16 +388,30 @@ fn document(plan: &Plan, applied: bool, skipped: &[PathBuf]) -> serde_json::Valu
         }
         change
     }));
-    let mut document = json!({
-        "detectedProviders": plan.detections.iter().filter(|(_, detection)| gets_skills(detection)).map(|(driver, _)| driver.name()).collect::<Vec<_>>(),
-        "integrations": plan.hooks.iter().map(|hooks| {
+    let mut integrations: Vec<serde_json::Value> = plan
+        .hooks
+        .iter()
+        .map(|hooks| {
             let mut integration = json!({
                 "provider": hooks.provider, "current": !hooks.change.changed(),
                 "settingsPath": hooks.change.path, "launcher": hooks.launcher
             });
             super::collection_document(&mut integration, hooks.provider, hooks.usage);
             integration
-        }).collect::<Vec<_>>(),
+        })
+        .collect();
+    integrations.extend(plan.per_launch.iter().map(|entry| {
+        let mut integration = json!({
+            "provider": entry.provider,
+            "current": entry.before == Some(entry.usage),
+            "perLaunch": true,
+        });
+        super::collection_document(&mut integration, entry.provider, entry.usage);
+        integration
+    }));
+    let mut document = json!({
+        "detectedProviders": plan.detections.iter().filter(|(_, detection)| gets_skills(detection)).map(|(driver, _)| driver.name()).collect::<Vec<_>>(),
+        "integrations": integrations,
         "agents": plan.detections.iter().map(|(driver, detection)| json!({"name": driver.name(), "state": state(detection)})).collect::<Vec<_>>(),
         "plan": changes,
         "kept": plan.kept.iter().map(|(path, reason)| json!({"path": path, "reason": reason})).collect::<Vec<_>>(),
@@ -589,6 +661,22 @@ fn apply_with_policy(
             ),
         }
     }
+    for entry in plan.per_launch_changes() {
+        match record::remember_per_launch(global, entry.provider, entry.usage) {
+            Ok(()) => done(format!("Configured {} usage consent", entry.provider))?,
+            Err(error) => failures.push(
+                Failure::new(
+                    "SETUP_ERROR",
+                    format!(
+                        "{} usage consent could not be saved: {error}",
+                        entry.provider
+                    ),
+                    1,
+                )
+                .caused_by(error),
+            ),
+        }
+    }
     let mut notes = Vec::new();
     for pending in plan.mod_changes() {
         match pending.apply() {
@@ -810,6 +898,7 @@ pub(crate) mod tests {
             core: Vec::new(),
             owned: Vec::new(),
             hooks,
+            per_launch: Vec::new(),
             mods: Vec::new(),
             kept: Vec::new(),
         };
@@ -836,5 +925,97 @@ pub(crate) mod tests {
         let recorded = record::read(&root.path.join("global")).unwrap();
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].driver, "codex");
+    }
+
+    #[test]
+    fn guided_setup_plans_and_persists_per_launch_usage_consent() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = Directory::new();
+        let bin = root.path.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("tmt"), "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::write(bin.join("pi"), "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(bin.join("pi"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let env = ProviderEnvironment::from_parts(
+            root.path.join("home"),
+            root.path.clone(),
+            vec![bin.clone()],
+            [],
+        );
+        let setup = SetupEnvironment {
+            launcher: bin.join("tmt"),
+            settings: Vec::new(),
+        };
+        let drivers = Registry::builtin();
+        let global = root.path.join("state");
+
+        let planned = plan_for(
+            &drivers,
+            &setup,
+            &env,
+            &global,
+            UsageHook::Default,
+            Some("pi"),
+        )
+        .unwrap();
+        assert_eq!(planned.per_launch.len(), 1);
+        assert_eq!(planned.per_launch[0].provider, "pi");
+        assert!(planned.per_launch[0].usage);
+        assert!(!planned.is_current());
+
+        let report = apply(
+            &planned,
+            &global,
+            &mut Vec::new(),
+            Terminal::PLAIN,
+            OutputMode { json: true },
+        )
+        .unwrap();
+        assert!(report.failures.is_empty());
+        assert_eq!(
+            record::per_launch_usage(&record::read_per_launch(&global).unwrap(), "pi"),
+            Some(true)
+        );
+        let current = plan_for(
+            &drivers,
+            &setup,
+            &env,
+            &global,
+            UsageHook::Default,
+            Some("pi"),
+        )
+        .unwrap();
+        assert!(current.is_current());
+
+        let opt_out = plan_for(
+            &drivers,
+            &setup,
+            &env,
+            &global,
+            UsageHook::Remove,
+            Some("pi"),
+        )
+        .unwrap();
+        assert!(!opt_out.is_current());
+        assert!(!opt_out.per_launch[0].usage);
+        apply(
+            &opt_out,
+            &global,
+            &mut Vec::new(),
+            Terminal::PLAIN,
+            OutputMode { json: true },
+        )
+        .unwrap();
+        let preserved = plan_for(
+            &drivers,
+            &setup,
+            &env,
+            &global,
+            UsageHook::Default,
+            Some("pi"),
+        )
+        .unwrap();
+        assert!(preserved.is_current());
+        assert!(!preserved.per_launch[0].usage);
     }
 }

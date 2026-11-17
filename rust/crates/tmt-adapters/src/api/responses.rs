@@ -64,15 +64,13 @@ pub(super) fn capture(
     driver: Option<&str>,
     installed: impl Fn(&crate::drivers::DriverDefinition) -> bool,
 ) -> Option<serde_json::Value> {
-    let definition = crate::drivers::Registry::builtin()
-        .find(driver?)
-        .filter(|definition| {
-            definition
-                .descriptor
-                .hooks
-                .is_some_and(crate::drivers::HookFormat::is_installed)
-        })?;
-    Some(serde_json::json!({"enabled": installed(definition)}))
+    let definition = crate::drivers::Registry::builtin().find(driver?)?;
+    let format = definition
+        .descriptor
+        .hooks
+        .filter(|format| format.is_installed() || format.is_per_launch())?;
+    let enabled = format.is_per_launch() || installed(definition);
+    Some(serde_json::json!({"enabled": enabled}))
 }
 
 #[cfg(test)]
@@ -95,6 +93,11 @@ mod tests {
         assert_eq!(
             capture(Some("codex"), |_| false),
             Some(serde_json::json!({"enabled": false}))
+        );
+        assert_eq!(
+            capture(Some("pi"), |_| false),
+            Some(serde_json::json!({"enabled": true})),
+            "PerLaunch drivers load turn-end capture at run time"
         );
     }
     #[test]

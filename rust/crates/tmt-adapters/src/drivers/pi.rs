@@ -192,6 +192,14 @@ struct Payload {
     startup_ready: bool,
     #[serde(default)]
     idle: bool,
+    #[serde(default)]
+    aborted: bool,
+    #[serde(default)]
+    prompt: Option<String>,
+    #[serde(default)]
+    final_text: Option<String>,
+    #[serde(default)]
+    final_text_bytes: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,10 +218,18 @@ fn parse_payload(bytes: &[u8]) -> Result<(Payload, ProviderSessionId), HookInput
     Ok((payload, session))
 }
 
+fn is_placeholder_model(model: &str) -> bool {
+    model.eq_ignore_ascii_case("unknown")
+        || model.eq_ignore_ascii_case("auto")
+        || model.eq_ignore_ascii_case("default")
+}
+
 fn concrete_model(raw: Option<&str>) -> Option<String> {
     let model = raw?.trim();
-    (!model.is_empty() && crate::runtime::driver_state::valid_model(model))
-        .then(|| model.to_owned())
+    (!model.is_empty()
+        && !is_placeholder_model(model)
+        && crate::runtime::driver_state::valid_model(model))
+    .then(|| model.to_owned())
 }
 
 pub fn decode_hook(bytes: &[u8]) -> Result<PiObservation, HookInputError> {
@@ -508,7 +524,7 @@ impl tmt_core::driver::Driver for PiRuntime {
             ActionResult::Failed(error) => return ActionResult::Failed(error),
         };
         let mut args = vec!["--session".into(), resume.session.as_str().into()];
-        if let Some(model) = model {
+        if let Some(model) = concrete_model(model.as_deref()) {
             args.extend(["--model".into(), model.into()]);
         }
         ActionResult::Completed(crate::runtime::RuntimeCommand {
@@ -616,7 +632,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
     }
 
     fn state_model(&self, state: &tmt_core::binding::session::DriverState) -> Option<String> {
-        crate::runtime::driver_state::state_model(state)
+        concrete_model(crate::runtime::driver_state::state_model(state).as_deref())
     }
 
     fn state_observed_model(
@@ -624,6 +640,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
         state: &tmt_core::binding::session::DriverState,
     ) -> Option<crate::runtime::driver_state::ObservedModel> {
         crate::runtime::driver_state::state_observed_model(state)
+            .filter(|observed| concrete_model(Some(&observed.model)).is_some())
     }
 
     fn state_usage(
@@ -697,12 +714,37 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
         (payload.event == "before_agent_start").then_some(session)
     }
 
+    fn decode_prompt_text(&self, bytes: &[u8]) -> Option<String> {
+        let (payload, _) = parse_payload(bytes).ok()?;
+        (payload.event == "before_agent_start")
+            .then_some(payload.prompt)
+            .flatten()
+            .filter(|prompt| !prompt.is_empty())
+    }
+
     fn decode_turn(&self, payload: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
         let (parsed, session) = parse_payload(payload).ok()?;
-        (parsed.event == "agent_settled").then(|| crate::runtime::lifecycle::TurnEnd {
+        if parsed.event != "agent_settled" {
+            return None;
+        }
+        if parsed.aborted {
+            return Some(crate::runtime::lifecycle::TurnEnd {
+                session,
+                transcript: None,
+                final_text: None,
+                interrupted: true,
+            });
+        }
+        let final_text = parsed.final_text.as_deref().and_then(|text| {
+            parsed
+                .final_text_bytes
+                .and_then(|bytes| tmt_core::responses::FinalText::from_kept(text, bytes))
+                .or_else(|| tmt_core::responses::FinalText::new(text))
+        });
+        Some(crate::runtime::lifecycle::TurnEnd {
             session,
             transcript: parsed.session_file.map(PathBuf::from),
-            final_text: None,
+            final_text,
             interrupted: false,
         })
     }
@@ -1147,6 +1189,227 @@ mod tests {
         assert_eq!(
             transcript_final_text(&assistant_line),
             tmt_core::responses::FinalText::new("Done!")
+        );
+    }
+
+    #[test]
+    fn prompt_text_and_settled_final_text_respect_bounds_abort_and_tool_turns() {
+        let lifecycle = PiLifecycle;
+        let session = "33333333-3333-4333-8333-333333333333";
+
+        let prompt_payload = json!({
+            "event": "before_agent_start",
+            "session_id": session,
+            "prompt": "hello pi"
+        });
+        assert_eq!(
+            lifecycle
+                .decode_prompt_text(prompt_payload.to_string().as_bytes())
+                .as_deref(),
+            Some("hello pi")
+        );
+
+        let empty_prompt = json!({
+            "event": "before_agent_start",
+            "session_id": session,
+            "prompt": ""
+        });
+        assert_eq!(
+            lifecycle.decode_prompt_text(empty_prompt.to_string().as_bytes()),
+            None
+        );
+
+        let settled = json!({
+            "event": "agent_settled",
+            "session_id": session,
+            "session_file": "/tmp/session.jsonl",
+            "aborted": false,
+            "final_text": "All done"
+        });
+        let turn = lifecycle
+            .decode_turn(settled.to_string().as_bytes())
+            .unwrap();
+        assert!(!turn.interrupted);
+        assert_eq!(
+            turn.transcript.as_deref(),
+            Some(Path::new("/tmp/session.jsonl"))
+        );
+        assert_eq!(
+            turn.final_text,
+            tmt_core::responses::FinalText::new("All done")
+        );
+
+        // Truncated final_text preserves truncation provenance without exceeding FinalText bounds.
+        let kept = "a".repeat(tmt_core::responses::MAX_TEXT_BYTES);
+        let original_bytes = tmt_core::responses::MAX_TEXT_BYTES + 250;
+        let truncated_settled = json!({
+            "event": "agent_settled",
+            "session_id": session,
+            "aborted": false,
+            "final_text": kept,
+            "final_text_bytes": original_bytes
+        });
+        let truncated_turn = lifecycle
+            .decode_turn(truncated_settled.to_string().as_bytes())
+            .unwrap();
+        let truncated_final = truncated_turn.final_text.unwrap();
+        assert!(truncated_final.truncated());
+        assert_eq!(truncated_final.original_bytes(), original_bytes);
+        assert_eq!(
+            truncated_final.text().len(),
+            tmt_core::responses::MAX_TEXT_BYTES
+        );
+
+        // Tool-only turn omits final_text cleanly.
+        let tool_only = json!({
+            "event": "agent_settled",
+            "session_id": session,
+            "session_file": "/tmp/session.jsonl",
+            "aborted": false
+        });
+        let tool_turn = lifecycle
+            .decode_turn(tool_only.to_string().as_bytes())
+            .unwrap();
+        assert!(!tool_turn.interrupted);
+        assert_eq!(tool_turn.final_text, None);
+
+        // Aborted turn drops final_text and transcript, marking interrupted = true.
+        let aborted = json!({
+            "event": "agent_settled",
+            "session_id": session,
+            "session_file": "/tmp/session.jsonl",
+            "aborted": true,
+            "final_text": "must be ignored"
+        });
+        let aborted_turn = lifecycle
+            .decode_turn(aborted.to_string().as_bytes())
+            .unwrap();
+        assert!(aborted_turn.interrupted);
+        assert_eq!(aborted_turn.final_text, None);
+        assert_eq!(aborted_turn.transcript, None);
+    }
+
+    #[test]
+    fn placeholder_models_are_rejected_and_omitted_on_resume() {
+        use tmt_core::binding::session::{
+            DriverState, HarnessId, ProviderSessionId, RuntimeMode,
+            activity::{Event, EventKind},
+        };
+        use tmt_core::driver::{ActionResult, Driver, HarnessResume, HarnessStart};
+
+        let lifecycle = PiLifecycle;
+        let session_str = "33333333-3333-4333-8333-333333333333";
+        let session = ProviderSessionId::new(session_str).unwrap();
+        let process = ProcessIncarnation::new(42, "pi").unwrap();
+        let harness = HarnessId::new(NAME).unwrap();
+        let mode = RuntimeMode::new(MODE_DEFAULT).unwrap();
+
+        for bad_model in ["unknown", "Unknown", "auto", "AUTO", "default", "DEFAULT"] {
+            let start = json!({
+                "event": "session_start",
+                "session_id": session_str,
+                "reason": "startup",
+                "model": bad_model
+            });
+            let obs = decode_hook(start.to_string().as_bytes()).unwrap();
+            assert_eq!(obs.model, None, "{bad_model} must be rejected");
+            let turn_start = json!({
+                "event": "before_agent_start",
+                "session_id": session_str,
+                "model": bad_model
+            });
+            let act = lifecycle
+                .decode_activity(turn_start.to_string().as_bytes())
+                .unwrap();
+            assert_eq!(act.model, None, "{bad_model} activity must be rejected");
+
+            // Even if legacy state persisted a placeholder model, resume omits --model.
+            let legacy_state =
+                DriverState::new(1, &serde_json::json!({ "model": bad_model }).to_string())
+                    .unwrap();
+            assert_eq!(lifecycle.state_model(&legacy_state), None);
+            assert_eq!(lifecycle.state_observed_model(&legacy_state), None);
+
+            let mut runtime = PiRuntime;
+            let ActionResult::Completed(launch) = runtime.resume(HarnessResume {
+                start: HarnessStart {
+                    harness: &harness,
+                    context: None,
+                },
+                session: &session,
+                mode: &mode,
+                state: Some(&legacy_state),
+            }) else {
+                panic!("resume should complete");
+            };
+            assert_eq!(
+                launch.args,
+                vec![OsString::from("--session"), OsString::from(session_str)],
+                "resume after {bad_model} must omit --model"
+            );
+        }
+
+        // Concrete model still propagates through LifecycleObservation::driver_state into resume --model.
+        let good_start = decode_hook(
+            json!({
+                "event": "session_start",
+                "session_id": session_str,
+                "reason": "startup",
+                "model": "claude-sonnet-4-5"
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        let good_state =
+            crate::runtime::lifecycle::LifecycleObservation::driver_state(&good_start, None, 100)
+                .unwrap();
+        assert_eq!(
+            lifecycle.state_model(&good_state).as_deref(),
+            Some("claude-sonnet-4-5")
+        );
+        let good_activity = lifecycle
+            .activity_state(
+                &crate::runtime::hook_protocol::ActivityObservation {
+                    event: Event {
+                        kind: EventKind::TurnStarted,
+                        turn: None,
+                    },
+                    model: concrete_model(Some("claude-sonnet-4-5")),
+                },
+                &session,
+                &process,
+                Some(&good_state),
+                100,
+            )
+            .unwrap();
+        assert_eq!(
+            lifecycle
+                .state_observed_model(&good_activity)
+                .map(|observed| observed.model)
+                .as_deref(),
+            Some("claude-sonnet-4-5")
+        );
+        let mut runtime = PiRuntime;
+        let ActionResult::Completed(launch) = runtime.resume(HarnessResume {
+            start: HarnessStart {
+                harness: &harness,
+                context: None,
+            },
+            session: &session,
+            mode: &mode,
+            state: Some(&good_activity),
+        }) else {
+            panic!("resume should complete");
+        };
+        assert_eq!(
+            launch.args,
+            vec![
+                OsString::from("--session"),
+                OsString::from(session_str),
+                OsString::from("--model"),
+                OsString::from("claude-sonnet-4-5"),
+            ]
         );
     }
 }

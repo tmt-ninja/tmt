@@ -196,7 +196,7 @@ fn both_capture_provider_checks_equal_the_shipped_full_runtime_registry() {
                 && driver
                     .descriptor
                     .hooks
-                    .is_some_and(tmt_core::driver::descriptor::HookFormat::is_installed)
+                    .is_some_and(|hooks| hooks.is_installed() || hooks.is_per_launch())
         })
         .map(|driver| driver.name())
         .collect();
@@ -231,7 +231,7 @@ fn both_capture_provider_checks_equal_the_shipped_full_runtime_registry() {
             && driver
                 .descriptor
                 .hooks
-                .is_some_and(tmt_core::driver::descriptor::HookFormat::is_installed);
+                .is_some_and(|hooks| hooks.is_installed() || hooks.is_per_launch());
         assert_eq!(
             response(&db, driver.name()).is_ok(),
             capture_capable,
@@ -260,4 +260,68 @@ fn both_capture_provider_checks_equal_the_shipped_full_runtime_registry() {
             "{unsupported:?}"
         );
     }
+}
+
+#[test]
+fn v95_to_v96_upgrade_preserves_existing_rows_and_admits_pi() {
+    let mut db = Connection::open_in_memory().unwrap();
+    db.pragma_update(None, "foreign_keys", true).unwrap();
+    apply_through(&mut db, 95).unwrap();
+    db.execute_batch(
+        "INSERT INTO identities(id,name,canonical_name,created_at,updated_at) VALUES ('i','Agent','agent','now','now');
+         INSERT INTO recent_responses(sequence,identity_id,text,ended_ms,provider,truncated,session_id,expires_ms,original_bytes)
+         VALUES (41,'i','first',100,'claude',0,'s1',900,5),
+                (42,'i','second',200,'codex',0,'s2',900,6),
+                (43,'i','third',300,'agy',0,'s3',900,5);",
+    )
+    .unwrap();
+    for state in ["pending", "bound", "answered", "no_answer"] {
+        db.execute(
+            "INSERT INTO request_attempts(attempt_id,request_id,route_kind,recipient_identity_id,wait_active,status,inject_preamble,cadence_reserved,prepared_at_ms,expires_at_ms,retention_expires_at_ms) VALUES(?1,?1,'inbox','i',0,'queued',0,0,1,2000,3000)",
+            [state],
+        )
+        .unwrap();
+    }
+    db.execute_batch(
+        "INSERT INTO request_passthrough(request_id,delivered_at_ms,state) VALUES('pending',50,'pending');
+         INSERT INTO request_passthrough(request_id,delivered_at_ms,state,bound_session,bound_turn,bound_at_ms,folded) VALUES('bound',51,'bound','session','turn',60,1);
+         INSERT INTO request_passthrough VALUES('answered',52,'answered','session','turn',60,'third',0,'agy',300,300,1,43);
+         INSERT INTO request_passthrough(request_id,delivered_at_ms,state,settled_at_ms) VALUES('no_answer',53,'no_answer',100);",
+    )
+    .unwrap();
+
+    let count = |conn: &Connection, table: &str| -> i64 {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(count(&db, "recent_responses"), 3);
+    assert_eq!(count(&db, "request_passthrough"), 4);
+    assert!(response(&db, "pi").is_err(), "v95 must reject pi");
+    assert!(
+        db.execute(
+            "UPDATE request_passthrough SET answer_provider='pi' WHERE request_id='answered'",
+            []
+        )
+        .is_err()
+    );
+    let before = snapshot(&db);
+    let schemas: Vec<_> = TABLES[..2].iter().map(|table| schema(&db, table)).collect();
+
+    apply(&mut db).unwrap();
+
+    assert_eq!(count(&db, "recent_responses"), 3);
+    assert_eq!(count(&db, "request_passthrough"), 4);
+    assert_eq!(snapshot(&db), before, "v95->v96 must preserve every row");
+    for (table, expected) in TABLES[..2].iter().zip(schemas) {
+        assert_eq!(schema(&db, table), expected, "{table}");
+    }
+    assert!(rows(&db, "PRAGMA foreign_key_check").is_empty());
+    assert!(response(&db, "pi").is_ok(), "v96 must admit pi");
+    assert!(
+        db.execute(
+            "UPDATE request_passthrough SET answer_provider='pi' WHERE request_id='answered'",
+            []
+        )
+        .is_ok()
+    );
 }

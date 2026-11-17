@@ -78,6 +78,7 @@ fn plans_with(
             }
             plan.owned.clear(); // Each consented extension owns publication of its bundled skills.
             plan.mods.clear(); // A provider mod follows an explicit setup, never an upgrade offer.
+            plan.per_launch.clear(); // Per-launch usage consent follows an explicit setup.
             plan.core
                 .retain(|(_, skill)| !targets.contains(&skill.target) && skill.state.changes());
             plan.hooks.retain(|hooks| {

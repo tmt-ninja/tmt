@@ -171,17 +171,30 @@ pub fn stop_hook_installed(provider: &DriverDefinition) -> bool {
         .is_some_and(|text| document::has_owned_hook(provider, &text, document::USAGE))
 }
 
-/// Usage collection is consented: the turn-end hook is installed and the setup record does not
-/// say the user turned usage off for this settings file. Legacy lifecycle-only installs have no
-/// hook, and an unreadable record counts as an opt-out, so neither reads usage data.
+/// Usage collection is consented: for settings-hook drivers, the turn-end hook is installed and
+/// the setup record does not say the user turned usage off for that settings file; for
+/// `HookFormat::PerLaunch` drivers (such as `pi`), the setup record explicitly records consent.
+/// Missing or unreadable records fail closed.
 pub fn usage_consented(provider: &DriverDefinition) -> bool {
+    let Ok(paths) = crate::config::ConfigPaths::discover() else {
+        return false;
+    };
+    if provider
+        .descriptor
+        .hooks
+        .is_some_and(HookFormat::is_per_launch)
+    {
+        return record::read_per_launch(&paths.global_dir)
+            .ok()
+            .and_then(|entries| record::per_launch_usage(&entries, provider.name()))
+            == Some(true);
+    }
     let Ok(settings) = provider_settings(provider) else {
         return false;
     };
     stop_hook_installed(provider)
-        && crate::config::ConfigPaths::discover()
+        && record::read(&paths.global_dir)
             .ok()
-            .and_then(|paths| record::read(&paths.global_dir).ok())
             .is_some_and(|entries| !record::usage_opted_out(&entries, provider.name(), &settings))
 }
 
