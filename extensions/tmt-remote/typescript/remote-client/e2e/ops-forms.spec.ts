@@ -6,6 +6,8 @@ import { buildOpsHarness, serveOpsHarness, type OpsHarness } from './ops-harness
 
 // Provider forms in web Ops (#6445): what a member's DM shows, and how an answer is kept and recovered.
 const origin = 'https://ops-forms.test';
+// Captures show the forms area's own scrollbar, as a person's browser draws it.
+test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } });
 const member = '00000000-0000-4000-8000-000000000002';
 let built: OpsHarness | undefined;
 test.beforeAll(async () => {
@@ -104,10 +106,21 @@ for (const width of [1440, 390])
       await open(page, width, theme);
       await show(page, forms);
       await expect(page.locator('.ops-channel-chips')).toContainText('4 forms waiting');
+      const root =
+        process.env.TMT_OPS_FORMS_CAPTURE_DIR ?? join('test-results', 'ops-forms-captures');
+      await mkdir(root, { recursive: true });
+      await page.evaluate(() => document.fonts.ready);
+      await page.screenshot({ path: join(root, `dm-${width}-${theme}.png`) });
       await expect(card(page, 'form-question')).toContainText(
         'Where should the release checklist live?',
       );
       await expect(card(page, 'form-question').getByRole('radio')).toHaveCount(2);
+      // The oldest form is open; the rest are one line each and open on a click.
+      for (const id of ['form-plan', 'form-permission', 'form-truncated']) {
+        await expect(card(page, id)).toHaveAttribute('data-folded', '');
+        await card(page, id).getByRole('button', { expanded: false }).click();
+        await expect(card(page, id)).not.toHaveAttribute('data-folded', '');
+      }
       // A permission form is a terminal action: never an allow or deny control.
       await expect(card(page, 'form-permission').getByRole('button')).toHaveCount(0);
       await expect(card(page, 'form-permission')).toContainText(
@@ -118,6 +131,16 @@ for (const width of [1440, 390])
       await expect(card(page, 'form-truncated')).toContainText(
         'Only part of this form is shown here.',
       );
+      // Every card can be scrolled into view; none is clipped away.
+      for (const id of ['form-question', 'form-plan', 'form-permission', 'form-truncated']) {
+        await card(page, id).scrollIntoViewIfNeeded();
+        await expect(card(page, id)).toBeInViewport();
+      }
+      await page
+        .locator('.ops-forms-open')
+        .evaluate((host) => (host.scrollTop = host.scrollHeight));
+      await page.screenshot({ path: join(root, `dm-end-${width}-${theme}.png`) });
+      await page.locator('.ops-forms-open').evaluate((host) => (host.scrollTop = 0));
       const overflow = await page.evaluate(() => ({
         page: document.documentElement.scrollWidth - innerWidth,
         cards: [...document.querySelectorAll('.ops-form')].map(
@@ -126,11 +149,7 @@ for (const width of [1440, 390])
       }));
       expect(overflow.page).toBeLessThanOrEqual(0);
       for (const right of overflow.cards) expect(right).toBeLessThanOrEqual(0);
-      const root =
-        process.env.TMT_OPS_FORMS_CAPTURE_DIR ?? join('test-results', 'ops-forms-captures');
-      await mkdir(root, { recursive: true });
-      await page.evaluate(() => document.fonts.ready);
-      await page.screenshot({ path: join(root, `dm-${width}-${theme}.png`) });
+      await page.screenshot({ path: join(root, `dm-open-${width}-${theme}.png`) });
       for (const id of ['form-question', 'form-plan', 'form-permission', 'form-truncated'])
         await card(page, id).screenshot({ path: join(root, `${id}-${width}-${theme}.png`) });
       await page.evaluate(() => (location.hash = '#channel/sample'));

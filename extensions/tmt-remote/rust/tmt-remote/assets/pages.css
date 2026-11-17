@@ -1829,11 +1829,24 @@ body:not(:has(.tmt-ui-shell)) {
  * long plans and option text wrap or scroll inside the card, never widening the column. */
 .ops-forms-host {
   flex: none;
-  max-height: 50%;
   min-width: 0;
-  overflow-y: auto;
   padding-block: var(--tmt-ui-space-m);
   border-bottom: var(--tmt-ui-field-border-width, 1px) solid var(--tmt-ui-color-edge);
+}
+.ops-forms-open {
+  display: grid;
+  gap: var(--tmt-ui-space-m);
+  max-height: min(40vh, 30rem);
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* A set colour draws a classic, always-visible scrollbar: a long form never looks clipped. */
+  scrollbar-color: var(--tmt-ui-color-secondary) transparent;
+}
+.ops-forms-folded {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  min-width: 0;
 }
 .ops-forms {
   display: grid;
@@ -1846,6 +1859,37 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .ops-form-head {
   padding: 0;
+}
+.ops-form:focus {
+  outline: none;
+}
+.ops-form[data-folded] {
+  padding: 0;
+}
+.ops-form-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+  width: 100%;
+  min-width: 0;
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-xl);
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.ops-form-toggle:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.ops-form-toggle-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ops-form-time,
 .ops-form-header,
@@ -1876,7 +1920,7 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .ops-form-options {
   display: grid;
-  gap: var(--tmt-ui-space-xs);
+  gap: var(--tmt-ui-space-s);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1884,6 +1928,11 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-form-option {
   align-items: flex-start;
   min-width: 0;
+}
+/* The mark sits on the label's first line, whatever the description below it. */
+.ops-form-option > input {
+  flex: none;
+  margin: calc((1lh - 1em) / 2) 0 0;
 }
 .ops-form-option-words {
   display: grid;

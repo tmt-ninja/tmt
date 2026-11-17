@@ -64,8 +64,15 @@ function drop(formId: string): void {
   }
 }
 
+/** What a form asks, in one line: its first question, its tool, or its plan's first line. */
 const asked = (form: ProviderForm): string =>
-  form.questions?.[0]?.text ?? form.tool?.name ?? KIND[form.kind];
+  form.questions?.[0]?.text ??
+  form.tool?.name ??
+  form.plan
+    ?.split('\n')
+    .map((line) => line.replace(/^[#>*\-\s]+/, '').trim())
+    .find(Boolean) ??
+  KIND[form.kind];
 
 function ago(ms: number): string {
   const minutes = Math.max(0, Math.round((Date.now() - ms) / 60_000));
@@ -102,6 +109,8 @@ export function opsForms(
   /** Stored answers from an earlier page are checked once by their own ID, then on request. */
   const resumed = new Set<string>();
   const cards = new Map<string, { node: HTMLElement; seen: string }>();
+  /** Forms the person opened; the oldest form is always open, so several never bury the talk. */
+  const opened = new Set<string>();
   const views = new Map<string, HTMLElement>();
   let version = 0;
   const bump = () => {
@@ -263,6 +272,36 @@ export function opsForms(
     return part;
   }
 
+  /** A form folded to one line: its kind, what it asks and when; a click opens it. */
+  function folded(form: ProviderForm): HTMLElement {
+    const seen = JSON.stringify(['folded', form, ago(form.openedMs)]);
+    const cached = cards.get(form.formId);
+    if (cached?.seen === seen) return cached.node;
+    const node = el('section', `${c.card} ops-form`);
+    node.dataset.formId = form.formId;
+    node.dataset.kind = form.kind;
+    node.dataset.folded = '';
+    node.setAttribute('aria-label', `${KIND[form.kind]} form`);
+    const toggle = el('button', 'ops-form-toggle');
+    toggle.type = 'button';
+    toggle.setAttribute('aria-expanded', 'false');
+    const kind = el('span', c.chip);
+    kind.append(el('span', c.chipLabel, KIND[form.kind]));
+    toggle.append(
+      kind,
+      el('span', 'ops-form-toggle-text', asked(form)),
+      el('span', 'ops-form-time', ago(form.openedMs)),
+    );
+    toggle.addEventListener('click', () => {
+      opened.add(form.formId);
+      bump();
+      cards.get(form.formId)?.node.focus();
+    });
+    node.append(toggle);
+    cards.set(form.formId, { node, seen });
+    return node;
+  }
+
   function card(form: ProviderForm, memberName: string): HTMLElement {
     const entry = sent.get(form.formId);
     const inFlight = busy.has(form.formId);
@@ -277,6 +316,7 @@ export function opsForms(
     const node = el('section', `${c.card} ops-form`);
     node.dataset.formId = form.formId;
     node.dataset.kind = form.kind;
+    node.tabIndex = -1;
     node.setAttribute('aria-label', `${KIND[form.kind]} form`);
     const head = el('div', `${c.cardHead} ops-form-head`);
     const kind = el('span', c.chip);
@@ -341,7 +381,7 @@ export function opsForms(
     }
     node.append(...lines);
     // A rebuilt card keeps the person's unsent choices.
-    if (cached && open) carry(cached.node, node);
+    if (cached && open && !('folded' in cached.node.dataset)) carry(cached.node, node);
     cards.set(form.formId, { node, seen });
     return node;
   }
@@ -368,6 +408,7 @@ export function opsForms(
           status = 'ready';
           const live = new Set(list.map((form) => form.formId));
           for (const id of cards.keys()) if (!live.has(id)) cards.delete(id);
+          for (const id of opened) if (!live.has(id)) opened.delete(id);
           // A settled answer whose form closed is finished; an uncertain one stays until it settles.
           for (const [id, entry] of sent)
             if (!live.has(id) && entry.state !== 'uncertain') {
@@ -415,28 +456,43 @@ export function opsForms(
       if (!slot) {
         slot = el('div', 'ops-forms');
         slot.setAttribute('aria-label', 'Provider forms');
+        // Open cards scroll in a bounded box; folded rows stay below it, so every form is in view.
+        slot.append(el('div', 'ops-forms-open'), el('div', 'ops-forms-folded'));
         views.set(identityId, slot);
       }
-      const parts: HTMLElement[] = [];
+      const [openBox, foldedBox] = [...slot.children] as [HTMLElement, HTMLElement];
+      const open: HTMLElement[] = [];
+      const rows: HTMLElement[] = [];
       if (status === 'unavailable')
-        parts.push(
+        open.push(
           el('p', 'ops-detail-note', 'Provider forms unavailable. This page tries again shortly.'),
         );
-      for (const form of list)
-        if (form.identityId === identityId) parts.push(card(form, memberName));
+      list
+        .filter((form) => form.identityId === identityId)
+        .forEach((form, index) =>
+          index === 0 || opened.has(form.formId) || sent.has(form.formId)
+            ? open.push(card(form, memberName))
+            : rows.push(folded(form)),
+        );
       for (const entry of sent.values())
         if (
           entry.identityId === identityId &&
           entry.state === 'uncertain' &&
           !list.some((form) => form.formId === entry.formId)
         )
-          parts.push(gone(entry, memberName));
-      if (
-        parts.length !== slot.children.length ||
-        parts.some((part, i) => slot!.children[i] !== part)
-      )
-        slot.replaceChildren(...parts);
-      slot.hidden = parts.length === 0;
+          open.push(gone(entry, memberName));
+      for (const [box, parts] of [
+        [openBox, open],
+        [foldedBox, rows],
+      ] as const) {
+        if (
+          parts.length !== box.children.length ||
+          parts.some((part, i) => box.children[i] !== part)
+        )
+          box.replaceChildren(...parts);
+        box.hidden = parts.length === 0;
+      }
+      slot.hidden = open.length + rows.length === 0;
       return slot;
     },
   };
