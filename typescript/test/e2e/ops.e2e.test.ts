@@ -2723,17 +2723,13 @@ child.stdout.pipe(process.stdout);
           .filter((row): row is string => Boolean(row));
         expect(lines.join('').replace(/\s/g, ''), screen()).toContain(link);
         expect(screen()).toContain('Enter copies · Esc back');
-        // Esc goes back to the popover; a second Esc closes it.
+        // Esc returns to the existing popover, where Open runs the configured
+        // command with the address as one argument, once.
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(
           (current) => current.includes('┌ Link') && !current.includes('Full link'),
           shell.pane
         );
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-        await fixture.waitForCapture((current) => !current.includes('┌ Link'), shell.pane);
-
-        // Open runs the configured command with the address as one argument, once.
-        await open();
         fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'o']);
         await fixture.waitFor(() => fs.existsSync(log), 10_000, 'the opener ran');
         expect(fs.readFileSync(log, 'utf8')).toBe(`1\n${link}\n`);

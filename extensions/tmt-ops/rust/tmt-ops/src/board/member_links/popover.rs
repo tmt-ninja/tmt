@@ -783,6 +783,32 @@ mod tests {
     }
 
     #[test]
+    fn a_link_reopens_after_full_view_and_two_escapes() {
+        let mut app = reader("Read [the docs](https://example.com/a?b=1) first.");
+        let (area, url) = url_hits(&app).remove(0);
+        click(&mut app, area);
+        assert_eq!(app.menu.as_ref().unwrap().title, "Link");
+        screen(&app);
+        app.key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        assert_eq!(app.menu.as_ref().unwrap().title, "Full link");
+        screen(&app);
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.menu.as_ref().unwrap().title, "Link");
+        screen(&app);
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.menu.is_none());
+        let restored = screen(&app);
+        assert!(restored.contains("Read the docs first."));
+        click(&mut app, area);
+        let menu = app
+            .menu
+            .as_ref()
+            .expect("the painted link reopens its menu");
+        assert_eq!(menu.title, "Link");
+        assert_eq!(menu.entries[2].choice, Choice::LinkCopy(url));
+    }
+
+    #[test]
     fn without_a_browser_open_is_disabled_and_copy_stays() {
         let rows = actions("https://example.com/x", false, Rect::new(0, 0, 5, 1));
         assert_eq!(
