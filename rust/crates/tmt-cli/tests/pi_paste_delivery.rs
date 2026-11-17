@@ -239,7 +239,17 @@ impl PrivateTmux {
 
 impl Drop for PrivateTmux {
     fn drop(&mut self) {
-        let _ = self.tmux(&["kill-server"]);
+        if !self.pane_id.is_empty() {
+            let _ = self.tmux(&["kill-pane", "-t", &self.pane_id]);
+        }
+        if self.server_pid > 0
+            && let Ok(pid) = i32::try_from(self.server_pid)
+        {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid),
+                nix::sys::signal::Signal::SIGTERM,
+            );
+        }
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
             let out = self.tmux(&["list-sessions"]);
