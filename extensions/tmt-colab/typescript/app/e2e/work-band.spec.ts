@@ -197,11 +197,16 @@ test('the title row shows the page state and the sub-page count', async ({ page 
   await expect(head(band)).toContainText('In progress');
   await expect(toggle(band)).toHaveAccessibleName('4 sub-pages');
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
-  await band.getByRole('button', { name: /show status details/ }).click();
-  await expect(page.locator('.work-status-details')).toBeVisible();
+  const status = band.getByRole('button', { name: /show status details/ });
+  const details = page.locator('.work-status-details');
+  await status.click();
+  await expect(details).toBeVisible();
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
   await page.keyboard.press('Escape');
+  await expect(details).toBeHidden();
+  await expect(status).toBeFocused();
   await toggle(band).focus();
+  await expect(toggle(band)).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(band.getByRole('list', { name: 'Sub-pages' })).toBeVisible();
   await page.keyboard.press('Escape');
