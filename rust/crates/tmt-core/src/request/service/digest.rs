@@ -737,6 +737,11 @@ pub(super) fn held_until<E>(
     {
         return Ok(None);
     }
+    // A driver and bound pane that can never report Idle (no hooks, or no startup_ready)
+    // is never held by Digest: its talks take the ordinary non-Digest delivery path.
+    if !records.digest_recipient_can_report_idle(id)? {
+        return Ok(None);
+    }
     if let Some(policy) = records.orchestration_receiving_policy(id, now)? {
         return policy.held_until(sender, urgent, now).map_err(|_| {
             RequestError::Invalid("Orchestration receiving deadline cannot be represented.")

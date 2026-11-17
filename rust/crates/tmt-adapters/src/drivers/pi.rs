@@ -105,14 +105,7 @@ impl PiObservation {
             provider_session: Some(self.session.clone()),
         };
         if !self.starting {
-            let mut next = current.transition(&key, self.transition, None)?;
-            if matches!(
-                self.transition,
-                SessionTransition::Cleared | SessionTransition::Resumed | SessionTransition::Forked
-            ) {
-                next.state = RuntimeState::Unknown;
-            }
-            return Some(next);
+            return current.transition(&key, self.transition, None);
         }
         if let Some(previous) = &current.key {
             if previous.incarnation != *incarnation {
@@ -134,16 +127,26 @@ impl PiObservation {
                 if self.transition == SessionTransition::Started {
                     return current.admit(key, self.transition, RuntimeLiveness::Alive);
                 }
-                let mut next = current.transition(&key, self.transition, None)?;
                 if matches!(
                     self.transition,
                     SessionTransition::Cleared
                         | SessionTransition::Resumed
                         | SessionTransition::Forked
-                ) {
-                    next.state = RuntimeState::Unknown;
+                ) && previous_liveness == RuntimeLiveness::Alive
+                {
+                    // Pi has no preliminary SessionEnd for new/resume/fork: a live
+                    // session_start on the same verified process switches directly to Running
+                    // with the new provider session recorded in the binding key.
+                    return Some(BindingSessionState {
+                        plain_program: None,
+                        start_refusal: None,
+                        launch_owner: current.launch_owner.clone(),
+                        key: Some(key),
+                        last_transition: Some(self.transition),
+                        state: RuntimeState::Running,
+                    });
                 }
-                return Some(next);
+                return None;
             }
         }
         current.admit(key, self.transition, RuntimeLiveness::Alive)
@@ -670,9 +673,8 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
         prepare_launch_with_runner(plan, &crate::process::SupervisedProbeRunner).map(Some)
     }
 
-    fn decode_digest_turn(&self, payload: &[u8]) -> Option<ProviderSessionId> {
-        let (parsed, session) = parse_payload(payload).ok()?;
-        (parsed.event == "agent_settled").then_some(session)
+    fn decode_digest_turn(&self, _payload: &[u8]) -> Option<ProviderSessionId> {
+        None
     }
 
     fn encode_digest_turn(&self, _digest: &str) -> Option<String> {
@@ -1498,5 +1500,75 @@ mod tests {
             .expect("pi rpc refusal");
         assert_eq!(refusal.reason, "pi-shared-rpc");
         assert_eq!(refusal.fix, "tmt run 'beta' pi");
+    }
+
+    #[test]
+    fn session_switches_on_same_incarnation_keep_running_and_record_new_session() {
+        let process = ProcessIncarnation::new(42, "pi").unwrap();
+        let other_process = ProcessIncarnation::new(99, "pi").unwrap();
+        let owner = ProcessIncarnation::new(41, "launcher").unwrap();
+        let initial = ProviderSessionId::new("session-initial").unwrap();
+        let switched = ProviderSessionId::new("session-switched").unwrap();
+        let running = BindingSessionState::default()
+            .admit_launched(
+                ObservedSessionKey {
+                    incarnation: process.clone(),
+                    provider_session: Some(initial),
+                },
+                owner.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+
+        for reason in ["new", "resume", "fork"] {
+            let payload = json!({
+                "event": "session_start",
+                "reason": reason,
+                "session_id": "session-switched",
+            });
+            let observation = decode_hook(payload.to_string().as_bytes()).unwrap();
+            let next = observation
+                .propose(&running, &process, RuntimeLiveness::Alive)
+                .unwrap_or_else(|| panic!("{reason} on same incarnation should keep Running"));
+            assert_eq!(next.state, RuntimeState::Running);
+            assert_eq!(
+                next.key.as_ref().and_then(|k| k.provider_session.as_ref()),
+                Some(&switched)
+            );
+            assert_eq!(next.launch_owner.as_ref(), Some(&owner));
+
+            assert!(
+                observation
+                    .propose(&running, &other_process, RuntimeLiveness::Alive)
+                    .is_none(),
+                "{reason} must still refuse a changed incarnation"
+            );
+            assert!(
+                observation
+                    .propose(&running, &process, RuntimeLiveness::Gone)
+                    .is_none(),
+                "{reason} must fail closed when previous process is not Alive"
+            );
+        }
+    }
+
+    #[test]
+    fn digest_turn_decoding_is_disabled_without_digest_turn_encoding() {
+        let lifecycle = PiLifecycle;
+        assert!(lifecycle.encode_digest_turn("digest").is_none());
+        for payload in [
+            json!({"event": "agent_settled", "session_id": "session-1"}),
+            json!({"event": "agent_busy", "session_id": "session-1"}),
+            json!({"event": "session_start", "reason": "startup", "session_id": "session-1"}),
+        ] {
+            assert!(
+                lifecycle
+                    .decode_digest_turn(payload.to_string().as_bytes())
+                    .is_none(),
+                "decode_digest_turn must return None while encode_digest_turn is None"
+            );
+        }
     }
 }

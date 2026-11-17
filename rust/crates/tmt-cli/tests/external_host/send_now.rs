@@ -20,14 +20,20 @@ fn world(name: &str) -> (Fixture, String) {
         .unwrap()
         .to_owned();
     let now = tmt_adapters::request_runtime::wall_time_ms() as i64;
-    rusqlite::Connection::open(fixture.state().join("tmt.db"))
-        .unwrap()
-        .execute(
-            "INSERT INTO focus_policies(identity_id,revision,until_ms,owner_identity_id,setter_identity_id,max_hold_ms)
-             VALUES(?1,1,?2,?1,?1,300000)",
-            rusqlite::params![id, now + 3_600_000],
-        )
-        .unwrap();
+    let db = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
+    db.execute(
+        "INSERT INTO focus_policies(identity_id,revision,until_ms,owner_identity_id,setter_identity_id,max_hold_ms)
+         VALUES(?1,1,?2,?1,?1,300000)",
+        rusqlite::params![id, now + 3_600_000],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO identity_session_preferences(identity_id,preferred_harness)
+         VALUES(?1,'claude')
+         ON CONFLICT(identity_id) DO UPDATE SET preferred_harness = 'claude'",
+        [&id],
+    )
+    .unwrap();
     (fixture, id)
 }
 

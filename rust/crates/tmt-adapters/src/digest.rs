@@ -17,7 +17,7 @@ use tmt_core::{
     },
     driver::{ActionResult, Driver, InterfacePresence, InterfaceStatus},
     request::{
-        RequestAttempt, RequestError, RequestPrompt, RequestService, WakeState,
+        RequestAttempt, RequestError, RequestPrompt, RequestRepository, RequestService, WakeState,
         digest::{
             DigestChecklist, DigestItem, DigestOpportunity, DigestProjection, DigestSource,
             DigestState,
@@ -613,11 +613,25 @@ pub fn flush(
     if views[0].held_count == 0 {
         return Ok(None);
     }
-    let Some(entry) = ready_entry(storage, identity, readiness)? else {
-        return Ok(None);
+    let can_report_idle = storage
+        .with_request_observation(|records| records.digest_recipient_can_report_idle(identity))?;
+    let ordinary_fallback = !can_report_idle;
+    let entry = if ordinary_fallback {
+        if delivery::status(storage, identity)? != delivery::Availability::Ready {
+            return Ok(None);
+        }
+        let Some(entry) = delivery::current(storage, identity)? else {
+            return Ok(None);
+        };
+        entry
+    } else {
+        let Some(entry) = ready_entry(storage, identity, readiness)? else {
+            return Ok(None);
+        };
+        entry
     };
-    let may_claim_summary =
-        readiness == Readiness::Idle || idle_entry(storage, identity)?.is_some();
+    let may_claim_summary = !ordinary_fallback
+        && (readiness == Readiness::Idle || idle_entry(storage, identity)?.is_some());
     let claimed = if may_claim_summary {
         claim(storage, identity, DigestOpportunity::Idle)?
     } else {
@@ -631,7 +645,16 @@ pub fn flush(
     } else {
         Readiness::Idle
     };
-    send_claim(storage, &entry, &batch, &text, delay, readiness).map(Some)
+    send_claim(
+        storage,
+        &entry,
+        &batch,
+        &text,
+        delay,
+        readiness,
+        ordinary_fallback,
+    )
+    .map(Some)
 }
 
 fn send_claim(
@@ -641,9 +664,16 @@ fn send_claim(
     text: &str,
     delay: Duration,
     readiness: Readiness,
+    ordinary_fallback: bool,
 ) -> Result<DigestState, RequestError<StorageError>> {
     let identity = batch.identity_id.as_str();
-    let state = if ready_entry(storage, identity, readiness)?.as_ref() != Some(entry) {
+    let verified = if ordinary_fallback {
+        delivery::status(storage, identity)? == delivery::Availability::Ready
+            && delivery::current(storage, identity)?.as_ref() == Some(entry)
+    } else {
+        ready_entry(storage, identity, readiness)?.as_ref() == Some(entry)
+    };
+    let state = if !verified {
         DigestState::Unsent
     } else {
         match delivery::send_digest(storage, entry, text, delay)?

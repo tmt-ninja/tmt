@@ -305,6 +305,83 @@ fn verified_activity(
         }))
 }
 
+/// Whether `identity` can report `Idle` through provider hooks (or is unbound with no live pane).
+/// Bound panes with no hooks (`plain_program`, hand-started pane without a driver, or a `basic`
+/// driver) or hook-capable launches lacking both startup activity and a turn-boundary Digest
+/// handoff (`encode_digest_turn`) return `false` so Digest falls back to ordinary pane paste.
+pub(crate) fn can_report_idle(db: &Connection, identity: &str) -> Result<bool, StorageError> {
+    let rows = crate::storage::bindings::BindingRows(db);
+    let Some(binding) = rows.entry_by_id(identity)?.and_then(|entry| entry.binding) else {
+        return Ok(true);
+    };
+    if binding.session.plain_program.is_some() {
+        return Ok(false);
+    }
+    let preferences = rows.session_preferences(identity)?;
+    if let Some(key) = &binding.session.key
+        && preferences.remembered.as_ref().is_some_and(|remembered| {
+            key.provider_session.as_ref() == Some(&remembered.provider_session)
+                && remembered
+                    .state
+                    .as_ref()
+                    .and_then(crate::runtime::driver_state::state_activity)
+                    .is_some_and(|activity| {
+                        activity.matches(&remembered.provider_session, &key.incarnation)
+                    })
+        })
+    {
+        return Ok(true);
+    }
+    let launch_driver = binding
+        .session
+        .launch_owner
+        .as_ref()
+        .map(|owner| rows.launch_observation(&binding.id, owner))
+        .transpose()?
+        .flatten()
+        .map(|observation| observation.driver);
+    let Some(harness) = preferences
+        .remembered
+        .as_ref()
+        .map(|remembered| &remembered.harness)
+        .or(preferences.preferred_harness.as_ref())
+        .or(launch_driver.as_ref())
+    else {
+        return Ok(false);
+    };
+    let Some(descriptor) = tmt_core::driver::descriptor::named(harness.as_str()) else {
+        return Ok(false);
+    };
+    let Some(hooks) = descriptor.hooks else {
+        return Ok(false);
+    };
+    if hooks.is_per_launch() {
+        // Without a live turn or dialog activity row, a per-launch driver can
+        // report Idle only when tmt run launched this process and session_start
+        // has not already reported without startup_ready (for example pi < 1.5.2).
+        // A hand-started pane without a launch owner never loads per-launch hooks.
+        if binding.session.launch_owner.is_none() {
+            return Ok(false);
+        }
+        let startup_idle_missing = binding.session.key.as_ref().is_some_and(|key| {
+            preferences.remembered.as_ref().is_some_and(|remembered| {
+                key.provider_session.as_ref() == Some(&remembered.provider_session)
+                    && remembered.state.as_ref().is_some_and(|state| {
+                        crate::runtime::driver_state::state_no_startup_idle_matches(
+                            state,
+                            &remembered.provider_session,
+                            &key.incarnation,
+                        )
+                    })
+            })
+        });
+        return Ok(!startup_idle_missing);
+    }
+    Ok(crate::runtime::RuntimeRegistry::first_party()
+        .lifecycle(harness)
+        .is_some_and(|driver| driver.encode_digest_turn("digest").is_some()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -240,6 +240,9 @@ impl RequestRecords for RequestRows<'_> {
     ) -> Result<Option<tmt_core::request::digest::DigestPolicy>, Self::Error> {
         digest::policy(self.0, id)
     }
+    fn digest_recipient_can_report_idle(&self, id: &str) -> Result<bool, Self::Error> {
+        delivery::can_report_idle(self.0, id)
+    }
     fn orchestration_receiving_policy(
         &self,
         id: &str,

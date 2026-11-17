@@ -29,6 +29,7 @@ pub const USAGE_STATE_VERSION: u16 = 2;
 pub const ACTIVITY_STATE_VERSION: u16 = 3;
 pub const CONSUMPTION_STATE_VERSION: u16 = 4;
 pub const OBSERVED_STATE_VERSION: u16 = 5;
+pub const STARTUP_IDLE_STATE_VERSION: u16 = 6;
 
 /// Whether this document version is one the first-party drivers read.
 pub fn reads(version: u16) -> bool {
@@ -39,6 +40,7 @@ pub fn reads(version: u16) -> bool {
             | ACTIVITY_STATE_VERSION
             | CONSUMPTION_STATE_VERSION
             | OBSERVED_STATE_VERSION
+            | STARTUP_IDLE_STATE_VERSION
     )
 }
 
@@ -140,6 +142,41 @@ pub(crate) fn valid_model(model: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || b"-._:/[]@".contains(&byte))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NoStartupIdle {
+    session: ProviderSessionId,
+    process: ProcessIncarnation,
+}
+
+impl NoStartupIdle {
+    fn document(&self) -> Value {
+        json!({
+            "session": self.session.as_str(),
+            "pid": self.process.pid(),
+            "start": self.process.start_identity(),
+        })
+    }
+
+    fn read(value: &Value) -> Option<Self> {
+        let fields = value.as_object()?;
+        if fields.len() != 3 {
+            return None;
+        }
+        Some(Self {
+            session: ProviderSessionId::new(fields.get("session")?.as_str()?).ok()?,
+            process: ProcessIncarnation::new(
+                fields.get("pid")?.as_u64()?,
+                fields.get("start")?.as_str()?,
+            )
+            .ok()?,
+        })
+    }
+
+    fn matches(&self, session: &ProviderSessionId, process: &ProcessIncarnation) -> bool {
+        self.session == *session && self.process == *process
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Document {
     model: Option<String>,
@@ -147,6 +184,7 @@ struct Document {
     activity: Option<Activity>,
     consumption: Option<super::consumption::State>,
     observed: Option<ObservedModel>,
+    no_startup_idle: Option<NoStartupIdle>,
 }
 
 impl Document {
@@ -175,11 +213,16 @@ impl Document {
             None => None,
             Some(value) => Some(ObservedModel::read(value)?),
         };
+        let no_startup_idle = match fields.get("noStartupIdle") {
+            None => None,
+            Some(value) => Some(NoStartupIdle::read(value)?),
+        };
         let known = usize::from(consumption.is_some())
             + usize::from(model.is_some())
             + usize::from(usage.is_some())
             + usize::from(activity.is_some())
-            + usize::from(observed.is_some());
+            + usize::from(observed.is_some())
+            + usize::from(no_startup_idle.is_some());
         let valid = match state.version() {
             MODEL_STATE_VERSION => {
                 model.is_some() && usage.is_none() && activity.is_none() && consumption.is_none()
@@ -188,18 +231,38 @@ impl Document {
             ACTIVITY_STATE_VERSION => activity.is_some() && consumption.is_none(),
             CONSUMPTION_STATE_VERSION => consumption.is_some(),
             OBSERVED_STATE_VERSION => observed.is_some(),
+            STARTUP_IDLE_STATE_VERSION => no_startup_idle.is_some(),
             _ => false,
-        } && (state.version() == OBSERVED_STATE_VERSION || observed.is_none());
+        } && (matches!(
+            state.version(),
+            OBSERVED_STATE_VERSION | STARTUP_IDLE_STATE_VERSION
+        ) || observed.is_none())
+            && (state.version() == STARTUP_IDLE_STATE_VERSION || no_startup_idle.is_none());
         (valid && fields.len() == known).then_some(Self {
             model,
             usage,
             activity,
             consumption,
             observed,
+            no_startup_idle,
         })
     }
 
     fn write(mut self) -> Option<DriverState> {
+        if let Some(no_startup_idle) = self.no_startup_idle.take() {
+            let mut fields = self.legacy_fields();
+            fields.insert("noStartupIdle".into(), no_startup_idle.document());
+            if let Some(observed) = &self.observed {
+                fields.insert("observed".into(), observed.document());
+            }
+            if let Some(consumption) = &self.consumption {
+                fields.insert("consumption".into(), consumption.document());
+            }
+            let document = Value::Object(fields).to_string();
+            if document.len() <= DriverState::MAXIMUM_BYTES {
+                return DriverState::new(STARTUP_IDLE_STATE_VERSION, &document).ok();
+            }
+        }
         // The observed model is the newest optional evidence, so it goes first
         // when the bound bites: the document then takes its legacy version.
         if let Some(observed) = self.observed.take() {
@@ -344,10 +407,30 @@ pub fn after_launch_start(
     if let Some(activity) = activity {
         let mut document = next.as_ref().and_then(Document::read).unwrap_or_default();
         document.activity = Some(activity);
+        document.no_startup_idle = None;
+        document.write()
+    } else if !ready {
+        let mut document = next.as_ref().and_then(Document::read).unwrap_or_default();
+        document.no_startup_idle = Some(NoStartupIdle {
+            session: session.clone(),
+            process: process.clone(),
+        });
         document.write()
     } else {
         next
     }
+}
+
+/// Whether `state` records that `session_start` on `(session, process)` arrived
+/// without `startup_ready` (`Idle` readiness at launch).
+pub(crate) fn state_no_startup_idle_matches(
+    state: &DriverState,
+    session: &ProviderSessionId,
+    process: &ProcessIncarnation,
+) -> bool {
+    Document::read(state)
+        .and_then(|document| document.no_startup_idle)
+        .is_some_and(|recorded| recorded.matches(session, process))
 }
 
 /// The state after a compaction start. Unlike any other start, it keeps the
@@ -383,6 +466,7 @@ fn started(
         activity,
         consumption,
         observed: reported.and_then(|model| ObservedModel::new(model, now_ms)),
+        no_startup_idle: None,
     }
     .write()
 }
@@ -757,7 +841,7 @@ mod tests {
             assert_eq!(state_usage(&state), None, "{document}");
             assert_eq!(after_start(None, None, Some(&state), 1), None, "{document}");
         }
-        assert!(reads(1) && reads(2) && reads(3) && reads(4) && reads(5) && !reads(6));
+        assert!(reads(1) && reads(2) && reads(3) && reads(4) && reads(5) && reads(6) && !reads(7));
     }
 
     fn working(turn: &str) -> Event {
@@ -992,5 +1076,40 @@ mod tests {
             }
         }
         assert!(evicted && kept, "the escaped IDs cross the bound");
+    }
+
+    #[test]
+    fn no_startup_idle_records_only_unready_launch_start_and_clears_when_ready() {
+        let session = ProviderSessionId::new("s-pi").unwrap();
+        let other_session = ProviderSessionId::new("s-other").unwrap();
+        let process = ProcessIncarnation::new(42, "birth").unwrap();
+        let other_process = ProcessIncarnation::new(99, "rebirth").unwrap();
+
+        let unready = after_launch_start(None, None, &session, &process, false, 10).unwrap();
+        assert_eq!(unready.version(), STARTUP_IDLE_STATE_VERSION);
+        assert_eq!(state_activity(&unready), None);
+        assert!(state_no_startup_idle_matches(&unready, &session, &process));
+        assert!(!state_no_startup_idle_matches(
+            &unready,
+            &other_session,
+            &process
+        ));
+        assert!(!state_no_startup_idle_matches(
+            &unready,
+            &session,
+            &other_process
+        ));
+
+        let round_trip = Document::read(&unready).unwrap().write().unwrap();
+        assert!(state_no_startup_idle_matches(
+            &round_trip,
+            &session,
+            &process
+        ));
+
+        let ready = after_launch_start(None, Some(&unready), &session, &process, true, 20).unwrap();
+        assert_eq!(ready.version(), ACTIVITY_STATE_VERSION);
+        assert_eq!(state_activity(&ready).unwrap().phase, ActivityPhase::Idle);
+        assert!(!state_no_startup_idle_matches(&ready, &session, &process));
     }
 }
