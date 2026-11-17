@@ -362,6 +362,9 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       'sh scripts/ci-wake.sh 6028 --identity infra-1 --foreground',
       'sh scripts/ci-wake.sh 6028 --identity infra-1 --until merged --foreground',
       `sh ${waker} 6028 --identity infra-1 --foreground`,
+      // A PATH assignment that puts the pinned Node first (#6532).
+      'PATH=/opt/node/bin:$PATH scripts/ci-wake.sh 6512 --identity infra-1 --until merged --foreground',
+      'PATH=/opt/node/bin:${PATH} sh scripts/ci-wake.sh 6028 --identity infra-1 --foreground',
     ];
     for (const command of starts) {
       const result = await c.guard(bash(command));
@@ -381,6 +384,10 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       'while true; do sh scripts/ci-wake.sh 6028 --identity infra-1; done',
       'sh scripts/ci-wake.sh $(sleep 9)',
       'sleep 5 & sh scripts/ci-wake.sh 6028 --identity infra-1',
+      // Only a plain PATH assignment is set aside: a substitution, a quote or another variable is not.
+      'PATH=$(sleep 9):$PATH scripts/ci-wake.sh 6028 --identity infra-1',
+      'PATH="/opt/node bin:$PATH" scripts/ci-wake.sh 6028 --identity infra-1',
+      'BASH_ENV=/tmp/wait.sh sh scripts/ci-wake.sh 6028 --identity infra-1',
     ];
     for (const command of judged) await c.guard(bash(command));
     expect(received).toHaveLength(judged.length);
