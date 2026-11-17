@@ -204,6 +204,9 @@ it('titles limits from their source even on Claude-model seats, and never infers
   expect(
     allowance({ ...doc, limits: [{ ...doc.limits[0]!, provider: 'future-source' }] })[0]!.provider,
   ).toBe('future-source');
+  expect(
+    allowance({ ...doc, limits: [{ ...doc.limits[0]!, provider: 'constructor' }] })[0]!.provider,
+  ).toBe('constructor');
   expect(providerGroups(doc).find((group) => group.source === 'claude')).toBeUndefined();
 });
 

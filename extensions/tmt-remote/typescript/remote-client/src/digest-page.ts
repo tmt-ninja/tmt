@@ -432,7 +432,7 @@ function providerUsageCard(doc: UsageDocument): HTMLElement {
           el(
             'span',
             'usage-note',
-            ` — ${row.costUnavailable.map((reason) => reasons[reason] ?? reason).join(' ')}`,
+            ` — ${row.costUnavailable.map((reason) => (Object.hasOwn(reasons, reason) ? reasons[reason] : reason)).join(' ')}`,
           ),
         );
       const coverage = row.partialSeats

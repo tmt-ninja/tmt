@@ -154,7 +154,7 @@ export function exchange(doc: UsageDocument): Exchange | null {
 const PROVIDER_LABELS: Record<string, string> = { claude: 'Claude', codex: 'OpenAI' };
 
 export function providerLabel(provider: string): string {
-  return PROVIDER_LABELS[provider] ?? provider;
+  return Object.hasOwn(PROVIDER_LABELS, provider) ? PROVIDER_LABELS[provider]! : provider;
 }
 
 /** One hue per source, shared by its meter and history. */

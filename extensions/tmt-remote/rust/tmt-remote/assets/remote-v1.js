@@ -7924,7 +7924,7 @@ var PROVIDER_LABELS = {
 	codex: "OpenAI"
 };
 function providerLabel$1(provider) {
-	return PROVIDER_LABELS[provider] ?? provider;
+	return Object.hasOwn(PROVIDER_LABELS, provider) ? PROVIDER_LABELS[provider] : provider;
 }
 /** One hue per source, shared by its meter and history. */
 function providerStyle(provider) {
@@ -8323,7 +8323,7 @@ function providerUsageCard(doc) {
 		const name = el$1("span", void 0, providerLabel$1(row.driver));
 		name.title = row.driver;
 		const cost = el$1("span", void 0, row.inputCost ? money.format(row.inputCost.usdMicros / 1e6) : "Unavailable");
-		if (!row.inputCost) cost.append(el$1("span", "usage-note", ` — ${row.costUnavailable.map((reason) => reasons[reason] ?? reason).join(" ")}`));
+		if (!row.inputCost) cost.append(el$1("span", "usage-note", ` — ${row.costUnavailable.map((reason) => Object.hasOwn(reasons, reason) ? reasons[reason] : reason).join(" ")}`));
 		const coverage = row.partialSeats ? `Partial (${row.partialSeats} ${row.partialSeats === 1 ? "seat" : "seats"})` : "Recorded";
 		const compact = el$1("span", browserUiClasses.tableCompactMeta);
 		compact.append("Input estimate: ", cost.cloneNode(true), ` · ${coverage}`);

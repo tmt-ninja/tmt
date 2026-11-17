@@ -64,11 +64,14 @@ test('provider usage renders native records independently of prices and allowanc
   await expect(card).toContainText('$0.00015');
   await page.evaluate(() => {
     window.digestProviderDocument.usage.providers![2]!.inputCost = { usdMicros: -1 };
+    window.digestProviderDocument.usage.providers![3]!.costUnavailable = ['constructor'];
   });
   await page.getByRole('tab', { name: '30d', exact: true }).click();
   await expect(card.locator('tbody tr')).toHaveCount(4);
   await expect(card.locator('tbody tr').first()).toContainText('OpenAI');
   await expect(card).toContainText('The cost evidence could not be read.');
+  await expect(card).toContainText('constructor');
+  await expect(card).not.toContainText('function Object');
   await page.evaluate(() => {
     window.digestProviderDocument.usage.providers![2]!.inputCost = { usdMicros: 26000 };
     window.digestProviderDocument.pricing!.basis = 'unsupported';
@@ -225,8 +228,7 @@ for (const [name, size] of [
     const width = await page.locator('#digest-sections').evaluate((node) => node.clientWidth);
     if (name === '1440') {
       expect(width).toBeGreaterThan(1000);
-      // Two provider cards side by side; the token chart beside the ranking; the matrix beside
-      // the data coverage.
+      // Only the observed provider has a card; the token chart still sits beside the ranking.
       const beside = async (left: string, right: string) => {
         const a = (await page.locator(left).boundingBox())!;
         const b = (await page.locator(right).boundingBox())!;
@@ -243,9 +245,8 @@ for (const [name, size] of [
       const head = (await page.locator('.digest-head').boundingBox())!;
       const title = (await page.locator('.digest-head > div').first().boundingBox())!;
       expect(Math.abs(title.width - head.width)).toBeLessThan(1);
-      // The next provider peeks into the phone's horizontal snap carousel.
+      // One observed provider fits its slot without an invented next-provider card.
       const first = (await page.locator('#digest-provider-codex').boundingBox())!;
-
       const viewport = (await page.locator('.digest-provider-groups').boundingBox())!;
       expect(first.x + first.width).toBeLessThanOrEqual(viewport.x + viewport.width + 1);
     }
@@ -438,7 +439,7 @@ test('Lines uses the same seat colours, preserves missing runs and switches rang
   await expect(page.locator('#digest-activity')).toHaveCount(0);
 });
 
-test('allowance has a current OpenAI window, distinct folded histories, and an explicit Claude row', async ({
+test('allowance retains observed OpenAI windows and omits providers without records', async ({
   page,
 }) => {
   await open(page);
