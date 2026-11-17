@@ -226,6 +226,11 @@ impl OwnerTransaction<'_> {
         ] {
             self.tx.execute(sql, [page])?;
         }
+        // The page's own and its to-dos' work observations (#6474).
+        self.tx.execute(
+            "DELETE FROM work_observed WHERE item=?1 OR substr(item,1,length(?1)+1)=?1||':'",
+            [page],
+        )?;
         Ok(())
     }
     pub(crate) fn pages(&self) -> Result<Vec<String>> {

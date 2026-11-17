@@ -500,6 +500,20 @@ impl Registration {
                 (!todos.is_empty()).then(|| (id.clone(), todos))
             })
             .collect();
+        // An item's first-seen time is the earlier of now and its page's last admitted activity,
+        // so an item already done when the list first sees it keeps that activity's time.
+        let activity: std::collections::BTreeMap<String, u64> = catalog["pages"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|page| {
+                Some((
+                    page["pageId"].as_str()?.to_owned(),
+                    page["lastUpdateAtMs"].as_u64()?,
+                ))
+            })
+            .collect();
+        let at = |id: &str| activity.get(id).map_or(now, |&last| last.min(now));
         let mut observed = Vec::new();
         for (id, summary) in fresh {
             let done = match statuses.get(id).map(String::as_str) {
@@ -507,21 +521,46 @@ impl Registration {
                 None | Some("unknown" | "unchecked") => None,
                 Some(_) => Some(false),
             };
-            observed.push((id.clone(), "done", done));
+            observed.push((id.clone(), "done", done, at(id)));
             let blocked = summary
                 .work
                 .as_ref()
                 .and_then(|work| work.fields.get("blocked"))
                 .and_then(serde_json::Value::as_str)
                 .is_some_and(|reason| !reason.is_empty());
-            observed.push((id.clone(), "blocked", Some(blocked)));
+            observed.push((id.clone(), "blocked", Some(blocked), at(id)));
         }
+        let mut complete = Vec::new();
         for (id, todos) in &items {
             for todo in todos {
-                observed.push((format!("{id}:{}", todo.id), "done", Some(todo.checked)));
+                observed.push((
+                    format!("{id}:{}", todo.id),
+                    "done",
+                    Some(todo.checked),
+                    at(id),
+                ));
+            }
+            if todos.len() < crate::limits::WORK_TODOS {
+                complete.push((
+                    id.clone(),
+                    todos.iter().map(|todo| todo.id.clone()).collect(),
+                ));
             }
         }
-        let times = self.store.observe_work(&observed, now).unwrap_or_default();
+        // A fresh page without to-dos lists all of none.
+        for id in fresh.keys().filter(|id| !items.contains_key(*id)) {
+            if self
+                .summaries
+                .todo_items(id, &fingerprints[id.as_str()])
+                .is_some()
+            {
+                complete.push((id.clone(), std::collections::HashSet::new()));
+            }
+        }
+        let times = self
+            .store
+            .observe_work(&observed, &complete)
+            .unwrap_or_default();
         let numbers = self.store.work_numbers().unwrap_or_default();
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
@@ -2308,10 +2347,17 @@ mod describe_tests {
         work_home(true);
         let first = rows(&service);
         let since = first[bare]["summary"]["blockedSinceMs"].as_u64().unwrap();
+        // The stamp is the page's last activity when the row has one, never later than this read.
+        let stamped = |at: u64| match first[bare]["lastUpdateAtMs"].as_u64() {
+            Some(last) => assert_eq!(at, last),
+            None => assert!(at <= now_ms().unwrap()),
+        };
+        stamped(since);
         let todos = &first[bare]["summary"]["todos"];
         assert_eq!(todos[0]["text"], "Item t1");
         assert_eq!(todos[0]["assignee"], "gui-3");
         let done_at = todos[0]["doneAtMs"].as_u64().unwrap();
+        stamped(done_at);
         assert!(todos[1].get("doneAtMs").is_none() && todos[1].get("assignee").is_none());
         assert!(first[bare]["summary"].get("doneAtMs").is_none());
         let again = rows(&service);
