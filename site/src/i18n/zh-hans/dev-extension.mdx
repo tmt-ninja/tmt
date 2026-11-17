@@ -16,8 +16,8 @@ import { Aside, Terms } from "../../components/marks";
 
 <Cmd>{`
 $ install -m 755 tmt-hello ~/.local/bin/
-$ tmt hello --loud        # 运行：tmt-hello --loud
-$ tmt help hello          # 运行：tmt-hello --help
+$ tmt hello --loud        # runs: tmt-hello --loud
+$ tmt help hello          # runs: tmt-hello --help
 `}</Cmd>
 
 <Mdx.h3 id="2-what-your-program-receives">2. 程序收到什么</Mdx.h3>
@@ -107,7 +107,7 @@ echo "$greeting"
 PATH 上的扩展只在有人调用时运行。若要响应 identity 和房间的变化，需要用户明确同意：
 
 <Cmd>{`
-$ tmt extension hooks enable hello    # 信任 PATH 上的 tmt-hello
+$ tmt extension hooks enable hello    # trust tmt-hello on PATH
 $ tmt extension hooks ls
 $ tmt extension hooks disable hello
 `}</Cmd>

@@ -47,14 +47,14 @@ $ tmt run --channel builder codex    # opt into the channel
 $ tmt resume --channel builder       # require the channel for this exact thread
 `}</Cmd>
 
-If tmt has not tested your Codex version or cannot set up the requested channel safely before startup, `--channel` fails. Fresh channel launches on Codex 0.160.0 currently fail during attachment; use the default plain launch until that regression is fixed. If the pane may already be attached to a channel, tmt refuses to fall back to paste. Once enrolled, a channel that is not ready or cannot deliver stays an error; tmt never pastes into that pane instead.
+If tmt has not tested your Codex version or cannot set up the requested channel safely before startup, `--channel` fails. If the pane may already be attached to a channel, tmt refuses to fall back to paste. Once enrolled, a channel that is not ready or cannot deliver stays an error; tmt never pastes into that pane instead.
 
 Codex may ask you to trust the launch folder. Answer that prompt yourself in its TUI. tmt never answers it or changes trust settings, and input already accepted into the queue may wait until you complete attachment. Running plain `codex` is unchanged; tmt changes no global Codex configuration, authentication or hooks for channel enrollment.
 
 ### Codex's sandbox
 
-In Codex's workspace-write sandbox, Codex can't write tmt's data directory by default. tmt reports this plainly as `STORAGE_NOT_WRITABLE` with the directory's path, not as a crash. Either allow that directory, for example by adding it to Codex's `writable_roots`, or let Codex run the command with its own escalation. tmt never changes Codex's sandbox settings, and an agent shouldn't change that setting without your OK.
+A plain Codex workspace-write session may not have access to tmt's data directory. tmt reports a denied write as `STORAGE_NOT_WRITABLE` with the directory's path. `tmt run <name> codex` supplies launch-scoped access to that directory without editing global Codex settings. For an already running session, use Codex's own permission flow to allow the directory or escalate the command; an agent should not change your settings without your OK.
 
 ### Usage counters
 
-`tmt setup codex --usage` adds a turn-end hook that records Codex's context size and the tokens its completed requests used; [Usage counters](/drivers#usage-counters) lists the fields. Codex states its context window, so `windowTokens` is filled in. Codex's counters follow the provider's own running totals: the first reading is the starting point, and later turns add to it.
+On a new installation, `tmt setup codex` enables collection of Codex's context size and completed-request tokens by default. `--no-usage` disables collection and remembers that choice; `--usage` enables it. The turn-end hook records the values; [Usage counters](/drivers#usage-counters) lists the fields. Codex states its context window, so `windowTokens` is filled in. Codex's counters follow the provider's own running totals: the first reading is the starting point, and later turns add to it.

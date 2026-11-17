@@ -49,7 +49,7 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
 
 <BadgeBorders />
 
-<Cmd>{`$ tmt config set ui.paneBadge off --global   # 关闭`}</Cmd>
+<Cmd>{`$ tmt config set ui.paneBadge off --global   # turn it off`}</Cmd>
 
 tmt 只在绑定的窗格上显示标签：它把该窗格自己的 `pane-border-format` 设为你当前的格式并在前面加上徽标，从不修改你的全局、会话或窗口选项，也不修改 `~/.tmux.conf`。运行 `tmt unbind` 或关闭徽标时，会移除 tmt 添加的部分。你自己设置的窗格格式保持不变；如果你的格式已经包含徽标，tmt 不会再添加。如果该窗口隐藏了窗格边框，tmt 会输出显示边框的命令，而不会替你修改。要自己决定徽标的位置，将以下片段添加到你的 `pane-border-format`：
 

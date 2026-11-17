@@ -1,41 +1,54 @@
 import { Cmd } from "../components/Cmd";
-import { Caption } from "../components/marks";
 
-Everything so far happens on one machine. With the remote extension, `talk` reaches an agent on your other laptop, a server or a cloud VM, and the reply comes back the same way: stored, never guessed from the screen, and never resent when delivery is uncertain. Codex on one machine can ask Claude Code on another, even when that Claude is idle.
+Remote provides a local browser door and sharing through a Firebase project you own. Start locally to read agents and use installed browser apps. For another machine, deploy Firestore, invite its owner and choose sending permissions in each direction.
+
+### Start the local door
 
 <Cmd>{`
 $ tmt extension install remote
-$ tmt remote pair --talk           # shows a code to enter on the other machine
-$ tmt talk reviewer@studio "Review the patch"   # same talk, another machine
+$ tmt remote serve
+$ tmt remote status --json
 `}</Cmd>
 
-<Caption>Proposal. Command names aren't final.</Caption>
+The ordinary `serve` command starts in the background and prints the local browser address. `--foreground` keeps it attached to your terminal. It listens on IPv4 loopback; this address is not a public website. Run `tmt remote stop` to stop it while keeping paired devices.
 
-Pairing gives read access. To let a device send to agents, answer yes at pairing, pair with `tmt remote pair --talk`, or turn sending on for it in Remote settings.
+### Connect your browser
 
-### You own the backend
+Open the running door yourself:
 
-tmt runs no central service. Messages travel through a backend you choose and control, and they're encrypted end to end, so the backend only ever stores ciphertext.
+<Cmd>{`$ tmt remote open /remote/`}</Cmd>
 
-| Backend           | Where it runs                                          | Good for                       |
-| ----------------- | ------------------------------------------------------ | ------------------------------ |
-| SSH               | Nothing to deploy; uses machines you can already reach | Your own laptops and servers   |
-| Self-hosted relay | One small server or container on your machine or VPS   | Full control, no cloud account |
-| Cloudflare        | Workers and Durable Objects in your own account        | Always reachable, low cost     |
-| Firestore         | Your own Firebase project                              | Teams already on Firebase      |
+A new browser connects with read-only access. For manual pairing, run `tmt remote pair`, open its link or enter its code, compare the four words and confirm. Pairing is read-only with no expiry by default. To allow sending, the owner can use `--talk`; `--agents` narrows the agent UUIDs and `--hold` requires local approval. The person who owns the machine performs pairing and permission changes.
 
-Every backend is the same thing underneath: a durable log you can subscribe to from where you left off. Switching backends changes a setting, not how you work.
+### Connect two machines
 
-### Nothing runs unless you connect
+First complete the [Firestore setup](/#review-and-deploy) on the deployment owner's machine. Keep `tmt remote serve` running on both machines. The owner invites the collaborator:
 
-tmt itself never runs in the background. The remote extension adds a small listener, and only on machines where you turn it on. It is how an idle agent gets woken by a remote request. Without the listener, a remote request waits until the agent's next start or action; without the extension, tmt stays exactly as local as it is today.
+<Cmd>{`
+$ tmt remote invite --remote <owned-remote>
+$ tmt remote join <code>    # on the collaborator's machine
+`}</Cmd>
 
-### Who may reach your agents
+Share the one-use code privately. Compare the four words through a trusted conversation. Each person chooses whether the other may send to their agents; both choices default to no. Keep the remote references printed by the commands.
 
-Anything delivered into an agent's pane works like an instruction to it, so remote access is closed by default and narrow when you open it.
+### Send and read a reply
 
-- **Machines prove who they are with keys**, not names. Pairing is explicit, and revoking a machine takes effect immediately.
-- **Remote senders need permission.** Only identities you've allowed can reach an agent; anyone else is refused loudly, and their message is not queued.
-- **A message is text, not authority.** It can't approve a prompt, change settings or run a command by itself; the agent decides what to do with it, as with any request.
-- **You choose per agent:** accept, hold for your OK, or refuse. Senders are rate-limited, and every remote delivery is logged.
-- **It never types over you.** If someone is typing in the pane, or the agent is in a dialog, the message waits.
+Use an existing local identity as the sender and the peer reference from pairing:
+
+<Cmd>{`
+$ tmt talk --identity coordinator --remote <peer-reference> reviewer "Review the patch."
+$ tmt result <request-id> --json
+`}</Cmd>
+
+The remote recipient answers with its ordinary receipt-bound `tmt reply`. With both local doors running, the encrypted final returns to the originating machine. After it is stored there, you can read that result offline. An uncertain delivery is not a reason to send the same request again; keep its request ID and inspect the original result.
+
+### Manage access
+
+<Cmd>{`
+$ tmt remote members
+$ tmt remote members sending <member-id> on
+`}</Cmd>
+
+Each receiving owner controls sending, allowed agents and held requests. A held send waits for local approval; `tmt remote approve` reviews one frozen operation. Use `tmt remote members --help` to inspect machines or revoke access. Removing a remembered remote reference with `tmt remote rm` is not the same as revoking a member.
+
+Remote does not run a central TMT service. Firestore sharing uses the project you deployed; stopping the local door postpones delivery without cancelling stored requests. Browser pairing, cloud sign-in and permission to send are separate steps.

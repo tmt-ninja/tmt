@@ -55,7 +55,7 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
 
 <BadgeBorders />
 
-<Cmd>{`$ tmt config set ui.paneBadge off --global   # オフにする`}</Cmd>
+<Cmd>{`$ tmt config set ui.paneBadge off --global   # turn it off`}</Cmd>
 
 tmt はバインドしたペインにだけラベルを表示します。そのペイン自身の `pane-border-format` を、現在の書式の先頭にバッジを加えたものに設定し、グローバル・セッション・ウィンドウのオプションや `~/.tmux.conf` には触れません。`tmt unbind` またはバッジをオフにすると、tmt が加えた分を取り除きます。自分で設定したペインの書式はそのまま残し、書式にすでにバッジがあれば何も加えません。そのウィンドウでペインの枠が非表示の場合は、変更せずに表示するためのコマンドを示します。バッジを自分で配置するには、次の断片を `pane-border-format` に追加します。
 

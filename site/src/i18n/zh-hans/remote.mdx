@@ -1,48 +1,61 @@
 ---
 source: site/src/chapters/remote.mdx
-sourceRevision: f77c7ba23576260446fe8369277aaa348e215a59
-title: Remote：连接各台机器上的 agent
+sourceRevision: 4d5d55c11b1af3d1fe8311c22314119dc11f7e73
+title: Remote
 ---
 
-import { components as Mdx } from "../../components/mdx";
 import { Cmd } from "../../components/Cmd";
-import { Caption } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
 
-前面介绍的操作都在一台机器上进行。remote 扩展让 `talk` 能联系另一台笔记本、服务器或云虚拟机上的 agent。reply 仍按相同方式返回：保存下来，不从屏幕内容猜测，投递不确定时绝不重发。一台机器上的 Codex 可以向另一台机器上的 Claude Code 提问，即使 Claude 当时处于空闲状态。
+Remote 提供本机浏览器入口，并通过你自己的 Firebase 项目共享。先在本机读取 agent、使用已安装的浏览器应用。要连接另一台机器，请部署 Firestore、邀请其所有者，并分别选择两个方向的发送权限。
+
+<Mdx.h3 id="start-the-local-door">启动本机入口</Mdx.h3>
 
 <Cmd>{`
 $ tmt extension install remote
-$ tmt remote pair --talk           # 显示在另一台机器上输入的代码
-$ tmt talk reviewer@studio "Review the patch"   # 相同的 talk，另一台机器
+$ tmt remote serve
+$ tmt remote status --json
 `}</Cmd>
 
-<Caption>提案。命令名称尚未确定。</Caption>
+普通的 `serve` 命令在后台启动，并显示本机浏览器地址。`--foreground` 让它保持连接到当前终端。它监听 IPv4 回环地址，不是公开网站。运行 `tmt remote stop` 可停止服务并保留已配对的设备。
 
-配对只授予读取权限。要让设备向 agent 发送消息，可以在配对时回答 yes、使用 `tmt remote pair --talk` 配对，或在 Remote 设置中为该设备开启发送。
+<Mdx.h3 id="connect-your-browser">连接浏览器</Mdx.h3>
 
-<Mdx.h3 id="you-own-the-backend">后端由你掌控</Mdx.h3>
+请亲自打开正在运行的入口：
 
-tmt 不运行中央服务。消息通过你选择并控制的后端传递。消息采用端到端加密，后端始终只存储密文。
+<Cmd>{`$ tmt remote open /remote/`}</Cmd>
 
-| 后端       | 运行位置                                      | 适合场景                 |
-| ---------- | --------------------------------------------- | ------------------------ |
-| SSH        | 无需部署，使用你已经能连接的机器              | 自己的笔记本和服务器     |
-| 自托管中继 | 在自己的机器或 VPS 上运行一个小型服务器或容器 | 完全掌控，不需要云账户   |
-| Cloudflare | 自己账户中的 Workers 和 Durable Objects       | 随时可连接，成本低       |
-| Firestore  | 自己的 Firebase 项目                          | 已在使用 Firebase 的团队 |
+新浏览器以只读权限连接。手动配对时，运行 `tmt remote pair`，打开链接或输入代码，对照四个单词后确认。配对默认只读、无到期时间。所有者可用 `--talk` 允许发送；`--agents` 限定 agent UUID，`--hold` 要求本机批准。配对和权限变更由机器所有者操作。
 
-各后端的底层机制相同：可从上次位置继续订阅的持久日志。切换后端只需修改设置，不必改变工作方式。
+<Mdx.h3 id="connect-two-machines">连接两台机器</Mdx.h3>
 
-<Mdx.h3 id="nothing-runs-unless-you-connect">连接后才会运行</Mdx.h3>
+先在部署所有者的机器上完成 [Firestore 设置](/#review-and-deploy)。两台机器都保持运行 `tmt remote serve`。所有者邀请协作者：
 
-tmt 本身从不在后台运行。remote 扩展添加了一个小型监听程序，只在你主动启用的机器上运行。它让远程请求能够唤醒空闲 agent。没有监听程序时，远程请求会等到 agent 下次启动或操作时处理。没有扩展时，tmt 仍与现在一样完全在本地工作。
+<Cmd>{`
+$ tmt remote invite --remote <owned-remote>
+$ tmt remote join <code>    # on the collaborator's machine
+`}</Cmd>
 
-<Mdx.h3 id="who-may-reach-your-agents">谁可以联系你的 agent</Mdx.h3>
+请私下共享一次性代码，并通过可信的对话渠道核对四个单词。双方分别决定是否允许对方向自己的 agent 发送消息；两个选项默认都不允许。请保留命令显示的 remote 引用。
 
-投递到 agent 窗格中的内容会被当作指令处理。因此远程访问默认关闭，开启后也只授予有限权限。
+<Mdx.h3 id="send-and-read-a-reply">发送并读取回复</Mdx.h3>
 
-- **机器用密钥证明身份**，不用名称。配对需要明确操作，撤销机器权限会立即生效。
-- **远程发送者需要许可。** 只有你允许的 identity 能联系 agent。其他发送者会收到明确的拒绝，消息不会进入队列。
-- **消息是文本，不是权限。** 消息本身不能批准提示、修改设置或运行命令。agent 像处理其他请求一样，决定如何处理它。
-- **你为每个 agent 单独选择：**接受、等待你批准，或拒绝。发送者有速率限制，每次远程投递都会记录。
-- **绝不打断你的输入。** 有人在窗格中输入，或 agent 正在显示对话框时，消息会等待。
+使用已有的本机 identity 作为发送者，并使用配对获得的对端引用：
+
+<Cmd>{`
+$ tmt talk --identity coordinator --remote <peer-reference> reviewer "Review the patch."
+$ tmt result <request-id> --json
+`}</Cmd>
+
+远端接收者照常用绑定 receipt 的 `tmt reply` 回答。当两端的本机入口都在运行时，加密的最终回复会返回发起机器。回复保存到该机器后，就能离线读取。送达结果不确定时，不要重复发送同一请求；保留请求 ID 并检查原请求的结果。
+
+<Mdx.h3 id="manage-access">管理访问</Mdx.h3>
+
+<Cmd>{`
+$ tmt remote members
+$ tmt remote members sending <member-id> on
+`}</Cmd>
+
+每个接收方的所有者负责控制发送权限、允许的 agent 和待批准请求。待批准的发送会等待本机批准；`tmt remote approve` 用来审阅一项内容已固定的操作。查看机器或撤销访问的方式请见 `tmt remote members --help`。用 `tmt remote rm` 移除记住的 remote 引用，不等于撤销成员权限。
+
+Remote 不运营中央 TMT 服务。Firestore 共享使用你部署的项目；停止本机入口只会推迟送达，不会取消已保存的请求。浏览器配对、云端登录和发送权限是不同的步骤。

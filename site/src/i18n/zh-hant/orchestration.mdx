@@ -1,0 +1,99 @@
+---
+source: site/src/chapters/orchestration.mdx
+sourceRevision: 71942d162d932b181cd53d74890430501f40e119
+title: Orchestration
+---
+
+import { Cmd } from "../../components/Cmd";
+import { Callout, KeyList, Lede } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
+
+<Lede>
+  團隊不必整天以相同頻率被打斷。Orchestration 隨一天中的時間變化，為每個 agent
+  設定接收、傳送與例行工作策略。
+</Lede>
+
+<KeyList>
+  <li>
+    <strong>計畫</strong>按本地日曆時段向選定 agent 套用策略。
+  </li>
+  <li>
+    <strong>個人 focus</strong> 暫時優先於所有計畫。
+  </li>
+  <li>
+    <strong>工作</strong>在時鐘與目前策略允許時傳送例行請求。
+  </li>
+</KeyList>
+
+CLI、Ops 以及訊息和工作的決策使用同一個 Core 解析器。它不會停止 agent 正在進行的工作。沒有計畫時也會套用 Base：awake、已設定的 Digest 接收方式、可向任何人傳送、執行例行工作，以及不限次數的 talk。符合條件的高優先級計畫覆寫其指定的欄位；計畫內的成員設定可以覆寫該計畫的預設值。
+
+<Mdx.h3 id="read-the-day">查看一天的安排</Mdx.h3>
+
+<Cmd>{`
+$ tmt orch
+$ tmt orch --range 7d --member worker --json
+$ tmt orch --at "2026-11-05 09:00" --plan Quiet
+$ tmt orch why req_11111111-1111-4111-8111-111111111111
+`}</Cmd>
+
+時間軸顯示本地日曆時段與實際生效的策略。可選擇 `1d`、`7d` 或 `30d`；`--at` 接受本地日期時間或帶偏移量的 RFC3339 時間點。有歧義或不存在的本地時間必須明確指定偏移量。`--plan` 只篩選顯示的時間軸，不會排除解析成員策略時使用的其他計畫。`why` 讀取保留的決策；沒有紀錄不能證明沒有發生過操作。查看過去的概覽是把今天的設定套用到那個時間，而非還原當時的設定。
+
+<Mdx.h3 id="plans-and-focus">計畫與 focus</Mdx.h3>
+
+<Cmd>{`
+$ tmt orch plan ls
+$ tmt orch plan show Quiet
+$ tmt orch preview --file plan.json
+$ tmt orch plan add --file plan.json
+$ tmt orch plan set Quiet --file plan.json
+$ tmt orch focus worker-1 2h
+$ tmt orch focus worker-1 off
+`}</Cmd>
+
+計畫可面向所有 agent、某個已保存 identity 或名稱模式，並定義排程與策略欄位。候選計畫可先預覽、不保存；新增、修改與移除也會先顯示影響預覽，再詢問是否同意。非互動寫入需要 `--yes` 才會套用，否則只回傳預覽。過期的預覽會被拒絕；請讀取目前狀態後重新預覽。`tmt orch plan rm Quiet` 經過相同的審閱流程移除計畫。
+
+狀態提供可被計畫覆寫的預設值：**awake** 直接接收並執行工作；**low** 按30分鐘批次接收並執行工作；**focus** 接收緊急訊息並保留工作；**sleep** 保留包括緊急訊息在內的自動訊息與工作。傳送是獨立欄位。個人 focus 優先於所有計畫，設定為只接收緊急訊息並保留例行工作，不改變傳送策略。Digest 的全域關閉開關強制直接接收；人員訊息仍適用各自的准入規則。
+
+<Mdx.h3 id="receiving-and-wake-up">接收與喚醒</Mdx.h3>
+
+被保留的請求仍在 inbox 中。限制解除後，Digest 可用 `you have N messages, K urgent: tmt inbox` 這樣的一行提示喚醒已就緒的 agent，由 agent 讀取自己的 inbox。從 sleep 切到 focus 時，可放行緊急訊息並繼續保留一般訊息。喚醒間隔至少一秒；離線、忙碌或等待核准的 agent 繼續等待。通知本身不回答請求。持續保留與放行訊息需要安裝 Digest 並執行其 tick。
+
+<Callout title="計畫不是中斷指令。">
+  保存計畫不會停止正在進行的工作，也不會讓忙碌的 agent
+  變成就緒狀態。送達仍遵循接收者的就緒狀態與核准規則。
+</Callout>
+
+<Mdx.h3 id="sending-and-talk-limits">傳送與 talk 限額</Mdx.h3>
+
+傳送者的策略可以允許向任何人傳送、僅向 lead 傳送，或暫停新的 agent 間請求。受限制的路由會在儲存請求之前被拒絕。`--urgent` 不能繞過限制。人員、回覆與結果通知使用各自的路徑。
+
+<Cmd>{`
+$ tmt orch routes --member worker
+$ tmt orch leads set team-lead
+$ tmt orch route allow worker-1 reviewer --until 1h
+$ tmt orch talks
+$ tmt orch talks resume worker-1 reviewer
+`}</Cmd>
+
+lead 清單需要明確設定；Ops 可向其中發布 squad lead。路由許可只針對一個有方向的組合，並會到期；它不會清除 talk 限額。預設次數不限。達到某對成員的設定上限時，新請求會被儲存並等待人員處理，而非丟棄。resume 透過正常送達流程放行該組合；請先查看影響預覽。
+
+<Mdx.h3 id="routine-jobs-and-the-clock">例行工作與時鐘</Mdx.h3>
+
+<Cmd>{`
+$ tmt orch job ls
+$ tmt orch job show j1
+$ tmt orch job add --file job.json
+$ tmt orch job pause j1
+$ tmt orch job resume j1
+$ tmt tick status
+$ tmt tick run
+$ tmt tick timer preview
+`}</Cmd>
+
+工作歸屬於 agent，包含排程與訊息。透過 `tmt orch job` 查看、新增、編輯、暫停、恢復、重新指派或移除工作；變更在徵求同意前會先預覽。手動暫停會持續到明確恢復為止。例行工作策略的保留可保存一個已觀察到的時段以便稍後放行，與手動暫停分開處理。請求被接受不代表已經送達或完成。
+
+`tmt tick` 執行目前分鐘的工作、Digest 與工作區擷取；`tmt tick run` 在前景保持時鐘執行，直到被中斷。Ops board也可以負責時鐘。同一時間只有一個時鐘持有租約；沒有時鐘執行的時間不會產生待補跑的積壓。系統不會自動安裝計時器。若需要可選的使用者層級計時器，請先查看 `tmt tick timer preview`；安裝或移除均需你的同意。計時器每分鐘執行一次有限的 tick，不會啟動獨立的 Ops 閒置提醒 worker。
+
+<Mdx.h3 id="in-ops">在 Ops 中使用</Mdx.h3>
+
+開啟 Ops board的 **Orchestration** 分頁，檢查時段、計畫、成員策略與路由，或使用瀏覽器中的 **Ops → Orchestration**。變更會顯示預覽供確認。CLI 也提供文字與 `--json`，方便腳本使用。

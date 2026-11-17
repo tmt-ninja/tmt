@@ -16,8 +16,8 @@ import { components as Mdx } from "../../components/mdx";
 
 <Cmd>{`
 $ install -m 755 tmt-hello ~/.local/bin/
-$ tmt hello --loud        # 実行：tmt-hello --loud
-$ tmt help hello          # 実行：tmt-hello --help
+$ tmt hello --loud        # runs: tmt-hello --loud
+$ tmt help hello          # runs: tmt-hello --help
 `}</Cmd>
 
 <Mdx.h3 id="2-what-your-program-receives">2. プログラムが受け取るもの</Mdx.h3>
@@ -97,7 +97,7 @@ echo "$greeting"
 PATH 上の拡張機能は、呼び出されたときだけ動きます。identity や room の変更に反応するには、ユーザーの明示的な同意が必要です。
 
 <Cmd>{`
-$ tmt extension hooks enable hello    # PATH 上の tmt-hello を信頼
+$ tmt extension hooks enable hello    # trust tmt-hello on PATH
 $ tmt extension hooks ls
 $ tmt extension hooks disable hello
 `}</Cmd>

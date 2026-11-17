@@ -49,7 +49,7 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
 
 <BadgeBorders />
 
-<Cmd>{`$ tmt config set ui.paneBadge off --global   # 關閉`}</Cmd>
+<Cmd>{`$ tmt config set ui.paneBadge off --global   # turn it off`}</Cmd>
 
 tmt 只在綁定的窗格上顯示標籤：它把那個窗格自己的 `pane-border-format` 設成你目前的格式、前面加上徽章，從不碰你的全域、session 或視窗選項，也不改 `~/.tmux.conf`。執行 `tmt unbind` 或關閉徽章時，會移除 tmt 加上的部分。你自己設定的窗格格式會保持原樣；如果你的格式已經放了徽章，tmt 就不再加。如果那個視窗隱藏了窗格邊框，tmt 會印出顯示邊框的指令，而不是替你改。想自己決定徽章的位置，把這段加進你的 `pane-border-format`：
 
@@ -59,4 +59,4 @@ tmt 只在綁定的窗格上顯示標籤：它把那個窗格自己的 `pane-bor
 
 <Mdx.h3 id="when-tmux-says-no">tmux 拒絕存取時</Mdx.h3>
 
-有些 agent 沙箱會阻擋 tmux socket 的存取。tmt 會明確告知：無法存取 socket，可能被沙箱阻擋，而且沒有任何輸入送到窗格。它不會把窗格回報為不存在。要從 agent 端處理：透過 agent 自己的權限提升機制重跑同一個指令，或允許存取 socket。
+有些 agent 沙盒會阻擋 tmux socket 的存取。tmt 會明確告知：無法存取 socket，可能被沙盒阻擋，而且沒有任何輸入送到窗格。它不會把窗格回報為不存在。要從 agent 端處理：透過 agent 自己的權限提升機制重跑同一個指令，或允許存取 socket。

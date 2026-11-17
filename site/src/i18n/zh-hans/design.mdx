@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/design.mdx
-sourceRevision: db057b4464fc6014a7b3a3bda6a34ffa5b4cb708
+sourceRevision: 7abb982be9adfa70d8790a1cc69fb97828ed4b33
 title: 各处保持一致的外观
 ---
 
@@ -22,7 +22,7 @@ import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../component
 
 <DesignPlayground />
 
-这是 **设计示例**，不是实际的 Colab 或 Remote 连接。标签保持英文，与产品用词一致。Colab 和 Remote 有各自已发布的组件；[#1797](https://github.com/tmt-ninja/tmt/issues/1797) 的共享组件包仍是 **计划中**。示例不演示配对、权限、Ask 投递或重连。[组件规范 PR](https://github.com/tmt-ninja/tmt/pull/1798) 记录了清单和提取边界。
+这是 **设计示例**，不是实际的 Colab 或 Remote 连接。标签保持英文，与产品用词一致。Colab 和 Remote 使用共享的 `@tmt/browser-ui` 包。[组件指南](https://github.com/tmt-ninja/tmt/blob/main/design/browser-ui/README.md) 列出可用入口及产品的使用方式。示例不演示配对、权限、Ask 投递或重连。
 
 <Mdx.h3 id="principles">原则</Mdx.h3>
 
@@ -41,7 +41,7 @@ import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../component
 
 <Mdx.h3 id="surfaces">背景层</Mdx.h3>
 
-背景层只用于网页，终端始终保留自己的背景。
+这些 surface token 描述浏览器背景。终端颜色遵循 CLI 和 board 的主题规则。
 
 <TokenTable group="surface" />
 
@@ -51,7 +51,7 @@ import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../component
 
 标题使用展示字体，正文使用正文字体。读者输入的内容和终端输出都使用等宽字体。命令始终按实际输入的形式显示，带有 `$` 提示符和暗显的 `# 注释`：
 
-<Cmd>{`$ tmt ops ui --squad product   # 读者可以复制的命令`}</Cmd>
+<Cmd>{`$ tmt ops ui --squad product   # a command a reader can copy`}</Cmd>
 
 <Mdx.h3 id="marks">符号</Mdx.h3>
 

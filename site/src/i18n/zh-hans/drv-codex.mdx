@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-codex.mdx
-sourceRevision: fc0f8b7b6a08b2b55775302b0aa147fb1c986ec6
+sourceRevision: 5c5c865c0cf4b8f251be2fc2f985be67c156ca02
 title: Codex
 ---
 
@@ -36,9 +36,9 @@ import { DriverCard } from "../../components/samples";
 <Mdx.h3 id="connect-it">连接 Codex</Mdx.h3>
 
 <Cmd>{`
-$ tmt setup codex           # 显示具体的配置变更，然后询问
-$ tmt run builder codex     # 以 "builder" 的名称启动 Codex
-$ tmt resume builder        # 重新打开 builder 自己的线程
+$ tmt setup codex           # shows the exact config change, then asks
+$ tmt run builder codex     # start Codex as "builder"
+$ tmt resume builder        # reopen builder's own thread
 `}</Cmd>
 
 setup 为 tmt 添加 Codex 的生命周期钩子。Codex 首次使用新钩子时会询问是否信任，这是正常现象。`tmt setup codex --remove` 可以移除这些钩子。
@@ -50,18 +50,18 @@ setup 为 tmt 添加 Codex 的生命周期钩子。Codex 首次使用新钩子�
 通过 [run 和 resume 选项](/working#tmt-run)，你可以选择普通粘贴投递，或要求使用通道。
 
 <Cmd>{`
-$ tmt run --channel builder codex    # 选择使用通道
-$ tmt resume --channel builder       # 要求为这个确切的线程使用通道
+$ tmt run --channel builder codex    # opt into the channel
+$ tmt resume --channel builder       # require the channel for this exact thread
 `}</Cmd>
 
-如果 tmt 尚未测试你的 Codex 版本，或无法在启动前安全地建立所需通道，`--channel` 会失败。Codex 0.160.0 的新通道启动目前会在连接阶段失败；在该回归问题修复前，请使用默认的普通启动方式。如果窗格可能已经连接到通道，tmt 会拒绝退回粘贴。接入后，通道未就绪或无法投递时始终会报错；tmt 绝不会改为向该窗格粘贴。
+如果 tmt 尚未测试你的 Codex 版本，或无法在启动前安全地建立所需通道，`--channel` 会失败。如果窗格可能已经连接到通道，tmt 会拒绝退回粘贴。接入后，通道未就绪或无法投递时始终会报错；tmt 绝不会改为向该窗格粘贴。
 
 Codex 可能会询问是否信任启动文件夹。请在它的 TUI 中自行回答。tmt 不会代答或修改信任设置；已经进入队列的输入可能会等到你完成连接后才处理。直接运行 `codex` 的方式不变；tmt 不会为了接入通道而修改任何全局 Codex 配置、身份验证或钩子。
 
 <Mdx.h3 id="codex-s-sandbox">Codex 沙箱</Mdx.h3>
 
-在 Codex 的 workspace-write 沙箱中，默认无法写入 tmt 数据目录。tmt 会明确报告 `STORAGE_NOT_WRITABLE` 并给出目录路径，而不是崩溃。你可以允许访问该目录，例如将它加入 Codex 的 `writable_roots`，也可以让 Codex 通过自身的权限提升机制运行命令。tmt 不会修改 Codex 的沙箱设置，agent 也不应在未经你同意的情况下修改该设置。
+普通的 Codex workspace-write 会话可能无法访问 tmt 数据目录。写入被拒绝时，tmt 会返回 `STORAGE_NOT_WRITABLE` 及目录路径。`tmt run <name> codex` 会为本次启动添加目录访问权限，不编辑全局 Codex 设置。对于已运行的会话，请通过 Codex 自身的权限流程允许目录或提升命令权限；agent 不应未经你同意修改设置。
 
 <Mdx.h3 id="usage-counters">用量计数器</Mdx.h3>
 
-`tmt setup codex --usage` 添加一个每轮结束时运行的钩子，记录 Codex 的上下文大小和已完成请求使用的 token 数；字段说明见[用量计数器](/drivers#usage-counters)。Codex 会报告上下文窗口大小，因此 `windowTokens` 会有值。Codex 的计数器跟随提供方自身的累计总量：首次读数作为起点，之后的轮次继续累加。
+新安装时，`tmt setup codex` 默认启用 Codex 的上下文大小和已完成请求 token 采集。`--no-usage` 关闭采集并记住选择；`--usage` 启用采集。每轮结束钩子记录这些值；字段说明见[用量计数器](/drivers#usage-counters)。Codex 会报告上下文窗口大小，因此 `windowTokens` 会有值。Codex 的计数器跟随提供方自身的累计总量：首次读数作为起点，之后的轮次继续累加。

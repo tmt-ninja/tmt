@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/concepts.mdx
-sourceRevision: d1d7dde64e57582609d9e2b8b8976516e0aeb2ce
+sourceRevision: 7e3690173f1627bd4ec57630d9573daf9f1bd4f7
 title: 四個詞就能說明大部分概念
 ---
 
@@ -36,7 +36,11 @@ tmt 會記錄綁定位置中的 agent 是否正在執行。選用的窗格徽章
 
 <States
   items={[
-    [<Badge name="reviewer" state="running" />, "Running。", "訊息會貼進窗格。"],
+    [
+      <Badge name="reviewer" state="running" />,
+      "Running。",
+      "訊息會透過窗格或已加入的訊息通道傳送。",
+    ],
     [
       <Badge name="reviewer" state="ended" />,
       "Ended。",

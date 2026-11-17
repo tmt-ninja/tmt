@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/design.mdx
-sourceRevision: db057b4464fc6014a7b3a3bda6a34ffa5b4cb708
+sourceRevision: 7abb982be9adfa70d8790a1cc69fb97828ed4b33
 title: 一套外觀，處處一致
 ---
 
@@ -22,7 +22,7 @@ import { components as Mdx } from "../../components/mdx";
 
 <DesignPlayground />
 
-這是 **設計範例**，不是實際的 Colab 或 Remote 連線。標籤維持英文，與產品用語一致。Colab 和 Remote 有各自已發布的元件；[#1797](https://github.com/tmt-ninja/tmt/issues/1797) 的共用元件套件仍是 **規劃中**。範例不展示配對、權限、Ask 傳遞或重新連線。[元件規格 PR](https://github.com/tmt-ninja/tmt/pull/1798) 記錄了元件清單與抽離範圍。
+這是 **設計範例**，不是實際的 Colab 或 Remote 連線。標籤維持英文，與產品用語一致。Colab 與 Remote 使用共用的 `@tmt/browser-ui` 套件。[元件指南](https://github.com/tmt-ninja/tmt/blob/main/design/browser-ui/README.md) 列出可用入口與產品的使用方式。範例不展示配對、權限、Ask 傳遞或重新連線。
 
 <Mdx.h3 id="principles">原則</Mdx.h3>
 
@@ -41,7 +41,7 @@ import { components as Mdx } from "../../components/mdx";
 
 <Mdx.h3 id="surfaces">背景層</Mdx.h3>
 
-背景層只用在網頁；終端機始終保留自己的背景。
+這些 surface token 描述瀏覽器背景。終端機顏色依循 CLI 與 board 的主題規則。
 
 <TokenTable group="surface" />
 
@@ -51,7 +51,7 @@ import { components as Mdx } from "../../components/mdx";
 
 標題使用展示字型，內文使用正文字型；讀者輸入與終端機輸出使用等寬字型。指令依照實際輸入的格式顯示，包含 `$` 提示符號與淡化的 `# 註解`：
 
-<Cmd>{`$ tmt ops ui --squad product   # 讀者可複製使用的指令`}</Cmd>
+<Cmd>{`$ tmt ops ui --squad product   # a command a reader can copy`}</Cmd>
 
 <Mdx.h3 id="marks">符號</Mdx.h3>
 
