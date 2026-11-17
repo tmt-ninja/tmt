@@ -170,6 +170,7 @@ export class Door {
   /** What `requests.sendNow` answers; the request ID is filled in. */
   sendNowReply: Record<string, unknown> = { state: 'sent' };
   conversationReply?: (input: Record<string, unknown>) => unknown;
+  formsReply?: (operation: string, input: Record<string, unknown>) => unknown;
   managementReply?: (operation: string, payload: Record<string, unknown>) => unknown;
   sendState = 'accepted';
   error?: {
@@ -304,6 +305,22 @@ export class Door {
           assert.equal(payload.operation, 'requests.list');
           result = this.conversationReply(payload.input as Record<string, unknown>);
           break;
+        case 'forms.list':
+        case 'changes.cursor':
+        case 'forms.answer': {
+          assert.ok(this.formsReply, 'Forms fixture is explicitly configured.');
+          assert.equal(payload.version, 1);
+          assert.equal(payload.operation, body.operation);
+          const input = payload.input as Record<string, unknown>;
+          if (body.operation === 'forms.answer') {
+            const operationId = input.operationId;
+            assert.ok(typeof operationId === 'string');
+            assert.equal(operationId, body.id);
+            result = this.receipts.get(operationId) ?? this.formsReply(body.operation, input);
+            this.receipts.set(operationId, result as Record<string, unknown>);
+          } else result = this.formsReply(body.operation, input);
+          break;
+        }
         case 'agents.list':
           assert.deepEqual(payload, {});
           result = { identities: this.agents };

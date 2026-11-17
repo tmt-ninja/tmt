@@ -103,6 +103,14 @@ All acquisitions share the existing read deadline and serve-local cache.
 `operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 owns activity validation, post-read observation time and advisory decoding.
 
+`operations::forms` projects only public Core provider-form fields and cursor/usage
+integers for the owner browser with every agent. Core owns option validation and
+provider delivery; Remote's pre-read gates missing, permission and truncated forms.
+The existing operations ledger commits uncertainty before Core can answer and keeps
+same-device form outcomes through retention/pruning; replay and `operation.show`
+never send. The effect uses the existing durable grant fence, not a second ledger,
+provider key map or UI owner. The channel contract owns scopes and response bounds.
+
 `Operations::read` brackets fallible Core observations with `MessagePermit::revalidate`.
 Core runs outside the live-session and Store mutexes, with no SQLite authorization transaction
 held. The post-check runs before returning a result, including after a Core error; recovery

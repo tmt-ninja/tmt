@@ -90,6 +90,7 @@ fn overlap(operation: &str, change: During) {
         "check" => json!({"agentId":id,"lines":1}),
         "requests.show" => json!({"version":1,"operation":operation,"input":{"requestId":request}}),
         "result" => json!({"requestId":request}),
+        "forms.list" | "changes.cursor" => json!({"version":1,"operation":operation,"input":{}}),
         "orchestration.read" | "orchestration.person" => {
             json!({"version":1,"operation":envelope_operation,"input":{"view":"routes","limit":256}})
         }
@@ -162,7 +163,7 @@ fn overlap(operation: &str, change: During) {
         "only the admitted Core observations: {operation}"
     );
 }
-const READS: [&str; 7] = [
+const READS: [&str; 9] = [
     "agents.list",
     "identities.status",
     "check",
@@ -170,6 +171,8 @@ const READS: [&str; 7] = [
     "result",
     "orchestration.read",
     "orchestration.person",
+    "forms.list",
+    "changes.cursor",
 ];
 #[test]
 fn object_currency_succeeds_while_core_observations_are_held() {

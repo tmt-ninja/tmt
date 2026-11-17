@@ -16,6 +16,8 @@ pub const RECOVERY: u64 = 30 * DAY;
 pub const FROZEN_BYTES: i64 = 64 * 1024 * 1024;
 #[derive(Debug, Clone)]
 pub struct Owned {
+    /// Only the invocation that committed adoption may start an at-most-once form answer.
+    pub(crate) newly_adopted: bool,
     pub id: String,
     pub(crate) operation: String,
     pub phase: String,
@@ -168,10 +170,12 @@ pub(crate) fn make_room_for_entry(tx: &Transaction<'_>, client: &str) -> Result<
     Ok(())
 }
 /// Drop ownership records that can no longer matter so one more fits: rows left by reads
-/// (only `dispatch.create` is an owned operation), finished records past the recovery
+/// (`dispatch.create` and `forms.answer` own recovery), finished records past the recovery
 /// horizon and, over the limit, the oldest finished ones. Held, dispatching and uncertain
 /// records are live work and never dropped. A send under a dropped ID is a new adoption that
 /// asks core for that operation ID before it creates anything, so dropping cannot resend.
+/// Form outcomes have no Core operation-ID lookup, so capacity pruning never drops them
+/// within normal retention; uncertain answers remain live and are never dropped.
 fn make_room_for_operation(
     tx: &Transaction<'_>,
     client: &str,
@@ -179,7 +183,7 @@ fn make_room_for_operation(
 ) -> Result<(), RemoteError> {
     const FINISHED: &str = "phase IN ('accepted','cancelled','refused')";
     tx.execute(
-        "DELETE FROM operations WHERE client_id=?1 AND operation<>'dispatch.create'",
+        "DELETE FROM operations WHERE client_id=?1 AND operation NOT IN ('dispatch.create','forms.answer')",
         [client],
     )
     .map_err(database)?;
@@ -197,7 +201,7 @@ fn make_room_for_operation(
         .map_err(database)?;
     if operations >= OPERATIONS {
         tx.execute(
-            &format!("DELETE FROM operations WHERE id IN (SELECT id FROM operations WHERE client_id=?1 AND {FINISHED} ORDER BY updated_ms,id LIMIT ?2)"),
+            &format!("DELETE FROM operations WHERE id IN (SELECT id FROM operations WHERE client_id=?1 AND operation='dispatch.create' AND {FINISHED} ORDER BY updated_ms,id LIMIT ?2)"),
             params![client, operations - OPERATIONS + 1],
         )
         .map_err(database)?;
@@ -239,8 +243,11 @@ fn event<'a>(
         client: &grant.client_id,
         request: message.envelope().id,
         operation: message.envelope().operation,
-        operation_id: (message.envelope().operation == "dispatch.create")
-            .then_some(message.envelope().id),
+        operation_id: matches!(
+            message.envelope().operation,
+            "dispatch.create" | "forms.answer"
+        )
+        .then_some(message.envelope().id),
         resources: &[],
         digest,
         revision: grant.revision,
@@ -272,7 +279,7 @@ fn read_owned(tx: &Transaction<'_>, id: &str) -> Result<Option<Stored>, RemoteEr
     tx.query_row("SELECT client_id,operation,digest,phase,receipt,frozen,references_json,updated_ms,member_id FROM operations WHERE id=?1",[id],|row| {
         let time:i64=row.get(7)?;
         Ok(Stored{client:row.get(0)?,member:row.get(8)?,digest:row.get(2)?,
-            owned:Owned{id:id.into(),operation:row.get(1)?,phase:row.get(3)?,receipt:json_column(row,4)?,frozen:row.get(5)?,references:json_column(row,6)?},
+            owned:Owned{newly_adopted:false,id:id.into(),operation:row.get(1)?,phase:row.get(3)?,receipt:json_column(row,4)?,frozen:row.get(5)?,references:json_column(row,6)?},
             time:u64::try_from(time).map_err(|_|rusqlite::Error::IntegralValueOutOfRange(7,time))?})
     }).optional().map_err(database)
 }
@@ -447,11 +454,17 @@ impl Store {
             } else {
                 "dispatching"
             }
+        } else if input.operation == "forms.answer" {
+            // Durable before Core can see an answer. A crash or duplicate never sends again.
+            "uncertain"
         } else {
             "observed"
         };
-        let receipt =
-            json!({"requestEnvelopeId":input.id,"operation":input.operation,"state":phase});
+        let receipt = if input.operation == "forms.answer" {
+            json!({"operationId":input.id,"formId":resources.first(),"state":"uncertain","reason":"REMOTE_CORE_UNCERTAIN"})
+        } else {
+            json!({"requestEnvelopeId":input.id,"operation":input.operation,"state":phase})
+        };
         let mut audit_event = event(grant, message, &digest, now, "adopted", "");
         audit_event.resources = resources;
         audit::append(&tx, audit_event)?;
@@ -473,6 +486,7 @@ impl Store {
         .map_err(database)?;
         tx.commit().map_err(database)?;
         Ok(Owned {
+            newly_adopted: true,
             id: input.id.into(),
             operation: input.operation.into(),
             phase: phase.into(),

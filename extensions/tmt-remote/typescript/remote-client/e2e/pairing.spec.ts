@@ -1196,6 +1196,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'certifyKey',
     'conversations',
     'firebaseRemote',
+    'forms',
     'invitationPage',
     'invitations',
     'invitePage',

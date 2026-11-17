@@ -10,196 +10,16 @@ var __exportAll = (all, no_symbols) => {
 	return target;
 };
 //#endregion
-//#region src/service-commands.ts
-/** Copy-only terminal references. Native grammar tests admit the same product catalog. */
-var serviceCommands = Object.freeze({
-	status: "tmt remote status --layers",
-	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
-	deploy: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
-	nodeVersion: "node --version",
-	firebaseVersion: "firebase --version",
-	firebaseInstall: "npm install -g firebase-tools@15.29.0",
-	firebaseLogin: "firebase login",
-	join: "tmt remote join <code>"
-});
-//#endregion
-//#region src/invite-page.ts
-/** Instructions only. Parsing is not authentication; native join owns admission. */
-var MAX_BYTES = 12288;
-var MAX_INVITATION_INPUT = Math.ceil(MAX_BYTES * 4 / 3) + 2048;
-var UUID$5 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-function valid$8(condition) {
-	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-}
-function object$5(value, keys) {
-	valid$8(value !== null && typeof value === "object" && !Array.isArray(value));
-	const row = value;
-	valid$8(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
-	return row;
-}
-function bytes(value, length) {
-	valid$8(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
-	valid$8(length === void 0 || value.length === length);
-	valid$8(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
-	return new Uint8Array(value);
-}
-function hasControl(value) {
-	return Array.from(value).some((char) => {
-		const point = char.codePointAt(0);
-		return point < 32 || point >= 127 && point <= 159;
-	});
-}
-var utf8$4 = new TextDecoder("utf-8", { fatal: true });
-/** Reads the native v2 carrier unchanged, with no network or authority inference. */
-function decodeDetails(token, now) {
-	valid$8(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
-	valid$8(/^[A-Za-z0-9_-]+$/.test(token));
-	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
-	const raw = atob(encoded);
-	valid$8(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
-	const text = utf8$4.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
-	const value = JSON.parse(text);
-	valid$8(JSON.stringify(value) === text);
-	const invite = object$5(value, [
-		"version",
-		"context",
-		"publicConfig",
-		"machineName",
-		"code"
-	]);
-	valid$8(invite.version === 2);
-	bytes(invite.code, 16);
-	valid$8(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
-	const context = object$5(invite.context, [
-		"binding",
-		"owner",
-		"owner_key",
-		"offer",
-		"nonce",
-		"issued_at_ms",
-		"expires_at_ms"
-	]);
-	valid$8(typeof context.owner === "string" && UUID$5.test(context.owner));
-	valid$8(typeof context.offer === "string" && UUID$5.test(context.offer));
-	bytes(context.owner_key, 32);
-	bytes(context.nonce, 16);
-	const issued = context.issued_at_ms;
-	const expiry = context.expires_at_ms;
-	valid$8(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
-	valid$8(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
-	valid$8(issued <= now + 6e4 && now < expiry);
-	const binding = object$5(context.binding, [
-		"backend",
-		"reference",
-		"owner_principal"
-	]);
-	valid$8(binding.backend === "firestore");
-	const project = utf8$4.decode(bytes(binding.reference));
-	const principal = utf8$4.decode(bytes(binding.owner_principal));
-	valid$8(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
-	const config = invite.publicConfig;
-	valid$8(config !== null && typeof config === "object" && !Array.isArray(config));
-	valid$8(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
-	valid$8(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
-	valid$8(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
-	valid$8(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
-	return {
-		owner: context.owner,
-		offer: context.offer,
-		expiry
-	};
-}
-/** Public carrier facts only; these do not authenticate the inviter or grant access. */
-function invitationDetails(token, now = Date.now()) {
-	try {
-		return decodeDetails(token, now);
-	} catch {
-		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-	}
-}
-function invitationExpiry(token, now = Date.now()) {
-	try {
-		return invitationDetails(token, now).expiry;
-	} catch {
-		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-	}
-}
-/** Accept a native code or its hosted /join link without fetching or trusting the origin. */
-function invitationFromInput(input, now = Date.now()) {
-	try {
-		valid$8(input.length <= MAX_INVITATION_INPUT);
-		const value = input.trim();
-		let token = value;
-		if (value.includes("://")) {
-			const url = new URL(value);
-			valid$8((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && url.pathname === "/join" && !url.search && url.hash.length > 1);
-			token = url.hash.slice(1);
-		}
-		return {
-			token,
-			expiry: invitationExpiry(token, now)
-		};
-	} catch {
-		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-	}
-}
-/** Copy the validated native command; this never runs a command or reads the provider. */
-async function copyInvitation(token) {
-	invitationExpiry(token);
-	await navigator.clipboard.writeText(serviceCommands.join.replace("<code>", token));
-}
-/** Owns one memory-only interaction; the bootstrap erases the fragment first. */
-function invitePage(initialToken) {
-	const button = document.getElementById("invite-copy");
-	const status = document.getElementById("invite-status");
-	const feedback = document.getElementById("invite-feedback");
-	let token = initialToken;
-	initialToken = "";
-	let disposed = false;
-	let timer;
-	const clear = () => {
-		disposed = true;
-		token = "";
-		button.disabled = true;
-		feedback.textContent = "";
-		if (timer !== void 0) clearTimeout(timer);
-		button.removeEventListener("click", copy);
-	};
-	const copy = async () => {
-		if (disposed) return;
-		try {
-			await copyInvitation(token);
-			if (!disposed) feedback.textContent = "Command copied. Run it in your terminal.";
-		} catch {
-			if (!disposed) feedback.textContent = "Could not copy. Use the original code in your terminal, or ask your inviter for a new one.";
-		}
-	};
-	try {
-		const expiry = invitationExpiry(token);
-		status.textContent = "Copy the command to continue in your terminal. This page has not checked whether the invitation is still available.";
-		button.disabled = false;
-		button.addEventListener("click", copy);
-		timer = setTimeout(() => {
-			clear();
-			status.textContent = "This invitation has reached its expiry. Ask your inviter for a new one. This page cannot confirm cloud cleanup.";
-		}, Math.max(0, expiry - Date.now()));
-	} catch {
-		clear();
-		status.textContent = "This invitation is missing, invalid or expired. Use the original code in your terminal, or ask your inviter for a new one.";
-	}
-	return clear;
-}
-//#endregion
 //#region src/canonical-bytes.ts
 var encoder$2 = new TextEncoder();
-var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var UUID$5 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var ADDON_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 var DOOR_ORIGIN = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/;
 var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 function requireValue$1(condition, label) {
 	if (!condition) throw new Error(`Invalid ${label}.`);
 }
-function text$2(value) {
+function text$3(value) {
 	requireValue$1(typeof value === "string", "text");
 	for (let index = 0; index < value.length; index++) {
 		const unit = value.charCodeAt(index);
@@ -230,9 +50,9 @@ function concat(parts) {
 function lp(value) {
 	return concat([count$1(value.length), value]);
 }
-var lpText = (value) => lp(text$2(value));
+var lpText = (value) => lp(text$3(value));
 function uuid(value) {
-	requireValue$1(value.length === 36 && UUID$4.test(value), "UUIDv4");
+	requireValue$1(value.length === 36 && UUID$5.test(value), "UUIDv4");
 }
 function binary(value, length) {
 	requireValue$1(value instanceof Uint8Array && value.length === length, `binary length ${length}`);
@@ -244,7 +64,7 @@ function doorOrigin(value) {
 	return port !== void 0 && Number(port) <= 65535;
 }
 function origin(value) {
-	requireValue$1(text$2(value).length <= 128 && (value === "cli" || addonOrigin(value) || doorOrigin(value)), "origin");
+	requireValue$1(text$3(value).length <= 128 && (value === "cli" || addonOrigin(value) || doorOrigin(value)), "origin");
 }
 /** Hash the exact supplied payload bytes, without parsing or reserializing them. */
 async function envelopeSigningBytes(value) {
@@ -277,7 +97,7 @@ async function envelopeSigningBytes(value) {
 	}
 	requireValue$1(Number.isSafeInteger(value.timestampMs) && value.timestampMs >= 0, "timestampMs");
 	origin(value.origin);
-	requireValue$1(text$2(value.operation).length > 0, "operation");
+	requireValue$1(text$3(value.operation).length > 0, "operation");
 	requireValue$1(value.payload instanceof Uint8Array, "payload bytes");
 	const payload = new Uint8Array(value.payload);
 	const fields = [
@@ -309,7 +129,7 @@ function enrollmentSigningBytes(value) {
 	]) uuid(id);
 	origin(value.origin);
 	requireValue$1(value.kind === "addon" && addonOrigin(value.origin) || value.kind === "browser" && doorOrigin(value.origin) || value.kind === "cli" && value.origin === "cli", "kind/origin");
-	const name = text$2(value.name);
+	const name = text$3(value.name);
 	requireValue$1(name.length >= 1 && name.length <= 64 && value.name.trim().length > 0 && !Array.from(value.name).some((character) => {
 		const point = character.codePointAt(0);
 		return point <= 31 || point >= 127 && point <= 159;
@@ -574,33 +394,33 @@ var MANAGEMENT_PRE_EFFECT = /* @__PURE__ */ new Set([
 	"REMOTE_MEMBER_OWNER_REQUIRED",
 	"REMOTE_MEMBER_CONFLICT"
 ]);
-var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var coreId = (value) => typeof value === "string" && UUID$3.test(value) && value !== "00000000-0000-0000-0000-000000000000";
+var coreId = (value) => typeof value === "string" && UUID$4.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 var requestId = (value) => typeof value === "string" && value.startsWith("req_") && coreId(value.slice(4));
-var utf8$3 = new TextEncoder();
+var utf8$5 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
-function valid$7(condition) {
+function valid$9(condition) {
 	if (!condition) throw new Error("Invalid operation response.");
 }
 function input$1(condition) {
 	if (!condition) throw new TypeError("Invalid Remote operation input.");
 }
 function record(value) {
-	valid$7(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$9(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid$7(typeof value.reason === "string" && utf8$3.encode(value.reason).length <= 256);
+	valid$9(typeof value.reason === "string" && utf8$5.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 /** One plain line of at most 256 bytes, sent with a `reason`: Core's sentence for its code. */
 function reasonText(value) {
 	if (value.reasonText === void 0) return {};
 	const text = value.reasonText;
-	valid$7(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$3.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
+	valid$9(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$5.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
 	return { reasonText: text };
 }
 var MESSAGE_STATES = [
@@ -620,9 +440,9 @@ function messageState(value) {
 	if (value.messageState === void 0) return {};
 	const state = record(value.messageState);
 	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
-	valid$7(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
+	valid$9(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
 	const why = record(state.reason);
-	valid$7(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$3.encode(why.text).length <= 256);
+	valid$9(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$5.encode(why.text).length <= 256);
 	return { messageState: {
 		state: state.state,
 		reason: {
@@ -639,8 +459,8 @@ var USER_NAME_REASONS = [
 	"USER_NAME_INVALID",
 	"USER_NAME_TAKEN"
 ];
-function text$1(value) {
-	return typeof value === "string" && value.length > 0 && utf8$3.encode(value).length <= 512;
+function text$2(value) {
+	return typeof value === "string" && value.length > 0 && utf8$5.encode(value).length <= 512;
 }
 /** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
 function identity$1(value) {
@@ -648,16 +468,16 @@ function identity$1(value) {
 	const notice = record(value.identity);
 	const keys = Object.keys(notice).sort().join();
 	if (notice.state === "anonymous") {
-		valid$7(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
-		valid$7(text$1(notice.message));
+		valid$9(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
+		valid$9(text$2(notice.message));
 		return { identity: {
 			state: "anonymous",
 			reason: notice.reason,
 			message: notice.message
 		} };
 	}
-	valid$7(notice.state === "person" && keys === "name,renamedFrom,state");
-	valid$7(text$1(notice.name) && text$1(notice.renamedFrom));
+	valid$9(notice.state === "person" && keys === "name,renamedFrom,state");
+	valid$9(text$2(notice.name) && text$2(notice.renamedFrom));
 	return { identity: {
 		state: "person",
 		name: notice.name,
@@ -672,15 +492,15 @@ function sendState(value, id) {
 }
 function sendStateBase(value, id) {
 	const state = record(value);
-	valid$7(state.operationId === id);
+	valid$9(state.operationId === id);
 	switch (state.state) {
 		case "held": return {
 			state: "held",
 			operationId: id
 		};
 		case "accepted":
-			valid$7(requestId(state.requestId));
-			if (state.requestIds !== void 0) valid$7(Array.isArray(state.requestIds) && state.requestIds.length >= 1 && state.requestIds.length <= 64 && state.requestIds.every(requestId) && new Set(state.requestIds).size === state.requestIds.length && state.requestIds[0] === state.requestId);
+			valid$9(requestId(state.requestId));
+			if (state.requestIds !== void 0) valid$9(Array.isArray(state.requestIds) && state.requestIds.length >= 1 && state.requestIds.length <= 64 && state.requestIds.every(requestId) && new Set(state.requestIds).size === state.requestIds.length && state.requestIds[0] === state.requestId);
 			return {
 				state: "accepted",
 				operationId: id,
@@ -688,7 +508,7 @@ function sendStateBase(value, id) {
 				...state.requestIds === void 0 ? {} : { requestIds: [...state.requestIds] }
 			};
 		case "uncertain":
-			valid$7(state.requestId === void 0 || requestId(state.requestId));
+			valid$9(state.requestId === void 0 || requestId(state.requestId));
 			return {
 				state: "uncertain",
 				operationId: id,
@@ -705,10 +525,10 @@ function sendStateBase(value, id) {
 }
 function resultState(value, id) {
 	const state = record(value);
-	valid$7(state.requestId === id);
+	valid$9(state.requestId === id);
 	const requestMessage = {};
 	if (Object.hasOwn(state, "requestMessage")) {
-		valid$7(state.requestMessage === null || typeof state.requestMessage === "string");
+		valid$9(state.requestMessage === null || typeof state.requestMessage === "string");
 		requestMessage.requestMessage = state.requestMessage;
 	}
 	switch (state.state) {
@@ -719,7 +539,7 @@ function resultState(value, id) {
 			...requestMessage
 		};
 		case "replied":
-			valid$7(typeof state.message === "string");
+			valid$9(typeof state.message === "string");
 			return {
 				state: "replied",
 				requestId: id,
@@ -746,7 +566,7 @@ var SEND_NOW_STATES = [
 * `unconfirmed`, so a future state can never read as `sent`. */
 function sendNowState(value, id) {
 	const state = record(value);
-	valid$7(state.requestId === id);
+	valid$9(state.requestId === id);
 	return {
 		state: SEND_NOW_STATES.includes(state.state) ? state.state : "unconfirmed",
 		requestId: id,
@@ -757,10 +577,10 @@ function sendNowState(value, id) {
 }
 function agents(value) {
 	const rows = record(value).identities;
-	valid$7(Array.isArray(rows));
+	valid$9(Array.isArray(rows));
 	return rows.map((value) => {
 		const row = record(value);
-		valid$7(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
+		valid$9(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
 		const activity = row.activity;
 		const observedAtMs = row.observedAtMs;
 		return {
@@ -780,26 +600,26 @@ function agents(value) {
 function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record(value.error);
-	valid$7(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	valid$9(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const scope = error.scope;
-	valid$7(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && (scope === "talk" || scope === "results.read"));
+	valid$9(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && (scope === "talk" || scope === "results.read"));
 	const readReason = error.reason;
-	valid$7(readReason === void 0 || scope === "results.read" && ["owner_browser_required", "all_agents_required"].includes(readReason));
+	valid$9(readReason === void 0 || scope === "results.read" && ["owner_browser_required", "all_agents_required"].includes(readReason));
 	const limit = error.limit;
-	valid$7(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
-	valid$7(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
+	valid$9(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
+	valid$9(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
 	let settingsUrl;
 	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
-		valid$7(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
+		valid$9(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
 		const url = new URL(error.settingsUrl, address);
 		const door = new URL(address);
-		valid$7(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
+		valid$9(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
 		settingsUrl = url.href;
 	}
 	const retry = error.retryAfterMs;
-	valid$7(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
+	valid$9(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
-	valid$7(PRE_EFFECT.has(error.code) || [
+	valid$9(PRE_EFFECT.has(error.code) || [
 		"REMOTE_GRANT_CHANGED",
 		"REMOTE_SERVE_STOPPED",
 		"REMOTE_SESSION_LIMIT",
@@ -932,8 +752,8 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 }
 function parseCapabilities(value) {
 	const reply = record(value);
-	valid$7(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
-	valid$7(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
+	valid$9(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
+	valid$9(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
 	record(reply.limits);
 }
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */
@@ -943,7 +763,7 @@ async function synchronize(channel, timeoutMs) {
 	const unavailable = () => new ClientError("sequence_unavailable", "Remote sequence recovery failed; reopen before observing the original operation.");
 	if (unresolved === "unavailable") throw unavailable();
 	const id = crypto.randomUUID();
-	const payload = utf8$3.encode("{}");
+	const payload = utf8$5.encode("{}");
 	try {
 		try {
 			await attempt(channel, timeoutMs, "capabilities", id, payload, channel.clientSequence, parseCapabilities);
@@ -984,7 +804,7 @@ function verifiedSessionRequest(session, options = {}) {
 	const timeoutMs = options.timeoutMs ?? 4e4;
 	input$1(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
 	return function call(operation, id, value, parse, mutationOutcome = false) {
-		const payload = utf8$3.encode(JSON.stringify(value));
+		const payload = utf8$5.encode(JSON.stringify(value));
 		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome));
 	};
 }
@@ -999,7 +819,7 @@ function operations(session, options = {}) {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
 			const roomSend = "room" in value;
-			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$3.encode(value.message)) === value.message && (roomSend ? !("agentId" in value) && value.room !== null && typeof value.room === "object" && Object.keys(value.room).sort().join() === "revision,roomId" && coreId(value.room.roomId) && Number.isSafeInteger(value.room.revision) && value.room.revision > 0 && Array.isArray(value.recipientIds) && value.recipientIds.length >= 1 && value.recipientIds.length <= 64 && value.recipientIds.every(coreId) && new Set(value.recipientIds).size === value.recipientIds.length && (value.kind === void 0 || ["request", "announcement"].includes(value.kind)) : !("recipientIds" in value) && coreId(value.agentId)));
+			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$5.encode(value.message)) === value.message && (roomSend ? !("agentId" in value) && value.room !== null && typeof value.room === "object" && Object.keys(value.room).sort().join() === "revision,roomId" && coreId(value.room.roomId) && Number.isSafeInteger(value.room.revision) && value.room.revision > 0 && Array.isArray(value.recipientIds) && value.recipientIds.length >= 1 && value.recipientIds.length <= 64 && value.recipientIds.every(coreId) && new Set(value.recipientIds).size === value.recipientIds.length && (value.kind === void 0 || ["request", "announcement"].includes(value.kind)) : !("recipientIds" in value) && coreId(value.agentId)));
 			const { operationId, message } = value;
 			const frozen = roomSend ? {
 				operationId,
@@ -1024,7 +844,7 @@ function operations(session, options = {}) {
 					input: frozen
 				}, (value) => {
 					const state = sendState(value, operationId);
-					if (roomSend && state.state === "accepted") valid$7(state.requestIds?.length === frozen.recipientIds.length);
+					if (roomSend && state.state === "accepted") valid$9(state.requestIds?.length === frozen.recipientIds.length);
 					return state;
 				});
 			} catch (error) {
@@ -1070,6 +890,344 @@ function operations(session, options = {}) {
 			}, (value) => sendNowState(value, id));
 		}
 	};
+}
+//#endregion
+//#region src/forms.ts
+var TEXT = 2048;
+var LABEL = 256;
+var PLAN = 65536;
+var RESPONSE = 1048576;
+var ANSWER = 16384;
+var QUESTIONS = 4;
+var OPTIONS = 8;
+var utf8$4 = new TextEncoder();
+var integer$2 = (v) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+var text$1 = (v, max) => typeof v === "string" && utf8$4.encode(v).length <= max;
+function valid$8(v) {
+	if (!v) throw new TypeError("Invalid provider form document.");
+}
+function object$6(v) {
+	valid$8(v !== null && typeof v === "object" && !Array.isArray(v));
+	return v;
+}
+function keys$2(v, required, optional = []) {
+	valid$8(required.every((k) => Object.hasOwn(v, k)) && Object.keys(v).every((k) => required.includes(k) || optional.includes(k)));
+}
+function size(value, max) {
+	valid$8(utf8$4.encode(JSON.stringify(value)).length <= max);
+}
+function parseForm(value) {
+	const f = object$6(value);
+	keys$2(f, [
+		"formId",
+		"identityId",
+		"openedMs",
+		"kind",
+		"truncated",
+		"answerable",
+		"answerIn"
+	], [
+		"questions",
+		"tool",
+		"plan"
+	]);
+	valid$8(coreId(f.formId) && coreId(f.identityId) && integer$2(f.openedMs) && [
+		"question",
+		"permission",
+		"planApproval"
+	].includes(f.kind) && typeof f.truncated === "boolean" && typeof f.answerable === "boolean" && ["client", "terminal"].includes(f.answerIn) && f.answerable === (f.answerIn === "client"));
+	if (f.questions !== void 0) {
+		valid$8(Array.isArray(f.questions) && f.questions.length <= QUESTIONS);
+		for (const value of f.questions) {
+			const q = object$6(value);
+			keys$2(q, [
+				"text",
+				"choice",
+				"options",
+				"freeText"
+			], ["header"]);
+			valid$8(text$1(q.text, TEXT) && (q.header === void 0 || text$1(q.header, LABEL)) && ["single", "multiple"].includes(q.choice) && typeof q.freeText === "boolean" && Array.isArray(q.options) && q.options.length <= OPTIONS);
+			for (const value of q.options) {
+				const o = object$6(value);
+				keys$2(o, ["label"], ["description"]);
+				valid$8(text$1(o.label, LABEL) && (o.description === void 0 || text$1(o.description, TEXT)));
+			}
+		}
+	}
+	if (f.plan !== void 0) valid$8(text$1(f.plan, PLAN));
+	if (f.tool !== void 0) {
+		const t = object$6(f.tool);
+		keys$2(t, ["name", "summary"]);
+		valid$8(text$1(t.name, TEXT) && text$1(t.summary, TEXT));
+	}
+	return structuredClone(f);
+}
+function parseList(value, identityId) {
+	size(value, RESPONSE);
+	const v = object$6(value);
+	keys$2(v, ["forms"]);
+	valid$8(Array.isArray(v.forms));
+	const forms = v.forms.map(parseForm);
+	valid$8(new Set(forms.map((f) => f.formId)).size === forms.length);
+	valid$8(identityId === void 0 || forms.every((f) => f.identityId === identityId));
+	return { forms };
+}
+function parseCursor(value) {
+	const v = object$6(value);
+	keys$2(v, ["cursor"], ["usage"]);
+	valid$8(integer$2(v.cursor) && (v.usage === void 0 || integer$2(v.usage)));
+	return {
+		cursor: v.cursor,
+		...v.usage === void 0 ? {} : { usage: v.usage }
+	};
+}
+function parseState(value, operationId, formId) {
+	const v = object$6(value);
+	keys$2(v, [
+		"operationId",
+		"formId",
+		"state"
+	], v.state === "accepted" ? ["delivered"] : ["reason", "message"]);
+	valid$8(v.operationId === operationId && coreId(v.formId) && (formId === void 0 || v.formId === formId));
+	if (v.state === "accepted") valid$8(v.delivered === true);
+	else valid$8(["refused", "uncertain"].includes(v.state) && typeof v.reason === "string" && /^[A-Z_]{1,64}$/.test(v.reason) && (v.message === void 0 || text$1(v.message, TEXT) && [...v.message].every((char) => {
+		const code = char.codePointAt(0);
+		return code >= 32 && (code < 127 || code > 159);
+	})));
+	return { ...v };
+}
+function checkedAnswer(value) {
+	const v = object$6(value);
+	keys$2(v, [
+		"operationId",
+		"formId",
+		"answer"
+	]);
+	valid$8(coreId(v.operationId) && coreId(v.formId));
+	const a = object$6(v.answer);
+	size(a, ANSWER);
+	if (Object.hasOwn(a, "decision")) {
+		keys$2(a, ["decision"]);
+		valid$8(a.decision === "allow" || a.decision === "deny");
+	} else {
+		keys$2(a, ["choices"], ["other"]);
+		valid$8(Array.isArray(a.choices) && a.choices.length <= QUESTIONS);
+		for (const q of a.choices) valid$8(Array.isArray(q) && q.length <= OPTIONS && q.every(integer$2));
+		if (a.other !== void 0) valid$8(Array.isArray(a.other) && a.other.length <= QUESTIONS && a.other.every((t) => t === null || text$1(t, TEXT)));
+	}
+}
+function forms(session, options = {}) {
+	const call = verifiedSessionRequest(session, options);
+	return {
+		list(input = {}) {
+			keys$2(object$6(input), [], ["identityId"]);
+			valid$8(input.identityId === void 0 || coreId(input.identityId));
+			const scope = input.identityId;
+			return call("forms.list", crypto.randomUUID(), {
+				version: 1,
+				operation: "forms.list",
+				input: scope === void 0 ? {} : { identityId: scope }
+			}, (v) => parseList(v, scope));
+		},
+		cursor: () => call("changes.cursor", crypto.randomUUID(), {
+			version: 1,
+			operation: "changes.cursor",
+			input: {}
+		}, parseCursor),
+		answer(input) {
+			checkedAnswer(input);
+			const { operationId, formId } = input;
+			return call("forms.answer", operationId, {
+				version: 1,
+				operation: "forms.answer",
+				input
+			}, (v) => parseState(v, operationId, formId), true);
+		},
+		operation(operationId) {
+			valid$8(coreId(operationId));
+			return call("operation.show", crypto.randomUUID(), { operationId }, (v) => parseState(v, operationId));
+		}
+	};
+}
+//#endregion
+//#region src/service-commands.ts
+/** Copy-only terminal references. Native grammar tests admit the same product catalog. */
+var serviceCommands = Object.freeze({
+	status: "tmt remote status --layers",
+	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
+	deploy: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
+	nodeVersion: "node --version",
+	firebaseVersion: "firebase --version",
+	firebaseInstall: "npm install -g firebase-tools@15.29.0",
+	firebaseLogin: "firebase login",
+	join: "tmt remote join <code>"
+});
+//#endregion
+//#region src/invite-page.ts
+/** Instructions only. Parsing is not authentication; native join owns admission. */
+var MAX_BYTES = 12288;
+var MAX_INVITATION_INPUT = Math.ceil(MAX_BYTES * 4 / 3) + 2048;
+var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+function valid$7(condition) {
+	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+}
+function object$5(value, keys) {
+	valid$7(value !== null && typeof value === "object" && !Array.isArray(value));
+	const row = value;
+	valid$7(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
+	return row;
+}
+function bytes(value, length) {
+	valid$7(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
+	valid$7(length === void 0 || value.length === length);
+	valid$7(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
+	return new Uint8Array(value);
+}
+function hasControl(value) {
+	return Array.from(value).some((char) => {
+		const point = char.codePointAt(0);
+		return point < 32 || point >= 127 && point <= 159;
+	});
+}
+var utf8$3 = new TextDecoder("utf-8", { fatal: true });
+/** Reads the native v2 carrier unchanged, with no network or authority inference. */
+function decodeDetails(token, now) {
+	valid$7(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
+	valid$7(/^[A-Za-z0-9_-]+$/.test(token));
+	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
+	const raw = atob(encoded);
+	valid$7(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
+	const text = utf8$3.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+	const value = JSON.parse(text);
+	valid$7(JSON.stringify(value) === text);
+	const invite = object$5(value, [
+		"version",
+		"context",
+		"publicConfig",
+		"machineName",
+		"code"
+	]);
+	valid$7(invite.version === 2);
+	bytes(invite.code, 16);
+	valid$7(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
+	const context = object$5(invite.context, [
+		"binding",
+		"owner",
+		"owner_key",
+		"offer",
+		"nonce",
+		"issued_at_ms",
+		"expires_at_ms"
+	]);
+	valid$7(typeof context.owner === "string" && UUID$3.test(context.owner));
+	valid$7(typeof context.offer === "string" && UUID$3.test(context.offer));
+	bytes(context.owner_key, 32);
+	bytes(context.nonce, 16);
+	const issued = context.issued_at_ms;
+	const expiry = context.expires_at_ms;
+	valid$7(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
+	valid$7(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
+	valid$7(issued <= now + 6e4 && now < expiry);
+	const binding = object$5(context.binding, [
+		"backend",
+		"reference",
+		"owner_principal"
+	]);
+	valid$7(binding.backend === "firestore");
+	const project = utf8$3.decode(bytes(binding.reference));
+	const principal = utf8$3.decode(bytes(binding.owner_principal));
+	valid$7(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
+	const config = invite.publicConfig;
+	valid$7(config !== null && typeof config === "object" && !Array.isArray(config));
+	valid$7(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
+	valid$7(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
+	valid$7(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
+	valid$7(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
+	return {
+		owner: context.owner,
+		offer: context.offer,
+		expiry
+	};
+}
+/** Public carrier facts only; these do not authenticate the inviter or grant access. */
+function invitationDetails(token, now = Date.now()) {
+	try {
+		return decodeDetails(token, now);
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+function invitationExpiry(token, now = Date.now()) {
+	try {
+		return invitationDetails(token, now).expiry;
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+/** Accept a native code or its hosted /join link without fetching or trusting the origin. */
+function invitationFromInput(input, now = Date.now()) {
+	try {
+		valid$7(input.length <= MAX_INVITATION_INPUT);
+		const value = input.trim();
+		let token = value;
+		if (value.includes("://")) {
+			const url = new URL(value);
+			valid$7((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && url.pathname === "/join" && !url.search && url.hash.length > 1);
+			token = url.hash.slice(1);
+		}
+		return {
+			token,
+			expiry: invitationExpiry(token, now)
+		};
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+/** Copy the validated native command; this never runs a command or reads the provider. */
+async function copyInvitation(token) {
+	invitationExpiry(token);
+	await navigator.clipboard.writeText(serviceCommands.join.replace("<code>", token));
+}
+/** Owns one memory-only interaction; the bootstrap erases the fragment first. */
+function invitePage(initialToken) {
+	const button = document.getElementById("invite-copy");
+	const status = document.getElementById("invite-status");
+	const feedback = document.getElementById("invite-feedback");
+	let token = initialToken;
+	initialToken = "";
+	let disposed = false;
+	let timer;
+	const clear = () => {
+		disposed = true;
+		token = "";
+		button.disabled = true;
+		feedback.textContent = "";
+		if (timer !== void 0) clearTimeout(timer);
+		button.removeEventListener("click", copy);
+	};
+	const copy = async () => {
+		if (disposed) return;
+		try {
+			await copyInvitation(token);
+			if (!disposed) feedback.textContent = "Command copied. Run it in your terminal.";
+		} catch {
+			if (!disposed) feedback.textContent = "Could not copy. Use the original code in your terminal, or ask your inviter for a new one.";
+		}
+	};
+	try {
+		const expiry = invitationExpiry(token);
+		status.textContent = "Copy the command to continue in your terminal. This page has not checked whether the invitation is still available.";
+		button.disabled = false;
+		button.addEventListener("click", copy);
+		timer = setTimeout(() => {
+			clear();
+			status.textContent = "This invitation has reached its expiry. Ask your inviter for a new one. This page cannot confirm cloud cleanup.";
+		}, Math.max(0, expiry - Date.now()));
+	} catch {
+		clear();
+		status.textContent = "This invitation is missing, invalid or expired. Use the original code in your terminal, or ask your inviter for a new one.";
+	}
+	return clear;
 }
 //#endregion
 //#region src/management-mutation.ts
@@ -16528,4 +16686,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, conversations, firebaseRemote, invitationPage, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, conversations, firebaseRemote, forms, invitationPage, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };

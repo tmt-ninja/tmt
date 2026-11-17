@@ -1,5 +1,6 @@
 //! Direct/held dispatch and same-ID observation through the public core API.
 mod conversation;
+mod forms;
 mod orchestration;
 use crate::{
     admission::MessagePermit,
@@ -495,10 +496,10 @@ impl Operations {
             }
             let every_agent = permit.authority.agents == crate::authority::PermittedAgents::All;
             if permit.owner_browser() && every_agent && permit.grant.permits_scope("agents.read") {
-                supported.push("orchestration.read");
+                supported.extend(["orchestration.read", "forms.list", "changes.cursor"]);
             }
             if permit.owner_browser() && every_agent && permit.grant.permits_scope("talk") {
-                supported.push("orchestration.write");
+                supported.extend(["orchestration.write", "forms.answer"]);
             }
             if self.management.is_some() && permit.owner_browser() {
                 supported.extend([
@@ -536,6 +537,9 @@ impl Operations {
             )
         }) {
             return self.read(permit);
+        }
+        if operation == "forms.answer" {
+            return self.forms_answer(permit);
         }
         if operation == "requests.sendNow" {
             return self.send_now(permit);
@@ -717,6 +721,7 @@ impl Operations {
         let mut owned = None;
         let mut conversation = None;
         let mut orchestration = None;
+        let mut form_read = None;
         match operation {
             "agents.list" if permit.message.input == json!({}) => {}
             "identities.status" => {
@@ -758,6 +763,7 @@ impl Operations {
                 conversation = Some(query);
             }
             "orchestration.read" => orchestration = Some(orchestration::read(permit)?),
+            "forms.list" | "changes.cursor" => form_read = Some(forms::read_request(permit)?),
             "requests.show" | "result" => {
                 let input: ResultInput = if operation == "requests.show" {
                     read_input(permit)?
@@ -779,7 +785,9 @@ impl Operations {
                 let value = permit.with_store(|store| {
                     store.owned(&permit.grant, &input.operation_id, now_ms()?)
                 })?;
-                if value.operation != "dispatch.create" {
+                if value.operation == "forms.answer" && operation == "operation.show" {
+                    forms::admit(permit)?;
+                } else if value.operation != "dispatch.create" {
                     return Err(invalid());
                 }
                 owned = Some(value);
@@ -867,6 +875,14 @@ impl Operations {
                         })?;
                     conversation::response(&core, query)
                 }
+                "forms.list" | "changes.cursor" => {
+                    let request = form_read.as_ref().expect("admitted form read");
+                    let answer = self.api_with_limit(
+                        request.to_string().as_bytes(),
+                        crate::limits::FORMS_RESPONSE_BYTES,
+                    )?;
+                    forms::read_response(operation, &answer)
+                }
                 "orchestration.read" => {
                     let request = orchestration.as_ref().expect("admitted orchestration read");
                     orchestration::outcome((|| {
@@ -929,6 +945,9 @@ impl Operations {
                 }
                 "operation.show" => {
                     let owned = owned.as_ref().expect("owned operation");
+                    if owned.operation == "forms.answer" {
+                        return Ok(owned.receipt.clone());
+                    }
                     if matches!(
                         owned.phase.as_str(),
                         "held" | "accepted" | "cancelled" | "refused"
@@ -963,9 +982,10 @@ impl Operations {
         let payload = payload?;
         if operation == "operation.show"
             && payload["state"] == "accepted"
-            && owned
-                .as_ref()
-                .is_some_and(|owned| matches!(owned.phase.as_str(), "dispatching" | "uncertain"))
+            && owned.as_ref().is_some_and(|owned| {
+                owned.operation == "dispatch.create"
+                    && matches!(owned.phase.as_str(), "dispatching" | "uncertain")
+            })
         {
             let owned = owned.as_ref().expect("owned recovery");
             let metadata = match permit.sessions.operation_response(
@@ -1203,6 +1223,9 @@ struct SendNowAnswer {
     text: Option<String>,
 }
 fn state(owned: &Owned) -> Value {
+    if owned.operation == "forms.answer" {
+        return owned.receipt.clone();
+    }
     if matches!(owned.phase.as_str(), "accepted" | "cancelled" | "refused") {
         owned.receipt.clone()
     } else {
@@ -1355,16 +1378,16 @@ impl Store {
             .ok_or_else(invalid)?;
         let tx = self.authorized(grant, now)?;
         crate::journal::require_operation_member(&tx, &grant.client_id, id)?;
-        let (old, digest, refs): (String, Vec<u8>, String) = tx
+        let (old, digest, refs, operation): (String, Vec<u8>, String, String) = tx
             .query_row(
-                "SELECT phase,digest,references_json FROM operations WHERE id=?1 AND client_id=?2",
+                "SELECT phase,digest,references_json,operation FROM operations WHERE id=?1 AND client_id=?2",
                 params![id, grant.client_id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()
             .map_err(database)?
             .ok_or_else(|| database("owned state absent"))?;
-        if old == phase {
+        if old == phase && operation != "forms.answer" {
             return Ok(());
         }
         if matches!(old.as_str(), "accepted" | "cancelled" | "refused")
@@ -1387,7 +1410,7 @@ impl Store {
                 time: now,
                 client: &grant.client_id,
                 request: id,
-                operation: "dispatch.create",
+                operation: &operation,
                 operation_id: Some(id),
                 resources: &resources,
                 digest: &digest,

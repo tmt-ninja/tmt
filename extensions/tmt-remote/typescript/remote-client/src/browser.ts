@@ -1,3 +1,14 @@
+export { forms } from './forms.js';
+export type {
+  FormOption,
+  FormQuestion,
+  ProviderForm,
+  FormAnswer,
+  FormAnswerInput,
+  FormAnswerState,
+  FormsCursor,
+  RemoteForms,
+} from './forms.js';
 export { invitationPage } from './invitation-page.js';
 import { pairingGuidance } from './remote-state.js';
 export { invitePage } from './invite-page.js';
