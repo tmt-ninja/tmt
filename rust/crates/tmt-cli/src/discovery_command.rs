@@ -413,6 +413,33 @@ case "$3" in
 esac
 "#;
 
+    /// Real driver execution paired with a deterministic `ps` caller chain,
+    /// so unit selection never walks ambient OS ancestors.
+    #[derive(Clone)]
+    struct FakeCallerPsRunner;
+
+    impl tmt_adapters::process::CommandRunner for FakeCallerPsRunner {
+        fn execute(
+            &self,
+            request: tmt_adapters::process::CommandRequest<'_>,
+        ) -> Result<tmt_adapters::process::CommandOutput, tmt_adapters::process::CommandError>
+        {
+            let program = request.program.to_string_lossy();
+            let args: Vec<_> = request
+                .args
+                .iter()
+                .map(|arg| arg.to_string_lossy())
+                .collect();
+            if program == "ps" || args.iter().any(|arg| arg.ends_with("/ps")) {
+                return Ok(tmt_adapters::process::CommandOutput {
+                    stdout: format!("{} 0\n", std::process::id()).into_bytes(),
+                    stderr: Vec::new(),
+                });
+            }
+            UnixCommandRunner.execute(request)
+        }
+    }
+
     /// The production runner, except that one read reports its child as not
     /// cleaned up: the driver's `caller` or `snapshot` call (`"caller"`,
     /// `"snapshot"`), or any ancestry `ps` read (`"ps"`). It never runs tmux, and logs every program.
@@ -500,7 +527,7 @@ esac
         let fake = HostKind::External(HostName::new("fake").unwrap());
         for host in [None, Some("fake")] {
             let selected = select(
-                UnixCommandRunner,
+                FakeCallerPsRunner,
                 host,
                 None,
                 &admitted,
