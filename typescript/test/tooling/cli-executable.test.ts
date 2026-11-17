@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { createCliProbe } from '../support/cli-probe.js';
@@ -124,7 +124,59 @@ afterEach(() => {
   for (const root of temporaryRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
+async function isolatedDefaultSelector(root: string) {
+  const module = path.join(root, 'typescript/test/support/cli-executable.mjs');
+  fs.mkdirSync(path.dirname(module), { recursive: true });
+  fs.copyFileSync(fileURLToPath(new URL('../support/cli-executable.mjs', import.meta.url)), module);
+  const binaryDirectory = path.join(root, 'rust/target/debug');
+  fs.mkdirSync(binaryDirectory, { recursive: true });
+  return { ...(await import(pathToFileURL(module).href)), binaryDirectory };
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 describe('CLI executable descriptors', () => {
+  it('probes each implicit binary incarnation once and refuses test-isolation builds', async () => {
+    const root = temporaryRoot();
+    const { resolveCliExecutables: resolve, binaryDirectory } = await isolatedDefaultSelector(root);
+    const marker = path.join(root, 'calls');
+    const setup = `#!/bin/sh\n[ "$*" = 'config show --json' ] || exit 3\n[ -z "\${TMT_TEST_ROOT+x}" ] || exit 4\n[ -d "$HOME" ] && [ "$TMT_HOME" = "\${HOME%/home}/tmt" ] || exit 5\nprintf x >> ${shellQuote(marker)}\n`;
+    writeExecutable(
+      binaryDirectory,
+      'tmt',
+      `${setup}printf '%s\\n' '{"error":{"code":"TEST_ISOLATION"}}'\nexit 1\n`
+    );
+    const rebuild = 'cargo build --locked --manifest-path rust/Cargo.toml -p tmt-cli --bin tmt';
+
+    expect(() => resolve({})).toThrow(rebuild);
+    expect(() => resolve({})).toThrow(rebuild);
+    expect(fs.readFileSync(marker, 'utf8')).toBe('x');
+
+    writeExecutable(binaryDirectory, 'tmt', `${setup}printf '%s\\n' '{"config":{}}'\n`);
+    expect(resolve({}).cli.executable).toBe(path.join(binaryDirectory, 'tmt'));
+    expect(resolve({}).cli.executable).toBe(path.join(binaryDirectory, 'tmt'));
+    expect(fs.readFileSync(marker, 'utf8')).toBe('xx');
+  });
+
+  it('never executes explicitly selected main or peer descriptors', () => {
+    const root = temporaryRoot();
+    const marker = path.join(root, 'ran');
+    const executable = writeExecutable(
+      root,
+      'explicit',
+      `#!/bin/sh\nprintf x > ${shellQuote(marker)}\n`
+    );
+    const selected = resolveCliExecutables({
+      TMT_TEST_CLI: descriptor(executable),
+      TMT_TEST_PEER_CLI: descriptor(executable),
+    });
+    expect(selected.cli.executable).toBe(executable);
+    expect(selected.peer.executable).toBe(executable);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
   it('uses the repository native executable by default for both invocation roles', () => {
     const executables = resolveCliExecutables({});
     const expected = fileURLToPath(new URL('../../../rust/target/debug/tmt', import.meta.url));
