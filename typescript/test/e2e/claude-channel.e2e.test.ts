@@ -2759,6 +2759,15 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
     '%s enrollment delivers a reply notification through its channel and never by paste',
     async (recordKind) => {
       await withE2EFixture(async (fixture) => {
+        // Preserve the real batch worker; this case tests its destination,
+        // rather than the default wait or the user's typing quiet period.
+        fs.writeFileSync(
+          path.join(fixture.globalDir, 'config.json'),
+          JSON.stringify({
+            experimental: { channel: true },
+            notifications: { replyBatchWindowMs: 250, typingQuietMs: 0 },
+          })
+        );
         const worker = start(fixture, 'Worker', { channel: true });
         const boss = start(fixture, 'Boss', {
           channel: true,

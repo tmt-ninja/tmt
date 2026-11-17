@@ -523,46 +523,4 @@ describe('reply notice batching and real key debounce', { concurrent: false }, (
       { mode: 'input-log' }
     );
   });
-
-  it('delivers at the 30 s bound despite continuous attached-client typing', async () => {
-    await withE2EFixture(
-      async (fixture) => {
-        const pane = await sender(fixture);
-        settings(fixture, 100, 30000);
-        const item = await request(fixture, 'receiver');
-        const client = await terminal(fixture, pane.pane);
-        try {
-          await client.key();
-          await reply(fixture, item);
-          const first = batches(fixture)[0];
-          const began = Date.now();
-          while (
-            states(fixture)[0].reply_state === 'claimed' &&
-            batches(fixture)[0]?.sending !== 1 &&
-            Date.now() - began < 34000
-          ) {
-            await client.key();
-            await new Promise((resolve) => setTimeout(resolve, 500));
-          }
-          expect(Date.now()).toBeGreaterThanOrEqual(first.due_ms + 30000);
-          await fixture.waitFor(
-            () => states(fixture)[0].reply_state === 'sent',
-            5000,
-            'bounded forced delivery'
-          );
-          expect(submissions(fixture)).toHaveLength(1);
-          await fixture.waitForEvent(
-            (event) =>
-              event.event === 'input' &&
-              event.pid === pane.pid &&
-              event.line === `▚ ✓ receiver · batch question · tmt result ${item.id.slice(4, 12)}`
-          );
-          await gone(fixture, first.worker_pid);
-        } finally {
-          await client.close();
-        }
-      },
-      { mode: 'input-log' }
-    );
-  }, 45000);
 });

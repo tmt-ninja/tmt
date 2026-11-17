@@ -532,6 +532,68 @@ mod tests {
         assert_eq!(runtime.flushes, 1);
     }
 
+    #[test]
+    fn continuous_typing_flushes_once_at_the_hard_bound() {
+        struct Typing {
+            now: Instant,
+            start: Instant,
+            observations: usize,
+            flushes: usize,
+        }
+        impl Worker for Typing {
+            fn now(&self) -> Instant {
+                self.now
+            }
+            fn wait(&mut self, duration: Duration) {
+                assert!(!duration.is_zero());
+                self.now += duration;
+            }
+            fn input(&mut self, _: &mut Storage, _: &Batch) -> io::Result<InputState> {
+                assert!(self.now.duration_since(self.start) < Duration::from_secs(35));
+                self.observations += 1;
+                Ok(InputState::Pending)
+            }
+            fn flush(
+                &mut self,
+                _: &mut Storage,
+                _: &Batch,
+                _: &ProcessIncarnation,
+            ) -> io::Result<tmt_adapters::reply_notice::FlushOutcome> {
+                assert_eq!(self.now.duration_since(self.start), Duration::from_secs(35));
+                self.flushes += 1;
+                Ok(tmt_adapters::reply_notice::FlushOutcome::Finished)
+            }
+            fn owner_gone(&mut self, _: &ProcessIncarnation) -> io::Result<bool> {
+                panic!("a finished flush has no competing owner")
+            }
+        }
+        let mut fixture = Fixture::new();
+        let mut batch = fixture.waiting.clone();
+        batch.window_ms = 5_000;
+        batch.due_ms = WALL + 5_000;
+        batch.quiet_ms = 30_000;
+        let start = Instant::now();
+        let mut runtime = Typing {
+            now: start,
+            start,
+            observations: 0,
+            flushes: 0,
+        };
+        run_batch_with(
+            &mut fixture.storage,
+            &batch,
+            &fixture.waiter,
+            WALL,
+            &mut runtime,
+        )
+        .unwrap();
+        assert!(
+            runtime.observations > 1,
+            "typing must stay pending throughout the window"
+        );
+        assert_eq!(runtime.flushes, 1);
+    }
+
     struct GatedSender<'a> {
         now: Instant,
         release: Option<Instant>,

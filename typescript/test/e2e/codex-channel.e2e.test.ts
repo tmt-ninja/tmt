@@ -1341,6 +1341,15 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
 
   it('reply notification uses native route while a never-enrolled originator proves paste control', async () => {
     await withE2EFixture(async (f) => {
+      // This case tests routing, not the default batch duration. Keep a
+      // nonzero window so both notices still use the real worker/flush path.
+      fs.writeFileSync(
+        path.join(f.globalDir, 'config.json'),
+        JSON.stringify({
+          experimental: { channel: true },
+          notifications: { replyBatchWindowMs: 250, typingQuietMs: 0 },
+        })
+      );
       const worker = start(f, 'Worker', true);
       const boss = start(f, 'Boss', true, { MOCK_AUTOREPLY: '0' });
       const plain = start(f, 'Plain', false, { MOCK_AUTOREPLY: '0' });
