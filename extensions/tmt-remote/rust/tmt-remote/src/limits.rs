@@ -378,3 +378,16 @@ pub const ORCHESTRATION_RESPONSE_BYTES: usize = 1024 * 1024;
 
 /// Maximum audience of one Core roster dispatch.
 pub const DISPATCH_RECIPIENTS: usize = 64;
+
+/// Bounded owner-browser provider forms, including retained 64-KiB plans; never truncated here.
+pub const FORMS_RESPONSE_BYTES: usize = 1024 * 1024;
+/// Core documents at most four 2-KiB Other answers, plus choice indices and framing.
+pub const FORMS_ANSWER_BYTES: usize = 16 * 1024;
+
+// The public Core Provider forms contract owns these content bounds; never truncate here.
+pub const FORM_TEXT_BYTES: usize = 2048;
+pub const FORM_LABEL_BYTES: usize = 256;
+pub const FORM_PLAN_BYTES: usize = 64 * 1024;
+
+pub const FORM_QUESTIONS: usize = 4;
+pub const FORM_OPTIONS: usize = 8;

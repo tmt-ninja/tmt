@@ -567,3 +567,13 @@ zero. Room items carry `responsePreview`, `previewTruncated`, `parentRequestId` 
 `result(requestId)`.
 See the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 for owner-browser authority, room fields and original-only recovery.
+
+Provider forms use `forms(session)` on the existing owner-browser Session. `list({identityId?})`
+reads Core's bounded forms; `cursor()` returns only its opaque cursor/usage integers.
+The person may call `answer({operationId,formId,answer})` for an answerable, complete
+form. Persist the UUID and exact input first. On lost or uncertain delivery call
+`operation(originalId)`; never allocate another ID or resend an answer automatically.
+Core validates the option and returns its original `FORM_*` refusal. Truncated and
+permission forms stay terminal-only. Remote's same-device operation ledger owns
+recovery because Core forms.answer has no operation-ID idempotency. See the
+[provider forms contract](../../../../contracts/remote-channel-v1.md#operations).

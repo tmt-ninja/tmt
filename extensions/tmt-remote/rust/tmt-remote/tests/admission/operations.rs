@@ -3185,3 +3185,429 @@ fn orchestration_refuses_other_grants_kinds_and_actors_before_core() {
 
 #[path = "observation_fence.rs"]
 mod observation_fence;
+
+fn provider_form(id: &str) -> Value {
+    json!({"formId":id,"identityId":Core::PERSON,"openedMs":1,"kind":"question",
+        "questions":[{"text":"Pick a synthetic option","choice":"single","options":[{"label":"One"}],"freeText":false}],
+        "truncated":false,"answerable":true,"answerIn":"client"})
+}
+fn form_answer(
+    owner: &OwnerDoor,
+    operations: &Arc<Operations>,
+    session: &str,
+    sequence: usize,
+    operation: &str,
+    form: &str,
+    answer: Value,
+) -> Value {
+    let input = json!({"version":1,"operation":"forms.answer","input":{"operationId":operation,"formId":form,"answer":answer}});
+    let mut wire = owner.wire(
+        session,
+        &sequence.to_string(),
+        "forms.answer",
+        input.to_string().as_bytes(),
+    );
+    wire["id"] = json!(operation);
+    owner.resign(&mut wire);
+    append(owner, Arc::clone(operations), &wire)
+}
+#[test]
+fn provider_form_reads_are_bounded_owner_only_and_keep_core_content() {
+    let core = Core::new();
+    let owner = OwnerDoor::owner_browser("direct");
+    let ops = core.operations();
+    let session = owner.open();
+    let id = uuid_v4().unwrap();
+    let mut form = provider_form(&id);
+    form["toolUseId"] = json!("not public");
+    fs::write(core.root.join("forms"), json!({"forms":[form]}).to_string()).unwrap();
+    let reply = orchestrate(
+        &owner,
+        &ops,
+        &session,
+        1,
+        "forms.list",
+        json!({"identityId":Core::PERSON}),
+    );
+    assert_eq!(reply, json!({"forms":[provider_form(&id)]}));
+    fs::write(
+        core.root.join("forms-cursor"),
+        json!({"cursor":7,"usage":3,"private":"not public"}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        orchestrate(&owner, &ops, &session, 2, "changes.cursor", json!({})),
+        json!({"cursor":7,"usage":3})
+    );
+    fs::write(
+        core.root.join("forms-cursor"),
+        json!({"cursor":9007199254740992u64}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        orchestrate(&owner, &ops, &session, 3, "changes.cursor", json!({}))["error"]["code"],
+        "REMOTE_CORE_UNAVAILABLE"
+    );
+    for (kind, agents, scopes) in [
+        ("cli", "all".to_owned(), vec!["agents.read", "talk"]),
+        ("addon", "all".to_owned(), vec!["agents.read", "talk"]),
+        (
+            "foreign-browser",
+            "all".to_owned(),
+            vec!["agents.read", "talk"],
+        ),
+        (
+            "browser",
+            format!("[\"{}\"]", Core::PERSON),
+            vec!["agents.read", "talk"],
+        ),
+        ("browser", "all".to_owned(), vec![]),
+    ] {
+        let gate = OwnerDoor::with_device(
+            scopes.into_iter().map(str::to_owned).collect(),
+            "direct",
+            agents,
+            None,
+            kind,
+        );
+        if kind == "foreign-browser" {
+            assert!(gate.open_refused());
+            continue;
+        }
+        let opened = gate.open();
+        let before = core.calls().len();
+        for (n, operation) in ["forms.list", "changes.cursor"].iter().enumerate() {
+            assert_eq!(
+                orchestrate(&gate, &ops, &opened, n + 1, operation, json!({}))["error"]["code"],
+                "REMOTE_SCOPE_DENIED"
+            );
+        }
+        let result = form_answer(
+            &gate,
+            &ops,
+            &opened,
+            3,
+            &uuid_v4().unwrap(),
+            &id,
+            json!({"choices":[[0]]}),
+        );
+        assert_eq!(result["error"]["code"], "REMOTE_SCOPE_DENIED");
+        assert_eq!(core.calls().len(), before);
+    }
+    let read_only = OwnerDoor::with_device(
+        vec!["agents.read".into()],
+        "direct",
+        "all".into(),
+        None,
+        "browser",
+    );
+    let opened = read_only.open();
+    let before = core.calls().len();
+    assert_eq!(
+        form_answer(
+            &read_only,
+            &ops,
+            &opened,
+            1,
+            &uuid_v4().unwrap(),
+            &id,
+            json!({"choices":[[0]]})
+        )["error"]["code"],
+        "REMOTE_SCOPE_DENIED"
+    );
+    assert_eq!(core.calls().len(), before, "answer requires talk");
+}
+#[test]
+fn provider_form_answers_retain_the_first_outcome_across_prune_without_resending() {
+    let core = Core::new();
+    let owner = OwnerDoor::owner_browser("direct");
+    let ops = core.operations();
+    let session = owner.open();
+    let form = uuid_v4().unwrap();
+    fs::write(
+        core.root.join("forms"),
+        json!({"forms":[provider_form(&form)]}).to_string(),
+    )
+    .unwrap();
+    let id = uuid_v4().unwrap();
+    let accepted = form_answer(
+        &owner,
+        &ops,
+        &session,
+        1,
+        &id,
+        &form,
+        json!({"choices":[[0]]}),
+    );
+    assert_eq!(
+        accepted,
+        json!({"operationId":id,"formId":form,"state":"accepted","delivered":true})
+    );
+    assert_eq!(
+        core.calls().last().unwrap(),
+        &json!({"version":1,"operation":"forms.answer","input":{"formId":form,"answer":{"choices":[[0]]}}})
+    );
+    // Another adoption runs the real journal prune. A non-dispatch answer must survive it.
+    let dispatch = wire(
+        &owner,
+        &session,
+        2,
+        &uuid_v4().unwrap(),
+        ORCH_MEMBER,
+        "synthetic prune trigger",
+    );
+    append(&owner, Arc::clone(&ops), &dispatch);
+    let calls = core.calls().len();
+    assert_eq!(
+        form_answer(
+            &owner,
+            &core.operations(),
+            &session,
+            3,
+            &id,
+            &form,
+            json!({"choices":[[0]]})
+        ),
+        accepted
+    );
+    let lookup = owner.wire(
+        &session,
+        "4",
+        "operation.show",
+        json!({"operationId":id}).to_string().as_bytes(),
+    );
+    assert_eq!(append(&owner, Arc::clone(&ops), &lookup), accepted);
+    assert_eq!(
+        core.calls().len(),
+        calls,
+        "same-ID retry and recovery make zero Core calls after prune"
+    );
+    assert_eq!(
+        core.calls()
+            .iter()
+            .filter(|c| c["operation"] == "forms.answer")
+            .count(),
+        1
+    );
+    let conflict = form_answer(
+        &owner,
+        &ops,
+        &session,
+        5,
+        &id,
+        &form,
+        json!({"choices":[[7]]}),
+    );
+    assert_eq!(conflict["error"]["code"], "REMOTE_INTENT_CONFLICT");
+    assert_eq!(core.calls().len(), calls);
+    let mut sequence = 6;
+    for (code, state) in [
+        ("FORM_DELIVERY_UNSUPPORTED", "refused"),
+        ("FORM_ANSWER_INVALID", "refused"),
+        ("FORM_DELIVERY_UNCERTAIN", "uncertain"),
+    ] {
+        fs::write(
+            core.root.join("forms-error"),
+            format!("{code}|Core synthetic refusal"),
+        )
+        .unwrap();
+        let operation = uuid_v4().unwrap();
+        // Remote does not validate which option exists; the exact index reaches Core.
+        let first = form_answer(
+            &owner,
+            &ops,
+            &session,
+            sequence,
+            &operation,
+            &form,
+            json!({"choices":[[999]]}),
+        );
+        sequence += 1;
+        assert_eq!(first["state"], state, "{first}");
+        assert_eq!(first["reason"], code);
+        assert_eq!(first["message"], "Core synthetic refusal");
+        let calls = core.calls().len();
+        assert_eq!(
+            form_answer(
+                &owner,
+                &ops,
+                &session,
+                sequence,
+                &operation,
+                &form,
+                json!({"choices":[[999]]})
+            ),
+            first
+        );
+        sequence += 1;
+        assert_eq!(
+            core.calls().len(),
+            calls,
+            "uncertain and refused never resend"
+        );
+    }
+    fs::remove_file(core.root.join("forms-error")).unwrap();
+    for (kind, truncated, answerable, code) in [
+        ("question", true, true, "FORM_ANSWER_INVALID"),
+        ("planApproval", true, true, "FORM_ANSWER_INVALID"),
+        ("permission", false, true, "FORM_DELIVERY_UNSUPPORTED"),
+        ("question", false, false, "FORM_DELIVERY_UNSUPPORTED"),
+    ] {
+        let mut f = provider_form(&form);
+        f["kind"] = json!(kind);
+        f["truncated"] = json!(truncated);
+        f["answerable"] = json!(answerable);
+        f["answerIn"] = json!(if answerable { "client" } else { "terminal" });
+        fs::write(core.root.join("forms"), json!({"forms":[f]}).to_string()).unwrap();
+        let before = core
+            .calls()
+            .iter()
+            .filter(|c| c["operation"] == "forms.answer")
+            .count();
+        let refused = form_answer(
+            &owner,
+            &ops,
+            &session,
+            sequence,
+            &uuid_v4().unwrap(),
+            &form,
+            json!({"choices":[[0]]}),
+        );
+        sequence += 1;
+        assert_eq!(refused["reason"], code, "{refused}");
+        assert_eq!(
+            core.calls()
+                .iter()
+                .filter(|c| c["operation"] == "forms.answer")
+                .count(),
+            before,
+            "refusal gate never forwards"
+        );
+    }
+    fs::write(core.root.join("forms"), json!({"forms":[]} ).to_string()).unwrap();
+    let before = core
+        .calls()
+        .iter()
+        .filter(|c| c["operation"] == "forms.answer")
+        .count();
+    let missing = form_answer(
+        &owner,
+        &ops,
+        &session,
+        sequence,
+        &uuid_v4().unwrap(),
+        &form,
+        json!({"choices":[[0]]}),
+    );
+    sequence += 1;
+    assert_eq!(missing["reason"], "FORM_NOT_FOUND");
+    assert_eq!(
+        core.calls()
+            .iter()
+            .filter(|c| c["operation"] == "forms.answer")
+            .count(),
+        before
+    );
+    // A failed observation is definitely pre-delivery, even after the durable marker.
+    for (label, page) in [
+        ("unavailable", "not-json".to_owned()),
+        ("malformed", json!({"forms":{}}).to_string()),
+        (
+            "over-bound",
+            json!({"forms":[{"oversized":"x".repeat(1024 * 1024)}]}).to_string(),
+        ),
+    ] {
+        fs::write(core.root.join("forms"), page).unwrap();
+        let operation = uuid_v4().unwrap();
+        let answers_before = core
+            .calls()
+            .iter()
+            .filter(|c| c["operation"] == "forms.answer")
+            .count();
+        let refused = form_answer(
+            &owner,
+            &ops,
+            &session,
+            sequence,
+            &operation,
+            &form,
+            json!({"choices":[[0]]}),
+        );
+        sequence += 1;
+        assert_eq!(
+            refused,
+            json!({"operationId":operation,"formId":form,"state":"refused","reason":"REMOTE_CORE_UNAVAILABLE"}),
+            "pre-read {label} is not delivery uncertainty"
+        );
+        assert_eq!(
+            core.calls()
+                .iter()
+                .filter(|c| c["operation"] == "forms.answer")
+                .count(),
+            answers_before,
+            "pre-read {label} never answers"
+        );
+        let calls = core.calls().len();
+        assert_eq!(
+            form_answer(
+                &owner,
+                &core.operations(),
+                &session,
+                sequence,
+                &operation,
+                &form,
+                json!({"choices":[[0]]})
+            ),
+            refused
+        );
+        sequence += 1;
+        assert_eq!(
+            core.calls().len(),
+            calls,
+            "pre-read refusal replay never calls Core"
+        );
+    }
+    // Crash boundary: adoption is durable even when execution never reaches Core.
+    let marker_id = uuid_v4().unwrap();
+    let input = json!({"version":1,"operation":"forms.answer","input":{"operationId":marker_id,"formId":form,"answer":{"choices":[[0]]}}});
+    let mut marker = owner.wire(
+        &session,
+        &sequence.to_string(),
+        "forms.answer",
+        input.to_string().as_bytes(),
+    );
+    sequence += 1;
+    marker["id"] = json!(marker_id);
+    owner.resign(&mut marker);
+    let permit = owner
+        .sessions
+        .admit(
+            tmt_remote::admission::BindingAction::Append,
+            owner.request_origin(),
+            &serde_json::to_vec(&marker).unwrap(),
+            65536,
+        )
+        .unwrap();
+    let pending = permit.adopt(None, std::slice::from_ref(&form)).unwrap();
+    drop(permit);
+    assert_eq!(pending.phase, "uncertain");
+    let calls = core.calls().len();
+    let recovered = form_answer(
+        &owner,
+        &core.operations(),
+        &session,
+        sequence,
+        &marker_id,
+        &form,
+        json!({"choices":[[0]]}),
+    );
+    assert_eq!(
+        recovered,
+        json!({"operationId":marker_id,"formId":form,"state":"uncertain","reason":"REMOTE_CORE_UNCERTAIN"})
+    );
+    assert_eq!(
+        core.calls().len(),
+        calls,
+        "a committed pre-call marker never starts an answer on recovery"
+    );
+}

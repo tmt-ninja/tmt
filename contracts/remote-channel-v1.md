@@ -1622,11 +1622,69 @@ applies its published public Core mapping after narrowing supported operations a
 | `requests.sendNow`                                                                              | `talk`; the owner's own browser only, for a request this device sent ([Send now](#send-now)). Core runs `requests.sendNow` for the person.                                                                                                                |
 | `orchestration.read`                                                                            | `agents.read`; the owner's own-origin browser holding every agent only; Core's input passes through unchanged (Owner-browser orchestration below).                                                                              |
 | `orchestration.write`                                                                           | `talk`; the same grant; only `focus.set`, `focus.clear`, `route.allow`, `talks.resume` and on/off-only `plan.set`, never with an `actorId`; Core's preview and apply pass through unchanged.                                                                                      |
-| global `changes.cursor`, `references.resolve`, `rooms.roster`                                   | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                                      |
+| `references.resolve`, `rooms.roster`                                   | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                                      |
 | `notes.read`, `rooms.write`, `rooms.retire`                                                     | Unsupported in v1.                                                                                                                                                                                                                                        |
 | `identityHooks.*`, `skills.install`, `skills.remove`                                            | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                                               |
-| reply/answer, X acknowledgment, core/provider config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                                          |
+| Core message reply/answer, X acknowledgment, core/provider config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                                          |
 | any other command, argv or shell                                                                | Never; there is no generic command endpoint.                                                                                                                                                                                                              |
+
+**Owner-browser provider forms.** These signed operations use the existing
+`{version:1,operation,input}` envelope and [Core Provider forms](extension-api.md#provider-forms):
+
+- `forms.list` `{identityId?}` and `changes.cursor` `{}` require `agents.read`.
+- `forms.answer` `{operationId,formId,answer}` requires `talk`.
+
+All three require this door's own-origin owner browser and a grant covering every
+agent, as for orchestration; CLI, add-on, foreign-browser and subset grants are
+refused before Core. Recovery of a form answer through `operation.show`
+`{operationId}` has the same owner/every-agent gate and existing `talk` scope.
+Reads use the existing permit pre/post revalidation and own no effect fence.
+Only Core's `cursor` and optional `usage` nonnegative JavaScript-safe integers cross
+`changes.cursor`; compare opaque values for equality within one data root only.
+Forms advance Core's ordinary cursor, with no Remote form event or polling owner.
+
+`forms.list` returns `{forms:[...]}` with Core's documented form IDs, identity IDs,
+opened time, kind, optional questions/options/tool/plan, `truncated`, `answerable`
+and `answerIn`. No provider tool-use ID or other private fields cross the projection.
+Remote and the SDK keep Core's 4-question/8-option, 2-KiB text, 256-byte label and
+64-KiB plan bounds. The full forms response is bounded at 1 MiB; excess or malformed
+output is unavailable, never truncated by Remote. A truncated or terminal-only
+form stays a terminal action; only the person answers a provider form, never an agent.
+
+The answer takes Core's documented choice lists and optional Other texts, or the
+plan decision. Remote validates only the bounded structural shape (answer JSON at
+most 16 KiB), not whether an option exists or fits the form; Core remains the
+validator. A pre-read refuses a missing form, any truncated form (including a plan)
+or a terminal-only form before forwarding an answer. It does not replace Core's
+freshness, sent-state, host/version or option checks. Only `{formId,answer}` reaches
+Core; Remote's `operationId` must equal the signed envelope ID. The actual Core
+answer runs under the existing live-grant and durable effect fence.
+
+Core `forms.answer` has **no operation-ID idempotency**. Remote deduplicates an
+admitted frozen answer by `operationId` only for the same paired device in the
+existing operation ledger. Persist the ID and exact answer before sending. A
+committed uncertain marker precedes every possible Core answer call; only the
+fresh adoption may invoke it. The result is `{operationId,formId,state:"accepted",
+delivered:true}`, or `{operationId,formId,state:"refused"|"uncertain",reason,message?}`.
+Documented Core `FORM_*` codes, including `FORM_DELIVERY_UNSUPPORTED` and
+`FORM_DELIVERY_UNCERTAIN`, are preserved; a bounded plain Core message may accompany
+them. A failed, malformed or oversized pre-read settles as `refused` with
+`REMOTE_CORE_UNAVAILABLE` and no Core message because no answer was attempted.
+Unknown/malformed or lost outcomes during or after an answer call stay uncertain.
+Same-ID replay and
+`operation.show` observe the stored first outcome and never call Core again, even
+after restart or journal pruning. An unfinished/crashed marker is uncertain;
+only its original in-flight invocation may settle Core's result. A settled
+uncertain outcome never authorizes resend. Reusing an ID for another answer is
+`REMOTE_INTENT_CONFLICT`. The existing 30-day recovery horizon and operation cap
+apply; capacity pruning keeps form outcomes during retention and never drops live
+uncertain answers. Retaining form outcomes can exhaust the shared operation cap
+and block new adoptions until finished records age out; live uncertain answers
+remain retained. There is no automatic answer retry or new control endpoint.
+
+The SDK `forms(session)` reuses the verified Session lane and exposes `list`,
+`cursor`, `answer({operationId,formId,answer})` and `operation(operationId)`; creating
+it opens nothing. GUI owns the eventual form controls, separately from this API.
 
 **Owner-browser orchestration.** Signed `orchestration.read` and `orchestration.write` (#4894) take
 Core's own input (`{version:1,operation,input}`, [Orchestration v1](orchestration-v1.md)) and

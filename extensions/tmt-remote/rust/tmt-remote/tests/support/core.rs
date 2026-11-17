@@ -70,7 +70,7 @@ if args[0]=='check':
 wire=json.load(sys.stdin)
 receipt_file=root/('receipt-'+wire.get('input',{}).get('operationId','') if (root/'multi').exists() else 'receipt')
 with (root/'calls').open('a') as f: f.write(json.dumps(wire)+'\n')
-if wire['operation'] in ('identities.status','requests.list','requests.show','orchestration.read','dispatch.show','user.person'):
+if wire['operation'] in ('identities.status','requests.list','requests.show','orchestration.read','dispatch.show','user.person','forms.list','changes.cursor'):
     selected=root/'observation-operation'
     if (not selected.exists() and wire['operation']!='user.person') or (selected.exists() and selected.read_text()==wire['operation']):
         observation_gate()
@@ -96,6 +96,19 @@ elif wire['operation']=='dispatch.create':
     if (root/'lost').exists(): print('broken')
     else:
         receipt['wake']={'status':'uncertain','paneAttempted':True};print(json.dumps(receipt))
+elif wire['operation']=='forms.list':
+    forms=json.loads((root/'forms').read_text()) if (root/'forms').exists() else {'forms':[]}
+    selected=wire.get('input',{}).get('identityId')
+    if selected: forms['forms']=[f for f in forms['forms'] if f['identityId']==selected]
+    print(json.dumps(forms))
+elif wire['operation']=='changes.cursor':
+    print((root/'forms-cursor').read_text() if (root/'forms-cursor').exists() else json.dumps({'cursor':7,'usage':3}))
+elif wire['operation']=='forms.answer':
+    assert set(wire['input'])=={'formId','answer'}
+    if (root/'forms-error').exists():
+        code,message=(root/'forms-error').read_text().split('|',1)
+        print(json.dumps({'error':{'code':code,'message':message}}));sys.exit(1)
+    print(json.dumps({'formId':wire['input']['formId'],'delivered':True}))
 elif wire['operation']=='user.identity':
     if (root/'identity-error').exists():
         code,message=(root/'identity-error').read_text().split('|',1)
