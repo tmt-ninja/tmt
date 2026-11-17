@@ -357,22 +357,44 @@ mod tests {
         );
     }
 
+    // The test runner writes a preamble to stdout. Route only its stderr to the
+    // startup pipe and discard the preamble before executing the fixture.
+    const WORKER_SCRIPT: &str = "export TMT_DETACHED_FIXTURE_PID=\"$1\" TMT_DETACHED_FIXTURE_ACK=\"$2\"; exec \"$3\" --exact process::detached::tests::detached_worker_fixture --nocapture --test-threads=1 2>&1 >/dev/null";
+
+    #[test]
+    fn detached_worker_fixture() {
+        let Some(pid_file) = std::env::var_os("TMT_DETACHED_FIXTURE_PID") else {
+            return;
+        };
+        enter().unwrap();
+        fs::write(pid_file, std::process::id().to_string()).unwrap();
+        if std::env::var_os("TMT_DETACHED_FIXTURE_ACK").as_deref() == Some(OsStr::new("yes")) {
+            io::stderr().write_all(b"R").unwrap();
+        }
+        loop {
+            thread::park();
+        }
+    }
+
     #[test]
     fn timed_out_startup_kills_its_group_and_reaps_the_child() {
         let directory = TestDirectory::new();
         let pid_file = directory.path.join("timeout.pid");
         let log = File::create(directory.path.join("timeout.log")).unwrap();
         let error = start_acknowledged(
-            OsStr::new("python3"),
+            OsStr::new("/bin/sh"),
             &[
                 "-c".into(),
-                "import os, signal, sys; os.setsid(); open(sys.argv[1], 'w').write(str(os.getpid())); signal.pause()".into(),
+                WORKER_SCRIPT.into(),
+                "observer-fixture".into(),
                 pid_file.as_os_str().to_owned(),
+                "no".into(),
+                std::env::current_exe().unwrap().into_os_string(),
             ],
             log,
             b"R",
             false,
-            Instant::now() + Duration::from_secs(3),
+            Instant::now() + Duration::from_millis(300),
             None,
         )
         .unwrap_err();
@@ -399,11 +421,14 @@ mod tests {
         let pid_file = directory.path.join("acknowledged.pid");
         let log = File::create(directory.path.join("acknowledged.log")).unwrap();
         start(
-            OsStr::new("python3"),
+            OsStr::new("/bin/sh"),
             &[
                 "-c".into(),
-                "import os, signal, sys; os.setsid(); open(sys.argv[1], 'w').write(str(os.getpid())); os.write(1, b'R'); signal.pause()".into(),
+                WORKER_SCRIPT.into(),
+                "observer-fixture".into(),
                 pid_file.as_os_str().to_owned(),
+                "yes".into(),
+                std::env::current_exe().unwrap().into_os_string(),
             ],
             log,
         )
