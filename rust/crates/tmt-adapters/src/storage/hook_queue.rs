@@ -208,6 +208,40 @@ impl HookQueue {
     pub fn exists(database: &Path) -> bool {
         fs::symlink_metadata(Self::path(database)).is_ok()
     }
+    /// Read-only check with no write lock for uncommitted rows; a row arriving
+    /// concurrently after this returns `false` stays queued for `__flush`.
+    pub fn has_pending(database: &Path) -> bool {
+        if !Self::exists(database) {
+            return false;
+        }
+        let Ok(path) = admit_existing_path(database) else {
+            return true;
+        };
+        let Ok(connection) = Connection::open_with_flags(
+            &path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        ) else {
+            return true;
+        };
+        let _ = connection.busy_timeout(Duration::ZERO);
+        let Ok(version): Result<u32, _> =
+            connection.query_row("PRAGMA user_version", [], |r| r.get(0))
+        else {
+            return true;
+        };
+        if version != QUEUE_SCHEMA_VERSION {
+            return false;
+        }
+        connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM hook_writes WHERE committed=0)",
+                [],
+                |r| r.get::<_, bool>(0),
+            )
+            .unwrap_or(true)
+    }
     pub fn open(database: &Path, wait: Duration) -> Result<Self, StorageError> {
         Self::connect(database, wait, false)
     }
@@ -254,36 +288,25 @@ impl HookQueue {
             .map_err(|e| classify(e, "Publish Core queue initialization"))
     }
     fn connect(database: &Path, wait: Duration, initialize: bool) -> Result<Self, StorageError> {
-        let selected = Self::path(database);
-        let directory = selected
-            .parent()
-            .ok_or_else(|| invalid("No hook queue directory"))?;
-        // Core selects the trusted root; admit its real directory as the shared
-        // state leaf does, including macOS aliases and owner-selected root links.
-        let directory = fs::canonicalize(directory)
-            .map_err(|e| super::errors::classify_io(e, "Resolve hook queue root"))?;
-        let path = directory.join("hook-writes.db");
-        if initialize {
+        let path = if initialize {
+            let selected = Self::path(database);
+            let directory = selected
+                .parent()
+                .ok_or_else(|| invalid("No hook queue directory"))?;
+            // Core selects the trusted root; admit its real directory as the shared
+            // state leaf does, including macOS aliases and owner-selected root links.
+            let directory = fs::canonicalize(directory)
+                .map_err(|e| super::errors::classify_io(e, "Resolve hook queue root"))?;
+            let path = directory.join("hook-writes.db");
             crate::private_file::ensure_private_directory(&directory)
                 .map_err(|e| super::errors::classify_io(e, "Admit hook queue directory"))?;
             create_database(&path)
                 .map_err(|e| super::errors::classify_io(e, "Admit hook queue database"))?;
+            admit_sidecars(&path)?;
+            path
         } else {
-            if !crate::private_file::directory_is_private(&directory) {
-                return Err(unavailable("Hook queue is not initialized"));
-            }
-            if !admit_file(&path)
-                .map_err(|e| super::errors::classify_io(e, "Admit hook queue database"))?
-            {
-                return Err(unavailable("Hook queue is not initialized"));
-            }
-        }
-        for suffix in ["-wal", "-shm", "-journal"] {
-            let mut file = path.as_os_str().to_os_string();
-            file.push(suffix);
-            admit_file(Path::new(&file))
-                .map_err(|e| super::errors::classify_io(e, "Admit hook queue sidecar"))?;
-        }
+            admit_existing_path(database)?
+        };
         let mut connection = Connection::open_with_flags(
             &path,
             OpenFlags::SQLITE_OPEN_READ_WRITE
@@ -346,9 +369,12 @@ impl HookQueue {
             }
             tx.commit()
                 .map_err(|e| classify(e, "Commit hook queue initialization"))?;
-            File::open(&directory)
-                .and_then(|f| f.sync_all())
-                .map_err(|e| super::errors::classify_io(e, "Sync hook queue directory"))?;
+            File::open(
+                path.parent()
+                    .ok_or_else(|| invalid("No hook queue directory"))?,
+            )
+            .and_then(|f| f.sync_all())
+            .map_err(|e| super::errors::classify_io(e, "Sync hook queue directory"))?;
         }
         // A matching version alone is not a compatible queue: damaged or
         // foreign tables must select the documented direct fallback.
@@ -617,6 +643,34 @@ impl HookQueue {
             .map_err(|e| classify(e, "Finish hook queue empty handoff"))?;
         Ok(empty)
     }
+}
+
+fn admit_existing_path(database: &Path) -> Result<PathBuf, StorageError> {
+    let selected = HookQueue::path(database);
+    let directory = selected
+        .parent()
+        .ok_or_else(|| invalid("No hook queue directory"))?;
+    let directory = fs::canonicalize(directory)
+        .map_err(|e| super::errors::classify_io(e, "Resolve hook queue root"))?;
+    let path = directory.join("hook-writes.db");
+    if !crate::private_file::directory_is_private(&directory) {
+        return Err(unavailable("Hook queue is not initialized"));
+    }
+    if !admit_file(&path).map_err(|e| super::errors::classify_io(e, "Admit hook queue database"))? {
+        return Err(unavailable("Hook queue is not initialized"));
+    }
+    admit_sidecars(&path)?;
+    Ok(path)
+}
+
+fn admit_sidecars(path: &Path) -> Result<(), StorageError> {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut file = path.as_os_str().to_os_string();
+        file.push(suffix);
+        admit_file(Path::new(&file))
+            .map_err(|e| super::errors::classify_io(e, "Admit hook queue sidecar"))?;
+    }
+    Ok(())
 }
 
 fn invalid(message: &str) -> StorageError {

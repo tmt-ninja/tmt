@@ -144,21 +144,18 @@ pub(crate) fn launch(host: HostKind, provider: &str) -> Launch {
             ))
             .unwrap()
     );
-    let learning = Learning {
-        launch: HookLaunch {
+    let learning = Learning::with_role(
+        HookLaunch {
             identity_id: identity.id.clone(),
             binding_id: binding.id.clone(),
             owner_pid: owner.pid(),
             startup_input: false,
             owner_start: owner.start_identity().into(),
         },
-        driver: driver.clone(),
-        paths: paths.clone(),
-        role: Cell::new(Role::Binding),
-        deferred: Cell::new(false),
-        queued_capture: Cell::new(false),
-        terminal: RefCell::new(TerminalDiagnostic::default()),
-    };
+        driver.clone(),
+        paths.clone(),
+        Role::Binding,
+    );
     Launch {
         directory,
         paths,
@@ -856,5 +853,119 @@ fn a_missing_start_does_not_replace_a_digest_stop_diagnostic() {
     assert_eq!(
         launch.diagnostic().unwrap().detail,
         Some("digest_stop:worker_timeout")
+    );
+}
+
+struct CountingRunner(std::sync::atomic::AtomicUsize);
+
+impl CommandRunner for CountingRunner {
+    fn execute(
+        &self,
+        request: CommandRequest<'_>,
+    ) -> std::result::Result<
+        tmt_adapters::process::CommandOutput,
+        tmt_adapters::process::CommandError,
+    > {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        UnixCommandRunner.execute(request)
+    }
+}
+
+#[test]
+fn owner_is_probed_once_per_learning_and_settled_becomes_a_noop() {
+    use std::sync::atomic::Ordering;
+    let mut launch = launch(HostKind::pty(), "claude");
+    let runner = CountingRunner(std::sync::atomic::AtomicUsize::new(0));
+    let deadline = launch.deadline;
+    launch
+        .learning
+        .stage_with(&runner, SessionLearningStep::Input, deadline)
+        .unwrap();
+    launch
+        .learning
+        .stage_with(&runner, SessionLearningStep::Decode, deadline)
+        .unwrap();
+    launch
+        .learning
+        .note_with(
+            &runner,
+            SessionLearningDetail::Refused(SessionLearningEvent::SessionStart),
+            deadline,
+        )
+        .unwrap();
+    launch
+        .learning
+        .fail_with(&runner, SessionLearningReason::WorkerError, deadline)
+        .unwrap();
+    assert_eq!(
+        runner.0.load(Ordering::Relaxed),
+        1,
+        "owner incarnation is probed once per process across repeated Learning updates"
+    );
+    assert_eq!(
+        stored(&launch),
+        "decode: worker_error, refused:lifecycle:SessionStart"
+    );
+
+    // Transition the launch row to Settled with a diagnostic; the first call observes
+    // Settled and caches it so repeated stage/note/fail/succeeded calls are no-ops.
+    launch
+        .storage
+        .with_binding_transaction(|records| {
+            let observed = records
+                .launch_observation(&launch.binding.id, &launch.owner)?
+                .unwrap();
+            settle(
+                records,
+                &observed,
+                LaunchStatus::Settled,
+                observed.diagnostic,
+            )
+        })
+        .unwrap();
+    launch
+        .learning
+        .stage_with(&runner, SessionLearningStep::HostDiscovery, deadline)
+        .unwrap();
+    launch
+        .learning
+        .stage_with(&runner, SessionLearningStep::PaneSnapshot, deadline)
+        .unwrap();
+    launch
+        .learning
+        .note_with(
+            &runner,
+            SessionLearningDetail::Refused(SessionLearningEvent::Stop),
+            deadline,
+        )
+        .unwrap();
+    launch
+        .learning
+        .fail_with(&runner, SessionLearningReason::BudgetTimeout, deadline)
+        .unwrap();
+    launch.learning.succeeded_with(&runner, deadline).unwrap();
+    assert_eq!(runner.0.load(Ordering::Relaxed), 1);
+    assert_eq!(
+        stored(&launch),
+        "decode: worker_error, refused:lifecycle:SessionStart"
+    );
+
+    // A fresh Learning whose cached owner has no matching launch row in SQLite
+    // still fails at storage commit rather than trusting the cached owner.
+    let stale_owner = ProcessIncarnation::new(launch.owner.pid(), "replaced-owner").unwrap();
+    let stale_learning = Learning::with_role(
+        HookLaunch {
+            owner_start: stale_owner.start_identity().into(),
+            ..launch.learning.launch.clone()
+        },
+        launch.driver.clone(),
+        launch.paths.clone(),
+        Role::Binding,
+    );
+    *stale_learning.verified_owner.borrow_mut() = Some(stale_owner);
+    assert!(
+        stale_learning
+            .stage_with(&runner, SessionLearningStep::Input, deadline)
+            .is_err()
     );
 }

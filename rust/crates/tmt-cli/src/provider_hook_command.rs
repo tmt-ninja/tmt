@@ -95,20 +95,21 @@ pub fn execute(
             if turn_end || named_turn_end(lifecycle, input.as_bytes()) {
                 learning.defer_stop();
             } else {
-                let _ = learning.stage(Step::Input, deadline);
-            }
-            // Only a lifecycle event can bind the launch; every other run keeps what an earlier
-            // run stored for it (see `Learning::set_role`).
-            let role = hook_role(lifecycle, input.as_bytes());
-            learning.set_role(role);
-            if role == Role::Binding {
-                let _ = learning.stage(Step::Input, deadline);
+                // Only a lifecycle event can bind the launch; set the role before
+                // staging Input so Observer hooks skip intermediate stages.
+                let role = hook_role(lifecycle, input.as_bytes());
+                learning.set_role(role);
+                if !worker {
+                    let _ = learning.stage(Step::Input, deadline);
+                }
             }
         }
         if worker {
             return observe(provider, &input, deadline, activity_only, learning.as_ref());
         }
-        if let Some(learning) = &learning {
+        if let Some(learning) = &learning
+            && learning.is_binding()
+        {
             let _ = learning.stage(Step::DriverAdmission, deadline);
         }
         lifecycle
@@ -141,6 +142,7 @@ pub fn execute(
     if !worker
         && result.is_ok()
         && let Some(learning) = &learning
+        && learning.is_binding()
     {
         let _ = learning.succeeded(diagnostic_deadline);
     }
@@ -260,7 +262,7 @@ fn adopt_initial_session(
     lifecycle: &dyn RuntimeLifecycle,
     session: &ProviderSessionId,
     deadline: Instant,
-) -> Result<(), ()> {
+) -> Result<bool, ()> {
     use tmt_core::binding::session::{BindingSessionState, ObservedSessionKey, SessionTransition};
     let binding = bound.stored.entry.binding.as_ref().ok_or(())?;
     if binding.session != BindingSessionState::default()
@@ -268,7 +270,7 @@ fn adopt_initial_session(
         || !bound.stored.preferences.retained.is_empty()
         || bound.host.shared()
     {
-        return Ok(());
+        return Ok(false);
     }
     // Preserve each driver's activity-process fence before any durable write.
     // In particular, incomplete channel coordinates must not admit a session.
@@ -283,7 +285,7 @@ fn adopt_initial_session(
         .as_ref()
         != Some(&bound.process)
     {
-        return Ok(());
+        return Ok(false);
     }
     if !matches!(
         evaluate_binding(
@@ -295,7 +297,7 @@ fn adopt_initial_session(
         return Err(());
     }
     let Some(mode) = lifecycle.mode(bound.host) else {
-        return Ok(());
+        return Ok(false);
     };
     let next = binding
         .session
@@ -313,16 +315,16 @@ fn adopt_initial_session(
     // Adoption is optional: a busy store or a lost CAS leaves the event to the
     // existing observation path with its stored snapshot, never drops it.
     let Ok(mut storage) = Storage::open_hook(&bound.paths.database, deadline) else {
-        return Ok(());
+        return Ok(false);
     };
     let changed = commit_initial_session(&mut storage, &bound.stored, &next, &preferences);
     let _ = storage.close();
     if !matches!(changed, Ok(true)) {
-        return Ok(());
+        return Ok(false);
     }
     bound.stored.entry.binding.as_mut().ok_or(())?.session = next;
     bound.stored.preferences = preferences;
-    Ok(())
+    Ok(true)
 }
 
 fn commit_initial_session(
@@ -899,7 +901,9 @@ fn verified_caller<R: CommandRunner + Clone>(
             panes,
             pane,
         } = observed;
-        if let Some(learning) = learning {
+        if let Some(learning) = learning
+            && learning.is_binding()
+        {
             let _ = learning.stage(Step::ProviderVerification, deadline);
         }
         let process = lifecycle
@@ -1021,7 +1025,8 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
     runner: R,
     learning: Option<&Learning>,
 ) -> Result<Option<HookPane<R>>, CallerProbeFailure> {
-    if let Some(learning) = learning {
+    let stage_learning = learning.filter(|learning| learning.is_binding());
+    if let Some(learning) = stage_learning {
         let _ = learning.stage(Step::HostDiscovery, deadline);
     }
     let environment = CallerEnvironment::current();
@@ -1042,7 +1047,7 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
             Err(CallerProbeFailure::Pane)
         };
     };
-    if let Some(learning) = learning {
+    if let Some(learning) = stage_learning {
         let _ = learning.stage(Step::PaneSnapshot, deadline);
     }
     let snapshot = panes
@@ -1064,7 +1069,7 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
     {
         return Err(CallerProbeFailure::Pane);
     }
-    if let Some(learning) = learning {
+    if let Some(learning) = stage_learning {
         let _ = learning.stage(Step::Storage, deadline);
     }
     let stored = Storage::context_by_pane(
@@ -1277,7 +1282,9 @@ fn observe(
     activity_only: bool,
     learning: Option<&Learning>,
 ) -> Result<Observation, ()> {
-    if let Some(learning) = learning {
+    if let Some(learning) = learning
+        && learning.is_binding()
+    {
         let _ = learning.stage(Step::Decode, deadline);
     }
     let registry = RuntimeRegistry::first_party();
@@ -1288,10 +1295,12 @@ fn observe(
     // snapshot (notably Claude prompts without turn IDs). This explicit drain
     // shares the hook budget; failure leaves recovery to __flush and the event
     // proceeds. Mutation wrappers must never drain after this snapshot.
+    // Read-only has_pending takes no write lock; any row arriving concurrently
+    // after this check is still drained by existing `__flush` recovery.
     if lifecycle.decode_turn(input.as_bytes()).is_none()
         && !named_turn_end(lifecycle, input.as_bytes())
         && let Ok(paths) = ConfigPaths::discover()
-        && tmt_adapters::storage::hook_queue::HookQueue::exists(&paths.database)
+        && tmt_adapters::storage::hook_queue::HookQueue::has_pending(&paths.database)
         && let Ok(mut storage) = Storage::open_hook(&paths.database, deadline)
     {
         let _ = storage.ingest_pending_hook_captures();
@@ -2232,9 +2241,11 @@ fn observe_main_event(
         run.stopped(Stop::UnboundSession);
         return Ok(Observation::default());
     };
-    if payload.is_some() {
-        adopt_initial_session(&mut bound, harness, lifecycle, session, deadline)?;
-    }
+    let adopted = if payload.is_some() {
+        adopt_initial_session(&mut bound, harness, lifecycle, session, deadline)?
+    } else {
+        false
+    };
     let BoundCaller {
         paths,
         stored,
@@ -2249,7 +2260,7 @@ fn observe_main_event(
         run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
     };
-    let stored = continue_awaiting_session(
+    let continued = continue_awaiting_session(
         Continuation {
             paths: &paths,
             stored: &stored,
@@ -2262,8 +2273,9 @@ fn observe_main_event(
         },
         deadline,
     )
-    .map_err(|_| ())?
-    .unwrap_or(stored);
+    .map_err(|_| ())?;
+    let mutating_continuation = continued.is_some();
+    let stored = continued.unwrap_or(stored);
     let binding = stored.entry.binding.as_ref().ok_or(())?;
     if binding.session.state != tmt_core::binding::session::RuntimeState::Running
         || !binding.session.key.as_ref().is_some_and(|key| {
@@ -2378,32 +2390,42 @@ fn observe_main_event(
     } else {
         String::new()
     };
-    // A callback can run public commands: do not hand its context to a binding
-    // or conversation that changed while the callback was running.
-    let refreshed = Storage::context_by_pane(
-        &paths.database,
-        snapshot.server.host,
-        &binding.pane_id,
-        &snapshot.server.server_id,
-        tmt_adapters::request_runtime::wall_time_ms(),
-    )
-    .map_err(|_| ())?
-    .ok_or(())?;
-    if Instant::now() >= deadline
-        || refreshed.entry.binding.as_ref() != Some(binding)
-        || refreshed.preferences != stored.preferences
-        || !matches!(
-            evaluate_binding(&refreshed.entry, &EndpointProbe::Live(snapshot)),
-            BindingEvidence::Active(_)
+    // A callback (render_prompt) or an earlier write (adopt_initial_session /
+    // continue_awaiting_session) can change the binding or preferences; when none
+    // ran, `commit_observation` still CAS-checks against `stored`.
+    let refreshed = if payload.is_some() || adopted || mutating_continuation {
+        let refreshed = Storage::context_by_pane(
+            &paths.database,
+            snapshot.server.host,
+            &binding.pane_id,
+            &snapshot.server.server_id,
+            tmt_adapters::request_runtime::wall_time_ms(),
         )
-    {
-        return Err(());
-    }
+        .map_err(|_| ())?
+        .ok_or(())?;
+        if Instant::now() >= deadline
+            || refreshed.entry.binding.as_ref() != Some(binding)
+            || refreshed.preferences != stored.preferences
+            || !matches!(
+                evaluate_binding(&refreshed.entry, &EndpointProbe::Live(snapshot)),
+                BindingEvidence::Active(_)
+            )
+        {
+            return Err(());
+        }
+        Some(refreshed)
+    } else {
+        if Instant::now() >= deadline {
+            return Err(());
+        }
+        None
+    };
+    let current = refreshed.as_ref().unwrap_or(&stored);
     commit_main_event_turn(PromptObservation {
         provider,
         lifecycle,
         paths: &paths,
-        stored: &stored,
+        stored: current,
         session,
         process: &process,
         activity,

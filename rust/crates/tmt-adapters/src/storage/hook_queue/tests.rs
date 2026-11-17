@@ -1723,6 +1723,18 @@ fn digest_drain_quarantines_bad_events_and_ignores_other_identity_backlog() {
 }
 
 #[test]
+fn has_pending_reads_uncommitted_rows_without_blocking_on_empty_queues() {
+    let w = World::new();
+    let event = w.event("pending final", false);
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    assert!(!HookQueue::has_pending(&w.path));
+    queue.enqueue(&event).unwrap();
+    assert!(HookQueue::has_pending(&w.path));
+    queue.mark_committed(&event).unwrap();
+    assert!(!HookQueue::has_pending(&w.path));
+}
+
+#[test]
 fn digest_drain_uses_the_identity_index_for_unrelated_backlogs() {
     let w = World::new();
     let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();

@@ -6,7 +6,7 @@ use std::{
 use tmt_adapters::{
     config::ConfigPaths,
     process::{
-        SupervisedProbeRunner,
+        CommandRunner, SupervisedProbeRunner,
         ancestry::pinned_chain,
         runtime::{ProcessObservation, observe_runtime_process},
     },
@@ -68,8 +68,24 @@ pub struct Learning {
     deferred: Cell<bool>,
     queued_capture: Cell<bool>,
     terminal: RefCell<TerminalDiagnostic>,
+    // Process-local caches only, never persisted; every write retains its SQLite CAS/fence.
+    verified_owner: RefCell<Option<ProcessIncarnation>>,
+    settled: Cell<Option<bool>>,
 }
 impl Learning {
+    fn with_role(launch: HookLaunch, driver: HarnessId, paths: ConfigPaths, role: Role) -> Self {
+        Self {
+            launch,
+            driver,
+            paths,
+            role: Cell::new(role),
+            deferred: Cell::new(false),
+            queued_capture: Cell::new(false),
+            terminal: RefCell::new(TerminalDiagnostic::default()),
+            verified_owner: RefCell::new(None),
+            settled: Cell::new(None),
+        }
+    }
     pub fn capture(provider: &str) -> Option<Self> {
         let value = std::env::var(ENVIRONMENT).ok()?;
         if value.len() > 1024 {
@@ -77,15 +93,12 @@ impl Learning {
         }
         let launch: HookLaunch = serde_json::from_str(&value).ok()?;
         launch.valid().then_some(())?;
-        Some(Self {
+        Some(Self::with_role(
             launch,
-            driver: HarnessId::new(provider).ok()?,
-            paths: ConfigPaths::discover().ok()?,
-            role: Cell::new(Role::Unknown),
-            deferred: Cell::new(false),
-            queued_capture: Cell::new(false),
-            terminal: RefCell::new(TerminalDiagnostic::default()),
-        })
+            HarnessId::new(provider).ok()?,
+            ConfigPaths::discover().ok()?,
+            Role::Unknown,
+        ))
     }
     /// Stop progress stages are transient and must never take the main writer.
     pub fn defer_stop(&self) {
@@ -146,15 +159,7 @@ impl Learning {
         let Ok(driver) = HarnessId::new(&value.provider) else {
             return;
         };
-        let learning = Self {
-            launch: value.launch.clone(),
-            driver,
-            paths,
-            role: Cell::new(Role::Observer),
-            deferred: Cell::new(false),
-            queued_capture: Cell::new(false),
-            terminal: RefCell::new(TerminalDiagnostic::default()),
-        };
+        let learning = Self::with_role(value.launch.clone(), driver, paths, Role::Observer);
         let update = if result == tmt_adapters::storage::hook_queue::CaptureResult::NoAdmittedStart
         {
             Some(Update::Note(NO_ADMITTED_START))
@@ -188,12 +193,26 @@ impl Learning {
     pub fn set_role(&self, role: Role) {
         self.role.set(role);
     }
+    pub fn is_binding(&self) -> bool {
+        self.role.get() == Role::Binding
+    }
     fn owner(&self, deadline: Instant) -> Result<ProcessIncarnation, ()> {
+        self.owner_with(&SupervisedProbeRunner, deadline)
+    }
+    fn owner_with<R: CommandRunner>(
+        &self,
+        runner: &R,
+        deadline: Instant,
+    ) -> Result<ProcessIncarnation, ()> {
+        if let Some(owner) = self.verified_owner.borrow().as_ref() {
+            return Ok(owner.clone());
+        }
         let owner = self.launch.owner().ok_or(())?;
-        match observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline)
-            .map_err(|_| ())?
-        {
-            ProcessObservation::Live(current) if current == owner => Ok(owner),
+        match observe_runtime_process(runner, owner.pid(), deadline).map_err(|_| ())? {
+            ProcessObservation::Live(current) if current == owner => {
+                *self.verified_owner.borrow_mut() = Some(owner.clone());
+                Ok(owner)
+            }
             _ => Err(()),
         }
     }
@@ -218,11 +237,47 @@ impl Learning {
     pub fn fail(&self, reason: SessionLearningReason, deadline: Instant) -> Result<(), ()> {
         self.diagnostic(Update::Fail(reason), deadline)
     }
+    #[cfg(test)]
+    pub(crate) fn stage_with<R: CommandRunner>(
+        &self,
+        runner: &R,
+        step: SessionLearningStep,
+        deadline: Instant,
+    ) -> Result<(), ()> {
+        self.diagnostic_fenced_with(runner, Update::Stage(step, None), deadline, None)
+    }
+    #[cfg(test)]
+    pub(crate) fn note_with<R: CommandRunner>(
+        &self,
+        runner: &R,
+        detail: SessionLearningDetail,
+        deadline: Instant,
+    ) -> Result<(), ()> {
+        self.diagnostic_fenced_with(runner, Update::Note(detail), deadline, None)
+    }
+    #[cfg(test)]
+    pub(crate) fn fail_with<R: CommandRunner>(
+        &self,
+        runner: &R,
+        reason: SessionLearningReason,
+        deadline: Instant,
+    ) -> Result<(), ()> {
+        self.diagnostic_fenced_with(runner, Update::Fail(reason), deadline, None)
+    }
     fn diagnostic(&self, update: Update, deadline: Instant) -> Result<(), ()> {
         self.diagnostic_fenced(update, deadline, None)
     }
     fn diagnostic_fenced(
         &self,
+        update: Update,
+        deadline: Instant,
+        event: Option<&tmt_adapters::storage::hook_queue::CaptureEvent>,
+    ) -> Result<(), ()> {
+        self.diagnostic_fenced_with(&SupervisedProbeRunner, update, deadline, event)
+    }
+    fn diagnostic_fenced_with<R: CommandRunner>(
+        &self,
+        runner: &R,
         update: Update,
         deadline: Instant,
         event: Option<&tmt_adapters::storage::hook_queue::CaptureEvent>,
@@ -240,7 +295,10 @@ impl Learning {
             }
             return Ok(());
         }
-        let owner = self.owner(deadline)?;
+        if let Some(has_diagnostic) = self.settled.get() {
+            return if has_diagnostic { Ok(()) } else { Err(()) };
+        }
+        let owner = self.owner_with(runner, deadline)?;
         let mut storage = Storage::open_hook(&self.paths.database, deadline).map_err(|_| ())?;
         let operation = |records: &mut dyn BindingRecords<Error = StorageError>| {
             let Some(observed) = records.launch_observation(&self.launch.binding_id, &owner)?
@@ -251,7 +309,9 @@ impl Learning {
                 return Ok(false);
             }
             if observed.status == LaunchStatus::Settled {
-                return Ok(observed.diagnostic.is_some());
+                let has_diagnostic = observed.diagnostic.is_some();
+                self.settled.set(Some(has_diagnostic));
+                return Ok(has_diagnostic);
             }
             // Only a Digest Stop sets or clears its own reason on an admitted launch.
             if observed.status == LaunchStatus::Admitted && digest_owned(&observed) {
@@ -267,6 +327,17 @@ impl Learning {
             if keeps {
                 let named = observed.diagnostic.is_some_and(|d| d.detail.is_some());
                 if !matches!(update, Update::Note(_)) || named {
+                    return Ok(true);
+                }
+            }
+            if observed.status == LaunchStatus::Admitted && matches!(update, Update::Stage(_, None))
+            {
+                if no_admitted_start(&observed) {
+                    let mut next = observed.clone();
+                    next.diagnostic = None;
+                    return records.set_launch_observation(&observed, &next);
+                }
+                if observed.diagnostic.is_none() && self.role.get() == Role::Observer {
                     return Ok(true);
                 }
             }
@@ -329,15 +400,31 @@ impl Learning {
     pub fn succeeded(&self, deadline: Instant) -> Result<(), ()> {
         self.succeeded_fenced(deadline, None)
     }
+    #[cfg(test)]
+    pub(crate) fn succeeded_with<R: CommandRunner>(
+        &self,
+        runner: &R,
+        deadline: Instant,
+    ) -> Result<(), ()> {
+        self.succeeded_fenced_with(runner, deadline, None)
+    }
     fn succeeded_fenced(
         &self,
         deadline: Instant,
         event: Option<&tmt_adapters::storage::hook_queue::CaptureEvent>,
     ) -> Result<(), ()> {
-        if self.deferred.get() {
+        self.succeeded_fenced_with(&SupervisedProbeRunner, deadline, event)
+    }
+    fn succeeded_fenced_with<R: CommandRunner>(
+        &self,
+        runner: &R,
+        deadline: Instant,
+        event: Option<&tmt_adapters::storage::hook_queue::CaptureEvent>,
+    ) -> Result<(), ()> {
+        if self.deferred.get() || self.settled.get().is_some() {
             return Ok(());
         }
-        let owner = self.owner(deadline)?;
+        let owner = self.owner_with(runner, deadline)?;
         let mut storage = Storage::open_hook(&self.paths.database, deadline).map_err(|_| ())?;
         let operation = |records: &mut dyn BindingRecords<Error = StorageError>| {
             let Some(observed) = records.launch_observation(&self.launch.binding_id, &owner)?
@@ -346,6 +433,10 @@ impl Learning {
             };
             if observed.driver != self.driver {
                 return Ok(false);
+            }
+            if observed.status == LaunchStatus::Settled {
+                self.settled.set(Some(observed.diagnostic.is_some()));
+                return Ok(true);
             }
             if observed.status != LaunchStatus::Admitted
                 || observed.diagnostic.is_none()
