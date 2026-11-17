@@ -1448,6 +1448,7 @@ mod tests {
         assert_eq!(
             entries[2],
             json!({"id": plain, "found": true, "status": null,
+                "session": {"activity": {"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}}},
                 "canPassthrough": {"available": false, "reason": "no_pane"}})
         );
         assert_eq!(entries[3], json!({"id": missing, "found": false}));

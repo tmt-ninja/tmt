@@ -1,4 +1,5 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test, type Page, type Locator } from '@playwright/test';
 import { pairBrowser, startDoor, openReaderLink } from './harness/browser.js';
 import { createPage, openPage, run } from './harness/ask.js';
@@ -22,6 +23,114 @@ async function panelTheme(page: Page, chip: Locator, theme: string) {
 }
 
 test.afterEach(disposeActiveWorlds);
+
+test('an open linked PR supplies the owner page status', async () => {
+  await withWorld(async (world) => {
+    const result = JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            state: 'OPEN',
+            mergeCommit: null,
+            commits: { nodes: [{ commit: { statusCheckRollup: { state: 'PENDING' } } }] },
+          },
+        },
+      },
+    });
+    writeFileSync(join(world.root, 'wrap', 'gh'), `#!/bin/sh\nprintf '%s\\n' '${result}'\n`, {
+      mode: 0o700,
+    });
+    const created = createPage(
+      world,
+      'Linked work',
+      '<p><a href="https://github.com/example/project/pull/42">Review</a></p>',
+    );
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'work-facts-owner');
+    const page = await openPage(door, browser, created);
+    const status = page.getByRole('button', { name: 'Waiting for CI, show status details' });
+    await expect(status).toBeVisible();
+    await status.click();
+    await expect(page.getByText(/PR #42.*CI pending/)).toBeVisible();
+    const shown = JSON.parse(run(world, world.binaries.colab, ['show', created.pageId, '--json']));
+    expect(shown.page.computedStatus.state).toBe('waiting-ci');
+    const listed = JSON.parse(run(world, world.binaries.colab, ['ls', '--json']));
+    expect(
+      listed.pages.find((entry: { pageId: string }) => entry.pageId === created.pageId)
+        .computedStatus.state,
+    ).toBe('waiting-ci');
+  });
+});
+
+test('a released HTML page with no to-dos is done', async () => {
+  await withWorld(async (world) => {
+    const merged = JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            state: 'MERGED',
+            mergeCommit: { oid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+            commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
+          },
+        },
+      },
+    });
+    writeFileSync(
+      join(world.root, 'wrap', 'gh'),
+      `#!/bin/sh
+case "$4" in
+  graphql) printf '%s\n' '${merged}' ;;
+  *releases*) printf '%s\n' '["v1.0.0"]' ;;
+  *compare*) printf '%s\n' '{"status":"behind"}' ;;
+  *) exit 1 ;;
+esac
+`,
+      { mode: 0o700 },
+    );
+    const created = createPage(
+      world,
+      'Released HTML',
+      '<p><a href="https://github.com/example/project/pull/42">Review</a></p>',
+    );
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'released-html-owner');
+    const page = await openPage(door, browser, created);
+    await expect(page.getByRole('button', { name: 'Done, show status details' })).toBeVisible();
+    await expect(page.getByText(/^Last activity /)).toBeVisible();
+    const shown = JSON.parse(run(world, world.binaries.colab, ['show', created.pageId, '--json']));
+    expect(shown.page.computedStatus.state).toBe('done');
+  });
+});
+
+test('new empty parent and sub-page show discussing with page activity', async () => {
+  await withWorld(async (world) => {
+    world.linkExtensions();
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const parent = colab([
+      'page',
+      'create',
+      '--structured',
+      '--title',
+      'Empty parent',
+      '--no-open',
+    ]);
+    colab(['subpage', 'create', parent.pageId, '--title', 'Empty child']);
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'empty-work-owner');
+    const page = await openPage(door, browser, parent);
+    await expect(
+      page.getByRole('button', { name: 'Discussing, show status details' }),
+    ).toBeVisible();
+    await expect(page.getByText(/^Last activity /)).toBeVisible();
+    await page.getByRole('button', { name: '1 sub-page' }).click();
+    await page.getByRole('link', { name: 'Empty child' }).click();
+    await expect(page.getByRole('heading', { name: /Empty child/ })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Discussing, show status details' }),
+    ).toBeVisible();
+  });
+});
 
 test('CLI work fields and to-do numbers appear on the owner page', async () => {
   await withWorld(async (world) => {
@@ -66,12 +175,32 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
       'aria-label',
       'release-coordination-agent',
     );
+    await expect(page.getByRole('button', { name: /Projects for .*: Colab/ })).toBeVisible();
+    await expect(page.getByText('Next · Review the result', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '3 sub-pages' })).toBeVisible();
     await expect(page.getByText('COLAB-2', { exact: true })).toBeVisible();
     await expect(page.locator('[data-block-id]').filter({ hasText: 'Ship the fix' })).toBeVisible();
+    const prior = new Set<string>(
+      colab(['block', 'ls', created.pageId]).blocks.map((block: { id: string }) => block.id),
+    );
+    let earlyCliLookup = false;
+    await page.route('**/api/work-numbers', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { pageId: string; numbers: Record<string, string> };
+      const requested = route.request().postDataJSON() as { blocks: string[] };
+      if (!earlyCliLookup && requested.blocks.some((id) => !prior.has(id))) {
+        earlyCliLookup = true;
+        body.numbers = Object.fromEntries(
+          Object.entries(body.numbers).filter(([id]) => prior.has(id)),
+        );
+      }
+      await route.fulfill({ response, json: body });
+    });
     colab(['block', 'insert', created.pageId, '--type', 'todo', '--text', 'Verify live numbering']);
     await expect(page.getByRole('checkbox', { name: 'Verify live numbering' })).toBeVisible();
     await expect(page.getByText('COLAB-5', { exact: true })).toBeVisible();
+    expect(earlyCliLookup).toBe(true);
+    await page.unroute('**/api/work-numbers');
     // Model the owner's first lookup arriving before its new to-do number is allocated.
     const known = new Set<string>(
       colab(['block', 'ls', created.pageId]).blocks.map((block: { id: string }) => block.id),
@@ -119,27 +248,9 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
           await expect(page.getByRole('checkbox', { name: 'Ship the fix' })).toBeChecked();
           await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
           if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
-          if (width === 1100) {
-            await expect(page.locator('.page-hierarchy-name')).toBeHidden();
-            await page.getByRole('button', { name: 'More', exact: true }).click();
-            await expect(
-              page.getByRole('menuitem', { name: 'Back to Release coordination' }),
-            ).toBeVisible();
-            await page.keyboard.press('Escape');
-            const pin = page.locator('.page-header-pin:visible');
-            const controls = page.locator('.tmt-ui-topbar-controls:visible');
-            if (await pin.count()) {
-              const pinBox = await pin.boundingBox();
-              const controlsBox = await controls.boundingBox();
-              expect(pinBox!.x + pinBox!.width).toBeLessThan(controlsBox!.x);
-            } else {
-              await page.getByRole('button', { name: 'More', exact: true }).click();
-              await expect(page.getByRole('menuitem', { name: 'Pin to top' })).toBeVisible();
-              await page.keyboard.press('Escape');
-            }
-          } else {
-            await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
-          }
+          await expect(
+            page.getByRole('button', { name: 'Parent · Release coordination' }),
+          ).toBeVisible();
           await page.evaluate((value) => {
             document.documentElement.dataset.theme = value;
           }, theme);
@@ -160,8 +271,9 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
           await expect(page.getByRole('checkbox', { name: 'Ship the fix' })).toBeChecked();
           await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
           if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
-          if (width === 1100) await expect(page.locator('.page-hierarchy-name')).toBeHidden();
-          else await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
+          await expect(
+            page.getByRole('button', { name: 'Parent · Release coordination' }),
+          ).toBeVisible();
           await page.evaluate((value) => {
             document.documentElement.dataset.theme = value;
           }, theme);
@@ -203,24 +315,29 @@ test('manual state persists, an empty page offers Add to the owner only, and sha
     const band = page.getByRole('region', { name: 'Work on this page' });
     // An empty page keeps its state in the title and offers Add in the page menu.
     await expect(band.locator('.work-toggle')).toHaveCount(0);
+    const status = band
+      .locator('.work-head-chip')
+      .getByRole('button', { name: /show status details/ });
+    await expect(status).toBeVisible();
+    await status.click();
+    await expect(page.locator('.work-status-details')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(status).toBeFocused();
     await page.getByRole('button', { name: 'More', exact: true }).click();
     await expect(page.getByRole('menuitem', { name: 'Add a sub-page' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await band
-      .locator('.work-head-chip')
-      .getByRole('button', { name: /Page state/ })
-      .click();
+    await page.getByRole('menuitem', { name: 'Manual page state…' }).click();
+    const stateDrawer = page.getByRole('dialog', { name: 'Page state' });
+    await stateDrawer.getByRole('button', { name: /^Page state:/ }).click();
     await page.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
-    await expect(
-      band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
-    ).toContainText('Done');
+    await expect.poll(() => colab(['show', created.pageId]).page.state).toBe('done');
+    await stateDrawer.getByRole('button', { name: 'Close Page state' }).click();
     const after = colab(['show', created.pageId]);
     expect(after.page.state).toBe('done');
     expect(after.page.progress).toEqual(before.page.progress);
     await page.reload();
     await expect(
-      band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
-    ).toContainText('Done');
+      band.locator('.work-head-chip').getByRole('button', { name: /show status details/ }),
+    ).toBeVisible();
     await expect(band.locator('.work-toggle')).toHaveCount(0);
     const captures = process.env.COLAB_STATUS_CAPTURE_DIR;
     if (captures) {
@@ -230,7 +347,7 @@ test('manual state persists, an empty page offers Add to the owner only, and sha
           await page.setViewportSize({ width, height: 900 });
           await panelTheme(
             page,
-            band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
+            band.locator('.work-head-chip').getByRole('button', { name: /show status details/ }),
             theme,
           );
           await page.screenshot({

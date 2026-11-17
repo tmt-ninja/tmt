@@ -1,6 +1,6 @@
 import { PROJECT_POINTS, PROJECTS_PER_PAGE } from './bootstrap.js';
 import { orderPages, pageTitle } from './page-index.js';
-import { pageStage, type PageStage } from './list-stage.js';
+import { needsYou, pageStage, type PageStage } from './list-stage.js';
 import type { PageSummary } from './transport.js';
 import type { PageState } from './bootstrap.js';
 
@@ -101,7 +101,7 @@ export function projectCounts(
 
 /** The pages with an item waiting on the viewer; an unknown summary is never counted. */
 export function waitingCount(pages: readonly PageSummary[]): number {
-  return pages.filter((page) => page.summary?.waiting).length;
+  return pages.filter(needsYou).length;
 }
 
 /** The owner lists pinned pages first, in pin order: they keep that order and lead `others`. */
@@ -124,7 +124,7 @@ export function filterPages(
       const states = Array.isArray(filter.state) ? filter.state : [filter.state];
       if (!page.state || !states.includes(page.state)) return false;
     }
-    if (filter.needsYou && !page.summary?.waiting) return false;
+    if (filter.needsYou && !needsYou(page)) return false;
     if (filter.stage && pageStage(page) !== filter.stage) return false;
     const projects = page.projects ?? [];
     if (!filter.projects.every((name) => projects.includes(name))) return false;

@@ -14,11 +14,9 @@ async function mount(page: Page, role: 'viewer' | 'editor', metadata = false) {
       metadata,
     },
   );
-  await expect(
-    page
-      .locator('#reader-editor-fixture')
-      .getByRole('heading', { name: 'Release notes', exact: true }),
-  ).toBeVisible();
+  const heading = page.locator('#reader-editor-fixture h1.tmt-ui-title');
+  await expect(heading).toBeVisible();
+  await expect(heading).toHaveText('Release notes');
 }
 const script = (page: Page, answer: string) =>
   page.evaluate(async ({ fixture, answer }) => (await import(fixture)).script(answer), {

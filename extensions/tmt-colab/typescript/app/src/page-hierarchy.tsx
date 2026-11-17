@@ -39,9 +39,8 @@ function PageItem({ row, href, current }: { row: SubpageRow; href: string; curre
 }
 
 /**
- * The page's place in its hierarchy for the shared bar (#5506): `parent` goes before the title (a
- * hierarchy icon, the direct parent's name linking to it, and its progress chip, whose menu goes back
- * up or across to a sibling). The owner list also tells the page whether it has sub-pages.
+ * The page's place in its hierarchy (#5506): the parent chip names the parent and opens a menu to
+ * go back up or across to a sibling. The owner list also tells the page whether it has sub-pages.
  */
 export function usePageHierarchy({
   transport,
@@ -64,48 +63,42 @@ export function usePageHierarchy({
   let parent: ReactNode;
   if (link && holder) {
     const siblings = tree.childrenOf(link.page);
-    const counts = tree.counts(siblings);
     parent = (
-      <span className="page-hierarchy-parent">
-        <ListTree className="page-hierarchy-icon" aria-hidden="true" />
-        <a className="page-hierarchy-name" href={pageHref(link.page)} title={holder.title}>
-          {holder.title}
-        </a>
-        <UiTheme theme={theme}>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className={`page-hierarchy-count ${c.countChip}`}
-                aria-label={t.parentMenu(holder.title, counts.done, counts.total)}
-              >
-                {t.count(counts.done, counts.total)}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="page-hierarchy-menu">
-              <DropdownMenuItem asChild>
-                <a href={pageHref(link.page)} className="page-hierarchy-item">
-                  <ArrowLeft aria-hidden="true" />
-                  <span className="page-hierarchy-title">{t.back(holder.title)}</span>
-                </a>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>{t.siblings(holder.title, siblings.length)}</DropdownMenuLabel>
-              {siblings.map((row) => (
-                <PageItem
-                  key={row.id}
-                  row={row}
-                  href={pageHref(row.id)}
-                  current={row.id === pageId}
-                />
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </UiTheme>
-        <span className="page-hierarchy-separator" aria-hidden="true">
-          ›
-        </span>
-      </span>
+      <UiTheme theme={theme}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={`page-hierarchy-parent ${c.countChip}`}
+              aria-label={`${t.parentLabel} ${holder.title}`}
+            >
+              <ListTree className="page-hierarchy-icon" aria-hidden="true" />
+              <span>{t.parentLabel}</span>
+              <span className="page-hierarchy-name" title={holder.title}>
+                {holder.title}
+              </span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="page-hierarchy-menu">
+            <DropdownMenuItem asChild>
+              <a href={pageHref(link.page)} className="page-hierarchy-item">
+                <ArrowLeft aria-hidden="true" />
+                <span className="page-hierarchy-title">{t.back(holder.title)}</span>
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>{t.siblings(holder.title, siblings.length)}</DropdownMenuLabel>
+            {siblings.map((row) => (
+              <PageItem
+                key={row.id}
+                row={row}
+                href={pageHref(row.id)}
+                current={row.id === pageId}
+              />
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </UiTheme>
     );
   }
   return {

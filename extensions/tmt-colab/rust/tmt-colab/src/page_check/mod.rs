@@ -17,6 +17,43 @@ mod reading;
 mod review;
 mod tree;
 pub(crate) use tree::start_tags;
+
+/// Hrefs from the same parsed fragment used by page checking; scripts and raw markup are not links.
+pub(crate) fn hrefs(source: &str) -> Option<Vec<String>> {
+    let tree = tree::Tree::parse(source).ok()?;
+    Some(
+        tree.elements()
+            .into_iter()
+            .filter_map(|id| {
+                (tree.name(id) == "a"
+                    && !tree.excluded(id)
+                    && !tree.ancestors(id).any(|ancestor| tree.excluded(ancestor)))
+                .then(|| tree.attr(id, "href"))
+                .flatten()
+                .map(str::to_owned)
+            })
+            .collect(),
+    )
+}
+
+/// Renderer text excludes script and hidden subtrees, like the page's text walker.
+pub(crate) fn visible_text(source: &str) -> Option<Vec<String>> {
+    let tree = tree::Tree::parse(source).ok()?;
+    Some(
+        tree.text_nodes()
+            .into_iter()
+            .filter_map(|(parent, text)| {
+                if parent.is_some_and(|id| {
+                    tree.excluded(id) || tree.ancestors(id).any(|ancestor| tree.excluded(ancestor))
+                }) {
+                    None
+                } else {
+                    Some(text.to_owned())
+                }
+            })
+            .collect(),
+    )
+}
 mod ui;
 
 pub use hints::{Hint, uses_design};

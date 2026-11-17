@@ -154,14 +154,6 @@ fn work(
                 backoff.reset();
             }
         }
-        let generation = objects.generation();
-        if generation != seen {
-            seen = generation;
-            deletion_after = None;
-            attachments_after = None;
-            due = true;
-            backoff.reset();
-        }
         due |= retry_at.is_some_and(|at| Instant::now() >= at);
         // Local history maintenance needs no object channel. Reuse this worker's bounded wake
         // and visit one eligible page per minute, rotating so a failing page cannot starve others.
@@ -195,6 +187,16 @@ fn work(
                 let _ = attachment_pass(objects, slots, &source, sync, &mut attachments_after);
             }
             drop(active);
+        }
+        // Read the generation next to the client check so a channel installed during history
+        // maintenance cannot trigger a second pass for the same generation (#6540).
+        let generation = objects.generation();
+        if generation != seen {
+            seen = generation;
+            deletion_after = None;
+            attachments_after = None;
+            due = true;
+            backoff.reset();
         }
         // Without a channel there is nothing to upload through: stay due until one is established.
         if !due || shared.stop.load(Ordering::Acquire) || objects.client().is_none() {

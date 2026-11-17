@@ -14,6 +14,134 @@ export const READING_DETAILS_PAGES = 20;
 export const NEEDS_PASSAGES = 20;
 export const LATEST_POINTS = 160;
 
+export interface WorkFactView {
+  asOfMs: number;
+  lastActivityAtMs?: number | null;
+  state:
+    | 'done'
+    | 'blocked'
+    | 'needs-you'
+    | 'waiting-ci'
+    | 'waiting-release'
+    | 'working'
+    | 'possibly-stalled'
+    | 'discussing'
+    | 'unknown';
+  known: boolean;
+  pulls: {
+    url: string;
+    fact: {
+      state: 'open' | 'merged' | 'closed';
+      checks: 'SUCCESS' | 'FAILURE' | 'PENDING' | 'ERROR' | 'EXPECTED' | null;
+      released: boolean | null;
+      tag: string | null;
+      observedAtMs: number;
+    } | null;
+  }[];
+  activity: {
+    state: 'unknown' | 'working' | 'idle' | 'waiting' | 'ended';
+    lastActivityMs: number | null;
+    observedAtMs: number;
+  } | null;
+}
+/** Owner-only, bounded derived observations. No GitHub response or page markup is trusted. */
+export async function readWorkFacts(
+  mount: URL,
+  pageId: string,
+  signal?: AbortSignal,
+): Promise<WorkFactView> {
+  requireValue(validReadingId(pageId));
+  const response = await fetch(new URL('api/work-facts', mount), {
+    method: 'POST',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pageId }),
+    signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(120_000)]),
+  });
+  const value = await jsonResponse(response, READING_DETAILS_BYTES);
+  exactKeys(value, [
+    'pageId',
+    'known',
+    'pulls',
+    'state',
+    'activity',
+    'asOfMs',
+    ...(value && typeof value === 'object' && 'lastActivityAtMs' in value
+      ? ['lastActivityAtMs']
+      : []),
+  ]);
+  if ('lastActivityAtMs' in value)
+    requireValue(
+      value.lastActivityAtMs === null ||
+        (Number.isSafeInteger(value.lastActivityAtMs) && Number(value.lastActivityAtMs) >= 0),
+    );
+  requireValue(Number.isSafeInteger(value.asOfMs) && Number(value.asOfMs) >= 0);
+  requireValue(
+    value.pageId === pageId &&
+      typeof value.known === 'boolean' &&
+      Array.isArray(value.pulls) &&
+      value.pulls.length <= 20,
+  );
+  requireValue(
+    [
+      'done',
+      'blocked',
+      'needs-you',
+      'waiting-ci',
+      'waiting-release',
+      'working',
+      'possibly-stalled',
+      'discussing',
+      'unknown',
+    ].includes(value.state as string),
+  );
+  for (const item of value.pulls) {
+    exactKeys(item, ['url', 'fact']);
+    requireValue(
+      typeof item.url === 'string' &&
+        /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/.test(
+          item.url,
+        ),
+    );
+    if (item.fact !== null) {
+      exactKeys(item.fact, ['state', 'checks', 'released', 'tag', 'observedAtMs']);
+      requireValue(['open', 'merged', 'closed'].includes(item.fact.state as string));
+      requireValue(
+        item.fact.checks === null ||
+          ['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED'].includes(
+            item.fact.checks as string,
+          ),
+      );
+      requireValue(item.fact.released === null || typeof item.fact.released === 'boolean');
+      requireValue(
+        item.fact.tag === null ||
+          (typeof item.fact.tag === 'string' &&
+            item.fact.tag.length <= 256 &&
+            !/\p{Cc}/u.test(item.fact.tag)),
+      );
+      requireValue(
+        Number.isSafeInteger(item.fact.observedAtMs) && Number(item.fact.observedAtMs) >= 0,
+      );
+    }
+  }
+  if (value.activity !== null) {
+    exactKeys(value.activity, ['state', 'lastActivityMs', 'observedAtMs']);
+    requireValue(
+      ['unknown', 'working', 'idle', 'waiting', 'ended'].includes(value.activity.state as string),
+    );
+    requireValue(
+      value.activity.lastActivityMs === null ||
+        (Number.isSafeInteger(value.activity.lastActivityMs) &&
+          Number(value.activity.lastActivityMs) >= 0),
+    );
+    requireValue(
+      Number.isSafeInteger(value.activity.observedAtMs) && Number(value.activity.observedAtMs) >= 0,
+    );
+  }
+  return value as unknown as WorkFactView;
+}
+
 /** Owner-local labels for an admitted set of to-do blocks; a missing label is never invented. */
 export async function readWorkNumbers(
   mount: URL,

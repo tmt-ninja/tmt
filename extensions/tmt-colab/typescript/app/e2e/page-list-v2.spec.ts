@@ -13,6 +13,15 @@ const row = (page: Page, title: string) =>
   app(page)
     .locator('.page-list-table [data-page-id]')
     .filter({ has: page.getByRole('link', { name: title, exact: true }) });
+test('page list shows known work number and fields', async ({ page }) => {
+  await mount(page);
+  const item = row(page, 'Spec 1');
+  await expect(item).toContainText('COLAB-128');
+  await expect(item).toContainText('gui-3');
+  await expect(item.getByLabel('Priority high')).toBeVisible();
+  await expect(item).toContainText('Next · Review the mockup');
+  await expect(item).toContainText('Blocked · Waiting for Core');
+});
 async function pin(page: Page, title: string) {
   const target = row(page, title);
   await target.scrollIntoViewIfNeeded();

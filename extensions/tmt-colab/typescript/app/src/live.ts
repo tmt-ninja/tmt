@@ -1,4 +1,10 @@
-import { ProgressReads, readReadingDetails, readWorkNumbers } from './reading-details.js';
+import {
+  ProgressReads,
+  readReadingDetails,
+  readWorkFacts,
+  readWorkNumbers,
+  type WorkFactView,
+} from './reading-details.js';
 import { readEditLocks } from './edit-locks.js';
 import { canonical } from './closed.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
@@ -143,6 +149,10 @@ export class Live implements PageBinding {
   #todoGeneration = 0;
   #todoRetryGeneration = 0;
   #todoTimer?: ReturnType<typeof setTimeout>;
+  #workFacts?: WorkFactView;
+  #workFactsRequest?: AbortController;
+  #workFactsTimer?: ReturnType<typeof setTimeout>;
+  #workFactsDirty = false;
   #threadProjection?: { connection: Connection; admission: Admission; view: PageView };
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #verifiedAsks = new VerifiedAsks();
@@ -161,6 +171,7 @@ export class Live implements PageBinding {
       (signal) => readReadingDetails(this.mount, this.page.pageId, signal),
       (detail) => {
         if (this.#closed || this.#error) return;
+        if (detail?.state === 'ready' && !this.#workFacts?.known) this.#refreshWorkFacts();
         const progress =
           detail?.state === 'ready' && detail.pageState === this.#admitted.state
             ? (detail.progress ?? null)
@@ -361,6 +372,7 @@ export class Live implements PageBinding {
         this.#progressKey;
     return structuredClone({
       ...this.#projection,
+      workFacts: this.#workFacts,
       todoNumbers: this.#todoNumbers,
       progress: current ? this.#progress : null,
     });
@@ -380,7 +392,8 @@ export class Live implements PageBinding {
     const ids = this.#todoIds(value);
     const key = ids.join(',');
     if (key === this.#todoKey && (!force || ids.every((id) => this.#todoNumbers[id]))) return;
-    if (key !== this.#todoKey) this.#cancelTodoRetries();
+    const changed = key !== this.#todoKey;
+    if (changed) this.#cancelTodoRetries();
     this.#todoKey = key;
     const generation = ++this.#todoGeneration;
     if (ids.length === 0) {
@@ -392,10 +405,12 @@ export class Live implements PageBinding {
       if (!this.#closed && generation === this.#todoGeneration) {
         this.#todoNumbers = numbers;
         if (ids.every((id) => numbers[id])) this.#cancelTodoRetries();
+        else if (changed && this.canWork()) this.#retryTodoNumbers();
         this.#publish();
       }
     } catch {
-      // Numbering is optional; a later acknowledged write can retry it.
+      if (!this.#closed && changed && generation === this.#todoGeneration && this.canWork())
+        this.#retryTodoNumbers();
     }
   }
   #retryTodoNumbers() {
@@ -422,12 +437,52 @@ export class Live implements PageBinding {
     this.#listeners.forEach((listener) => listener.publish(this.#view()));
   }
   #abort = () => this.close();
+  #refreshWorkFacts() {
+    if (this.#closed || this.#error || !this.canWork() || pageHidden()) return;
+    if (this.#workFactsRequest) {
+      this.#workFactsDirty = true;
+      return;
+    }
+    clearTimeout(this.#workFactsTimer);
+    this.#workFactsTimer = undefined;
+    const request = new AbortController();
+    this.#workFactsRequest = request;
+    void readWorkFacts(this.mount, this.page.pageId, request.signal)
+      .then((facts) => {
+        if (this.#closed || request.signal.aborted) return;
+        this.#workFacts = facts;
+        this.#publish();
+      })
+      .catch(() => {
+        if (!this.#closed && !request.signal.aborted && this.#workFacts !== undefined) {
+          this.#workFacts = {
+            ...this.#workFacts,
+            state: 'unknown',
+            activity: null,
+            pulls: this.#workFacts.pulls.map(({ url }) => ({ url, fact: null })),
+          };
+          this.#publish();
+        }
+      })
+      .finally(() => {
+        if (this.#workFactsRequest !== request) return;
+        this.#workFactsRequest = undefined;
+        if (this.#closed) return;
+        if (this.#workFactsDirty) {
+          this.#workFactsDirty = false;
+          this.#refreshWorkFacts();
+        } else if (this.#workFacts?.pulls.length) {
+          this.#workFactsTimer = setTimeout(() => this.#refreshWorkFacts(), 60_000);
+        }
+      });
+  }
   #visibility = () => {
     if (pageHidden()) {
       this.#observation?.abort();
     } else {
       this.#refreshOlderAsks = true;
       this.#observe();
+      this.#refreshWorkFacts();
     }
   };
   #observe() {
@@ -525,6 +580,7 @@ export class Live implements PageBinding {
         (value) => {
           if (!this.#owns(open)) return;
           this.#admitted = { ...structuredClone(value), seq: ++this.#contentSeq };
+          this.#refreshWorkFacts();
           void this.#refreshTodoNumbers(value);
           const progressKey = canonical({ work: value.work, state: value.state });
           if (progressKey !== this.#progressKey || value.source !== this.#progressSource) {
@@ -557,6 +613,7 @@ export class Live implements PageBinding {
       if (ready && this.#owns(open)) {
         open.pending = false;
         this.#observe();
+        this.#refreshWorkFacts();
       }
     }
   }
@@ -1367,6 +1424,8 @@ export class Live implements PageBinding {
   close() {
     if (this.#closed) return;
     this.#closed = true;
+    this.#workFactsRequest?.abort();
+    clearTimeout(this.#workFactsTimer);
     this.#cancelTodoRetries();
     this.#progressReads.close();
     this.#opening = null;

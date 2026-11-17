@@ -28,8 +28,23 @@ pub enum Change {
         name: String,
         prefix: String,
     },
+    /// Optional owner-local filter for release tags; absent means any tag.
+    ReleaseTagPrefix {
+        name: String,
+        prefix: Option<String>,
+    },
     /// Replaces the owner's whole pinned-project list: ordered, no repeats, each an existing project.
     Pins(Vec<String>),
+}
+
+/// A bounded literal tag prefix, never an argument interpreted by a shell.
+pub fn valid_release_tag_prefix(prefix: &str) -> bool {
+    !prefix.is_empty()
+        && prefix.len() <= 128
+        && !prefix.contains("..")
+        && prefix
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'/'))
 }
 
 /// One name: 1 to `PROJECT_POINTS` code points, no control character and no whitespace other than

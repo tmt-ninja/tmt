@@ -5,15 +5,23 @@
   position: relative;
   display: inline-flex;
   flex: none;
+  min-width: 0;
+  max-width: 100%;
   box-sizing: border-box;
   color: var(--tmt-ui-color-text);
   font: var(--tmt-ui-command-size) / 1.5 var(--tmt-ui-font-body);
+}
+
+/* Keep status details above the following project controls when the phone row wraps. */
+.work-band:has(.work-page-state[aria-expanded='true']) {
+  z-index: 2;
 }
 
 /* The head: the whole row toggles the list (or, with nothing attached, opens Add). */
 .work-head {
   box-sizing: border-box;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--tmt-ui-space-s);
 }
@@ -47,56 +55,6 @@
 }
 .work-field-chip:hover {
   background: var(--tmt-ui-surface-command);
-}
-@media (min-width: 901px) {
-  .tmt-ui-topbar-title:has(.work-field-chip) {
-    container: colab-work-title / inline-size;
-  }
-  .tmt-ui-topbar-title:has(.work-field-chip) .tmt-ui-topbar-title-current {
-    min-width: 24ch;
-  }
-  .tmt-ui-topbar-title:has(.work-field-chip) h1 {
-    min-width: 27ch;
-  }
-  .tmt-ui-topbar-title:has(.work-field-chip) .page-hierarchy-name {
-    min-width: 6ch;
-  }
-}
-@container colab-work-title (max-width: 1100px) {
-  .page-header-project-add > .page-project-group {
-    display: none;
-  }
-}
-@container colab-work-title (max-width: 1000px) {
-  .work-owner-name {
-    display: none;
-  }
-}
-@container colab-work-title (max-width: 800px) {
-  h1:has(.page-hierarchy-parent):has(.tmt-ui-topbar-title-current) {
-    min-width: 24ch;
-  }
-  .work-head {
-    gap: 0;
-  }
-  .work-band {
-    margin-inline-end: var(--tmt-ui-space-s);
-  }
-  .page-hierarchy-count,
-  .page-hierarchy-icon,
-  .page-hierarchy-name,
-  .page-hierarchy-separator,
-  .page-header-pin {
-    display: none;
-  }
-  .work-field-chip,
-  .work-toggle {
-    padding-inline: var(--tmt-ui-space-xs);
-  }
-  .work-state-control .tmt-ui-menu-trigger {
-    gap: 0;
-    padding-inline: var(--tmt-ui-space-xs);
-  }
 }
 .work-segments {
   display: flex;
@@ -192,9 +150,9 @@
 /* The padding sits inside the collapsing row, so a closed list takes no height at all. */
 .work-body {
   min-height: 0;
-  max-height: calc(
-    100dvh - var(--work-band-top, var(--page-bar-size, 0px)) - var(--tmt-ui-subheader-height) -
-      var(--tmt-ui-rule-width)
+  max-height: var(
+    --work-popover-height,
+    calc(100dvh - var(--work-band-top, var(--page-bar-size, 0px)) - var(--tmt-ui-subheader-height))
   );
   overflow: hidden;
 }
@@ -232,6 +190,17 @@
 }
 .work-row-line:hover {
   background: var(--tmt-ui-surface-hover);
+}
+.work-row-line:has(> .work-field-details) {
+  height: auto;
+  min-height: var(--tmt-ui-row-height);
+  padding-block: var(--tmt-ui-space-xs);
+}
+.work-row-line > .work-field-details {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  font-size: var(--tmt-ui-caption-size);
+  overflow-wrap: anywhere;
 }
 .work-row-name {
   display: flex;
@@ -277,6 +246,27 @@ a.work-row-title:hover {
   text-align: right;
   white-space: nowrap;
 }
+.work-field-details {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  min-width: 0;
+  color: var(--tmt-ui-color-secondary);
+}
+.page-work-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  padding-top: 0.5rem;
+  color: var(--tmt-ui-color-secondary);
+}
+.work-status-details {
+  max-width: min(24rem, calc(100vw - 2rem));
+  overflow-wrap: anywhere;
+}
+.work-status-details p {
+  margin: var(--tmt-ui-space-xs) 0 0;
+}
 .work-row-state {
   display: flex;
   min-width: 0;
@@ -303,6 +293,47 @@ a.work-row-title:hover {
   margin-top: var(--tmt-ui-space-s);
   padding-top: var(--tmt-ui-space-s);
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.page-mobile-title {
+  box-sizing: border-box;
+  position: relative;
+  z-index: 2;
+  padding: var(--tmt-ui-space-l) var(--tmt-ui-header-padding-inline);
+}
+@media (min-width: 641px) {
+  .workspace:has(.structured-page-stage) > .page-mobile-title {
+    padding-inline-start: calc(var(--tmt-ui-header-padding-inline) + var(--colab-block-inset));
+  }
+  .workspace:has(.structured-layout[data-outline] .page-outline-toggle[aria-expanded='true'])
+    > .page-mobile-title {
+    padding-inline-start: calc(
+      var(--tmt-ui-header-padding-inline) + var(--colab-block-inset) + 188px + 40px
+    );
+  }
+}
+.page-mobile-title h1 {
+  margin: 0 0 var(--tmt-ui-space-s);
+  font-size: 1.75rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.page-mobile-title-chips {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-s);
+}
+.page-mobile-title .page-hierarchy-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  max-width: 100%;
+}
+.page-mobile-title .page-hierarchy-icon,
+.page-mobile-title .page-hierarchy-name {
+  display: inline-block;
 }
 
 /* Intermediate widths keep the title and compact controls in the bar. */
@@ -340,10 +371,6 @@ a.work-row-title:hover {
     display: inline-block;
     max-width: 100%;
   }
-  .page-mobile-title .page-hierarchy-count,
-  .page-mobile-title .page-hierarchy-separator {
-    display: none;
-  }
   .page-mobile-title h1 {
     margin: 0 0 var(--tmt-ui-space-s);
     font-size: 1.375rem;
@@ -356,10 +383,6 @@ a.work-row-title:hover {
     flex-wrap: wrap;
     gap: var(--tmt-ui-space-s);
   }
-  body:has(.page-mobile-title) .tmt-ui-topbar-title h1,
-  body:has(.page-mobile-title) .tmt-ui-header h1 {
-    display: none;
-  }
   .page-mobile-title .work-body-transition {
     left: 0;
     right: auto;
@@ -367,10 +390,6 @@ a.work-row-title:hover {
   }
 }
 @media (max-width: 640px) {
-  .page-hierarchy-parent .page-hierarchy-count,
-  .page-hierarchy-parent .page-hierarchy-separator {
-    display: none;
-  }
   .work-wide {
     display: none;
   }

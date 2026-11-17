@@ -34,6 +34,101 @@ pub struct PageWork {
     pub legacy: bool,
 }
 
+/// Provisional until the user chooses a stalled-work threshold. This is not a heartbeat.
+pub const STALL_THRESHOLD_MS: u64 = 2 * 60 * 60 * 1000;
+
+/// External observations are unsigned display facts, never page authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PullRequestFact {
+    Open,
+    Merged { released: Option<bool> },
+    Closed,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnerActivity {
+    Working {
+        last_activity_ms: Option<u64>,
+        observed_at_ms: u64,
+    },
+    Waiting,
+    Other,
+    Unknown,
+}
+
+/// One ordered interpretation for owner-local web and CLI projections.
+pub fn computed_state(
+    todos: Option<(usize, usize)>,
+    blocked: bool,
+    needs_you: bool,
+    prs: Option<&[PullRequestFact]>,
+    activity: OwnerActivity,
+    now_ms: u64,
+) -> &'static str {
+    let complete = todos.is_some_and(|(done, total)| done == total)
+        && prs.is_some_and(|items| {
+            let relevant = items
+                .iter()
+                .filter(|item| **item != PullRequestFact::Closed);
+            (relevant.clone().next().is_some() || todos.is_some_and(|(_, total)| total > 0))
+                && relevant.into_iter().all(|item| {
+                    matches!(
+                        item,
+                        PullRequestFact::Merged {
+                            released: Some(true)
+                        }
+                    )
+                })
+        });
+    if complete {
+        return "done";
+    }
+    if blocked {
+        return "blocked";
+    }
+    if needs_you || activity == OwnerActivity::Waiting {
+        return "needs-you";
+    }
+    if prs.is_some_and(|items| items.contains(&PullRequestFact::Open)) {
+        return "waiting-ci";
+    }
+    if prs.is_some_and(|items| {
+        items.contains(&PullRequestFact::Merged {
+            released: Some(false),
+        })
+    }) {
+        return "waiting-release";
+    }
+    if prs.is_none_or(|items| {
+        items.iter().any(|item| {
+            matches!(
+                item,
+                PullRequestFact::Unknown | PullRequestFact::Merged { released: None }
+            )
+        })
+    }) {
+        return "unknown";
+    }
+    if let OwnerActivity::Working {
+        last_activity_ms,
+        observed_at_ms,
+    } = activity
+    {
+        if now_ms < observed_at_ms || now_ms - observed_at_ms >= STALL_THRESHOLD_MS {
+            return "unknown";
+        }
+        if last_activity_ms.is_some_and(|at| now_ms.saturating_sub(at) >= STALL_THRESHOLD_MS) {
+            return "possibly-stalled";
+        }
+        return "working";
+    }
+    if activity == OwnerActivity::Unknown {
+        return "unknown";
+    }
+    "discussing"
+}
+
 impl Kept for Option<PageWork> {
     const FILE: &'static str = "work-index.json";
     const LOCK: &'static str = "work-index.lock";
@@ -152,6 +247,155 @@ mod tests {
     use super::*;
 
     const CHILD: &str = "20000000-0000-4000-8000-000000000001";
+
+    #[test]
+    fn computed_status_never_claims_release_from_unknown_facts() {
+        let ready = Some((1, 1));
+        assert_eq!(
+            computed_state(ready, false, false, None, OwnerActivity::Unknown, 0),
+            "unknown"
+        );
+        assert_eq!(
+            computed_state(ready, false, false, Some(&[]), OwnerActivity::Unknown, 0),
+            "done"
+        );
+        assert_eq!(
+            computed_state(
+                ready,
+                false,
+                false,
+                Some(&[PullRequestFact::Merged { released: None }]),
+                OwnerActivity::Unknown,
+                0
+            ),
+            "unknown"
+        );
+        assert_eq!(
+            computed_state(
+                ready,
+                false,
+                false,
+                Some(&[PullRequestFact::Merged {
+                    released: Some(false)
+                }]),
+                OwnerActivity::Unknown,
+                0
+            ),
+            "waiting-release"
+        );
+        assert_eq!(
+            computed_state(
+                ready,
+                false,
+                false,
+                Some(&[PullRequestFact::Merged {
+                    released: Some(true)
+                }]),
+                OwnerActivity::Unknown,
+                0
+            ),
+            "done"
+        );
+        assert_eq!(
+            computed_state(
+                None,
+                true,
+                true,
+                Some(&[PullRequestFact::Open]),
+                OwnerActivity::Waiting,
+                0
+            ),
+            "blocked"
+        );
+        let activity = OwnerActivity::Working {
+            last_activity_ms: Some(0),
+            observed_at_ms: STALL_THRESHOLD_MS,
+        };
+        assert_eq!(
+            computed_state(
+                Some((0, 1)),
+                false,
+                false,
+                Some(&[]),
+                activity,
+                STALL_THRESHOLD_MS
+            ),
+            "possibly-stalled"
+        );
+        assert_eq!(
+            computed_state(
+                Some((0, 1)),
+                false,
+                false,
+                Some(&[]),
+                activity,
+                2 * STALL_THRESHOLD_MS
+            ),
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn released_html_and_closed_pull_requests_do_not_block_completion() {
+        let released = PullRequestFact::Merged {
+            released: Some(true),
+        };
+        assert_eq!(
+            computed_state(
+                Some((0, 0)),
+                false,
+                false,
+                Some(&[released]),
+                OwnerActivity::Other,
+                0
+            ),
+            "done"
+        );
+        assert_eq!(
+            computed_state(
+                Some((0, 0)),
+                false,
+                false,
+                Some(&[released, PullRequestFact::Closed]),
+                OwnerActivity::Other,
+                0
+            ),
+            "done"
+        );
+        assert_eq!(
+            computed_state(
+                Some((0, 0)),
+                false,
+                false,
+                Some(&[PullRequestFact::Closed]),
+                OwnerActivity::Other,
+                0
+            ),
+            "discussing"
+        );
+        assert_eq!(
+            computed_state(
+                Some((0, 0)),
+                false,
+                false,
+                Some(&[]),
+                OwnerActivity::Other,
+                0
+            ),
+            "discussing"
+        );
+        assert_eq!(
+            computed_state(
+                None,
+                false,
+                false,
+                Some(&[released]),
+                OwnerActivity::Other,
+                0
+            ),
+            "discussing"
+        );
+    }
 
     fn work(children: &[&str]) -> Option<PageWork> {
         Some(PageWork {

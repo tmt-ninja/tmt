@@ -6414,6 +6414,38 @@ readable page-scoped creation statement follow in page-ID order. The number is o
 display data, not authority.
 `tmt colab page create --project NAME` sets the initial project before allocating the page number;
 `tmt colab project set NAME --prefix PREFIX` changes a project's prefix for future allocations.
+`tmt colab project set NAME --release-tag-prefix PREFIX` sets an optional owner-local filter for
+release tags; `--clear-release-tag-prefix` removes it. A page uses the first canonical project
+with a filter, or accepts any release tag when none has one. A merged PR is released only when
+its merge commit is an ancestor of an eligible GitHub release tag from its repository. Show that
+tag; an empty release list, a failed read or an unavailable `gh` means unknown, not released.
+
+The owner service derives computed work status as unsigned, owner-local display data. It may call
+the user's logged-in `gh` executable, never reading, storing or forwarding a token. PRs are keyed
+only by explicit GitHub PR URLs in the admitted page, not a number guessed from a title. An owner
+page must be open on its admitted sync connection for a read; closing it or moving its content
+cancels its in-flight request. At most one GitHub read is in flight per owner service. Open PRs
+are read at most once per 60 seconds; each command has a five-second deadline, and a page refresh
+starts no further GitHub commands after its 30-second budget. Release lists are read at most once per repository per five
+minutes and fetch at most the newest 100 releases including prereleases; after applying the page's prefix, at most the newest ten matching tags are compared. A failed read backs off;
+missing `gh`, logged-out access, unknown checks and unproven release facts remain unknown. A
+successful comparison is retained per PR, merge and candidate tag; a positive release and tag are
+retained and never polled again for that filter. The reader requests only the checks rollup state.
+No GitHub output is added to page HTML, and share readers receive none of these observations.
+
+The owner browser may POST `{pageId}` to `/api/work-facts` only while its owner sync connection
+for that page is open. The reply is `{pageId,known,pulls,state,activity,asOfMs}`: `pulls` holds
+only admitted PR URLs and bounded derived facts, `activity` is a bounded local owner-agent observation
+or null, and `lastActivityAtMs` is the page's owner-local admitted activity time or null. A page
+with no retained receipts or checkpoints in any epoch has no links or to-dos and is discussing;
+unavailable written pages remain unknown. Activity is read from `identities.status` for the admitted
+owner on page open, visibility, owner sync events and PR refresh, after comparing `changes.cursor`;
+there is no activity timer or watcher. A missed update between those events is accepted. An
+activity observation older than the named provisional stall threshold cannot claim working or
+possibly stalled. Last activity is not a heartbeat. The current owner-local result is retained by
+page fingerprint for `ls --json` and `show --json` as `computedStatus`; these reads do not start
+GitHub requests. The retained `asOfMs` is the observation time and can be old; reads do not restamp it. A missing, stale or failed observation is unknown. The threshold is provisional;
+the user has not chosen it. There is no automatic stalled-work follow-up in this version.
 
 A structured to-do block also receives an owner-local number, keyed by its page and stable block
 ID; delete and restore keep that number. After a new content publication commits, the owner queues
@@ -6424,10 +6456,11 @@ never allocates them. The paired owner browser can POST `{pageId,blocks}` to `/a
 for at most 2,048 distinct block IDs and receives `{pageId,numbers}`, where `numbers` maps only
 known requested IDs to labels. The body and reply are bounded to 192 KiB; invalid IDs, non-owner
 contexts, and unknown pages are refused. Share readers have no number lookup.
-After an acknowledged owner block publication, a browser with missing labels retries the lookup at
-most three times, approximately 0.5, 1.5 and 4 seconds after the acknowledgement. It cancels those
-retries when the page closes, the shown to-do set changes, all labels arrive or a newer acknowledgement
-starts a fresh sequence; no retry timer runs when all shown to-dos have labels.
+After an acknowledged owner block publication or an admitted change to the shown to-do set, an
+owner browser with missing labels retries the lookup at most three times, approximately 0.5, 1.5 and
+4 seconds after that event. It cancels the sequence when the page closes, all labels arrive, or a
+newer acknowledgement or to-do set starts a fresh sequence; no retry timer runs when all shown
+to-dos have labels.
 
 Projects are display-only names the owner uses to organize the page list; a page can be in
 several. They carry no authority and are **not signed**: a project never changes who can read
@@ -6587,7 +6620,7 @@ The CLI has `pin PAGE` and `unpin PAGE` (`--json` prints `{spaceId, pageId, pinn
 ### Page summary (#2588)
 
 Each page in the owner-served `GET /api/pages` list may carry a display-only `summary` the
-The home page list shows with its title: `{comments, waiting, needsYou, author?, work?, parent?}`. Like projects it is **not signed**,
+The home page list shows with its title: `{comments, waiting, needsYou, author?, work?, parent?, fields?}`. Like projects it is **not signed**,
 is never an owner-log statement and never enters a page's content or any stream, and it
 appears only in this owner list: not in a reader link's or a member's views, and not in the
 CLI's `ls`/`show`. A client treats it as untrusted text.
@@ -6606,6 +6639,9 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   agent reply. Agent prose, device labels and publisher clocks cannot substitute for provenance.
 - `waiting` is exactly `needsYou > 0`, not a separate definition.
 - `author` is the effective creator's bounded display label ([question metadata](#question-metadata-5052)), falling back to `originalAuthor` for legacy display only. That label alone is never a creator, routing reference, identity proof or the last editor.
+- `fields`, when present, is the owner fold's `{owner?, priority?, next?, blocked?}` using the
+  admitted work-field bounds. It is display-only and may be omitted when it does not fit the
+  discovery response budget. Its text is never interpreted as HTML or authority.
 - `work` is the page's direct sub-pages as the list shows them (see [Work](#work-4050)), omitted
   for a page without sub-pages, so a fresh summary without it is in discussion. It is
   `{stage, done, total}`: the derived stage and the direct sub-pages done and in all, each counted
@@ -6615,6 +6651,12 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   sub-page without a fresh entry counts as unknown, never done.
 - `parent` is `{page, index}`, the page that lists this page and this page's position in that list,
   omitted when none does. With several (two writers raced) it is the lowest page ID.
+- `status`, when present, is the computed work status the owner retained for this page's current
+  fingerprint: the same projection `show --json` reports as `computedStatus.state`, one of `done`,
+  `blocked`, `needs-you`, `waiting-ci`, `waiting-release`, `working`, `possibly-stalled`,
+  `discussing` or `unknown`. A list read only reads that retained value; it never computes a status
+  or reads GitHub. It is omitted until an owner page view has computed the status since the page
+  last changed, so a page not opened since then keeps its stage. Display only, never authority.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the
@@ -6624,7 +6666,8 @@ anchors the renderer can display, not any saved record or admission. An unresolv
 adopts another heading's answer or read; a text/match-budget failure or the 200 ms projection
 deadline leaves the summary unavailable, never a false zero. The decoder keeps its existing 2 s bound.
 
-The list's needs-you filter keeps the pages whose summary says `waiting`. A page without a
+The list's needs-you filter keeps the pages whose summary says `waiting` or whose `status` is
+`needs-you` or `blocked`. A page without a
 summary is unknown, never a false zero, so the filter does not count it. Navigation back to Home
 or a browser reload makes the existing owner-list read again. While a page that is not archived
 still has no summary, the visible Home list also reads again every 2 s, at most 15 times, and stops
@@ -6650,7 +6693,7 @@ The cache holds each page's _own_ work (its manual state and direct sub-pages); 
 never cached, because a page's progress changes when a sub-page's state does.
 `summary` is at most `{comments:4294967295, waiting, needsYou:350, author:128 bytes, work:{counts
 to 256}, parent}` per page (the author escapes to at most 256 bytes on the wire), so a full space of
-1,000 pages with the longest labels measures 1,052,197 bytes before titles and stays within the
+1,000 pages with the longest labels measures 1,052,197 bytes before titles (`status` adds at most 28 bytes a page, 28,000 in all) and stays within the
 2 MiB discovery cap with every page's longest title (the browser boundary test pins the complete
 encoded reply).
 
@@ -8228,8 +8271,10 @@ no download and follows the create-only rules above.
 The paired owner app exposes sharing/history, member add/remove/role, link
 create/remove/Reset and epoch advance in parent chrome. Home and page chrome open
 the same dialog; local samples remain read-only. Home offers the tabs All, Needs you (the
-active pages waiting on the viewer, `needs=true`), Discussion, In progress and Done (the stage of
-each row's `summary.work`, a fresh summary without work being in discussion) and Archived, and
+active pages waiting on the viewer, `needs=true`), Discussion, In progress and Done (from each row's `summary.status` when present: `needs-you`
+and `blocked` are in Needs you; `working`, `possibly-stalled`, `waiting-ci` and `waiting-release`
+are In progress; `done` is Done; `discussing` and `unknown` are Discussion. Without a status, the
+stage of `summary.work`, a fresh summary without work being in discussion) and Archived, and
 opens on All (a link with `stage=in-progress` opens on In progress; a mounted address is the list and no more, so a reload,
 Back and Forward return to the tab the entry was left on); an
 archived page counts only under Archived, and a page whose summary has not arrived is in no stage

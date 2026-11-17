@@ -93,6 +93,10 @@ pub struct SummaryProjection {
     pub needs: Vec<crate::summary_passages::Need>,
     /// The page's newest comment, when it has one.
     pub latest: Option<crate::summary_passages::Latest>,
+    /// Explicit PR links from admitted page content; absent if extraction could not complete.
+    pub pr_links: Option<Vec<crate::work_facts::PullLink>>,
+    /// Checked and total visible structured to-dos; absent for an HTML page.
+    pub todo_counts: Option<(usize, usize)>,
 }
 
 #[cfg(test)]
@@ -103,6 +107,8 @@ impl From<Summary> for SummaryProjection {
             readings: Vec::new(),
             needs: Vec::new(),
             latest: None,
+            pr_links: None,
+            todo_counts: None,
         }
     }
 }
@@ -158,6 +164,29 @@ fn fold_details(
     let mut summary = count(&conversations, &folded.meta, u32::try_from(pending.len())?);
     summary.work = crate::work_index::page_work(&folded.meta).map(Box::new);
     let title = active.then(|| folded.title.clone());
+    let pr_links = if active {
+        crate::work_facts::page_links(&folded.source, folded.blocks.as_ref())
+    } else {
+        None
+    };
+    let todo_counts = folded
+        .blocks
+        .as_ref()
+        .and_then(Value::as_object)
+        .map(|blocks| {
+            let todos: Vec<_> = blocks
+                .values()
+                .filter(|block| block["type"] == "todo" && block.get("deleted").is_none())
+                .collect();
+            (
+                todos
+                    .iter()
+                    .filter(|block| block["props"]["checked"] == true)
+                    .count(),
+                todos.len(),
+            )
+        })
+        .or_else(|| folded.blocks.is_none().then_some((0, 0)));
     let todos = if active {
         crate::page::todo_ids(folded.blocks.as_ref())
     } else {
@@ -169,6 +198,8 @@ fn fold_details(
             readings,
             needs: crate::summary_passages::needs(&report, &pending, &questions),
             latest: crate::summary_passages::latest(&conversations),
+            pr_links,
+            todo_counts,
         },
         title,
         todos,

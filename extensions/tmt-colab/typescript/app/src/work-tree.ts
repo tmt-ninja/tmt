@@ -9,6 +9,8 @@ export interface SubpageRow {
   /** The page whose list holds the link; Detach removes it there. */
   parent: string;
   title?: string;
+  workNumber?: string;
+  fields?: NonNullable<PageSummary['summary']>['fields'];
   state?: PageState | null;
 }
 /** Direct sub-page progress: each sub-page counts once, by its own manual state, never recursively. */
@@ -103,7 +105,14 @@ export function subpageTree(
   const byId = new Map((pages ?? []).map((page) => [page.id, page]));
   const row = (id: string, parent: string): SubpageRow => {
     const page = byId.get(id);
-    return { id, parent, title: page?.title, state: page?.state };
+    return {
+      id,
+      parent,
+      title: page?.title,
+      state: page?.state,
+      workNumber: page?.workNumber,
+      fields: page?.summary?.fields,
+    };
   };
   const listed = subpages(work);
   // An archived sub-page keeps its link (unarchiving brings its row back in place), but the panel

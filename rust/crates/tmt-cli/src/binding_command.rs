@@ -542,7 +542,7 @@ fn session_observation(
             endpoint.observed_runtime(&observed).ok()
         })
         .unwrap_or(RuntimeState::Unknown);
-    let activity = crate::output::activity_document(
+    let activity = tmt_adapters::runtime::activity_document(
         row.binding.as_ref(),
         preferences.remembered.as_ref(),
         runtime,

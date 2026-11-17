@@ -194,6 +194,15 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE work_numbers(item TEXT PRIMARY KEY, prefix TEXT NOT NULL, n INTEGER NOT NULL,
         UNIQUE(prefix,n)) WITHOUT ROWID;
     "#,
+    // Schema 24: optional owner-local release tag filter for a project.
+    r#"
+    ALTER TABLE project_meta ADD COLUMN release_tag_prefix TEXT;
+    CREATE TABLE work_release_facts(pr TEXT NOT NULL, merge_sha TEXT NOT NULL, tag TEXT NOT NULL, observed_ms INTEGER NOT NULL,
+        PRIMARY KEY(pr,merge_sha,tag)) WITHOUT ROWID;
+    CREATE TABLE work_release_checks(pr TEXT NOT NULL, merge_sha TEXT NOT NULL, tag TEXT NOT NULL,
+        contains INTEGER NOT NULL CHECK(contains IN (0,1)), PRIMARY KEY(pr,merge_sha,tag)) WITHOUT ROWID;
+    CREATE TABLE work_status_cache(page TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, value TEXT NOT NULL) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// The schema whose step rewrites stored object envelopes as binary v2 (#5876).

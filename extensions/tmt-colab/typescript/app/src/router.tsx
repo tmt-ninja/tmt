@@ -2,8 +2,8 @@ import { useNeedsYouVersions } from './use-needs-you-versions.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
-import { PageWorkBand } from './work-band-live.js';
-import { MobileWorkTitle } from './work-band.js';
+import { PageStateMenu, PageWorkBand } from './work-band-live.js';
+import { MobileWorkTitle, WorkPullChips } from './work-band.js';
 import { useMedia } from './use-media.js';
 import { usePageWorkflow } from './use-page-workflow.js';
 import { AddSubpageDialog } from './work-add-dialog.js';
@@ -1646,8 +1646,8 @@ function OpenPage({
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
   const [workBandSize, setWorkBandSize] = useState(0);
-  const compactWorkTitle = useMedia('(max-width: 900px)');
   const [addingSubpage, setAddingSubpage] = useState(false);
+  const [manualStateOpen, setManualStateOpen] = useState(false);
   const addSubpageDraft = useRef<import('./page-list-search.js').SearchEdit | undefined>(undefined);
   const {
     reset: resetPageLinks,
@@ -2428,7 +2428,14 @@ function OpenPage({
       if (!entry || !frame || !frameOutline) return undefined;
       const version = frameOutline.snapshot;
       return {
-        top: () => frame.getBoundingClientRect().top + entry.top,
+        top: () => {
+          const frameTop = frame.getBoundingClientRect().top;
+          const barBottom = toolbar.current?.getBoundingClientRect().bottom ?? 0;
+          // In the bounded inner-scroll mode the frame can begin below the bar. Its own top,
+          // rather than the bar, is then the first position an internally scrolled heading reaches.
+          const lead = frame.dataset.scrollMode === 'frame' ? Math.max(0, frameTop - barBottom) : 0;
+          return frameTop + entry.top - lead;
+        },
         scrollTo: () => renderer.current?.scrollOutline(version, index),
       };
     },
@@ -2738,6 +2745,14 @@ function OpenPage({
       work={view.work}
       priority={view.priority}
       owner={view.owner}
+      beforeSubpages={
+        <>
+          <WorkPullChips facts={view.workFacts} />
+          {hierarchy.parent}
+        </>
+      }
+      workFacts={view.workFacts}
+      blockedReason={view.blocked}
       pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
       binding={archived || liveError ? undefined : snapshot.binding}
       transport={transport}
@@ -2787,7 +2802,6 @@ function OpenPage({
       />
       {!design && (
         <ColabHeader
-          workNumber={snapshot.workNumber}
           embedded={embedded}
           remoteMenu={false}
           remoteChip={false}
@@ -2798,16 +2812,13 @@ function OpenPage({
                   {text.templates.templateChip}
                 </span>
               )}
-              {!compactWorkTitle && workControls}
-              {!compactWorkTitle && projectControls}
             </>
           }
           crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
-          // A sub-page names its parent where the remembered scope would be (#5506).
-          lead={compactWorkTitle ? undefined : hierarchy.parent}
           barRef={toolbar}
           page
-          title={view.title || snapshot.title || text.unknownPageTitle}
+          title={text.product}
+          accessibleTitle={view.title || snapshot.title || text.product}
           remote={{ deviceName: transport.backendName }}
           caption={
             view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)
@@ -2934,6 +2945,17 @@ function OpenPage({
                   !archived &&
                   !liveError
                 }
+                canSetPageState={
+                  !design &&
+                  !!snapshot.binding?.canWork?.() &&
+                  !!snapshot.binding?.canMetadata?.() &&
+                  !!snapshot.binding?.metadata &&
+                  !!snapshot.binding?.metadataRevision &&
+                  (view.state === undefined ? view.pageState : view.state) != null &&
+                  state === 'ready' &&
+                  !archived &&
+                  !liveError
+                }
                 parentTitle={hierarchy.parentPage?.title}
                 pin={pin}
                 creatorLabel={creatorName(view)}
@@ -2963,6 +2985,8 @@ function OpenPage({
                     routing.open(`/pages/${hierarchy.parentPage.id}`);
                   } else if (action === 'add-subpage') {
                     setAddingSubpage(true);
+                  } else if (action === 'page-state') {
+                    setManualStateOpen(true);
                   } else if (action === 'put-under') {
                     setChoosingParent(true);
                   } else if (action === 'archive') {
@@ -2982,6 +3006,17 @@ function OpenPage({
           }
         />
       )}
+      <BrowserDrawer
+        open={manualStateOpen}
+        title={text.workBand.pageState}
+        panel="page-state"
+        onDismiss={() => setManualStateOpen(false)}
+      >
+        <PageStateMenu
+          binding={snapshot.binding}
+          state={view.state === undefined ? view.pageState : view.state}
+        />
+      </BrowserDrawer>
       <TemplateDialogs
         key={`template:${snapshot.id}`}
         kind={templateDialog}
@@ -3183,12 +3218,14 @@ function OpenPage({
         </section>
       </BrowserDrawer>
       <div className="workspace">
-        {compactWorkTitle && workControls && (
+        {workControls && (
           <MobileWorkTitle
             title={view.title || snapshot.title}
             workNumber={snapshot.workNumber}
             onSize={setWorkBandSize}
-            parent={hierarchy.parent}
+            next={view.next}
+            blocked={view.blocked}
+            facts={view.workFacts}
           >
             {workControls}
             {projectControls}

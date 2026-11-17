@@ -72,12 +72,28 @@ struct Context {
     grant_revision: u64,
 }
 pub(crate) const WORK_NUMBERS_PATH: &str = "/api/work-numbers";
+pub(crate) const WORK_FACTS_PATH: &str = "/api/work-facts";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct WorkNumbersRequest {
     page_id: String,
     blocks: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WorkFactsRequest {
+    page_id: String,
+}
+
+pub(crate) struct WorkFactsInput {
+    pub device: String,
+    pub page: String,
+    pub projection: Option<crate::summary::SummaryProjection>,
+    pub never_written: bool,
+    pub last_activity_at_ms: Option<u64>,
+    pub prefix: Option<String>,
+    pub fingerprint: String,
 }
 impl Context {
     fn parse(raw: Option<&str>) -> std::result::Result<Self, Code> {
@@ -379,6 +395,7 @@ impl Registration {
         let graph = crate::work_links::Graph(&found);
         let parents = graph.parents();
         let archived = crate::inspection::catalog_archived_ids(&catalog);
+        let now = now_ms()?;
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
                 continue;
@@ -396,6 +413,17 @@ impl Registration {
             };
             page["state"] = serde_json::json!(graph.page_state(&id));
             page["summary"] = summary.json();
+            // The list shows the computed status the owner retained for this exact fingerprint
+            // (the one `show` reports); a page without one keeps its stage. Never computed here.
+            if let Some(state) = self
+                .store
+                .cached_work_status_with_fingerprints(&self.keyring, &id, now, Some(&fingerprints))
+                .ok()
+                .flatten()
+                .and_then(|status| status["state"].as_str().map(str::to_owned))
+            {
+                page["summary"]["status"] = serde_json::json!(state);
+            }
             if let Some(work) = graph.row(&id, &archived) {
                 page["summary"]["work"] = work;
             }
@@ -411,8 +439,32 @@ impl Registration {
                 crate::summary::drain(&self.summaries, open);
             }
         }
-        crate::page_titles::attach_to_catalog(&mut catalog, &titles);
         catalog["listToken"] = serde_json::json!(list_token(&fingerprints)?);
+        crate::page_titles::attach_to_catalog(&mut catalog, &titles);
+        // Work fields are optional display data. Keep the complete catalog within the existing
+        // discovery bound even when every page has the longest allowed notes.
+        let mut used = serde_json::to_vec(&catalog)
+            .map_err(|_| Code::Unavailable)?
+            .len();
+        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+            let Some(fields) = page["pageId"]
+                .as_str()
+                .and_then(|id| fresh.get(id))
+                .and_then(|summary| summary.work.as_ref())
+                .map(|work| &work.fields)
+                .filter(|fields| fields.as_object().is_some_and(|fields| !fields.is_empty()))
+            else {
+                continue;
+            };
+            let cost = serde_json::to_vec(fields)
+                .map_err(|_| Code::Unavailable)?
+                .len()
+                + 16;
+            if used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
+                page["summary"]["fields"] = fields.clone();
+                used += cost;
+            }
+        }
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
     }
     /// The page list's opaque change token (contract: Live page list): it moves when any page's
@@ -470,6 +522,48 @@ impl Registration {
             .map_err(map_error)?;
         serde_json::to_vec(&serde_json::json!({"pageId":request.page_id,"numbers":numbers}))
             .map_err(|_| Code::Unavailable)
+    }
+
+    /// The owner page's admitted PR links, never a URL supplied by the browser.
+    pub(crate) fn work_facts_input(
+        &mut self,
+        context: Option<&str>,
+        body: &[u8],
+    ) -> std::result::Result<WorkFactsInput, Code> {
+        let request: WorkFactsRequest = serde_json::from_slice(body).map_err(|_| Code::Invalid)?;
+        values::generated_id(&request.page_id).map_err(|_| Code::Invalid)?;
+        let device = Context::parse(context)?.device_id;
+        self.active_device(context, now_ms()?)?;
+        let fingerprint = self
+            .store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                tx.page_fingerprint(&request.page_id)
+            })
+            .map_err(map_error)?
+            .ok_or(Code::Denied)?;
+        let projection = match self.summaries.details(&request.page_id, &fingerprint) {
+            crate::summary::CachedDetails::Ready(projection) => Some(projection),
+            _ => None,
+        };
+        let prefix = self
+            .store
+            .release_tag_prefix_for_page(&request.page_id)
+            .map_err(|_| Code::Unavailable)?;
+        Ok(WorkFactsInput {
+            device,
+            projection,
+            never_written: self
+                .store
+                .page_never_written(&request.page_id)
+                .map_err(|_| Code::Unavailable)?,
+            last_activity_at_ms: self
+                .store
+                .last_activity_ms(&request.page_id)
+                .map_err(|_| Code::Unavailable)?,
+            page: request.page_id,
+            prefix,
+            fingerprint,
+        })
     }
 
     /// Complete cached chapter metadata. The owner read checks authority and the current
@@ -1993,6 +2087,23 @@ mod describe_tests {
         put(top, &fingerprints[top], Some(&top_work));
         put(leaf, &fingerprints[leaf], Some(&leaf_work));
         put(bare, &fingerprints[bare], Some(&json!({})));
+        // A retained computed status reaches the list only for the page's current fingerprint.
+        service
+            .store
+            .remember_work_status(
+                bare,
+                &fingerprints[bare],
+                &json!({"pageId":bare,"state":"waiting-ci"}),
+            )
+            .unwrap();
+        service
+            .store
+            .remember_work_status(
+                top,
+                "an older fingerprint",
+                &json!({"pageId":top,"state":"done"}),
+            )
+            .unwrap();
         let rows =
             |service: &Registration| -> std::collections::BTreeMap<String, serde_json::Value> {
                 let list: serde_json::Value =
@@ -2034,6 +2145,8 @@ mod describe_tests {
         assert!(list[bare].get("progress").is_none());
         assert!(list[top]["summary"].get("parent").is_none());
         assert!(list[unread].get("summary").is_none());
+        assert_eq!(list[bare]["summary"]["status"], "waiting-ci");
+        assert!(list[top]["summary"].get("status").is_none());
 
         // The sub-page goes stale: its state is unknown, so it no longer counts as done.
         put(leaf, "stale fingerprint", Some(&leaf_work));

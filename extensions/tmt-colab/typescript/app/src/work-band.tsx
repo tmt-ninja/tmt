@@ -13,7 +13,35 @@ import {
 import { text } from './strings.js';
 import type { PageState } from './bootstrap.js';
 import type { SubpageCounts, SubpageRow } from './work-tree.js';
+import type { PageActivity } from './bootstrap.js';
+import type { WorkFactView } from './reading-details.js';
+import { relativeTime } from './display-time.js';
 import './work-band.css';
+
+const PR_STALE_MS = 10 * 60 * 1000;
+
+/** Owner-local list details, rendered as text rather than authority. */
+export function WorkFieldDetails({ fields }: { fields?: PageActivity['fields'] }) {
+  if (!fields) return null;
+  return (
+    <span className="work-field-details">
+      {fields.priority && fields.priority !== 'normal' && (
+        <span
+          aria-label={
+            fields.priority === 'high' ? text.workBand.priorityHigh : text.workBand.priorityLow
+          }
+        >
+          {fields.priority === 'high'
+            ? text.workBand.priorityHighChip
+            : text.workBand.priorityLowChip}
+        </span>
+      )}
+      {fields.owner && <span>{fields.owner.name}</span>}
+      {fields.blocked && <span>{text.workBand.blockedNote(fields.blocked)}</span>}
+      {fields.next && <span>{text.workBand.nextNote(fields.next)}</span>}
+    </span>
+  );
+}
 
 type RowSlots = Pick<
   WorkBandProps,
@@ -24,8 +52,9 @@ export interface WorkBandProps {
   priority?: 'high' | 'normal' | 'low';
   owner?: { id: string; name: string };
   pageState?: PageState | null;
-  /** This page's own state chip; the owner's is a menu of its own, which never toggles the band. */
+  /** This page's state control, independent of the sub-page list. */
   stateControl?: ReactNode;
+  beforeSubpages?: ReactNode;
   /** Direct sub-pages, in order. */
   subpages: readonly SubpageRow[];
   /** The next level under a sub-page, from what the viewer already has; empty when unknown. */
@@ -42,19 +71,23 @@ export interface WorkBandProps {
   onAdd?(): void;
 }
 
-/** On phones the page title and work controls scroll together as one content block. */
+/** The page title and work controls scroll together as one content block. */
 export function MobileWorkTitle({
   title,
   workNumber,
   onSize,
-  parent,
   children,
+  next,
+  blocked,
+  facts,
 }: {
   title: string;
   workNumber?: string;
   onSize(height: number): void;
-  parent?: ReactNode;
   children: ReactNode;
+  next?: string;
+  blocked?: string;
+  facts?: WorkFactView;
 }) {
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -71,7 +104,6 @@ export function MobileWorkTitle({
   }, [onSize]);
   return (
     <div className="page-mobile-title" ref={element}>
-      {parent}
       <h1>
         {workNumber && (
           <>
@@ -81,8 +113,35 @@ export function MobileWorkTitle({
         {title}
       </h1>
       <div className="page-mobile-title-chips">{children}</div>
+      {(next || blocked || facts?.lastActivityAtMs != null) && (
+        <div className="page-work-notes">
+          {blocked && <span>{blocked}</span>}
+          {next && <span>{text.workBand.nextNote(next)}</span>}
+          {facts?.lastActivityAtMs != null && (
+            <span>
+              {text.workBand.lastActivity(relativeTime(facts.lastActivityAtMs, facts.asOfMs))}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+export function WorkPullChips({ facts }: { facts?: WorkFactView }) {
+  return facts?.pulls.map(({ url, fact }) => (
+    <a className={ui.countChip} href={url} key={url} target="_blank" rel="noreferrer">
+      PR #{url.split('/').at(-1)} ·{' '}
+      {fact?.tag
+        ? text.workBand.releasedIn(fact.tag)
+        : fact
+          ? text.workBand.pullState[fact.state]
+          : text.workBand.unknown}
+      {fact && !fact.tag && facts.asOfMs - fact.observedAtMs >= PR_STALE_MS && (
+        <> · {text.workBand.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>
+      )}
+    </a>
+  ));
 }
 
 function StateChip({ state }: { state?: PageState | null }) {
@@ -101,6 +160,7 @@ export function WorkBand({
   owner,
   pageState,
   stateControl,
+  beforeSubpages,
   subpages,
   onAdd,
   ...slots
@@ -122,14 +182,19 @@ export function WorkBand({
       const maxWidth = Math.min(36 * Number.parseFloat(root.fontSize), innerWidth - 2 * gap);
       const shift = Math.min(0, innerWidth - gap - node.getBoundingClientRect().left - maxWidth);
       node.style.setProperty('--work-popover-shift', `${shift}px`);
+      const verticalGap = Number.parseFloat(root.getPropertyValue('--tmt-ui-space-s')) || 0;
+      const room = Math.max(0, innerHeight - node.getBoundingClientRect().bottom - 2 * verticalGap);
+      node.style.setProperty('--work-popover-height', `${room}px`);
     };
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, { passive: true });
     measure();
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure);
     };
   }, [open]);
   useEffect(() => {
@@ -181,6 +246,7 @@ export function WorkBand({
             </span>
           </span>
         )}
+        {beforeSubpages}
         {!empty && (
           <button
             type="button"
@@ -267,6 +333,7 @@ function Row({
             <span className="work-twisty" />
           )}
           <FileText className="work-row-icon" aria-hidden="true" />
+          {row.workNumber && <span className="colab-work-number">{row.workNumber}</span>}
           {pageHref ? (
             <a className="work-row-title" href={pageHref(row.id)}>
               {title}
@@ -280,6 +347,7 @@ function Row({
         </span>
         <span className="work-row-state">{rowState?.(row) ?? <StateChip state={row.state} />}</span>
         <span className="work-row-more">{rowActions?.(row)}</span>
+        <WorkFieldDetails fields={row.fields} />
       </div>
       {open && below.length > 0 && (
         <ul className="work-tree">

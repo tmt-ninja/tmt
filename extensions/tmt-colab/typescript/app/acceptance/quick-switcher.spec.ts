@@ -39,7 +39,7 @@ test('served quick search crosses the Remote boundary, switches pages and keeps 
       [third, 'A longer boundary page title for the compact result layout'],
     ] as const) {
       await visited.goto(new URL(created.path, `${door.address}/`).href);
-      await expect(visited.locator('.tmt-ui-topbar-title h1')).toHaveText(
+      await expect(visited.locator('.page-mobile-title h1')).toHaveText(
         `W-${created === second ? 2 : 3} ${title}`,
       );
       await backToPageList(visited);
@@ -79,8 +79,8 @@ test('served quick search crosses the Remote boundary, switches pages and keeps 
     await expect(dialog.getByRole('option', { selected: true })).toContainText('Boundary beta');
     await page.keyboard.press('Enter');
     await expect(dialog).toHaveCount(0);
-    await expect(page.locator('.tmt-ui-topbar-title h1')).toHaveText('W-2 Boundary beta');
-    await expect(page.locator('.tmt-ui-topbar-title h1')).toBeFocused();
+    await expect(page.locator('.page-mobile-title h1')).toHaveText('W-2 Boundary beta');
+    await expect(page.locator('.page-mobile-title h1')).toBeFocused();
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Beta source' }),
     ).toBeVisible();

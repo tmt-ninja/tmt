@@ -65,7 +65,7 @@ async function open(
     },
   });
   await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
-  return page.locator('.tmt-ui-topbar:visible');
+  return page.locator('#ask-page-fixture');
 }
 const chips = (header: ReturnType<Page['locator']>) =>
   header.getByRole('button', { name: /^Projects for Live shared page: / });
@@ -182,13 +182,11 @@ for (const theme of ['light', 'dark'] as const)
     await capture(page, `4356-header-pinned-1440-${theme}.png`);
   });
 
-test('a phone bar leaves its room to the title: the chips, + and pin are hidden', async ({
-  page,
-}) => {
+test('a phone keeps its title and project controls readable in the content', async ({ page }) => {
   const header = await open(page, 390);
-  await expect(header.locator('.page-project-group')).toBeHidden();
-  await expect(header.getByRole('button', { name: /^Pin Live shared page/ })).toBeHidden();
-  await expect(header.locator('.tmt-ui-topbar-title-current')).toHaveText('Live shared page');
+  await expect(header.locator('.page-project-group')).toBeVisible();
+  await expect(header.getByRole('button', { name: /^Pin Live shared page/ })).toBeVisible();
+  await expect(header.locator('.page-mobile-title h1')).toHaveText('Live shared page');
   expect(await noOverflow(page)).toBe(true);
 });
 
@@ -298,7 +296,7 @@ test('a viewer who cannot write projects sees neither chips nor Projects…', as
   await page.goto('/');
   await run(page, 'mount', {});
   await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
-  const header = page.locator('.tmt-ui-topbar:visible');
+  const header = page.locator('#ask-page-fixture');
   await expect(chips(header)).toHaveCount(0);
   await expect(header.getByRole('button', { name: 'Add to project', exact: true })).toHaveCount(0);
   await expect(header.locator('.page-project-group-chip')).toHaveCount(0);
@@ -325,7 +323,7 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
   await expect(page.getByRole('menuitem', { name: /^(Pin to top|Unpin)$/ })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(
-    page.locator('.tmt-ui-topbar:visible').getByRole('button', { name: /^Pin Live shared page/ }),
+    page.locator('#ask-page-fixture').getByRole('button', { name: /^Pin Live shared page/ }),
   ).toBeVisible();
   await page.setViewportSize({ width: 390, height: 900 });
 

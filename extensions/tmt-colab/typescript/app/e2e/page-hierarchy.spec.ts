@@ -20,7 +20,7 @@ async function mount(
     [owner, scenario] as const,
   );
   const bar = page.locator('.tmt-ui-topbar:visible');
-  await expect(bar.locator('.tmt-ui-topbar-title-current')).toHaveText(
+  await expect(page.locator('.page-mobile-title:visible h1')).toHaveText(
     /^(?:COLAB-128\s+)?Release plan/,
   );
   return bar;
@@ -32,12 +32,25 @@ for (const width of [1440, 1100, 800, 390])
     await mount(page, 'work-fields');
     const work = page.getByRole('region', { name: 'Work on this page' });
     await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-128');
-    await expect(work.getByLabel('Priority high')).toBeVisible();
+    await expect(work.locator('.work-head').getByLabel('Priority high')).toBeVisible();
     await expect(work.locator('.work-owner-chip')).toBeVisible();
+    await expect(
+      page.locator('.page-work-notes').getByText('Next · Review the mockup'),
+    ).toBeVisible();
+    await expect(
+      page.locator('.page-work-notes').getByText('Waiting for Core', { exact: true }),
+    ).toBeVisible();
     await expect(work.locator('.work-count-wide')).toHaveText('4 sub-pages');
     await expect(work.locator('.work-count-wide')).toBeVisible();
-    const state = work.locator('.work-head .tmt-ui-menu-value');
-    await expect(state).toHaveText('In progress');
+    const state = work.getByRole('button', { name: 'Blocked, show status details' });
+    await expect(state).toHaveText('Blocked');
+    await expect(page.getByRole('link', { name: 'PR #42 · Released in v1.2.3' })).toBeVisible();
+    await expect(page.getByText('Last activity 2 minutes ago')).toBeVisible();
+    if (width === 1440) {
+      await state.click();
+      await expect(page.getByText(/CI passed.*Observed/)).toBeVisible();
+      await page.keyboard.press('Escape');
+    }
     expect(await state.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
     const box = await work.boundingBox();
     expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -45,28 +58,25 @@ for (const width of [1440, 1100, 800, 390])
     if (width === 1100) {
       const controls = page.locator('.tmt-ui-topbar-controls:visible');
       const controlsBox = await controls.boundingBox();
-      expect(box!.x + box!.width).toBeLessThanOrEqual(controlsBox!.x);
+      expect(box!.y).toBeGreaterThanOrEqual(controlsBox!.y + controlsBox!.height);
     }
-    const title =
-      width <= 900
-        ? page.locator('.page-mobile-title:visible h1')
-        : page.locator('.tmt-ui-topbar:visible .tmt-ui-topbar-title-current');
+    const title = page.locator('.page-mobile-title:visible h1');
     expect((await title.boundingBox())!.width).toBeGreaterThan(40);
+    await work.getByRole('button', { name: '4 sub-pages' }).click();
+    const child = page.locator('.work-row-line').filter({ hasText: 'Remote pages v2' });
+    await expect(child).toContainText('COLAB-129');
+    await expect(child).toContainText('gui-3');
+    await expect(child).toContainText('Next · Review the mockup');
+    await expect(child).toContainText('Blocked · Waiting for Core');
   });
 
-test('Mock P1: the direct parent and its progress lead the title, its menu goes up or across', async ({
-  page,
-}) => {
-  const bar = await mount(page);
-  const parent = bar.locator('.page-hierarchy-parent');
+test('the parent chip menu goes up or across', async ({ page }) => {
+  await mount(page);
+  const parent = page.locator('.page-mobile-title:visible .page-hierarchy-parent');
   await expect(parent.locator('.page-hierarchy-icon')).toBeVisible();
-  const name = parent.getByRole('link', { name: 'Remote launch', exact: true });
-  await expect(name).toHaveAttribute('href', new RegExp(PAGE.launch));
-  const trigger = bar.getByRole('button', { name: 'Remote launch, 0 of 2 sub-pages done' });
-  await expect(trigger).toHaveText('0/2');
-  await expect(parent.locator('.page-hierarchy-separator')).toHaveText('›');
-  // The parent replaces the scope crumb; nothing else of the bar moves.
-  await expect(bar.locator('.colab-scope-crumb')).toHaveCount(0);
+  const trigger = page.getByRole('button', { name: 'Parent · Remote launch' });
+  await expect(trigger).not.toContainText('sub-pages');
+  await expect(parent).toContainText('Parent ·');
   await trigger.click();
   const menu = page.locator('.page-hierarchy-menu');
   await expect(menu.getByRole('menuitem').first()).toHaveText('Back to Remote launch');
@@ -83,8 +93,10 @@ test('Mock P1: the direct parent and its progress lead the title, its menu goes 
 test('Mock P1: "N sub-pages" after the title lists the direct sub-pages with their states', async ({
   page,
 }) => {
-  const bar = await mount(page);
-  const chip = bar.getByRole('button', { name: '4 sub-pages' });
+  await mount(page);
+  const chip = page
+    .locator('.page-mobile-title:visible')
+    .getByRole('button', { name: '4 sub-pages' });
   await expect(chip).toBeVisible();
   await chip.click();
   const rows = page.locator('.work-row-line');
@@ -96,10 +108,10 @@ test('Mock P1: "N sub-pages" after the title lists the direct sub-pages with the
 });
 
 test('parts that do not apply are absent', async ({ page }) => {
-  const bar = await mount(page, 'empty');
-  await expect(bar.getByRole('button', { name: /sub-pages?$/ })).toHaveCount(0);
+  await mount(page, 'empty');
+  await expect(page.locator('.page-mobile-title:visible .work-toggle')).toHaveCount(0);
   // This page still has its parent.
-  await expect(bar.locator('.page-hierarchy-parent')).toHaveCount(1);
+  await expect(page.locator('.page-mobile-title:visible .page-hierarchy-parent')).toHaveCount(1);
 });
 
 test('phone keeps the state and sub-page count, with parent navigation in More', async ({
@@ -107,7 +119,7 @@ test('phone keeps the state and sub-page count, with parent navigation in More',
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const bar = await mount(page);
-  await expect(bar.locator('.page-hierarchy-parent')).toBeHidden();
+  await expect(page.locator('.page-mobile-title:visible .page-hierarchy-parent')).toBeVisible();
   await expect(page.getByRole('button', { name: '4 sub-pages' })).toBeVisible();
   const title = page.locator('.page-mobile-title:visible h1');
   expect((await title.boundingBox())!.width).toBeGreaterThan(40);
@@ -117,13 +129,28 @@ test('phone keeps the state and sub-page count, with parent navigation in More',
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
+    test(`captures filled work fields at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      await mount(page, 'work-fields');
+      await expect(
+        page.getByRole('button', { name: 'Blocked, show status details' }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: /Projects for Release plan: Colab/ }),
+      ).toBeVisible();
+      await page.screenshot({ path: capturePath(`work-fields-${width}-${theme}.png`) });
+    });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
     test(`captures P1/P2 at ${width} ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       const bar = await mount(page);
       await page.screenshot({ path: capturePath(`top-bar-p1-${width}-${theme}.png`) });
       if (width === 390) await bar.getByRole('button', { name: 'More', exact: true }).click();
-      else await bar.locator('.page-hierarchy-count').click();
+      else await page.locator('.page-mobile-title:visible .page-hierarchy-parent').click();
       await page.screenshot({ path: capturePath(`top-bar-parent-menu-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
       await page.locator('.work-toggle').click();
@@ -139,17 +166,12 @@ for (const width of [1440, 390])
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       const bar = await mount(page, 'filled');
       // The long titles end in an ellipsis and stay on one line; the bar keeps its height.
-      const title =
-        width === 390
-          ? page.locator('.page-mobile-title:visible h1')
-          : bar.locator('.tmt-ui-topbar-title-current');
-      expect(await title.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(
-        width !== 390,
-      );
+      const title = page.locator('.page-mobile-title:visible h1');
+      expect(await title.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       expect((await bar.boundingBox())!.height).toBeLessThan(80);
       await page.screenshot({ path: capturePath(`top-bar-filled-${width}-${theme}.png`) });
       if (width === 390) await bar.getByRole('button', { name: 'More', exact: true }).click();
-      else await bar.locator('.page-hierarchy-count').click();
+      else await page.locator('.page-mobile-title:visible .page-hierarchy-parent').click();
       await page.screenshot({
         path: capturePath(`top-bar-filled-parent-menu-${width}-${theme}.png`),
       });

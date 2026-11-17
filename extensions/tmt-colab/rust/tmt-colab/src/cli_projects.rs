@@ -45,7 +45,7 @@ pub fn command() -> Command {
         .mut_arg("json",|arg|arg.global(true)).subcommand_required(true)
         .subcommand(command_spec!("ls","List every project with its page count","tmt colab project ls --json","Reads only; archived pages count, and a project with no page is listed.").alias("list"))
         .subcommand(command_spec!("create","Create a project with no page yet","tmt colab project create launch","Creating a project that exists changes nothing. Add pages with `project add`.").arg(Arg::new("name").required(true).index(1).help("The new project")))
-        .subcommand(command_spec!("set","Set a project's work prefix","tmt colab project set launch --prefix REL","Existing work numbers remain unchanged.").arg(Arg::new("name").required(true).index(1)).arg(Arg::new("prefix").long("prefix").required(true).value_name("PREFIX")))
+        .subcommand(command_spec!("set","Set a project prefix","tmt colab project set launch --prefix REL","Existing work numbers remain unchanged; the release tag prefix filters GitHub release tags.").arg(Arg::new("name").required(true).index(1)).arg(Arg::new("prefix").long("prefix").value_name("PREFIX")).arg(Arg::new("release-tag-prefix").long("release-tag-prefix").value_name("PREFIX")).arg(Arg::new("clear-release-tag-prefix").long("clear-release-tag-prefix").action(ArgAction::SetTrue)).group(clap::ArgGroup::new("setting").args(["prefix", "release-tag-prefix", "clear-release-tag-prefix"]).required(true)))
         .subcommand(command_spec!("add","Put a page in projects","tmt colab project add 10000000-0000-4000-8000-000000000001 launch 'q4 plan'","A name no project has yet creates it. Adding a project the page is already in changes nothing. Last writer wins: the command replaces the page's whole project set.").arg(crate::cli_grammar::page()).arg(names("Projects to add")))
         .subcommand(command_spec!("remove","Take a page out of projects","tmt colab project remove 10000000-0000-4000-8000-000000000001 launch","Removing a project the page is not in changes nothing. The project stays, even with no page left.").alias("rm").arg(crate::cli_grammar::page()).arg(names("Projects to remove")))
         .subcommand(command_spec!("rename","Rename a project","tmt colab project rename launch release","Archived pages are included. Renaming onto an existing project merges the two: a page in both keeps one entry. No page is deleted.").arg(Arg::new("name").required(true).index(1).help("The project to rename")).arg(Arg::new("to").required(true).index(2).help("Its new name")))
@@ -158,6 +158,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
     let catalog = inspection::catalog(&store, &key)?;
+    let release_tag_prefixes = store.release_tag_prefixes()?;
     let page = match mode {
         "add" | "remove" => Some(resolve_page(
             &store,
@@ -199,7 +200,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     "automatic: your most recently used projects, until you pin one".into(),
                 ));
             }
-            json!({"spaceId":key.space_id,"pinsAutomatic":automatic,"projects":counts.iter().map(|(name, pages)| json!({"name":name,"pages":pages,"pinned":place(name)})).collect::<Vec<_>>()})
+            json!({"spaceId":key.space_id,"pinsAutomatic":automatic,"projects":counts.iter().map(|(name, pages)| json!({"name":name,"pages":pages,"pinned":place(name),"releaseTagPrefix":release_tag_prefixes.get(name)})).collect::<Vec<_>>()})
         }
         "pin" | "unpin" => {
             let name = &names[0];
@@ -255,15 +256,42 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         "set" => {
             let name = &names[0];
             counts.get(name).ok_or_else(|| not_found(name))?;
-            let prefix = args.get_one::<String>("prefix").expect("prefix");
-            manage(
-                &layout,
-                &key,
-                &json!({"action":"prefix","name":name,"prefix":prefix}),
-            )?;
-            rows.push(("project", name.clone()));
-            rows.push(("prefix", prefix.clone()));
-            json!({"spaceId":key.space_id,"name":name,"prefix":prefix})
+            if let Some(prefix) = args.get_one::<String>("prefix") {
+                manage(
+                    &layout,
+                    &key,
+                    &json!({"action":"prefix","name":name,"prefix":prefix}),
+                )?;
+                rows.push(("project", name.clone()));
+                rows.push(("prefix", prefix.clone()));
+                json!({"spaceId":key.space_id,"name":name,"prefix":prefix})
+            } else {
+                let prefix = args
+                    .get_one::<String>("release-tag-prefix")
+                    .map(String::as_str)
+                    .unwrap_or("");
+                if !prefix.is_empty() && !projects::valid_release_tag_prefix(prefix) {
+                    return Err(fail(
+                        "COLAB_INPUT_INVALID",
+                        "Use a release tag prefix of at most 128 ASCII letters, digits, dots, slashes, underscores or hyphens.",
+                    ));
+                }
+                manage(
+                    &layout,
+                    &key,
+                    &json!({"action":"release-tag-prefix","name":name,"prefix":prefix}),
+                )?;
+                rows.push(("project", name.clone()));
+                rows.push((
+                    "release tag prefix",
+                    if prefix.is_empty() {
+                        "any tag".into()
+                    } else {
+                        prefix.into()
+                    },
+                ));
+                json!({"spaceId":key.space_id,"name":name,"releaseTagPrefix":if prefix.is_empty() { None } else { Some(prefix) }})
+            }
         }
         "create" => {
             let name = &names[0];

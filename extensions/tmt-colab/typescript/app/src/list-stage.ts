@@ -1,3 +1,4 @@
+import type { ComputedState } from './bootstrap.js';
 import type { PageSummary } from './transport.js';
 
 /** The stages the page list tabs name; the owner derives them from a page's sub-pages. */
@@ -16,7 +17,38 @@ export type HomeView = HomeStage | 'needs' | 'archived';
  */
 export function pageStage(page: PageSummary): PageStage | undefined {
   const summary = page.summary;
-  return summary ? (summary.work?.stage ?? 'discussion') : undefined;
+  if (!summary) return undefined;
+  const tab = summary.status && statusTab(summary.status);
+  // A page that needs the person is in the Needs you tab, not a stage tab.
+  if (tab === 'needs') return undefined;
+  return tab ?? summary.work?.stage ?? 'discussion';
+}
+
+/** Which list tab a computed status belongs to (#6520): one map for the Stage cell and the tabs. */
+export function statusTab(state: ComputedState): PageStage | 'needs' {
+  switch (state) {
+    case 'needs-you':
+    case 'blocked':
+      return 'needs';
+    case 'working':
+    case 'possibly-stalled':
+    case 'waiting-ci':
+    case 'waiting-release':
+      return 'in-progress';
+    case 'done':
+      return 'done';
+    case 'discussing':
+    case 'unknown':
+      return 'discussion';
+  }
+}
+
+/** The page needs the person: something awaits them, or its computed status says so. */
+export function needsYou(page: PageSummary): boolean {
+  const summary = page.summary;
+  return (
+    !!summary && (summary.waiting || (!!summary.status && statusTab(summary.status) === 'needs'))
+  );
 }
 
 /** How many of `pages` are at each stage; a page that has not reported counts under none. */

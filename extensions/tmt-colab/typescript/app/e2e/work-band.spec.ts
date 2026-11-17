@@ -197,16 +197,84 @@ test('the title row shows the page state and the sub-page count', async ({ page 
   await expect(head(band)).toContainText('In progress');
   await expect(toggle(band)).toHaveAccessibleName('4 sub-pages');
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
-  await band.getByRole('button', { name: 'Page state' }).click();
-  await expect(page.getByRole('menuitemradio', { name: 'Done', exact: true })).toBeVisible();
+  const status = band.getByRole('button', { name: /show status details/ });
+  const details = page.locator('.work-status-details');
+  await status.click();
+  await expect(details).toBeVisible();
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
   await page.keyboard.press('Escape');
+  await expect(details).toBeHidden();
+  await expect(status).toBeFocused();
   await toggle(band).focus();
+  await expect(toggle(band)).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(band.getByRole('list', { name: 'Sub-pages' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
 });
+
+test('an owner can change the manual page state from More', async ({ page }) => {
+  await mount(page);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Manual page state…' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Page state' });
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole('button', { name: /^Page state:/ }).click();
+  await page.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
+  await expect
+    .poll(() => calls(page))
+    .toContainEqual({ page: 'notes', action: 'page.state', body: { state: 'done' } });
+  await expect(drawer.getByRole('button', { name: /^Page state:/ })).toContainText('Done');
+});
+
+test('Escape from status lets the next keyboard or pointer action reach sub-pages', async ({
+  page,
+}) => {
+  const band = await mount(page);
+  const status = band.getByRole('button', { name: /show status details/ });
+  await status.click();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await expect(toggle(band)).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(band.getByRole('list', { name: 'Sub-pages' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
+  await status.click();
+  await page.keyboard.press('Escape');
+  await toggle(band).click();
+  await expect(band.getByRole('list', { name: 'Sub-pages' })).toBeVisible();
+});
+
+for (const state of ['working', 'possibly-stalled'] as const)
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'] as const)
+      test(`activity status ${state} at ${width} ${theme}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await page.goto('/');
+        await page.evaluate(async (state) => {
+          const path = '/test/work-page-browser.tsx';
+          (await import(path)).mountWorkPage(true, 'work-fields', false, state);
+        }, state);
+        const label = state === 'working' ? 'In progress' : 'Possibly stalled';
+        const status = page.getByRole('button', { name: `${label}, show status details` });
+        await expect(status).toBeVisible();
+        await expect(
+          page.getByText('Review the release and confirm the remaining work.', { exact: true }),
+        ).toBeVisible();
+        await page.screenshot({ path: capturePath(`activity-${state}-${width}-${theme}.png`) });
+        await status.click();
+        await expect(page.locator('.work-status-details')).toContainText(
+          state === 'working'
+            ? 'The page owner is working.'
+            : 'The page owner has not shown recent activity.',
+        );
+        await page.screenshot({
+          path: capturePath(`activity-${state}-details-${width}-${theme}.png`),
+        });
+      });
 
 test('on a phone the readable title and full work labels scroll together', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
@@ -217,7 +285,7 @@ test('on a phone the readable title and full work labels scroll together', async
   const controls = (await band.boundingBox())!;
   expect(heading.width).toBeGreaterThan(100);
   expect(controls.y).toBeGreaterThanOrEqual(heading.y + heading.height);
-  await expect(band.getByRole('button', { name: 'Page state' })).toHaveText('In progress');
+  await expect(band.locator('.work-page-state')).toHaveText('In progress');
   await expect(toggle(band)).toContainText('4 sub-pages');
   expect(await toggle(band).evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
   await expect
@@ -513,15 +581,16 @@ test('a viewer sees the same tree without write controls', async ({ page }) => {
   await expect(band.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
 });
 
-test('the band stays under the nav as the page scrolls, and only its list scrolls', async ({
+test('the title controls scroll with the page, and the sub-page list scrolls independently', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 420 });
-  const band = await mount(page, true, 'tree', true);
+  let band = await mount(page, true, 'tree', true);
   const top = (await head(band).boundingBox())!.y;
   await page.mouse.move(700, 380);
   await page.mouse.wheel(0, 1600);
-  await expect.poll(async () => (await head(band).boundingBox())!.y).toBe(top);
+  await expect.poll(async () => (await head(band).boundingBox())!.y).toBeLessThan(top);
+  band = await mount(page, true, 'tree', true);
   await expand(band);
   await band.getByRole('button', { name: 'Expand Remote pages v2' }).click();
   await band.getByRole('button', { name: 'Expand Machines detail' }).click();

@@ -1474,7 +1474,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
         DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
-        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=4")
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=4")
         .unwrap();
     let stored_pages: Vec<(String, String)> = conn
         .prepare("SELECT page, epoch FROM pages ORDER BY page")
@@ -1578,7 +1578,7 @@ fn serve_rewrites_v1_object_envelopes_as_v2_under_the_same_hash() {
             .unwrap();
         }
     }
-    conn.execute_batch("DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=21").unwrap();
+    conn.execute_batch("DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=21").unwrap();
     drop(conn);
     failure(&pilot, &["ls", "--json"], "COLAB_STORE_OUTDATED");
     pilot.start();
@@ -6282,7 +6282,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6403,7 +6403,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=6",
         )
         .unwrap();
     assert_eq!(
@@ -10397,7 +10397,7 @@ fn page_projects_add_remove_and_list_without_touching_the_owner_log_offline_and_
         let list = pilot.call(&["project", "list", "--json"]);
         assert_eq!(
             list["projects"],
-            json!([{"name":"q4 plan","pages":1,"pinned":1},{"name":"urgent","pages":0,"pinned":null}])
+            json!([{"name":"q4 plan","pages":1,"pinned":1,"releaseTagPrefix":null},{"name":"urgent","pages":0,"pinned":null,"releaseTagPrefix":null}])
         );
         // Names obey the grammar; a page is in at most eight; refusals change nothing.
         failure(
@@ -10517,7 +10517,7 @@ fn projects_can_be_created_empty_and_filter_the_page_list() {
         );
         assert_eq!(
             pilot.call(&["project", "ls", "--json"])["projects"],
-            json!([{"name":"launch","pages":0,"pinned":null}])
+            json!([{"name":"launch","pages":0,"pinned":null,"releaseTagPrefix":null}])
         );
         assert_eq!(
             pilot.call(&["ls", "--project", "launch", "--json"])["pages"],
@@ -10605,7 +10605,7 @@ fn renaming_or_deleting_a_project_changes_every_page_that_is_in_it_in_one_step()
         assert_eq!(deleted["pages"], 2);
         assert_eq!(
             pilot.call(&["project", "list", "--json"])["projects"],
-            json!([{"name":"c","pages":1,"pinned":null}])
+            json!([{"name":"c","pages":1,"pinned":null,"releaseTagPrefix":null}])
         );
         failure(
             &pilot,
@@ -10618,7 +10618,7 @@ fn renaming_or_deleting_a_project_changes_every_page_that_is_in_it_in_one_step()
         assert_eq!(project_rows(&pilot, &two), 0);
         assert_eq!(
             pilot.call(&["project", "list", "--json"])["projects"],
-            json!([{"name":"c","pages":0,"pinned":null}])
+            json!([{"name":"c","pages":0,"pinned":null,"releaseTagPrefix":null}])
         );
         if serving {
             pilot.stop();
@@ -11009,7 +11009,7 @@ fn project_pin_and_unpin_write_the_owners_list_and_ls_reports_each_place() {
         assert_eq!(after["pinsAutomatic"], false);
         assert_eq!(
             after["projects"],
-            json!([{"name":"y","pages":0,"pinned":null}])
+            json!([{"name":"y","pages":0,"pinned":null,"releaseTagPrefix":null}])
         );
         if serving {
             pilot.stop();
@@ -11028,7 +11028,7 @@ fn the_first_pin_keeps_the_automatic_list_that_was_showing_and_a_21st_pin_is_ref
     assert_eq!(list["pinsAutomatic"], true);
     assert_eq!(
         list["projects"],
-        json!([{"name":"idle","pages":0,"pinned":null},{"name":"used","pages":1,"pinned":1}])
+        json!([{"name":"idle","pages":0,"pinned":null,"releaseTagPrefix":null},{"name":"used","pages":1,"pinned":1,"releaseTagPrefix":null}])
     );
     // Pinning the empty one adds to what was showing, instead of replacing it; and it is the owner's now.
     assert_eq!(
@@ -11039,7 +11039,7 @@ fn the_first_pin_keeps_the_automatic_list_that_was_showing_and_a_21st_pin_is_ref
     assert_eq!(list["pinsAutomatic"], false);
     assert_eq!(
         list["projects"],
-        json!([{"name":"idle","pages":0,"pinned":2},{"name":"used","pages":1,"pinned":1}])
+        json!([{"name":"idle","pages":0,"pinned":2,"releaseTagPrefix":null},{"name":"used","pages":1,"pinned":1,"releaseTagPrefix":null}])
     );
     // The human output names the place, and says when the list is automatic.
     let human = pilot.command().args(["project", "ls"]).output().unwrap();
@@ -11059,7 +11059,7 @@ fn the_first_pin_keeps_the_automatic_list_that_was_showing_and_a_21st_pin_is_ref
     assert_eq!(list["pinsAutomatic"], false);
     assert_eq!(
         list["projects"],
-        json!([{"name":"only","pages":1,"pinned":null}])
+        json!([{"name":"only","pages":1,"pinned":null,"releaseTagPrefix":null}])
     );
     // At most twenty: the 21st pin is refused and no older pin is dropped.
     let full = Pilot::new(None);
@@ -13545,7 +13545,7 @@ fn migration_numbers_existing_pages_in_creation_order() {
         .unwrap()
         .to_owned();
     let db = rusqlite::Connection::open(pilot.root.join("selected/colab/space.db")).unwrap();
-    db.execute_batch("DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version=22;").unwrap();
+    db.execute_batch("DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version=22;").unwrap();
     drop(db);
     let started = pilot.start();
     assert!(started.get("error").is_none(), "serve failed: {started}");
@@ -13590,7 +13590,7 @@ fn migration_numbers_pages_even_when_a_log_row_cannot_be_read() {
         .unwrap()
         .unwrap();
     let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
-    db.execute_batch("UPDATE membership_log SET envelope=X'00' WHERE revision=(SELECT MIN(revision) FROM membership_log); DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version=22;").unwrap();
+    db.execute_batch("UPDATE membership_log SET envelope=X'00' WHERE revision=(SELECT MIN(revision) FROM membership_log); DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version=22;").unwrap();
     drop(db);
     let store = tmt_colab::store::Store::open(&layout).unwrap();
     let numbers: Vec<_> = pages
@@ -13634,6 +13634,31 @@ fn project_work_numbers_survive_rename_delete_recreation_and_prefix_collisions()
         .unwrap();
     assert!(!conflict.status.success());
     assert_eq!(create("Fifth", "Gamma"), "GAMMA-2");
+    let set = pilot.call(&[
+        "project",
+        "set",
+        "Gamma",
+        "--release-tag-prefix",
+        "gui/v",
+        "--json",
+    ]);
+    assert_eq!(set["releaseTagPrefix"], "gui/v");
+    let list = pilot.call(&["project", "ls", "--json"]);
+    let gamma = list["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "Gamma")
+        .unwrap();
+    assert_eq!(gamma["releaseTagPrefix"], "gui/v");
+    let cleared = pilot.call(&[
+        "project",
+        "set",
+        "Gamma",
+        "--clear-release-tag-prefix",
+        "--json",
+    ]);
+    assert!(cleared["releaseTagPrefix"].is_null());
 }
 
 #[test]

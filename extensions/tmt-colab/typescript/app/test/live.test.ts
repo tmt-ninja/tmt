@@ -3190,7 +3190,22 @@ it('a burst of admitted page observations coalesces details reads and rejects th
   const pageId = '10000000-0000-4000-8000-000000000001';
   const pending: ((response: Response) => void)[] = [];
   const fetch = vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve)));
-  vi.stubGlobal('fetch', fetch);
+  vi.stubGlobal('fetch', (input: URL | RequestInfo) =>
+    String(input).includes('/api/work-facts')
+      ? Promise.resolve(
+          new Response(
+            JSON.stringify({
+              pageId,
+              known: false,
+              pulls: [],
+              state: 'unknown',
+              activity: null,
+              asOfMs: 0,
+            }),
+          ),
+        )
+      : fetch(),
+  );
   const live = new Live(
     new URL('https://example.test/colab/'),
     {

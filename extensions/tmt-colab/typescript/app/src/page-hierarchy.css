@@ -21,19 +21,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.page-hierarchy-count,
-.page-hierarchy-separator {
-  flex: none;
-}
 .page-hierarchy-name:hover {
   text-decoration: underline;
-}
-.page-hierarchy-count {
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-.page-hierarchy-separator {
-  color: var(--tmt-ui-color-secondary);
 }
 .page-hierarchy-menu {
   min-width: calc(10 * var(--tmt-ui-space-xl));

@@ -28,12 +28,25 @@ pub(super) fn decode(input: &[u8]) -> Result<Request, Fault> {
     })
 }
 
-pub(super) fn status(storage: &Storage, identities: Vec<String>) -> Result<Vec<u8>, Fault> {
+fn bounded_runtime(
+    deadline: std::time::Instant,
+    observe: impl FnOnce() -> Option<tmt_core::binding::session::RuntimeState>,
+) -> tmt_core::binding::session::RuntimeState {
+    if std::time::Instant::now() >= deadline {
+        return tmt_core::binding::session::RuntimeState::Unknown;
+    }
+    observe().unwrap_or(tmt_core::binding::session::RuntimeState::Unknown)
+}
+
+pub(super) fn status(storage: &mut Storage, identities: Vec<String>) -> Result<Vec<u8>, Fault> {
     // One directory read; expiry (`stale`) is applied here, by core.
     let statuses = storage
         .list_active_identity_statuses()
         .map_err(|_| Fault::unavailable())?;
     let now = crate::request_runtime::wall_time_ms();
+    let registry = crate::runtime::RuntimeRegistry::first_party();
+    // One shared budget for live host observations, even for a full 256-identity batch.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     let mut entries = Vec::with_capacity(identities.len());
     for id in &identities {
         entries.push(
@@ -50,6 +63,49 @@ pub(super) fn status(storage: &Storage, identities: Vec<String>) -> Result<Vec<u
                         // A retired identity has no pane to type into.
                         .unwrap_or(crate::passthrough::Can::no(crate::passthrough::Reason::NoPane))
                         .to_json()});
+                    let entry =
+                        crate::delivery::current(storage, id).map_err(|_| Fault::unavailable())?;
+                    let binding = entry.as_ref().and_then(|entry| entry.binding.as_ref());
+                    let preferences = storage
+                        .session_preferences(id)
+                        .map_err(|_| Fault::unavailable())?;
+                    let runtime = bounded_runtime(deadline, || {
+                        entry.as_ref().and_then(|entry| {
+                            let binding = entry.binding.as_ref()?;
+                            let host = crate::host::Host::for_server(&binding.server);
+                            let probe = host
+                                .probe(
+                                    &binding.server,
+                                    crate::host::OperationOptions {
+                                        deadline: Some(deadline),
+                                        pane_ids: Some(std::slice::from_ref(&binding.pane_id)),
+                                    },
+                                )
+                                .ok()?;
+                            if !matches!(
+                                tmt_core::binding::evaluate_binding(entry, &probe),
+                                tmt_core::binding::BindingEvidence::Active(_)
+                            ) {
+                                return None;
+                            }
+                            let mut observed = binding.clone();
+                            if observed.session.state
+                                == tmt_core::binding::session::RuntimeState::Ended
+                            {
+                                observed.session.state =
+                                    tmt_core::binding::session::RuntimeState::Unknown;
+                            }
+                            crate::process::runtime::binding_runtime(
+                                &crate::process::UnixCommandRunner,
+                                &observed,
+                                deadline,
+                            )
+                            .ok()
+                        })
+                    });
+                    value["session"] = json!({"activity": crate::runtime::activity_document(
+                        binding, preferences.remembered.as_ref(), runtime, &registry
+                    )});
                     // The binding runs a plain program, not an agent: it receives nothing.
                     if let Some(program) = storage
                         .bound_plain_program(id)
@@ -311,6 +367,32 @@ fn add_terminals_left(value: &mut serde_json::Value, left: Vec<String>) {
 
 fn outcome(value: serde_json::Value) -> Result<Vec<u8>, Fault> {
     serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
+}
+
+#[cfg(test)]
+mod activity_budget_tests {
+    use super::*;
+    use tmt_core::binding::session::RuntimeState;
+
+    #[test]
+    fn expired_batch_deadline_leaves_unprobed_activity_unknown() {
+        let fresh = bounded_runtime(
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            || Some(RuntimeState::Running),
+        );
+        assert_eq!(fresh, RuntimeState::Running);
+        let expired = bounded_runtime(std::time::Instant::now(), || {
+            panic!("expired row must not probe")
+        });
+        assert_eq!(expired, RuntimeState::Unknown);
+        let value = crate::runtime::activity_document(
+            None,
+            None,
+            expired,
+            &crate::runtime::RuntimeRegistry::first_party(),
+        );
+        assert_eq!(value["state"], "unknown");
+    }
 }
 
 #[cfg(test)]

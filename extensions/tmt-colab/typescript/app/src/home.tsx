@@ -1,4 +1,5 @@
 import { useShortcuts } from './use-shortcuts.js';
+import { WorkFieldDetails } from './work-band.js';
 import { useMedia } from './use-media.js';
 import { ShortcutDialog } from './shortcut-dialogs.js';
 import type { Shortcut } from './shortcuts.js';
@@ -49,6 +50,8 @@ import {
   pageStage,
   stageCounts,
   takeStage,
+  needsYou,
+  statusTab,
   type PageStage,
   type HomeStage,
 } from './list-stage.js';
@@ -212,7 +215,7 @@ export function Home() {
     filter.projects,
   );
   const stages = stageCounts(activeInScope);
-  const unreported = activeInScope.filter((p) => pageStage(p) === undefined).length;
+  const unreported = activeInScope.filter((p) => !p.summary).length;
   const tab = (id: HomeView, label: string, count: number, state?: BrowserTab['state']) => ({
     id,
     tabId: `page-list-tab-${id}`,
@@ -827,7 +830,8 @@ export function Home() {
               rows={pages.slice(0, drawn).map((page) => {
                 const name = pageTitle(page);
                 const stage = pageStage(page);
-                const waiting = page.summary?.waiting;
+                const waiting = needsYou(page);
+                const status = page.summary?.status;
                 const updated = pageUpdate(page.lastUpdateAtMs, now);
                 const projectNamesForPage = new Set(page.projects ?? []);
                 return {
@@ -835,6 +839,9 @@ export function Home() {
                   name,
                   title: (
                     <span className="tmt-ui-list-title tmt-data-table-text">
+                      {page.workNumber && (
+                        <span className="colab-work-number">{page.workNumber} </span>
+                      )}
                       <HomeTitleLink page={page} hints={titleHints} scope={scope} />
                     </span>
                   ),
@@ -873,20 +880,31 @@ export function Home() {
                       }}
                     />
                   ) : undefined,
-                  stage: waiting
-                    ? {
-                        id: 'needs',
-                        label: `${t.waitingForYou}${page.summary && page.summary.needsYou > 0 ? ` · ${page.summary.needsYou}` : ''}`,
-                      }
-                    : page.archived
-                      ? { id: 'archived', label: text.archived }
-                      : stage
-                        ? { id: stage, label: t.stageNames[stage] }
-                        : undefined,
-                  progress:
-                    page.summary?.work && page.summary.work.total > 0
-                      ? t.subpagesDone(page.summary.work.done, page.summary.work.total)
-                      : undefined,
+                  stage:
+                    status && !page.archived
+                      ? {
+                          // The computed status the page itself shows; its tab gives the colour.
+                          id: statusTab(status),
+                          label: `${text.workBand.computedState[status]}${status === 'needs-you' && page.summary && page.summary.needsYou > 0 ? ` · ${page.summary.needsYou}` : ''}`,
+                        }
+                      : waiting
+                        ? {
+                            id: 'needs',
+                            label: `${t.waitingForYou}${page.summary && page.summary.needsYou > 0 ? ` · ${page.summary.needsYou}` : ''}`,
+                          }
+                        : page.archived
+                          ? { id: 'archived', label: text.archived }
+                          : stage
+                            ? { id: stage, label: t.stageNames[stage] }
+                            : undefined,
+                  progress: (
+                    <>
+                      <WorkFieldDetails fields={page.summary?.fields} />
+                      {page.summary?.work && page.summary.work.total > 0
+                        ? t.subpagesDone(page.summary.work.done, page.summary.work.total)
+                        : null}
+                    </>
+                  ),
                   updated: updated.label,
                   updatedDateTime: updated.dateTime,
                   updatedTitle: updated.absolute,

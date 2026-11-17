@@ -122,6 +122,7 @@ export function mountWorkPage(
   owner = false,
   scenario: 'tree' | 'empty' | 'many' | 'filled' | 'work-fields' = 'tree',
   tall = false,
+  activityState?: 'working' | 'possibly-stalled',
 ) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
@@ -172,13 +173,75 @@ export function mountWorkPage(
   const source = tall
     ? `<h1>Release plan</h1>${'<p>Plan paragraph.</p>'.repeat(120)}`
     : '<h1>Release plan</h1>';
+  const starter = {
+    [id(201)]: {
+      type: 'heading',
+      parent: 'root',
+      pos: 'A',
+      props: { level: 2 },
+      text: { s: 'Requirements', marks: [] },
+    },
+    [id(202)]: {
+      type: 'paragraph',
+      parent: 'root',
+      pos: 'B',
+      props: {},
+      text: { s: 'Review the release and confirm the remaining work.', marks: [] },
+    },
+    [id(203)]: {
+      type: 'heading',
+      parent: 'root',
+      pos: 'C',
+      props: { level: 2 },
+      text: { s: 'Decisions', marks: [] },
+    },
+    [id(204)]: {
+      type: 'paragraph',
+      parent: 'root',
+      pos: 'D',
+      props: {},
+      text: { s: 'Ship after the checks pass.', marks: [] },
+    },
+  };
   const view = (): PageView => ({
     title: pageTitle,
     source,
+    ...(scenario === 'work-fields' ? { pageType: 'blocks' as const, blocks: starter } : {}),
     state: manualState,
     pageState: manualState,
+    workFacts: {
+      state: activityState ?? (scenario === 'work-fields' ? 'blocked' : 'working'),
+      known: true,
+      pulls:
+        scenario === 'work-fields' && !activityState
+          ? [
+              {
+                url: 'https://github.com/example/project/pull/42',
+                fact: {
+                  state: 'merged',
+                  checks: 'SUCCESS',
+                  released: true,
+                  tag: 'v1.2.3',
+                  observedAtMs: 1000000,
+                },
+              },
+            ]
+          : [],
+      activity: {
+        state: 'working',
+        lastActivityMs: activityState === 'possibly-stalled' ? 1000000 : 9880000,
+        observedAtMs: 10000000,
+      },
+      lastActivityAtMs: 9880000,
+      asOfMs: 10000000,
+    },
     ...(scenario === 'work-fields'
-      ? { priority: 'high' as const, owner: { id: id(88), name: 'gui-3' } }
+      ? {
+          priority: 'high' as const,
+          owner: { id: id(88), name: 'gui-3' },
+          next: 'Review the mockup',
+          ...(activityState ? {} : { blocked: 'Waiting for Core' }),
+        }
       : {}),
     ...(current ? { work: current } : {}),
   });
@@ -187,6 +250,7 @@ export function mountWorkPage(
     title: row.title,
     state: row.state,
     sharing: 'private',
+    ...(scenario === 'work-fields' && row.id === PAGES.remote ? { workNumber: 'COLAB-129' } : {}),
     ...(row.archived ? { archived: true } : {}),
     ...(row.projects ? { projects: row.projects } : {}),
     ...(row.parent || row.author
@@ -197,6 +261,16 @@ export function mountWorkPage(
             needsYou: 0,
             ...(row.parent ? { parent: row.parent } : {}),
             ...(row.author ? { author: row.author } : {}),
+            ...(scenario === 'work-fields' && row.id === PAGES.remote
+              ? {
+                  fields: {
+                    priority: 'high' as const,
+                    owner: { id: id(88), name: 'gui-3' },
+                    next: 'Review the mockup',
+                    blocked: 'Waiting for Core',
+                  },
+                }
+              : {}),
           },
         }
       : {}),
@@ -207,6 +281,7 @@ export function mountWorkPage(
       title: pageTitle,
       state: manualState,
       sharing: 'private',
+      ...(scenario === 'work-fields' ? { projects: ['Colab'] } : {}),
       summary: {
         comments: 0,
         waiting: false,
@@ -323,6 +398,8 @@ export function mountWorkPage(
       binding,
       ...(scenario === 'work-fields'
         ? {
+            pageType: 'blocks' as const,
+            blocks: starter,
             workNumber: 'COLAB-128',
             priority: 'high' as const,
             owner: { id: id(88), name: 'gui-3' },
@@ -332,6 +409,32 @@ export function mountWorkPage(
   ]);
   const routed = {
     ...transport,
+    ...(owner && scenario === 'work-fields'
+      ? {
+          management: {
+            read: async () => {
+              throw new Error('Not used by this fixture');
+            },
+            prepare: async () => {
+              throw new Error('Not used by this fixture');
+            },
+            send: async () => {
+              throw new Error('Not used by this fixture');
+            },
+            verify: async () => {
+              throw new Error('Not used by this fixture');
+            },
+            setProjects: async () => {},
+            manageProject: async () => {},
+            setPinned: async () => {},
+            newPage: async () => {
+              throw new Error('Not used by this fixture');
+            },
+            setDefaultTemplate: async () => 'starter',
+            readTemplates: async () => ({ default: 'starter', templates: [] }),
+          },
+        }
+      : {}),
     async spaceHome() {
       return { title: 'Review space', pages: listed() };
     },

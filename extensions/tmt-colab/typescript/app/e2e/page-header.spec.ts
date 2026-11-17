@@ -269,12 +269,9 @@ test.describe('the shell bar', () => {
       await mountPage(page, { subpage: true });
       // The page has one visible heading, in the bar on desktop and in the title block on phones.
       const title = bar(page).locator('.tmt-ui-topbar-title');
-      await expect(title.locator('.tmt-ui-topbar-title-current')).toHaveText('Live shared page');
+      await expect(title.locator('.tmt-ui-topbar-title-current')).toHaveText('Colab');
       await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
-      const visibleTitle =
-        width <= 640
-          ? page.locator('.page-mobile-title:visible h1')
-          : title.getByRole('heading', { level: 1 });
+      const visibleTitle = page.locator('.page-mobile-title:visible h1');
       await expect(visibleTitle).toBeVisible();
       await expect(visibleTitle).toHaveText('Live shared page');
       await expect(page.locator('.colab-title-row')).toHaveCount(0);
@@ -298,10 +295,7 @@ test.describe('the shell bar', () => {
         window.scrollTo(0, 400);
       });
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(400);
-      if (width <= 640)
-        await expect.poll(async () => (await band.boundingBox())!.y).toBeLessThan(beforeScroll);
-      else
-        await expect.poll(async () => (await band.boundingBox())!.y).toBeCloseTo(beforeScroll, 0);
+      await expect.poll(async () => (await band.boundingBox())!.y).toBeLessThan(beforeScroll);
     });
 
     test(`the search opens from the shortcut once, with its key hint, and Escape returns focus at ${width} ${scheme}`, async ({
