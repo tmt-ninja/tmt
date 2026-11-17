@@ -170,6 +170,16 @@ mod tests {
                 .contains("cannot name itself, send as itself, or reply")
         );
         assert!(document["error"].get("suggestion").is_none());
+        let pi_caller = RuntimeCaller {
+            harness: HarnessId::new(tmt_core::driver::descriptor::PI.name).unwrap(),
+            session: None,
+            host: HostAttribution::Ambiguous,
+        };
+        let pi_failure = allow_host(ActionResult::Completed(pi_caller)).unwrap_err();
+        let pi_document = pi_failure.document();
+        assert_eq!(pi_document["error"]["code"], "CALLER_IDENTITY_AMBIGUOUS");
+        assert_eq!(pi_document["error"]["reason"], "pi-shared-rpc");
+        assert_eq!(pi_document["error"]["fix"], "tmt run <name> pi");
     }
 
     #[test]

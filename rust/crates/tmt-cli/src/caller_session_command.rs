@@ -76,9 +76,14 @@ fn observe_with(runner: &impl CommandRunner) -> Result<(), &'static str> {
         .collect();
     let [(harness, coordinates)] = candidates.as_slice() else {
         return if candidates.is_empty()
-            && !["CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "CODEX_THREAD_ID"]
-                .iter()
-                .any(|name| std::env::var_os(name).is_some())
+            && ![
+                "CLAUDE_CODE_SESSION_ID",
+                "CLAUDE_PID",
+                "CODEX_THREAD_ID",
+                "PI_SESSION_ID",
+            ]
+            .iter()
+            .any(|name| std::env::var_os(name).is_some())
         {
             Ok(())
         } else {
