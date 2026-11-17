@@ -187,6 +187,12 @@ fn collect(core: &Core, since: Since, now: u64) -> Result<Report, Error> {
         }
     };
     Ok(Report {
+        pricing: core
+            .data_root()
+            .ok()
+            .map_or_else(crate::pricing::Resolved::built_in, |root| {
+                crate::pricing::Resolved::read_only(&root)
+            }),
         as_of_ms: now,
         since: since.text(),
         usage,

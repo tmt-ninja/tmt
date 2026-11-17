@@ -44,6 +44,79 @@ export interface UsageSeat {
   };
 }
 
+/** A recorded driver's share, independent of allowance windows and model families. */
+export interface UsageProvider {
+  driver: string;
+  totals: UsageTotals;
+  seats: readonly string[];
+  partialSeats: number;
+  inputCost: { usdMicros: number } | null;
+  costUnavailable: readonly string[];
+}
+
+const safeCount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+
+function isTotals(value: unknown): value is UsageTotals {
+  const totals = value as Partial<UsageTotals> | null;
+  return (
+    !!totals &&
+    safeCount(totals.input) &&
+    safeCount(totals.output) &&
+    safeCount(totals.cached) &&
+    totals.cached <= totals.input &&
+    Number.isSafeInteger(totals.input + totals.output)
+  );
+}
+
+/** An older or malformed projection is unavailable, never verified empty. */
+export function providerRecords(doc: UsageDocument): readonly UsageProvider[] | undefined {
+  const rows: unknown = doc.usage.providers;
+  if (!Array.isArray(rows)) return undefined;
+  const seen = new Set<string>();
+  const parsed: UsageProvider[] = [];
+  const priced =
+    doc.pricing?.basis === 'standard-base-input' &&
+    typeof doc.pricing.version === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(doc.pricing.version);
+  for (const value of rows) {
+    const row = value as Partial<UsageProvider> | null;
+    if (
+      !row ||
+      typeof row.driver !== 'string' ||
+      !/^[a-z][a-z0-9_-]{0,63}$/.test(row.driver) ||
+      seen.has(row.driver) ||
+      !isTotals(row.totals) ||
+      !Array.isArray(row.seats) ||
+      !row.seats.every((id) => typeof id === 'string') ||
+      !safeCount(row.partialSeats) ||
+      row.partialSeats > row.seats.length
+    )
+      return undefined;
+    seen.add(row.driver);
+    const reasons = row.costUnavailable;
+    const validReasons =
+      Array.isArray(reasons) &&
+      reasons.every((reason) => typeof reason === 'string' && /^[a-z_]{1,64}$/.test(reason));
+    const validCost = validReasons && reasons.length === 0 && safeCount(row.inputCost?.usdMicros);
+    const inputCost = priced && validCost ? { usdMicros: row.inputCost!.usdMicros } : null;
+    const costUnavailable = inputCost
+      ? []
+      : row.inputCost === null && validReasons && reasons.length
+        ? reasons
+        : [validCost && !priced ? 'pricing_unavailable' : 'cost_evidence_invalid'];
+    parsed.push({
+      driver: row.driver,
+      totals: row.totals,
+      seats: row.seats,
+      partialSeats: row.partialSeats,
+      inputCost,
+      costUnavailable,
+    });
+  }
+  return parsed.filter((row) => row.totals.input + row.totals.output > 0);
+}
+
 export interface UsageUnavailable {
   id: string;
   name: string | null;
@@ -124,12 +197,16 @@ export interface UsageDocument {
   since: UsageRange;
   usage: {
     seats: readonly UsageSeat[];
+    /** Absent on older report producers. */
+    providers?: readonly UsageProvider[];
+    providerUnattributed?: UsageTotals;
     unavailable: readonly UsageUnavailable[];
   };
   limits: readonly LimitWindow[];
   limitsUnavailable: readonly { line: string; reason: string }[];
   exchange: { sinceMs: number; observedAtMs: number; pairs: readonly FlowPair[] } | null;
   limitHistory?: readonly LimitHistory[];
+  pricing?: { version: string; basis: string; origin: string };
 }
 
 export interface AllowanceReport {

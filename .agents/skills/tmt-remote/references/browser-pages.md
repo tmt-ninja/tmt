@@ -415,8 +415,8 @@ account, titled such as `Claude · work` (today Core names accounts only for Cla
 source), and the windows that name none are `unknown account`; one
 account, or none, is one card as before. The key only groups and is never shown, the label is plain
 text, and a window or history entry with a malformed account is dropped, never folded into another's.
-A provider with no active window is an explicit not-reported card (for Claude: Claude Code does not report
-its allowance to TMT); a Claude window from Core's allowance source is shown like any other. Provider history and method
+A provider card requires an observed window; no observations produce one section-level empty
+state, and a failed allowance read remains unavailable. A Claude window is shown like any other. Provider history and method
 stay disclosures. Provider cards use a horizontal snap carousel with equal heights, a next-card peek
 on phones and previous/next controls when it overflows. The page owns range, chart style, scale,
 seat order, expanded legend and disclosure state; changed
@@ -424,3 +424,14 @@ reports restore open disclosures and summary focus, while unchanged reads retain
 DOM and scroll position. Failed refreshes retain the last good report for that range; an
 unavailable newly selected range does not display the preceding range's observations. The
 route signal owns refresh cleanup. The page uses existing owner reads and does not change allowance accounting or persistence.
+
+Provider usage is a separate numeric table from the selected usage report's `usage.providers`,
+with tokens as the primary columns and order. It lists any driver with recorded usage even
+without allowance windows; empty drivers are hidden. The additive projection is passed through
+Remote's Rust Digest read unchanged, after version/range validation. The browser admits bounded,
+safe numeric provider rows and treats absent/malformed projections as unavailable, never empty.
+Digest owns the **Input cost estimate (list price)** and its null reasons; the browser only
+formats its micro-dollars and displays the table version. Unknown driver ids are plain text,
+partial evidence remains marked, and unpriced usage stays visible. The shared table's focusable
+horizontal scroller contains wide rows; its compact pattern moves cost and coverage beneath
+each provider on phones while retaining the primary token columns.

@@ -4,7 +4,7 @@
  */
 import { mockDocument, type MockShape } from '../src/digest-mock.js';
 import type { DigestSource } from '../src/digest-source.js';
-export { USAGE_RANGES } from '../src/digest-source.js';
+export { USAGE_RANGES, providerRecords } from '../src/digest-source.js';
 
 export function sampleShape(search = location.search): MockShape {
   const params = new URLSearchParams(search);
@@ -35,7 +35,7 @@ const sampleSource: DigestSource = {
       document.limitsUnavailable = [{ line: 'claude', reason: 'not_sampled' }];
     }
     const count = Number(new URLSearchParams(location.search).get('providers'));
-    for (let at = 2; at < count; at++)
+    for (let at = 1; at < count; at++)
       allowance.limits = [
         ...allowance.limits,
         { ...allowance.limits[0]!, provider: `sample-provider-${at}` },

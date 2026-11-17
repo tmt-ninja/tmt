@@ -184,6 +184,14 @@ impl Resolved {
         }
     }
 
+    /// The usage read never fetches or writes the cache. Status owns its refresh.
+    pub fn read_only(root: &Path) -> Self {
+        cache::read(root)
+            .as_ref()
+            .and_then(Self::cached)
+            .unwrap_or_else(Self::built_in)
+    }
+
     pub fn table(&self) -> &Table {
         &self.table
     }

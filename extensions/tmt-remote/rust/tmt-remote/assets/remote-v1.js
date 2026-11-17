@@ -7688,6 +7688,38 @@ var USAGE_RANGES = [
 	"7d",
 	"30d"
 ];
+var safeCount = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+function isTotals(value) {
+	const totals = value;
+	return !!totals && safeCount(totals.input) && safeCount(totals.output) && safeCount(totals.cached) && totals.cached <= totals.input && Number.isSafeInteger(totals.input + totals.output);
+}
+/** An older or malformed projection is unavailable, never verified empty. */
+function providerRecords(doc) {
+	const rows = doc.usage.providers;
+	if (!Array.isArray(rows)) return void 0;
+	const seen = /* @__PURE__ */ new Set();
+	const parsed = [];
+	const priced = doc.pricing?.basis === "standard-base-input" && typeof doc.pricing.version === "string" && /^\d{4}-\d{2}-\d{2}$/.test(doc.pricing.version);
+	for (const value of rows) {
+		const row = value;
+		if (!row || typeof row.driver !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(row.driver) || seen.has(row.driver) || !isTotals(row.totals) || !Array.isArray(row.seats) || !row.seats.every((id) => typeof id === "string") || !safeCount(row.partialSeats) || row.partialSeats > row.seats.length) return void 0;
+		seen.add(row.driver);
+		const reasons = row.costUnavailable;
+		const validReasons = Array.isArray(reasons) && reasons.every((reason) => typeof reason === "string" && /^[a-z_]{1,64}$/.test(reason));
+		const validCost = validReasons && reasons.length === 0 && safeCount(row.inputCost?.usdMicros);
+		const inputCost = priced && validCost ? { usdMicros: row.inputCost.usdMicros } : null;
+		const costUnavailable = inputCost ? [] : row.inputCost === null && validReasons && reasons.length ? reasons : [validCost && !priced ? "pricing_unavailable" : "cost_evidence_invalid"];
+		parsed.push({
+			driver: row.driver,
+			totals: row.totals,
+			seats: row.seats,
+			partialSeats: row.partialSeats,
+			inputCost,
+			costUnavailable
+		});
+	}
+	return parsed.filter((row) => row.totals.input + row.totals.output > 0);
+}
 var ACCOUNT_KEY = /^[0-9a-f]{12}$/;
 var ACCOUNT_LABEL = /^[A-Za-z0-9._-]{1,32}$/;
 /** The shape Core writes; anything else is no account, so it cannot fold into another's. */
@@ -7891,6 +7923,9 @@ var PROVIDER_LABELS = {
 	claude: "Claude",
 	codex: "OpenAI"
 };
+function providerLabel$1(provider) {
+	return PROVIDER_LABELS[provider] ?? provider;
+}
 /** One hue per source, shared by its meter and history. */
 function providerStyle(provider) {
 	return provider === "claude" ? 1 : provider === "codex" ? 2 : 0;
@@ -7909,7 +7944,7 @@ function allowance(doc) {
 	return active.map((limit) => ({
 		key: windowKey(limit),
 		source: limit.provider,
-		provider: (PROVIDER_LABELS[limit.provider] ?? limit.provider) + ((accounts.get(limit.provider)?.size ?? 0) > 1 ? ` · ${limit.account?.label ?? "unknown account"}` : ""),
+		provider: providerLabel$1(limit.provider) + ((accounts.get(limit.provider)?.size ?? 0) > 1 ? ` · ${limit.account?.label ?? "unknown account"}` : ""),
 		accountKey: limit.account?.key ?? null,
 		leftPercent: Math.round((100 - limit.usedPercent) * 10) / 10,
 		elapsedPercent: limit.elapsedPercent,
@@ -7952,11 +7987,7 @@ function providers(doc, zone) {
 /** Most recent current-seat observation leads; retired-only windows remain in the disclosure. */
 function providerGroups(doc) {
 	const views = doc ? providers(doc) : [];
-	return [.../* @__PURE__ */ new Set([
-		"codex",
-		"claude",
-		...views.map((view) => view.source)
-	])].flatMap((source) => {
+	return [...new Set(views.map((view) => view.source))].flatMap((source) => {
 		const windows = views.filter((view) => view.source === source);
 		return (new Set(windows.flatMap((view) => view.accountKey ? [view.accountKey] : [])).size > 1 ? [...new Set(windows.map((view) => view.accountKey))] : [void 0]).map((account) => {
 			const own = account === void 0 ? windows : windows.filter((view) => view.accountKey === account);
@@ -7964,7 +7995,7 @@ function providerGroups(doc) {
 			return {
 				id: account === void 0 ? source : `${source}-${account ?? "unknown"}`,
 				source,
-				label: account === void 0 ? PROVIDER_LABELS[source] ?? source : own[0].provider,
+				label: account === void 0 ? providerLabel$1(source) : own[0].provider,
 				primary,
 				other: own.filter((view) => view !== primary)
 			};
@@ -8186,6 +8217,10 @@ function allowanceRow(report, state) {
 	groups.setAttribute("role", "region");
 	groups.setAttribute("aria-label", "Provider allowances");
 	const providers = providerGroups(doc);
+	if (!providers.length) {
+		node.append(intro, el$1("p", "usage-note", report.allowanceUnavailable ?? "No weekly allowance observations have been reported."));
+		return node;
+	}
 	if (providers.length > 2) groups.dataset.many = "";
 	for (const group of providers) {
 		const host = el$1("div", "digest-provider-group");
@@ -8194,7 +8229,7 @@ function allowanceRow(report, state) {
 		else {
 			const label = el$1("div", "digest-provider-label");
 			label.append(el$1("strong", void 0, group.label), el$1("span", void 0, "○ not reported"));
-			host.append(label, el$1("p", "usage-note", group.source === "claude" ? "Claude Code does not report its allowance to TMT." : report.allowanceUnavailable ?? "No current seat has reported an active weekly window."));
+			host.append(label, el$1("p", "usage-note", report.allowanceUnavailable ?? "No current seat has reported an active weekly window."));
 		}
 		if (group.other.length) {
 			const other = el$1("details", `${browserUiClasses.disclosure} digest-other-windows`);
@@ -8253,6 +8288,69 @@ function allowanceRow(report, state) {
 	if (report.allowanceUnavailable) node.append(el$1("p", "usage-note", report.allowanceUnavailable));
 	else if (doc?.limits.some((limit) => !limit.provider)) node.append(el$1("p", "usage-note", "Some allowance windows have no reported provider. Upgrade TMT on your machine to identify them."));
 	return node;
+}
+/** Cost never decides membership or order: tokens are the primary evidence. */
+function providerUsageCard(doc) {
+	const records = providerRecords(doc);
+	if (!records) return card("digest-provider-usage", "Provider usage", [el$1("p", "usage-note", "Provider usage is unavailable in this report.")]);
+	const rest = doc.usage.providerUnattributed;
+	const restTokens = rest && Number.isSafeInteger(rest.input + rest.output) && rest.input + rest.output > 0 ? rest.input + rest.output : 0;
+	const remainder = restTokens ? ` Driver unattributed: ${compactCount(restTokens)} tokens.` : "";
+	if (!records.length) return card("digest-provider-usage", "Provider usage", [el$1("p", "usage-note", `No attributed provider usage was recorded in this range.${remainder}`)]);
+	const reasons = {
+		driver_model_attribution_unknown: "Driver and model shares cannot be matched.",
+		model_attribution_unknown: "Some input has no recorded model.",
+		no_price: "A recorded model has no list price.",
+		unsafe_cost: "The cost exceeds the supported number range.",
+		pricing_unavailable: "The pricing basis or version was not reported.",
+		cost_evidence_invalid: "The cost evidence could not be read."
+	};
+	const rows = [...records].sort((a, b) => b.totals.input + b.totals.output - (a.totals.input + a.totals.output) || a.driver.localeCompare(b.driver));
+	const money = new Intl.NumberFormat("en-US", {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 6
+	});
+	const grid = table([
+		"Provider",
+		"Input",
+		"Output",
+		"Cached input",
+		"Input cost estimate (list price)",
+		"Coverage"
+	], rows.map((row) => {
+		const name = el$1("span", void 0, providerLabel$1(row.driver));
+		name.title = row.driver;
+		const cost = el$1("span", void 0, row.inputCost ? money.format(row.inputCost.usdMicros / 1e6) : "Unavailable");
+		if (!row.inputCost) cost.append(el$1("span", "usage-note", ` — ${row.costUnavailable.map((reason) => reasons[reason] ?? reason).join(" ")}`));
+		const coverage = row.partialSeats ? `Partial (${row.partialSeats} ${row.partialSeats === 1 ? "seat" : "seats"})` : "Recorded";
+		const compact = el$1("span", browserUiClasses.tableCompactMeta);
+		compact.append("Input estimate: ", cost.cloneNode(true), ` · ${coverage}`);
+		name.append(compact);
+		return [
+			name,
+			compactCount(row.totals.input),
+			compactCount(row.totals.output),
+			compactCount(row.totals.cached),
+			cost,
+			coverage
+		];
+	}));
+	const scroll = el$1("div", browserUiClasses.tableScroll);
+	grid.dataset.roomy = "";
+	for (const row of grid.rows) {
+		row.cells[4].dataset.compactHide = "";
+		row.cells[5].dataset.compactHide = "";
+	}
+	scroll.tabIndex = 0;
+	scroll.setAttribute("role", "region");
+	scroll.setAttribute("aria-label", "Provider usage table");
+	scroll.append(grid);
+	const version = doc.pricing?.version;
+	const note = el$1("p", "usage-note", `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${typeof version === "string" && /^\d{4}-\d{2}-\d{2}$/.test(version) ? version : "unavailable"}. Incomplete records are lower bounds.`);
+	note.append(remainder);
+	return card("digest-provider-usage", "Provider usage", [scroll, note]);
 }
 function tokensCard(doc, state) {
 	const data = tokenSeries(doc);
@@ -8601,7 +8699,7 @@ function digestPage(source = createDigestSource(), signal) {
 		good = report;
 		const doc = report.document;
 		state.dispose.splice(0).forEach((dispose) => dispose());
-		panel.replaceChildren(allowanceRow(report, state), tokensCard(doc, state), exchangeCard(doc, state), coverageCard());
+		panel.replaceChildren(allowanceRow(report, state), providerUsageCard(doc), tokensCard(doc, state), exchangeCard(doc, state), coverageCard());
 		for (const detail of panel.querySelectorAll("details[id]")) detail.open = disclosures.get(detail.id) ?? false;
 		const scroll = document.getElementById("digest-exchange-scroll");
 		if (scroll) scroll.scrollLeft = matrixLeft;

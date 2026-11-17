@@ -226,6 +226,7 @@ fn usage_report_publishes_old_current_claude_cache_limits_alongside_codex() {
             "x flow --since 24h --bucket 24h --json",
             "api",
             "api",
+            "api",
             "api"
         ]
     );

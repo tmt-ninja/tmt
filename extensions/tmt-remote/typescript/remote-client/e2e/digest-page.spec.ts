@@ -4,6 +4,94 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { build } from 'vite';
 
+// This hand-calculated public report is also checked by Digest's native test.
+test('provider usage renders native records independently of prices and allowance', async ({
+  page,
+}, info) => {
+  const vectors = JSON.parse(
+    await readFile(
+      new URL('../../../../tmt-digest/contracts/vectors/usage-report-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const fixture = vectors.cases[1].expected;
+  fixture.usage.providers.push({
+    driver: 'pi',
+    totals: { input: 0, output: 0, cached: 0 },
+    seats: [],
+    partialSeats: 0,
+    inputCost: { usdMicros: 0 },
+    costUnavailable: [],
+  });
+  await page.addInitScript((doc) => {
+    window.digestProviderDocument = doc;
+  }, fixture);
+  const errors = await open(page, '?provider-fixture');
+  const card = page.locator('#digest-provider-usage');
+  await expect(card.getByRole('heading')).toHaveText('Provider usage');
+  await expect(card.locator('tbody tr')).toHaveCount(4);
+  await expect(card.locator('tbody tr').first()).toContainText('OpenAI');
+  const agy = card.locator('tbody tr').filter({ has: page.locator('th [title="agy"]') });
+  await expect(agy).toContainText('$0.00015');
+  await expect(agy.getByRole('cell').first()).toHaveText('100');
+  await expect(card.getByRole('rowheader', { name: 'pi', exact: true })).toHaveCount(0);
+  await expect(
+    card.getByRole('rowheader', { name: 'future-provider-with-a-long-name' }),
+  ).toBeVisible();
+  await expect(card).toContainText('A recorded model has no list price.');
+  await expect(card).toContainText('Input cost estimate (list price)');
+  await expect(card).toContainText('2026-11-15');
+  await expect(page.locator('#digest-provider-agy')).toHaveCount(0);
+  for (const width of [1440, 390])
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.emulateMedia({ colorScheme });
+      await card.scrollIntoViewIfNeeded();
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        ),
+      ).toBeLessThanOrEqual(0);
+      await card.getByRole('region').focus();
+      const file = info.outputPath(`provider-usage-${width}-${colorScheme}.png`);
+      await page.screenshot({ path: file, fullPage: true, animations: 'disabled' });
+      await info.attach(`provider-usage-${width}-${colorScheme}`, {
+        path: file,
+        contentType: 'image/png',
+      });
+    }
+  await page.getByRole('tab', { name: '7d', exact: true }).click();
+  await expect(card).toContainText('$0.00015');
+  await page.evaluate(() => {
+    window.digestProviderDocument.usage.providers![2]!.inputCost = { usdMicros: -1 };
+  });
+  await page.getByRole('tab', { name: '30d', exact: true }).click();
+  await expect(card.locator('tbody tr')).toHaveCount(4);
+  await expect(card.locator('tbody tr').first()).toContainText('OpenAI');
+  await expect(card).toContainText('The cost evidence could not be read.');
+  await page.evaluate(() => {
+    window.digestProviderDocument.usage.providers![2]!.inputCost = { usdMicros: 26000 };
+    window.digestProviderDocument.pricing!.basis = 'unsupported';
+  });
+  await page.getByRole('tab', { name: '24h', exact: true }).click();
+  await expect(card.locator('tbody tr')).toHaveCount(4);
+  await expect(card).toContainText('The pricing basis or version was not reported.');
+  await page.evaluate(() => {
+    window.digestProviderDocument.usage.providers = [];
+    window.digestProviderDocument.limits = [];
+  });
+  await page.getByRole('tab', { name: '7d', exact: true }).click();
+  await expect(card).toContainText('No attributed provider usage was recorded');
+  await expect(page.locator('#digest-allowance')).toContainText('No weekly allowance observations');
+  await expect(page.locator('.digest-provider-group')).toHaveCount(0);
+  await page.evaluate(() => {
+    delete window.digestProviderDocument.usage.providers;
+  });
+  await page.getByRole('tab', { name: '30d', exact: true }).click();
+  await expect(card).toContainText('Provider usage is unavailable');
+  expect(errors).toEqual([]);
+});
+
 const assets = new URL('../../../rust/tmt-remote/assets/', import.meta.url);
 // Intercepted pages need the same trustworthy WebCrypto context as the real loopback door.
 const origin = 'https://digest.test';
@@ -145,7 +233,7 @@ for (const [name, size] of [
         expect(b.x, `${right} beside ${left}`).toBeGreaterThan(a.x + a.width - 1);
         expect(Math.abs(b.y - a.y), `${right} on the same row`).toBeLessThan(2);
       };
-      await beside('#digest-provider-codex', '#digest-provider-claude');
+      await expect(page.locator('.digest-provider-group')).toHaveCount(1);
       await beside('#digest-tokens .digest-token-chart', '#digest-ranking');
       const tokens = (await page.locator('#digest-tokens').boundingBox())!;
       const messages = (await page.locator('#digest-exchange').boundingBox())!;
@@ -157,11 +245,9 @@ for (const [name, size] of [
       expect(Math.abs(title.width - head.width)).toBeLessThan(1);
       // The next provider peeks into the phone's horizontal snap carousel.
       const first = (await page.locator('#digest-provider-codex').boundingBox())!;
-      const next = (await page.locator('#digest-provider-claude').boundingBox())!;
+
       const viewport = (await page.locator('.digest-provider-groups').boundingBox())!;
-      expect(Math.abs(first.y - next.y)).toBeLessThan(1);
-      expect(next.x).toBeLessThan(viewport.x + viewport.width);
-      expect(next.x + next.width).toBeGreaterThan(viewport.x + viewport.width);
+      expect(first.x + first.width).toBeLessThanOrEqual(viewport.x + viewport.width + 1);
     }
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -224,9 +310,15 @@ test('the sample report paints every card once, in the reference order, with the
   page,
 }) => {
   const errors = await open(page);
-  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(4);
+  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(5);
   const headings = await page.locator('#digest-sections h2').allTextContents();
-  expect(headings).toEqual(['Allowance', 'Token usage', 'Messages between seats', 'Data coverage']);
+  expect(headings).toEqual([
+    'Allowance',
+    'Provider usage',
+    'Token usage',
+    'Messages between seats',
+    'Data coverage',
+  ]);
   await expect(page.locator('#usage-badge')).toHaveText('Sample data');
   await expect(page.locator('#usage-note')).toContainText('Usage preview');
   // Questions the usage read cannot answer: one row each with a badge, never a zero or a chart.
@@ -390,11 +482,7 @@ test('allowance has a current OpenAI window, distinct folded histories, and an e
   expect(new Set(readings).size).toBe(3);
   const ids = await page.locator('[id]').evaluateAll((nodes) => nodes.map((node) => node.id));
   expect(new Set(ids).size).toBe(ids.length);
-  await expect(page.locator('#digest-provider-claude')).toContainText('Claude○ not reported');
-  await expect(page.locator('#digest-provider-claude')).toContainText(
-    'Claude Code does not report its allowance to TMT.',
-  );
-  await expect(page.locator('#digest-provider-claude .tmt-ui-meter')).toHaveCount(0);
+  await expect(page.locator('#digest-provider-claude')).toHaveCount(0);
 });
 
 test('the same allowance windows and open disclosures survive every usage range', async ({
@@ -458,7 +546,7 @@ test('one provider shares the allowance card with its heading and retains its hi
   const errors = await open(page, '?one-provider', { width: 1440, height: 900 });
   const provider = page.locator('#digest-provider-codex');
   await expect(page.locator('#digest-allowance .digest-provider')).toHaveCount(1);
-  await expect(page.locator('#digest-provider-claude')).toContainText('○ not reported');
+  await expect(page.locator('#digest-provider-claude')).toHaveCount(0);
   await expect(provider.locator('.tmt-ui-chart')).toBeHidden();
   await provider.locator('summary').click();
   await expect(provider.locator('.tmt-ui-chart')).toBeVisible();
@@ -489,7 +577,7 @@ for (const [label, query] of [
 for (const width of [320, 390, 768, 1440]) {
   test(`one scroll at ${width}px: nothing makes the page scroll sideways`, async ({ page }) => {
     await open(page, '', { width, height: 900 });
-    await expect(page.locator('#digest-sections .digest-card')).toHaveCount(4);
+    await expect(page.locator('#digest-sections .digest-card')).toHaveCount(5);
     await page.waitForTimeout(200);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -756,10 +844,10 @@ test('unavailable seats make the reported total a lower bound and missing allowa
   await expect(page.locator('.digest-total-label')).toContainText('lower bound');
   await expect(page.locator('#digest-tokens')).toContainText('Unavailable seats are not included');
   await expect(page.locator('#digest-allowance')).toContainText(
-    'Claude Code does not report its allowance to TMT.',
+    'No weekly allowance observations have been reported.',
   );
   await expect(page.locator('.digest-provider')).toHaveCount(0);
-  await expect(page.locator('.digest-provider-group')).toHaveCount(2);
+  await expect(page.locator('.digest-provider-group')).toHaveCount(0);
   await expect(page.locator('#digest-allowance')).not.toContainText('No weekly window');
 });
 
@@ -846,7 +934,7 @@ test('an allowance-only failure does not substitute selected-range limits and re
   await expect(page.locator('#digest-tokens')).toBeVisible();
   await expect(page.locator('#digest-allowance')).toContainText('Allowance could not be read');
   await expect(page.locator('#digest-allowance .tmt-ui-meter')).toHaveCount(0);
-  await expect(page.locator('#digest-provider-claude')).toContainText('○ not reported');
+  await expect(page.locator('#digest-provider-claude')).toHaveCount(0);
   await page.clock.fastForward(60_000);
   await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(3);
   await expect(page.locator('#digest-provider-codex > .digest-provider')).toContainText('10% left');
@@ -861,7 +949,9 @@ test('a window disappears when the owner clock reaches its reset even if its obs
   await expect(page.locator('#digest-provider-codex > .digest-provider')).toContainText('55% left');
   await page.clock.fastForward(60_000);
   await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(2);
-  await expect(page.locator('#digest-provider-codex')).toContainText('○ not reported');
+  await expect(page.locator('#digest-allowance')).toContainText(
+    'No weekly allowance observations have been reported.',
+  );
   await expect(page.locator('#digest-provider-codex .tmt-ui-meter')).toHaveCount(0);
 });
 

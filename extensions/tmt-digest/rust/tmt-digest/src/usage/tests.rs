@@ -21,7 +21,7 @@ const A: &str = "10000000-0000-4000-8000-000000000001";
 const B: &str = "10000000-0000-4000-8000-000000000002";
 const F: &str = "10000000-0000-4000-8000-000000000006";
 
-fn vector() -> Value {
+fn vector_at(index: usize) -> Value {
     let all: Value = serde_json::from_str(
         &fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -30,7 +30,11 @@ fn vector() -> Value {
         .expect("the supplier's frozen usage report vector"),
     )
     .unwrap();
-    all["cases"][0].clone()
+    all["cases"][index].clone()
+}
+
+fn vector() -> Value {
+    vector_at(0)
 }
 
 fn labels(case: &Value) -> BTreeMap<String, Label> {
@@ -64,6 +68,7 @@ fn ids(case: &Value) -> Vec<String> {
 fn report(case: &Value) -> Report {
     let labels = labels(case);
     Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: case["asOfMs"].as_u64().unwrap(),
         since: Since::parse(case["since"].as_str().unwrap())
             .unwrap()
@@ -91,6 +96,88 @@ fn the_frozen_vector_joins_to_the_documented_report_and_csv() {
         csv::table(&document, Table::Exchange).unwrap(),
         case["csv"]["exchange"].as_str().unwrap()
     );
+}
+
+#[test]
+fn provider_usage_and_refusals_preserve_the_hand_calculated_records() {
+    let base = vector_at(1);
+    let document = model::document(&report(&base)).unwrap();
+    assert_eq!(document, base["expected"]);
+    for (mutation, reason) in [
+        ("mixed", Some("driver_model_attribution_unknown")),
+        ("partial", Some("model_attribution_unknown")),
+        ("unpriced", Some("no_price")),
+        ("overflow", Some("unsafe_cost")),
+        ("unbilled", None),
+    ] {
+        let mut case = base.clone();
+        let bucket = &mut case["totals"]["identities"][1]["windows"][0]["buckets"][0];
+        match mutation {
+            "mixed" => {
+                bucket["byDriver"] = json!([
+                {"driver":"claude","inputTokens":1000,"outputTokens":100,"cachedInputTokens":500},
+                {"driver":"codex","inputTokens":4000,"outputTokens":700,"cachedInputTokens":2500}])
+            }
+            "partial" => bucket["byModel"][0]["inputTokens"] = json!(2999),
+            "unpriced" => bucket["byModel"][0]["modelId"] = json!("unpriced-model"),
+            "unbilled" => {
+                bucket["byModel"] = json!([
+                {"modelId":"codex-auto-review","inputTokens":5000,"outputTokens":800,"cachedInputTokens":3000}])
+            }
+            "overflow" => {
+                bucket["inputTokens"] = json!(9007199254740991u64);
+                bucket["outputTokens"] = json!(0);
+                bucket["cachedInputTokens"] = json!(0);
+                bucket["byDriver"] = json!([{"driver":"codex","inputTokens":9007199254740991u64,"outputTokens":0,"cachedInputTokens":0}]);
+                bucket["byModel"] = json!([{"modelId":"gpt-6-astra","inputTokens":9007199254740991u64,"outputTokens":0,"cachedInputTokens":0}]);
+            }
+            _ => unreachable!(),
+        }
+        let document = model::document(&report(&case)).unwrap();
+        let codex = document["usage"]["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["driver"] == "codex")
+            .unwrap();
+        assert_eq!(
+            codex["totals"]["input"],
+            match mutation {
+                "mixed" => 4000,
+                "overflow" => 9007199254740991u64,
+                _ => 5000,
+            }
+        );
+        match reason {
+            Some(reason) => {
+                assert!(codex["inputCost"].is_null());
+                assert_eq!(codex["costUnavailable"], json!([reason]));
+            }
+            None => assert_eq!(codex["inputCost"]["usdMicros"], 0),
+        }
+        assert_eq!(
+            document["usage"]["providerUnattributed"],
+            json!({"input":0,"output":0,"cached":0})
+        );
+    }
+    for bad in [
+        json!([{"driver":"agy","inputTokens":101,"outputTokens":20,"cachedInputTokens":0}]),
+        json!([{"driver":"agy","inputTokens":1,"outputTokens":0,"cachedInputTokens":2}]),
+        json!([{"driver":"agy","inputTokens":9007199254740992u64,"outputTokens":0,"cachedInputTokens":0}]),
+        json!([{"driver":"agy","inputTokens":1,"outputTokens":0,"cachedInputTokens":0},{"driver":"agy","inputTokens":1,"outputTokens":0,"cachedInputTokens":0}]),
+    ] {
+        let mut case = base.clone();
+        case["totals"]["identities"][2]["windows"][0]["buckets"][0]["byDriver"] = bad;
+        assert!(
+            model::usage(
+                &case["totals"],
+                &case["series"],
+                &ids(&case),
+                &labels(&case)
+            )
+            .is_err()
+        );
+    }
 }
 
 #[test]
@@ -191,6 +278,7 @@ fn limits_of(five: Value) -> Value {
 fn limits_from(rate_limits: Value) -> Value {
     let (totals, series, ids, labels) = one_seat(Some(rate_limits));
     let report = Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
@@ -205,6 +293,7 @@ fn report_with_available(available: Value) -> Result<Value, crate::core::Error> 
     let (mut totals, series, ids, labels) = one_seat(None);
     totals["identities"][0]["windows"][0]["availableFromMs"] = available;
     let report = Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage: model::usage(&totals, &series, &ids, &labels)?,
@@ -237,6 +326,7 @@ fn credited(fields: Value) -> Result<Value, crate::core::Error> {
         bucket[key] = value.clone();
     }
     let report = Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage: model::usage(&totals, &series, &ids, &labels)?,
@@ -316,6 +406,7 @@ fn a_no_evidence_identity_carries_core_s_cause_and_unknown_causes_pass_through()
             totals["identities"][0]["cause"] = cause;
         }
         let report = Report {
+            pricing: crate::pricing::Resolved::built_in(),
             as_of_ms: AS_OF,
             since: "24h",
             usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
@@ -361,6 +452,7 @@ fn a_no_evidence_identity_carries_core_s_cause_and_unknown_causes_pass_through()
     totals["identities"][0] = json!({"id": A, "found": false, "cause": "no_agent"});
     let usage = model::usage(&totals, &series, &ids, &labels).unwrap();
     let report = Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage,
@@ -435,6 +527,7 @@ fn an_old_claude_cache_in_the_closed_seed_reports_its_source_not_the_seats_model
             {"windowMinutes":10_080,"usedPercent":0.5,"resetsAtMs":AS_OF + DAY}]}
     }});
     let report = Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
@@ -464,6 +557,7 @@ fn the_closed_seed_does_not_resurrect_a_reset_cache_window_from_an_older_bucket(
     ]);
     series["identities"][0]["windows"][0]["buckets"][0]["rateLimits"] = earlier;
     let report = Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
@@ -508,6 +602,7 @@ fn windows_of_different_providers_are_never_merged_even_when_length_and_reset_ma
         )
     }));
     let report = Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
@@ -544,6 +639,7 @@ fn missing_evidence_is_unavailable_never_a_zero_seat() {
     }
     let usage = model::usage(&totals, &series, &ids, &labels).unwrap();
     let document = model::document(&Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage,
@@ -563,6 +659,7 @@ fn unreadable_batches_are_unavailable_with_their_labels() {
     let (_, _, ids, labels) = one_seat(None);
     let usage = Usage::unreadable(&ids, &labels);
     let document = model::document(&Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage,
@@ -760,6 +857,7 @@ fn core_is_read_in_the_documented_shape() {
             "api",
             "api",
             "api",
+            "api",
             "api"
         ]
     );
@@ -768,10 +866,11 @@ fn core_is_read_in_the_documented_shape() {
     assert_eq!(calls[0]["operation"], "references.resolve");
     assert_eq!(calls[0]["input"], json!({"identityIds": [F]}));
     let reads: Vec<_> = calls[1..3].iter().collect();
-    assert_eq!(calls.len(), 4);
+    assert_eq!(calls.len(), 5);
     // Then Core's account-level limits; an older Core's refusal is no warning.
     assert_eq!(calls[3]["operation"], "consumption.limits");
     assert_eq!(calls[3]["input"], json!({}));
+    assert_eq!(calls[4]["operation"], "storage.root");
     for (read, buckets) in reads.iter().zip([1, 24]) {
         assert_eq!(read["operation"], "consumption.history");
         assert_eq!(
@@ -874,6 +973,7 @@ fn attributed_as(rows: Value) -> Value {
         bucket["byModel"] = rows;
     }
     let report = Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
@@ -957,6 +1057,7 @@ fn sessions_outside_every_seat_are_one_unavailable_row_and_the_totals_are_the_se
     );
     if let Ok(usage) = empty {
         let document = model::document(&Report {
+            pricing: crate::pricing::Resolved::built_in(),
             as_of_ms: AS_OF,
             since: Since::parse("24h").unwrap().text(),
             usage,
@@ -1100,6 +1201,7 @@ fn with_accounts(answer: Option<Value>) -> Value {
     let mut usage = model::usage(&totals, &series, &ids, &labels).unwrap();
     usage.accounts = answer.as_ref().and_then(model::accounts);
     model::document(&Report {
+        pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
         since: "24h",
         usage,
@@ -1192,6 +1294,7 @@ fn a_seat_reports_why_its_newest_reading_was_incomplete() {
         totals["identities"][0]["latest"] = json!({"driver":"codex", "consumption": {
             "complete": false, "incompleteReason": reason}});
         let report = Report {
+            pricing: crate::pricing::Resolved::built_in(),
             as_of_ms: AS_OF,
             since: "24h",
             usage: model::usage(&totals, &series, &ids, &labels).unwrap(),

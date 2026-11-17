@@ -362,6 +362,37 @@ fn quotes_use_the_table_in_hand() {
     assert_eq!(old["pricingVersion"], "2026-11-15");
     assert_eq!(old["usdMicros"], 4_000);
     assert!(fetched.quote("unknown-model", 7, 1).is_none());
+    let root = Temp::new();
+    assert_eq!(
+        Resolved::read_only(&root.0).document()["origin"],
+        "built-in"
+    );
+    assert!(
+        !root.0.join("digest").exists(),
+        "a usage read never creates a cache"
+    );
+    cache::write(
+        &root.0,
+        &cache::State {
+            attempted_at_ms: 7,
+            fetched_at_ms: Some(7),
+            file: Some(fetched),
+        },
+    )
+    .unwrap();
+    let file = root.0.join("digest/pricing/fetched-v1.json");
+    let before = fs::read(&file).unwrap();
+    let resolved = Resolved::read_only(&root.0);
+    assert_eq!(resolved.document()["origin"], "cached");
+    assert_eq!(
+        resolved.table().quote("claude-opus-5-5", 7, 1000).unwrap()["usdMicros"],
+        5000
+    );
+    assert_eq!(
+        fs::read(file).unwrap(),
+        before,
+        "reading prices leaves cache bytes intact"
+    );
 }
 
 #[test]
