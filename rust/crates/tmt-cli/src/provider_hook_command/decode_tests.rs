@@ -66,6 +66,17 @@ fn a_payload_no_decoder_accepts_names_its_event_and_the_decoder_that_owns_it() {
             r#"{"hook_event_name":"Notification","message":"private"}"#,
             "input: not_admitted, refused:activity_session:Notification",
         ),
+        // The driver supplies camelCase event names; the generic reader ignores hookEventName.
+        (
+            "agy",
+            r#"{"hookEventName":"SessionStart"}"#,
+            "decode: worker_error, refused:lifecycle:SessionStart",
+        ),
+        (
+            "claude",
+            r#"{"hookEventName":"SessionStart"}"#,
+            "input: not_admitted, refused:unknown",
+        ),
     ] {
         let launch = launch(HostKind::pty(), provider);
         let (result, stored) = stop_of(&launch, provider, payload);
@@ -152,6 +163,26 @@ fn only_a_lifecycle_event_is_a_binding_run() {
             "claude",
             r#"{"hook_event_name":"SessionStart"}"#,
             Role::Binding,
+        ),
+        (
+            "agy",
+            r#"{"hookEventName":"SessionStart","conversationId":"50fec1a2-581c-4adc-924d-15c31cef4da4"}"#,
+            Role::Binding,
+        ),
+        (
+            "agy",
+            r#"{"hookEventName":"PreInvocation","conversationId":"50fec1a2-581c-4adc-924d-15c31cef4da4","invocationNum":1,"lastUserInput":"hello"}"#,
+            Role::Binding,
+        ),
+        (
+            "agy",
+            r#"{"hookEventName":"PreInvocation","conversationId":"50fec1a2-581c-4adc-924d-15c31cef4da4","invocationNum":2}"#,
+            Role::Observer,
+        ),
+        (
+            "agy",
+            r#"{"hookEventName":"Stop","conversationId":"50fec1a2-581c-4adc-924d-15c31cef4da4","terminationReason":"NO_TOOL_CALL","fullyIdle":true}"#,
+            Role::Observer,
         ),
     ] {
         assert!(

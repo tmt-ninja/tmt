@@ -577,7 +577,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
     }
 
     fn launch_settings(&self, args: &[OsString]) -> crate::runtime::launch_preset::LaunchSettings {
-        crate::runtime::launch_preset::flags(args, &["--model"], &["--thinking"], false)
+        crate::runtime::launch_preset::flags(args, &["--model"], &["--thinking"], &[], false)
     }
 
     fn resume_settings(

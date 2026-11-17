@@ -429,7 +429,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         &self,
         args: &[std::ffi::OsString],
     ) -> crate::runtime::launch_preset::LaunchSettings {
-        crate::runtime::launch_preset::flags(args, &["--model"], &["--effort"], false)
+        crate::runtime::launch_preset::flags(args, &["--model"], &["--effort"], &[], false)
     }
     fn resume_settings(
         &self,

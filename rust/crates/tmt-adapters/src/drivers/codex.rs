@@ -621,7 +621,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         &self,
         args: &[std::ffi::OsString],
     ) -> crate::runtime::launch_preset::LaunchSettings {
-        crate::runtime::launch_preset::flags(args, &["--model", "-m"], &[], true)
+        crate::runtime::launch_preset::flags(args, &["--model", "-m"], &[], &[], true)
     }
     fn resume_settings(
         &self,

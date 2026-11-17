@@ -20,6 +20,26 @@ pub const MODE_DEFAULT: &str = "default";
 /// Antigravity waits on and when it closes (#6424); they never decide a permission.
 const ACTIVITY_EVENTS: &[&str] = &["PreToolUse", "PostToolUse"];
 
+// Value-taking flags verified against `agy --help` (Antigravity CLI 1.5.9), retaining
+// legacy `-r` / `-m` spellings alongside current options.
+const VALUE_FLAGS: &[&str] = &[
+    "--add-dir",
+    "--agent",
+    "--conversation",
+    "-r",
+    "--effort",
+    "--input-format",
+    "--json-schema",
+    "--log-file",
+    "--mode",
+    "--model",
+    "-m",
+    "--output-format",
+    "--print-timeout",
+    "--project",
+    "--settings",
+];
+
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::AGY,
     env: &["ANTIGRAVITY_APP_DATA_DIR"],
@@ -248,7 +268,10 @@ fn concrete_model(value: Option<&serde_json::Value>) -> Option<String> {
 
 impl Payload {
     fn is_session_start(&self) -> bool {
-        self.invocation_num.is_none()
+        self.hook_event_name
+            .as_deref()
+            .is_none_or(|name| name == "SessionStart")
+            && self.invocation_num.is_none()
             && !self.tool_call
             && !self.model_output
             && !self.model_thinking
@@ -258,6 +281,13 @@ impl Payload {
     }
 
     fn pre_invocation_num(&self) -> Option<u64> {
+        if self
+            .hook_event_name
+            .as_deref()
+            .is_some_and(|name| name != "PreInvocation")
+        {
+            return None;
+        }
         let num = self.invocation_num?;
         (num >= 1
             && !self.tool_call
@@ -270,6 +300,13 @@ impl Payload {
     }
 
     fn is_stop(&self) -> bool {
+        if self
+            .hook_event_name
+            .as_deref()
+            .is_some_and(|name| name != "Stop")
+        {
+            return false;
+        }
         (self.termination_reason.is_some() || self.execution_num || self.fully_idle.is_some())
             && self.invocation_num.is_none()
             && !self.tool_call
@@ -486,7 +523,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
         _environment: &[(std::ffi::OsString, std::ffi::OsString)],
     ) {
         let mut writable = false;
-        let mut words = command.args.iter().peekable();
+        let mut words = command.args.iter();
         while let Some(arg) = words.next() {
             let Some(word) = arg.to_str() else {
                 continue;
@@ -494,38 +531,26 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
             if word == "--" {
                 break;
             }
-            if word == "--add-dir" {
-                if words
-                    .next()
-                    .is_some_and(|dir| Path::new(dir) == state_directory)
-                {
+            let (flag, inline) = word
+                .split_once('=')
+                .map_or((word, None), |(name, value)| (name, Some(value)));
+            if flag == "--add-dir" {
+                let dir = inline
+                    .map(std::ffi::OsStr::new)
+                    .or_else(|| words.next().map(std::ffi::OsString::as_os_str));
+                if dir.is_some_and(|path| Path::new(path) == state_directory) {
                     writable = true;
                 }
-            } else if let Some(dir) = word.strip_prefix("--add-dir=") {
-                if Path::new(dir) == state_directory {
-                    writable = true;
+            } else if VALUE_FLAGS.contains(&flag) {
+                if inline.is_none() {
+                    words.next();
                 }
-            } else if matches!(
-                word,
-                "--agent"
-                    | "--conversation"
-                    | "-r"
-                    | "--directory"
-                    | "--experiment"
-                    | "--local-Cascade-server-port"
-                    | "--max-turns"
-                    | "--model"
-                    | "-m"
-                    | "--output-format"
-                    | "--permission-mode"
-                    | "--system-prompt"
-                    | "--system-prompt-file"
-            ) {
-                words.next();
             } else if !word.starts_with('-') {
+                // Subcommands verified against `agy --help` (Antigravity CLI 1.5.9).
                 if matches!(
                     word,
-                    "agent"
+                    "acp"
+                        | "agent"
                         | "agents"
                         | "changelog"
                         | "help"
@@ -560,7 +585,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
         &self,
         args: &[std::ffi::OsString],
     ) -> crate::runtime::launch_preset::LaunchSettings {
-        crate::runtime::launch_preset::flags(args, &["--model", "-m"], &[], false)
+        crate::runtime::launch_preset::flags(args, &["--model", "-m"], &[], VALUE_FLAGS, false)
     }
 
     fn resume_settings(
@@ -572,14 +597,38 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
             return false;
         }
         if let Some(model) = &settings.model {
-            if let Some(index) = command
+            let mut index = 0;
+            while index < command.args.len() {
+                let Some(word) = command.args[index].to_str() else {
+                    index += 1;
+                    continue;
+                };
+                if word == "--" {
+                    break;
+                }
+                if word == "--model" || word == "-m" {
+                    let end = if index + 1 < command.args.len() && command.args[index + 1] != "--" {
+                        index + 2
+                    } else {
+                        index + 1
+                    };
+                    command.args.drain(index..end);
+                    continue;
+                }
+                if word.starts_with("--model=") || word.starts_with("-m=") {
+                    command.args.remove(index);
+                    continue;
+                }
+                index += 1;
+            }
+            let boundary = command
                 .args
                 .iter()
-                .position(|arg| arg == "--model" || arg == "-m")
-            {
-                command.args.drain(index..index + 2);
-            }
-            command.args.extend(["--model".into(), model.into()]);
+                .position(|arg| arg == "--")
+                .unwrap_or(command.args.len());
+            command
+                .args
+                .splice(boundary..boundary, ["--model".into(), model.into()]);
         }
         true
     }
@@ -750,6 +799,15 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
         state: &tmt_core::binding::session::DriverState,
     ) -> Option<crate::runtime::consumption::Consumption> {
         crate::runtime::driver_state::state_consumption(state).map(|state| state.value)
+    }
+
+    fn hook_event_name(&self, payload: &[u8]) -> Option<String> {
+        if payload.len() > HOOK_INPUT_LIMIT {
+            return None;
+        }
+        serde_json::from_slice::<serde_json::Value>(payload)
+            .ok()
+            .and_then(|value| value["hookEventName"].as_str().map(str::to_owned))
     }
 
     fn decode_prompt(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
@@ -1352,6 +1410,172 @@ mod tests {
                 .value
                 .model_id
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn resume_settings_strips_equals_and_space_models_and_reinserts_before_separator() {
+        let mut command = crate::runtime::RuntimeCommand {
+            executable: "agy".into(),
+            args: [
+                "--conversation",
+                SESSION,
+                "--model=old-a",
+                "-m=old-b",
+                "--model",
+                "old-c",
+                "--",
+                "--model=literal-after-separator",
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        };
+        assert!(AgyLifecycle.resume_settings(
+            &mut command,
+            &crate::runtime::launch_preset::LaunchSettings {
+                model: Some("gemini-4-hydrogen-medium".into()),
+                effort: None,
+            },
+        ));
+        assert_eq!(
+            command.args,
+            [
+                "--conversation",
+                SESSION,
+                "--model",
+                "gemini-4-hydrogen-medium",
+                "--",
+                "--model=literal-after-separator",
+            ]
+        );
+
+        let mut dangling = crate::runtime::RuntimeCommand {
+            executable: "agy".into(),
+            args: ["--model", "--", "literal"]
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        };
+        assert!(AgyLifecycle.resume_settings(
+            &mut dangling,
+            &crate::runtime::launch_preset::LaunchSettings {
+                model: Some("chosen".into()),
+                effort: None,
+            },
+        ));
+        assert_eq!(dangling.args, ["--model", "chosen", "--", "literal"]);
+    }
+
+    #[test]
+    fn launch_settings_and_prepare_launch_handle_agy_1_5_9_value_flags() {
+        let args =
+            |items: &[&str]| -> Vec<std::ffi::OsString> { items.iter().map(Into::into).collect() };
+        assert_eq!(
+            AgyLifecycle
+                .launch_settings(&args(&[
+                    "--conversation",
+                    SESSION,
+                    "--settings",
+                    "s.json",
+                    "--model",
+                    "gemini-4-hydrogen-medium",
+                ]))
+                .model
+                .as_deref(),
+            Some("gemini-4-hydrogen-medium")
+        );
+        assert_eq!(
+            AgyLifecycle
+                .launch_settings(&args(&["--conversation=s-1", "--model=gemini-4-argon-low"]))
+                .model
+                .as_deref(),
+            Some("gemini-4-argon-low")
+        );
+        assert_eq!(
+            AgyLifecycle
+                .launch_settings(&args(&["--unknown", "positional", "--model", "ignored"]))
+                .model,
+            None
+        );
+
+        let state = Path::new("/tmp/agy-state");
+        let mut command = crate::runtime::RuntimeCommand {
+            executable: "agy".into(),
+            args: args(&["--project", "update", "--settings", "help", "--", "prompt"]),
+        };
+        AgyLifecycle.prepare_launch(&mut command, state, false, &[]);
+        assert_eq!(
+            command.args,
+            args(&[
+                "--project",
+                "update",
+                "--settings",
+                "help",
+                "--add-dir",
+                "/tmp/agy-state",
+                "--",
+                "prompt",
+            ])
+        );
+
+        let mut acp = crate::runtime::RuntimeCommand {
+            executable: "agy".into(),
+            args: args(&["acp"]),
+        };
+        AgyLifecycle.prepare_launch(&mut acp, state, false, &[]);
+        assert_eq!(acp.args, args(&["acp"]));
+    }
+
+    #[test]
+    fn payload_predicates_reject_conflicting_hook_event_names_and_read_camel_case() {
+        let post_invocation = json!({
+            "hookEventName": "PostInvocation",
+            "conversationId": SESSION,
+            "modelName": "gemini-4-argon-low"
+        })
+        .to_string();
+        assert_eq!(
+            decode_hook(post_invocation.as_bytes()),
+            Err(HookInputError::Unsupported)
+        );
+        assert_eq!(
+            AgyLifecycle
+                .hook_event_name(post_invocation.as_bytes())
+                .as_deref(),
+            Some("PostInvocation")
+        );
+
+        let wrong_pre = json!({
+            "hookEventName": "PostInvocation",
+            "conversationId": SESSION,
+            "invocationNum": 1,
+            "lastUserInput": "hello"
+        })
+        .to_string();
+        assert_eq!(
+            decode_hook(wrong_pre.as_bytes()),
+            Err(HookInputError::Unsupported)
+        );
+        assert!(AgyLifecycle.decode_prompt(wrong_pre.as_bytes()).is_none());
+
+        let stop_named = json!({
+            "hookEventName": "Stop",
+            "conversationId": SESSION,
+            "terminationReason": "NO_TOOL_CALL",
+            "fullyIdle": true
+        })
+        .to_string();
+        assert!(decode_turn(stop_named.as_bytes()).is_some());
+        assert_eq!(
+            AgyLifecycle
+                .hook_event_name(stop_named.as_bytes())
+                .as_deref(),
+            Some("Stop")
+        );
+        assert_eq!(
+            decode_hook(stop_named.as_bytes()),
+            Err(HookInputError::Unsupported)
         );
     }
 }
