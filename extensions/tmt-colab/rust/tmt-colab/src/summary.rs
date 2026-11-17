@@ -274,6 +274,37 @@ impl SummaryCache {
                     .map(|projection| projection.summary.clone())
             })
     }
+    /// The page list's status from this fresh fold alone (`work_index::derived_state`), or `None`
+    /// without a fresh projection.
+    pub fn derived_state(
+        &self,
+        page: &str,
+        fingerprint: &str,
+        now_ms: u64,
+    ) -> Option<&'static str> {
+        let entries = self.lock();
+        let projection = entries
+            .get(page)
+            .filter(|entry| entry.fingerprint == fingerprint)?
+            .projection
+            .as_ref()?;
+        let fields = projection.summary.work.as_ref().map(|work| &work.fields);
+        let blocked = fields
+            .and_then(|fields| fields.get("blocked"))
+            .and_then(Value::as_str)
+            .is_some_and(|reason| !reason.is_empty());
+        let has_owner = fields
+            .and_then(|fields| fields.pointer("/owner/id"))
+            .is_some();
+        Some(crate::work_index::derived_state(
+            projection.todo_counts,
+            blocked,
+            projection.summary.waiting,
+            projection.pr_links.as_ref().map(Vec::len),
+            has_owner,
+            now_ms,
+        ))
+    }
     /// Fresh failure differs from a cache miss. Neither becomes an empty complete list.
     pub fn details(&self, page: &str, fingerprint: &str) -> CachedDetails {
         let entries = self.lock();

@@ -78,7 +78,7 @@
   },
   "binder": {
     "path": "assets/colab-standalone-binder.js",
-    "sha256": "5f0d5fbac35a1b995d6cf786137cd39974dfbd969db8dcfd494e464eae3decb0",
-    "length": 70379
+    "sha256": "d7174c93f6f476ee8b5c834a40a9a533cdcf3fa0dd4bf260f34e718701be2b01",
+    "length": 70556
   }
 }

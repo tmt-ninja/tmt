@@ -396,6 +396,8 @@ impl Registration {
         let parents = graph.parents();
         let archived = crate::inspection::catalog_archived_ids(&catalog);
         let now = now_ms()?;
+        let statuses = self.list_statuses(fresh.keys(), &fingerprints, now);
+        let status = |page: &str| statuses.get(page).cloned();
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
                 continue;
@@ -413,18 +415,10 @@ impl Registration {
             };
             page["state"] = serde_json::json!(graph.page_state(&id));
             page["summary"] = summary.json();
-            // The list shows the computed status the owner retained for this exact fingerprint
-            // (the one `show` reports); a page without one keeps its stage. Never computed here.
-            if let Some(state) = self
-                .store
-                .cached_work_status_with_fingerprints(&self.keyring, &id, now, Some(&fingerprints))
-                .ok()
-                .flatten()
-                .and_then(|status| status["state"].as_str().map(str::to_owned))
-            {
+            if let Some(state) = statuses.get(&id) {
                 page["summary"]["status"] = serde_json::json!(state);
             }
-            if let Some(work) = graph.row(&id, &archived) {
+            if let Some(work) = graph.row(&id, &archived, &status) {
                 page["summary"]["work"] = work;
             }
             if let Some((parent, index)) = parents.get(&id) {
@@ -466,6 +460,37 @@ impl Registration {
             }
         }
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
+    }
+    /// Each fresh page's list status (#6474): the status an owner page view retained for this
+    /// exact fingerprint (the one `show` reports), else what the fold alone decides
+    /// (`work_index::derived_state`). No GitHub or activity read happens here.
+    fn list_statuses<'a>(
+        &self,
+        pages: impl Iterator<Item = &'a String>,
+        fingerprints: &std::collections::BTreeMap<String, String>,
+        now: u64,
+    ) -> std::collections::BTreeMap<String, String> {
+        pages
+            .filter_map(|id| {
+                let retained = self
+                    .store
+                    .cached_work_status_with_fingerprints(
+                        &self.keyring,
+                        id,
+                        now,
+                        Some(fingerprints),
+                    )
+                    .ok()
+                    .flatten()
+                    .and_then(|status| status["state"].as_str().map(str::to_owned));
+                let state = retained.or_else(|| {
+                    self.summaries
+                        .derived_state(id, fingerprints.get(id)?, now)
+                        .map(str::to_owned)
+                })?;
+                Some((id.clone(), state))
+            })
+            .collect()
     }
     /// The page list's opaque change token (contract: Live page list): it moves when any page's
     /// fingerprint does, which is when its revision token does, and never otherwise.
@@ -603,7 +628,12 @@ impl Registration {
                 let archived = crate::inspection::catalog_archived_ids(&catalog);
                 let current = fingerprints.get(page) == Some(&fingerprint);
                 let state = current.then(|| graph.page_state(page)).flatten();
-                let progress = current.then(|| graph.progress(page, &archived)).flatten();
+                // The work panel counts sub-pages as the list row does (#6474).
+                let statuses = self.list_statuses(found.keys(), &fingerprints, now_ms()?);
+                let status = |child: &str| statuses.get(child).cloned();
+                let progress = current
+                    .then(|| graph.progress_by(page, &archived, &status))
+                    .flatten();
                 let mut ready = serde_json::json!({"pageId":page,"state":"ready","fingerprint":digest,
                     "pageState":state,"progress":progress,
                     "summary":projection.summary.json(),"readings":projection.readings,
@@ -2146,7 +2176,10 @@ mod describe_tests {
         assert!(list[top]["summary"].get("parent").is_none());
         assert!(list[unread].get("summary").is_none());
         assert_eq!(list[bare]["summary"]["status"], "waiting-ci");
-        assert!(list[top]["summary"].get("status").is_none());
+        // Without a retained status for its fingerprint, the list derives one from the fold
+        // alone; this fixture's fold extracted no PR links, so its facts are unavailable.
+        assert_eq!(list[top]["summary"]["status"], "unknown");
+        assert!(list[unread].get("summary").is_none());
 
         // The sub-page goes stale: its state is unknown, so it no longer counts as done.
         put(leaf, "stale fingerprint", Some(&leaf_work));

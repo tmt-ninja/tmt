@@ -6136,7 +6136,8 @@ fn the_owner_list_serves_fresh_summaries_only_and_refreshes_a_changed_page_in_th
     let fresh = settled(false);
     assert_eq!(
         fresh["summary"],
-        json!({"comments":0,"waiting":false,"needsYou":0,"author":"Studio agent"})
+        // The list also derives the page's status from the fold (#6474): no owner, no PR link.
+        json!({"comments":0,"waiting":false,"needsYou":0,"author":"Studio agent","status":"discussing"})
     );
     // An accepted write changes the page's fingerprint: the old summary is stale, so it is no
     // longer served, and the next refresh brings the new state.
@@ -6395,7 +6396,10 @@ fn owner_chapter_details_are_complete_at_one_fingerprint_and_reject_nonowners() 
     );
     let catalog: Value =
         serde_json::from_slice(&registration.pages(Some(&context)).unwrap()).unwrap();
-    assert_eq!(catalog["pages"][0]["summary"], second["summary"]);
+    // The list row adds the derived status to the same summary (#6474).
+    let mut listed = second["summary"].clone();
+    listed["status"] = json!("needs-you");
+    assert_eq!(catalog["pages"][0]["summary"], listed);
     let many = (0..50).map(|index| format!(
         "<tmt-read data-id=\"20000000-0000-4000-8000-{index:012}\" data-agent=\"{}\" data-why=\"{}\"><h2 data-title>{index:03}{}</h2><p>Passage.</p></tmt-read>",
         "🦉".repeat(64), "🌍".repeat(200), "🐈".repeat(197),

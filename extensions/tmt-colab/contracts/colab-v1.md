@@ -6651,12 +6651,18 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   sub-page without a fresh entry counts as unknown, never done.
 - `parent` is `{page, index}`, the page that lists this page and this page's position in that list,
   omitted when none does. With several (two writers raced) it is the lowest page ID.
-- `status`, when present, is the computed work status the owner retained for this page's current
-  fingerprint: the same projection `show --json` reports as `computedStatus.state`, one of `done`,
-  `blocked`, `needs-you`, `waiting-ci`, `waiting-release`, `working`, `possibly-stalled`,
-  `discussing` or `unknown`. A list read only reads that retained value; it never computes a status
-  or reads GitHub. It is omitted until an owner page view has computed the status since the page
-  last changed, so a page not opened since then keeps its stage. Display only, never authority.
+- `status`, when present, is the page's list status (#6474). It is the computed work status an
+  owner page view retained for this page's current fingerprint (the projection `show --json`
+  reports as `computedStatus.state`), else the status the background fold alone decides with the
+  same ordered rules and no external fact: `blocked`, `needs-you`, `done` (every to-do checked and
+  no PR link) and `discussing` (no owner and no PR link) need no GitHub or activity read. When a
+  PR link or the owner's activity could change the answer, it is `unchecked` (shown as "Not
+  checked yet") until an owner page view computes the status. Values: `done`, `blocked`,
+  `needs-you`, `waiting-ci`, `waiting-release`, `working`, `possibly-stalled`, `discussing`,
+  `unknown` (the facts were unavailable) or `unchecked`. A list read never reads GitHub or Core
+  activity. A page's sub-page progress (`work`) counts a child as done when its status is `done`,
+  as in progress or to do by its other statuses, and by its manual state when it is `unknown`,
+  `unchecked` or absent. Display only, never authority.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the
@@ -8273,7 +8279,7 @@ create/remove/Reset and epoch advance in parent chrome. Home and page chrome ope
 the same dialog; local samples remain read-only. Home offers the tabs All, Needs you (the
 active pages waiting on the viewer, `needs=true`), Discussion, In progress and Done (from each row's `summary.status` when present: `needs-you`
 and `blocked` are in Needs you; `working`, `possibly-stalled`, `waiting-ci` and `waiting-release`
-are In progress; `done` is Done; `discussing` and `unknown` are Discussion. Without a status, the
+are In progress; `done` is Done; `discussing`, `unknown` and `unchecked` are Discussion. Without a status, the
 stage of `summary.work`, a fresh summary without work being in discussion) and Archived, and
 opens on All (a link with `stage=in-progress` opens on In progress; a mounted address is the list and no more, so a reload,
 Back and Forward return to the tab the entry was left on); an

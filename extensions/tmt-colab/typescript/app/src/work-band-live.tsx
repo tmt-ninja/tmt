@@ -200,9 +200,10 @@ function ComputedStatus({
         : ['needs-you', 'waiting-ci', 'waiting-release', 'possibly-stalled'].includes(state)
           ? 'waiting'
           : 'muted';
+  // The PR that decides the status: an open one, or a merged one not yet in a release.
   const prNumber = (wanted: 'open' | 'merged') =>
     facts?.pulls
-      .find(({ fact }) => fact?.state === wanted)
+      .find(({ fact }) => fact?.state === wanted && (wanted === 'open' || fact.released === false))
       ?.url.split('/')
       .at(-1);
   const reason =
