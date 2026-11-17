@@ -160,7 +160,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(requests::answer())
     .subcommand(requests::send_now())
     .subcommand(installation::install(names))
-    .subcommand(installation::setup(setup_hooked.clone()))
+    .subcommand(installation::setup(hooked.clone()))
     .subcommand(installation::digest_hook(setup_hooked.clone()))
     .subcommand(installation::allowance_intake(setup_hooked))
     .subcommand(internal("__flush", "Internal finite hook queue flusher").hide(true).arg(Arg::new("log-id").required(true)))

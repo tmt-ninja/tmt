@@ -1012,3 +1012,183 @@ fn pi_captures_prompt_and_settled_reply_without_usage_consent() {
         "{shown:#}"
     );
 }
+
+#[test]
+fn pi_usage_collection_follows_per_launch_setup_consent() {
+    register();
+    let fixture = Fixture::delivering("pi-per-launch-consent");
+    bind(&fixture, fixture.approve());
+    let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let session = "33333333-3333-4333-8333-333333333333";
+    let transcript = fixture.root.join(format!(
+        "home/.pi/agent/sessions/proj/2026-11-17_{session}.jsonl"
+    ));
+    fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    let write_turn = |tokens: u64, text: &str| {
+        let entry = serde_json::json!({
+            "type": "message",
+            "id": format!("msg-{tokens}"),
+            "parentId": null,
+            "timestamp": "2026-11-17T00:00:00.000Z",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": text}],
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-5",
+                "usage": {
+                    "input": tokens,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "totalTokens": tokens
+                },
+                "stopReason": "stop",
+                "timestamp": 1794873600000u64
+            }
+        });
+        fs::write(&transcript, format!("{entry}\n")).unwrap();
+    };
+    write_turn(170, "Pi answer 1");
+
+    // Unconsented by default: setup --status fails closed.
+    let status = fixture.json(&["setup", "pi", "--status", "--json"]);
+    assert_eq!(status["integrations"][0]["provider"], "pi");
+    assert_eq!(status["integrations"][0]["usage"], false);
+    assert_eq!(status["integrations"][0]["perLaunch"], true);
+
+    let mut provider = SteppedProvider::start(&fixture, "pi", "pi-consent-steps");
+    ok(provider.hook(serde_json::json!({
+        "event": "session_start",
+        "session_id": session,
+        "session_file": transcript,
+        "reason": "startup"
+    })));
+    ok(provider.hook(serde_json::json!({
+        "event": "before_agent_start",
+        "session_id": session,
+        "session_file": transcript,
+        "prompt": "first"
+    })));
+    ok(provider.hook(serde_json::json!({
+        "event": "agent_settled",
+        "session_id": session,
+        "session_file": transcript,
+        "aborted": false,
+        "final_text": "Pi answer 1"
+    })));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let timeline = passthrough::api(
+            &fixture,
+            "ok",
+            "responses.timeline",
+            serde_json::json!({"identityId": agent}),
+        );
+        if timeline["responses"]
+            .as_array()
+            .is_some_and(|r| r.len() == 1)
+            || std::time::Instant::now() >= deadline
+        {
+            assert_eq!(
+                timeline["responses"][0]["text"], "Pi answer 1",
+                "{timeline:#}"
+            );
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert!(
+        worker(&fixture.json(&["ls", "--json"]))["resume"]["usage"].is_null(),
+        "usage must stay uncollected before setup consent"
+    );
+
+    // Explicit `tmt setup pi --yes` enables persisted per-launch consent.
+    let setup_on = fixture.json(&["setup", "pi", "--yes", "--json"]);
+    assert_eq!(setup_on["provider"], "pi");
+    assert_eq!(setup_on["changed"], true);
+    assert_eq!(setup_on["usage"], true);
+    assert_eq!(
+        fixture.json(&["setup", "pi", "--status", "--json"])["integrations"][0]["usage"],
+        true
+    );
+
+    write_turn(250, "Pi answer 2");
+    ok(provider.hook(serde_json::json!({
+        "event": "before_agent_start",
+        "session_id": session,
+        "session_file": transcript,
+        "prompt": "second"
+    })));
+    ok(provider.hook(serde_json::json!({
+        "event": "agent_settled",
+        "session_id": session,
+        "session_file": transcript,
+        "aborted": false,
+        "final_text": "Pi answer 2"
+    })));
+    let deadline2 = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let list = fixture.json(&["ls", "--json"]);
+        if worker(&list)["resume"]["usage"]["tokens"] == 250
+            || std::time::Instant::now() >= deadline2
+        {
+            assert_eq!(worker(&list)["resume"]["usage"]["tokens"], 250, "{list:#}");
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+
+    // Opting out stops future usage collection while keeping Chat replies flowing.
+    let setup_off = fixture.json(&["setup", "pi", "--no-usage", "--yes", "--json"]);
+    assert_eq!(setup_off["usage"], false);
+    write_turn(400, "Pi answer 3");
+    ok(provider.hook(serde_json::json!({
+        "event": "before_agent_start",
+        "session_id": session,
+        "session_file": transcript,
+        "prompt": "third"
+    })));
+    ok(provider.hook(serde_json::json!({
+        "event": "agent_settled",
+        "session_id": session,
+        "session_file": transcript,
+        "aborted": false,
+        "final_text": "Pi answer 3"
+    })));
+    let deadline3 = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let timeline = passthrough::api(
+            &fixture,
+            "ok",
+            "responses.timeline",
+            serde_json::json!({"identityId": agent}),
+        );
+        if timeline["responses"]
+            .as_array()
+            .is_some_and(|r| r.len() == 3)
+            || std::time::Instant::now() >= deadline3
+        {
+            assert_eq!(
+                timeline["responses"][2]["text"], "Pi answer 3",
+                "{timeline:#}"
+            );
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert_eq!(
+        worker(&fixture.json(&["ls", "--json"]))["resume"]["usage"]["tokens"],
+        250
+    );
+
+    let removed = fixture.json(&["setup", "pi", "--remove", "--yes", "--json"]);
+    assert_eq!(removed["removed"], true);
+    assert_eq!(removed["usage"], false);
+    assert_eq!(
+        fixture.json(&["setup", "pi", "--status", "--json"])["integrations"][0]["usage"],
+        false
+    );
+}

@@ -571,7 +571,10 @@ contract owns the shape and sources.
 
   Pi requires no `tmt setup` hooks: `tmt run` checks `pi >= 1.3.0`, materializes its embedded
   extension into an owner-only (`0700`/`0600`) path under the state directory, and passes
-  `--extension <path>` for that launch.
+  `--extension <path>` for that launch. Usage consent for `HookFormat::PerLaunch` drivers is
+  persisted under `perLaunch` in `setup-record.json` via `tmt setup` / `tmt setup pi` (failing
+  closed when absent or invalid), while Chat prompt and reply capture remain active regardless
+  of usage consent.
 
   Herdr is not an agent driver: it is an external **host** driver (pane discovery and
   delivery, [driver protocol](../../../../contracts/driver-protocol-v1.md)) with no level,
