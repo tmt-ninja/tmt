@@ -31,8 +31,11 @@ one layer's success cannot substitute for another's evidence.
 ## Native CLI selection
 
 **Selecting the CLI.** The native selector resolves `rust/target/debug/tmt` and
-fails if it is absent. An explicit descriptor may select another absolute
-executable; neither an installed host command nor Node is a fallback, and paths
+fails if it is absent. It probes the implicit binary in an isolated temporary
+environment without `TMT_TEST_ROOT`, once per file identity, and refuses a
+`TEST_ISOLATION` build with the command to rebuild the ordinary CLI. Explicit
+descriptors are validated but never executed by the selector. An explicit descriptor
+may select another absolute executable; neither an installed host command nor Node is a fallback, and paths
 and argv are data, never shell fragments:
 
 ```bash
