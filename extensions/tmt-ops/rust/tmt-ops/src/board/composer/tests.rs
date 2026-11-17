@@ -51,7 +51,11 @@ fn shell_submission_is_once_per_member_and_private_results_never_attach() {
     open(&mut app, "auth-fix");
     let key = app.input.as_ref().unwrap().draft_key.clone().unwrap();
     app.input.as_mut().unwrap().text = "！！ pwd".into();
-    assert!(app.composer_info(&app.composer_projection().unwrap()).shell);
+    assert!(
+        app.composer_info(&app.composer_projection().unwrap())
+            .shell
+            .is_some()
+    );
     assert!(
         matches!(app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Shell { command, .. } if command == "pwd")
     );
@@ -113,7 +117,15 @@ fn shell_marker_and_results_appear_in_the_member_talk() {
         .iter()
         .map(|cell| cell.symbol())
         .collect::<String>();
-    assert!(screen.contains("Shell"), "{screen}");
+    assert!(screen.contains("Shell · result goes to worker"), "{screen}");
+    app.input.as_mut().unwrap().text = "！！ pwd".into();
+    let private = draw(&mut app, 100, 40)
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(private.contains("Shell · only you"), "{private}");
+    app.input.as_mut().unwrap().text = "！ pwd".into();
     app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let screen = draw(&mut app, 160, 40)
         .content

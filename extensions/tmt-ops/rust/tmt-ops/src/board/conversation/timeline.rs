@@ -675,7 +675,7 @@ impl Session {
             } else if run.attached {
                 "Shell · attached"
             } else {
-                "Shell · attaches to next message · dropped on exit"
+                "Shell · sent with your next message"
             };
             paint.caption(label);
             if !run.command.is_empty() {
@@ -686,20 +686,16 @@ impl Session {
                 );
             }
             match &run.result {
-                None => paint.caption("Running…"),
+                None => paint.caption("◷ Running…"),
                 Some(Err(error)) => {
-                    paint.body(error, true, note_source::Source::Unavailable);
+                    paint.body(
+                        &format!("✗ {error}"),
+                        true,
+                        note_source::Source::Unavailable,
+                    );
                 }
                 Some(Ok(value)) => {
-                    let details = format!(
-                        "stdout:\n{}\nstderr:\n{}\nexit {} · signal {} · timed out {} · truncated {}",
-                        value["stdout"].as_str().unwrap_or(""),
-                        value["stderr"].as_str().unwrap_or(""),
-                        value["exitCode"],
-                        value["signal"],
-                        value["timedOut"],
-                        value["truncated"]
-                    );
+                    let details = super::shell::display_result(value);
                     paint.body(&details, false, note_source::Source::Unavailable);
                 }
             };

@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) struct Info<'a> {
     pub name: &'a str,
-    pub shell: bool,
+    pub shell: Option<bool>,
     /// The new-line key the board names, the same source as the footer caption.
     pub newline: crate::board::app::NewlineKey,
     pub checklist: bool,
@@ -40,8 +40,15 @@ impl Info<'_> {
             ),
             look.role(Role::Muted),
         ));
-        if self.shell {
-            spans.push(Span::styled(" · Shell", look.role(Role::Waiting)));
+        if let Some(private) = self.shell {
+            spans.push(Span::styled(
+                if private {
+                    " · Shell · only you"
+                } else {
+                    " · Shell · result goes to worker"
+                },
+                look.role(Role::Waiting),
+            ));
         }
         if let Some(count) = self.open {
             spans.push(Span::styled(" · ", look.role(Role::Muted)));
@@ -181,7 +188,7 @@ mod tests {
         ] {
             let info = Info {
                 name: "worker",
-                shell: false,
+                shell: None,
                 checklist: true,
                 newline,
                 unread: Count::default(),
@@ -221,7 +228,7 @@ mod tests {
         let look = Look::default();
         let mut info = Info {
             name: "worker",
-            shell: false,
+            shell: None,
             checklist: false,
             newline: crate::board::app::NewlineKey::Alt,
             unread: Count::default(),
@@ -262,7 +269,7 @@ mod tests {
         for key in [NewlineKey::Alt, NewlineKey::Shift] {
             let info = Info {
                 name: "worker-1",
-                shell: false,
+                shell: None,
                 checklist: false,
                 newline: key,
                 unread: Count::default(),
@@ -293,7 +300,7 @@ mod tests {
         for (key, named) in [(NewlineKey::Alt, "Alt+⏎"), (NewlineKey::Shift, "Shift+⏎")] {
             let info = Info {
                 name: "worker",
-                shell: false,
+                shell: None,
                 checklist: false,
                 newline: key,
                 unread: Count::default(),

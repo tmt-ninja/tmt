@@ -172,6 +172,39 @@ impl App {
     }
 }
 
+/// Human timeline content; the attachment retains the complete machine evidence.
+pub(super) fn display_result(value: &Value) -> String {
+    let stdout = value["stdout"]
+        .as_str()
+        .unwrap_or("")
+        .trim_end_matches('\n');
+    let stderr = value["stderr"]
+        .as_str()
+        .unwrap_or("")
+        .trim_end_matches('\n');
+    let mut parts = Vec::new();
+    if !stdout.is_empty() && !stderr.is_empty() {
+        parts.push(format!("stdout:\n{stdout}\nstderr:\n{stderr}"));
+    } else if !stdout.is_empty() {
+        parts.push(stdout.to_owned());
+    } else if !stderr.is_empty() {
+        parts.push(stderr.to_owned());
+    }
+    let status = if value["timedOut"] == true {
+        "✗ timed out after 120 s".to_owned()
+    } else if value["truncated"] == true {
+        "… output truncated at 64 KiB".to_owned()
+    } else if let Some(signal) = value["signal"].as_i64() {
+        format!("✗ stopped by signal {signal}")
+    } else if let Some(code) = value["exitCode"].as_i64() {
+        format!("{} exit {code}", if code == 0 { "✓" } else { "✗" })
+    } else {
+        "✗ exit status unavailable".to_owned()
+    };
+    parts.push(status);
+    parts.join("\n")
+}
+
 fn attachment(command: &str, value: &Value) -> String {
     let cwd = value["cwd"].as_str().unwrap_or("unknown");
     let stdout = value["stdout"].as_str().unwrap_or("");
@@ -203,6 +236,27 @@ fn attachment(command: &str, value: &Value) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn timeline_result_names_only_observed_outcome_and_nonempty_streams() {
+        let mut value = json!({"stdout":"output\n","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false});
+        assert_eq!(display_result(&value), "output\n✓ exit 0");
+        value["stderr"] = json!("problem\n");
+        value["exitCode"] = json!(2);
+        assert_eq!(
+            display_result(&value),
+            "stdout:\noutput\nstderr:\nproblem\n✗ exit 2"
+        );
+        value["stdout"] = json!("");
+        value["exitCode"] = Value::Null;
+        value["signal"] = json!(9);
+        assert_eq!(display_result(&value), "problem\n✗ stopped by signal 9");
+        value["timedOut"] = json!(true);
+        assert!(display_result(&value).ends_with("✗ timed out after 120 s"));
+        value["timedOut"] = json!(false);
+        value["truncated"] = json!(true);
+        assert!(display_result(&value).ends_with("… output truncated at 64 KiB"));
+    }
 
     #[test]
     fn result_admission_refuses_missing_or_misrouted_evidence() {

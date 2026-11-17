@@ -987,21 +987,23 @@ fn shell_composer_frames(styles: &mut Styles) -> Vec<Value> {
             "shell-failed",
         ],
         |_| grid(&[160, 100], &[36]),
-        |state, look, _, _| {
+        |state, look, width, _| {
             let mut app = capture_case("overview", look);
             app.focus_composer();
             let key = app.input.as_ref().unwrap().draft_key.clone().unwrap();
             if state == "shell-marker" {
-                app.input.as_mut().unwrap().text = "！ pwd".into();
+                app.input.as_mut().unwrap().text = if width == 100 {
+                    "！！ pwd"
+                } else {
+                    "！ pwd"
+                }
+                .into();
             } else {
                 assert!(app.shell_start(&key, "pwd", false));
                 if state == "shell-done" {
                     app.shell_finished(key, Ok(json!({"identityId":MEMBER,"cwd":"/work","stdout":"/work\n","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false})));
                 } else if state == "shell-failed" {
-                    app.shell_finished(
-                        key,
-                        Err("The shell could not be started. Nothing was run.".into()),
-                    );
+                    app.shell_finished(key, Err("Could not start; nothing was run.".into()));
                 }
             }
             app

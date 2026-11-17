@@ -282,7 +282,11 @@ impl Lane {
                         }
                         Err(error) => BoardEvent::ShellDone {
                             key,
-                            result: Err(error.message),
+                            result: Err(if error.code == "SHELL_RUN_FAILED" {
+                                "Could not start; nothing was run.".into()
+                            } else {
+                                error.message
+                            }),
                         },
                         Ok(value) if super::conversation::shell::valid_result(&key.1, &value) => {
                             BoardEvent::ShellDone {

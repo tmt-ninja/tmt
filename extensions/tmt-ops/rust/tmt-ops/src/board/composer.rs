@@ -144,13 +144,17 @@ impl App {
         });
         super::input_field::Info {
             name: projection.recipient,
-            shell: projection
-                .text
-                .is_some_and(|text| shell_prefix(text.as_str()).is_some())
-                && self
-                    .input
-                    .as_ref()
-                    .is_none_or(|input| matches!(input.compose, Compose::Talk { .. })),
+            shell: if self
+                .input
+                .as_ref()
+                .is_none_or(|input| matches!(input.compose, Compose::Talk { .. }))
+            {
+                projection
+                    .text
+                    .and_then(|text| shell_prefix(text.as_str()).map(|(private, _)| private))
+            } else {
+                None
+            },
             newline: self.newline_key(),
             checklist: projection.focused
                 && !self.modal_open()
