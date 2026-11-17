@@ -213,6 +213,26 @@ test('the title row shows the page state and the sub-page count', async ({ page 
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
 });
 
+test('Escape from status lets the next keyboard or pointer action reach sub-pages', async ({
+  page,
+}) => {
+  const band = await mount(page);
+  const status = band.getByRole('button', { name: /show status details/ });
+  await status.click();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await expect(toggle(band)).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(band.getByRole('list', { name: 'Sub-pages' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
+  await status.click();
+  await page.keyboard.press('Escape');
+  await toggle(band).click();
+  await expect(band.getByRole('list', { name: 'Sub-pages' })).toBeVisible();
+});
+
 test('on a phone the readable title and full work labels scroll together', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   const band = await mount(page, true, 'tree', true);

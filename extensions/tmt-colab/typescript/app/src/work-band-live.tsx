@@ -188,6 +188,8 @@ function ComputedStatus({
   blocked?: string;
 }) {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const restoredOnEscape = useRef(false);
   const state = facts?.state ?? 'unknown';
   const label = t.computedState[state];
   const tone =
@@ -203,6 +205,7 @@ function ComputedStatus({
       <Popover>
         <PopoverTrigger asChild>
           <button
+            ref={trigger}
             type="button"
             className={`work-page-state ${ui.countChip}`}
             aria-label={t.statusDetails(label)}
@@ -211,7 +214,19 @@ function ComputedStatus({
             {label}
           </button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="work-status-details">
+        <PopoverContent
+          align="start"
+          className="work-status-details"
+          onEscapeKeyDown={() => {
+            const node = trigger.current;
+            node?.focus({ preventScroll: true });
+            restoredOnEscape.current = node !== null && node.ownerDocument.activeElement === node;
+          }}
+          onCloseAutoFocus={(event) => {
+            if (restoredOnEscape.current) event.preventDefault();
+            restoredOnEscape.current = false;
+          }}
+        >
           <strong>{label}</strong>
           {blocked && <p>{t.blockedNote(blocked)}</p>}
           {facts?.activity && (
