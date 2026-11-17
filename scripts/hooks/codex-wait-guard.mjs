@@ -32,7 +32,8 @@
 //    (realpath) to `<worktree>/scripts/ci-wake.sh`, or to the tracked and
 //    unmodified one of another worktree of this repository, run directly or by
 //    `sh`/`bash`, with any plain arguments, an optional leading `nohup`,
-//    trailing redirections and a trailing `&`. A copy elsewhere, or anything
+//    trailing redirections and a trailing `&`, and an optional leading plain
+//    `PATH=` assignment (#6532). A copy elsewhere, or anything
 //    chained or wrapped around it, goes on to the checks below; a `;`/`&&`
 //    chain that ends with it is judged without that last segment (see 5). tmt-infra-lead's
 //    host-health gate is a `skip` (reason `host-health`) on the same terms, with
@@ -169,7 +170,7 @@ function judgeUrl() {
 
 const POLICY = `You review one tool call an AI coding agent is about to make in a software repository. You see the tool name, its input, and the content of any repository script the call runs; secrets in them are replaced by [REDACTED]. A shell command reaches you only because it holds a wait primitive (sleep, wait, a while or until loop, watch, following a log, a timeout or retry, nohup or a background &).
 Deny only when this call itself waits or polls: it sleeps, loops over a repeated status check of CI, pull requests, merge queues, deploys or other agents, follows output, or leaves a background loop running. Never deny for anything else the call does, such as publishing, commenting, messaging, committing, editing files or notes, or text that only mentions waiting.
-Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it, in the foreground or in the background. A call that starts it and otherwise only runs commands that do not wait, such as pushing, opening a pull request, messaging, writing notes or stopping an old waiter, is allowed.
+Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it, in the foreground or in the background. Its own polling loop and its --foreground option are how it works, and environment assignments before it change nothing; neither is a reason to deny. A call that starts it and otherwise only runs commands that do not wait, such as pushing, opening a pull request, messaging, writing notes or stopping an old waiter, is allowed.
 One status read, such as a single gh pr view, gh pr checks without --watch or gh api request, is not a wait; only repeated or looped checks are.
 A script whose content you are not shown is judged by its command line only; never deny because you cannot see it. When \`unsent\` names a script outside the repository and the wait primitive it holds, deny for that script only when the primitive is sleep, watch or following a log (tail -f, tail -F, --follow); any other primitive there is judged by the command line, never by a guess about content you cannot see.
 Allow a test or build command whose own code waits briefly (for example a test waiting a few seconds for a local server), and everything that does not wait.
@@ -338,11 +339,19 @@ const TRAILING_REDIRECT =
   /\s+(?:\d*>&\d+|(?:\d*>>?|&>|<)\s*(?:'[^']*'|"[^"$`\\]*"|[^\s;&|<>()`$\\'"]+))$/;
 
 /**
+ * A leading unquoted `PATH=` assignment made only of literal path text and plain `$NAME` or
+ * `${NAME}` references (#6532). Seats put the pinned Node first this way; such a value cannot
+ * run a command. Any other variable, a quote or a substitution leaves the command to be judged.
+ */
+const PATH_PREFIX =
+  /^PATH=(?:[A-Za-z0-9_@%+=:,./-]|\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\})+\s+/;
+
+/**
  * Whether the command only starts this repository's scripts/ci-wake.sh, the required
  * CI waiter, so its own polling loop is not mistaken for a wait in the main session. Anything chained or wrapped around it, or a copy elsewhere, is judged.
  */
 export function startsCiWake(cwd, command) {
-  const started = startedScript(cwd, command);
+  const started = startedScript(cwd, command.trim().replace(PATH_PREFIX, ''));
   return Boolean(started) && isCiWake(cwd, started.file);
 }
 
