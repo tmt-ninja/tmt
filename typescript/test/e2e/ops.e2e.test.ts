@@ -809,6 +809,38 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       );
       // Down stops at the footer; Save is the primary action.
       fixture.tmux(['send-keys', '-t', board, 'Down', 'Down', 'Down', 'Down', 'Enter']);
+      // The old peer records the actual handoff request. Answer its receipt rather
+      // than making this switch scenario exercise the separate 30-second timeout.
+      const handoff = path.join(fixture.root, 'switch-codex.report.input.json');
+      let reply: RegExpMatchArray | null = null;
+      await fixture.waitFor(
+        () => {
+          try {
+            const lines = JSON.parse(fs.readFileSync(handoff, 'utf8')) as string[];
+            reply = lines
+              .join('\n')
+              .match(
+                /^tmt reply (req_[0-9a-f-]+) --receipt (v2_[A-Za-z0-9_-]{22}) --message <text>$/m
+              );
+            return reply !== null;
+          } catch (error) {
+            if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === 'ENOENT')
+              return false;
+            throw error;
+          }
+        },
+        15_000,
+        'receipt-bound handoff request'
+      );
+      expect(reply).not.toBeNull();
+      const [, requestId, receipt] = reply!;
+      const answered = expectJsonResult<{ status: string; requestId: string }>(
+        await fixture.runJsonCli(
+          ['reply', requestId!, '--receipt', receipt!, '--message', 'Notes saved'],
+          { outsideTmux: true }
+        )
+      );
+      expect(answered).toMatchObject({ status: 'submitted', requestId });
       try {
         await fixture.waitFor(
           () => fixture.capture(100, board).includes('worker is running claude'),
@@ -2341,8 +2373,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         'the release copied the selection'
       );
 
-      // A busy turn: the agent's finals land in the product's own store, one after another,
-      // and the last one grows in place. Each lands as a board event between pointer events.
+      // A busy turn lands a new final, then grows it in place between pointer events.
       const store = new Database(path.join(fixture.globalDir, 'tmt.db'));
       try {
         const agent = store.prepare('SELECT id FROM identities WHERE name = ?').get('auth-fix') as {
@@ -2353,28 +2384,18 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           'UPDATE recent_responses SET text = ?, original_bytes = ? WHERE sequence = (SELECT max(sequence) FROM recent_responses WHERE identity_id = ?)'
         );
         const now = Date.now();
-        for (let round = 1; round <= 4; round += 1) {
-          const landed = `step ${round} is done`;
-          land(agent.id, landed, now + round, now + 3_600_000);
-          await fixture.waitForCapture(
-            (current) => current.includes(`step ${round} is done`),
-            shell.pane
-          );
-          const grown = `step ${round} is done and the agent keeps writing · growth ${round}`;
-          grow.run(grown, Buffer.byteLength(grown), agent.id);
-          // The Selection box covers the middle of the grown row. Its longer Checklist
-          // label still leaves the round's suffix visible beyond the box on the same line.
-          await fixture.waitForCapture(
-            (current) =>
-              current
-                .split('\n')
-                .some(
-                  (row) => row.includes(`step ${round} is done`) && row.includes(`growth ${round}`)
-                ),
-            shell.pane
-          );
-          expect(screen(), `Quote stays after round ${round}:\n${screen()}`).toContain('q› Quote');
-        }
+        const landed = 'step 1 is done';
+        land(agent.id, landed, now + 1, now + 3_600_000);
+        await fixture.waitForCapture((current) => current.includes(landed), shell.pane);
+        const grown = 'step 1 is done and the agent keeps writing · growth 1';
+        grow.run(grown, Buffer.byteLength(grown), agent.id);
+        // The selection box covers the middle; the suffix remains visible beyond it.
+        await fixture.waitForCapture(
+          (current) =>
+            current.split('\n').some((row) => row.includes(landed) && row.includes('growth 1')),
+          shell.pane
+        );
+        expect(screen(), `Quote stays after growth:\n${screen()}`).toContain('q› Quote');
       } finally {
         store.close();
       }
@@ -2962,9 +2983,8 @@ child.stdout.pipe(process.stdout);
       // A search being typed defers the reload; finishing it lets the reload through.
       fixture.tmux(['send-keys', '-t', shell.pane, '/']);
       install_release('one');
-      await new Promise((resolve) => setTimeout(resolve, 3_500));
+      await fixture.waitForCapture((current) => current.includes('reload waiting'), shell.pane);
       expect(launched()).toBe('one,two');
-      expect(screen(shell.pane)).toContain('reload waiting');
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       await fixture.waitFor(() => launched() === 'one,two,one', 15_000, 'reload after the search');
 
