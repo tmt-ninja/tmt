@@ -969,3 +969,67 @@ fn owner_is_probed_once_per_learning_and_settled_becomes_a_noop() {
             .is_err()
     );
 }
+
+#[test]
+fn binding_stages_write_before_admission_and_skip_once_admitted_cleanly() {
+    use std::sync::atomic::Ordering;
+    let mut launch = launch(HostKind::pty(), "claude");
+    let runner = CountingRunner(std::sync::atomic::AtomicUsize::new(0));
+    let deadline = launch.deadline;
+
+    // While not Admitted yet, Binding-role runs still write each stage so failed
+    // launches retain their exact step diagnostic.
+    launch
+        .learning
+        .stage_with(&runner, SessionLearningStep::Input, deadline)
+        .unwrap();
+    launch
+        .learning
+        .stage_with(&runner, SessionLearningStep::DriverAdmission, deadline)
+        .unwrap();
+    assert_eq!(stored(&launch), "driver_admission: not_admitted");
+
+    // Once Admitted with no diagnostic, Binding-role stages skip writing InProgress
+    // and cache the clean-admitted state so subsequent stages/succeeded are no-ops.
+    launch
+        .storage
+        .with_binding_transaction(|records| {
+            let observed = records
+                .launch_observation(&launch.binding.id, &launch.owner)?
+                .unwrap();
+            settle(records, &observed, LaunchStatus::Admitted, None)
+        })
+        .unwrap();
+    let fresh = Learning::with_role(
+        launch.learning.launch.clone(),
+        launch.driver.clone(),
+        launch.paths.clone(),
+        Role::Binding,
+    );
+    let probes_before = runner.0.load(Ordering::Relaxed);
+    fresh
+        .stage_with(&runner, SessionLearningStep::Input, deadline)
+        .unwrap();
+    fresh
+        .stage_with(&runner, SessionLearningStep::DriverAdmission, deadline)
+        .unwrap();
+    fresh
+        .stage_with(&runner, SessionLearningStep::Context, deadline)
+        .unwrap();
+    fresh.succeeded_with(&runner, deadline).unwrap();
+    assert_eq!(
+        runner.0.load(Ordering::Relaxed) - probes_before,
+        1,
+        "clean Admitted status is verified once without re-probing on subsequent stages or succeeded"
+    );
+    let row = launch
+        .storage
+        .with_binding_transaction(|records| {
+            records.launch_observation(&launch.binding.id, &launch.owner)
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.status, LaunchStatus::Admitted);
+    assert_eq!(row.diagnostic, None);
+    assert_eq!(fresh.verified_owner(), Some(launch.owner));
+}

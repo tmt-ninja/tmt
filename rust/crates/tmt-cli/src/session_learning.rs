@@ -71,6 +71,7 @@ pub struct Learning {
     // Process-local caches only, never persisted; every write retains its SQLite CAS/fence.
     verified_owner: RefCell<Option<ProcessIncarnation>>,
     settled: Cell<Option<bool>>,
+    admitted_clean: Cell<bool>,
 }
 impl Learning {
     fn with_role(launch: HookLaunch, driver: HarnessId, paths: ConfigPaths, role: Role) -> Self {
@@ -84,6 +85,7 @@ impl Learning {
             terminal: RefCell::new(TerminalDiagnostic::default()),
             verified_owner: RefCell::new(None),
             settled: Cell::new(None),
+            admitted_clean: Cell::new(false),
         }
     }
     pub fn capture(provider: &str) -> Option<Self> {
@@ -196,6 +198,32 @@ impl Learning {
     pub fn is_binding(&self) -> bool {
         self.role.get() == Role::Binding
     }
+    pub fn verified_owner(&self) -> Option<ProcessIncarnation> {
+        self.verified_owner.borrow().clone()
+    }
+    #[cfg(test)]
+    pub(crate) fn with_verified_owner_for_test(provider: &str, owner: &ProcessIncarnation) -> Self {
+        let paths = ConfigPaths {
+            global_dir: std::path::PathBuf::new(),
+            global_config: std::path::PathBuf::new(),
+            local_config: std::path::PathBuf::new(),
+            database: std::path::PathBuf::new(),
+        };
+        let learning = Self::with_role(
+            HookLaunch {
+                identity_id: "id".into(),
+                binding_id: "binding".into(),
+                owner_pid: owner.pid(),
+                startup_input: true,
+                owner_start: owner.start_identity().into(),
+            },
+            HarnessId::new(provider).unwrap(),
+            paths,
+            Role::Binding,
+        );
+        *learning.verified_owner.borrow_mut() = Some(owner.clone());
+        learning
+    }
     fn owner(&self, deadline: Instant) -> Result<ProcessIncarnation, ()> {
         self.owner_with(&SupervisedProbeRunner, deadline)
     }
@@ -298,6 +326,13 @@ impl Learning {
         if let Some(has_diagnostic) = self.settled.get() {
             return if has_diagnostic { Ok(()) } else { Err(()) };
         }
+        if matches!(update, Update::Stage(_, None)) {
+            if self.settled.get().is_some() || self.admitted_clean.get() {
+                return Ok(());
+            }
+        } else {
+            self.admitted_clean.set(false);
+        }
         let owner = self.owner_with(runner, deadline)?;
         // Diagnostics may drop under real contention, so Learning::fail tries once
         // within whatever budget remains without borrowing from HOOK_COMPLETION_RESERVE.
@@ -344,7 +379,8 @@ impl Learning {
                     next.diagnostic = None;
                     return records.set_launch_observation(&observed, &next);
                 }
-                if observed.diagnostic.is_none() && self.role.get() == Role::Observer {
+                if observed.diagnostic.is_none() {
+                    self.admitted_clean.set(true);
                     return Ok(true);
                 }
             }
@@ -428,7 +464,7 @@ impl Learning {
         deadline: Instant,
         event: Option<&tmt_adapters::storage::hook_queue::CaptureEvent>,
     ) -> Result<(), ()> {
-        if self.deferred.get() || self.settled.get().is_some() {
+        if self.deferred.get() || self.settled.get().is_some() || self.admitted_clean.get() {
             return Ok(());
         }
         let owner = self.owner_with(runner, deadline)?;

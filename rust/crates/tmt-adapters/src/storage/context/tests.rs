@@ -616,3 +616,40 @@ fn digest_worker_context_read_waits_for_released_write_lock_while_hooks_keep_res
     holder.execute_batch("ROLLBACK").unwrap();
     holder.close().unwrap();
 }
+
+#[test]
+fn context_by_pane_on_open_reads_post_commit_snapshot_on_same_handle() {
+    use tmt_core::binding::BindingRepository;
+    use tmt_core::binding::session::{
+        HarnessId, ProviderSessionId, RuntimeMode, SessionPreferences,
+    };
+
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let session = ProviderSessionId::new("post-commit-session").unwrap();
+    let mut preferences = SessionPreferences::default();
+    preferences.remember(
+        HarnessId::new("claude").unwrap(),
+        RuntimeMode::new("embedded").unwrap(),
+        session.clone(),
+    );
+    storage
+        .with_binding_transaction::<_, super::super::StorageError>(|records| {
+            assert!(records.set_session_preferences(&id, &preferences)?);
+            Ok(())
+        })
+        .unwrap();
+    let snapshot = storage
+        .context_by_pane_on_open(tmt_core::host::HostKind::Tmux, "%1", "server", 10)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        snapshot
+            .preferences
+            .remembered
+            .as_ref()
+            .map(|r| &r.provider_session),
+        Some(&session)
+    );
+    storage.close().unwrap();
+}

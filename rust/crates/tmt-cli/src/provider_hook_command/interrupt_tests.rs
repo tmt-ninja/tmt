@@ -874,3 +874,84 @@ fn detaching_during_prompt_context_callback_refuses_context_and_emits_notice() {
         }
     }
 }
+
+#[test]
+fn owner_liveness_reuses_learning_owner_only_on_exact_pid_and_start_match() {
+    use tmt_adapters::process::{
+        CommandError, CommandOutput, CommandRequest, CommandRunner, runtime::ProcessObservation,
+    };
+
+    struct PanicOrLiveRunner {
+        probes: AtomicU64,
+        allow_probe: bool,
+        pid: u64,
+        start: &'static str,
+    }
+    impl CommandRunner for PanicOrLiveRunner {
+        fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            panic!("unexpected command execution");
+        }
+        fn process_observation(&self, pid: u64, _: Instant) -> Option<ProcessObservation> {
+            assert!(self.allow_probe, "matching verified owner must not probe");
+            self.probes.fetch_add(1, Ordering::Relaxed);
+            Some(if pid == self.pid {
+                ProcessObservation::Live(ProcessIncarnation::new(self.pid, self.start).unwrap())
+            } else {
+                ProcessObservation::Gone
+            })
+        }
+    }
+
+    let owner = ProcessIncarnation::new(42, "start-a").unwrap();
+    let learning = Learning::with_verified_owner_for_test("claude", &owner);
+    let no_probe = PanicOrLiveRunner {
+        probes: AtomicU64::new(0),
+        allow_probe: false,
+        pid: 42,
+        start: "start-a",
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+
+    // Exact match reuses Learning's cached owner without probing.
+    assert_eq!(
+        owner_liveness_with(&no_probe, Some(&learning), &owner, deadline),
+        RuntimeLiveness::Alive
+    );
+    assert_eq!(no_probe.probes.load(Ordering::Relaxed), 0);
+
+    // Pid or start incarnation mismatch (or missing Learning) falls back to probing.
+    for (candidate, expected) in [
+        (
+            ProcessIncarnation::new(42, "start-b").unwrap(),
+            RuntimeLiveness::Gone,
+        ),
+        (
+            ProcessIncarnation::new(99, "start-a").unwrap(),
+            RuntimeLiveness::Gone,
+        ),
+    ] {
+        let probing = PanicOrLiveRunner {
+            probes: AtomicU64::new(0),
+            allow_probe: true,
+            pid: 42,
+            start: "start-a",
+        };
+        assert_eq!(
+            owner_liveness_with(&probing, Some(&learning), &candidate, deadline),
+            expected
+        );
+        assert_eq!(probing.probes.load(Ordering::Relaxed), 1);
+    }
+
+    let absent = PanicOrLiveRunner {
+        probes: AtomicU64::new(0),
+        allow_probe: true,
+        pid: 42,
+        start: "start-a",
+    };
+    assert_eq!(
+        owner_liveness_with(&absent, None, &owner, deadline),
+        RuntimeLiveness::Alive
+    );
+    assert_eq!(absent.probes.load(Ordering::Relaxed), 1);
+}

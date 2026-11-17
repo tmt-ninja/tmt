@@ -1568,8 +1568,8 @@ fn observe_bound_lifecycle_event(
     };
     let owned_resume = lifecycle.permits_owned_resume(&stored.preferences, event.session(), host)
         && binding.session.launch_owner.as_ref().is_some_and(|owner| {
-            observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline)
-                .is_ok_and(|value| value.matches(owner) == RuntimeLiveness::Alive)
+            owner_liveness_with(&SupervisedProbeRunner, learning, owner, deadline)
+                == RuntimeLiveness::Alive
         });
     // A live incumbent is not dead: independently prove that it is not the
     // pane's main provider before admitting the verified incoming start.
@@ -1582,8 +1582,7 @@ fn observe_bound_lifecycle_event(
                     host,
                     previous,
                     binding.session.launch_owner.as_ref().map(|owner| {
-                        observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline)
-                            .map_or(RuntimeLiveness::Unknown, |observed| observed.matches(owner))
+                        owner_liveness_with(&SupervisedProbeRunner, learning, owner, deadline)
                     }),
                 )
                 && lifecycle.proves_live_supersession(
@@ -1729,6 +1728,16 @@ fn observe_bound_lifecycle_event(
             })
             .map_err(|_| ())?;
     }
+    let post_commit = if changed && Instant::now() < deadline && event.starting() {
+        storage.context_by_pane_on_open(
+            snapshot.server.host,
+            &pane,
+            &snapshot.server.server_id,
+            tmt_adapters::request_runtime::wall_time_ms(),
+        )
+    } else {
+        Ok(None)
+    };
     storage.close().map_err(|_| ())?;
     if !changed || Instant::now() >= deadline {
         return Err(());
@@ -1744,15 +1753,7 @@ fn observe_bound_lifecycle_event(
     }
     // Re-read the bounded projection after acknowledgment. Do not inject a
     // different binding if a concurrent rebind occurred during the callback.
-    let refreshed = Storage::context_by_pane(
-        &paths.database,
-        snapshot.server.host,
-        &pane,
-        &snapshot.server.server_id,
-        tmt_adapters::request_runtime::wall_time_ms(),
-    )
-    .map_err(|_| ())?
-    .ok_or(())?;
+    let refreshed = post_commit.map_err(|_| ())?.ok_or(())?;
     if refreshed
         .entry
         .binding
@@ -1784,6 +1785,23 @@ fn observe_bound_lifecycle_event(
         context: encoded,
         workspace: Some(binding.server.clone()),
     })
+}
+
+fn owner_liveness_with(
+    runner: &impl CommandRunner,
+    learning: Option<&Learning>,
+    owner: &ProcessIncarnation,
+    deadline: Instant,
+) -> RuntimeLiveness {
+    if learning
+        .and_then(Learning::verified_owner)
+        .is_some_and(|verified| verified == *owner)
+    {
+        RuntimeLiveness::Alive
+    } else {
+        observe_runtime_process(runner, owner.pid(), deadline)
+            .map_or(RuntimeLiveness::Unknown, |observed| observed.matches(owner))
+    }
 }
 
 /// Complete an existing binding only for its driver and an ended old session.

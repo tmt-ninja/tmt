@@ -261,6 +261,24 @@ impl Storage {
         })
     }
 
+    /// Reads the bounded pane context snapshot on an already-open connection
+    /// (for example, immediately after a hook transaction commits on it).
+    pub fn context_by_pane_on_open(
+        &mut self,
+        host: HostKind,
+        pane: &str,
+        server_id: &str,
+        now_ms: u64,
+    ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+        let transaction = self
+            .connection_mut()?
+            .transaction()
+            .map_err(|error| classify(error, "Begin context read snapshot"))?;
+        read_context_in_transaction(&transaction, now_ms, |connection| {
+            BindingRows(connection).entry_by_pane(host, pane, server_id)
+        })
+    }
+
     /// The one saved, unretired identity whose remembered session for `harness` is `session`,
     /// bound or not: a restart leaves an identity unbound while it still remembers its session.
     /// A temporary or retired identity, another harness, or more than one match returns no
@@ -341,33 +359,41 @@ fn read_context_with_wait(
         let transaction = connection
             .transaction()
             .map_err(|error| classify(error, "Begin context read snapshot"))?;
-        super::migrations::require_current(&transaction)?;
-        let Some(entry) = select(&transaction)? else {
-            return Ok(None);
-        };
-        let role = transaction
-            .query_row(
-                "SELECT content FROM role_profiles WHERE identity_id = ?",
-                [&entry.identity.id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| classify(error, "Read context role"))?;
-        let role_truncated = role
-            .as_ref()
-            .is_some_and(|text| text.chars().count() > ROLE_LIMIT);
-        let role = role.map(|text| text.chars().take(ROLE_LIMIT).collect());
-        let requests = requests(&transaction, &entry.identity.id, now_ms)?;
-        let preferences = BindingRows(&transaction).session_preferences(&entry.identity.id)?;
-        Ok(Some(IdentityContextSnapshot {
-            entry,
-            preferences,
-            role,
-            role_truncated,
-            requests,
-        }))
+        read_context_in_transaction(&transaction, now_ms, select)
     })();
     result.map_err(|error| super::spent_allowance(error, allowance))
+}
+
+fn read_context_in_transaction(
+    transaction: &Connection,
+    now_ms: u64,
+    select: impl FnOnce(&Connection) -> Result<Option<BindingEntry>, StorageError>,
+) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+    super::migrations::require_current(transaction)?;
+    let Some(entry) = select(transaction)? else {
+        return Ok(None);
+    };
+    let role = transaction
+        .query_row(
+            "SELECT content FROM role_profiles WHERE identity_id = ?",
+            [&entry.identity.id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| classify(error, "Read context role"))?;
+    let role_truncated = role
+        .as_ref()
+        .is_some_and(|text| text.chars().count() > ROLE_LIMIT);
+    let role = role.map(|text| text.chars().take(ROLE_LIMIT).collect());
+    let requests = requests(transaction, &entry.identity.id, now_ms)?;
+    let preferences = BindingRows(transaction).session_preferences(&entry.identity.id)?;
+    Ok(Some(IdentityContextSnapshot {
+        entry,
+        preferences,
+        role,
+        role_truncated,
+        requests,
+    }))
 }
 
 fn requests(
