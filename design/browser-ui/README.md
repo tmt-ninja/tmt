@@ -1115,6 +1115,27 @@ state, a React component.
   header or cell is dropped and a `tmt-ui-table-compact-meta` line under the row's main cell
   carries its facts, so the table never scrolls sideways. A state chip is a `tmt-ui-chip` with `data-tone` (`working`, `waiting`, `blocked`,
   `review`, or none for neutral): a mark and its word on the state's soft surface.
+- **Work home parts** (`work.css`, #6474): their own entry, `@tmt/browser-ui/work.css`, which
+  only Work home loads; static only, classes used as written. Every work
+  status has one tone through `data-state` on a `tmt-ui-work-dot` or a ratio segment: `working`
+  and `done` green, `waiting-ci` and `waiting-release` review, `needs-you` waiting, `blocked`
+  blocked, `possibly-stalled` the edge grey, others neutral.
+  - **Work row.** `tmt-ui-work-row` (a link to the item) holds the dot, `tmt-ui-work-number`,
+    `tmt-ui-work-title` (an optional `tmt-ui-work-priority` badge first), `tmt-ui-work-next`,
+    `tmt-ui-work-owner` (avatar and name) and `tmt-ui-work-time`. Under the compact width the
+    title leads, the next step follows and the number, owner and time share a last line.
+  - **Status overview.** A `tmt-ui-work-overview` list of `tmt-ui-work-count`s: a
+    `tmt-ui-work-count-number` over a `tmt-ui-work-count-label` (dot and word). A count that
+    filters is a button with `aria-pressed`; `data-zero` mutes an empty count.
+  - **Status ratio bar.** `tmt-ui-work-ratio` with one `span[data-state]` per status whose
+    `flex-grow` the host sets to its count; `role="img"` with a label that states the counts.
+  - **Done-count chart.** A `tmt-ui-work-done` list of `tmt-ui-work-done-cell`s: a
+    `tmt-ui-work-done-track` (count, then a `tmt-ui-work-done-bar` whose `height` the host sets
+    to at most 80% of the busiest cell), then the cell's label. `data-current` darkens the current
+    cell; a filtering cell is a button with `aria-pressed` and a label that states its count.
+  - **Field chips.** `tmt-ui-field-chips` of `tmt-ui-field-chip`s for a page's title row: a
+    `tmt-ui-field-chip-key`, a work dot or an avatar, then the value, which ellipsizes.
+    `data-status` sets the status chip in bold; a button opens its field.
 - **Passive chip.** A `tmt-ui-chip` whose label is its only child carries no remove control and is
   padded the same on both sides: a label for a state that is not an action.
 

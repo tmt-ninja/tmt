@@ -48,6 +48,7 @@ import {
   PagerSection,
   StatusTileSection,
 } from '../gallery/pieces.js';
+import { WorkSection } from '../gallery/work.js';
 
 /**
  * The Browser components (#5821 B): the `@tmt/browser-ui/react` parts and the static classes
@@ -267,6 +268,15 @@ export const browserDocs: BrowserDoc[] = [
       'The page head, banner, facts, stats and state marks an overview page composes, with the shared glyphs.',
     Demo: OverviewSection,
     css: ['page-head', 'banner', 'facts', 'stats', 'state-mark', 'glyph', 'pattern-parts'],
+  },
+  {
+    slug: 'work',
+    name: 'Work home',
+    section: 'work',
+    description:
+      'The Work home parts: the work row, the status overview and ratio bar, the done-count chart and the field chips of a page title row.',
+    Demo: WorkSection,
+    css: ['work', 'avatar'],
   },
   {
     slug: 'menu',

@@ -941,6 +941,7 @@ fn serve(
                     latest: None,
                     pr_links: Some(Vec::new()),
                     todo_counts: Some((0, 0)),
+                    todo_items: Vec::new(),
                 },
                 None => {
                     return Ok(

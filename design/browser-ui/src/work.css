@@ -1,0 +1,271 @@
+/* Work home parts (#6474): the work row, the status overview, the status ratio bar, the done-count
+   chart and the field chips. Each work status has one tone, set by `data-state` on the dot or
+   ratio segment that draws it. */
+.tmt-ui-work-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.tmt-ui-work-dot,
+.tmt-ui-work-ratio > span {
+  background: var(--tmt-ui-surface-rule);
+}
+:is(.tmt-ui-work-dot, .tmt-ui-work-ratio > span):is([data-state='working'], [data-state='done']) {
+  background: var(--tmt-ui-color-working);
+}
+:is(.tmt-ui-work-dot, .tmt-ui-work-ratio > span)[data-state^='waiting-'] {
+  background: var(--tmt-ui-color-review);
+}
+:is(.tmt-ui-work-dot, .tmt-ui-work-ratio > span)[data-state='needs-you'] {
+  background: var(--tmt-ui-color-waiting);
+}
+:is(.tmt-ui-work-dot, .tmt-ui-work-ratio > span)[data-state='blocked'] {
+  background: var(--tmt-ui-color-blocked);
+}
+:is(.tmt-ui-work-dot, .tmt-ui-work-ratio > span)[data-state='possibly-stalled'] {
+  background: var(--tmt-ui-color-edge);
+}
+.tmt-ui-work-row,
+.tmt-ui-work-count,
+.tmt-ui-work-done-cell {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tmt-ui-color-text);
+  font: 400 14px / 1.35 var(--tmt-ui-font-body);
+  text-align: start;
+  text-decoration: none;
+}
+:is(a.tmt-ui-work-row, button.tmt-ui-work-count, button.tmt-ui-work-done-cell) {
+  cursor: pointer;
+}
+:is(.tmt-ui-work-row, .tmt-ui-work-count, .tmt-ui-work-done-cell):focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+
+/* Work row: status dot, number, priority and title, next step, owner, time. Under the compact
+   width the title leads, the next step follows and the number, owner and time share a last line. */
+.tmt-ui-work-row {
+  display: grid;
+  grid-template: 'dot number title next owner time' / 8px 104px 1.1fr 1fr 150px 84px;
+  gap: 14px;
+  align-items: center;
+  padding: 11px 0;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+}
+a.tmt-ui-work-row:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-ui-work-row > * {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tmt-ui-work-row > .tmt-ui-work-dot {
+  grid-area: dot;
+}
+.tmt-ui-work-number {
+  grid-area: number;
+  font: 12.5px var(--tmt-ui-font-mono);
+}
+.tmt-ui-work-number,
+.tmt-ui-work-next,
+.tmt-ui-work-time,
+.tmt-ui-work-done-cell {
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-work-title {
+  grid-area: title;
+  font-weight: 550;
+}
+.tmt-ui-work-priority {
+  margin-right: 8px;
+  padding: 1px 5px;
+  border: var(--tmt-ui-rule-width) solid;
+  border-radius: var(--tmt-ui-radius-s);
+  font-size: 11px;
+  font-weight: 650;
+}
+.tmt-ui-work-next {
+  grid-area: next;
+}
+.tmt-ui-work-owner {
+  grid-area: owner;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.tmt-ui-work-time {
+  grid-area: time;
+  font-size: 12.5px;
+  text-align: right;
+}
+@media (max-width: __compact-max-width__) {
+  .tmt-ui-work-row {
+    grid-template:
+      'dot title title title'
+      '. next next next'
+      '. number owner time' / 8px auto auto 1fr;
+    gap: 3px 6px;
+    align-items: baseline;
+    padding: 12px 0;
+  }
+  .tmt-ui-work-title,
+  .tmt-ui-work-next {
+    white-space: normal;
+  }
+  .tmt-ui-work-title {
+    font-size: 15px;
+  }
+  .tmt-ui-work-number,
+  .tmt-ui-work-owner,
+  .tmt-ui-work-time {
+    color: var(--tmt-ui-color-secondary);
+    font: 12px var(--tmt-ui-font-body);
+    text-align: start;
+  }
+  .tmt-ui-work-owner > .tmt-ui-avatar {
+    display: none;
+  }
+  .tmt-ui-work-owner::before,
+  .tmt-ui-work-time::before {
+    content: '· ';
+  }
+}
+
+/* Status overview: a large count over a dot and its word per status. A count that filters the
+   list below is a button; `aria-pressed` marks the chosen one, `data-zero` mutes an empty one. */
+.tmt-ui-work-overview,
+.tmt-ui-work-done {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tmt-ui-work-overview {
+  flex-wrap: wrap;
+  gap: 16px 30px;
+}
+.tmt-ui-work-count {
+  display: grid;
+  gap: 4px;
+}
+.tmt-ui-work-count-number {
+  font: 650 26px / 1 var(--tmt-ui-font-display);
+}
+.tmt-ui-work-count[data-zero] .tmt-ui-work-count-number {
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-work-count-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.tmt-ui-work-count[aria-pressed='true'] .tmt-ui-work-count-label {
+  text-decoration: underline;
+}
+
+/* Status ratio bar: one segment per status; the host sets each segment's `flex-grow` to its count.
+   Decorative beside written counts, or `role="img"` with a label that states them. */
+.tmt-ui-work-ratio {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+}
+.tmt-ui-work-ratio > span {
+  flex: 1 1 0;
+  min-width: 2px;
+}
+
+/* Done-count chart: one bar per period cell over its count, with its label below. The host sets
+   each bar's `height` as a percent of the busiest cell (at most 80%, leaving room for the count).
+   The current cell is darker; a cell that filters the list is a button, `aria-pressed` chosen. */
+.tmt-ui-work-done {
+  gap: 8px;
+  height: 128px;
+}
+.tmt-ui-work-done > li,
+.tmt-ui-work-done-cell {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.tmt-ui-work-done-cell {
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.tmt-ui-work-done-track {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.tmt-ui-work-done-bar {
+  width: 100%;
+  max-width: 34px;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: var(--tmt-ui-color-edge);
+}
+:is([data-current], [aria-pressed='true']).tmt-ui-work-done-cell {
+  color: var(--tmt-ui-color-text);
+}
+:is([data-current], [aria-pressed='true']) > * > .tmt-ui-work-done-bar {
+  background: var(--tmt-ui-color-text);
+}
+
+/* Field chips: a page title row's fields (status, priority, owner, PR, parent), each a muted key,
+   a status dot or an avatar, then its value. A span is passive; a button opens the field. The
+   status chip (`data-status`) is bold. */
+.tmt-ui-field-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tmt-ui-field-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 9px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  background: none;
+  color: var(--tmt-ui-color-text);
+  font: 12.5px var(--tmt-ui-font-body);
+  white-space: nowrap;
+}
+.tmt-ui-field-chip[data-status] {
+  font-weight: 600;
+}
+.tmt-ui-field-chip > :last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tmt-ui-field-chip-key {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 400;
+}
+button.tmt-ui-field-chip {
+  cursor: pointer;
+}
+button.tmt-ui-field-chip:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-ui-field-chip:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
+}

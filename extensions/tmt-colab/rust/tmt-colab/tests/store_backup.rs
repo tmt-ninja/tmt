@@ -45,7 +45,7 @@ fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE work_status_cache; DROP TABLE work_release_checks; DROP TABLE work_release_facts; ALTER TABLE project_meta DROP COLUMN release_tag_prefix; PRAGMA user_version={previous}"
+            "DROP TABLE work_observed; PRAGMA user_version={previous}"
         ))
         .unwrap();
     (store, previous)
@@ -236,7 +236,7 @@ fn a_second_upgrade_from_the_same_schema_replaces_the_copy() {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE work_status_cache; DROP TABLE work_release_checks; DROP TABLE work_release_facts; ALTER TABLE project_meta DROP COLUMN release_tag_prefix; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
+            "DROP TABLE work_observed; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
         ))
         .unwrap();
     let second = fs::read(&store).unwrap();

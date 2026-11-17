@@ -203,6 +203,12 @@ const MIGRATIONS: &[&str] = &[
         contains INTEGER NOT NULL CHECK(contains IN (0,1)), PRIMARY KEY(pr,merge_sha,tag)) WITHOUT ROWID;
     CREATE TABLE work_status_cache(page TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, value TEXT NOT NULL) WITHOUT ROWID;
     "#,
+    // Schema 25: owner-local work observations (#6474): when an item was first seen done or
+    // blocked. Display only; a reopened or unblocked item loses its row. No backfill.
+    r#"
+    CREATE TABLE work_observed(item TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('done','blocked')),
+        at_ms INTEGER NOT NULL CHECK(at_ms>=0), PRIMARY KEY(item,kind)) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// The schema whose step rewrites stored object envelopes as binary v2 (#5876).

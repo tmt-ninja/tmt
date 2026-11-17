@@ -6,6 +6,7 @@
   "exports": {
     "./static.css": "./generated/static.css",
     "./editorial.css": "./generated/editorial.css",
+    "./work.css": "./generated/work.css",
     "./static": "./src/static.ts",
     "./glyph": "./src/glyph.ts",
     "./busy-mark": "./src/busy-mark-gate.ts",

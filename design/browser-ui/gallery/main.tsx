@@ -2,6 +2,7 @@
 import '../generated/static.css';
 import '../generated/ui.css';
 import '../generated/editorial.css';
+import '../generated/work.css';
 import './gallery.css';
 import './gallery-page.css';
 import favicon from '../generated/favicon.svg?url';

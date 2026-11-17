@@ -1120,7 +1120,7 @@ fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects;
         ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
-        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=4")
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE IF EXISTS work_observed; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=4")
         .unwrap();
     let raw = fs::read(layout.directory.join("space.db")).unwrap();
     assert!(matches!(

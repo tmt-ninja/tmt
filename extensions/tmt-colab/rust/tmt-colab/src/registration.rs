@@ -425,6 +425,7 @@ impl Registration {
                 page["summary"]["parent"] = serde_json::json!({"page": parent, "index": index});
             }
         }
+        let todos = self.observe_work(&mut catalog, &fresh, &fingerprints, &statuses, now);
         if let Some(open) = &self.summary_source {
             // Every page without a fresh summary is folded in the background, newest first, so the
             // next read has more of them; this read never waits for it.
@@ -459,7 +460,108 @@ impl Registration {
                 used += cost;
             }
         }
+        // To-do work items come last and only while the list stays within the same bound; a page
+        // whose items do not fit says so instead of listing some of them.
+        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+            let Some(items) = page["pageId"].as_str().and_then(|id| todos.get(id)) else {
+                continue;
+            };
+            let items = serde_json::json!(items);
+            let cost = serde_json::to_vec(&items)
+                .map_err(|_| Code::Unavailable)?
+                .len()
+                + 16;
+            if used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
+                page["summary"]["todos"] = items;
+                used += cost;
+            } else {
+                page["summary"]["todosOmitted"] = serde_json::json!(true);
+                used += 24;
+            }
+        }
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
+    }
+    /// Records and attaches what Work home needs from the list read (#6474): when each page was
+    /// first seen done (`summary.doneAtMs`) or blocked (`summary.blockedSinceMs`), and each page's
+    /// to-do work items with their number and first-seen-done time. A status this read cannot
+    /// decide changes nothing. Recording is best effort: a store failure leaves times out.
+    fn observe_work(
+        &self,
+        catalog: &mut serde_json::Value,
+        fresh: &std::collections::BTreeMap<String, crate::summary::Summary>,
+        fingerprints: &std::collections::BTreeMap<String, String>,
+        statuses: &std::collections::BTreeMap<String, String>,
+        now: u64,
+    ) -> std::collections::BTreeMap<String, Vec<serde_json::Value>> {
+        let items: std::collections::BTreeMap<_, _> = fresh
+            .keys()
+            .filter_map(|id| {
+                let todos = self.summaries.todo_items(id, fingerprints.get(id)?)?;
+                (!todos.is_empty()).then(|| (id.clone(), todos))
+            })
+            .collect();
+        let mut observed = Vec::new();
+        for (id, summary) in fresh {
+            let done = match statuses.get(id).map(String::as_str) {
+                Some("done") => Some(true),
+                None | Some("unknown" | "unchecked") => None,
+                Some(_) => Some(false),
+            };
+            observed.push((id.clone(), "done", done));
+            let blocked = summary
+                .work
+                .as_ref()
+                .and_then(|work| work.fields.get("blocked"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|reason| !reason.is_empty());
+            observed.push((id.clone(), "blocked", Some(blocked)));
+        }
+        for (id, todos) in &items {
+            for todo in todos {
+                observed.push((format!("{id}:{}", todo.id), "done", Some(todo.checked)));
+            }
+        }
+        let times = self.store.observe_work(&observed, now).unwrap_or_default();
+        let numbers = self.store.work_numbers().unwrap_or_default();
+        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+            let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
+                continue;
+            };
+            if !page["summary"].is_object() {
+                continue;
+            }
+            if let Some(at) = times.get(&(id.clone(), "done")) {
+                page["summary"]["doneAtMs"] = serde_json::json!(at);
+            }
+            if let Some(at) = times.get(&(id.clone(), "blocked")) {
+                page["summary"]["blockedSinceMs"] = serde_json::json!(at);
+            }
+        }
+        items
+            .into_iter()
+            .map(|(id, todos)| {
+                let rows = todos
+                    .into_iter()
+                    .map(|todo| {
+                        let item = format!("{id}:{}", todo.id);
+                        let mut row = serde_json::json!({
+                            "id": todo.id, "text": todo.text, "checked": todo.checked,
+                        });
+                        if let Some(number) = numbers.get(&item) {
+                            row["number"] = serde_json::json!(number);
+                        }
+                        if let Some(assignee) = todo.assignee {
+                            row["assignee"] = serde_json::json!(assignee);
+                        }
+                        if let Some(at) = times.get(&(item, "done")) {
+                            row["doneAtMs"] = serde_json::json!(at);
+                        }
+                        row
+                    })
+                    .collect();
+                (id, rows)
+            })
+            .collect()
     }
     /// Each fresh page's list status (#6474): the status an owner page view retained for this
     /// exact fingerprint (the one `show` reports), else what the fold alone decides
@@ -567,7 +669,7 @@ impl Registration {
             .map_err(map_error)?
             .ok_or(Code::Denied)?;
         let projection = match self.summaries.details(&request.page_id, &fingerprint) {
-            crate::summary::CachedDetails::Ready(projection) => Some(projection),
+            crate::summary::CachedDetails::Ready(projection) => Some(*projection),
             _ => None,
         };
         let prefix = self
@@ -2180,6 +2282,53 @@ mod describe_tests {
         // alone; this fixture's fold extracted no PR links, so its facts are unavailable.
         assert_eq!(list[top]["summary"]["status"], "unknown");
         assert!(list[unread].get("summary").is_none());
+
+        // Work home data (#6474): a blocked page keeps the time it was first seen blocked, and
+        // each to-do lists with the time it was first seen checked; unchecking clears it.
+        let todo = |id: &str, checked: bool| crate::summary::TodoItem {
+            id: id.to_owned(),
+            text: format!("Item {id}"),
+            checked,
+            assignee: checked.then(|| "gui-3".to_owned()),
+        };
+        let work_home = |checked: bool| {
+            let mut projection = SummaryProjection::from(Summary {
+                comments: 0,
+                waiting: false,
+                needs_you: 0,
+                author: None,
+                work: crate::work_index::page_work(&json!({"blocked":"Waiting on Core"}))
+                    .map(Box::new),
+            });
+            projection.todo_items = vec![todo("t1", checked), todo("t2", false)];
+            service
+                .summaries
+                .put(bare, &fingerprints[bare], Some(projection));
+        };
+        work_home(true);
+        let first = rows(&service);
+        let since = first[bare]["summary"]["blockedSinceMs"].as_u64().unwrap();
+        let todos = &first[bare]["summary"]["todos"];
+        assert_eq!(todos[0]["text"], "Item t1");
+        assert_eq!(todos[0]["assignee"], "gui-3");
+        let done_at = todos[0]["doneAtMs"].as_u64().unwrap();
+        assert!(todos[1].get("doneAtMs").is_none() && todos[1].get("assignee").is_none());
+        assert!(first[bare]["summary"].get("doneAtMs").is_none());
+        let again = rows(&service);
+        assert_eq!(again[bare]["summary"]["blockedSinceMs"], since);
+        assert_eq!(again[bare]["summary"]["todos"][0]["doneAtMs"], done_at);
+        work_home(false);
+        assert!(
+            rows(&service)[bare]["summary"]["todos"][0]
+                .get("doneAtMs")
+                .is_none()
+        );
+        put(bare, &fingerprints[bare], Some(&json!({})));
+        assert!(
+            rows(&service)[bare]["summary"]
+                .get("blockedSinceMs")
+                .is_none()
+        );
 
         // The sub-page goes stale: its state is unknown, so it no longer counts as done.
         put(leaf, "stale fingerprint", Some(&leaf_work));

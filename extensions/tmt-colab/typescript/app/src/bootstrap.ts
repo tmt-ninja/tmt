@@ -120,6 +120,51 @@ export interface PageActivity {
   /** The computed status the owner retained for this page's current state; omitted until the
    * page has been opened since it last changed. */
   status?: ListStatus;
+  /** When the owner list first saw this page done; cleared when it reopens (#6474). */
+  doneAtMs?: number;
+  /** When the owner list first saw this page blocked; cleared when it is unblocked. */
+  blockedSinceMs?: number;
+  /** The page's to-dos as work items, in page order; omitted for a page without any. */
+  todos?: TodoWorkItem[];
+  /** The to-dos did not fit in the list read; the page lists none rather than some. */
+  todosOmitted?: true;
+}
+/** One to-do as a work item in the owner list. Display only. */
+export interface TodoWorkItem {
+  id: string;
+  text: string;
+  checked: boolean;
+  number?: string;
+  assignee?: string;
+  doneAtMs?: number;
+}
+/** Matches `WORK_TODOS` and `WORK_TODO_TEXT` in the Rust limits. */
+const WORK_TODOS = 64;
+const WORK_TODO_TEXT = 256;
+const WORK_NUMBER_BYTES = 64;
+const ASSIGNEE_BYTES = 128;
+const time = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0;
+const text = (value: unknown, bytes: number, empty = false) =>
+  typeof value === 'string' &&
+  (empty || value.length > 0) &&
+  new TextEncoder().encode(value).length <= bytes;
+function todoWorkItem(value: unknown): void {
+  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
+  const item = value as Record<string, unknown>;
+  exactKeys(
+    item,
+    ['id', 'text', 'checked', 'number', 'assignee', 'doneAtMs'].filter(
+      (key) => key in item || ['id', 'text', 'checked'].includes(key),
+    ),
+  );
+  requireValue(
+    text(item.id, 64) &&
+      text(item.text, WORK_TODO_TEXT, true) &&
+      typeof item.checked === 'boolean' &&
+      (!('number' in item) || text(item.number, WORK_NUMBER_BYTES)) &&
+      (!('assignee' in item) || text(item.assignee, ASSIGNEE_BYTES)) &&
+      (!('doneAtMs' in item) || (item.checked === true && time(item.doneAtMs))),
+  );
 }
 export interface PageInfo extends ExpiryInfo {
   state?: PageState | null;
@@ -191,6 +236,7 @@ export function activity(value: unknown): asserts value is PageActivity {
     ...('work' in value ? ['work'] : []),
     ...('parent' in value ? ['parent'] : []),
     ...('status' in value ? ['status'] : []),
+    ...['doneAtMs', 'blockedSinceMs', 'todos', 'todosOmitted'].filter((key) => key in value),
   ]);
   requireValue(
     Number.isSafeInteger(value.comments) &&
@@ -211,6 +257,15 @@ export function activity(value: unknown): asserts value is PageActivity {
     );
   if ('work' in value) workRow(value.work);
   if ('status' in value) requireValue(LIST_STATUSES.some((state) => state === value.status));
+  if ('doneAtMs' in value) requireValue(time(value.doneAtMs));
+  if ('blockedSinceMs' in value) requireValue(time(value.blockedSinceMs));
+  if ('todosOmitted' in value) requireValue(value.todosOmitted === true && !('todos' in value));
+  if ('todos' in value) {
+    requireValue(
+      Array.isArray(value.todos) && value.todos.length > 0 && value.todos.length <= WORK_TODOS,
+    );
+    (value.todos as unknown[]).forEach(todoWorkItem);
+  }
   if ('fields' in value) {
     const fields = value.fields;
     requireValue(fields !== null && typeof fields === 'object' && !Array.isArray(fields));

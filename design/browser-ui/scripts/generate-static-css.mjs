@@ -200,6 +200,9 @@ const compileStaticCss = async () =>
   `${shippedTokens}${await compileCss(beforeScopeCss)}\n/* DS scope rules */\n${await compileCss(scopeCss)}\n/* DS scope end */\n${await compileCss(afterScopeCss)}`;
 const compileEditorialCss = async () =>
   `/* generate-static-css */\n${await compileCss(authoredEditorialCss)}`;
+/** The Work home parts (#6474), their own entry: only Work home loads them, so pages do not. */
+const compileWorkCss = async () =>
+  `/* generate-static-css */\n${await compileCss(shipped(await readFile(new URL('src/work.css', home), 'utf8')))}`;
 
 const isMain =
   process.argv[1] &&
@@ -214,6 +217,7 @@ if (isMain) {
   for (const [name, compile] of [
     ['static', compileStaticCss],
     ['editorial', compileEditorialCss],
+    ['work', compileWorkCss],
   ]) {
     const css = await compile();
     const output = new URL(`generated/${name}.css`, home);

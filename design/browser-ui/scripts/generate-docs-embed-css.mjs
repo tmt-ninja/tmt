@@ -11,6 +11,7 @@ if (process.argv.length !== 3 || !['--write', '--check'].includes(mode)) {
 export const SCOPE = '.tmt-design-docs';
 const sources = [
   '../generated/editorial.css',
+  '../generated/work.css',
   '../src/pattern-parts.css',
   '../gallery/gallery.css',
   '../src/data-table/page-list.css',

@@ -271,6 +271,11 @@ pub const EDIT_LOCKS_PER_WRITER: usize = 8;
 /// Current identity lock cells in one writer, including release tombstones.
 pub const EDIT_LOCK_HOLDERS_PER_WRITER: usize = 1000;
 
+/// Work items one page contributes to the owner list: its first visible to-dos (#6474).
+pub const WORK_TODOS: usize = 64;
+/// A to-do work item's text in the owner list, in bytes; longer text is cut on a character.
+pub const WORK_TODO_TEXT: usize = 256;
+
 #[cfg(test)]
 mod tests {
     use super::*;
