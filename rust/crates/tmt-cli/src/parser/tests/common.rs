@@ -480,7 +480,10 @@ fn output_boundary_inventory_keeps_reports_and_protocols_distinct() {
         (&["api"][..], OutputBoundary::Protocol),
         (&["attach", "worker"][..], OutputBoundary::Interactive),
         (&["talk", "worker", "hello"][..], OutputBoundary::Streaming),
-        (&["storage"][..], OutputBoundary::Legacy),
+        (&["storage"][..], OutputBoundary::Paired),
+        (&["setup", "--status"][..], OutputBoundary::Paired),
+        (&["tick", "status"][..], OutputBoundary::Paired),
+        (&["focus", "--client"][..], OutputBoundary::Paired),
     ] {
         assert_eq!(
             parsed(words).invocation.output_boundary(),

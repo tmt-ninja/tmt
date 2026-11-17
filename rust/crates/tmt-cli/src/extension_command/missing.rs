@@ -44,7 +44,10 @@ pub(super) fn execute(
 ) -> io::Result<u8> {
     let interaction = Interaction::detect(mode.json);
     // Help is read-only, including help for an absent official extension.
-    if help || !caller_context::may_offer_install(interaction) {
+    if help
+        || !caller_context::may_offer_install(interaction)
+        || interaction.prompt() != tmt_cli_style::interaction::Mode::Interactive
+    {
         return missing(product).publish(mode);
     }
     let result = offer(product, original, interaction);
@@ -74,7 +77,6 @@ fn offer(product: Product, original: &[OsString], interaction: Interaction) -> R
     )
     .map_err(io_failure)?;
     let accepted = consent::ask_defaulting_yes(
-        &mut output,
         false,
         OutputMode::default(),
         consent::Consent {

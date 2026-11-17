@@ -308,7 +308,10 @@ pub fn execute(
     let started_at = Instant::now();
     let paths = match ConfigPaths::discover() {
         Ok(paths) => paths,
-        Err(error) => return Failure::from(error).publish(mode),
+        Err(error) => {
+            return tmt_cli_style::CliOutput::new(mode.json)
+                .finish::<RestoreReport, _>(Err(Failure::from(error)));
+        }
     };
     let mut output = tmt_cli_style::stream::stdout(mode.json);
     let outcome: Result<_, Failure> = (|| {
@@ -351,9 +354,7 @@ pub fn execute(
                 "Restore this smaller set ({} members)",
                 document.snapshot.agent_count()
             );
-            let mut prompt = tmt_cli_style::stream::stderr();
             if !crate::consent::ask(
-                &mut prompt,
                 false,
                 mode,
                 crate::consent::Consent {
@@ -431,7 +432,9 @@ pub fn execute(
     })();
     let (document, members, failures) = match outcome {
         Ok(value) => value,
-        Err(error) => return error.publish(mode),
+        Err(error) => {
+            return tmt_cli_style::CliOutput::new(mode.json).finish::<RestoreReport, _>(Err(error));
+        }
     };
     let failed = members.iter().any(|row| row.status == "failed");
     let partial = failed || members.iter().any(|row| row.status == "needs_you");
@@ -451,13 +454,44 @@ pub fn execute(
         "failures": failures,
     });
     let written = write_report(&paths, LAST_REPORT, &mut report);
-    if mode.json {
-        report["report"] = written.into();
-        writeln!(output, "{report}")?;
-    } else {
+    report["report"] = written.clone().into();
+    tmt_cli_style::CliOutput::new(mode.json).finish::<_, Failure>(Ok(RestoreReport {
+        report,
+        members,
+        failures,
+        written,
+        partial,
+        failed,
+    }))
+}
+
+struct RestoreReport {
+    report: serde_json::Value,
+    members: Vec<Restored>,
+    failures: Vec<String>,
+    written: Option<String>,
+    partial: bool,
+    failed: bool,
+}
+impl tmt_cli_style::Render for RestoreReport {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let Self {
+            members,
+            failures,
+            written,
+            partial,
+            ..
+        } = self;
+        let partial = *partial;
         let count = |status: &str| members.iter().filter(|row| row.status == status).count();
         writeln!(
-            output,
+            stdout,
             "Built-in members: {} started, {} already running, {} need you, {} failed.",
             count("started"),
             count("skipped"),
@@ -466,20 +500,26 @@ pub fn execute(
         )?;
         for row in members.iter().filter(|row| row.tail.is_some()) {
             writeln!(
-                output,
+                stdout,
                 "  {}: {}",
                 row.name,
                 row.tail.as_deref().unwrap_or_default()
             )?;
         }
-        for failure in &failures {
-            writeln!(output, "  {failure}")?;
+        for failure in failures {
+            writeln!(stdout, "  {failure}")?;
         }
         if let Some(path) = written.as_deref().filter(|_| partial) {
-            writeln!(output, "  Full report: {path}")?;
+            writeln!(stdout, "  Full report: {path}")?;
         }
+        Ok(())
     }
-    Ok(u8::from(failed))
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", self.report)
+    }
+    fn exit_status(&self) -> u8 {
+        u8::from(self.failed)
+    }
 }
 
 #[cfg(test)]

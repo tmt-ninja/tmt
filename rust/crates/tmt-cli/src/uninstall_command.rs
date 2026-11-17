@@ -229,7 +229,6 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
         "Remove TMT"
     };
     if !crate::consent::ask(
-        &mut output,
         yes,
         mode,
         crate::consent::Consent {

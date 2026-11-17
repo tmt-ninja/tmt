@@ -1,7 +1,7 @@
 //! `tmt storage` (#5036): what each local store occupies, and whether the
 //! one-time compaction of the Core database is still pending. Read-only.
 
-use crate::{invocation::OutputMode, output::Failure};
+use crate::output::Failure;
 use serde_json::{Value, json};
 use std::{
     io::{self, Write},
@@ -197,35 +197,41 @@ pub(crate) fn write_human(
     Ok(())
 }
 
-pub fn execute(mode: OutputMode) -> io::Result<u8> {
-    let result = ConfigPaths::discover()
+pub struct Report(Footprint);
+
+pub fn run() -> Result<Report, Failure> {
+    ConfigPaths::discover()
         .map_err(io::Error::other)
-        .and_then(|paths| footprint(&paths));
-    let footprint = match result {
-        Ok(footprint) => footprint,
-        Err(error) => {
-            return Failure::new(
+        .and_then(|paths| footprint(&paths))
+        .map(Report)
+        .map_err(|error| {
+            Failure::new(
                 "STORAGE_REPORT_FAILED",
                 format!("Could not read the local stores: {error}."),
                 1,
             )
             .caused_by(error)
-            .publish(mode);
-        }
-    };
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        writeln!(output, "{}", document(&footprint))?;
-    } else {
-        let terminal = output.terminal();
+        })
+}
+
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: Terminal,
+        _: Terminal,
+    ) -> io::Result<()> {
         write_human(
-            &mut output,
+            &mut &mut *stdout,
             terminal,
-            &footprint,
+            &self.0,
             std::env::home_dir().as_deref(),
-        )?;
+        )
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", document(&self.0))
+    }
 }
 
 // Source-checked command samples for the printed-command guard.

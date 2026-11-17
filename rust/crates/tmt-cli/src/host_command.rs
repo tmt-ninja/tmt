@@ -3,7 +3,7 @@
 //! which driver offers one belong to `tmt_adapters::host::launch`; this is its front end.
 
 use crate::driver_command::running_tmt;
-use crate::invocation::{HostRequest, OutputMode};
+use crate::invocation::HostRequest;
 use crate::output::{Failure, shell_word};
 use serde_json::json;
 use std::io::{self, Write};
@@ -109,19 +109,24 @@ fn write_hosts(
     Ok(())
 }
 
-pub fn execute(request: HostRequest, mode: OutputMode) -> io::Result<u8> {
+pub struct Report(Vec<HostLaunch>, AdvisoryHost);
+
+pub fn run(request: HostRequest) -> Result<Report, Failure> {
     let HostRequest::Templates = request;
-    match read() {
-        Ok((hosts, caller_host)) => {
-            let mut output = tmt_cli_style::stream::stdout(mode.json);
-            let terminal = output.terminal();
-            if mode.json {
-                writeln!(output, "{}", document(&hosts, &caller_host))?;
-            } else {
-                write_hosts(&mut output, terminal, &hosts)?;
-            }
-            Ok(0)
-        }
-        Err(error) => error.publish(mode),
+    read().map(|(hosts, caller)| Report(hosts, caller))
+}
+
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: Terminal,
+        _: Terminal,
+    ) -> io::Result<()> {
+        write_hosts(&mut &mut *stdout, terminal, &self.0)
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", document(&self.0, &self.1))
     }
 }

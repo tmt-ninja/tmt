@@ -1459,7 +1459,7 @@ environment['TERM'] = 'xterm'
 if answer != 'agent': environment.pop('TMT_AGENT', None)
 master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 96, 0, 0))
-child = subprocess.Popen([executable, 'ops', '--help'] if answer == 'help' else [executable, 'ops', 'sq', 'ls'], stdin=slave, stdout=slave, stderr=slave, env=environment)
+child = subprocess.Popen([executable, 'ops', '--help'] if answer == 'help' else [executable, 'ops', 'sq', 'ls'], stdin=slave, stdout=slave, stderr=subprocess.PIPE if answer == 'no-stderr' else slave, env=environment)
 os.close(slave)
 screen = b''
 sent = False
@@ -1488,6 +1488,7 @@ try:
                 if answer == 'interrupt': child.send_signal(signal.SIGINT)
                 else: os.write(master, {'no':b'n\n', 'eof':b'\x04', 'yes':b'yes\n', 'enter':b'\n'}[answer])
     status = child.wait(timeout=2)
+    if child.stderr is not None: screen += child.stderr.read()
     print(json.dumps({'status':status, 'asked':sent, 'connections':connections, 'beforeAnswer':before_answer, 'screen':screen.decode('utf-8')}))
 finally:
     if child.poll() is None: child.kill()
@@ -1497,7 +1498,7 @@ finally:
 `;
 
 describe('a missing official extension in a private human terminal', () => {
-  it.each(['no', 'eof', 'interrupt', 'yes', 'enter', 'agent', 'help'] as const)(
+  it.each(['no', 'eof', 'interrupt', 'yes', 'enter', 'agent', 'help', 'no-stderr'] as const)(
     '%s follows consent without executing the original command or leaving a partial install',
     async (answer) => {
       const { cli } = resolveCliExecutables();
@@ -1512,7 +1513,7 @@ describe('a missing official extension in a private human terminal', () => {
             beforeAnswer: number;
             screen: string;
           };
-          if (answer === 'agent' || answer === 'help') {
+          if (answer === 'agent' || answer === 'help' || answer === 'no-stderr') {
             expect(observation.asked).toBe(false);
             expect(observation.connections).toBe(0);
             expect(observation.status).toBe(3);

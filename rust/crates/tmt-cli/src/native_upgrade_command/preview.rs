@@ -21,7 +21,10 @@ pub(super) fn approve(
     yes: bool,
     mode: OutputMode,
 ) -> Result<Approval, Failure> {
-    let human = caller_context::may_offer_install(tmt_cli_style::Interaction::detect(mode.json));
+    let interaction = tmt_cli_style::Interaction::detect(mode.json);
+    let human = can_prompt_upgrade(interaction, || {
+        caller_context::may_offer_install(interaction)
+    });
     if yes || !human {
         whole.defaults(yes);
     }
@@ -73,7 +76,6 @@ pub(super) fn approve(
         || Ok(()),
         || {
             consent::ask_defaulting_yes(
-                &mut tmt_cli_style::stream::stdout(false),
                 false,
                 mode,
                 consent::Consent {
@@ -86,6 +88,13 @@ pub(super) fn approve(
             )
         },
     )
+}
+
+fn can_prompt_upgrade(
+    interaction: tmt_cli_style::Interaction,
+    caller_may_offer: impl FnOnce() -> bool,
+) -> bool {
+    caller_may_offer() && interaction.prompt() == tmt_cli_style::interaction::Mode::Interactive
 }
 
 fn approve_with(
@@ -247,6 +256,42 @@ mod tests {
         assert_eq!(*calls.borrow(), ["preview", "question"]);
         assert!(!approval.proceed);
         assert!(!approval.extensions);
+    }
+
+    #[test]
+    fn redirected_stderr_keeps_the_noninteractive_upgrade_path() {
+        let interaction = tmt_cli_style::Interaction {
+            json: false,
+            stdin: true,
+            stdout: true,
+            stderr: false,
+            dumb: false,
+        };
+        let human = can_prompt_upgrade(interaction, || true);
+        let approval = approve_with(
+            human,
+            false,
+            true,
+            || panic!("no human screen"),
+            || panic!("no prompt"),
+        )
+        .unwrap();
+        assert!(approval.proceed);
+        assert!(!approval.extensions);
+        assert!(can_prompt_upgrade(
+            tmt_cli_style::Interaction {
+                stderr: true,
+                ..interaction
+            },
+            || true
+        ));
+        assert!(!can_prompt_upgrade(
+            tmt_cli_style::Interaction {
+                stderr: true,
+                ..interaction
+            },
+            || false
+        ));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! `tmt extension hooks`: record, remove and list consent for extension hooks.
 //! Verification, probing and storage belong to `tmt_adapters::extension_hooks`.
 
-use crate::invocation::{ExtensionHooksRequest, OutputMode};
+use crate::invocation::ExtensionHooksRequest;
 use crate::output::Failure;
 use serde_json::json;
 use std::io::{self, Write};
@@ -21,7 +21,7 @@ fn consent_json(consent: &extension_hooks::Consent) -> serde_json::Value {
     })
 }
 
-pub fn execute(request: ExtensionHooksRequest, mode: OutputMode) -> io::Result<u8> {
+pub fn run(request: ExtensionHooksRequest) -> Result<Report, Failure> {
     // The document, whether the human text reports a change, and the text.
     let result = (|| -> Result<(serde_json::Value, bool, String), Failure> {
         let paths = ConfigPaths::discover()?;
@@ -76,19 +76,33 @@ pub fn execute(request: ExtensionHooksRequest, mode: OutputMode) -> io::Result<u
             }
         }
     })();
-    match result {
-        Ok((value, changed, text)) => {
-            let mut output = tmt_cli_style::stream::stdout(mode.json);
-            let terminal = output.terminal();
-            if mode.json {
-                writeln!(output, "{value}")?;
-            } else if changed {
-                tmt_cli_style::message::success(&mut output, terminal, &text)?;
-            } else {
-                writeln!(output, "{text}")?;
-            }
-            Ok(0)
+    result.map(|(document, changed, text)| Report {
+        document,
+        changed,
+        text,
+    })
+}
+
+pub struct Report {
+    document: serde_json::Value,
+    changed: bool,
+    text: String,
+}
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        if self.changed {
+            tmt_cli_style::message::success(&mut &mut *stdout, terminal, &self.text)
+        } else {
+            writeln!(stdout, "{}", self.text)
         }
-        Err(error) => error.publish(mode),
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", self.document)
     }
 }

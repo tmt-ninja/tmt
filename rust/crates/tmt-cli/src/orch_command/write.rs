@@ -168,11 +168,10 @@ pub(super) fn execute(
                     .caused_by(e)
             })?;
         }
-        if !yes && !consent::interactive(mode, &out) {
+        if !yes && !consent::interactive(mode) {
             return Ok(preview);
         }
         let accepted = consent::ask(
-            &mut out,
             yes,
             mode,
             consent::Consent {

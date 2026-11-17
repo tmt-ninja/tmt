@@ -5,8 +5,99 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import { fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
 import { tree } from '../support/native-uninstall.js';
 import { installSetupExtensions } from '../support/native-installation.js';
+import { resolveCliExecutables } from '../support/cli-executable.mjs';
+
+// A private PTY owns only this child; the normal sandbox owns ancestry and cleanup.
+const splitConsentTerminal = String.raw`
+import errno, json, os, pty, select, subprocess, sys, time
+executable, case = sys.argv[1:3]
+master, slave = pty.openpty()
+stdout = subprocess.PIPE if case == 'stdout-redirected' else slave
+stderr = slave if case == 'stdout-redirected' else subprocess.PIPE
+child = subprocess.Popen([executable, 'setup', 'claude'], stdin=slave, stdout=stdout, stderr=stderr, env=os.environ)
+os.close(slave)
+pipe = child.stdout if case == 'stdout-redirected' else child.stderr
+buffers = {master: bytearray(), pipe.fileno(): bytearray()}
+active = list(buffers)
+sent = False
+deadline = time.monotonic() + 10
+try:
+    while active:
+        if time.monotonic() >= deadline: raise RuntimeError('split terminal exceeded its bound')
+        ready, _, _ = select.select(active, [], [], max(0, deadline - time.monotonic()))
+        for fd in ready:
+            try: chunk = os.read(fd, 65536)
+            except OSError as error:
+                if error.errno == errno.EIO: chunk = b''
+                else: raise
+            if not chunk:
+                active.remove(fd)
+                continue
+            buffers[fd].extend(chunk)
+            if len(buffers[fd]) > 1048576: raise RuntimeError('terminal output exceeded bound')
+            if fd == master and not sent and b'Apply this plan?' in buffers[fd]:
+                os.write(master, b'yes\n')
+                sent = True
+    child.wait(timeout=2)
+    tty = buffers[master].decode('utf-8', 'replace')
+    piped = buffers[pipe.fileno()].decode('utf-8', 'replace')
+    print(json.dumps({'status': child.returncode,
+      'stdout': piped if case == 'stdout-redirected' else tty,
+      'stderr': tty if case == 'stdout-redirected' else piped}))
+finally:
+    if child.poll() is None: child.kill()
+    child.wait(timeout=2)
+    pipe.close()
+    os.close(master)
+`;
 
 describe('consented provider setup and bounded hook boundary', () => {
+  it.each(['stdout-redirected', 'stderr-redirected'] as const)(
+    'uses stderr TTY consent when %s and only applies an accepted change',
+    async (caseName) => {
+      const { cli } = resolveCliExecutables();
+      await withSandbox(
+        async (sandbox) => {
+          const bin = path.join(sandbox.root, 'stable bin');
+          fs.mkdirSync(bin);
+          fs.symlinkSync(cli.executable, path.join(bin, 'tmt'));
+          sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
+          const provider = path.join(sandbox.home, '.claude');
+          fs.mkdirSync(provider);
+          const settings = path.join(provider, 'settings.json');
+          const before = '{"hooks":{},"untouched":true}\n';
+          fs.writeFileSync(settings, before);
+          const result = await runCli(sandbox, [], { deadlineMs: 15_000 });
+          expect(result.status, result.stderr + result.stdout).toBe(0);
+          const observed = JSON.parse(result.stdout) as {
+            status: number;
+            stdout: string;
+            stderr: string;
+          };
+          if (caseName === 'stdout-redirected') {
+            expect(observed.status).toBe(0);
+            expect(observed.stderr, JSON.stringify(observed)).toContain('Apply this plan? [y/N]');
+            expect(observed.stdout).not.toContain('Apply this plan?');
+            expect(fs.readFileSync(settings, 'utf8')).not.toBe(before);
+            expect(fs.readFileSync(settings, 'utf8')).toContain('__hook claude');
+          } else {
+            expect(observed.status).toBe(1);
+            expect(observed.stderr).toContain('Review setup interactively');
+            expect(observed.stderr).not.toContain('Apply this plan?');
+            expect(fs.readFileSync(settings, 'utf8')).toBe(before);
+          }
+        },
+        {
+          TMT_TEST_CLI: JSON.stringify({
+            executable: '/usr/bin/python3',
+            args: ['-c', splitConsentTerminal, cli.executable, caseName],
+          }),
+        }
+      );
+    },
+    20_000
+  );
+
   it.each(['claude', 'codex'])(
     '%s preserves user settings, requires consent, repairs a stale path and removes only owned hooks',
     async (name) => {

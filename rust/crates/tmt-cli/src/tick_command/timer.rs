@@ -50,7 +50,6 @@ pub(super) fn execute(
                 publish(&mut out, mode, &plan.preview()).map_err(failure)?;
             }
             if !crate::consent::ask(
-                &mut out,
                 yes,
                 mode,
                 crate::consent::Consent {

@@ -3,8 +3,8 @@
 //! assumed. The one prompt shared by setup and the extension commands.
 
 use crate::{invocation::OutputMode, output::Failure};
-use std::io::{self, BufRead, IsTerminal, Write};
-use tmt_cli_style::stream::Stream;
+use std::io::{self, BufRead, Write};
+use tmt_cli_style::{Interaction, interaction::Mode};
 
 pub struct Consent<'a> {
     /// Failure code when consent is required but cannot be asked.
@@ -17,40 +17,32 @@ pub struct Consent<'a> {
     pub declined: &'a str,
 }
 
-/// Whether a question can be asked on `output`: stdin and that stream are
-/// terminals and output is not JSON.
-pub fn interactive<W: Write>(mode: OutputMode, output: &Stream<W>) -> bool {
-    !mode.json && io::stdin().is_terminal() && output.is_terminal()
+/// Whether stdin and stderr can carry an interactive question.
+pub fn interactive(mode: OutputMode) -> bool {
+    Interaction::detect(mode.json).prompt() == Mode::Interactive
 }
 
-/// Asks on `output` (the caller's stdout) only when stdin and that stream are
-/// both terminals and output is not JSON. A decline prints `declined` and
-/// returns false. The answer is bounded to 256 bytes, and one that does not end
-/// within them is declined and its line drained.
+/// Asks on stderr only when stdin and stderr are terminals and output is not JSON.
 pub fn ask(
-    output: &mut Stream<impl Write>,
     yes: bool,
     mode: OutputMode,
     consent: Consent<'_>,
     io_failure: impl Fn(io::Error) -> Failure,
 ) -> Result<bool, Failure> {
-    ask_answering(output, yes, mode, consent, io_failure, false)
+    ask_answering(yes, mode, consent, io_failure, false)
 }
 
-/// [`ask`] for a question whose expected answer is yes: `[Y/n]`, and pressing Enter agrees.
-/// Only an Enter agrees by default; end of input and anything but `y`/`yes` still decline.
+/// Like [`ask`], but Enter agrees; EOF never agrees.
 pub fn ask_defaulting_yes(
-    output: &mut Stream<impl Write>,
     yes: bool,
     mode: OutputMode,
     consent: Consent<'_>,
     io_failure: impl Fn(io::Error) -> Failure,
 ) -> Result<bool, Failure> {
-    ask_answering(output, yes, mode, consent, io_failure, true)
+    ask_answering(yes, mode, consent, io_failure, true)
 }
 
 fn ask_answering(
-    output: &mut Stream<impl Write>,
     yes: bool,
     mode: OutputMode,
     consent: Consent<'_>,
@@ -60,13 +52,36 @@ fn ask_answering(
     if yes {
         return Ok(true);
     }
-    if !interactive(mode, output) {
+    ask_with(
+        false,
+        Interaction::detect(mode.json),
+        consent,
+        io_failure,
+        default_yes,
+        io::stdin().lock(),
+        &mut tmt_cli_style::stream::stderr(),
+    )
+}
+
+fn ask_with(
+    yes: bool,
+    interaction: Interaction,
+    consent: Consent<'_>,
+    io_failure: impl Fn(io::Error) -> Failure,
+    default_yes: bool,
+    input: impl BufRead,
+    output: &mut impl Write,
+) -> Result<bool, Failure> {
+    if yes {
+        return Ok(true);
+    }
+    if interaction.prompt() != Mode::Interactive {
         return Err(Failure::new(consent.code, consent.refusal, 1));
     }
     write!(output, "{}? {} ", consent.question, choices(default_yes))
         .and_then(|()| output.flush())
         .map_err(&io_failure)?;
-    let accepted = read_answer(io::stdin().lock(), default_yes).map_err(&io_failure)?;
+    let accepted = read_answer(input, default_yes).map_err(&io_failure)?;
     if !accepted {
         writeln!(output, "{}", consent.declined).map_err(&io_failure)?;
     }
@@ -119,6 +134,136 @@ fn read_answer(mut input: impl BufRead, default_yes: bool) -> io::Result<bool> {
 mod tests {
     use super::*;
     use std::io::{Cursor, Read};
+
+    #[test]
+    fn prompt_policy_controls_the_effect_and_uses_only_the_question_stream() {
+        let base = Interaction {
+            json: false,
+            stdin: true,
+            stdout: true,
+            stderr: true,
+            dumb: false,
+        };
+        let cases = [
+            (base, false, b"yes\n".as_slice(), true, true),
+            (
+                Interaction {
+                    stdout: false,
+                    ..base
+                },
+                false,
+                b"yes\n".as_slice(),
+                true,
+                true,
+            ),
+            (
+                Interaction {
+                    stderr: false,
+                    ..base
+                },
+                false,
+                b"yes\n".as_slice(),
+                false,
+                false,
+            ),
+            (
+                Interaction {
+                    stdin: false,
+                    ..base
+                },
+                false,
+                b"yes\n".as_slice(),
+                false,
+                false,
+            ),
+            (
+                Interaction { json: true, ..base },
+                false,
+                b"yes\n".as_slice(),
+                false,
+                false,
+            ),
+            (
+                Interaction { dumb: true, ..base },
+                false,
+                b"yes\n".as_slice(),
+                true,
+                true,
+            ),
+            (
+                Interaction {
+                    stderr: false,
+                    ..base
+                },
+                true,
+                b"".as_slice(),
+                true,
+                false,
+            ),
+            (base, false, b"no\n".as_slice(), false, true),
+        ];
+        for (interaction, yes, input, effect, question) in cases {
+            let mut stderr = Vec::new();
+            let result = ask_with(
+                yes,
+                interaction,
+                Consent {
+                    code: "TEST_CONSENT_REQUIRED",
+                    refusal: "Not approved.",
+                    question: "Proceed",
+                    declined: "No change.",
+                },
+                |e| Failure::new("IO", e.to_string(), 1),
+                false,
+                Cursor::new(input),
+                &mut stderr,
+            );
+            let applied = matches!(result, Ok(true));
+            assert_eq!(applied, effect, "{interaction:?}");
+            assert_eq!(!stderr.is_empty(), question, "{interaction:?}");
+            if !effect && !question {
+                let error = result.unwrap_err();
+                assert_eq!(
+                    (error.code.as_str(), error.status),
+                    ("TEST_CONSENT_REQUIRED", 1)
+                );
+            }
+            if question && !effect {
+                assert_eq!(stderr, b"Proceed? [y/N] No change.\n");
+            }
+        }
+    }
+
+    #[test]
+    fn default_yes_asks_on_stderr_but_eof_declines() {
+        let interaction = Interaction {
+            json: false,
+            stdin: true,
+            stdout: false,
+            stderr: true,
+            dumb: false,
+        };
+        for (input, accepted) in [(b"\n".as_slice(), true), (b"".as_slice(), false)] {
+            let mut stderr = Vec::new();
+            let result = ask_with(
+                false,
+                interaction,
+                Consent {
+                    code: "TEST",
+                    refusal: "Refused",
+                    question: "Proceed",
+                    declined: "No change.",
+                },
+                |e| Failure::new("IO", e.to_string(), 1),
+                true,
+                Cursor::new(input),
+                &mut stderr,
+            )
+            .unwrap();
+            assert_eq!(result, accepted);
+            assert!(stderr.starts_with(b"Proceed? [Y/n] "));
+        }
+    }
 
     fn affirmed(input: &[u8]) -> bool {
         read_answer(Cursor::new(input), false).unwrap()

@@ -4,7 +4,6 @@
 
 use crate::{
     binding_error::{refusal, stop_refusal},
-    invocation::OutputMode,
     output::{Failure, identity_missing},
 };
 use std::io::{self, Write};
@@ -41,7 +40,7 @@ impl Pane {
     }
 }
 
-struct Stopped {
+pub struct Stopped {
     identity: Identity,
     outcome: StopOutcome,
     /// Present only when the pane was asked to be closed.
@@ -50,7 +49,7 @@ struct Stopped {
     terminals_left: Vec<String>,
 }
 
-fn run(selector: &str, close: bool) -> Result<Stopped, Failure> {
+pub fn run(selector: &str, close: bool) -> Result<Stopped, Failure> {
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
@@ -105,53 +104,62 @@ fn stop(
     })
 }
 
-pub fn execute(selector: String, close: bool, mode: OutputMode) -> io::Result<u8> {
-    let stopped = match run(&selector, close) {
-        Ok(stopped) => stopped,
-        Err(error) => return error.publish(mode),
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    let terminal = stdout.terminal();
-    if mode.json {
+pub fn execute(
+    selector: String,
+    close: bool,
+    mode: crate::invocation::OutputMode,
+) -> io::Result<u8> {
+    tmt_cli_style::CliOutput::new(mode.json).finish(run(&selector, close))
+}
+
+impl tmt_cli_style::Render for Stopped {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let name = &self.identity.name;
+        let kept_state = "its binding and remembered session are kept";
+        let message = match (self.outcome, self.pane) {
+            (StopOutcome::Stopped, Some(Pane::Closed)) => {
+                format!("Stopped {name}'s agent and closed its pane; {kept_state}")
+            }
+            (StopOutcome::Stopped, _) => format!("Stopped {name}'s agent; {kept_state}"),
+            (StopOutcome::AlreadyEnded, Some(Pane::Closed)) => {
+                format!("{name}'s agent had already ended; closed its pane, nothing was signalled")
+            }
+            (StopOutcome::AlreadyEnded, _) => {
+                format!("{name}'s agent had already ended; nothing was signalled")
+            }
+            (StopOutcome::NotRunning, _) => format!("{name} has no running agent; nothing to stop"),
+        };
+        tmt_cli_style::message::success(&mut &mut *stdout, terminal, &message)?;
+        if !self.terminals_left.is_empty() {
+            tmt_cli_style::message::warning(
+                &mut &mut *stdout,
+                terminal,
+                &format!(
+                    "its terminals {} were still running; each ends once its member is gone",
+                    self.terminals_left.join(", ")
+                ),
+                None,
+            )?;
+        }
+        Ok(())
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
         let mut document = serde_json::json!({
-            "identity": {"id": stopped.identity.id, "name": stopped.identity.name},
-            "outcome": outcome_text(stopped.outcome),
+            "identity": {"id": self.identity.id, "name": self.identity.name},
+            "outcome": outcome_text(self.outcome),
         });
-        if let Some(pane) = stopped.pane {
+        if let Some(pane) = self.pane {
             document["pane"] = pane.as_str().into();
         }
-        if !stopped.terminals_left.is_empty() {
-            document["terminalsLeft"] = stopped.terminals_left.into();
+        if !self.terminals_left.is_empty() {
+            document["terminalsLeft"] = self.terminals_left.clone().into();
         }
-        writeln!(stdout, "{document}")?;
-        return Ok(0);
+        writeln!(stdout, "{document}")
     }
-    let name = &stopped.identity.name;
-    let kept_state = "its binding and remembered session are kept";
-    let message = match (stopped.outcome, stopped.pane) {
-        (StopOutcome::Stopped, Some(Pane::Closed)) => {
-            format!("Stopped {name}'s agent and closed its pane; {kept_state}")
-        }
-        (StopOutcome::Stopped, _) => format!("Stopped {name}'s agent; {kept_state}"),
-        (StopOutcome::AlreadyEnded, Some(Pane::Closed)) => {
-            format!("{name}'s agent had already ended; closed its pane, nothing was signalled")
-        }
-        (StopOutcome::AlreadyEnded, _) => {
-            format!("{name}'s agent had already ended; nothing was signalled")
-        }
-        (StopOutcome::NotRunning, _) => format!("{name} has no running agent; nothing to stop"),
-    };
-    tmt_cli_style::message::success(&mut stdout, terminal, &message)?;
-    if !stopped.terminals_left.is_empty() {
-        tmt_cli_style::message::warning(
-            &mut stdout,
-            terminal,
-            &format!(
-                "its terminals {} were still running; each ends once its member is gone",
-                stopped.terminals_left.join(", ")
-            ),
-            None,
-        )?;
-    }
-    Ok(0)
 }
