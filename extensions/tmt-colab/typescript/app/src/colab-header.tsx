@@ -66,6 +66,7 @@ function BrandParts({ children }: { children: ReactNode }) {
  * header renders into the shell's one header slot, wherever its route draws it. */
 export function ColabHeader({
   title,
+  accessibleTitle,
   titleVisible = true,
   caption,
   actions,
@@ -86,6 +87,8 @@ export function ColabHeader({
   brandOnly = false,
 }: {
   title: string;
+  /** A short visible label may keep the full page title in the connection identity. */
+  accessibleTitle?: string;
   titleVisible?: boolean;
   caption?: string;
   actions?: ReactNode;
@@ -205,9 +208,9 @@ export function ColabHeader({
     />
   );
   if (!bar) return header;
+  const TitleElement = accessibleTitle ? 'div' : 'h1';
   if (shared)
-    // The bar's title slot is the route's one heading: the module or the page's scope, the title,
-    // then the page's chips. The content repeats none of it.
+    // Routes with a content heading use a short bar label; other routes keep their heading here.
     return (
       <BrowserTopBar
         title={
@@ -216,9 +219,10 @@ export function ColabHeader({
           <div
             className="colab-topbar-identity"
             role="group"
-            aria-label={`${identity ?? text.product} · ${title}`}
+            aria-label={`${identity ?? text.product} · ${accessibleTitle ?? title}`}
           >
-            <h1
+            <TitleElement
+              className={accessibleTitle ? 'colab-topbar-label' : undefined}
               ref={(node) => assign(headerRef, node)}
               aria-describedby={caption === undefined ? undefined : captionId}
             >
@@ -239,7 +243,7 @@ export function ColabHeader({
                 )}
                 {title}
               </span>
-            </h1>
+            </TitleElement>
             {(headingSuffix !== undefined || caption !== undefined) && (
               <div className="tmt-ui-topbar-title-chips">
                 {headingSuffix}

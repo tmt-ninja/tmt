@@ -65,7 +65,7 @@ for (const width of [1440, 390])
       );
       const header = (await bar.boundingBox())!;
       const phoneTitle = page.locator('.page-mobile-title:visible');
-      const titleBlock = width <= 640 ? await phoneTitle.boundingBox() : null;
+      const titleBlock = await phoneTitle.boundingBox();
       expect(rect?.y).toBe(
         titleBlock ? titleBlock.y + titleBlock.height : header.y + header.height + lead,
       );
@@ -496,7 +496,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
   );
   const bar = page.locator('.tmt-ui-topbar:visible');
   const header = bar.locator('.tmt-ui-topbar-title');
-  const heading = header.locator('h1').filter({ hasText: title });
+  const heading = page.locator('.page-mobile-title h1').filter({ hasText: title });
   await expect(heading).toBeVisible();
   await expect(header.locator('.tmt-ui-caption')).toBeVisible();
   await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
@@ -516,12 +516,15 @@ test('one-row fitting retains full labels, stable content and compact action aut
         width > 900 ? '.tmt-ui-shell-brand .tmt-brand-mark:visible' : '.tmt-ui-shell-open:visible',
       ),
     ).toBeVisible();
-    await expect(header.locator('.tmt-ui-topbar-title-current')).toHaveAttribute('title', title);
+    await expect(header.locator('.colab-topbar-identity')).toHaveAttribute(
+      'aria-label',
+      new RegExp('Colab.*A very long release title'),
+    );
     await expect(bar).toHaveCSS('height', `${headerHeight(width)}px`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
-    const visibleHeading = width <= 900 ? page.locator('.page-mobile-title:visible h1') : heading;
+    const visibleHeading = heading;
     await expect(visibleHeading).toBeVisible();
     await expect(visibleHeading).toHaveText(title);
     const actions = bar.getByRole('navigation', { name: 'Page actions' });
@@ -551,6 +554,6 @@ test('one-row fitting retains full labels, stable content and compact action aut
     const path = '/test/page-layout-browser.tsx';
     (await import(path)).mount('<h1>Stable content</h1>', {}, {});
   });
-  await expect(header.getByRole('heading', { level: 1 })).toHaveCount(1);
+  await expect(page.locator('.page-mobile-title:visible h1')).toHaveCount(1);
   await expect(header.locator('.tmt-ui-caption')).toHaveCount(0);
 });

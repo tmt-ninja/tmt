@@ -2427,7 +2427,14 @@ function OpenPage({
       if (!entry || !frame || !frameOutline) return undefined;
       const version = frameOutline.snapshot;
       return {
-        top: () => frame.getBoundingClientRect().top + entry.top,
+        top: () => {
+          const frameTop = frame.getBoundingClientRect().top;
+          const barBottom = toolbar.current?.getBoundingClientRect().bottom ?? 0;
+          // In the bounded inner-scroll mode the frame can begin below the bar. Its own top,
+          // rather than the bar, is then the first position an internally scrolled heading reaches.
+          const lead = frame.dataset.scrollMode === 'frame' ? Math.max(0, frameTop - barBottom) : 0;
+          return frameTop + entry.top - lead;
+        },
         scrollTo: () => renderer.current?.scrollOutline(version, index),
       };
     },
@@ -2810,6 +2817,7 @@ function OpenPage({
           barRef={toolbar}
           page
           title={text.product}
+          accessibleTitle={view.title || snapshot.title || text.product}
           remote={{ deviceName: transport.backendName }}
           caption={
             view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)

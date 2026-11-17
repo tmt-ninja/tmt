@@ -250,13 +250,13 @@ export async function mountPageList(
                   {
                     ...(size === 'work-pinned' && n < 3 ? { pinned: true } : {}),
                     ...(size === 'work-pinned' && n === 0 ? { sharing: 'link' as const } : {}),
-                    ...(n === 0 ? { workNumber: 'COLAB-128' } : {}),
+                    ...(size === 'work' && n === 0 ? { workNumber: 'COLAB-128' } : {}),
                     summary: {
                       comments: n % 6,
                       waiting: n === 1,
                       needsYou: n === 1 ? (size === 'work-pinned' ? 3 : 1) : 0,
                       author: n % 2 ? 'Ada' : 'feat-1',
-                      ...(n === 0
+                      ...(size === 'work' && n === 0
                         ? {
                             fields: {
                               owner: { id: '20000000-0000-4000-8000-000000000088', name: 'gui-3' },

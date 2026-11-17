@@ -534,8 +534,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     width: 34px;
     height: 0;
     margin-inline-start: calc(-1 * var(--tmt-ui-header-padding-inline));
-    margin-block: calc(-1 * (var(--page-bar-size) + 34px) / 2)
-      calc((var(--page-bar-size) + 34px) / 2);
+    margin-block: calc(-1 * ((var(--page-bar-size) + 34px) / 2 + var(--colab-work-band-size, 0px)))
+      calc((var(--page-bar-size) + 34px) / 2 + var(--colab-work-band-size, 0px));
     padding: 0;
   }
   .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
@@ -564,7 +564,9 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   }
   .html-outline[data-compact] .page-outline {
     top: calc((var(--page-bar-size) - 34px) / 2);
-    margin-block-start: calc(-1 * (var(--page-bar-size) + 34px) / 2);
+    margin-block-start: calc(
+      -1 * ((var(--page-bar-size) + 34px) / 2 + var(--colab-work-band-size, 0px))
+    );
     padding: 0;
     background: transparent;
     pointer-events: none;

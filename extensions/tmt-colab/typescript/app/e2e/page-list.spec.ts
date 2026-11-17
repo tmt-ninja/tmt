@@ -1609,7 +1609,7 @@ for (const width of [1440, 390])
       const crumb = app(page).locator('.colab-scope-crumb', { hasText: /^design$/ });
       if (width > 900) await expect(crumb).toBeVisible();
       else await expect(crumb).toBeHidden();
-      await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('Alpha plan');
+      await expect(app(page).locator('.page-mobile-title h1')).toHaveText('Alpha plan');
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3747-page-crumb-${width}-${theme}.png`) });
       if (width > 900) await crumb.click();
@@ -1836,10 +1836,7 @@ for (const width of [1440, 390, 320])
         const crumb = app(page).locator('.colab-scope-crumb', { hasText: long });
         if (width > 900) await expect(crumb).toBeVisible();
         else await expect(crumb).toBeHidden();
-        const pageTitle =
-          width <= 640
-            ? app(page).locator('.page-mobile-title h1')
-            : app(page).locator('.tmt-ui-topbar-title-current');
+        const pageTitle = app(page).locator('.page-mobile-title h1');
         await expect(pageTitle).toBeVisible();
         await expect(pageTitle).toHaveText('Long names');
         expect(

@@ -197,8 +197,8 @@ test('the title row shows the page state and the sub-page count', async ({ page 
   await expect(head(band)).toContainText('In progress');
   await expect(toggle(band)).toHaveAccessibleName('4 sub-pages');
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
-  await band.getByRole('button', { name: 'Page state' }).click();
-  await expect(page.getByRole('menuitemradio', { name: 'Done', exact: true })).toBeVisible();
+  await band.getByRole('button', { name: /show status details/ }).click();
+  await expect(page.locator('.work-status-details')).toBeVisible();
   await expect(toggle(band)).toHaveAttribute('aria-expanded', 'false');
   await page.keyboard.press('Escape');
   await toggle(band).focus();
@@ -217,7 +217,7 @@ test('on a phone the readable title and full work labels scroll together', async
   const controls = (await band.boundingBox())!;
   expect(heading.width).toBeGreaterThan(100);
   expect(controls.y).toBeGreaterThanOrEqual(heading.y + heading.height);
-  await expect(band.getByRole('button', { name: 'Page state' })).toHaveText('In progress');
+  await expect(band.locator('.work-page-state')).toHaveText('In progress');
   await expect(toggle(band)).toContainText('4 sub-pages');
   expect(await toggle(band).evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
   await expect
@@ -513,15 +513,16 @@ test('a viewer sees the same tree without write controls', async ({ page }) => {
   await expect(band.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
 });
 
-test('the band stays under the nav as the page scrolls, and only its list scrolls', async ({
+test('the title controls scroll with the page, and the sub-page list scrolls independently', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 420 });
-  const band = await mount(page, true, 'tree', true);
+  let band = await mount(page, true, 'tree', true);
   const top = (await head(band).boundingBox())!.y;
   await page.mouse.move(700, 380);
   await page.mouse.wheel(0, 1600);
-  await expect.poll(async () => (await head(band).boundingBox())!.y).toBe(top);
+  await expect.poll(async () => (await head(band).boundingBox())!.y).toBeLessThan(top);
+  band = await mount(page, true, 'tree', true);
   await expand(band);
   await band.getByRole('button', { name: 'Expand Remote pages v2' }).click();
   await band.getByRole('button', { name: 'Expand Machines detail' }).click();

@@ -145,9 +145,9 @@
 /* The padding sits inside the collapsing row, so a closed list takes no height at all. */
 .work-body {
   min-height: 0;
-  max-height: calc(
-    100dvh - var(--work-band-top, var(--page-bar-size, 0px)) - var(--tmt-ui-subheader-height) -
-      var(--tmt-ui-rule-width)
+  max-height: var(
+    --work-popover-height,
+    calc(100dvh - var(--work-band-top, var(--page-bar-size, 0px)) - var(--tmt-ui-subheader-height))
   );
   overflow: hidden;
 }

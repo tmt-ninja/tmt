@@ -507,6 +507,48 @@ pub(crate) fn first_party_resume(
     ActionResult::Completed(resume.state.and_then(driver_state::state_model))
 }
 
+/// Activity is meaningful only with caller-supplied runtime evidence. Storage-only
+/// callers pass Unknown rather than claiming to have observed a live process.
+pub fn activity_document(
+    binding: Option<&tmt_core::binding::Binding>,
+    remembered: Option<&tmt_core::binding::session::RememberedSession>,
+    runtime: tmt_core::binding::session::RuntimeState,
+    registry: &RuntimeRegistry,
+) -> serde_json::Value {
+    use tmt_core::binding::session::RuntimeState;
+    let mut value = serde_json::json!({"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}});
+    if runtime == RuntimeState::Ended {
+        value["state"] = "ended".into();
+    }
+    let Some((binding, remembered)) = binding.zip(remembered) else {
+        return value;
+    };
+    let Some(key) = binding.session.key.as_ref() else {
+        return value;
+    };
+    if key.provider_session.as_ref() != Some(&remembered.provider_session) {
+        return value;
+    }
+    let Some(activity) = registry
+        .lifecycle(&remembered.harness)
+        .and_then(|driver| {
+            remembered
+                .state
+                .as_ref()
+                .and_then(|state| driver.state_activity(state))
+        })
+        .filter(|activity| activity.matches(&remembered.provider_session, &key.incarnation))
+    else {
+        return value;
+    };
+    if runtime == RuntimeState::Running {
+        value["state"] = activity.phase.as_str().into();
+        value["sinceMs"] = activity.since_ms.into();
+    }
+    value["lastActivityMs"] = activity.last_activity_ms.into();
+    value
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1359,46 +1401,4 @@ mod tests {
             );
         }
     }
-}
-
-/// Activity is meaningful only with caller-supplied runtime evidence. Storage-only
-/// callers pass Unknown rather than claiming to have observed a live process.
-pub fn activity_document(
-    binding: Option<&tmt_core::binding::Binding>,
-    remembered: Option<&tmt_core::binding::session::RememberedSession>,
-    runtime: tmt_core::binding::session::RuntimeState,
-    registry: &RuntimeRegistry,
-) -> serde_json::Value {
-    use tmt_core::binding::session::RuntimeState;
-    let mut value = serde_json::json!({"state":"unknown", "sinceMs":null, "lastActivityMs":null, "providers":{}});
-    if runtime == RuntimeState::Ended {
-        value["state"] = "ended".into();
-    }
-    let Some((binding, remembered)) = binding.zip(remembered) else {
-        return value;
-    };
-    let Some(key) = binding.session.key.as_ref() else {
-        return value;
-    };
-    if key.provider_session.as_ref() != Some(&remembered.provider_session) {
-        return value;
-    }
-    let Some(activity) = registry
-        .lifecycle(&remembered.harness)
-        .and_then(|driver| {
-            remembered
-                .state
-                .as_ref()
-                .and_then(|state| driver.state_activity(state))
-        })
-        .filter(|activity| activity.matches(&remembered.provider_session, &key.incarnation))
-    else {
-        return value;
-    };
-    if runtime == RuntimeState::Running {
-        value["state"] = activity.phase.as_str().into();
-        value["sinceMs"] = activity.since_ms.into();
-    }
-    value["lastActivityMs"] = activity.last_activity_ms.into();
-    value
 }

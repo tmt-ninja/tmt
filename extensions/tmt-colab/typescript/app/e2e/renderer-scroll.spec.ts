@@ -260,7 +260,9 @@ test('layout claims are bound to the current frame/render and bounded even when 
       '*',
     );
   }, renderId);
-  await expect.poll(async () => (await frame.boundingBox())?.height).toBe(1_000_000);
+  await expect(frame).toHaveCSS('height', '1e+06px');
+  await expect.poll(async () => (await frame.boundingBox())?.height ?? 0).toBeGreaterThan(999_999);
+  expect((await frame.boundingBox())!.height).toBeLessThanOrEqual(1_000_000);
   await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
   // A burst is coalesced to bounded frame mutations, retaining its latest claim.
   await page.evaluate(() => {

@@ -10397,7 +10397,7 @@ fn page_projects_add_remove_and_list_without_touching_the_owner_log_offline_and_
         let list = pilot.call(&["project", "list", "--json"]);
         assert_eq!(
             list["projects"],
-            json!([{"name":"q4 plan","pages":1,"pinned":1},{"name":"urgent","pages":0,"pinned":null}])
+            json!([{"name":"q4 plan","pages":1,"pinned":1,"releaseTagPrefix":null},{"name":"urgent","pages":0,"pinned":null,"releaseTagPrefix":null}])
         );
         // Names obey the grammar; a page is in at most eight; refusals change nothing.
         failure(
@@ -10517,7 +10517,7 @@ fn projects_can_be_created_empty_and_filter_the_page_list() {
         );
         assert_eq!(
             pilot.call(&["project", "ls", "--json"])["projects"],
-            json!([{"name":"launch","pages":0,"pinned":null}])
+            json!([{"name":"launch","pages":0,"pinned":null,"releaseTagPrefix":null}])
         );
         assert_eq!(
             pilot.call(&["ls", "--project", "launch", "--json"])["pages"],
@@ -10605,7 +10605,7 @@ fn renaming_or_deleting_a_project_changes_every_page_that_is_in_it_in_one_step()
         assert_eq!(deleted["pages"], 2);
         assert_eq!(
             pilot.call(&["project", "list", "--json"])["projects"],
-            json!([{"name":"c","pages":1,"pinned":null}])
+            json!([{"name":"c","pages":1,"pinned":null,"releaseTagPrefix":null}])
         );
         failure(
             &pilot,
@@ -10618,7 +10618,7 @@ fn renaming_or_deleting_a_project_changes_every_page_that_is_in_it_in_one_step()
         assert_eq!(project_rows(&pilot, &two), 0);
         assert_eq!(
             pilot.call(&["project", "list", "--json"])["projects"],
-            json!([{"name":"c","pages":0,"pinned":null}])
+            json!([{"name":"c","pages":0,"pinned":null,"releaseTagPrefix":null}])
         );
         if serving {
             pilot.stop();
@@ -11009,7 +11009,7 @@ fn project_pin_and_unpin_write_the_owners_list_and_ls_reports_each_place() {
         assert_eq!(after["pinsAutomatic"], false);
         assert_eq!(
             after["projects"],
-            json!([{"name":"y","pages":0,"pinned":null}])
+            json!([{"name":"y","pages":0,"pinned":null,"releaseTagPrefix":null}])
         );
         if serving {
             pilot.stop();
@@ -11028,7 +11028,7 @@ fn the_first_pin_keeps_the_automatic_list_that_was_showing_and_a_21st_pin_is_ref
     assert_eq!(list["pinsAutomatic"], true);
     assert_eq!(
         list["projects"],
-        json!([{"name":"idle","pages":0,"pinned":null},{"name":"used","pages":1,"pinned":1}])
+        json!([{"name":"idle","pages":0,"pinned":null,"releaseTagPrefix":null},{"name":"used","pages":1,"pinned":1,"releaseTagPrefix":null}])
     );
     // Pinning the empty one adds to what was showing, instead of replacing it; and it is the owner's now.
     assert_eq!(
@@ -11039,7 +11039,7 @@ fn the_first_pin_keeps_the_automatic_list_that_was_showing_and_a_21st_pin_is_ref
     assert_eq!(list["pinsAutomatic"], false);
     assert_eq!(
         list["projects"],
-        json!([{"name":"idle","pages":0,"pinned":2},{"name":"used","pages":1,"pinned":1}])
+        json!([{"name":"idle","pages":0,"pinned":2,"releaseTagPrefix":null},{"name":"used","pages":1,"pinned":1,"releaseTagPrefix":null}])
     );
     // The human output names the place, and says when the list is automatic.
     let human = pilot.command().args(["project", "ls"]).output().unwrap();
@@ -11059,7 +11059,7 @@ fn the_first_pin_keeps_the_automatic_list_that_was_showing_and_a_21st_pin_is_ref
     assert_eq!(list["pinsAutomatic"], false);
     assert_eq!(
         list["projects"],
-        json!([{"name":"only","pages":1,"pinned":null}])
+        json!([{"name":"only","pages":1,"pinned":null,"releaseTagPrefix":null}])
     );
     // At most twenty: the 21st pin is refused and no older pin is dropped.
     let full = Pilot::new(None);

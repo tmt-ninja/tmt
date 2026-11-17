@@ -86,7 +86,7 @@ test('native page titles fill missing visible home labels without opening the pa
     await row().getByRole('link').click();
     await expect(
       page
-        .locator('.tmt-ui-topbar-title')
+        .locator('.page-mobile-title')
         .getByRole('heading', { name: `W-1 ${title}`, exact: true }),
     ).toBeVisible();
     await expect(page).toHaveTitle(`${title} · Colab`);

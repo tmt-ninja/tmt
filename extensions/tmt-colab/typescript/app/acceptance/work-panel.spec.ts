@@ -248,21 +248,18 @@ test('manual state persists, an empty page offers Add to the owner only, and sha
     await page.getByRole('button', { name: 'More', exact: true }).click();
     await expect(page.getByRole('menuitem', { name: 'Add a sub-page' })).toBeVisible();
     await page.keyboard.press('Escape');
-    await band
-      .locator('.work-head-chip')
-      .getByRole('button', { name: /Page state/ })
-      .click();
-    await page.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
+    // Manual state remains writable through the CLI; the owner UI shows computed status.
+    colab(['page', 'state', created.pageId, 'done']);
     await expect(
-      band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
-    ).toContainText('Done');
+      band.locator('.work-head-chip').getByRole('button', { name: /show status details/ }),
+    ).toBeVisible();
     const after = colab(['show', created.pageId]);
     expect(after.page.state).toBe('done');
     expect(after.page.progress).toEqual(before.page.progress);
     await page.reload();
     await expect(
-      band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
-    ).toContainText('Done');
+      band.locator('.work-head-chip').getByRole('button', { name: /show status details/ }),
+    ).toBeVisible();
     await expect(band.locator('.work-toggle')).toHaveCount(0);
     const captures = process.env.COLAB_STATUS_CAPTURE_DIR;
     if (captures) {
@@ -272,7 +269,7 @@ test('manual state persists, an empty page offers Add to the owner only, and sha
           await page.setViewportSize({ width, height: 900 });
           await panelTheme(
             page,
-            band.locator('.work-head-chip').getByRole('button', { name: /Page state/ }),
+            band.locator('.work-head-chip').getByRole('button', { name: /show status details/ }),
             theme,
           );
           await page.screenshot({

@@ -180,14 +180,19 @@ export function WorkBand({
       const maxWidth = Math.min(36 * Number.parseFloat(root.fontSize), innerWidth - 2 * gap);
       const shift = Math.min(0, innerWidth - gap - node.getBoundingClientRect().left - maxWidth);
       node.style.setProperty('--work-popover-shift', `${shift}px`);
+      const verticalGap = Number.parseFloat(root.getPropertyValue('--tmt-ui-space-s')) || 0;
+      const room = Math.max(0, innerHeight - node.getBoundingClientRect().bottom - 2 * verticalGap);
+      node.style.setProperty('--work-popover-height', `${room}px`);
     };
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, { passive: true });
     measure();
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure);
     };
   }, [open]);
   useEffect(() => {

@@ -222,9 +222,13 @@ for (const width of [1440, 390, 320])
           });
           expect(current.height).toBe(headerHeight);
           if (shelled) {
-            // The bar's title slot holds the screen's one heading, at the bar's title size; no title
-            // row or content heading repeats it, and the bar draws no brand.
-            const heading = page.locator('.tmt-ui-topbar:visible .tmt-ui-topbar-title h1');
+            // An open page puts its heading in the content and keeps a short bar label.
+            // Other screens keep their single heading in the bar.
+            const heading = page.locator(
+              screen === 'page'
+                ? '.tmt-ui-topbar:visible .colab-topbar-label'
+                : '.tmt-ui-topbar:visible .tmt-ui-topbar-title h1',
+            );
             await expect(heading).toHaveCount(1);
             await expect(heading).toHaveCSS('font-size', tokens.header['title-size']);
             await expect(page.locator('.colab-title-row')).toHaveCount(0);
@@ -443,12 +447,9 @@ for (const width of [1440, 390, 320])
       ).toBeVisible();
       await expect(header.locator('.tmt-ui-brand, .tmt-ui-wordmark')).toHaveCount(0);
       await expect(header.locator('.colab-remote-attribution, .colab-remote-label')).toHaveCount(0);
-      const heading =
-        width <= 640
-          ? page
-              .locator('#chrome-fixture .page-mobile-title')
-              .getByRole('heading', { name: 'Release notes', exact: true })
-          : header.getByRole('heading', { name: 'Release notes', exact: true });
+      const heading = page
+        .locator('#chrome-fixture .page-mobile-title')
+        .getByRole('heading', { name: 'Release notes', exact: true });
       expect(
         await bar
           .locator('.tmt-ui-topbar-title')
