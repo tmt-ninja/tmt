@@ -632,6 +632,12 @@ fn a_run_that_cannot_bind_leaves_a_launch_nothing_has_bound_at_its_first_step() 
         untouched,
         "No claude hook has arrived yet. Install its hooks, then send the agent a prompt in its pane. Install with: tmt setup claude"
     );
+    let pi_launch = self::launch(HostKind::pty(), "pi");
+    pi_launch.learning.set_role(Role::Observer);
+    assert_eq!(
+        pi_launch.diagnostic().unwrap().next_step,
+        "No pi hook has arrived yet. Launch with `tmt run <name> pi` for hooks, then send the agent a prompt in its pane."
+    );
     learning
         .stage(SessionLearningStep::Decode, *deadline)
         .unwrap();

@@ -2616,3 +2616,116 @@ fn a_prompt_that_carries_the_typed_checklist_confirms_it() {
     );
     f.storage.close().unwrap();
 }
+
+#[test]
+fn digest_skips_bound_panes_that_cannot_report_idle_and_holds_when_idle_capable() {
+    let (mut f, target, _, sender) = start();
+    // 1. Unbound target still holds under active Digest.
+    let unbound = held(&mut f, &target, &sender, "req-unbound");
+    assert!(unbound.digest_until_ms.is_some());
+    assert_eq!(
+        service(&mut f)
+            .digest_policies(std::slice::from_ref(&target))
+            .unwrap()[0]
+            .held_count,
+        1
+    );
+
+    // 2. Bound hand-started pane without driver or hooks cannot report Idle -> not held.
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    db.execute(
+        "INSERT INTO bindings(id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at,runtime_state)
+         VALUES('binding-1',?1,'tmux','%1','server','/fixture',10,'server-start',11,'now','now','unknown')",
+        [&target],
+    )
+    .unwrap();
+    let hookless = held(&mut f, &target, &sender, "req-hookless");
+    assert_eq!(hookless.digest_until_ms, None);
+
+    // 3. Plain-program binding cannot report Idle -> not held.
+    db.execute(
+        "UPDATE bindings SET runtime_state = 'running', runtime_pid = 12, runtime_start_identity = 'runtime-start', observed_provider_session_id = 'session', plain_program = 'custom' WHERE identity_id = ?1",
+        [&target],
+    )
+    .unwrap();
+    let plain = held(&mut f, &target, &sender, "req-plain");
+    assert_eq!(plain.digest_until_ms, None);
+
+    // 4. Hooked pi without turn activity (hand-started OR launched with noStartupIdle) cannot report Idle -> not held.
+    db.execute(
+        "UPDATE bindings SET plain_program = NULL WHERE identity_id = ?1",
+        [&target],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO identity_session_preferences(identity_id,preferred_harness,remembered_harness,runtime_mode,provider_session_id,driver_state_version,driver_state)
+         VALUES(?1,'pi','pi','default','session',3,'{}')",
+        [&target],
+    )
+    .unwrap();
+    let pi_no_activity = held(&mut f, &target, &sender, "req-pi-startup");
+    assert_eq!(pi_no_activity.digest_until_ms, None);
+
+    // Launched pi (< 1.5.2) that reported session_start with startup_ready=false -> not held.
+    let no_startup_idle = serde_json::json!({"noStartupIdle": {
+        "session": "session", "pid": 12, "start": "runtime-start"
+    }});
+    db.execute(
+        "UPDATE bindings SET launch_owner_pid = 13, launch_owner_start_identity = 'owner-start' WHERE identity_id = ?1",
+        [&target],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE identity_session_preferences SET driver_state_version = 6, driver_state = ?2 WHERE identity_id = ?1",
+        rusqlite::params![&target, no_startup_idle.to_string()],
+    )
+    .unwrap();
+    let pi_130 = held(&mut f, &target, &sender, "req-pi-130");
+    assert_eq!(pi_130.digest_until_ms, None);
+
+    // 5. Once pi reports turn activity matching the bound session & incarnation, it can report Idle -> holds.
+    let activity = serde_json::json!({"activity": {
+        "session": "session", "pid": 12, "start": "runtime-start", "state": "working",
+        "turn": null, "sinceMs": NOW_MS, "lastActivityMs": NOW_MS,
+    }});
+    db.execute(
+        "UPDATE identity_session_preferences SET driver_state = ?2 WHERE identity_id = ?1",
+        rusqlite::params![&target, activity.to_string()],
+    )
+    .unwrap();
+    let pi_working = held(&mut f, &target, &sender, "req-pi-working");
+    assert!(pi_working.digest_until_ms.is_some());
+    assert_eq!(
+        service(&mut f)
+            .digest_policies(std::slice::from_ref(&target))
+            .unwrap()[0]
+            .held_count,
+        2
+    );
+
+    // 6. Basic driver has no hooks -> not held even with preferred_harness set.
+    db.execute(
+        "DELETE FROM identity_session_preferences WHERE identity_id = ?1",
+        [&target],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO identity_session_preferences(identity_id,preferred_harness) VALUES(?1,'basic')",
+        [&target],
+    )
+    .unwrap();
+    let basic = held(&mut f, &target, &sender, "req-basic");
+    assert_eq!(basic.digest_until_ms, None);
+
+    // 7. Claude (hooked + digest-turn-capable) can report Idle before activity -> holds.
+    db.execute(
+        "UPDATE identity_session_preferences SET preferred_harness = 'claude' WHERE identity_id = ?1",
+        [&target],
+    )
+    .unwrap();
+    let claude = held(&mut f, &target, &sender, "req-claude");
+    assert!(claude.digest_until_ms.is_some());
+
+    drop(db);
+    f.storage.close().unwrap();
+}

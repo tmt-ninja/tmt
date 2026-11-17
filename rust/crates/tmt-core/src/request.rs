@@ -399,6 +399,12 @@ pub trait RequestRecords {
     ) -> Result<(), Self::Error>;
     fn digest_policy(&self, identity_id: &str)
     -> Result<Option<digest::DigestPolicy>, Self::Error>;
+    /// Whether a bound recipient's driver and pane can report `Idle` via hooks (or the identity
+    /// is unbound without a live pane).
+    fn digest_recipient_can_report_idle(&self, identity_id: &str) -> Result<bool, Self::Error> {
+        let _ = identity_id;
+        Ok(true)
+    }
     fn write_digest_policy(&mut self, policy: &digest::DigestPolicy) -> Result<(), Self::Error>;
     fn delivery_policy(&self, request_id: &str) -> Result<digest::DeliveryPolicy, Self::Error>;
     /// The turn-output capture of a passthrough, once its text is in the pane.

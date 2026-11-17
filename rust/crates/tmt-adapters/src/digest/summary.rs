@@ -55,7 +55,15 @@ pub fn wake_step(
             )?;
             if let Some(batch) = batch {
                 let line = text(storage, &batch)?;
-                let state = send_claim(storage, &entry, &batch, &line, delay, Readiness::Idle)?;
+                let state = send_claim(
+                    storage,
+                    &entry,
+                    &batch,
+                    &line,
+                    delay,
+                    Readiness::Idle,
+                    false,
+                )?;
                 return Ok(response(
                     match state {
                         DigestState::Delivered => "delivered",
