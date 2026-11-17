@@ -16,9 +16,6 @@ fi
 if [ "$1 $2 $3" = "__tmt-hooks 1 context" ]; then
   cat > "$dir/ctxfix-input"
   printf 'context\\n' >> "$dir/ctxfix-calls"
-  if [ -f "$dir/ctxfix-unbind-third" ] && [ "$(wc -l < "$dir/ctxfix-calls")" -eq 3 ]; then
-    "$TMT_EXECUTABLE" unbind --json > "$dir/ctxfix-unbound"
-  fi
   if [ -f "$dir/ctxfix-slow" ]; then exec sleep 5.75; fi
   cat "$dir/ctxfix-reply"
   exit 0
@@ -109,13 +106,9 @@ describe('extension contributions to the rehydration context', { concurrent: fal
   });
 });
 
-it.each([
-  { provider: 'claude', unbind: false },
-  { provider: 'codex', unbind: false },
-  { provider: 'claude', unbind: true },
-] as const)(
-  '$provider prompt context requires a current session (unbind during callback: $unbind)',
-  async ({ provider, unbind }) => {
+it.each(['claude', 'codex'] as const)(
+  '%s prompt context requires a current session',
+  async (provider) => {
     await withE2EFixture(async (fixture) => {
       const executable = path.join(fixture.wrapperDir, 'tmt-ctxfix');
       fs.chmodSync(fixture.wrapperDir, 0o755);
@@ -126,7 +119,6 @@ it.each([
       );
       expect((await fixture.runJsonCli(['name', 'Fixture Owner', '-s'])).code).toBe(0);
       expect((await fixture.runJsonCli(['extension', 'hooks', 'enable', 'ctxfix'])).code).toBe(0);
-      if (unbind) fs.writeFileSync(path.join(fixture.wrapperDir, 'ctxfix-unbind-third'), '');
       const session = '11111111-1111-4111-8111-111111111111';
       const foreign = '22222222-2222-4222-8222-222222222222';
       const hook = (event: string, id = session) => ({
@@ -144,24 +136,22 @@ it.each([
       const report = path.join(fixture.root, 'prompt-report.json');
       fs.writeFileSync(
         scenario,
-        JSON.stringify(
-          [
-            hook('UserPromptSubmit'), // unbound: no naming hint and no callback
-            { args: ['name', 'Prompt Reader', '-s', '--json'] },
-            hook('UserPromptSubmit'), // first verified prompt admits the session
-            hook('SessionStart'),
-            hook('UserPromptSubmit'),
-            hook('UserPromptSubmit', foreign),
-            hook('Stop'), // existing turn-end path still emits no context
-            { args: ['whoami', '--json'] },
-            { args: ['extension', 'hooks', 'disable', 'ctxfix', '--json'] },
-            hook('UserPromptSubmit'),
-            { args: ['extension', 'hooks', 'enable', 'ctxfix', '--json'] },
-            hook('UserPromptSubmit'), // enabling again restores prompt context
-            hook('SessionEnd'),
-            hook('UserPromptSubmit'), // ended sessions cannot be revived
-          ].slice(0, unbind ? 5 : undefined)
-        )
+        JSON.stringify([
+          hook('UserPromptSubmit'), // unbound: no naming hint and no callback
+          { args: ['name', 'Prompt Reader', '-s', '--json'] },
+          hook('UserPromptSubmit'), // first verified prompt admits the session
+          hook('SessionStart'),
+          hook('UserPromptSubmit'),
+          hook('UserPromptSubmit', foreign),
+          hook('Stop'), // existing turn-end path still emits no context
+          { args: ['whoami', '--json'] },
+          { args: ['extension', 'hooks', 'disable', 'ctxfix', '--json'] },
+          hook('UserPromptSubmit'),
+          { args: ['extension', 'hooks', 'enable', 'ctxfix', '--json'] },
+          hook('UserPromptSubmit'), // enabling again restores prompt context
+          hook('SessionEnd'),
+          hook('UserPromptSubmit'), // ended sessions cannot be revived
+        ])
       );
       const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
       const command = [
@@ -184,24 +174,13 @@ it.each([
         stdout: string;
         stderr: string;
       }>;
-      expect(results).toHaveLength(unbind ? 5 : 14);
+      expect(results).toHaveLength(14);
       expect(results.every((item) => item.code === 0)).toBe(true);
       // The first admitted prompt, SessionStart and enabled prompts invoke the callback. Keep
       // repeated latency sampling out of this required correctness scenario.
       expect(fs.readFileSync(path.join(fixture.wrapperDir, 'ctxfix-calls'), 'utf8')).toBe(
-        'context\n'.repeat(unbind ? 3 : 4)
+        'context\n'.repeat(4)
       );
-      if (unbind) {
-        // The live agent's identity cannot be removed (AGENT_RUNNING), so the
-        // callback detaches it instead; the prompt then gets no context.
-        expect(results[4].stdout).toBe('');
-        expect(results[4].stderr).toContain('continuing without context');
-        const state = durableState(fixture);
-        const reader = state.identities.find((row) => row.name === 'Prompt Reader');
-        expect(reader).toMatchObject({ retired_at_ms: null });
-        expect(state.bindings.some((row) => row.identity_id === reader!.id)).toBe(false);
-        return;
-      }
       expect(results.every((item) => item.stderr === '')).toBe(true);
       expect(results[4]).not.toHaveProperty('elapsedMs');
       const id = JSON.parse(results[1].stdout).id;

@@ -1071,7 +1071,7 @@ fn commit(
 /// Test-only: report the worker ingest's first Busy wait, so a test can order a competing
 /// writer's release after the worker is provably waiting (#6029), with no sleep.
 #[cfg(test)]
-pub(super) mod first_busy {
+pub(in crate::storage) mod first_busy {
     use std::{
         sync::{Mutex, mpsc::SyncSender},
         time::Instant,

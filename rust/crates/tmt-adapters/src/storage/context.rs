@@ -1,12 +1,42 @@
 //! One consistent read-only projection for rehydration; no reconciliation or GC.
 
-use super::{Storage, StorageError, bindings::BindingRows, errors::classify};
+use super::{CONTEXT_READ_WAIT, Storage, StorageError, bindings::BindingRows, errors::classify};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
-use std::{path::Path, time::Duration};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 use tmt_core::{
     binding::{Binding, BindingEntry, BindingRecords},
     host::HostKind,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContextWait {
+    /// Existing 100 ms read-only cap for normal commands.
+    Default,
+    /// Normal hook: small 100 ms cap bounded by `deadline` less the completion reserve.
+    Hook(Instant),
+    /// Digest worker: waits out other writers up to `deadline` less the completion reserve.
+    Worker(Instant),
+}
+
+impl ContextWait {
+    fn duration(self, now: Instant) -> Duration {
+        match self {
+            Self::Default => CONTEXT_READ_WAIT,
+            Self::Hook(deadline) => super::worker_writer_wait(deadline, now).min(CONTEXT_READ_WAIT),
+            Self::Worker(deadline) => super::worker_writer_wait(deadline, now),
+        }
+    }
+
+    fn deadline(self) -> Option<Instant> {
+        match self {
+            Self::Default => None,
+            Self::Hook(deadline) | Self::Worker(deadline) => Some(deadline),
+        }
+    }
+}
 
 const ROLE_LIMIT: usize = 500;
 
@@ -150,8 +180,9 @@ impl Storage {
         path: &Path,
         binding: &str,
         now_ms: u64,
+        wait: ContextWait,
     ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
-        read_context(path, now_ms, |connection| {
+        read_context_with_wait(path, now_ms, wait, |connection| {
             let identity: Option<String> = connection
                 .query_row(
                     "SELECT identity_id FROM bindings WHERE id = ?",
@@ -174,7 +205,19 @@ impl Storage {
         server: &str,
         now_ms: u64,
     ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
-        read_context(path, now_ms, |connection| {
+        Self::context_by_pane_until(path, host, pane, server, now_ms, ContextWait::Default)
+    }
+
+    /// Pane context projection bounded by the caller's hook or Digest worker wait.
+    pub fn context_by_pane_until(
+        path: &Path,
+        host: HostKind,
+        pane: &str,
+        server: &str,
+        now_ms: u64,
+        wait: ContextWait,
+    ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+        read_context_with_wait(path, now_ms, wait, |connection| {
             BindingRows(connection).entry_by_pane(host, pane, server)
         })
     }
@@ -188,7 +231,24 @@ impl Storage {
         session: &str,
         now_ms: u64,
     ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
-        read_context(path, now_ms, |connection| {
+        Self::context_by_provider_session_until(
+            path,
+            harness,
+            session,
+            now_ms,
+            ContextWait::Default,
+        )
+    }
+
+    /// Shared provider-session projection bounded by the caller's hook or Digest worker wait.
+    pub fn context_by_provider_session_until(
+        path: &Path,
+        harness: &str,
+        session: &str,
+        now_ms: u64,
+        wait: ContextWait,
+    ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+        read_context_with_wait(path, now_ms, wait, |connection| {
             sole_entry(
                 connection,
                 "SELECT b.identity_id FROM bindings b JOIN identities i ON i.id = b.identity_id
@@ -198,6 +258,24 @@ impl Storage {
                    AND p.provider_session_id = ?1 AND p.remembered_harness = ?2 LIMIT 2",
                 (session, harness),
             )
+        })
+    }
+
+    /// Reads the bounded pane context snapshot on an already-open connection
+    /// (for example, immediately after a hook transaction commits on it).
+    pub fn context_by_pane_on_open(
+        &mut self,
+        host: HostKind,
+        pane: &str,
+        server_id: &str,
+        now_ms: u64,
+    ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+        let transaction = self
+            .connection_mut()?
+            .transaction()
+            .map_err(|error| classify(error, "Begin context read snapshot"))?;
+        read_context_in_transaction(&transaction, now_ms, |connection| {
+            BindingRows(connection).entry_by_pane(host, pane, server_id)
         })
     }
 
@@ -251,16 +329,48 @@ fn read_context(
     now_ms: u64,
     select: impl FnOnce(&Connection) -> Result<Option<BindingEntry>, StorageError>,
 ) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+    read_context_with_wait(path, now_ms, ContextWait::Default, select)
+}
+
+fn read_context_with_wait(
+    path: &Path,
+    now_ms: u64,
+    wait_mode: ContextWait,
+    select: impl FnOnce(&Connection) -> Result<Option<BindingEntry>, StorageError>,
+) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+    let now = Instant::now();
+    if wait_mode.deadline().is_some_and(|deadline| now >= deadline) {
+        return Err(super::StorageError::new(
+            super::StorageErrorCode::Busy,
+            "Hook context budget is exhausted",
+        )
+        .hook_allowance_spent());
+    }
+    let wait = wait_mode.duration(now);
+    let allowance = now + wait;
     let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| classify(error, "Open context storage read-only"))?;
     connection
-        .busy_timeout(Duration::from_millis(100))
+        .busy_timeout(wait)
         .map_err(|error| classify(error, "Bound context storage wait"))?;
-    let transaction = connection
-        .transaction()
-        .map_err(|error| classify(error, "Begin context read snapshot"))?;
-    super::migrations::require_current(&transaction)?;
-    let Some(entry) = select(&transaction)? else {
+    #[cfg(test)]
+    super::hook_queue::first_busy::install(&connection);
+    let result = (|| {
+        let transaction = connection
+            .transaction()
+            .map_err(|error| classify(error, "Begin context read snapshot"))?;
+        read_context_in_transaction(&transaction, now_ms, select)
+    })();
+    result.map_err(|error| super::spent_allowance(error, allowance))
+}
+
+fn read_context_in_transaction(
+    transaction: &Connection,
+    now_ms: u64,
+    select: impl FnOnce(&Connection) -> Result<Option<BindingEntry>, StorageError>,
+) -> Result<Option<IdentityContextSnapshot>, StorageError> {
+    super::migrations::require_current(transaction)?;
+    let Some(entry) = select(transaction)? else {
         return Ok(None);
     };
     let role = transaction
@@ -275,8 +385,8 @@ fn read_context(
         .as_ref()
         .is_some_and(|text| text.chars().count() > ROLE_LIMIT);
     let role = role.map(|text| text.chars().take(ROLE_LIMIT).collect());
-    let requests = requests(&transaction, &entry.identity.id, now_ms)?;
-    let preferences = BindingRows(&transaction).session_preferences(&entry.identity.id)?;
+    let requests = requests(transaction, &entry.identity.id, now_ms)?;
+    let preferences = BindingRows(transaction).session_preferences(&entry.identity.id)?;
     Ok(Some(IdentityContextSnapshot {
         entry,
         preferences,
