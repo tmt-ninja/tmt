@@ -9,7 +9,7 @@ import { runPackedCommand } from './packed-command.mjs';
 const SHA = /^[a-f0-9]{40}$/;
 
 /** Shared bounded catalogue; only readCutMetadata attests trusted draft visibility. */
-export function readReleaseCatalog({ repository, token }, execute = runPackedCommand) {
+export function readReleaseCatalog({ repository, token, sleep }, execute = runPackedCommand) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? ''))
     throw new Error('Release catalogue needs a repository.');
   let requests = 0;
@@ -21,22 +21,46 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
   // are admitted. The live caller separately retains its 177 normal-call cap
   // across catalogue and mutations; the bridge reader has its own 150-second deadline.
   const deadline = Date.now() + 150_000;
+  const budgetFailure = new Error('Cut REST budget exceeded.');
   const get = (page) => {
-    if (++requests > requestAllowance || Date.now() >= deadline)
-      throw new Error('Cut REST budget exceeded.');
-    const output = execute(
-      'gh',
-      [
-        'api',
-        `repos/${repository}/releases?per_page=100&page=${page}`,
-        '--include',
-        '--method',
-        'GET',
-      ],
+    const output = retryReleaseRead(
+      () => {
+        if (++requests > requestAllowance || Date.now() >= deadline) throw budgetFailure;
+        return execute(
+          'gh',
+          [
+            'api',
+            `repos/${repository}/releases?per_page=100&page=${page}`,
+            '--include',
+            '--method',
+            'GET',
+          ],
+          {
+            cwd: process.cwd(),
+            env: { ...process.env, ...(token ? { GH_TOKEN: token } : {}) },
+            timeoutMs: Math.min(10_000, deadline - Date.now()),
+          }
+        );
+      },
       {
-        cwd: process.cwd(),
-        env: { ...process.env, ...(token ? { GH_TOKEN: token } : {}) },
-        timeoutMs: Math.min(10_000, deadline - Date.now()),
+        label: `Cut REST page ${page}`,
+        retryIf: (failure) => {
+          if (failure === budgetFailure || Date.now() >= deadline) return false;
+          const detail = [
+            failure?.code,
+            failure?.message,
+            failure?.cause?.stderr,
+            failure?.cause?.stdout,
+          ]
+            .filter((value) => typeof value === 'string')
+            .join('\n');
+          const status = /\bHTTP(?:\/[\d.]+)?\s+([45]\d\d)\b/i.exec(detail);
+          if (status) return status[1].startsWith('5');
+          return /ECONNRESET|ETIMEDOUT|connection reset|socket hang up|timed? out|timeout/i.test(
+            detail
+          );
+        },
+        sleep,
       }
     );
     const boundary = /\r?\n\r?\n/.exec(output);
@@ -190,14 +214,14 @@ export function createReleaseReader({ repository, token, sleep }, execute = runP
 }
 
 export function readCutMetadata(
-  { repository, cut, token, draftVisibility },
+  { repository, cut, token, draftVisibility, sleep },
   execute = runPackedCommand
 ) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? '') || !SHA.test(cut ?? ''))
     throw new Error('Cut metadata needs a repository and exact main cut SHA.');
   if (!token || draftVisibility !== 'trusted')
     throw new Error('Draft visibility requires the trusted contents-write metadata reader.');
-  const releases = readReleaseCatalog({ repository, token }, execute);
+  const releases = readReleaseCatalog({ repository, token, sleep }, execute);
   return {
     schema: 1,
     repository,

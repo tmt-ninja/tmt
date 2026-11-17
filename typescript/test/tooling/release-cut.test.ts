@@ -703,6 +703,7 @@ describe('bounded REST-only state acquisition', () => {
     cut: sha(2),
     token: 'private-fixture-token',
     draftVisibility: 'trusted',
+    sleep: vi.fn(),
   };
   const release = (id: number) => ({
     id,
@@ -886,6 +887,41 @@ describe('bounded REST-only state acquisition', () => {
     expect(() => readCutMetadata(input, f.execute)).toThrow('page allowance');
     expect(f.execute).toHaveBeenCalledTimes(1);
   });
+  it.each(['HTTP 503: upstream connect error', 'read ECONNRESET', 'spawnSync gh ETIMEDOUT'])(
+    'recovers a transient middle-page failure (%s) without skipping boundary checks',
+    (message) => {
+      const sleep = vi.fn();
+      const f = api(250, (_rows, page, call) => {
+        if (page === 2 && call === 3)
+          throw Object.assign(new Error('Packed command failed'), {
+            cause: { status: 1, stderr: message, stdout: '' },
+          });
+      });
+      expect(readCutMetadata({ ...input, sleep }, f.execute).releases).toEqual(f.rows);
+      expect(sleep.mock.calls).toEqual([[1000]]);
+      expect(
+        f.execute.mock.calls.map(([, args]) =>
+          Number(new URL(`https://fixture/${args[1]}`).searchParams.get('page'))
+        )
+      ).toEqual([1, 3, 2, 2, 3, 1]);
+    }
+  );
+  it.each([
+    { message: 'HTTP 503: upstream connect error', calls: 5, delays: [1000, 2000] },
+    { message: 'HTTP 403: connection reset is not a server status', calls: 3, delays: [] },
+  ])(
+    'fails closed on a persistent middle-page failure ($message)',
+    ({ message, calls, delays }) => {
+      const sleep = vi.fn();
+      const failure = new Error(message);
+      const f = api(250, (_rows, page) => {
+        if (page === 2) throw failure;
+      });
+      expect(() => readCutMetadata({ ...input, sleep }, f.execute)).toThrow(failure);
+      expect(f.execute).toHaveBeenCalledTimes(calls);
+      expect(sleep.mock.calls).toEqual(delays.map((delay) => [delay]));
+    }
+  );
   it('restarts the entire sweep after an insertion between pages', () => {
     const f = api(250, (rows, page, call) => {
       if (call === 3 && page === 2) rows.unshift(release(251));
@@ -956,21 +992,35 @@ describe('bounded REST-only state acquisition', () => {
     expect(() => readCutMetadata(input, f.execute)).toThrow('three attempts');
     expect(f.execute).toHaveBeenCalledTimes(9);
   });
-  it('shares the request budget across retries instead of resetting it', () => {
-    const f = api(6000, (rows, page) => {
-      if (page === 2) rows.unshift(release(rows.length + 1));
-    });
-    expect(() => readCutMetadata(input, f.execute)).toThrow('budget');
-    expect(f.execute.mock.calls.length).toBeLessThanOrEqual(180);
-  });
-  it('shares the time budget across attempts and calls', () => {
+  it.each([false, true])(
+    'shares the request budget across retries (page failure=%s)',
+    (transient) => {
+      const failed = new Set<number>();
+      const f = api(transient ? 10000 : 6000, (rows, page) => {
+        if (transient) {
+          if (page > 1 && page < 100 && !failed.has(page)) {
+            failed.add(page);
+            throw new Error('HTTP 503');
+          }
+        } else if (page === 2) rows.unshift(release(rows.length + 1));
+      });
+      expect(() => readCutMetadata(input, f.execute)).toThrow('budget');
+      expect(f.execute.mock.calls.length).toBeLessThanOrEqual(180);
+    }
+  );
+  it.each([false, true])('shares the time budget across attempts and calls (retry=%s)', (retry) => {
     const now = vi.spyOn(Date, 'now');
     now.mockReturnValue(0);
     const f = api(250, (_rows, _page, call) => {
-      if (call === 1) now.mockReturnValue(150_000);
+      if (call === 1) {
+        if (retry) throw new Error('HTTP 503');
+        now.mockReturnValue(150_000);
+      }
     });
+    const sleep = vi.fn(() => now.mockReturnValue(150_000));
     try {
-      expect(() => readCutMetadata(input, f.execute)).toThrow('budget');
+      expect(() => readCutMetadata({ ...input, sleep }, f.execute)).toThrow('budget');
+      expect(sleep).toHaveBeenCalledTimes(retry ? 1 : 0);
       expect(f.execute).toHaveBeenCalledTimes(1);
     } finally {
       now.mockRestore();
