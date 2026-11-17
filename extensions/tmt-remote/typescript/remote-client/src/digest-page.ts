@@ -8,6 +8,7 @@ import { compactCount, createSeriesChart, topLayers } from '@tmt/browser-ui/char
 import { pageLoading } from './page-loading.js';
 import {
   createDigestSource,
+  providerRecords,
   USAGE_RANGES,
   type DigestReport,
   type DigestSource,
@@ -17,6 +18,7 @@ import {
 import {
   exchange,
   providerGroups,
+  providerLabel,
   observedAgo,
   ranking,
   rankRows,
@@ -282,6 +284,17 @@ function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement
   groups.setAttribute('role', 'region');
   groups.setAttribute('aria-label', 'Provider allowances');
   const providers = providerGroups(doc);
+  if (!providers.length) {
+    node.append(
+      intro,
+      el(
+        'p',
+        'usage-note',
+        report.allowanceUnavailable ?? 'No weekly allowance observations have been reported.',
+      ),
+    );
+    return node;
+  }
   if (providers.length > 2) groups.dataset.many = '';
   for (const group of providers) {
     const host = el('div', 'digest-provider-group');
@@ -295,10 +308,7 @@ function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement
         el(
           'p',
           'usage-note',
-          group.source === 'claude'
-            ? 'Claude Code does not report its allowance to TMT.'
-            : (report.allowanceUnavailable ??
-                'No current seat has reported an active weekly window.'),
+          report.allowanceUnavailable ?? 'No current seat has reported an active weekly window.',
         ),
       );
     }
@@ -369,6 +379,96 @@ function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement
       ),
     );
   return node;
+}
+
+/** Cost never decides membership or order: tokens are the primary evidence. */
+function providerUsageCard(doc: UsageDocument): HTMLElement {
+  const records = providerRecords(doc);
+  if (!records)
+    return card('digest-provider-usage', 'Provider usage', [
+      el('p', 'usage-note', 'Provider usage is unavailable in this report.'),
+    ]);
+  const rest = doc.usage.providerUnattributed;
+  const restTokens =
+    rest && Number.isSafeInteger(rest.input + rest.output) && rest.input + rest.output > 0
+      ? rest.input + rest.output
+      : 0;
+  const remainder = restTokens ? ` Driver unattributed: ${compactCount(restTokens)} tokens.` : '';
+  if (!records.length)
+    return card('digest-provider-usage', 'Provider usage', [
+      el('p', 'usage-note', `No attributed provider usage was recorded in this range.${remainder}`),
+    ]);
+  const reasons: Record<string, string> = {
+    driver_model_attribution_unknown: 'Driver and model shares cannot be matched.',
+    model_attribution_unknown: 'Some input has no recorded model.',
+    no_price: 'A recorded model has no list price.',
+    unsafe_cost: 'The cost exceeds the supported number range.',
+    pricing_unavailable: 'The pricing basis or version was not reported.',
+    cost_evidence_invalid: 'The cost evidence could not be read.',
+  };
+  const rows = [...records].sort(
+    (a, b) =>
+      b.totals.input + b.totals.output - (a.totals.input + a.totals.output) ||
+      a.driver.localeCompare(b.driver),
+  );
+  const money = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6,
+  });
+  const grid = table(
+    ['Provider', 'Input', 'Output', 'Cached input', 'Input cost estimate (list price)', 'Coverage'],
+    rows.map((row) => {
+      const name = el('span', undefined, providerLabel(row.driver));
+      name.title = row.driver;
+      const cost = el(
+        'span',
+        row.inputCost ? ui.tableMono : undefined,
+        row.inputCost ? money.format(row.inputCost.usdMicros / 1_000_000) : 'Unavailable',
+      );
+      if (!row.inputCost)
+        cost.append(
+          el(
+            'span',
+            'usage-note',
+            ` — ${row.costUnavailable.map((reason) => (Object.hasOwn(reasons, reason) ? reasons[reason] : reason)).join(' ')}`,
+          ),
+        );
+      const coverage = row.partialSeats
+        ? `Partial (${row.partialSeats} ${row.partialSeats === 1 ? 'seat' : 'seats'})`
+        : 'Recorded';
+      const compact = el('span', ui.tableCompactMeta);
+      compact.append('Input estimate: ', cost.cloneNode(true), ` · ${coverage}`);
+      name.append(compact);
+      return [
+        name,
+        compactCount(row.totals.input),
+        compactCount(row.totals.output),
+        compactCount(row.totals.cached),
+        cost,
+        coverage,
+      ];
+    }),
+  );
+  const scroll = el('div', `${ui.tableScroll} digest-provider-usage-scroll`);
+  grid.dataset.roomy = '';
+  for (const row of grid.rows) {
+    row.cells[4]!.dataset.compactHide = '';
+    row.cells[5]!.dataset.compactHide = '';
+  }
+  scroll.tabIndex = 0;
+  scroll.setAttribute('role', 'region');
+  scroll.setAttribute('aria-label', 'Provider usage table');
+  scroll.append(grid);
+  const version = doc.pricing?.version;
+  const note = el(
+    'p',
+    'usage-note',
+    `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${typeof version === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(version) ? version : 'unavailable'}. Incomplete records are lower bounds.`,
+  );
+  note.append(remainder);
+  return card('digest-provider-usage', 'Provider usage', [scroll, note]);
 }
 
 function tokensCard(doc: UsageDocument, state: DigestViewState): HTMLElement {
@@ -814,6 +914,7 @@ export function digestPage(
     state.dispose.splice(0).forEach((dispose) => dispose());
     panel!.replaceChildren(
       allowanceRow(report, state),
+      providerUsageCard(doc),
       tokensCard(doc, state),
       exchangeCard(doc, state),
       coverageCard(),

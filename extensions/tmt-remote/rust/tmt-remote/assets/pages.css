@@ -567,9 +567,16 @@ body:not(:has(.tmt-ui-shell)) {
   overflow-x: auto;
   max-width: 100%;
 }
+.digest-provider-usage-scroll:focus-visible,
 .digest-messages-scroll:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+#digest-provider-usage td:nth-child(n + 5) {
+  font-family: var(--tmt-ui-font-body);
+}
+#digest-provider-usage td:last-child {
+  white-space: nowrap;
 }
 .digest-messages-edge {
   position: absolute;

@@ -2,7 +2,9 @@
 //! Nothing here reads Core, a store or the clock, and missing evidence is
 //! carried as unavailable, never as zero.
 
-use crate::core::Error;
+mod providers;
+
+use crate::{core::Error, pricing::Resolved};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -183,6 +185,7 @@ pub struct Seat {
     /// None when Core attributed none of the total to models; otherwise rows that
     /// sum to at most the total, the rest being unattributed.
     by_model: Option<Vec<ModelTotals>>,
+    by_driver: Option<Vec<providers::DriverTotals>>,
     series: Vec<Point>,
     covered_ms: u64,
     window_ms: u64,
@@ -486,6 +489,7 @@ pub fn usage(
             label,
             totals: tokens,
             by_model: models(bucket, tokens)?,
+            by_driver: providers::read(bucket, tokens)?,
             series: points,
             covered_ms: number(&bucket["coveredMs"])
                 .ok_or_else(|| invalid("consumption bucket"))?,
@@ -895,6 +899,7 @@ pub struct Report {
     pub usage: Usage,
     pub exchange: Option<Value>,
     pub warnings: Vec<Value>,
+    pub pricing: Resolved,
 }
 
 /// The account's credit balance over the window: one point per series bucket in
@@ -943,7 +948,11 @@ fn credits(seats: &[Seat]) -> Value {
 }
 
 pub fn document(report: &Report) -> Result<Value, Error> {
-    let (usage, limits, unavailable) = usage_sections(&report.usage, report.as_of_ms)?;
+    let (mut usage, limits, unavailable) = usage_sections(&report.usage, report.as_of_ms)?;
+    let (providers, unattributed) =
+        providers::section(&report.usage.seats, report.pricing.table(), report.as_of_ms)?;
+    usage["providers"] = json!(providers);
+    usage["providerUnattributed"] = unattributed.json();
     Ok(json!({
         "version": 1, "observedAtMs": report.as_of_ms, "since": report.since,
         "window": report.usage.window
@@ -952,6 +961,7 @@ pub fn document(report: &Report) -> Result<Value, Error> {
         "limits": limits,
         "limitsUnavailable": unavailable,
         "credits": credits(&report.usage.seats),
+        "pricing": report.pricing.document(),
         "exchange": report.exchange,
         "warnings": report.warnings,
     }))

@@ -153,6 +153,10 @@ export function exchange(doc: UsageDocument): Exchange | null {
 
 const PROVIDER_LABELS: Record<string, string> = { claude: 'Claude', codex: 'OpenAI' };
 
+export function providerLabel(provider: string): string {
+  return Object.hasOwn(PROVIDER_LABELS, provider) ? PROVIDER_LABELS[provider]! : provider;
+}
+
 /** One hue per source, shared by its meter and history. */
 export function providerStyle(provider: string): number {
   return provider === 'claude' ? 1 : provider === 'codex' ? 2 : 0;
@@ -215,7 +219,7 @@ export function allowance(doc: UsageDocument): AllowanceRow[] {
       key: windowKey(limit),
       source: limit.provider,
       provider:
-        (PROVIDER_LABELS[limit.provider] ?? limit.provider) +
+        providerLabel(limit.provider) +
         ((accounts.get(limit.provider)?.size ?? 0) > 1
           ? ` · ${limit.account?.label ?? 'unknown account'}`
           : ''),
@@ -293,7 +297,7 @@ export interface ProviderGroup {
 /** Most recent current-seat observation leads; retired-only windows remain in the disclosure. */
 export function providerGroups(doc?: UsageDocument): ProviderGroup[] {
   const views = doc ? providers(doc) : [];
-  const sources = [...new Set(['codex', 'claude', ...views.map((view) => view.source)])];
+  const sources = [...new Set(views.map((view) => view.source))];
   return sources.flatMap((source) => {
     const windows = views.filter((view) => view.source === source);
     // One group per account only where the provider has several; views arrive newest first, so
@@ -308,7 +312,7 @@ export function providerGroups(doc?: UsageDocument): ProviderGroup[] {
       return {
         id: account === undefined ? source : `${source}-${account ?? 'unknown'}`,
         source,
-        label: account === undefined ? (PROVIDER_LABELS[source] ?? source) : own[0]!.provider,
+        label: account === undefined ? providerLabel(source) : own[0]!.provider,
         primary,
         other: own.filter((view) => view !== primary),
       };

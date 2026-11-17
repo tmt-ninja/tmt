@@ -4,8 +4,8 @@
 joins Core's public consumption, limit and exchange documents into one read for
 people and spreadsheets. `--since` defaults to `24h`; exactly one output is chosen.
 It is read-only: Digest keeps no usage store, collector or scheduler for it, and it
-never changes settings or delivers messages. Every figure comes from Core, so the
-report adds no evidence of its own.
+never changes settings or delivers messages. Token figures come from Core; input
+cost estimates use Digest's existing price-table owner and add no usage evidence.
 
 ## Reads
 
@@ -24,6 +24,9 @@ with Core's usual 15 seconds and 1 MiB per call:
    Windows above an hour read Core's [30-day rollup](../../../contracts/extension-api.md#thirty-day-rollup),
    so `window.toMs` is the last completed five-minute boundary and up to five minutes
    of the newest activity are not in it. Totals are Core's, never a sum of buckets.
+5. `storage.root` locates Digest's optional validated price cache. This read never
+   fetches, refreshes or writes it; an absent/unusable cache or root read uses the
+   embedded table. Status remains the owner of price-file refreshes.
 
 ## Document
 
@@ -70,6 +73,32 @@ with Core's usual 15 seconds and 1 MiB per call:
   (`claude-*`), `gpt` (`gpt-*`), `other`, and `unattributed` for totals Core could
   not attribute. `seats` counts identities contributing; `partialSeats` those whose
   coverage is not complete. The family is a presentation label, not a provider claim.
+- `usage.providers[]`: recorded driver shares, ascending by `driver`, from Core's
+  optional `byDriver` in the totals read. Each row contains `driver`, `totals`
+  `{input,output,cached}`, contributing `seats` (sorted UUIDs), `partialSeats`,
+  `inputCost` (null or `{usdMicros}`), and sorted `costUnavailable` reason ids.
+  Drivers with no recorded input/output share have no row. Unknown driver ids
+  remain distinct; neither current seat state, model families nor allowance windows
+  establish a driver. `usage.providerUnattributed` contains the token remainder
+  Core could not attribute to a driver, including retained older records. Missing
+  or failed usage reads remain in `usage.unavailable`, never zero provider rows.
+- `pricing`: the one validated cached-or-built-in pricing snapshot used by the
+  provider estimates, with the same version, origin, basis and model-rate fields
+  as [Digest status pricing](digest-v1.md#pricing-file). Label estimates exactly
+  **Input cost estimate (list price)** and show the table version. They value
+  recorded input as uncached standard base input, including cached input once;
+  output is not priced. They are not bills or money saved. Prices are applied to
+  model-attributed input, never to an inferred latest model. A seat's aggregate
+  can be priced for a driver only when one driver covers all its token totals:
+  independent driver/model splits do not establish a joint attribution.
+  Incomplete recording stays a lower bound, indicated by `partialSeats`.
+  An unmatchable driver/model split gives `driver_model_attribution_unknown`;
+  missing model input gives `model_attribution_unknown`; an unpriced model gives
+  `no_price`; unsafe valuation arithmetic gives `unsafe_cost`. Any such share
+  makes that provider's complete `inputCost` null, with the reasons preserved.
+  Supported quotes round per model to the nearest micro-dollar, half upward,
+  through the canonical pricing owner. Its explicit unbilled-model rule still
+  applies. Cost never determines provider membership or token ordering.
 - `limits[]`: account windows, deduplicated by `(provider, account key, windowMinutes, resetsAtMs)`
   across seats and buckets; the newest observation wins and windows are never summed.
   The report first reads Core's account-level `consumption.limits`

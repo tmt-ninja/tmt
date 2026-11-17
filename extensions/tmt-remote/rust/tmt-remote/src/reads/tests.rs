@@ -522,7 +522,11 @@ fn one_large_squad_is_cut_at_the_agent_limit() {
 fn digest_forwards_the_usage_document_unchanged_under_report() {
     let fake = Fake::new();
     let report = json!({"version": 1, "observedAtMs": 5, "since": "24h", "window": null,
-        "usage": {"seats": [], "unavailable": [], "lines": []}, "limits": [], "exchange": null});
+        "usage": {"seats": [], "unavailable": [], "lines": [], "providers": [
+            {"driver":"agy", "totals":{"input":100,"output":20,"cached":0},
+             "inputCost":{"usdMicros":150},"costUnavailable":[],"seats":[],"partialSeats":0}]},
+        "pricing":{"version":"2026-11-15","basis":"standard-base-input","origin":"built-in"},
+        "limits": [], "exchange": null});
     fake.answer(DIGEST, &report.to_string());
     let document = body(&fake.reads(), Target::Digest(Range::Day));
     assert_eq!(document["state"], "ok");

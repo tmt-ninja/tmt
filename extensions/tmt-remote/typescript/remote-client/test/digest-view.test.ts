@@ -204,7 +204,10 @@ it('titles limits from their source even on Claude-model seats, and never infers
   expect(
     allowance({ ...doc, limits: [{ ...doc.limits[0]!, provider: 'future-source' }] })[0]!.provider,
   ).toBe('future-source');
-  expect(providerGroups(doc).find((group) => group.source === 'claude')!.primary).toBeUndefined();
+  expect(
+    allowance({ ...doc, limits: [{ ...doc.limits[0]!, provider: 'constructor' }] })[0]!.provider,
+  ).toBe('constructor');
+  expect(providerGroups(doc).find((group) => group.source === 'claude')).toBeUndefined();
 });
 
 it('chooses the latest current-seat window and drops resets already passed', () => {
@@ -314,7 +317,7 @@ it('shows one entry per account when a provider has several, labelled by the acc
       ...allowance(doc).map((row) => row.provider),
     ]),
   ).not.toContain('0123456789ab');
-  expect(groups.find((group) => group.source === 'claude')!.id).toBe('claude');
+  expect(groups.find((group) => group.source === 'claude')).toBeUndefined();
 });
 
 it('names the windows that report no account when a provider has several', () => {

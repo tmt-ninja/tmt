@@ -3,7 +3,12 @@ import { digestPage } from '../src/digest-page.js';
 import { MOCK_NOW_MS, mockDocument } from '../src/digest-mock.js';
 import { sampleShape } from './digest-sample-source.js';
 import { createDigestSource as createSampleSource } from './digest-sample-source.js';
-import { createDigestSource, type DigestSource, type UsageRange } from '../src/digest-source.js';
+import {
+  createDigestSource,
+  type DigestSource,
+  type UsageRange,
+  type UsageDocument,
+} from '../src/digest-source.js';
 
 const params = new URLSearchParams(location.search);
 const sampleSource = createSampleSource();
@@ -13,10 +18,20 @@ declare global {
     digestRoute: AbortController;
     digestPending: UsageRange[];
     digestRelease(range: UsageRange): void;
+    digestProviderDocument: UsageDocument;
   }
 }
 
-if (params.has('delayed-range')) {
+if (params.has('provider-fixture')) {
+  const source: DigestSource = {
+    async report(range) {
+      const document = structuredClone(window.digestProviderDocument);
+      document.since = range;
+      return { range, sample: true, document, allowance: { ...document, since: '7d' } };
+    },
+  };
+  digestPage(source);
+} else if (params.has('delayed-range')) {
   window.digestRoute = new AbortController();
   window.digestPending = [];
   const releases = new Map<UsageRange, () => void>();
