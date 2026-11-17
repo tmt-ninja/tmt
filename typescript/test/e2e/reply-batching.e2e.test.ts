@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
-import { withE2EFixture, type E2EFixture } from './harness.js';
+import { processGroupSnapshot, withE2EFixture, type E2EFixture } from './harness.js';
 import { expectJsonResult } from './cli-assertions.js';
 
 function query<T>(fixture: E2EFixture, sql: string): T[] {
@@ -70,6 +70,17 @@ function transportTrace(fixture: E2EFixture) {
 }
 function submissions(fixture: E2EFixture) {
   return transportTrace(fixture).filter((line) => line.startsWith('submit.after.0|'));
+}
+function logTail(file: string): string {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const size = fs.fstatSync(fd).size;
+    const bytes = Buffer.alloc(Math.min(size, 4096));
+    const read = fs.readSync(fd, bytes, 0, bytes.length, Math.max(0, size - bytes.length));
+    return bytes.subarray(0, read).toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 async function gone(fixture: E2EFixture, pid: number) {
   await fixture.waitFor(
@@ -212,11 +223,47 @@ describe('reply notice batching and real key debounce', { concurrent: false }, (
           expect(expectJsonResult(await fixture.runJsonCli(['result', item.id]))).toMatchObject({
             response: `answer ${item.id}`,
           });
-        await fixture.waitFor(
-          () => states(fixture).every((row) => row.reply_state === 'sent'),
-          10000,
-          'batch delivered after fixed window with Unknown input'
-        );
+        try {
+          await fixture.waitFor(
+            () => states(fixture).every((row) => row.reply_state === 'sent'),
+            10000,
+            'batch delivered after fixed window with Unknown input'
+          );
+        } catch (cause) {
+          // Observe only this fixture, before cleanup changes its durable state.
+          const evidence: Record<string, unknown> = {};
+          try {
+            evidence.batches = batches(fixture).slice(0, 16);
+            evidence.notices = query(
+              fixture,
+              'SELECT batch_id, request_id, attempted FROM reply_notices LIMIT 128'
+            );
+            evidence.states = states(fixture).slice(0, 128);
+          } catch {
+            evidence.database = '[unavailable]';
+          }
+          try {
+            const directory = path.join(fixture.globalDir, 'reply-notice-workers');
+            evidence.workerLogs = fs
+              .readdirSync(directory)
+              .filter((name) => /^[0-9a-f-]{36}\.log$/.test(name))
+              .slice(0, 16)
+              .map((name) => ({ name, tail: logTail(path.join(directory, name)) }));
+          } catch {
+            evidence.workerLogs = '[unavailable]';
+          }
+          evidence.process = processGroupSnapshot(first.worker_pid);
+          // The worker does not persist its last probe; this is a fresh, read-only snapshot.
+          evidence.lastWorkerInputObservation = '[not recorded]';
+          try {
+            evidence.clientsAtTimeout = fixture
+              .tmux(['list-clients', '-F', '#{pane_id}|#{client_activity}'])
+              .slice(-4096);
+          } catch {
+            evidence.clientsAtTimeout = '[unavailable]';
+          }
+          throw new Error(`Reply batch timeout evidence: ${JSON.stringify(evidence)}`, { cause });
+        }
         expect(Date.now()).toBeGreaterThanOrEqual(first.due_ms);
         expect(submissions(fixture)).toHaveLength(1);
         await fixture.waitForEvent(

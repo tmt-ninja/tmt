@@ -356,4 +356,102 @@ mod tests {
             "failed startup must not return with a live or unreaped child"
         );
     }
+
+    // The test runner writes a preamble to stdout. Route only its stderr to the
+    // startup pipe and discard the preamble before executing the fixture.
+    const WORKER_SCRIPT: &str = "export TMT_DETACHED_FIXTURE_PID=\"$1\" TMT_DETACHED_FIXTURE_ACK=\"$2\"; exec \"$3\" --exact process::detached::tests::detached_worker_fixture --nocapture --test-threads=1 2>&1 >/dev/null";
+
+    #[test]
+    fn detached_worker_fixture() {
+        let Some(pid_file) = std::env::var_os("TMT_DETACHED_FIXTURE_PID") else {
+            return;
+        };
+        enter().unwrap();
+        fs::write(pid_file, std::process::id().to_string()).unwrap();
+        if std::env::var_os("TMT_DETACHED_FIXTURE_ACK").as_deref() == Some(OsStr::new("yes")) {
+            io::stderr().write_all(b"R").unwrap();
+        }
+        loop {
+            thread::park();
+        }
+    }
+
+    #[test]
+    fn timed_out_startup_kills_its_group_and_reaps_the_child() {
+        let directory = TestDirectory::new();
+        let pid_file = directory.path.join("timeout.pid");
+        let log = File::create(directory.path.join("timeout.log")).unwrap();
+        let error = start_acknowledged(
+            OsStr::new("/bin/sh"),
+            &[
+                "-c".into(),
+                WORKER_SCRIPT.into(),
+                "observer-fixture".into(),
+                pid_file.as_os_str().to_owned(),
+                "no".into(),
+                std::env::current_exe().unwrap().into_os_string(),
+            ],
+            log,
+            b"R",
+            false,
+            Instant::now() + Duration::from_secs(2),
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        let pid = fs::read_to_string(pid_file)
+            .unwrap()
+            .parse::<i32>()
+            .unwrap();
+        use nix::sys::signal::kill;
+        use nix::unistd::Pid;
+        assert_eq!(
+            kill(Pid::from_raw(pid), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+        assert_eq!(
+            kill(Pid::from_raw(-pid), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+    }
+
+    #[test]
+    fn acknowledged_worker_killed_at_teardown_is_reaped() {
+        let directory = TestDirectory::new();
+        let pid_file = directory.path.join("acknowledged.pid");
+        let log = File::create(directory.path.join("acknowledged.log")).unwrap();
+        start(
+            OsStr::new("/bin/sh"),
+            &[
+                "-c".into(),
+                WORKER_SCRIPT.into(),
+                "observer-fixture".into(),
+                pid_file.as_os_str().to_owned(),
+                "yes".into(),
+                std::env::current_exe().unwrap().into_os_string(),
+            ],
+            log,
+        )
+        .unwrap();
+        let pid = fs::read_to_string(pid_file)
+            .unwrap()
+            .parse::<i32>()
+            .unwrap();
+        use nix::sys::signal::{Signal, kill};
+        use nix::unistd::Pid;
+        kill(Pid::from_raw(-pid), Signal::SIGKILL).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let process = kill(Pid::from_raw(pid), None);
+            let group = kill(Pid::from_raw(-pid), None);
+            if process == Err(nix::errno::Errno::ESRCH) && group == Err(nix::errno::Errno::ESRCH) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "owned worker or its group survived teardown"
+            );
+            thread::yield_now();
+        }
+    }
 }
