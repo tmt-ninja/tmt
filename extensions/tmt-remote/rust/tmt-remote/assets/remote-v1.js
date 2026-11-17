@@ -8337,7 +8337,7 @@ function providerUsageCard(doc) {
 			coverage
 		];
 	}));
-	const scroll = el$1("div", browserUiClasses.tableScroll);
+	const scroll = el$1("div", `${browserUiClasses.tableScroll} digest-provider-usage-scroll`);
 	grid.dataset.roomy = "";
 	for (const row of grid.rows) {
 		row.cells[4].dataset.compactHide = "";

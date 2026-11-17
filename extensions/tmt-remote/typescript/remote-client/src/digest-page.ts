@@ -451,7 +451,7 @@ function providerUsageCard(doc: UsageDocument): HTMLElement {
       ];
     }),
   );
-  const scroll = el('div', ui.tableScroll);
+  const scroll = el('div', `${ui.tableScroll} digest-provider-usage-scroll`);
   grid.dataset.roomy = '';
   for (const row of grid.rows) {
     row.cells[4]!.dataset.compactHide = '';

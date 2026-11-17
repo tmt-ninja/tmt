@@ -567,6 +567,7 @@ body:not(:has(.tmt-ui-shell)) {
   overflow-x: auto;
   max-width: 100%;
 }
+.digest-provider-usage-scroll:focus-visible,
 .digest-messages-scroll:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));

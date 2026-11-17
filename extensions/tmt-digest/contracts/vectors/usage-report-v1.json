@@ -1492,30 +1492,7 @@
                     "coveredMs": 1800000,
                     "complete": false,
                     "gap": true,
-                    "discontinuous": false,
-                    "rateLimits": {
-                      "provider": "codex",
-                      "observedAtMs": 1799998800000,
-                      "windows": [
-                        {
-                          "windowMinutes": 300,
-                          "usedPercent": 90.0,
-                          "resetsAtMs": 1799999460000
-                        },
-                        {
-                          "windowMinutes": 10080,
-                          "usedPercent": 55.0,
-                          "resetsAtMs": 1800086460000
-                        }
-                      ]
-                    },
-                    "credits": {
-                      "observedAtMs": 1799916600000,
-                      "balance": "119.75",
-                      "hasCredits": true,
-                      "unlimited": false
-                    },
-                    "serviceTier": "priority"
+                    "discontinuous": false
                   }
                 ]
               }
@@ -1756,8 +1733,7 @@
                   "input": 100,
                   "output": 20,
                   "cached": 0,
-                  "complete": false,
-                  "serviceTier": "priority"
+                  "complete": false
                 }
               ],
               "coverage": {
@@ -1934,19 +1910,6 @@
           {
             "provider": "codex",
             "windowMinutes": 300,
-            "resetsAtMs": 1799999460000,
-            "usedPercent": 90.0,
-            "observedAtMs": 1799998800000,
-            "elapsedPercent": null,
-            "paceDeltaPoints": null,
-            "stale": true,
-            "seats": [
-              "10000000-0000-4000-8000-000000000003"
-            ]
-          },
-          {
-            "provider": "codex",
-            "windowMinutes": 300,
             "resetsAtMs": 1800003660000,
             "usedPercent": 40.0,
             "observedAtMs": 1799999400000,
@@ -1967,14 +1930,17 @@
             "paceDeltaPoints": -25.71,
             "stale": false,
             "seats": [
-              "10000000-0000-4000-8000-000000000002",
-              "10000000-0000-4000-8000-000000000003"
+              "10000000-0000-4000-8000-000000000002"
             ]
           }
         ],
         "limitsUnavailable": [
           {
             "line": "claude",
+            "reason": "not_observed"
+          },
+          {
+            "line": "other",
             "reason": "not_observed"
           }
         ],
@@ -1983,13 +1949,12 @@
             {
               "fromMs": 1799913600000,
               "toMs": 1799917200000,
-              "balance": "119.75",
-              "observedAtMs": 1799916600000,
+              "balance": "120.5",
+              "observedAtMs": 1799916000000,
               "hasCredits": true,
               "unlimited": false,
               "serviceTiers": [
-                "default",
-                "priority"
+                "default"
               ]
             },
             {

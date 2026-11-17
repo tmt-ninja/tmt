@@ -53,6 +53,7 @@ test('provider usage renders native records independently of prices and allowanc
         ),
       ).toBeLessThanOrEqual(0);
       await card.getByRole('region').focus();
+      await expect(card.getByRole('region')).toHaveCSS('outline-style', 'solid');
       const file = info.outputPath(`provider-usage-${width}-${colorScheme}.png`);
       await page.screenshot({ path: file, fullPage: true, animations: 'disabled' });
       await info.attach(`provider-usage-${width}-${colorScheme}`, {
@@ -80,8 +81,27 @@ test('provider usage renders native records independently of prices and allowanc
   await expect(card.locator('tbody tr')).toHaveCount(4);
   await expect(card).toContainText('The pricing basis or version was not reported.');
   await page.evaluate(() => {
-    window.digestProviderDocument.usage.providers = [];
-    window.digestProviderDocument.limits = [];
+    const doc = window.digestProviderDocument;
+    Object.assign(doc.usage, {
+      seats: [],
+      unavailable: [],
+      lines: [],
+      providers: [],
+      providerUnattributed: { input: 0, output: 0, cached: 0 },
+    });
+    Object.assign(doc, {
+      limits: [],
+      limitsUnavailable: [],
+      window: null,
+      credits: null,
+      exchange: {
+        sinceMs: doc.observedAtMs - 86_400_000,
+        observedAtMs: doc.observedAtMs,
+        pairs: [],
+        bySender: [],
+        byRecipient: [],
+      },
+    });
   });
   await page.getByRole('tab', { name: '7d', exact: true }).click();
   await expect(card).toContainText('No attributed provider usage was recorded');
