@@ -14,53 +14,58 @@ import {
   Sun,
   UserRound,
 } from "lucide-react";
+import { useStrings } from "../lang/useStrings";
 import { themeAtom } from "../state/theme";
 import { SiteHeader, SiteFooter } from "../shared/SiteChrome.js";
 import { landingChrome } from "../shared/landing-chrome.js";
 import "./colab-landing.css";
 
-const features = [
-  { id: "annotate", number: "01", label: "Annotate" },
-  { id: "agents", number: "02", label: "Talk to agents" },
-  { id: "collaborate", number: "03", label: "Write together" },
-  { id: "organize", number: "04", label: "Organize work" },
-] as const;
+// The feature sections, in order; their words are `colabLanding.features` in the strings.
+const features = ["annotate", "agents", "collaborate", "organize"] as const;
+const featureVisuals = {
+  annotate: AnnotationVisual,
+  agents: AgentsVisual,
+  collaborate: CollaborationVisual,
+  organize: OrganizationVisual,
+};
 
-const backendGuides = {
-  local: {
-    label: "Local",
-    status: "Available",
-    commandLabel: "RUN ON YOUR MACHINE",
-    command: "tmt colab serve",
-    note: "Open a local page and pair a new browser when prompted.",
-    capabilities: ["Available", "Title, label, author", "Not yet", "Not yet"],
-  },
-  firestore: {
-    label: "Firestore",
-    status: "Hosted entry in progress",
-    commandLabel: "READ-ONLY DEPLOYMENT PLAN",
-    command:
-      "tmt remote deploy firestore --project YOUR_PROJECT --region YOUR_REGION --sign-in anonymous --json",
-    note: "Inspect the exact plan first. When hosted Colab is ready, review it, rerun with --authorize PLAN_DIGEST_PREFIX, then pair each browser.",
-    capabilities: ["In progress", "In progress", "Not yet", "Not yet"],
-  },
-  cloudflare: {
-    label: "Cloudflare",
-    status: "Planned",
-    commandLabel: "DEPLOYMENT",
-    command: null,
-    note: "The Cloudflare backend and its deployment command are planned, not available yet.",
-    capabilities: ["Planned", "Planned", "Not yet", "Not yet"],
-  },
-  own: {
-    label: "Your own provider",
-    status: "Developer path",
-    commandLabel: "START SELF-HOSTED",
-    command: "tmt colab serve",
-    note: "One command runs your page locally. A custom Remote backend needs an adapter and conformance checks; hosted setup is still a developer path.",
-    capabilities: ["Not wired yet", "Not wired yet", "Not yet", "Not yet"],
-  },
+// Each backend's command; its words are `colabLanding.deploy.backends` in the strings. The
+// Firestore command only prints the deployment plan: `tmt remote deploy firestore --help`.
+const backendCommands = {
+  local: "tmt colab serve",
+  firestore:
+    "tmt remote deploy firestore --project <project-id> --region <region> --defaults --json",
+  cloudflare: null,
+  own: "tmt colab serve",
 } as const;
+type Backend = keyof typeof backendCommands;
+
+/** Copy with one highlighted phrase: the words before it, the phrase, and the words after it. */
+function Highlighted({
+  copy,
+  className,
+}: {
+  copy: { before: string; highlight: string; after: string };
+  className: string;
+}) {
+  return (
+    <>
+      {copy.before}
+      <mark className={className}>{copy.highlight}</mark>
+      {copy.after}
+    </>
+  );
+}
+
+/** A title whose lines are separated by a newline in the strings. */
+function Lines({ text }: { text: string }) {
+  return text.split("\n").map((line, index) => (
+    <span key={line}>
+      {index > 0 && <br />}
+      {line}
+    </span>
+  ));
+}
 
 function DemoHeader({ title, end }: { title: string; end?: string }) {
   return (
@@ -363,22 +368,19 @@ function OrganizationVisual() {
   );
 }
 
+// The install commands, in order; their labels are `colabLanding.install.steps` in the strings.
 const install = [
-  {
-    label: "Install TMT",
-    command: "curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh",
-  },
-  { label: "Add Colab", command: "tmt extension install colab --skills" },
-  { label: "Open Colab", command: "tmt colab serve" },
-  {
-    label: "Create a page",
-    command: 'tmt colab page create --title "Launch plan" --layout column',
-  },
+  "curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh",
+  "tmt extension install colab --skills",
+  "tmt colab serve",
+  'tmt colab page create --title "Launch plan" --layout column',
 ];
 
 export function ColabLanding() {
-  const [backend, setBackend] = useState<keyof typeof backendGuides>("local");
-  const selectedBackend = backendGuides[backend];
+  const { colabLanding: words } = useStrings();
+  const [backend, setBackend] = useState<Backend>("local");
+  const selectedBackend = words.deploy.backends[backend];
+  const selectedCommand = backendCommands[backend];
   const chrome = landingChrome("~/colab");
   const [theme, setTheme] = useAtom(themeAtom);
   return (
@@ -386,7 +388,7 @@ export function ColabLanding() {
       <SiteHeader config={chrome}>
         <button
           type="button"
-          aria-label="Change theme"
+          aria-label={words.changeTheme}
           onClick={() => setTheme(theme === "light" ? "dark" : "light")}
         >
           {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
@@ -396,22 +398,21 @@ export function ColabLanding() {
       <main>
         <section className="cl-hero" aria-labelledby="cl-hero-title">
           <div className="cl-hero-copy">
-            <p className="cl-overline">SELF-HOSTED PAGES FOR PEOPLE AND AGENTS</p>
+            <p className="cl-overline">{words.overline}</p>
             <h1 id="cl-hero-title">
-              Annotate the work.
-              <br />
-              Bring your agents in.
+              <Lines text={words.title} />
             </h1>
             <p>
-              <span className="cl-hero-highlight">Select a point.</span> On a page you host, mention
-              TMT-connected agents and teammates; their replies stay with the work.
+              {words.intro.before}
+              <span className="cl-hero-highlight">{words.intro.highlight}</span>
+              {words.intro.after}
             </p>
             <div className="cl-hero-actions">
               <a className="cl-primary-link" href="#annotate">
-                Explore Colab <ArrowDown size={17} />
+                {words.explore} <ArrowDown size={17} />
               </a>
               <a className="cl-secondary-link" href="#install">
-                Install & use <ArrowRight size={16} />
+                {words.installAndUse} <ArrowRight size={16} />
               </a>
             </div>
           </div>
@@ -420,92 +421,57 @@ export function ColabLanding() {
           </div>
         </section>
 
-        <nav className="cl-feature-index" aria-label="Feature close-ups">
-          {features.map((feature) => (
-            <a key={feature.id} href={`#${feature.id}`}>
-              <span>{feature.number}</span>
-              <b>{feature.label}</b>
+        <nav className="cl-feature-index" aria-label={words.featureIndex}>
+          {features.map((id, index) => (
+            <a key={id} href={`#${id}`}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <b>{words.features[index].label}</b>
               <ArrowRight size={16} />
             </a>
           ))}
         </nav>
 
-        <section className="cl-feature" id="annotate" aria-labelledby="cl-annotate-title">
-          <div className="cl-feature-copy">
-            <span className="cl-feature-number">01 / 04</span>
-            <h2 id="cl-annotate-title">Start with a precise point.</h2>
-            <p>
-              <mark className="cl-copy-highlight">Select a sentence.</mark> Add an annotation and
-              keep the discussion attached to the work. The answer comes back to that same place.
-            </p>
-            <a href="#agents">
-              Next: talk to agents <ArrowRight size={16} />
-            </a>
-          </div>
-          <AnnotationVisual />
-        </section>
-        <section className="cl-feature" id="agents" aria-labelledby="cl-agents-title">
-          <div className="cl-feature-copy">
-            <span className="cl-feature-number">02 / 04</span>
-            <h2 id="cl-agents-title">
-              Talk to agents from the page.
-              <span className="cl-harness-heading">With your TMT-connected agents.</span>
-            </h2>
-            <p>
-              <mark className="cl-copy-highlight">Mention an agent and a teammate</mark> in one
-              annotation. With Remote, reach agents in another environment too.
-            </p>
-            <a href="#collaborate">
-              Next: write together <ArrowRight size={16} />
-            </a>
-          </div>
-          <AgentsVisual />
-        </section>
-        <section className="cl-feature" id="collaborate" aria-labelledby="cl-collaborate-title">
-          <div className="cl-feature-copy">
-            <span className="cl-feature-number">03 / 04</span>
-            <h2 id="cl-collaborate-title">Write together, live.</h2>
-            <p>
-              <mark className="cl-copy-highlight">The document updates as people work.</mark> Notes,
-              replies, and the latest version stay with the page.
-            </p>
-            <a href="#organize">
-              Next: organize work <ArrowRight size={16} />
-            </a>
-          </div>
-          <CollaborationVisual />
-        </section>
-        <section className="cl-feature" id="organize" aria-labelledby="cl-organize-title">
-          <div className="cl-feature-copy">
-            <span className="cl-feature-number">04 / 04</span>
-            <h2 id="cl-organize-title">Give the project a place.</h2>
-            <p>
-              <mark className="cl-copy-highlight">Collect plans, checklists, and decisions.</mark>{" "}
-              Use labels to find related pages again.
-            </p>
-            <a href="#install">
-              Next: get started <ArrowRight size={16} />
-            </a>
-          </div>
-          <OrganizationVisual />
-        </section>
+        {features.map((id, index) => {
+          const feature = words.features[index];
+          const Visual = featureVisuals[id];
+          const next = features[index + 1] ?? "install";
+          return (
+            <section key={id} className="cl-feature" id={id} aria-labelledby={`cl-${id}-title`}>
+              <div className="cl-feature-copy">
+                <span className="cl-feature-number">
+                  {String(index + 1).padStart(2, "0")} / {String(features.length).padStart(2, "0")}
+                </span>
+                <h2 id={`cl-${id}-title`}>
+                  {feature.title}
+                  {feature.harness && <span className="cl-harness-heading">{feature.harness}</span>}
+                </h2>
+                <p>
+                  <Highlighted copy={feature.copy} className="cl-copy-highlight" />
+                </p>
+                <a href={`#${next}`}>
+                  {feature.next} <ArrowRight size={16} />
+                </a>
+              </div>
+              <Visual />
+            </section>
+          );
+        })}
 
         <section className="cl-install" id="install" aria-labelledby="cl-install-title">
           <div className="cl-install-intro">
-            <span className="cl-feature-number">GET STARTED</span>
-            <h2 id="cl-install-title">One page is enough to begin.</h2>
+            <span className="cl-feature-number">{words.install.eyebrow}</span>
+            <h2 id="cl-install-title">{words.install.title}</h2>
             <p>
-              Install TMT and Colab. <mark className="cl-copy-highlight">Start a local page</mark>,
-              then pair each new browser when prompted.
+              <Highlighted copy={words.install.copy} className="cl-copy-highlight" />
             </p>
           </div>
           <ol className="cl-install-steps">
-            {install.map((step, index) => (
-              <li key={step.label}>
+            {install.map((command, index) => (
+              <li key={command}>
                 <span className="cl-install-number">{String(index + 1).padStart(2, "0")}</span>
                 <div>
-                  <h3>{step.label}</h3>
-                  <code>{step.command}</code>
+                  <h3>{words.install.steps[index]}</h3>
+                  <code>{command}</code>
                 </div>
               </li>
             ))}
@@ -513,16 +479,15 @@ export function ColabLanding() {
         </section>
         <section className="cl-deploy" id="deploy" aria-labelledby="cl-deploy-title">
           <div className="cl-deploy-intro">
-            <span className="cl-feature-number">HOST IT YOUR WAY</span>
-            <h2 id="cl-deploy-title">Start local. Plan for your team.</h2>
+            <span className="cl-feature-number">{words.deploy.eyebrow}</span>
+            <h2 id="cl-deploy-title">{words.deploy.title}</h2>
             <p>
-              <mark className="cl-copy-highlight">Host the page yourself.</mark> Start locally, then
-              explore the Remote options below.
+              <Highlighted copy={words.deploy.copy} className="cl-copy-highlight" />
             </p>
           </div>
           <div className="cl-deploy-details">
-            <div className="cl-backend-tabs" role="tablist" aria-label="Colab backend">
-              {(Object.keys(backendGuides) as (keyof typeof backendGuides)[]).map((key) => (
+            <div className="cl-backend-tabs" role="tablist" aria-label={words.deploy.backendTabs}>
+              {(Object.keys(backendCommands) as Backend[]).map((key) => (
                 <button
                   key={key}
                   type="button"
@@ -532,7 +497,7 @@ export function ColabLanding() {
                   aria-selected={backend === key}
                   onClick={() => setBackend(key)}
                 >
-                  {backendGuides[key].label}
+                  {words.deploy.backends[key].label}
                 </button>
               ))}
             </div>
@@ -544,23 +509,23 @@ export function ColabLanding() {
             >
               <div className="cl-deploy-command">
                 <span className="cl-overline">{selectedBackend.commandLabel}</span>
-                {selectedBackend.command ? (
-                  <code>{selectedBackend.command}</code>
+                {selectedCommand ? (
+                  <code>{selectedCommand}</code>
                 ) : (
-                  <p className="cl-deploy-unavailable">No command available yet.</p>
+                  <p className="cl-deploy-unavailable">{words.deploy.noCommand}</p>
                 )}
                 <p>{selectedBackend.note}</p>
                 {backend === "own" && (
                   <p>
-                    Read the{" "}
+                    {words.deploy.ownReferences.before}
                     <a href="https://github.com/pj-tmt/tmt/tree/main/.agents/skills/tmt-remote/references">
-                      Remote backend references
-                    </a>{" "}
-                    for the adapter and conformance guides, and the{" "}
+                      {words.deploy.ownReferences.backend}
+                    </a>
+                    {words.deploy.ownReferences.middle}
                     <a href="https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/skills/tmt-colab/SKILL.md">
-                      Colab agent skill
-                    </a>{" "}
-                    for page workflows.
+                      {words.deploy.ownReferences.skill}
+                    </a>
+                    {words.deploy.ownReferences.after}
                   </p>
                 )}
               </div>
@@ -570,27 +535,21 @@ export function ColabLanding() {
                 </caption>
                 <thead>
                   <tr>
-                    <th scope="col">Capability</th>
-                    <th scope="col">Colab status</th>
+                    <th scope="col">{words.deploy.capability}</th>
+                    <th scope="col">{words.deploy.colabStatus}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {["Realtime editing", "Page search", "Full-text search", "Vector search"].map(
-                    (capability, index) => (
-                      <tr key={capability}>
-                        <th scope="row">{capability}</th>
-                        <td>{selectedBackend.capabilities[index]}</td>
-                      </tr>
-                    ),
-                  )}
+                  {words.deploy.capabilities.map((capability, index) => (
+                    <tr key={capability}>
+                      <th scope="row">{capability}</th>
+                      <td>{selectedBackend.capabilities[index]}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-            <p className="cl-deploy-note">
-              Status here describes Colab features, not everything the underlying providers can
-              offer. Realtime editing means shared document updates; full-text and vector search are
-              not Colab features yet.
-            </p>
+            <p className="cl-deploy-note">{words.deploy.note}</p>
           </div>
         </section>
       </main>
