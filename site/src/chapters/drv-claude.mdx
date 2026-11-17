@@ -29,7 +29,7 @@ $ tmt run reviewer claude   # start Claude Code as "reviewer"
 $ tmt resume reviewer       # reopen reviewer's own conversation
 `}</Cmd>
 
-Setup adds three Claude Code hooks for tmt (session start, session end and prompt submit), and nothing else in your settings changes. The hooks never block Claude Code: if tmt is slow or missing, the session starts normally without the summary. `tmt setup claude --remove` takes them out again.
+Setup adds tmt's lifecycle, prompt, activity and turn-end hooks while preserving unrelated settings. The hooks never block Claude Code: if tmt is slow or missing, the session starts normally without the summary. `tmt setup claude --remove` takes them out again.
 
 If `CLAUDE_CONFIG_DIR` is set, tmt uses that folder for Claude's settings and skills, and reads transcripts there, instead of `~/.claude`. A relative path counts from the folder where you run tmt.
 
@@ -59,4 +59,4 @@ It needs Claude Code 2.1.285 or newer in the 2.x line. tmt checks before it star
 
 ### Usage counters
 
-`tmt setup claude --usage` adds a turn-end hook that records Claude's context size and the tokens its completed requests used; [Usage counters](/drivers#usage-counters) lists the fields. Claude Code doesn't state its context window, so `windowTokens` stays empty. Claude's counters start at the end of the conversation file when the hook first sees it, count each new request once, and never count earlier turns.
+On a new installation, `tmt setup claude` enables collection of Claude's context size and completed-request tokens by default. `--no-usage` disables collection and remembers that choice; `--usage` enables it. The turn-end hook records the values; [Usage counters](/drivers#usage-counters) lists the fields. Claude Code doesn't state its context window, so `windowTokens` stays empty. Claude's counters start at the end of the conversation file when the hook first sees it, count each new request once, and never count earlier turns.

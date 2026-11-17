@@ -1,60 +1,51 @@
+import { Cmd } from "../components/Cmd";
 import { Callout, Terms } from "../components/marks";
 
-Drivers teach tmt about a program it doesn't know yet.
-
-<Callout title="Planned.">
-  Today every driver is compiled into tmt, and a new one arrives by contributing to the tmt
-  repository. This chapter describes where drivers are going: separate packages that anyone can
-  publish. Herdr already runs this way: its driver ships with tmt and is approved on first use in a
-  Herdr pane. The protocol below may still change. The wire format is owned by
-  [contracts/driver-protocol-v1.md](https://github.com/tmt-ninja/tmt/blob/main/contracts/driver-protocol-v1.md).
-</Callout>
+Drivers teach tmt about a terminal host or an agent program. External host drivers work today; Herdr's driver ships with tmt. The [driver protocol](https://github.com/tmt-ninja/tmt/blob/main/contracts/driver-protocol-v1.md) defines the operations and wire format.
 
 ### Two kinds
 
 <Terms>
   <dt>host driver</dt>
   <dd>
-    Knows where agents live and how to type into them: addressing a pane, delivering input,
-    capturing output and switching focus. tmux is the built-in host driver, and Herdr is the first
-    external one.
+    Finds panes, captures output, delivers input and changes focus. tmux is built in; Herdr uses an
+    external executable.
   </dd>
   <dt>runtime driver</dt>
   <dd>
-    Knows one agent program: how to recognize it, which conversation a caller belongs to, and how it
-    starts, resumes and ends. Claude Code and Codex are built in.
+    Recognizes an agent, reads its hooks and plans its launch or resume. Claude Code, Codex, agy and
+    Pi have built-in runtime drivers.
   </dd>
 </Terms>
 
+<Callout title="External runtime drivers are not active yet.">
+  You can approve and list a runtime driver, and approval shows its declared write locations.
+  Recognition, launch, hooks and setup do not yet use external runtime drivers. Approval alone does
+  not replace a built-in driver.
+</Callout>
+
 ### A driver is a program
 
-A driver is an executable named `tmt-driver-<name>`. tmt runs it once per operation, as `tmt-driver-<name> __tmt-driver <protocol> <operation>`, with one JSON request on stdin, and reads one JSON answer from stdout: `{"ok": …}` or `{"error": {"code", "message"}}`. When it can't tell whether a paste reached the pane, the send counts as uncertain and nobody retries it. Each operation has a deadline and an output limit, so a stuck or chatty driver can't hold tmt up. Operations are coarse, one per delivery or lookup, and a spawn costs about 1.5 ms, less than one tmux command.
+An external driver is an executable. tmt calls it once per operation with a JSON request and reads one JSON answer. Implement the protocol's capabilities and the operations for your driver kind; follow its deadlines, size limits and error meanings. A send whose outcome is uncertain must not be retried automatically.
 
-The first call is always `capabilities`. It returns the protocol versions the driver speaks, its kind, name, version and the operations it implements. tmt uses the highest protocol both sides support, and keeps the previous protocol working for at least one release, so a driver doesn't have to update the day tmt does.
+Use the [protocol crate and conformance harness](https://github.com/tmt-ninja/tmt/tree/main/rust/crates/tmt-driver-protocol) when developing a driver. The shipped [Herdr driver](https://github.com/tmt-ninja/tmt/tree/main/drivers/herdr) is an external host implementation to read alongside the contract.
 
-The built-in drivers sit behind the same interface, so a driver you install and one that ships with tmt are treated alike.
+### Approve and inspect
 
-### What tmt keeps
+Run approval yourself in a terminal. Read the executable's declared capabilities before accepting:
 
-Driver output is untrusted input. tmt parses it with limits, checks every ID and target against its own rules, and cleans text before showing it. The decisions that need trust stay in tmt:
+<Cmd>{`
+$ tmt driver install ./tmt-driver-screen
+$ tmt driver ls
+$ tmt driver rm screen
+`}</Cmd>
 
-- **Binding verification.** tmt compares the evidence a driver returns; it never takes a driver's word that a caller is verified.
-- **Delivery safety.** Protecting `!`, staging the paste and Enter, and reporting an uncertain send.
-- **Storage.** A driver never opens tmt's database, and tmt never passes it data paths or tokens. That is a contract, not an operating-system guarantee, so tmt never relies on a driver behaving.
-- **Consent.** Changes to an agent's settings still go through `tmt setup`, after the user agrees.
+A third-party driver needs explicit approval. The shipped Herdr driver is the exception: a command that works with hosts, such as `tmt ls`, approves it on first use in a Herdr pane. Removing Herdr prevents automatic reapproval until you explicitly install it again.
 
-### Taking over from a built-in driver (planned)
+### Changes and removal
 
-A runtime driver will be able to take over a program a built-in driver already recognizes, by declaring a higher priority. That's how a community Claude Code driver with extra features will replace the built-in one. It will stay visible: install will list every built-in program the driver would take over, and `tmt driver ls` will show which driver handles which program. A driver won't be able to take a built-in driver's name, and two installed drivers won't be able to claim the same program; the user will remove one.
+If an approved executable is missing or changed, tmt reports it instead of trusting the old approval. A shipped driver update can reuse approval when its declared capabilities have not expanded. Removing a host driver keeps its bindings stored, but unavailable until the driver is approved again.
 
-### Rules every driver follows
+### Keep state in its owner
 
-- **Evidence, not claims.** A provider's session ID only correlates with an existing binding. It never creates an identity or moves one.
-- **Shared hosts are fenced.** When several conversations share one process, only an exact match counts. If you can't tell, say so instead of guessing.
-- **Hooks never block the agent.** They always exit successfully within their budget; on any failure the agent starts normally without context.
-- **A failed send says what happened:** not sent, uncertain, denied, or awaiting approval. "Uncertain" means input may have reached the agent. tmt never retries it automatically, and your driver shouldn't either.
-- **Persisted state stays current and small.** Only hook evidence updates it. It is dropped when the identity is removed, when the identity switches programs, on a version mismatch, or when the driver goes away. Never store transcripts, arguments or secrets.
-
-### Publish it
-
-Runtime drivers will be packaged and released like extensions, with their own version. Today `tmt driver install <path>` approves a host driver executable after showing what it will run. The protocol contract and a conformance suite will ship with the first external driver.
+Use the protocol's evidence and error responses rather than guessing whether a pane exists or input arrived. tmt verifies bindings and keeps identities and requests in its own storage. A driver must not open that database. Changes to agent settings belong to the user's consented setup flow.

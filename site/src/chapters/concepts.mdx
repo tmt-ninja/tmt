@@ -31,7 +31,11 @@ tmt records whether the agent in a binding is running. The optional pane badge s
 
 <States
   items={[
-    [<Badge name="reviewer" state="running" />, "Running.", "Messages are pasted into the pane."],
+    [
+      <Badge name="reviewer" state="running" />,
+      "Running.",
+      "Messages use the pane or an enrolled message channel.",
+    ],
     [
       <Badge name="reviewer" state="ended" />,
       "Ended.",

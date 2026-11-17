@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-claude.mdx
-sourceRevision: 44f7c122826138af7e784079ba61766762cba41f
+sourceRevision: 78d94d4f00d4275a078dd991357f9668a47d593b
 title: Claude Code
 ---
 
@@ -36,12 +36,12 @@ import { DriverCard } from "../../components/samples";
 <Mdx.h3 id="connect-it">接続する</Mdx.h3>
 
 <Cmd>{`
-$ tmt setup claude          # 変更する設定を正確に表示してから確認
-$ tmt run reviewer claude   # reviewer として Claude Code を起動
-$ tmt resume reviewer       # reviewer の会話を再開
+$ tmt setup claude          # shows the exact settings change, then asks
+$ tmt run reviewer claude   # start Claude Code as "reviewer"
+$ tmt resume reviewer       # reopen reviewer's own conversation
 `}</Cmd>
 
-設定時には、tmt 用の Claude Code hook を 3 つ追加します（セッション開始、セッション終了、プロンプト送信）。それ以外の設定は変わりません。hook が Claude Code を止めることはありません。tmt が遅い、または見つからない場合、セッションは概要なしで通常どおり開始します。`tmt setup claude --remove` で hook を削除できます。
+setup は tmt の lifecycle、prompt、activity、ターン終了の hook を追加し、無関係な設定を保ちます。hook が Claude Code を止めることはありません。tmt が遅い、または見つからない場合、セッションは概要なしで通常どおり開始します。`tmt setup claude --remove` で hook を削除できます。
 
 `CLAUDE_CONFIG_DIR` が設定されている場合、tmt は `~/.claude` の代わりにそのフォルダーを Claude の設定と skill に使い、会話の記録もそこから読み取ります。相対パスは、tmt を実行したフォルダーを基準にします。
 
@@ -60,7 +60,7 @@ tmt が認識しない理由でセッションが終了した場合、tmt はそ
 通常、tmt は agent のペインにリクエストを貼り付けて配信します。Claude Code では、起動時にメッセージチャネルを選ぶこともできます。
 
 <Cmd>{`
-$ tmt run --channel reviewer claude   # オプションは名前の前に置く。--resume とは併用しない
+$ tmt run --channel reviewer claude   # the option goes before the name; not with --resume
 `}</Cmd>
 
 Claude Code 2.x 系の 2.1.285 以降が必要です。tmt は起動前に確認します。古いバージョンや、起動方法を判断できないコマンドは拒否し、何も起動しません。チャネルを検証していない新しいビルドでは、stderr に通知を出して起動します。Claude も起動時に開発用チャネルについての警告を表示します。tmt がチャネルを追加するのはこの 1 回の起動だけで、Claude の設定は変えません。
@@ -71,4 +71,4 @@ Claude Code 2.x 系の 2.1.285 以降が必要です。tmt は起動前に確認
 
 <Mdx.h3 id="usage-counters">使用量カウンター</Mdx.h3>
 
-`tmt setup claude --usage` はターン終了時の hook を追加し、Claude のコンテキストのサイズと、完了したリクエストで使ったトークン数を記録します。フィールドは[使用量カウンター](/drivers#usage-counters)を参照してください。Claude Code はコンテキストウィンドウを示さないため、`windowTokens` は空のままです。Claude のカウンターは、hook が初めて会話ファイルを見た時点で、その末尾から記録を始めます。以後の各リクエストを 1 回だけ数え、それ以前のターンは数えません。
+新規インストールでは、`tmt setup claude` は Claude のコンテキストサイズと完了したリクエストの token の記録を既定で有効にします。`--no-usage` は記録を無効にして選択を保存し、`--usage` は有効にします。ターン終了 hook が値を記録します。フィールドは[使用量カウンター](/drivers#usage-counters)を参照してください。Claude Code はコンテキストウィンドウを示さないため、`windowTokens` は空のままです。Claude のカウンターは、hook が初めて会話ファイルを見た時点で、その末尾から記録を始めます。以後の各リクエストを 1 回だけ数え、それ以前のターンは数えません。

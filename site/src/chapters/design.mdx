@@ -15,7 +15,7 @@ Switch the example between light and dark, then Ready, Waiting and Stopped. Type
 
 <DesignPlayground />
 
-This is a **design example**, not a live Colab or Remote connection. Its labels stay in English to match the product vocabulary. Colab and Remote have their own shipped components; the reusable package tracked in [#1797](https://github.com/tmt-ninja/tmt/issues/1797) is **planned**. This example does not demonstrate pairing, permissions, Ask delivery or reconnect behavior. The accepted [component specification PR](https://github.com/tmt-ninja/tmt/pull/1798) records the inventory and extraction boundaries.
+This is a **design example**, not a live Colab or Remote connection. Its labels stay in English to match the product vocabulary. Colab and Remote use the shared `@tmt/browser-ui` package. Its [component guide](https://github.com/tmt-ninja/tmt/blob/main/design/browser-ui/README.md) lists the available entries and how products consume them. This example does not demonstrate pairing, permissions, Ask delivery or reconnect behavior.
 
 ### Principles
 
@@ -34,7 +34,7 @@ The command line's own token names (`accent`, `ok`, `warn`, `error`, `dim`, and 
 
 ### Surfaces
 
-Surfaces only exist on the web: a terminal always keeps its own background.
+These surface tokens describe browser backgrounds. Terminal colors follow the CLI and board theme rules.
 
 <TokenTable group="surface" />
 

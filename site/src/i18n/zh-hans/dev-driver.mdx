@@ -1,66 +1,54 @@
 ---
 source: site/src/chapters/dev-driver.mdx
-sourceRevision: 828b4342651ed3ff5147f3af6ac7616706bc38e0
-title: 构建 driver
+sourceRevision: 2f1c334ff6656d2ad4875d88c83a6720ca36f2d4
+title: 编写 driver
 ---
 
-import { components as Mdx } from "../../components/mdx";
+import { Cmd } from "../../components/Cmd";
 import { Callout, Terms } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
 
-driver 让 tmt 了解一个原本不认识的程序。
-
-<Callout title="计划中。">
-  目前 driver 都编译进 tmt，添加新的 driver 需要向 tmt
-  仓库贡献代码。本章介绍未来的方向：任何人都能发布的独立软件包。Herdr 已经采用这种方式：它的 driver
-  随 tmt 一起发布，在 Herdr 窗格中首次使用时会自动批准。下方协议仍可能变化。传输格式由
-  [contracts/driver-protocol-v1.md](https://github.com/tmt-ninja/tmt/blob/main/contracts/driver-protocol-v1.md)
-  定义。
-</Callout>
+driver 教 tmt 如何操作终端 host 或 agent 程序。外部 host driver 已可使用；Herdr 的 driver 随 tmt 提供。[driver 协议](https://github.com/tmt-ninja/tmt/blob/main/contracts/driver-protocol-v1.md)定义了操作和通信格式。
 
 <Mdx.h3 id="two-kinds">两种 driver</Mdx.h3>
 
 <Terms>
   <dt>host driver</dt>
-  <dd>
-    了解 agent 在哪里运行，以及如何向它们输入：定位窗格、投递输入、获取输出和切换焦点。tmux 是内置的
-    host driver，Herdr 是第一个外部 host driver。
-  </dd>
+  <dd>查找窗格、捕获输出、传递输入和切换焦点。tmux 已内置；Herdr 使用外部可执行文件。</dd>
   <dt>runtime driver</dt>
   <dd>
-    了解一种 agent 程序：如何识别它、调用者属于哪个会话，以及如何启动、恢复和结束。Claude Code 和
-    Codex 已内置。
+    识别 agent、读取其 hook，并规划启动或恢复。Claude Code、Codex、agy 和 Pi 都有内置 runtime
+    driver。
   </dd>
 </Terms>
 
+<Callout title="外部 runtime driver 尚未参与运行。">
+  你可以批准并列出 runtime driver；批准时会显示它声明的写入位置。识别、启动、hook 和 setup
+  尚未使用外部 runtime driver。仅批准它不会替换内置 driver。
+</Callout>
+
 <Mdx.h3 id="a-driver-is-a-program">driver 是一个程序</Mdx.h3>
 
-driver 是名为 `tmt-driver-<name>` 的可执行程序。tmt 每次操作运行它一次，形式为 `tmt-driver-<name> __tmt-driver <protocol> <operation>`。stdin 接收一个 JSON 请求，stdout 返回一个 JSON 答案：`{"ok": …}` 或 `{"error": {"code", "message"}}`。无法确定粘贴是否到达窗格时，这次发送就算不确定，任何一方都不会重试。每个操作都有时限和输出上限，因此卡住或输出过多的 driver 不会拖住 tmt。操作粒度较大，每次投递或查找调用一次。启动进程约需 1.5 ms，比一条 tmux 命令还短。
+外部 driver 是可执行文件。tmt 为每项操作调用它一次，传入一个 JSON 请求，再读取一个 JSON 回答。请实现协议中对应 driver 类型的能力和操作，遵守时限、大小限制和错误含义。结果不确定的发送不得自动重试。
 
-第一次调用始终是 `capabilities`。它返回 driver 支持的协议版本、类型、名称、版本和已实现的操作。tmt 使用双方都支持的最高协议版本，并让上一版协议至少再兼容一个发布版本，driver 不必在 tmt 更新当天就更新。
+开发 driver 时可使用[协议 crate 和一致性测试工具](https://github.com/tmt-ninja/tmt/tree/main/rust/crates/tmt-driver-protocol)。随附的 [Herdr driver](https://github.com/tmt-ninja/tmt/tree/main/drivers/herdr)是外部 host 的实现，可对照契约阅读。
 
-内置 driver 也使用相同的接口，因此安装的 driver 与随 tmt 发布的 driver 一视同仁。
+<Mdx.h3 id="approve-and-inspect">批准与检查</Mdx.h3>
 
-<Mdx.h3 id="what-tmt-keeps">tmt 保留的职责</Mdx.h3>
+请亲自在终端中批准。接受之前，先阅读可执行文件声明的能力：
 
-driver 输出是不可信输入。tmt 在限制内解析它，按自己的规则检查每个 ID 和目标，并在显示前清理文本。涉及信任的决定仍由 tmt 作出：
+<Cmd>{`
+$ tmt driver install ./tmt-driver-screen
+$ tmt driver ls
+$ tmt driver rm screen
+`}</Cmd>
 
-- **验证 binding。** tmt 比对 driver 返回的证据，不会仅凭 driver 声称就认定调用者已通过验证。
-- **投递安全。** 保护 `!`，安排粘贴和 Enter，并报告不确定的发送。
-- **存储。** driver 绝不打开 tmt 数据库，tmt 也不会向它传递数据路径或 token。这是协议约定，不是操作系统的保证，因此 tmt 绝不依赖 driver 自觉遵守规则。
-- **同意。** 修改 agent 设置仍须经用户同意，再通过 `tmt setup` 进行。
+第三方 driver 需要明确批准。随附的 Herdr driver 是例外：在 Herdr 窗格中首次运行 `tmt ls` 等操作 host 的命令时会自动批准。移除 Herdr 后，必须明确重新安装，才会再次获准使用。
 
-<Mdx.h3 id="taking-over-from-a-built-in-driver-planned">接管内置 driver（计划中）</Mdx.h3>
+<Mdx.h3 id="changes-and-removal">变更与移除</Mdx.h3>
 
-runtime driver 将能通过声明更高优先级，接管内置 driver 已能识别的程序。带有额外功能的社区 Claude Code driver 就能这样替换内置版本。接管关系会明确显示：安装时列出将接管的每个内置程序，`tmt driver ls` 也会显示各程序由哪个 driver 处理。driver 不能占用内置 driver 的名称。两个已安装的 driver 不能声明接管同一个程序，用户需要移除其中一个。
+已批准的可执行文件缺失或发生变化时，tmt 会报告问题，而不会继续信任旧批准。随附 driver 更新时，只要声明的能力没有扩大，就可沿用批准。移除 host driver 会保留其 binding，但再次批准 driver 之前无法使用。
 
-<Mdx.h3 id="rules-every-driver-follows">每个 driver 都要遵守的规则</Mdx.h3>
+<Mdx.h3 id="keep-state-in-its-owner">由负责的组件保存状态</Mdx.h3>
 
-- **依据证据，不凭声明。** 提供方的会话 ID 只用于关联已有 binding，绝不创建或移动 identity。
-- **共享 host 需要严格匹配。** 多个会话共用一个进程时，只接受精确匹配。无法确定时应明确说明，不要猜测。
-- **钩子绝不阻塞 agent。** 钩子总会在规定时限内成功退出。任何失败都应让 agent 正常启动，只是不带上下文。
-- **发送失败要说明情况**：未发送、不确定、被拒绝，或等待批准。“不确定”表示输入可能已到达 agent。tmt 从不自动重试，driver 也不应重试。
-- **持久状态保持最新且精简。** 只有钩子证据能更新它。移除 identity、identity 切换程序、版本不匹配或 driver 被移除时，都要丢弃状态。绝不存储会话记录、参数或秘密信息。
-
-<Mdx.h3 id="publish-it">发布</Mdx.h3>
-
-runtime driver 将像扩展一样打包和发布，拥有自己的版本。目前 `tmt driver install <path>` 会先展示将运行的内容，再由用户批准 host driver 可执行程序。协议约定和一致性测试套件将随第一个外部 driver 一起发布。
+请使用协议的证据和错误响应，不要猜测窗格是否存在或输入是否已送达。tmt 负责验证 binding，并在自己的存储中保存 identity 和请求。driver 不得打开该数据库。agent 设置的变更应由用户已同意的 setup 流程处理。

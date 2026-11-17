@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/start.mdx
-sourceRevision: 37ca87954daf2b8e4de195a01fbfa8dab6828e60
+sourceRevision: cb6bfff4d13d3ed364001767f443c082c4dee36b
 title: tmt 使用手册
 ---
 
@@ -27,7 +27,7 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 <Concepts />
 
-先从第 1 步的 talk、reply 和 receipt 开始。board、colab 和 meet 都以此为基础。你可以停在任意一步，已有的功能仍然可用。
+先从第 1 步的 talk、reply 和 receipt 开始。Board 和 Colab 都以此为基础。你可以停在任意一步，已有的功能仍然可用。
 
 <Journey />
 
@@ -79,9 +79,9 @@ $ firebase login
 
 将 `<project-id>` 和 `<region>` 替换为你的项目 ID 和选定区域。请在交互式终端中亲自运行：
 
-<Cmd>{`$ tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous`}</Cmd>
+<Cmd>{`$ tmt remote deploy firestore --project <project-id> --region <region> --defaults`}</Cmd>
 
-检查摘要中的账号、项目、区域、Security rules 和 Website files。在同一命令后添加 `--details`，可在询问前查看完整变更：
+`--defaults` 选择 `(default)` 数据库、新建 Web App、专用 Hosting 站点和匿名登录，不选择付费 Storage。检查摘要中的账号、项目、区域、Security rules 和 Website files。在同一命令后添加 `--details`，可在询问前查看完整变更：
 
 <Cmd>{`Deploy these changes to your Firebase project? [y/N]`}</Cmd>
 
@@ -106,7 +106,7 @@ $ tmt remote status --project <project-id> --layers --json
 
 <Mdx.h3 id="built-in-drivers">内置 driver</Mdx.h3>
 
-tmt 自带大多数人需要的 driver，无需另外安装。**tmux** 是 host driver，不需要设置。**Claude Code** 和 **Codex** 是 runtime driver，可以直接使用。运行 `tmt setup claude` 或 `tmt setup codex` 后，tmt 还能识别各 agent 的会话，准确恢复原会话，并显示 agent 是否正在运行。[查看所有 driver →](/drivers)
+tmt 包含大多数人需要的 driver。**tmux** 无需设置；附带的 **Herdr** host driver 会在 Herdr 窗格中首次运行使用 host 的命令（例如 `tmt ls`）时获批。**Claude Code**、**Codex** 和 **agy** 有 runtime driver，可通过各 provider 的 `tmt setup` 命令设置钩子。**Pi** 在 `tmt run <name> pi` 启动时取得集成。[查看所有 driver →](/drivers)
 
 <Mdx.h3 id="the-basic-loop">基本流程</Mdx.h3>
 

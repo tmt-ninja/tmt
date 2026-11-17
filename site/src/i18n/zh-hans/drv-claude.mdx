@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-claude.mdx
-sourceRevision: 44f7c122826138af7e784079ba61766762cba41f
+sourceRevision: 78d94d4f00d4275a078dd991357f9668a47d593b
 title: Claude Code
 ---
 
@@ -28,12 +28,12 @@ import { DriverCard } from "../../components/samples";
 <Mdx.h3 id="connect-it">连接 Claude Code</Mdx.h3>
 
 <Cmd>{`
-$ tmt setup claude          # 显示具体的设置变更，然后询问
-$ tmt run reviewer claude   # 以 "reviewer" 的名称启动 Claude Code
-$ tmt resume reviewer       # 重新打开 reviewer 自己的会话
+$ tmt setup claude          # shows the exact settings change, then asks
+$ tmt run reviewer claude   # start Claude Code as "reviewer"
+$ tmt resume reviewer       # reopen reviewer's own conversation
 `}</Cmd>
 
-setup 为 tmt 添加三个 Claude Code 钩子（会话开始、会话结束和提交提示词），不会修改其他设置。这些钩子不会阻塞 Claude Code：如果 tmt 响应慢或不存在，会话仍会正常启动，只是不带摘要。`tmt setup claude --remove` 可以移除这些钩子。
+setup 添加 tmt 的生命周期、提示词、活动和每轮结束钩子，保留无关设置。这些钩子不会阻塞 Claude Code：如果 tmt 响应慢或不存在，会话仍会正常启动，只是不带摘要。`tmt setup claude --remove` 可以移除这些钩子。
 
 设置了 `CLAUDE_CONFIG_DIR` 时，tmt 会用该文件夹存放 Claude 的设置和技能，并从中读取会话记录，不再使用 `~/.claude`。相对路径以运行 tmt 时所在的文件夹为起点。
 
@@ -52,7 +52,7 @@ setup 不会编辑符号链接指向的设置文件，也不会修改链接或�
 默认情况下，tmt 将请求粘贴到 agent 窗格中。对于 Claude Code，你可以在启动时选择改用它的消息通道：
 
 <Cmd>{`
-$ tmt run --channel reviewer claude   # 选项放在名称前面；不能与 --resume 一起使用
+$ tmt run --channel reviewer claude   # the option goes before the name; not with --resume
 `}</Cmd>
 
 这需要 Claude Code 2.x 系列中的 2.1.285 或更新版本。tmt 会在启动任何程序之前检查：如果版本过旧，或无法为给定命令安排启动流程，就会拒绝启动。对于尚未测试过消息通道的较新版本，启动时会在 stderr 上显示提示。Claude 启动时也会显示它自己的开发通道警告。tmt 只为这一次启动添加通道，不会修改任何 Claude 设置。
@@ -63,4 +63,4 @@ $ tmt run --channel reviewer claude   # 选项放在名称前面；不能与 --r
 
 <Mdx.h3 id="usage-counters">用量计数器</Mdx.h3>
 
-`tmt setup claude --usage` 添加一个每轮结束时运行的钩子，记录 Claude 的上下文大小和已完成请求使用的 token 数；字段说明见[用量计数器](/drivers#usage-counters)。Claude Code 不报告上下文窗口大小，因此 `windowTokens` 保持为空。Claude 的计数器从钩子首次看到的会话文件末尾开始，每个新请求只计一次，不会计入之前的轮次。
+新安装时，`tmt setup claude` 默认启用 Claude 的上下文大小和已完成请求 token 采集。`--no-usage` 关闭采集并记住选择；`--usage` 启用采集。每轮结束钩子记录这些值；字段说明见[用量计数器](/drivers#usage-counters)。Claude Code 不报告上下文窗口大小，因此 `windowTokens` 保持为空。Claude 的计数器从钩子首次看到的会话文件末尾开始，每个新请求只计一次，不会计入之前的轮次。

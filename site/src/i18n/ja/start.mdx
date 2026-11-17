@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/start.mdx
-sourceRevision: 37ca87954daf2b8e4de195a01fbfa8dab6828e60
+sourceRevision: cb6bfff4d13d3ed364001767f443c082c4dee36b
 title: すべての agent に共通の通信経路
 ---
 
@@ -29,7 +29,7 @@ import { BandHead, Showcase } from "../../home/Showcase";
 
 <Concepts />
 
-ステップ 1 の talk、reply、receipt から始めます。board、colab、meet はすべて同じ基盤の上にあります。どのステップで止めても、そこまでの機能はそのまま使えます。
+ステップ 1 の talk、reply、receipt から始めます。Board と Colab は同じ基盤の上にあります。どのステップで止めても、そこまでの機能はそのまま使えます。
 
 <Journey />
 
@@ -81,9 +81,9 @@ Firebase コンソールで **Authentication** を開き、**Get started** を�
 
 `<project-id>` と `<region>` を自分のプロジェクト ID と選んだリージョンに置き換え、対話型の端末で自分で実行してください。
 
-<Cmd>{`$ tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous`}</Cmd>
+<Cmd>{`$ tmt remote deploy firestore --project <project-id> --region <region> --defaults`}</Cmd>
 
-概要のアカウント、プロジェクト、リージョン、Security rules、Website files を確認します。同じコマンドに `--details` を付けると、質問の前に変更全体を確認できます。
+`--defaults` は `(default)` データベース、新しい Web App、専用 Hosting サイト、匿名サインインを選びます。有料 Storage は選びません。概要のアカウント、プロジェクト、リージョン、Security rules、Website files を確認します。同じコマンドに `--details` を付けると、質問の前に変更全体を確認できます。
 
 <Cmd>{`Deploy these changes to your Firebase project? [y/N]`}</Cmd>
 
@@ -108,7 +108,7 @@ deploy の途中で修正が必要になった場合は、記録を保持して�
 
 <Mdx.h3 id="built-in-drivers">組み込みの driver</Mdx.h3>
 
-tmt には、通常必要になる driver が組み込まれています。追加のインストールは不要です。**tmux** は host driver で、設定は不要です。**Claude Code** と **Codex** は runtime driver で、そのまま使えます。`tmt setup claude` または `tmt setup codex` を実行すると、tmt は各 agent の会話も識別できるようになり、その会話を再開して、実行中かどうかを表示できます。[driver の一覧 →](/drivers)
+tmt には通常必要な driver が含まれます。**tmux** は設定不要です。同梱の **Herdr** host driver は、Herdr ペインで `tmt ls` のような host を使うコマンドを初めて実行すると承認されます。**Claude Code**、**Codex**、**agy** には runtime driver があり、各 provider の `tmt setup` で hook を設定できます。**Pi** には `tmt run <name> pi` の起動時に連携機能を渡します。[driver の一覧 →](/drivers)
 
 <Mdx.h3 id="the-basic-loop">基本の流れ</Mdx.h3>
 

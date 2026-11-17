@@ -1,48 +1,61 @@
 ---
 source: site/src/chapters/remote.mdx
-sourceRevision: f77c7ba23576260446fe8369277aaa348e215a59
-title: 別のマシンの agent と話す
+sourceRevision: 4d5d55c11b1af3d1fe8311c22314119dc11f7e73
+title: Remote
 ---
 
 import { Cmd } from "../../components/Cmd";
-import { Caption } from "../../components/marks";
 import { components as Mdx } from "../../components/mdx";
 
-ここまでの操作は1台のマシンで行います。remote 拡張機能では、別のノートパソコン、サーバー、クラウド VM の agent に `talk` を届ける設計です。返事も同じ方法で戻って保存され、画面から推測したり、配信が uncertain なときに再送したりしません。あるマシンの Codex から別のマシンの Claude Code に依頼でき、その Claude が待機中でも届けられるようにします。
+Remote はローカルのブラウザー接続口と、自分の Firebase プロジェクトを使った共有を提供します。まずローカルで agent を読み取り、インストール済みのブラウザーアプリを使えます。別のマシンにつなぐには Firestore をデプロイし、その所有者を招待して、双方の送信権限を選びます。
+
+<Mdx.h3 id="start-the-local-door">ローカルの接続口を起動する</Mdx.h3>
 
 <Cmd>{`
 $ tmt extension install remote
-$ tmt remote pair --talk           # 別のマシンで入力するコードを表示
-$ tmt talk reviewer@studio "Review the patch"   # 同じ talk で別のマシンへ
+$ tmt remote serve
+$ tmt remote status --json
 `}</Cmd>
 
-<Caption>提案段階です。コマンド名は未確定です。</Caption>
+通常の `serve` はバックグラウンドで起動し、ローカルのブラウザーアドレスを表示します。`--foreground` では端末に接続したまま動作します。IPv4 ループバックで待ち受けるため、公開 Web サイトではありません。`tmt remote stop` はペアリング済みデバイスを残したまま停止します。
 
-ペアリングで得られるのは読み取りだけです。デバイスから agent に送信できるようにするには、ペアリング時に yes と答えるか、`tmt remote pair --talk` でペアリングするか、Remote の設定でそのデバイスの送信をオンにします。
+<Mdx.h3 id="connect-your-browser">ブラウザーを接続する</Mdx.h3>
 
-<Mdx.h3 id="you-own-the-backend">backend は自分で管理する</Mdx.h3>
+起動中の接続口を自分で開きます。
 
-tmt は中央サービスを運営しません。メッセージはユーザーが選んで管理する backend を通り、エンドツーエンドで暗号化されるため、backend には暗号文だけが保存される設計です。
+<Cmd>{`$ tmt remote open /remote/`}</Cmd>
 
-| Backend           | 実行する場所                                              | 向いている用途                     |
-| ----------------- | --------------------------------------------------------- | ---------------------------------- |
-| SSH               | デプロイ不要。すでに接続できるマシンを使います            | 自分のノートパソコンやサーバー     |
-| Self-hosted relay | 自分のマシンや VPS 上の小さなサーバーまたはコンテナーです | クラウドアカウントなしで自分で管理 |
-| Cloudflare        | 自分のアカウントの Workers と Durable Objects です        | 常時接続と低コスト                 |
-| Firestore         | 自分の Firebase プロジェクトです                          | すでに Firebase を使うチーム       |
+新しいブラウザーは読み取り専用で接続します。手動でペアリングするには `tmt remote pair` を実行し、リンクを開くかコードを入力して、4つの単語を照合して確認します。既定では有効期限のない読み取り専用です。送信を許可するには所有者が `--talk` を使えます。`--agents` は対象 agent の UUID を絞り、`--hold` はローカルでの承認を必須にします。ペアリングと権限変更はマシンの所有者が行います。
 
-どの backend も基本は同じで、前回の続きから購読できる永続ログです。切り替えるときに変えるのは設定で、作業の進め方は変わりません。
+<Mdx.h3 id="connect-two-machines">2台のマシンを接続する</Mdx.h3>
 
-<Mdx.h3 id="nothing-runs-unless-you-connect">接続するまで動かない</Mdx.h3>
+まずデプロイ担当者のマシンで [Firestore のセットアップ](/#review-and-deploy)を済ませます。両方のマシンで `tmt remote serve` を動かしておき、所有者が共同作業者を招待します。
 
-tmt 本体はバックグラウンドでは動きません。remote 拡張機能は、ユーザーが有効にしたマシンだけに小さな listener を追加する設計です。これがリモートのリクエストで待機中の agent を起こします。listener がなければ、リクエストは agent の次の起動や操作まで待ちます。拡張機能がなければ、tmt は今と同じローカルのままです。
+<Cmd>{`
+$ tmt remote invite --remote <owned-remote>
+$ tmt remote join <code>    # on the collaborator's machine
+`}</Cmd>
 
-<Mdx.h3 id="who-may-reach-your-agents">agent にアクセスできる相手</Mdx.h3>
+1回限りのコードは非公開で共有します。信頼できる会話手段で4つの単語を照合してください。双方が、自分の agent への送信を相手に許可するか選びます。どちらも既定では許可しません。コマンドが表示した remote 参照を控えておきます。
 
-agent のペインに届くものは指示として働くため、リモートアクセスは既定で閉じ、開く場合も範囲を限定します。
+<Mdx.h3 id="send-and-read-a-reply">送信して返事を読む</Mdx.h3>
 
-- **マシンは名前ではなく鍵で身元を証明します。** ペアリングは明示的に行い、マシンの登録を取り消すとすぐに反映されます。
-- **リモートの送信者には許可が必要です。** 許可した identity だけが agent にアクセスできます。それ以外は明確に拒否され、メッセージもキューに入りません。
-- **メッセージはテキストであり、権限ではありません。** それだけで承認への回答、設定変更、コマンド実行はできません。ほかのリクエストと同様に、agent が対応を判断します。
-- **agent ごとに選びます。** 受け入れる、ユーザーの了承まで保留する、拒否する、のいずれかです。送信者には頻度制限を設け、すべてのリモート配信を記録します。
-- **ユーザーの入力に割り込みません。** ペインで入力中、または agent がダイアログを表示中なら、メッセージは待機します。
+送信元には既存のローカル identity、宛先にはペアリングで得た相手の参照を使います。
+
+<Cmd>{`
+$ tmt talk --identity coordinator --remote <peer-reference> reviewer "Review the patch."
+$ tmt result <request-id> --json
+`}</Cmd>
+
+リモート側の受信者は、通常どおり receipt に紐づく `tmt reply` で回答します。両方のローカル接続口が動いていれば、暗号化された最終回答が送信元のマシンに戻ります。そこに保存された後はオフラインでも結果を読めます。配信が不確かでも、同じリクエストを送り直さず、元のリクエスト ID を使って結果を確認してください。
+
+<Mdx.h3 id="manage-access">アクセスを管理する</Mdx.h3>
+
+<Cmd>{`
+$ tmt remote members
+$ tmt remote members sending <member-id> on
+`}</Cmd>
+
+受信側の所有者が、送信権限、許可する agent、保留するリクエストを管理します。保留された送信はローカルでの承認を待ち、`tmt remote approve` では内容を固定した1つの操作を確認します。マシンの確認やアクセスの取り消しは `tmt remote members --help` を参照してください。`tmt remote rm` で保存済み remote 参照を削除しても、メンバーの権限を取り消したことにはなりません。
+
+Remote は TMT の中央サービスを運営しません。Firestore 共有は自分でデプロイしたプロジェクトを使います。ローカルの接続口を止めると配信は延期されますが、保存されたリクエストは取り消されません。ブラウザーのペアリング、クラウドへのサインイン、送信権限は別々の手順です。

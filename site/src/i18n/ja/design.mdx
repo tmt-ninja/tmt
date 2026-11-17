@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/design.mdx
-sourceRevision: db057b4464fc6014a7b3a3bda6a34ffa5b4cb708
+sourceRevision: 7abb982be9adfa70d8790a1cc69fb97828ed4b33
 title: 共通の見た目と意味
 ---
 
@@ -22,7 +22,7 @@ Light と Dark、Ready、Waiting、Stopped を切り替えてください。入�
 
 <DesignPlayground />
 
-これは **デザインの例** で、Colab や Remote への接続ではありません。ラベルは製品の用語に合わせて英語です。Colab と Remote はそれぞれのリリース済みコンポーネントを持ち、[#1797](https://github.com/tmt-ninja/tmt/issues/1797) の共有パッケージは **計画中** です。ペアリング、権限、Ask の配送、再接続は示しません。[コンポーネント仕様 PR](https://github.com/tmt-ninja/tmt/pull/1798) に一覧と抽出の境界があります。
+これは **デザインの例** で、Colab や Remote への接続ではありません。ラベルは製品の用語に合わせて英語です。Colab と Remote は共有の `@tmt/browser-ui` パッケージを使います。[コンポーネントガイド](https://github.com/tmt-ninja/tmt/blob/main/design/browser-ui/README.md) に、利用できる entry と製品からの使い方があります。この例はペアリング、権限、Ask の配信や再接続を示しません。
 
 <Mdx.h3 id="principles">基本方針</Mdx.h3>
 
@@ -41,7 +41,7 @@ Light と Dark、Ready、Waiting、Stopped を切り替えてください。入�
 
 <Mdx.h3 id="surfaces">背景</Mdx.h3>
 
-背景用の surface は Web だけで使います。端末では常に端末自身の背景を保ちます。
+これらの surface token はブラウザーの背景を表します。端末の色は CLI と board のテーマのルールに従います。
 
 <TokenTable group="surface" />
 
@@ -51,7 +51,7 @@ Light と Dark、Ready、Waiting、Stopped を切り替えてください。入�
 
 見出しには display、本文には body、読者が入力するものや端末の出力には mono の書体を使います。コマンドは入力する形のまま、`$` プロンプトと淡い `# コメント` を添えて表示します。
 
-<Cmd>{`$ tmt ops ui --squad product   # 読者がコピーして使えるコマンド`}</Cmd>
+<Cmd>{`$ tmt ops ui --squad product   # a command a reader can copy`}</Cmd>
 
 <Mdx.h3 id="marks">記号</Mdx.h3>
 
