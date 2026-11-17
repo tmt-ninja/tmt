@@ -238,10 +238,10 @@ export const english = {
     eyebrow: "home",
     title: "One simple core. *Endless* ways for AI to work together.",
     tagline: "Dead simple agent-to-agent communication. Built to compose.",
-    lede: "Mix agents from different tools. Claude Code hands a task to Codex, or to any agent that can run a command, and gets the answer back. tmt keeps a receipt that ties each reply to its request. It adds a layer and replaces nothing: keep your terminal, your agents and your accounts. The board, colab and meet are built on that one core.",
+    lede: "Mix agents from different tools: any CLI agent that can run a command can use tmt. Claude Code can hand a task to Codex and get the answer back. A receipt ties each reply to its request. Keep your terminal, agents and accounts. Ops and Colab build on that core; Meet is a planned extension of it.",
     worksWith: "Works with",
     agents: "agents",
-    anyAgent: "any CLI agent",
+    anyAgent: "other CLI agents",
     hosts: "runs in",
     next: "next",
     yourHarness: "your harness",
@@ -279,7 +279,7 @@ export const english = {
         },
         {
           name: "request",
-          text: 'What one agent sends another: `tmt talk builder "…"` stores it with an ID and a receipt and delivers it.',
+          text: 'What one agent sends another: `tmt talk builder "…"` stores it with an ID and a receipt and delivers it to the agent\'s pane or inbox.',
         },
         {
           name: "result",
@@ -301,7 +301,7 @@ export const english = {
         working: {
           eyebrow: "working",
           title: "A request *travels* pane to pane.",
-          text: "`tmt talk` types your request into the other agent's pane, and its reply comes back to yours, matched by its receipt. You never copy text between windows.",
+          text: "In this terminal example, `tmt talk` delivers a request to the other agent's pane. The agent answers with `tmt reply` and its receipt; `tmt result` reads the stored reply.",
         },
         squad: {
           eyebrow: "squad",
@@ -311,12 +311,12 @@ export const english = {
         colab: {
           eyebrow: "colab",
           title: "One page your whole *team* shares.",
-          text: "The lead's plan, notes and decisions on one page that agents on any machine and your teammates read and comment on.",
+          text: "Colab (Alpha): shared pages and discussions on your machine, opened in your browser through Remote, and shared with teammates through your own Firebase project.",
         },
         meet: {
           eyebrow: "meet",
           title: "A room for you and your *agents*.",
-          text: "One meeting for you, the lead and its members. Whoever wants to speak raises a hand, and you give the floor. Text first.",
+          text: "Planned: one meeting for you, the lead and its members. Whoever wants to speak raises a hand, and you give the floor.",
         },
         install: {
           eyebrow: "install",
@@ -335,7 +335,7 @@ export const english = {
       tmtPane: "tmt",
       exchange: "exchange",
       examples:
-        "Any agent in any harness fits. Claude Code and Codex are two examples, and tmux is the built-in host today.",
+        "This example uses Claude Code and Codex in terminal panes. TMT supports its built-in terminal host, tmux and the shipped Herdr driver; other CLI agents can use plain terminal delivery.",
       steps: [
         {
           title: "1 · talk",
@@ -377,12 +377,15 @@ export const english = {
       machines: ["your laptop", "build server", "Mei's laptop"],
       human: "human",
       roadmap: [
-        { title: "now · local", text: "a page on your own machine (in progress)" },
+        { title: "now · local", text: "pages on your own machine, reached through Remote (Alpha)" },
         {
-          title: "next · Firestore",
-          text: "your Firebase project, so teammates can join (planned)",
+          title: "now · Firestore",
+          text: "cloud sharing through your Firebase project, after setup and access grants (Alpha)",
         },
-        { title: "later · Cloudflare", text: "your own Cloudflare account (planned)" },
+        {
+          title: "later · Cloudflare",
+          text: "a planned backend, with no shipped deployment command",
+        },
       ],
     },
     // The meet chapter's opening scene: a text meeting where you give the floor.
@@ -414,7 +417,7 @@ export const english = {
         { who: "you", say: "Ship tonight. builder, merge after CI.", hands: ["builder"] },
       ],
       roadmap: [
-        { title: "now · planned", text: "design agreed (#842), not started" },
+        { title: "now · planned", text: "design agreed (#842)" },
         {
           title: "next · text",
           text: "text meetings in the terminal: raise a hand, take turns, you host",
@@ -424,9 +427,9 @@ export const english = {
     },
     // The squad chapter's opening scene: what each board mark means.
     marks: {
-      label: "The marks the board and every command use, each with one meaning.",
+      label: "Selected shared CLI marks and the board-only fold mark.",
       intro:
-        "The board stays quiet so the one thing that needs you stands out. The same marks appear in every command.",
+        "Shared marks keep the same meaning across commands. The fold mark below is specific to the board.",
       boardOnly: "board only",
       items: [
         { mark: "●", name: "running", text: "running or active" },
@@ -439,7 +442,7 @@ export const english = {
         {
           mark: "▸",
           name: "folded",
-          text: "a folded pane; unfold it with d or a click on its title",
+          text: "a folded board pane",
         },
       ],
     },
@@ -468,20 +471,20 @@ export const english = {
         hint: "One shared page",
         status: "alpha",
         caption:
-          "Colab is a shared page for the lead's plan, notes and discussion, so teammates and agents on other machines read and comment on the same page. The scene is an illustration; Colab itself ships as Alpha.",
+          "Colab (Alpha): shared pages and discussions on your machine, opened in your browser through Remote, and shared with teammates through your own Firebase project. The scene is an illustration.",
       },
       {
         title: "4 · meet",
         hint: "Meet with your agents",
         status: "planned",
         caption:
-          "Meet (#842) puts you, the lead and its members in one text meeting. Whoever wants to speak raises a hand, and you give the floor. Not started.",
+          "Meet (#842) is a planned text meeting for you, the lead and its members. Whoever wants to speak raises a hand, and you give the floor.",
       },
     ],
     // What each layer is, from meet down to the foundation.
     layers: [
       "a meeting room · planned",
-      "a shared page · in progress",
+      "a shared page · alpha",
       "the team in one view · alpha",
       "the foundation every layer uses",
     ],
@@ -495,7 +498,7 @@ export const english = {
       human: "(human)",
       herLead: "her lead",
       sharedPage: "one shared page",
-      inProgress: "in progress",
+      inProgress: "illustration",
       pageTitle: "colab · release plan",
       planHeading: "Release 5.0 plan",
       planOne: "rotate tokens",

@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "cb76bd54455113f8f6ab8ba7423aabdad01d2db4"
+    "sourceRevision": "3067f85d5b027cb865c472eb8cc148e8abb6ce78"
   },
   "ui": {
     "notTranslated": "此页尚未翻译，暂时显示英文。",
@@ -31,11 +31,12 @@
       "remote": "扩展 / Remote",
       "dev-extension": "开发 / 扩展",
       "dev-driver": "开发 / driver",
-      "design": "设计"
+      "design": "设计",
+      "orchestration": "使用方法 / Orchestration"
     },
     "status": {
       "shipped": "已发布",
-      "alpha": "Alpha",
+      "alpha": "alpha",
       "planned": "计划中",
       "designing": "设计中",
       "in progress": "进行中",
@@ -46,16 +47,15 @@
     "eyebrow": "首页",
     "title": "一个简单的核心，*无限*种 AI 协作方式。",
     "tagline": "agent 间简单通信，组合使用。",
-    "lede": "不同工具中的 agent 可以一起工作。Claude Code 把任务交给 Codex，或任何能运行命令的 agent，再获取回复。tmt 保留一份 receipt，将每条回复与原请求对应起来。它只增加一层功能，不替换现有工具：你仍然使用自己的终端、agent 和账号。board、colab 和 meet 都建立在这同一个核心之上。",
+    "lede": "搭配使用不同工具中的 agent：只要能运行命令，CLI agent 就能使用 tmt。Claude Code 可以把任务交给 Codex，再获取回复。receipt 将每条回复与原请求对应起来。你仍然使用自己的终端、agent 和账号。Ops 和 Colab 建立在这个核心上；Meet 是计划中的扩展。",
     "worksWith": "适用工具",
     "agents": "agent",
-    "anyAgent": "任意 CLI agent",
+    "anyAgent": "其他 CLI agent",
     "hosts": "运行环境",
     "next": "下一步",
     "yourHarness": "你的 harness",
     "yourServer": "你的服务器",
     "planned": "计划中",
-    "designing": "设计中",
     "install": "安装",
     "start": "从一条消息开始 ↓",
     "handoff": {
@@ -84,7 +84,7 @@
         },
         {
           "name": "请求",
-          "text": "一个 agent 发给另一个 agent 的内容。`tmt talk builder \"…\"` 为请求保存 ID 和 receipt，然后投递。"
+          "text": "一个 agent 发给另一个 agent 的内容。`tmt talk builder \"…\"` 为它保存 ID 和 receipt，再发送到 agent 的窗格或收件箱。"
         },
         {
           "name": "结果",
@@ -97,11 +97,13 @@
     "showcase": {
       "chapter": "阅读本章 →",
       "sections": {
-        "start": { "eyebrow": "开始" },
+        "start": {
+          "eyebrow": "开始"
+        },
         "working": {
           "eyebrow": "工作流程",
           "title": "请求在窗格之间*传递*。",
-          "text": "`tmt talk` 将请求输入到另一个 agent 的窗格中，再根据 receipt 将回复传回你的窗格。无需在窗口之间复制文本。"
+          "text": "在这个终端示例中，`tmt talk` 将请求投递到另一个 agent 的窗格。agent 用 `tmt reply` 和 receipt 回复；`tmt result` 读取已保存的回复。"
         },
         "squad": {
           "eyebrow": "squad",
@@ -111,16 +113,20 @@
         "colab": {
           "eyebrow": "colab",
           "title": "整个*团队*共享一个页面。",
-          "text": "lead 的计划、笔记和决定放在一个页面上。不同机器上的 agent 和你的同事可以阅读并发表评论。"
+          "text": "Colab（Alpha）：在自己的机器上共享页面和讨论，通过 Remote 在浏览器中打开，再通过自己的 Firebase 项目与队友共享。"
         },
         "meet": {
           "eyebrow": "meet",
           "title": "你和 *agent* 的会议室。",
-          "text": "你、lead 和成员参加同一场会议。想发言的人先举手，由你分配发言权。先支持文字会议。"
+          "text": "计划中：你、lead 和成员参加同一场会议。想发言的人先举手，由你分配发言权。"
         },
-        "install": { "eyebrow": "安装", "title": "安装后，为第一个 agent *命名*。" }
+        "install": {
+          "eyebrow": "安装",
+          "title": "安装后，为第一个 agent *命名*。"
+        }
       }
-    }
+    },
+    "alpha": "alpha"
   },
   "chapters": {
     "travel": {
@@ -129,10 +135,16 @@
       "builder": "builder",
       "tmtPane": "tmt",
       "exchange": "消息往来",
-      "examples": "任何 harness 中的任何 agent 都适用。Claude Code 和 Codex 是两个例子，目前内置的 host 是 tmux。",
+      "examples": "本例在终端窗格中使用 Claude Code 和 Codex。TMT 支持内置终端 host、tmux 和随附的 Herdr driver；其他 CLI agent 可以使用普通终端投递。",
       "steps": [
-        { "title": "1 · talk", "text": "lead 发送请求。tmt 为请求保存 ID 和 receipt。" },
-        { "title": "2 · 投递", "text": "请求被输入 builder 的窗格。它照常工作。" },
+        {
+          "title": "1 · talk",
+          "text": "lead 发送请求。tmt 为请求保存 ID 和 receipt。"
+        },
+        {
+          "title": "2 · 投递",
+          "text": "请求被输入 builder 的窗格。它照常工作。"
+        },
         {
           "title": "3 · reply",
           "text": "builder 带上 receipt 回复。回复被保存，talk 再把它交给 lead。"
@@ -163,12 +175,18 @@
       "machines": ["你的笔记本电脑", "构建服务器", "Mei 的笔记本电脑"],
       "human": "人类",
       "roadmap": [
-        { "title": "当前 · 本地", "text": "自己机器上的页面（进行中）" },
         {
-          "title": "下一步 · Firestore",
-          "text": "使用你自己的 Firebase 项目，让同事加入（计划中）"
+          "title": "当前 · 本地",
+          "text": "自己机器上的页面，通过 Remote 访问（Alpha）"
         },
-        { "title": "之后 · Cloudflare", "text": "使用你自己的 Cloudflare 账号（计划中）" }
+        {
+          "title": "当前 · Firestore",
+          "text": "完成设置和权限授予后，通过自己的 Firebase 项目进行云端共享（Alpha）"
+        },
+        {
+          "title": "之后 · Cloudflare",
+          "text": "计划中的后端，尚无已发布的部署命令"
+        }
       ]
     },
     "meet": {
@@ -189,29 +207,82 @@
           "say": "令牌已轮换，测试通过。需要决定发布时间窗口。",
           "hands": ["reviewer", "tester"]
         },
-        { "who": "reviewer", "say": "建议今晚发布：改动很小，#412 已审核。", "hands": ["tester"] },
-        { "who": "tester", "say": "#412 的 E2E 测试通过。我没有异议。", "hands": [] },
-        { "who": "you", "say": "今晚发布。builder，CI 通过后合并。", "hands": ["builder"] }
+        {
+          "who": "reviewer",
+          "say": "建议今晚发布：改动很小，#412 已审核。",
+          "hands": ["tester"]
+        },
+        {
+          "who": "tester",
+          "say": "#412 的 E2E 测试通过。我没有异议。",
+          "hands": []
+        },
+        {
+          "who": "you",
+          "say": "今晚发布。builder，CI 通过后合并。",
+          "hands": ["builder"]
+        }
       ],
       "roadmap": [
-        { "title": "当前 · 计划中", "text": "设计已确定（#842），尚未开始" },
-        { "title": "下一步 · 文字", "text": "在终端中开文字会议：举手、轮流发言，由你主持" },
-        { "title": "之后 · 网页和语音", "text": "先在 colab 中提供网页界面，再支持语音" }
+        {
+          "title": "当前 · 计划中",
+          "text": "设计已确定（#842）"
+        },
+        {
+          "title": "下一步 · 文字",
+          "text": "在终端中开文字会议：举手、轮流发言，由你主持"
+        },
+        {
+          "title": "之后 · 网页和语音",
+          "text": "先在 colab 中提供网页界面，再支持语音"
+        }
       ]
     },
     "marks": {
-      "label": "board 和各命令使用相同的标记，每个标记只有一种含义。",
-      "intro": "board 保持简洁，让需要你处理的事项更醒目。各命令也使用相同的标记。",
+      "label": "部分共用的 CLI 标记，以及仅用于 board 的折叠标记。",
+      "intro": "共用标记在各命令中保持相同含义。下方的折叠标记仅用于 board。",
       "boardOnly": "仅用于 board",
       "items": [
-        { "mark": "●", "name": "运行中", "text": "正在运行或处于活跃状态" },
-        { "mark": "○", "name": "离线", "text": "已离线或已结束" },
-        { "mark": "◌", "name": "无 agent", "text": "已绑定窗格，但没有 agent 运行" },
-        { "mark": "◆", "name": "等待你", "text": "等待你的决定" },
-        { "mark": "✗", "name": "受阻", "text": "失败或受阻" },
-        { "mark": "✓", "name": "完成", "text": "已完成" },
-        { "mark": "↻", "name": "恢复", "text": "用于引出恢复操作，不表示某一行的状态" },
-        { "mark": "▸", "name": "已折叠", "text": "已折叠的窗格；按 d 或点击标题展开" }
+        {
+          "mark": "●",
+          "name": "运行中",
+          "text": "正在运行或处于活跃状态"
+        },
+        {
+          "mark": "○",
+          "name": "离线",
+          "text": "已离线或已结束"
+        },
+        {
+          "mark": "◌",
+          "name": "无 agent",
+          "text": "已绑定窗格，但没有 agent 运行"
+        },
+        {
+          "mark": "◆",
+          "name": "等待你",
+          "text": "等待你的决定"
+        },
+        {
+          "mark": "✗",
+          "name": "受阻",
+          "text": "失败或受阻"
+        },
+        {
+          "mark": "✓",
+          "name": "完成",
+          "text": "已完成"
+        },
+        {
+          "mark": "↻",
+          "name": "恢复",
+          "text": "用于引出恢复操作，不表示某一行的状态"
+        },
+        {
+          "mark": "▸",
+          "name": "已折叠",
+          "text": "已折叠的 board 窗格"
+        }
       ]
     }
   },
@@ -234,19 +305,19 @@
       {
         "title": "3 · colab",
         "hint": "一个共享页面",
-        "status": "进行中",
-        "caption": "Colab 是放置 lead 计划、笔记和讨论的共享页面。同事和其他机器上的 agent 可以阅读同一个页面并发表评论。这里展示的是设计，还没有发布。"
+        "status": "alpha",
+        "caption": "Colab（Alpha）：在自己的机器上共享页面和讨论，通过 Remote 在浏览器中打开，再通过自己的 Firebase 项目与队友共享。这里的画面是示意图。"
       },
       {
         "title": "4 · meet",
         "hint": "与 agent 开会",
         "status": "计划中",
-        "caption": "Meet（#842）让你、lead 和成员参加同一场文字会议。想发言的人先举手，由你分配发言权。目前尚未开始。"
+        "caption": "Meet（#842）是计划中的文字会议，让你、lead 和成员一起参加。想发言的人先举手，由你分配发言权。"
       }
     ],
     "layers": [
       "会议室 · 计划中",
-      "共享页面 · 进行中",
+      "共享页面 · alpha",
       "一个界面查看团队 · alpha",
       "各层功能共同使用的基础"
     ],
@@ -260,7 +331,7 @@
       "human": "（人类）",
       "herLead": "她的 lead",
       "sharedPage": "一个共享页面",
-      "inProgress": "进行中",
+      "inProgress": "示意图",
       "pageTitle": "colab · 发布计划",
       "planHeading": "5.0 发布计划",
       "planOne": "轮换令牌",
@@ -271,6 +342,182 @@
       "meiSays": "能等文档修复后再发布吗？",
       "meetArrow": "举手者（↑）依次等待 · 由你分配发言权",
       "planned": "计划中"
+    }
+  },
+  "landing": {
+    "howItWorks": "工作原理",
+    "quickStart": "快速开始",
+    "eyebrow": "让 AGENT 直接对话",
+    "statement": "独立的 agent。\n相连的团队。",
+    "description": "连接不同 harness 和环境中的 coding agent，无需切换终端，也无需改变运行 agent 的方式。",
+    "getStarted": "开始使用",
+    "seeWorkflow": "查看工作流程",
+    "environment": "你的 agent。你的工作环境。",
+    "workflowTitle": "少一些复制粘贴。\n多一些实际进展。",
+    "workflowDescription": "发出任务，继续手头的工作。\n答案有路可回。",
+    "exampleSession": "会话示例",
+    "keepToolsTitle": "继续使用原有工具。",
+    "keepToolsDescription": "agent 留在各自的终端，保留各自的上下文。",
+    "handoffTitle": "交接任务。",
+    "handoffDescription": "按名称找到 agent，发送任务，无需手动转达。",
+    "closeLoopTitle": "让回复回到原请求。",
+    "closeLoopDescription": "请求与回复保持对应。已发送不等于已完成。",
+    "nextTitle": "打开终端。\n连接团队。",
+    "readGuide": "阅读入门指南",
+    "footer": "独立的 agent。相连的工作。",
+    "theme": "主题：{theme}。切换主题",
+    "heroSteps": ["01 / 连接", "02 / 分派", "03 / 返回"],
+    "compatibility": "你的 agent。你的工具。你的机器。",
+    "andMore": "以及更多",
+    "workflowEyebrow": "01 / 工作流程",
+    "workflowReach": "跨 agent 应用和终端协作。添加 Remote，即可从另一台机器连接。",
+    "workflowSteps": [
+      "01 / 为 agent 命名 · 在 reviewer 的终端中",
+      "02 / 发送请求 · 从另一个 agent 的终端发出",
+      "03 / 读取回复"
+    ],
+    "copyExample": "复制示例命令",
+    "exchangeLocal": "本地消息往来",
+    "exchangeFlow": "请求 → 回复 → 结果",
+    "installTitle": "安装 TMT",
+    "installDescription": "为 agent 命名，开始对话。",
+    "copyCommand": "复制命令",
+    "copy": "复制",
+    "copied": "已复制",
+    "commandCopied": "命令已复制",
+    "opsEyebrow": "02 / SQUAD",
+    "opsTagline": "你的团队，一目了然。",
+    "opsDescription": "lead 向其他 agent 交代任务，并更新 board。",
+    "exploreOps": "了解 Ops",
+    "installOps": "安装 Ops",
+    "colabEyebrow": "03 / COLAB",
+    "colabTagline": "在此批注，联系 agent。",
+    "colabDescription": "可自行托管的 Claude Artifacts 替代方案，跨 agent 和环境使用。",
+    "colabNote": "共享文档，就地讨论，使用你自己的基础设施。",
+    "exploreColab": "了解 Colab",
+    "colabStatus": "ALPHA",
+    "installColab": "安装 Colab",
+    "nextEyebrow": "02 / 你的下一次会话"
+  },
+  "colabLanding": {
+    "changeTheme": "切换主题",
+    "overline": "为人与 AGENT 自行托管页面",
+    "title": "批注工作，\n让 agent 加入。",
+    "intro": {
+      "before": "",
+      "highlight": "选定一个位置。",
+      "after": "在你托管的页面上提及已连接 TMT 的 agent，并与有访问权限的同事讨论工作；回复会留在相关工作旁。"
+    },
+    "explore": "了解 Colab",
+    "installAndUse": "安装与使用",
+    "featureIndex": "功能详解",
+    "features": [
+      {
+        "label": "添加批注",
+        "title": "从一个明确的位置开始。",
+        "harness": "",
+        "copy": {
+          "before": "",
+          "highlight": "选中一句话。",
+          "after": "添加批注，让讨论与相关工作保持关联。答案会回到同一个位置。"
+        },
+        "next": "下一步：与 agent 对话"
+      },
+      {
+        "label": "与 agent 对话",
+        "title": "从页面与 agent 对话。",
+        "harness": "与你已连接 TMT 的 agent 协作。",
+        "copy": {
+          "before": "",
+          "highlight": "在批注中提及已连接 TMT 的 agent。",
+          "after": "有页面访问权限的同事可以参与讨论。通过 Remote，也能联系已连接机器上的 agent。"
+        },
+        "next": "下一步：协同编写"
+      },
+      {
+        "label": "协同编写",
+        "title": "实时协同编写。",
+        "harness": "",
+        "copy": {
+          "before": "",
+          "highlight": "文档随大家的工作实时更新。",
+          "after": "笔记、回复和最新版本都留在页面上。"
+        },
+        "next": "下一步：组织工作"
+      },
+      {
+        "label": "组织工作",
+        "title": "给项目一个家。",
+        "harness": "",
+        "copy": {
+          "before": "",
+          "highlight": "汇集计划、清单和决定。",
+          "after": "使用项目再次找到相关页面。"
+        },
+        "next": "下一步：开始使用"
+      }
+    ],
+    "install": {
+      "eyebrow": "开始使用",
+      "title": "一页就能开始。",
+      "copy": {
+        "before": "安装 TMT 和 Colab，",
+        "highlight": "创建本地页面",
+        "after": "，然后按提示为每个新浏览器完成配对。"
+      },
+      "steps": ["安装 TMT", "添加 Colab", "打开 Colab", "创建页面"]
+    },
+    "deploy": {
+      "eyebrow": "按你的方式托管",
+      "title": "从本地开始，为团队规划。",
+      "copy": {
+        "before": "",
+        "highlight": "自行托管页面。",
+        "after": "从本地开始，再了解下方的 Remote 选项。"
+      },
+      "backendTabs": "Colab 后端",
+      "noCommand": "尚无可用命令。",
+      "capability": "功能",
+      "colabStatus": "Colab 状态",
+      "capabilities": ["实时编辑", "页面搜索", "全文搜索", "向量搜索"],
+      "note": "这里显示的是 Colab 功能的状态，并非底层提供方的全部能力。实时编辑指共享文档更新；Colab 尚不支持全文搜索和向量搜索。",
+      "ownReferences": {
+        "before": "如需适配器与一致性检查指南，请阅读 ",
+        "backend": "Remote 后端参考资料",
+        "middle": "；页面工作流程请阅读 ",
+        "skill": "Colab agent 技能",
+        "after": "。"
+      },
+      "backends": {
+        "local": {
+          "label": "本地",
+          "status": "可用",
+          "commandLabel": "在你的机器上运行",
+          "note": "打开本地页面，并按提示为新浏览器完成配对。",
+          "capabilities": ["可用", "标题、项目、作者", "尚不支持", "尚不支持"]
+        },
+        "firestore": {
+          "label": "Firestore",
+          "status": "Alpha",
+          "commandLabel": "只读部署计划",
+          "note": "先阅读具体计划；此步骤不会进行更改。要部署到你自己的 Firebase 项目，请审阅计划，然后由你本人带上 --authorize 和该计划的 digest 再次运行。你提供的页面随后通过它同步，共享链接发给谁由你决定。",
+          "capabilities": ["Alpha，适用于已打开的页面", "尚不支持", "尚不支持", "尚不支持"]
+        },
+        "cloudflare": {
+          "label": "Cloudflare",
+          "status": "计划中",
+          "commandLabel": "部署",
+          "note": "Cloudflare 后端及其部署命令仍在计划中，尚不可用。",
+          "capabilities": ["计划中", "计划中", "尚不支持", "尚不支持"]
+        },
+        "own": {
+          "label": "你自己的提供方",
+          "status": "开发者方案",
+          "commandLabel": "开始自行托管",
+          "note": "一条命令即可在本地运行页面。自定义 Remote 后端需要适配器和一致性检查；托管环境的搭建仍需走开发者流程。",
+          "capabilities": ["尚未接入", "尚未接入", "尚不支持", "尚不支持"]
+        }
+      }
     }
   }
 }

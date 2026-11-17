@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "cb76bd54455113f8f6ab8ba7423aabdad01d2db4"
+    "sourceRevision": "3067f85d5b027cb865c472eb8cc148e8abb6ce78"
   },
   "ui": {
     "notTranslated": "まだ翻訳されていないため、このページは英語で表示しています。",
@@ -31,11 +31,12 @@
       "remote": "拡張機能 / Remote",
       "dev-extension": "開発 / 拡張機能",
       "dev-driver": "開発 / driver",
-      "design": "デザイン"
+      "design": "デザイン",
+      "orchestration": "使い方 / Orchestration"
     },
     "status": {
       "shipped": "公開済み",
-      "alpha": "Alpha",
+      "alpha": "alpha",
       "planned": "計画中",
       "designing": "設計中",
       "in progress": "開発中",
@@ -46,12 +47,11 @@
     "eyebrow": "ホーム",
     "title": "シンプルな基盤で、AI の協働を*さまざまな形*に。",
     "tagline": "agent 間の通信をシンプルに。機能を組み合わせて使えます。",
-    "lede": "異なるツールの agent を混ぜて使えます。Claude Code から Codex へ、あるいはコマンドを実行できるどの agent へも作業を渡し、答えを受け取れます。tmt は各返信をその依頼に結びつける receipt を残します。tmt はレイヤーを一枚足すだけで、何も置き換えません。ターミナルも agent もアカウントもそのままです。board、colab、meet はこの一つのコアの上に作られています。",
+    "lede": "異なるツールの agent を組み合わせて使えます。コマンドを実行できる CLI agent なら、tmt を使えます。Claude Code から Codex に作業を渡し、答えを受け取れます。receipt が返信をリクエストに結び付けます。ターミナルも agent もアカウントもそのままです。Ops と Colab はこのコアの上に作られており、Meet はその拡張機能として計画されています。",
     "worksWith": "対応環境",
     "yourHarness": "お使いの harness",
     "yourServer": "お使いのサーバー",
     "planned": "計画中",
-    "designing": "設計中",
     "install": "インストール",
     "start": "1 件のメッセージから始める ↓",
     "handoff": {
@@ -65,21 +65,30 @@
       "play": "再生",
       "pause": "一時停止",
       "local": "TMT / ローカルのやり取り",
-      "note": "説明用の出力 · Claude Code + Codex · tmux または Herdr"
+      "note": "説明用の出力 · Claude Code + Codex · tmux または Herdr",
+      "title": "reviewer (Claude Code) ⇄ builder (Codex)",
+      "reviewer": "reviewer",
+      "builder": "builder",
+      "receipt": "receipt",
+      "reply": "reply"
     },
     "concepts": {
       "items": [
         {
-          "text": "名前を付けて、ほかから連絡できるようにしたプログラムです。`tmt run reviewer claude`、または起動したプログラムの中から `tmt name reviewer` を実行します。"
+          "text": "名前を付けて、ほかから連絡できるようにしたプログラムです。`tmt run reviewer claude`、または起動したプログラムの中から `tmt name reviewer` を実行します。",
+          "name": "agent"
         },
         {
-          "text": "agent が別の agent に送るものです。`tmt talk builder \"…\"` が ID と receipt を付けて保存し、届けます。"
+          "text": "agent が別の agent に送るものです。`tmt talk builder \"…\"` が ID と receipt を付けて保存し、agent のペインまたは受信トレイに届けます。",
+          "name": "リクエスト"
         },
         {
-          "text": "戻ってくる結果です。agent が `tmt reply` で送信し、`tmt result req_…` で読み取れます。"
+          "text": "戻ってくる結果です。agent が `tmt reply` で送信し、`tmt result req_…` で読み取れます。",
+          "name": "結果"
         }
       ],
-      "receiptText": "receipt は結果をリクエストに結び付けます。返信には、そのリクエストに付いていた receipt が必要です。"
+      "receiptText": "receipt は結果をリクエストに結び付けます。返信には、そのリクエストに付いていた receipt が必要です。",
+      "receipt": "receipt"
     },
     "showcase": {
       "chapter": "この章を読む →",
@@ -90,7 +99,7 @@
         "working": {
           "eyebrow": "使い方",
           "title": "リクエストがペインからペインへ*届きます*。",
-          "text": "`tmt talk` が相手の agent のペインにリクエストを入力します。返信は receipt で照合され、こちらに戻ってきます。ウィンドウ間でテキストをコピーする必要はありません。"
+          "text": "このターミナルの例では、`tmt talk` が相手の agent のペインにリクエストを届けます。agent は `tmt reply` と receipt で返信し、`tmt result` で保存された返信を読み取れます。"
         },
         "squad": {
           "eyebrow": "squad",
@@ -100,12 +109,12 @@
         "colab": {
           "eyebrow": "colab",
           "title": "*チーム全員*で共有する 1 つのページ。",
-          "text": "lead の計画、メモ、決定を 1 つのページにまとめます。どのマシンの agent も、チームメンバーも、読んでコメントできる設計です。"
+          "text": "Colab（Alpha）：自分のマシンに共有ページと議論の場を用意し、Remote 経由でブラウザーから開き、自分の Firebase プロジェクトを通じてチームメンバーと共有できます。"
         },
         "meet": {
           "eyebrow": "meet",
           "title": "あなたと*agent* のための会議室。",
-          "text": "あなた、lead、そのメンバーが 1 つの会議に参加します。発言したい人が手を挙げ、あなたが発言者を指定する設計です。まずはテキストでの会議です。"
+          "text": "計画中：あなた、lead、そのメンバーが 1 つの会議に参加します。発言したい人が手を挙げ、あなたが発言者を指定します。"
         },
         "install": {
           "eyebrow": "インストール",
@@ -114,26 +123,33 @@
       }
     },
     "agents": "agent",
-    "anyAgent": "任意の CLI agent",
+    "anyAgent": "その他の CLI agent",
     "hosts": "実行環境",
-    "next": "次に"
+    "next": "次に",
+    "alpha": "alpha"
   },
   "chapters": {
     "travel": {
       "label": "lead から builder にリクエストが届き、返信が戻るデモです。lead が tmt talk を実行します。tmt は ID と receipt を付けてリクエストを保存し、builder のペインに入力します。builder が作業して、tmt reply と receipt で返信します。tmt は返信を保存し、talk が lead に返します。",
-      "examples": "どの harness の agent でも使える仕組みです。Claude Code と Codex はその例で、現在の組み込み host は tmux です。",
+      "examples": "この例では、ターミナルのペインで Claude Code と Codex を使っています。TMT は組み込みのターミナル host、tmux、同梱の Herdr driver に対応しています。その他の CLI agent も通常のターミナル配信を使えます。",
       "steps": [
         {
-          "text": "lead がリクエストを送ります。tmt が ID と receipt を付けて保存します。"
+          "text": "lead がリクエストを送ります。tmt が ID と receipt を付けて保存します。",
+          "title": "1 · talk"
         },
         {
           "title": "2 · 配信",
           "text": "builder のペインにリクエストが入力され、普段どおり作業します。"
         },
         {
-          "text": "builder が receipt を付けて返信します。返信が保存され、talk が lead に返します。"
+          "text": "builder が receipt を付けて返信します。返信が保存され、talk が lead に返します。",
+          "title": "3 · reply"
         }
-      ]
+      ],
+      "lead": "lead",
+      "builder": "builder",
+      "tmtPane": "tmt",
+      "exchange": "やり取り"
     },
     "colab": {
       "label": "共有する colab ページの設計例です。リリース計画の項目に完了のチェックが付き、あなたの判断を待つ決定と、agent やチームメンバーのコメントが表示されます。",
@@ -160,17 +176,18 @@
       "roadmap": [
         {
           "title": "現在 · ローカル",
-          "text": "自分のマシン上のページ（開発中）"
+          "text": "自分のマシンのページを Remote で開く（Alpha）"
         },
         {
-          "title": "次 · Firestore",
-          "text": "チームメンバーが参加できる、自分の Firebase プロジェクト（計画中）"
+          "title": "現在 · Firestore",
+          "text": "設定とアクセス許可の後、自分の Firebase プロジェクトでクラウド共有（Alpha）"
         },
         {
           "title": "その後 · Cloudflare",
-          "text": "自分の Cloudflare アカウント（計画中）"
+          "text": "計画中のバックエンド。リリース済みのデプロイコマンドはありません"
         }
-      ]
+      ],
+      "working": "作業中"
     },
     "meet": {
       "label": "ターミナルでのテキスト会議の設計例です。builder が発言中で、2 つの agent が手を挙げています。次に誰が発言するか、あなたが指定します。",
@@ -186,7 +203,7 @@
       "roadmap": [
         {
           "title": "現在 · 計画中",
-          "text": "設計は合意済み（#842）、未着手です"
+          "text": "設計は合意済み（#842）"
         },
         {
           "title": "次 · テキスト",
@@ -196,36 +213,75 @@
           "title": "その後 · Web と音声",
           "text": "colab 上の Web 画面、その後に音声対応"
         }
+      ],
+      "keys": "g 発言権を与える  @name 発言権を与える  m モード",
+      "script": [
+        {
+          "who": "builder",
+          "say": "token のローテーションが完了し、テストも通りました。リリースの時間帯を決める必要があります。",
+          "hands": ["reviewer", "tester"]
+        },
+        {
+          "who": "reviewer",
+          "say": "今夜のリリースを提案します。変更は小さく、#412 はレビュー済みです。",
+          "hands": ["tester"]
+        },
+        {
+          "who": "tester",
+          "say": "#412 の E2E は通っています。異議はありません。",
+          "hands": []
+        },
+        {
+          "who": "you",
+          "say": "今夜リリースします。builder、CI が通ったらマージしてください。",
+          "hands": ["builder"]
+        }
       ]
     },
     "marks": {
-      "label": "board と各コマンドで使うマークです。それぞれの意味は 1 つです。",
-      "intro": "board は表示を抑え、あなたの対応が必要な項目を目立たせます。各コマンドでも同じマークを使います。",
+      "label": "CLI で共有する主なマークと、board 専用の折りたたみマーク。",
+      "intro": "共有マークは各コマンドで同じ意味を持ちます。下の折りたたみマークは board 専用です。",
       "boardOnly": "board のみ",
       "items": [
         {
-          "text": "実行中またはアクティブ"
+          "text": "実行中またはアクティブ",
+          "mark": "●",
+          "name": "実行中"
         },
         {
-          "text": "オフラインまたは終了済み"
+          "text": "オフラインまたは終了済み",
+          "mark": "○",
+          "name": "オフライン"
         },
         {
-          "text": "ペインに紐付いていますが、agent は実行されていません"
+          "text": "ペインに紐付いていますが、agent は実行されていません",
+          "mark": "◌",
+          "name": "agent なし"
         },
         {
-          "text": "あなたの判断を待っています"
+          "text": "あなたの判断を待っています",
+          "mark": "◆",
+          "name": "あなたの判断待ち"
         },
         {
-          "text": "失敗または処理が進められない状態"
+          "text": "失敗または処理が進められない状態",
+          "mark": "✗",
+          "name": "ブロック中"
         },
         {
-          "text": "完了"
+          "text": "完了",
+          "mark": "✓",
+          "name": "完了"
         },
         {
-          "text": "再開操作の前に付きます。行の状態には使いません"
+          "text": "再開操作の前に付きます。行の状態には使いません",
+          "mark": "↻",
+          "name": "再開"
         },
         {
-          "text": "折りたたまれたペインです。d またはタイトルのクリックで展開します"
+          "text": "折りたたまれた board のペイン",
+          "mark": "▸",
+          "name": "折りたたみ"
         }
       ]
     }
@@ -236,26 +292,32 @@
     "steps": [
       {
         "hint": "2 つのペイン、1 件のメッセージ",
-        "caption": "最小の構成は、2 つのペインにいる 2 つの agent です。一方が `tmt talk` でもう一方にリクエストを送ります。返信は receipt とともに戻ります。この先の機能も、この仕組みの上にあります。"
+        "caption": "最小の構成は、2 つのペインにいる 2 つの agent です。一方が `tmt talk` でもう一方にリクエストを送ります。返信は receipt とともに戻ります。この先の機能も、この仕組みの上にあります。",
+        "title": "1 · talk",
+        "status": ""
       },
       {
         "hint": "チーム全体を 1 つの画面に",
-        "caption": "agent が増えたら、`tmt ops ui` でチーム全体を 1 つの画面に表示できます。誰が作業中で、誰があなたを待ち、誰の作業が止まっているかを確認できます。Ops 拡張機能に含まれています。同じ agent に、ウィンドウをもう 1 つ追加するだけです。"
+        "caption": "agent が増えたら、`tmt ops ui` でチーム全体を 1 つの画面に表示できます。誰が作業中で、誰があなたを待ち、誰の作業が止まっているかを確認できます。Ops 拡張機能に含まれています。同じ agent に、ウィンドウをもう 1 つ追加するだけです。",
+        "title": "2 · board",
+        "status": "alpha"
       },
       {
         "hint": "1 つの共有ページ",
-        "status": "開発中",
-        "caption": "Colab は、lead の計画、メモ、議論をまとめる共有ページです。チームメンバーや別のマシンの agent が同じページを読んでコメントできる設計です。ここに示しているのは設計で、リリース済みの機能ではありません。"
+        "status": "alpha",
+        "caption": "Colab（Alpha）：自分のマシンに共有ページと議論の場を用意し、Remote 経由でブラウザーから開き、自分の Firebase プロジェクトを通じてチームメンバーと共有できます。ここに示す画面は説明用の例です。",
+        "title": "3 · colab"
       },
       {
         "hint": "agent と会議する",
         "status": "計画中",
-        "caption": "Meet（#842）は、あなた、lead、そのメンバーが 1 つのテキスト会議に参加する設計です。発言したい人が手を挙げ、あなたが発言者を指定します。まだ着手していません。"
+        "caption": "Meet（#842）は、あなた、lead、そのメンバーのためのテキスト会議の計画です。発言したい人が手を挙げ、あなたが発言者を指定します。",
+        "title": "4 · meet"
       }
     ],
     "layers": [
       "会議室 · 計画中",
-      "共有ページ · 開発中",
+      "共有ページ · alpha",
       "チーム全体を 1 つの画面に · alpha",
       "すべての層が使う基盤"
     ],
@@ -269,7 +331,7 @@
       "human": "（人間）",
       "herLead": "相手の lead",
       "sharedPage": "1 つの共有ページ",
-      "inProgress": "開発中",
+      "inProgress": "説明用の例",
       "pageTitle": "colab · リリース計画",
       "planHeading": "Release 5.0 の計画",
       "planOne": "token の更新",
@@ -280,6 +342,182 @@
       "meiSays": "ドキュメントの修正を待てますか？",
       "meetArrow": "挙手した人（↑）が順番を待ち、あなたが発言者を指定します",
       "planned": "計画中"
+    }
+  },
+  "landing": {
+    "howItWorks": "使い方",
+    "quickStart": "クイックスタート",
+    "eyebrow": "AGENT 同士を直接つなぐ",
+    "statement": "独立した agent。\nつながる 1 つのチーム。",
+    "description": "ターミナルを切り替えたり agent の動かし方を変えたりせず、異なる harness や環境の coding agent をつなぎます。",
+    "getStarted": "始める",
+    "seeWorkflow": "作業の流れを見る",
+    "environment": "いつもの agent。いつもの環境。",
+    "workflowTitle": "コピー＆ペーストを減らし、\n作業を前へ。",
+    "workflowDescription": "タスクを送り、次の作業へ。\n答えが戻る経路があります。",
+    "exampleSession": "セッション例",
+    "keepToolsTitle": "いつものツールを使う。",
+    "keepToolsDescription": "agent はそれぞれのターミナルに留まり、自分のコンテキストを保ちます。",
+    "handoffTitle": "作業を引き継ぐ。",
+    "handoffDescription": "agent を名前で指定してタスクを送れます。手作業で伝える必要はありません。",
+    "closeLoopTitle": "返信までつなぐ。",
+    "closeLoopDescription": "リクエストと返信は結び付いています。送信済みと完了は別です。",
+    "nextTitle": "ターミナルを開き、\nチームをつなぐ。",
+    "readGuide": "スタートガイドを読む",
+    "footer": "独立した agent。つながる仕事。",
+    "theme": "テーマ: {theme}。テーマを変更",
+    "heroSteps": ["01 / つなぐ", "02 / 依頼する", "03 / 受け取る"],
+    "compatibility": "いつもの agent。いつものツール。いつものマシン。",
+    "andMore": "ほかにも",
+    "workflowEyebrow": "01 / 作業の流れ",
+    "workflowReach": "agent アプリやターミナルをまたいでつながります。Remote を追加すると、別のマシンからも接続できます。",
+    "workflowSteps": [
+      "01 / agent に名前を付ける · reviewer のターミナルで",
+      "02 / リクエストを送る · 別の agent のターミナルから",
+      "03 / 返信を読む"
+    ],
+    "copyExample": "例のコマンドをコピー",
+    "exchangeLocal": "ローカルのやり取り",
+    "exchangeFlow": "リクエスト → 返信 → 結果",
+    "installTitle": "TMT をインストール",
+    "installDescription": "agent に名前を付けて、会話を始めましょう。",
+    "copyCommand": "コマンドをコピー",
+    "copy": "コピー",
+    "copied": "コピー済み",
+    "commandCopied": "コマンドをコピーしました",
+    "opsEyebrow": "02 / SQUAD",
+    "opsTagline": "複数のチームを、ひと目で。",
+    "opsDescription": "lead がほかの agent に作業を伝え、board を最新の状態に保ちます。",
+    "exploreOps": "Ops を見る",
+    "installOps": "Ops をインストール",
+    "colabEyebrow": "03 / COLAB",
+    "colabTagline": "ここに注釈を付け、agent に届ける。",
+    "colabDescription": "自分でホストできる Claude Artifacts の代替。agent や環境をまたいで使えます。",
+    "colabNote": "共有ドキュメント。その場での議論。自分のインフラ。",
+    "exploreColab": "Colab を見る",
+    "colabStatus": "ALPHA",
+    "installColab": "Colab をインストール",
+    "nextEyebrow": "02 / 次のセッションへ"
+  },
+  "colabLanding": {
+    "changeTheme": "テーマを変更",
+    "overline": "人と AGENT のための、自分でホストするページ",
+    "title": "作業に注釈を付け、\nagent と進める。",
+    "intro": {
+      "before": "",
+      "highlight": "場所を選ぶ。",
+      "after": "自分でホストするページで、TMT につながった agent をメンションし、アクセス権のあるチームメンバーと作業を話し合えます。返信は作業のそばに残ります。"
+    },
+    "explore": "Colab を見る",
+    "installAndUse": "インストールと使い方",
+    "featureIndex": "機能を詳しく見る",
+    "features": [
+      {
+        "label": "注釈を付ける",
+        "title": "具体的な場所から始める。",
+        "harness": "",
+        "copy": {
+          "before": "",
+          "highlight": "文を選ぶ。",
+          "after": "注釈を付けると、議論をその作業に結び付けられます。答えも同じ場所に戻ります。"
+        },
+        "next": "次へ：agent に話しかける"
+      },
+      {
+        "label": "agent に話しかける",
+        "title": "ページから agent に話しかける。",
+        "harness": "TMT につながった agent と。",
+        "copy": {
+          "before": "",
+          "highlight": "注釈で TMT につながった agent をメンションする。",
+          "after": "ページへのアクセス権があるチームメンバーも議論に参加できます。Remote を使えば、接続したマシン上の agent にも届きます。"
+        },
+        "next": "次へ：一緒に書く"
+      },
+      {
+        "label": "一緒に書く",
+        "title": "リアルタイムで一緒に書く。",
+        "harness": "",
+        "copy": {
+          "before": "",
+          "highlight": "作業に合わせてドキュメントが更新されます。",
+          "after": "メモ、返信、最新版がページにまとまります。"
+        },
+        "next": "次へ：作業を整理する"
+      },
+      {
+        "label": "作業を整理する",
+        "title": "プロジェクトをまとめる場所に。",
+        "harness": "",
+        "copy": {
+          "before": "",
+          "highlight": "計画、チェックリスト、決定をまとめる。",
+          "after": "プロジェクトで関連するページを見つけ直せます。"
+        },
+        "next": "次へ：始める"
+      }
+    ],
+    "install": {
+      "eyebrow": "始める",
+      "title": "まずは 1 ページから。",
+      "copy": {
+        "before": "TMT と Colab をインストールし、",
+        "highlight": "ローカルのページを作成",
+        "after": "します。案内に従って、新しいブラウザーをそれぞれペアリングしてください。"
+      },
+      "steps": ["TMT をインストール", "Colab を追加", "Colab を開く", "ページを作成"]
+    },
+    "deploy": {
+      "eyebrow": "自分に合う方法でホスト",
+      "title": "ローカルから始め、チームでの利用を考える。",
+      "copy": {
+        "before": "",
+        "highlight": "ページを自分でホストする。",
+        "after": "ローカルから始めて、下の Remote の選択肢を検討できます。"
+      },
+      "backendTabs": "Colab のバックエンド",
+      "noCommand": "まだ使えるコマンドはありません。",
+      "capability": "機能",
+      "colabStatus": "Colab の対応状況",
+      "capabilities": ["リアルタイム編集", "ページ検索", "全文検索", "ベクトル検索"],
+      "note": "ここでは Colab の対応状況を示しています。基盤となる provider の全機能を示すものではありません。リアルタイム編集は共有ドキュメントの更新を指します。Colab は全文検索とベクトル検索にはまだ対応していません。",
+      "ownReferences": {
+        "before": "アダプターと適合性チェックについては ",
+        "backend": "Remote バックエンドのリファレンス",
+        "middle": "、ページの作業手順については ",
+        "skill": "Colab agent skill",
+        "after": "を参照してください。"
+      },
+      "backends": {
+        "local": {
+          "label": "ローカル",
+          "status": "利用可能",
+          "commandLabel": "自分のマシンで実行",
+          "note": "ローカルのページを開き、案内に従って新しいブラウザーをペアリングします。",
+          "capabilities": ["利用可能", "タイトル、プロジェクト、作成者", "未対応", "未対応"]
+        },
+        "firestore": {
+          "label": "Firestore",
+          "status": "Alpha",
+          "commandLabel": "読み取り専用のデプロイ計画",
+          "note": "まず具体的な計画を読みます。この段階では変更されません。自分の Firebase プロジェクトにデプロイするには、計画を確認し、--authorize とその計画の digest を指定して自分で再実行してください。配信するページはそこを通じて同期され、共有リンクを誰に渡すかは自分で決めます。",
+          "capabilities": ["開いているページで利用可能（Alpha）", "未対応", "未対応", "未対応"]
+        },
+        "cloudflare": {
+          "label": "Cloudflare",
+          "status": "計画中",
+          "commandLabel": "デプロイ",
+          "note": "Cloudflare バックエンドとそのデプロイコマンドは計画中で、まだ使えません。",
+          "capabilities": ["計画中", "計画中", "未対応", "未対応"]
+        },
+        "own": {
+          "label": "独自の provider",
+          "status": "開発者向け",
+          "commandLabel": "自分でホストして始める",
+          "note": "1 つのコマンドでページをローカルで動かせます。独自の Remote バックエンドにはアダプターと適合性チェックが必要です。ホスト環境の構築は、引き続き開発者向けの手順です。",
+          "capabilities": ["未接続", "未接続", "未対応", "未対応"]
+        }
+      }
     }
   }
 }
