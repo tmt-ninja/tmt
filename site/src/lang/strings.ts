@@ -75,7 +75,7 @@ export const english = {
       before: "",
       highlight: "Select a point.",
       after:
-        " On a page you host, mention TMT-connected agents and teammates; their replies stay with the work.",
+        " On a page you host, mention TMT-connected agents and discuss the work with teammates who have access; replies stay with the work.",
     },
     explore: "Explore Colab",
     installAndUse: "Install & use",
@@ -100,8 +100,9 @@ export const english = {
         harness: "With your TMT-connected agents.",
         copy: {
           before: "",
-          highlight: "Mention an agent and a teammate",
-          after: " in one annotation. With Remote, reach agents in another environment too.",
+          highlight: "Mention a TMT-connected agent in an annotation.",
+          after:
+            " Teammates with page access can join the discussion. With Remote, reach agents on a connected machine too.",
         },
         next: "Next: write together",
       },
@@ -123,7 +124,7 @@ export const english = {
         copy: {
           before: "",
           highlight: "Collect plans, checklists, and decisions.",
-          after: " Use labels to find related pages again.",
+          after: " Use projects to find related pages again.",
         },
         next: "Next: get started",
       },
@@ -167,7 +168,7 @@ export const english = {
           status: "Available",
           commandLabel: "RUN ON YOUR MACHINE",
           note: "Open a local page and pair a new browser when prompted.",
-          capabilities: ["Available", "Title, label, author", "Not yet", "Not yet"],
+          capabilities: ["Available", "Title, project, author", "Not yet", "Not yet"],
         },
         firestore: {
           label: "Firestore",
