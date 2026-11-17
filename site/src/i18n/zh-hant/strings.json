@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "40dba505f532d3fe88030ec2681612961095e089"
+    "sourceRevision": "3067f85d5b027cb865c472eb8cc148e8abb6ce78"
   },
   "ui": {
     "notTranslated": "尚未翻譯，此頁以英文顯示。",
@@ -32,11 +32,11 @@
       "dev-extension": "開發 / 擴充套件",
       "dev-driver": "開發 / driver",
       "design": "設計",
-      "orchestration": "操作 / 協調"
+      "orchestration": "操作 / Orchestration"
     },
     "status": {
       "shipped": "已發布",
-      "alpha": "Alpha",
+      "alpha": "alpha",
       "planned": "規劃中",
       "designing": "設計中",
       "in progress": "進行中",
@@ -46,7 +46,7 @@
   "home": {
     "eyebrow": "首頁",
     "title": "一個簡單的核心，*無限*種 AI 協作方式。",
-    "lede": "搭配使用能執行 tmt 的 CLI agent。Claude Code 可以把工作交給 Codex，再取得答案。receipt 將回覆對應到請求。你的終端機、agent 和帳號都照舊。Ops 與 Colab 建立在這個核心上；Meet 則是規劃中的擴充功能。",
+    "lede": "搭配使用不同工具中的 agent：只要能執行指令，CLI agent 就能使用 tmt。Claude Code 可以把工作交給 Codex，再取得答案。receipt 將回覆對應到請求。你的終端機、agent 和帳號都照舊。Ops 與 Colab 建立在這個核心上；Meet 則是規劃中的擴充套件。",
     "worksWith": "支援",
     "yourHarness": "你的 harness",
     "yourServer": "你的伺服器",
@@ -84,7 +84,7 @@
         },
         {
           "name": "請求",
-          "text": "一個 agent 傳給另一個的內容：`tmt talk builder \"…\"` 會為它加上 ID 與 receipt，儲存後嘗試送達。排隊中的請求會保留。"
+          "text": "一個 agent 傳給另一個的內容：`tmt talk builder \"…\"` 會為它加上 ID 與 receipt，儲存後傳送到 agent 的窗格或收件匣。"
         },
         {
           "name": "結果",
@@ -103,7 +103,7 @@
         "working": {
           "eyebrow": "工作流程",
           "title": "請求在窗格之間*傳遞*。",
-          "text": "在這個終端機範例中，`tmt talk` 將請求送到另一個 agent 的窗格。agent 用 `tmt reply` 與 receipt 回覆；`tmt result` 讀取已儲存的回覆。"
+          "text": "在這個終端機範例中，`tmt talk` 將請求傳送到另一個 agent 的窗格。agent 用 `tmt reply` 與 receipt 回覆；`tmt result` 讀取已儲存的回覆。"
         },
         "squad": {
           "eyebrow": "squad",
@@ -113,12 +113,12 @@
         "colab": {
           "eyebrow": "colab",
           "title": "整個*團隊*共用的一頁。",
-          "text": "Colab 已提供 Alpha 版本：頁面、筆記與討論存放在自己的機器上，可透過 Remote 從瀏覽器存取。與隊友分享需要擁有者完成設定並授予存取權。"
+          "text": "Colab（Alpha）：在自己的機器上共用頁面與討論，透過 Remote 在瀏覽器中開啟，再透過自己的 Firebase 專案與隊友分享。"
         },
         "meet": {
           "eyebrow": "meet",
           "title": "你與 *agent* 的會議室。",
-          "text": "規劃中：你、lead 與成員一起開會。想發言的人舉手，由你點名。已發布的 CLI 沒有會議指令。"
+          "text": "規劃中：你、lead 與成員一起開會。想發言的人舉手，由你點名。"
         },
         "install": {
           "eyebrow": "安裝",
@@ -126,12 +126,12 @@
         }
       }
     },
-    "alpha": "Alpha"
+    "alpha": "alpha"
   },
   "chapters": {
     "travel": {
       "label": "一則請求從 lead 傳到 builder，回覆再傳回來。lead 執行 tmt talk；tmt 以 ID 和 receipt 儲存請求，並把它輸入到 builder 的窗格；builder 完成工作後，用 tmt reply 和 receipt 回覆；tmt 儲存回覆，talk 再把它交還給 lead。",
-      "examples": "這個範例在終端機窗格中使用 Claude Code 與 Codex。TMT 支援內建終端機 host、tmux 及隨附的 Herdr driver；其他 CLI agent 可使用一般終端機投遞。",
+      "examples": "這個範例在終端機窗格中使用 Claude Code 與 Codex。TMT 支援內建終端機 host、tmux 及隨附的 Herdr driver；其他 CLI agent 可使用一般終端機傳送。",
       "steps": [
         {
           "title": "1 · talk",
@@ -251,29 +251,29 @@
       "script": [
         {
           "who": "builder",
-          "say": "Tokens are rotated. Tests pass. I need a decision on the release window.",
+          "say": "token 已輪替，測試通過。需要決定發布時段。",
           "hands": ["reviewer", "tester"]
         },
         {
           "who": "reviewer",
-          "say": "I'd ship tonight: the diff is small and #412 is reviewed.",
+          "say": "我建議今晚發布：改動很小，#412 已審查。",
           "hands": ["tester"]
         },
         {
           "who": "tester",
-          "say": "E2E is green on #412. No objection.",
+          "say": "#412 的 E2E 通過，我沒有異議。",
           "hands": []
         },
         {
           "who": "you",
-          "say": "Ship tonight. builder, merge after CI.",
+          "say": "今晚發布。builder，CI 通過後合併。",
           "hands": ["builder"]
         }
       ],
       "roadmap": [
         {
           "title": "目前 · 規劃中",
-          "text": "設計已確認（#842）；尚無已發布的會議指令"
+          "text": "設計已確認（#842）"
         },
         {
           "title": "下一步 · 文字",
@@ -300,25 +300,25 @@
         "title": "2 · board",
         "hint": "整個團隊，一個畫面",
         "caption": "agent 變多了？`tmt ops ui` 在一個畫面裡顯示整個團隊：誰在工作、誰在等你、誰卡住。它隨 Ops 擴充套件提供。同一批 agent，多開一個視窗。",
-        "status": "Alpha"
+        "status": "alpha"
       },
       {
         "title": "3 · colab",
         "hint": "一個共用頁面",
-        "status": "Alpha",
-        "caption": "Colab 已提供 Alpha 版本，可用於頁面與討論，支援透過 Remote 從瀏覽器存取，以及透過 Firestore 進行雲端分享。擁有者負責設定分享並授予存取權。這裡的畫面是示意圖。"
+        "status": "alpha",
+        "caption": "Colab（Alpha）：在自己的機器上共用頁面與討論，透過 Remote 在瀏覽器中開啟，再透過自己的 Firebase 專案與隊友分享。這裡的畫面是示意圖。"
       },
       {
         "title": "4 · meet",
         "hint": "與你的 agent 開會",
         "status": "規劃中",
-        "caption": "Meet（#842）是規劃中的文字會議，讓你、lead 與成員一起參加。想發言的人舉手，由你點名。已發布的 CLI 沒有會議指令。"
+        "caption": "Meet（#842）是規劃中的文字會議，讓你、lead 與成員一起參加。想發言的人舉手，由你點名。"
       }
     ],
     "layers": [
       "會議室 · 規劃中",
-      "共用頁面 · Alpha",
-      "一個畫面看整個團隊 · Alpha",
+      "共用頁面 · alpha",
+      "一個畫面看整個團隊 · alpha",
       "每一層都用到的基礎"
     ],
     "scenes": {
@@ -398,10 +398,6 @@
     "colabStatus": "ALPHA",
     "installColab": "安裝 Colab",
     "nextEyebrow": "02 / 你的下一個工作階段"
-  },
-  "ownerPreview": {
-    "colabDescription": "開放式的 Claude Artifact，跨越環境和 harness",
-    "colabSubline": "self-host · 共編的文件輔助工具"
   },
   "colabLanding": {
     "changeTheme": "切換主題",
@@ -484,12 +480,12 @@
       "capability": "功能",
       "colabStatus": "Colab 狀態",
       "capabilities": ["即時編輯", "頁面搜尋", "全文搜尋", "向量搜尋"],
-      "note": "這裡顯示的是 Colab 功能的狀態，並非底層供應商的所有能力。即時編輯指共用文件更新；Colab 尚不支援全文搜尋與向量搜尋。",
+      "note": "這裡顯示的是 Colab 功能的狀態，並非底層 provider 的所有能力。即時編輯指共用文件更新；Colab 尚不支援全文搜尋與向量搜尋。",
       "ownReferences": {
-        "before": "如需介接器與一致性檢查指南，請閱讀",
-        "backend": " Remote 後端參考資料",
-        "middle": "；頁面工作流程請閱讀",
-        "skill": " Colab agent skill",
+        "before": "如需介接器與一致性檢查指南，請閱讀 ",
+        "backend": "Remote 後端參考資料",
+        "middle": "；頁面工作流程請閱讀 ",
+        "skill": "Colab agent skill",
         "after": "。"
       },
       "backends": {
@@ -515,7 +511,7 @@
           "capabilities": ["規劃中", "規劃中", "尚未支援", "尚未支援"]
         },
         "own": {
-          "label": "你自己的供應商",
+          "label": "你自己的 provider",
           "status": "開發者方案",
           "commandLabel": "開始自行託管",
           "note": "一個指令就能在本機執行頁面。自訂 Remote 後端需要介接器與一致性檢查；託管環境的建置仍需走開發者流程。",

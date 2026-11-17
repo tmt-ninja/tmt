@@ -238,7 +238,7 @@ export const english = {
     eyebrow: "home",
     title: "One simple core. *Endless* ways for AI to work together.",
     tagline: "Dead simple agent-to-agent communication. Built to compose.",
-    lede: "Mix CLI agents that can run tmt. Claude Code can hand a task to Codex and get the answer back. A receipt ties each reply to its request. Keep your terminal, agents and accounts. Ops and Colab build on that core; Meet is a planned extension of it.",
+    lede: "Mix agents from different tools: any CLI agent that can run a command can use tmt. Claude Code can hand a task to Codex and get the answer back. A receipt ties each reply to its request. Keep your terminal, agents and accounts. Ops and Colab build on that core; Meet is a planned extension of it.",
     worksWith: "Works with",
     agents: "agents",
     anyAgent: "other CLI agents",
@@ -279,7 +279,7 @@ export const english = {
         },
         {
           name: "request",
-          text: 'What one agent sends another: `tmt talk builder "…"` stores it with an ID and a receipt, then attempts delivery. Queued requests remain available.',
+          text: 'What one agent sends another: `tmt talk builder "…"` stores it with an ID and a receipt and delivers it to the agent\'s pane or inbox.',
         },
         {
           name: "result",
@@ -311,12 +311,12 @@ export const english = {
         colab: {
           eyebrow: "colab",
           title: "One page your whole *team* shares.",
-          text: "Colab is available in Alpha: pages, notes and discussions on your machine, with browser access through Remote. Sharing with teammates requires the owner's setup and access grants.",
+          text: "Colab (Alpha): shared pages and discussions on your machine, opened in your browser through Remote, and shared with teammates through your own Firebase project.",
         },
         meet: {
           eyebrow: "meet",
           title: "A room for you and your *agents*.",
-          text: "Planned: one meeting for you, the lead and its members. Whoever wants to speak raises a hand, and you give the floor. The shipped CLI has no meeting command.",
+          text: "Planned: one meeting for you, the lead and its members. Whoever wants to speak raises a hand, and you give the floor.",
         },
         install: {
           eyebrow: "install",
@@ -417,7 +417,7 @@ export const english = {
         { who: "you", say: "Ship tonight. builder, merge after CI.", hands: ["builder"] },
       ],
       roadmap: [
-        { title: "now · planned", text: "design agreed (#842); no shipped meeting command" },
+        { title: "now · planned", text: "design agreed (#842)" },
         {
           title: "next · text",
           text: "text meetings in the terminal: raise a hand, take turns, you host",
@@ -471,14 +471,14 @@ export const english = {
         hint: "One shared page",
         status: "alpha",
         caption:
-          "Colab is available in Alpha for pages and discussions, with browser access through Remote and cloud sharing through Firestore. The owner sets up sharing and grants access. The scene here is an illustration.",
+          "Colab (Alpha): shared pages and discussions on your machine, opened in your browser through Remote, and shared with teammates through your own Firebase project. The scene is an illustration.",
       },
       {
         title: "4 · meet",
         hint: "Meet with your agents",
         status: "planned",
         caption:
-          "Meet (#842) is a planned text meeting for you, the lead and its members. Whoever wants to speak raises a hand, and you give the floor. The shipped CLI has no meeting command.",
+          "Meet (#842) is a planned text meeting for you, the lead and its members. Whoever wants to speak raises a hand, and you give the floor.",
       },
     ],
     // What each layer is, from meet down to the foundation.

@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "40dba505f532d3fe88030ec2681612961095e089"
+    "sourceRevision": "3067f85d5b027cb865c472eb8cc148e8abb6ce78"
   },
   "ui": {
     "notTranslated": "此页尚未翻译，暂时显示英文。",
@@ -32,11 +32,11 @@
       "dev-extension": "开发 / 扩展",
       "dev-driver": "开发 / driver",
       "design": "设计",
-      "orchestration": "使用方法 / 编排"
+      "orchestration": "使用方法 / Orchestration"
     },
     "status": {
       "shipped": "已发布",
-      "alpha": "Alpha",
+      "alpha": "alpha",
       "planned": "计划中",
       "designing": "设计中",
       "in progress": "进行中",
@@ -47,7 +47,7 @@
     "eyebrow": "首页",
     "title": "一个简单的核心，*无限*种 AI 协作方式。",
     "tagline": "agent 间简单通信，组合使用。",
-    "lede": "搭配使用能运行 tmt 的 CLI agent。Claude Code 可以把任务交给 Codex，再获取回复。receipt 将每条回复与原请求对应起来。你仍然使用自己的终端、agent 和账号。Ops 和 Colab 建立在这个核心上；Meet 是计划中的扩展。",
+    "lede": "搭配使用不同工具中的 agent：只要能运行命令，CLI agent 就能使用 tmt。Claude Code 可以把任务交给 Codex，再获取回复。receipt 将每条回复与原请求对应起来。你仍然使用自己的终端、agent 和账号。Ops 和 Colab 建立在这个核心上；Meet 是计划中的扩展。",
     "worksWith": "适用工具",
     "agents": "agent",
     "anyAgent": "其他 CLI agent",
@@ -84,7 +84,7 @@
         },
         {
           "name": "请求",
-          "text": "一个 agent 发给另一个 agent 的内容。`tmt talk builder \"…\"` 为请求保存 ID 和 receipt，然后尝试投递。排队的请求会保留。"
+          "text": "一个 agent 发给另一个 agent 的内容。`tmt talk builder \"…\"` 为它保存 ID 和 receipt，再发送到 agent 的窗格或收件箱。"
         },
         {
           "name": "结果",
@@ -113,12 +113,12 @@
         "colab": {
           "eyebrow": "colab",
           "title": "整个*团队*共享一个页面。",
-          "text": "Colab 已提供 Alpha 版本：页面、笔记和讨论保存在自己的机器上，可通过 Remote 从浏览器访问。与同事共享需要所有者完成设置并授予访问权限。"
+          "text": "Colab（Alpha）：在自己的机器上共享页面和讨论，通过 Remote 在浏览器中打开，再通过自己的 Firebase 项目与队友共享。"
         },
         "meet": {
           "eyebrow": "meet",
           "title": "你和 *agent* 的会议室。",
-          "text": "计划中：你、lead 和成员参加同一场会议。想发言的人先举手，由你分配发言权。已发布的 CLI 中没有会议命令。"
+          "text": "计划中：你、lead 和成员参加同一场会议。想发言的人先举手，由你分配发言权。"
         },
         "install": {
           "eyebrow": "安装",
@@ -126,7 +126,7 @@
         }
       }
     },
-    "alpha": "Alpha"
+    "alpha": "alpha"
   },
   "chapters": {
     "travel": {
@@ -226,7 +226,7 @@
       "roadmap": [
         {
           "title": "当前 · 计划中",
-          "text": "设计已确定（#842）；尚无已发布的会议命令"
+          "text": "设计已确定（#842）"
         },
         {
           "title": "下一步 · 文字",
@@ -299,26 +299,26 @@
       {
         "title": "2 · board",
         "hint": "一个界面查看整个团队",
-        "status": "Alpha",
+        "status": "alpha",
         "caption": "agent 变多了？`tmt ops ui` 在同一个界面显示整个团队：谁在工作，谁在等你，谁遇到了阻碍。这是 Ops 扩展的功能。仍是同一批 agent，只多一个窗口。"
       },
       {
         "title": "3 · colab",
         "hint": "一个共享页面",
-        "status": "Alpha",
-        "caption": "Colab 已提供 Alpha 版本，可用于页面和讨论，支持通过 Remote 从浏览器访问，以及通过 Firestore 进行云端共享。所有者负责设置共享并授予访问权限。这里的画面是示意图。"
+        "status": "alpha",
+        "caption": "Colab（Alpha）：在自己的机器上共享页面和讨论，通过 Remote 在浏览器中打开，再通过自己的 Firebase 项目与队友共享。这里的画面是示意图。"
       },
       {
         "title": "4 · meet",
         "hint": "与 agent 开会",
         "status": "计划中",
-        "caption": "Meet（#842）是计划中的文字会议，让你、lead 和成员一起参加。想发言的人先举手，由你分配发言权。已发布的 CLI 中没有会议命令。"
+        "caption": "Meet（#842）是计划中的文字会议，让你、lead 和成员一起参加。想发言的人先举手，由你分配发言权。"
       }
     ],
     "layers": [
       "会议室 · 计划中",
-      "共享页面 · Alpha",
-      "一个界面查看团队 · Alpha",
+      "共享页面 · alpha",
+      "一个界面查看团队 · alpha",
       "各层功能共同使用的基础"
     ],
     "scenes": {
@@ -480,12 +480,12 @@
       "capability": "功能",
       "colabStatus": "Colab 状态",
       "capabilities": ["实时编辑", "页面搜索", "全文搜索", "向量搜索"],
-      "note": "这里显示的是 Colab 功能的状态，并非底层提供商的全部能力。实时编辑指共享文档更新；Colab 尚不支持全文搜索和向量搜索。",
+      "note": "这里显示的是 Colab 功能的状态，并非底层提供方的全部能力。实时编辑指共享文档更新；Colab 尚不支持全文搜索和向量搜索。",
       "ownReferences": {
-        "before": "如需适配器与一致性检查指南，请阅读",
-        "backend": " Remote 后端参考资料",
-        "middle": "；页面工作流程请阅读",
-        "skill": " Colab agent skill",
+        "before": "如需适配器与一致性检查指南，请阅读 ",
+        "backend": "Remote 后端参考资料",
+        "middle": "；页面工作流程请阅读 ",
+        "skill": "Colab agent 技能",
         "after": "。"
       },
       "backends": {
@@ -511,7 +511,7 @@
           "capabilities": ["计划中", "计划中", "尚不支持", "尚不支持"]
         },
         "own": {
-          "label": "你自己的提供商",
+          "label": "你自己的提供方",
           "status": "开发者方案",
           "commandLabel": "开始自行托管",
           "note": "一条命令即可在本地运行页面。自定义 Remote 后端需要适配器和一致性检查；托管环境的搭建仍需走开发者流程。",

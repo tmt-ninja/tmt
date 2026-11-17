@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "40dba505f532d3fe88030ec2681612961095e089"
+    "sourceRevision": "3067f85d5b027cb865c472eb8cc148e8abb6ce78"
   },
   "ui": {
     "notTranslated": "まだ翻訳されていないため、このページは英語で表示しています。",
@@ -32,11 +32,11 @@
       "dev-extension": "開発 / 拡張機能",
       "dev-driver": "開発 / driver",
       "design": "デザイン",
-      "orchestration": "使い方 / オーケストレーション"
+      "orchestration": "使い方 / Orchestration"
     },
     "status": {
       "shipped": "公開済み",
-      "alpha": "Alpha",
+      "alpha": "alpha",
       "planned": "計画中",
       "designing": "設計中",
       "in progress": "開発中",
@@ -47,7 +47,7 @@
     "eyebrow": "ホーム",
     "title": "シンプルな基盤で、AI の協働を*さまざまな形*に。",
     "tagline": "agent 間の通信をシンプルに。機能を組み合わせて使えます。",
-    "lede": "tmt を実行できる CLI agent を組み合わせて使えます。Claude Code から Codex に作業を渡し、答えを受け取れます。receipt が返信をリクエストに結び付けます。ターミナルも agent もアカウントもそのままです。Ops と Colab はこのコアの上に作られており、Meet はその拡張として計画されています。",
+    "lede": "異なるツールの agent を組み合わせて使えます。コマンドを実行できる CLI agent なら、tmt を使えます。Claude Code から Codex に作業を渡し、答えを受け取れます。receipt が返信をリクエストに結び付けます。ターミナルも agent もアカウントもそのままです。Ops と Colab はこのコアの上に作られており、Meet はその拡張機能として計画されています。",
     "worksWith": "対応環境",
     "yourHarness": "お使いの harness",
     "yourServer": "お使いのサーバー",
@@ -79,7 +79,7 @@
           "name": "agent"
         },
         {
-          "text": "agent が別の agent に送るものです。`tmt talk builder \"…\"` が ID と receipt を付けて保存し、配信を試みます。キューに入ったリクエストは保持されます。",
+          "text": "agent が別の agent に送るものです。`tmt talk builder \"…\"` が ID と receipt を付けて保存し、agent のペインまたは受信トレイに届けます。",
           "name": "リクエスト"
         },
         {
@@ -109,12 +109,12 @@
         "colab": {
           "eyebrow": "colab",
           "title": "*チーム全員*で共有する 1 つのページ。",
-          "text": "Colab は Alpha として利用できます。自分のマシン上にページ、メモ、議論をまとめ、Remote 経由でブラウザーから開けます。チームメンバーとの共有には、所有者による設定とアクセス許可が必要です。"
+          "text": "Colab（Alpha）：自分のマシンに共有ページと議論の場を用意し、Remote 経由でブラウザーから開き、自分の Firebase プロジェクトを通じてチームメンバーと共有できます。"
         },
         "meet": {
           "eyebrow": "meet",
           "title": "あなたと*agent* のための会議室。",
-          "text": "計画中：あなた、lead、そのメンバーが 1 つの会議に参加します。発言したい人が手を挙げ、あなたが発言者を指定します。リリース済みの CLI には会議コマンドがありません。"
+          "text": "計画中：あなた、lead、そのメンバーが 1 つの会議に参加します。発言したい人が手を挙げ、あなたが発言者を指定します。"
         },
         "install": {
           "eyebrow": "インストール",
@@ -126,7 +126,7 @@
     "anyAgent": "その他の CLI agent",
     "hosts": "実行環境",
     "next": "次に",
-    "alpha": "Alpha"
+    "alpha": "alpha"
   },
   "chapters": {
     "travel": {
@@ -203,7 +203,7 @@
       "roadmap": [
         {
           "title": "現在 · 計画中",
-          "text": "設計は合意済み（#842）。リリース済みの会議コマンドはありません"
+          "text": "設計は合意済み（#842）"
         },
         {
           "title": "次 · テキスト",
@@ -218,22 +218,22 @@
       "script": [
         {
           "who": "builder",
-          "say": "Tokens are rotated. Tests pass. I need a decision on the release window.",
+          "say": "token のローテーションが完了し、テストも通りました。リリースの時間帯を決める必要があります。",
           "hands": ["reviewer", "tester"]
         },
         {
           "who": "reviewer",
-          "say": "I'd ship tonight: the diff is small and #412 is reviewed.",
+          "say": "今夜のリリースを提案します。変更は小さく、#412 はレビュー済みです。",
           "hands": ["tester"]
         },
         {
           "who": "tester",
-          "say": "E2E is green on #412. No objection.",
+          "say": "#412 の E2E は通っています。異議はありません。",
           "hands": []
         },
         {
           "who": "you",
-          "say": "Ship tonight. builder, merge after CI.",
+          "say": "今夜リリースします。builder、CI が通ったらマージしてください。",
           "hands": ["builder"]
         }
       ]
@@ -300,25 +300,25 @@
         "hint": "チーム全体を 1 つの画面に",
         "caption": "agent が増えたら、`tmt ops ui` でチーム全体を 1 つの画面に表示できます。誰が作業中で、誰があなたを待ち、誰の作業が止まっているかを確認できます。Ops 拡張機能に含まれています。同じ agent に、ウィンドウをもう 1 つ追加するだけです。",
         "title": "2 · board",
-        "status": "Alpha"
+        "status": "alpha"
       },
       {
         "hint": "1 つの共有ページ",
-        "status": "Alpha",
-        "caption": "Colab は Alpha としてページや議論に使えます。Remote 経由のブラウザーアクセスと Firestore 経由のクラウド共有に対応しています。共有の設定とアクセス許可は所有者が行います。ここに示す画面は説明用の例です。",
+        "status": "alpha",
+        "caption": "Colab（Alpha）：自分のマシンに共有ページと議論の場を用意し、Remote 経由でブラウザーから開き、自分の Firebase プロジェクトを通じてチームメンバーと共有できます。ここに示す画面は説明用の例です。",
         "title": "3 · colab"
       },
       {
         "hint": "agent と会議する",
         "status": "計画中",
-        "caption": "Meet（#842）は、あなた、lead、そのメンバーのためのテキスト会議の計画です。発言したい人が手を挙げ、あなたが発言者を指定します。リリース済みの CLI には会議コマンドがありません。",
+        "caption": "Meet（#842）は、あなた、lead、そのメンバーのためのテキスト会議の計画です。発言したい人が手を挙げ、あなたが発言者を指定します。",
         "title": "4 · meet"
       }
     ],
     "layers": [
       "会議室 · 計画中",
-      "共有ページ · Alpha",
-      "チーム全体を 1 つの画面に · Alpha",
+      "共有ページ · alpha",
+      "チーム全体を 1 つの画面に · alpha",
       "すべての層が使う基盤"
     ],
     "scenes": {
@@ -482,10 +482,10 @@
       "capabilities": ["リアルタイム編集", "ページ検索", "全文検索", "ベクトル検索"],
       "note": "ここでは Colab の対応状況を示しています。基盤となる provider の全機能を示すものではありません。リアルタイム編集は共有ドキュメントの更新を指します。Colab は全文検索とベクトル検索にはまだ対応していません。",
       "ownReferences": {
-        "before": "アダプターと適合性チェックについては",
-        "backend": " Remote バックエンドのリファレンス",
-        "middle": "、ページの作業手順については",
-        "skill": " Colab agent スキル",
+        "before": "アダプターと適合性チェックについては ",
+        "backend": "Remote バックエンドのリファレンス",
+        "middle": "、ページの作業手順については ",
+        "skill": "Colab agent skill",
         "after": "を参照してください。"
       },
       "backends": {
