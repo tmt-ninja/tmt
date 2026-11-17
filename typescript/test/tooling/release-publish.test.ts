@@ -454,9 +454,11 @@ describe('publishDraft', () => {
     }
     const { api, published } = fakeApi([draft(TAG, ['release-publication.json'])]);
     expect(() => publishDraft({ api, product: 'ops', tag: TAG })).toThrow('Not publishing');
-    expect(() => publishDraft({ api, product: 'cli', tag: 'v5.0.0-alpha.99' })).toThrow(
-      'there is no release v5.0.0-alpha.99'
-    );
+    const delays: number[] = [];
+    expect(() =>
+      publishDraft({ api, product: 'cli', tag: 'v5.0.0-alpha.99', sleep: (ms) => delays.push(ms) })
+    ).toThrow('there is no release v5.0.0-alpha.99');
+    expect(delays).toEqual([1000, 2000]);
     expect(published).toEqual([]);
   });
 

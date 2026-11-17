@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeExecutable } from '../support/executable-fixture.mjs';
-import { describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
   boundCallLog,
   collectInfraTick,
@@ -1814,88 +1814,15 @@ it('traces only actual network calls, including errors, without response bodies'
 });
 
 describe('one-pass hourly PR volume through the real CLI', () => {
-  function volume(count: number, mode = 'normal') {
-    const directory = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-hourly-'));
-    const targetUntil = mode === 'split-budget' ? '2026-10-18T12:00:00Z' : options.until;
-    const cursorFile = path.join(directory, 'cursor.json');
-    const cursor =
-      mode === 'corrupt'
-        ? '{broken cursor'
-        : JSON.stringify({
-            schema: 1,
-            until: options.since,
-            failedDraftIds: [],
-            failedRunAttempts: [],
-            activeRunIds: [
-              'sampled-logs',
-              'failed-job-budget',
-              'clock-budget',
-              'split-budget',
-            ].includes(mode)
-              ? []
-              : Array.from({ length: 32 }, (_, i) => i + 1),
-          });
-    writeFileSync(cursorFile, cursor);
-    const map = path.join(directory, 'review-map.json');
-    writeFileSync(map, JSON.stringify(options.reviewMap));
-    const clockFile = path.join(directory, 'clock.txt');
-    writeFileSync(clockFile, '0');
-    const liveReadFile = path.join(directory, 'live-reads.txt');
-    writeFileSync(liveReadFile, '0');
-    const clockHook = path.join(directory, 'clock-hook.mjs');
+  let volumeTools: string;
+  beforeAll(() => {
+    volumeTools = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-volume-tools-'));
+    // Immutable programs are shared; every case keeps its cursor, clock and response data.
     writeFileSync(
-      clockHook,
-      `import {readFileSync,writeFileSync} from 'node:fs'; Date.now=()=>${Date.parse(options.until)}+Number(readFileSync(process.env.CLOCK_FILE,'utf8')); Atomics.wait=(_array,_index,_value,ms)=>{writeFileSync(process.env.CLOCK_FILE,String(Number(readFileSync(process.env.CLOCK_FILE,'utf8'))+ms));return 'timed-out';};\n`
-    );
-    // Run details are immutable in this fixture. Serialize them once instead of starting
-    // Node for each of the 32 tracked-run reads; dynamic listings still use the fake API.
-    const failedCount =
-      mode === 'sampled-logs' ? 10 : ['failed-job-budget', 'split-budget'].includes(mode) ? 90 : 0;
-    const runs = Array.from(
-      { length: mode.startsWith('live-pages-') ? 101 : failedCount || 32 },
-      (_, i) => ({
-        id: i + 1,
-        head_sha: SHA,
-        run_attempt: 1,
-        created_at:
-          mode === 'split-budget'
-            ? new Date(Date.parse(options.since) + (i + 1) * 8 * 60_000).toISOString()
-            : '2026-10-18T00:30:00Z',
-        name: 'CI',
-        event: 'pull_request',
-        status: 'completed',
-        conclusion: failedCount ? 'failure' : 'success',
-        pull_requests: [{ number: i + 1 }],
-      })
-    );
-    for (const row of runs)
-      writeFileSync(path.join(directory, `run-${row.id}.json`), `${JSON.stringify(row)}\n`);
-    if (mode === 'split-budget')
-      for (const row of runs) {
-        // Static job pages exercise the real budget/cache without a Node startup per GET.
-        const jobs = [0, 1].map((i) => ({
-          id: row.id * 100 + 10 + i,
-          run_id: row.id,
-          run_attempt: 1,
-          head_sha: SHA,
-          name: i ? 'Partition 1' : 'Docker E2E',
-          status: 'completed',
-          conclusion: 'failure',
-          completed_at: targetUntil,
-          html_url: `https://github.com/${options.repository}/actions/runs/${row.id}/job/${row.id * 100 + 10 + i}`,
-          steps: [{ name: 'Run tests', conclusion: 'failure' }],
-        }));
-        writeFileSync(
-          path.join(directory, `jobs-${row.id}.json`),
-          JSON.stringify({ total_count: jobs.length, jobs })
-        );
-      }
-    writeFileSync(
-      path.join(directory, 'gh-fixture.cjs'),
+      path.join(volumeTools, 'gh-fixture.cjs'),
       `const args=process.argv.slice(2), mode=process.env.VOLUME_MODE, count=Number(process.env.VOLUME_COUNT);
-const sha=${JSON.stringify(SHA)}, until=${JSON.stringify(targetUntil)};
+const {sha,until,failedCount,runs}=JSON.parse(require('node:fs').readFileSync(require('node:path').join(process.env.VOLUME_FIXTURE_ROOT,'fixture.json'),'utf8'));
 const endpoint=args.find(arg=>arg.startsWith('repos/'));
-const failedCount=${failedCount}, runs=${JSON.stringify(runs)};
 const run=id=>runs[id-1];
 const files=pr=>Array.from({length:mode==='overflow'||(mode==='pagination'&&pr===1)?101:1},(_,i)=>({filename:'.github/file-'+i+'.yml'}));
 const comment=pr=>({id:pr,body:'Observed '+sha+'\\nAgent: tmt-lead codex-sol-high',html_url:'https://github.com/pj-tmt/tmt/pull/'+pr+'#issuecomment-'+pr});
@@ -1960,18 +1887,28 @@ else if(endpoint.includes('/pulls?')){
 `
     );
     writeExecutable(
-      path.join(directory, 'gh'),
+      path.join(volumeTools, 'gh'),
       `#!/bin/sh
-fixture="\${0%/*}"
+fixture="\${VOLUME_FIXTURE_ROOT:?}"
 for arg do
   case "$arg" in
     */actions/runs/*/attempts/1/jobs?*)
-      if [ "$VOLUME_MODE" = split-budget ]; then
-        id=\${arg#*/actions/runs/}
-        id=\${id%%/*}
-        exec cat "$fixture/jobs-$id.json"
-      fi
+      id=\${arg#*/actions/runs/}
+      id=\${id%%/*}
+      if [ -f "$fixture/jobs-$id.json" ]; then exec cat "$fixture/jobs-$id.json"; fi
       ;;
+    *InfraTickQueue*)
+      printf '%s\n' '{"data":{"repository":{"mergeQueue":{"entries":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}'
+      exit 0 ;;
+    repos/${options.repository})
+      printf '%s\n' '{"permissions":{"push":true}}'
+      exit 0 ;;
+    repos/${options.repository}/releases\\?*)
+      printf 'HTTP/2 200 OK\r\n\r\n[]'
+      exit 0 ;;
+    */actions/jobs/*/logs)
+      printf '%s\n' 'test sampled_failure ... FAILED'
+      exit 0 ;;
     repos/pj-tmt/tmt/actions/runs/*)
       id=\${arg#repos/pj-tmt/tmt/actions/runs/}
       case "$id" in
@@ -1981,10 +1918,92 @@ for arg do
       ;;
   esac
 done
-exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
+exec "$TICK_FIXTURE_NODE" "$VOLUME_FIXTURE_TOOLS/gh-fixture.cjs" "$@"
 `,
       0o700
     );
+  });
+  afterAll(() => rmSync(volumeTools, { recursive: true, force: true }));
+  function volume(count: number, mode = 'normal') {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-hourly-'));
+    const targetUntil = mode === 'split-budget' ? '2026-10-18T12:00:00Z' : options.until;
+    const cursorFile = path.join(directory, 'cursor.json');
+    const cursor =
+      mode === 'corrupt'
+        ? '{broken cursor'
+        : JSON.stringify({
+            schema: 1,
+            until: options.since,
+            failedDraftIds: [],
+            failedRunAttempts: [],
+            activeRunIds: [
+              'sampled-logs',
+              'failed-job-budget',
+              'clock-budget',
+              'split-budget',
+            ].includes(mode)
+              ? []
+              : Array.from({ length: 32 }, (_, i) => i + 1),
+          });
+    writeFileSync(cursorFile, cursor);
+    const map = path.join(directory, 'review-map.json');
+    writeFileSync(map, JSON.stringify(options.reviewMap));
+    const clockFile = path.join(directory, 'clock.txt');
+    writeFileSync(clockFile, '0');
+    const liveReadFile = path.join(directory, 'live-reads.txt');
+    writeFileSync(liveReadFile, '0');
+    const clockHook = path.join(directory, 'clock-hook.mjs');
+    writeFileSync(
+      clockHook,
+      `import {readFileSync,writeFileSync} from 'node:fs'; Date.now=()=>${Date.parse(options.until)}+Number(readFileSync(process.env.CLOCK_FILE,'utf8')); Atomics.wait=(_array,_index,_value,ms)=>{writeFileSync(process.env.CLOCK_FILE,String(Number(readFileSync(process.env.CLOCK_FILE,'utf8'))+ms));return 'timed-out';};\n`
+    );
+    // Run details are immutable in this fixture. Serialize them once instead of starting
+    // Node for each of the 32 tracked-run reads; dynamic listings still use the fake API.
+    const failedCount =
+      mode === 'sampled-logs' ? 10 : ['failed-job-budget', 'split-budget'].includes(mode) ? 90 : 0;
+    const runs = Array.from(
+      { length: mode.startsWith('live-pages-') ? 101 : failedCount || 32 },
+      (_, i) => ({
+        id: i + 1,
+        head_sha: SHA,
+        run_attempt: 1,
+        created_at:
+          mode === 'split-budget'
+            ? new Date(Date.parse(options.since) + (i + 1) * 8 * 60_000).toISOString()
+            : '2026-10-18T00:30:00Z',
+        name: 'CI',
+        event: 'pull_request',
+        status: 'completed',
+        conclusion: failedCount ? 'failure' : 'success',
+        pull_requests: [{ number: i + 1 }],
+      })
+    );
+    for (const row of runs)
+      writeFileSync(path.join(directory, `run-${row.id}.json`), `${JSON.stringify(row)}\n`);
+    for (const row of runs) {
+      // Static job pages exercise the real budget/cache without a Node startup per GET.
+      const jobs = Array.from({ length: mode === 'sampled-logs' ? 4 : 2 }, (_, i) => ({
+        id: row.id * 100 + 10 + i,
+        run_id: row.id,
+        run_attempt: 1,
+        head_sha: SHA,
+        name: i ? 'Partition ' + i : 'Docker E2E',
+        status: 'completed',
+        conclusion: 'failure',
+        completed_at: targetUntil,
+        html_url: `https://github.com/${options.repository}/actions/runs/${row.id}/job/${row.id * 100 + 10 + i}`,
+        steps: [{ name: 'Run tests', conclusion: 'failure' }],
+      }));
+      writeFileSync(
+        path.join(directory, `jobs-${row.id}.json`),
+        JSON.stringify({ total_count: jobs.length, jobs })
+      );
+    }
+    writeFileSync(
+      path.join(directory, 'fixture.json'),
+      JSON.stringify({ sha: SHA, until: targetUntil, failedCount, runs })
+    );
+    symlinkSync(path.join(volumeTools, 'gh'), path.join(directory, 'gh'));
     return {
       directory,
       cursor,
@@ -2011,6 +2030,8 @@ exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
               PATH: `${directory}${path.delimiter}${process.env.PATH}`,
               TMT_CI_WATCH_STATE: freshWatcherState(directory, new Date().toISOString()),
               TICK_FIXTURE_NODE: process.execPath,
+              VOLUME_FIXTURE_ROOT: directory,
+              VOLUME_FIXTURE_TOOLS: volumeTools,
               VOLUME_COUNT: String(count),
               VOLUME_MODE: mode,
               CLOCK_FILE: clockFile,

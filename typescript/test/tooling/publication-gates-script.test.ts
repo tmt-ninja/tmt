@@ -30,8 +30,11 @@ const PRICING_SOURCE = 'extensions/tmt-digest/pricing/pricing-v1.json';
 
 let root: string;
 let predecessorScript: string;
+const publishedRepositories = new Map<string, { root: string; previous: string }>();
 beforeAll(() => {
   root = mkdtempSync(path.join(os.tmpdir(), 'publication-gates-'));
+  // The executable is immutable; each scenario still owns its state and call log.
+  writeExecutable(path.join(root, 'gh'), FAKE_GH, 0o755);
   // Real gate code; only private registry data is synthetic, as in release-predecessor.test.ts.
   const tooling = path.join(root, 'synthetic/typescript');
   cpSync(path.join(repositoryRoot, 'typescript/scripts'), path.join(tooling, 'scripts'), {
@@ -150,59 +153,71 @@ function scenario(options: Scenario = {}) {
     expect(result.status, `git ${args.join(' ')}: ${result.stderr}`).toBe(0);
     return result.stdout.trim();
   };
-  git('init', '-q', '-b', 'main');
-  git('config', 'user.email', 'test@example.test');
-  git('config', 'user.name', 'Test');
-  mkdirSync(path.join(repo, '.github'));
-  mkdirSync(path.join(repo, path.dirname(MIGRATIONS)), { recursive: true });
-  copyFileSync(
-    path.join(repositoryRoot, '.github/components.json'),
-    path.join(repo, '.github/components.json')
-  );
-  if (options.predecessor)
-    writeFileSync(
-      path.join(repo, '.github/components.json'),
-      JSON.stringify({
-        components: {
-          'fixture-new': {
-            owns: ['rust/lib.rs'],
-            package: 'tmt-fixture-new',
-            predecessor: 'fixture-old',
-            migrations: [MIGRATIONS],
-          },
-        },
-      })
-    );
-  writeReleaseWorkspace(repo, [
-    'digest',
-    'remote',
-    'colab',
-    'driver-herdr',
-    ...(options.predecessor ? ['fixture-new'] : []),
-  ]);
   const previousTag = options.predecessor ? 'tmt-fixture-old-v0.1.0-alpha.8' : 'v5.0.0-alpha.8';
   const candidateTag =
     options.draftTag ?? (options.predecessor ? 'tmt-fixture-new-v0.1.0-alpha.9' : 'v5.0.0-alpha.9');
-  // Exact-ref metadata must use the checkout's installed toolchain, not the host default.
-  copyFileSync(
-    path.join(repositoryRoot, 'rust/rust-toolchain.toml'),
-    path.join(repo, 'rust/rust-toolchain.toml')
-  );
-  writeFileSync(path.join(repo, MIGRATIONS), list(2));
-  writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() {}\n');
-  if (options.digestPricing && options.digestPricing !== 'missing') {
-    mkdirSync(path.join(repo, path.dirname(PRICING_SOURCE)), { recursive: true });
-    writeFileSync(
-      path.join(repo, PRICING_SOURCE),
-      options.digestPricing === 'oversized'
-        ? 'x'.repeat(65537)
-        : readFileSync(path.join(repositoryRoot, PRICING_SOURCE))
+  const key = `${options.predecessor ?? false}:${options.digestPricing ?? 'none'}`;
+  let published = publishedRepositories.get(key);
+  if (published) {
+    // Only the immutable published baseline is reused; all later history is private.
+    cpSync(published.root, repo, { recursive: true });
+  } else {
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 'test@example.test');
+    git('config', 'user.name', 'Test');
+    mkdirSync(path.join(repo, '.github'));
+    mkdirSync(path.join(repo, path.dirname(MIGRATIONS)), { recursive: true });
+    copyFileSync(
+      path.join(repositoryRoot, '.github/components.json'),
+      path.join(repo, '.github/components.json')
     );
+    if (options.predecessor)
+      writeFileSync(
+        path.join(repo, '.github/components.json'),
+        JSON.stringify({
+          components: {
+            'fixture-new': {
+              owns: ['rust/lib.rs'],
+              package: 'tmt-fixture-new',
+              predecessor: 'fixture-old',
+              migrations: [MIGRATIONS],
+            },
+          },
+        })
+      );
+    writeReleaseWorkspace(repo, [
+      'digest',
+      'remote',
+      'colab',
+      'driver-herdr',
+      ...(options.predecessor ? ['fixture-new'] : []),
+    ]);
+    // Exact-ref metadata must use the checkout's installed toolchain, not the host default.
+    copyFileSync(
+      path.join(repositoryRoot, 'rust/rust-toolchain.toml'),
+      path.join(repo, 'rust/rust-toolchain.toml')
+    );
+    writeFileSync(path.join(repo, MIGRATIONS), list(2));
+    writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() {}\n');
+    if (options.digestPricing && options.digestPricing !== 'missing') {
+      mkdirSync(path.join(repo, path.dirname(PRICING_SOURCE)), { recursive: true });
+      writeFileSync(
+        path.join(repo, PRICING_SOURCE),
+        options.digestPricing === 'oversized'
+          ? 'x'.repeat(65537)
+          : readFileSync(path.join(repositoryRoot, PRICING_SOURCE))
+      );
+    }
+    git('add', '-A');
+    git('commit', '-q', '-m', 'feat: the published release');
+    git('tag', previousTag);
+    const previous = git('rev-parse', 'HEAD');
+    const template = mkdtempSync(path.join(root, 'published-'));
+    cpSync(repo, template, { recursive: true });
+    published = { root: template, previous };
+    publishedRepositories.set(key, published);
   }
-  git('add', '-A');
-  git('commit', '-q', '-m', 'feat: the published release');
-  git('tag', previousTag);
-  const previous = git('rev-parse', 'HEAD');
+  const { previous } = published;
   let digestScript: string | undefined;
   if (options.digestPricing) {
     const mapFile = path.join(repo, '.github/components.json');
@@ -318,7 +333,7 @@ function scenario(options: Scenario = {}) {
   writeFileSync(stateFile, JSON.stringify(state));
   const bin = path.join(directory, 'bin');
   mkdirSync(bin);
-  writeExecutable(path.join(bin, 'gh'), FAKE_GH, 0o755);
+  symlinkSync(path.join(root, 'gh'), path.join(bin, 'gh'));
   const output = path.join(directory, 'output');
   const summary = path.join(directory, 'summary');
   writeFileSync(output, '');
