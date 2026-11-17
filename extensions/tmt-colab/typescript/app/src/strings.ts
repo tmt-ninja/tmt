@@ -763,9 +763,6 @@ export const text = {
   annotationUnsentOpen: 'Open',
   pageHierarchy: {
     parentLabel: 'Parent ·',
-    parentMenu: (title: string, done: number, total: number) =>
-      `${title}, ${done} of ${total} sub-pages done`,
-    count: (done: number, total: number) => `${done}/${total}`,
     back: (title: string) => `Back to ${title}`,
     siblings: (title: string, count: number) =>
       `${title} · ${count === 1 ? '1 sub-page' : `${count} sub-pages`}`,

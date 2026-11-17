@@ -28,6 +28,16 @@ pub(super) fn decode(input: &[u8]) -> Result<Request, Fault> {
     })
 }
 
+fn bounded_runtime(
+    deadline: std::time::Instant,
+    observe: impl FnOnce() -> Option<tmt_core::binding::session::RuntimeState>,
+) -> tmt_core::binding::session::RuntimeState {
+    if std::time::Instant::now() >= deadline {
+        return tmt_core::binding::session::RuntimeState::Unknown;
+    }
+    observe().unwrap_or(tmt_core::binding::session::RuntimeState::Unknown)
+}
+
 pub(super) fn status(storage: &mut Storage, identities: Vec<String>) -> Result<Vec<u8>, Fault> {
     // One directory read; expiry (`stale`) is applied here, by core.
     let statuses = storage
@@ -59,13 +69,9 @@ pub(super) fn status(storage: &mut Storage, identities: Vec<String>) -> Result<V
                     let preferences = storage
                         .session_preferences(id)
                         .map_err(|_| Fault::unavailable())?;
-                    let runtime = entry
-                        .as_ref()
-                        .and_then(|entry| {
+                    let runtime = bounded_runtime(deadline, || {
+                        entry.as_ref().and_then(|entry| {
                             let binding = entry.binding.as_ref()?;
-                            if std::time::Instant::now() >= deadline {
-                                return None;
-                            }
                             let host = crate::host::Host::for_server(&binding.server);
                             let probe = host
                                 .probe(
@@ -96,7 +102,7 @@ pub(super) fn status(storage: &mut Storage, identities: Vec<String>) -> Result<V
                             )
                             .ok()
                         })
-                        .unwrap_or(tmt_core::binding::session::RuntimeState::Unknown);
+                    });
                     value["session"] = json!({"activity": crate::runtime::activity_document(
                         binding, preferences.remembered.as_ref(), runtime, &registry
                     )});
@@ -361,6 +367,32 @@ fn add_terminals_left(value: &mut serde_json::Value, left: Vec<String>) {
 
 fn outcome(value: serde_json::Value) -> Result<Vec<u8>, Fault> {
     serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
+}
+
+#[cfg(test)]
+mod activity_budget_tests {
+    use super::*;
+    use tmt_core::binding::session::RuntimeState;
+
+    #[test]
+    fn expired_batch_deadline_leaves_unprobed_activity_unknown() {
+        let fresh = bounded_runtime(
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            || Some(RuntimeState::Running),
+        );
+        assert_eq!(fresh, RuntimeState::Running);
+        let expired = bounded_runtime(std::time::Instant::now(), || {
+            panic!("expired row must not probe")
+        });
+        assert_eq!(expired, RuntimeState::Unknown);
+        let value = crate::runtime::activity_document(
+            None,
+            None,
+            expired,
+            &crate::runtime::RuntimeRegistry::first_party(),
+        );
+        assert_eq!(value["state"], "unknown");
+    }
 }
 
 #[cfg(test)]

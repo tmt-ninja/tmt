@@ -5,6 +5,8 @@
   position: relative;
   display: inline-flex;
   flex: none;
+  min-width: 0;
+  max-width: 100%;
   box-sizing: border-box;
   color: var(--tmt-ui-color-text);
   font: var(--tmt-ui-command-size) / 1.5 var(--tmt-ui-font-body);
@@ -14,6 +16,7 @@
 .work-head {
   box-sizing: border-box;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--tmt-ui-space-s);
 }
@@ -327,9 +330,6 @@ a.work-row-title:hover {
 .page-mobile-title .page-hierarchy-name {
   display: inline-block;
 }
-.page-mobile-title .page-hierarchy-separator {
-  display: none;
-}
 
 /* Intermediate widths keep the title and compact controls in the bar. */
 @media (min-width: 641px) and (max-width: 900px) {
@@ -366,10 +366,6 @@ a.work-row-title:hover {
     display: inline-block;
     max-width: 100%;
   }
-  .page-mobile-title .page-hierarchy-count,
-  .page-mobile-title .page-hierarchy-separator {
-    display: none;
-  }
   .page-mobile-title h1 {
     margin: 0 0 var(--tmt-ui-space-s);
     font-size: 1.375rem;
@@ -389,10 +385,6 @@ a.work-row-title:hover {
   }
 }
 @media (max-width: 640px) {
-  .page-hierarchy-parent .page-hierarchy-count,
-  .page-hierarchy-parent .page-hierarchy-separator {
-    display: none;
-  }
   .work-wide {
     display: none;
   }

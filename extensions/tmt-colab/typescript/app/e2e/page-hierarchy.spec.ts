@@ -38,7 +38,7 @@ for (const width of [1440, 1100, 800, 390])
       page.locator('.page-work-notes').getByText('Next · Review the mockup'),
     ).toBeVisible();
     await expect(
-      page.locator('.page-work-notes').getByText('Blocked · Waiting for Core'),
+      page.locator('.page-work-notes').getByText('Waiting for Core', { exact: true }),
     ).toBeVisible();
     await expect(work.locator('.work-count-wide')).toHaveText('4 sub-pages');
     await expect(work.locator('.work-count-wide')).toBeVisible();
@@ -58,7 +58,7 @@ for (const width of [1440, 1100, 800, 390])
     if (width === 1100) {
       const controls = page.locator('.tmt-ui-topbar-controls:visible');
       const controlsBox = await controls.boundingBox();
-      expect(box!.x + box!.width).toBeLessThanOrEqual(controlsBox!.x);
+      expect(box!.y).toBeGreaterThanOrEqual(controlsBox!.y + controlsBox!.height);
     }
     const title = page.locator('.page-mobile-title:visible h1');
     expect((await title.boundingBox())!.width).toBeGreaterThan(40);
@@ -70,14 +70,12 @@ for (const width of [1440, 1100, 800, 390])
     await expect(child).toContainText('Blocked · Waiting for Core');
   });
 
-test('the parent chip and its progress menu go up or across', async ({ page }) => {
+test('the parent chip menu goes up or across', async ({ page }) => {
   await mount(page);
   const parent = page.locator('.page-mobile-title:visible .page-hierarchy-parent');
   await expect(parent.locator('.page-hierarchy-icon')).toBeVisible();
-  const name = parent.getByRole('link', { name: 'Remote launch', exact: true });
-  await expect(name).toHaveAttribute('href', new RegExp(PAGE.launch));
-  const trigger = parent.getByRole('button', { name: 'Remote launch, 0 of 2 sub-pages done' });
-  await expect(trigger).toHaveText('2 sub-pages · 0/2');
+  const trigger = page.getByRole('button', { name: 'Parent · Remote launch' });
+  await expect(trigger).not.toContainText('sub-pages');
   await expect(parent).toContainText('Parent ·');
   await trigger.click();
   const menu = page.locator('.page-hierarchy-menu');
@@ -152,7 +150,7 @@ for (const width of [1440, 390])
       const bar = await mount(page);
       await page.screenshot({ path: capturePath(`top-bar-p1-${width}-${theme}.png`) });
       if (width === 390) await bar.getByRole('button', { name: 'More', exact: true }).click();
-      else await page.locator('.page-mobile-title:visible .page-hierarchy-count').click();
+      else await page.locator('.page-mobile-title:visible .page-hierarchy-parent').click();
       await page.screenshot({ path: capturePath(`top-bar-parent-menu-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
       await page.locator('.work-toggle').click();
@@ -173,7 +171,7 @@ for (const width of [1440, 390])
       expect((await bar.boundingBox())!.height).toBeLessThan(80);
       await page.screenshot({ path: capturePath(`top-bar-filled-${width}-${theme}.png`) });
       if (width === 390) await bar.getByRole('button', { name: 'More', exact: true }).click();
-      else await page.locator('.page-mobile-title:visible .page-hierarchy-count').click();
+      else await page.locator('.page-mobile-title:visible .page-hierarchy-parent').click();
       await page.screenshot({
         path: capturePath(`top-bar-filled-parent-menu-${width}-${theme}.png`),
       });

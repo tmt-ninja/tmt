@@ -172,9 +172,40 @@ export function mountWorkPage(
   const source = tall
     ? `<h1>Release plan</h1>${'<p>Plan paragraph.</p>'.repeat(120)}`
     : '<h1>Release plan</h1>';
+  const starter = {
+    [id(201)]: {
+      type: 'heading',
+      parent: 'root',
+      pos: 'A',
+      props: { level: 2 },
+      text: { s: 'Requirements', marks: [] },
+    },
+    [id(202)]: {
+      type: 'paragraph',
+      parent: 'root',
+      pos: 'B',
+      props: {},
+      text: { s: 'Review the release and confirm the remaining work.', marks: [] },
+    },
+    [id(203)]: {
+      type: 'heading',
+      parent: 'root',
+      pos: 'C',
+      props: { level: 2 },
+      text: { s: 'Decisions', marks: [] },
+    },
+    [id(204)]: {
+      type: 'paragraph',
+      parent: 'root',
+      pos: 'D',
+      props: {},
+      text: { s: 'Ship after the checks pass.', marks: [] },
+    },
+  };
   const view = (): PageView => ({
     title: pageTitle,
     source,
+    ...(scenario === 'work-fields' ? { pageType: 'blocks' as const, blocks: starter } : {}),
     state: manualState,
     pageState: manualState,
     workFacts: {
@@ -361,6 +392,8 @@ export function mountWorkPage(
       binding,
       ...(scenario === 'work-fields'
         ? {
+            pageType: 'blocks' as const,
+            blocks: starter,
             workNumber: 'COLAB-128',
             priority: 'high' as const,
             owner: { id: id(88), name: 'gui-3' },

@@ -392,7 +392,8 @@ export class Live implements PageBinding {
     const ids = this.#todoIds(value);
     const key = ids.join(',');
     if (key === this.#todoKey && (!force || ids.every((id) => this.#todoNumbers[id]))) return;
-    if (key !== this.#todoKey) this.#cancelTodoRetries();
+    const changed = key !== this.#todoKey;
+    if (changed) this.#cancelTodoRetries();
     this.#todoKey = key;
     const generation = ++this.#todoGeneration;
     if (ids.length === 0) {
@@ -404,10 +405,12 @@ export class Live implements PageBinding {
       if (!this.#closed && generation === this.#todoGeneration) {
         this.#todoNumbers = numbers;
         if (ids.every((id) => numbers[id])) this.#cancelTodoRetries();
+        else if (changed && this.canWork()) this.#retryTodoNumbers();
         this.#publish();
       }
     } catch {
-      // Numbering is optional; a later acknowledged write can retry it.
+      if (!this.#closed && changed && generation === this.#todoGeneration && this.canWork())
+        this.#retryTodoNumbers();
     }
   }
   #retryTodoNumbers() {

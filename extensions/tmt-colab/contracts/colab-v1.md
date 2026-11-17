@@ -6454,10 +6454,11 @@ never allocates them. The paired owner browser can POST `{pageId,blocks}` to `/a
 for at most 2,048 distinct block IDs and receives `{pageId,numbers}`, where `numbers` maps only
 known requested IDs to labels. The body and reply are bounded to 192 KiB; invalid IDs, non-owner
 contexts, and unknown pages are refused. Share readers have no number lookup.
-After an acknowledged owner block publication, a browser with missing labels retries the lookup at
-most three times, approximately 0.5, 1.5 and 4 seconds after the acknowledgement. It cancels those
-retries when the page closes, the shown to-do set changes, all labels arrive or a newer acknowledgement
-starts a fresh sequence; no retry timer runs when all shown to-dos have labels.
+After an acknowledged owner block publication or an admitted change to the shown to-do set, an
+owner browser with missing labels retries the lookup at most three times, approximately 0.5, 1.5 and
+4 seconds after that event. It cancels the sequence when the page closes, all labels arrive, or a
+newer acknowledgement or to-do set starts a fresh sequence; no retry timer runs when all shown
+to-dos have labels.
 
 Projects are display-only names the owner uses to organize the page list; a page can be in
 several. They carry no authority and are **not signed**: a project never changes who can read

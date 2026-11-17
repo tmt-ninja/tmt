@@ -3,7 +3,7 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
-import { MobileWorkTitle } from './work-band.js';
+import { MobileWorkTitle, WorkPullChips } from './work-band.js';
 import { useMedia } from './use-media.js';
 import { usePageWorkflow } from './use-page-workflow.js';
 import { AddSubpageDialog } from './work-add-dialog.js';
@@ -2737,6 +2737,12 @@ function OpenPage({
       work={view.work}
       priority={view.priority}
       owner={view.owner}
+      beforeSubpages={
+        <>
+          <WorkPullChips facts={view.workFacts} />
+          {hierarchy.parent}
+        </>
+      }
       workFacts={view.workFacts}
       blockedReason={view.blocked}
       pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
@@ -3190,7 +3196,6 @@ function OpenPage({
           >
             {workControls}
             {projectControls}
-            {hierarchy.parent}
           </MobileWorkTitle>
         )}
         {!design && pageLinkBar}

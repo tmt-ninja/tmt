@@ -110,9 +110,27 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     await expect(page.getByRole('button', { name: '3 sub-pages' })).toBeVisible();
     await expect(page.getByText('COLAB-2', { exact: true })).toBeVisible();
     await expect(page.locator('[data-block-id]').filter({ hasText: 'Ship the fix' })).toBeVisible();
+    const prior = new Set<string>(
+      colab(['block', 'ls', created.pageId]).blocks.map((block: { id: string }) => block.id),
+    );
+    let earlyCliLookup = false;
+    await page.route('**/api/work-numbers', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { pageId: string; numbers: Record<string, string> };
+      const requested = route.request().postDataJSON() as { blocks: string[] };
+      if (!earlyCliLookup && requested.blocks.some((id) => !prior.has(id))) {
+        earlyCliLookup = true;
+        body.numbers = Object.fromEntries(
+          Object.entries(body.numbers).filter(([id]) => prior.has(id)),
+        );
+      }
+      await route.fulfill({ response, json: body });
+    });
     colab(['block', 'insert', created.pageId, '--type', 'todo', '--text', 'Verify live numbering']);
     await expect(page.getByRole('checkbox', { name: 'Verify live numbering' })).toBeVisible();
     await expect(page.getByText('COLAB-5', { exact: true })).toBeVisible();
+    expect(earlyCliLookup).toBe(true);
+    await page.unroute('**/api/work-numbers');
     // Model the owner's first lookup arriving before its new to-do number is allocated.
     const known = new Set<string>(
       colab(['block', 'ls', created.pageId]).blocks.map((block: { id: string }) => block.id),
@@ -160,7 +178,9 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
           await expect(page.getByRole('checkbox', { name: 'Ship the fix' })).toBeChecked();
           await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
           if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
-          await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
+          await expect(
+            page.getByRole('button', { name: 'Parent · Release coordination' }),
+          ).toBeVisible();
           await page.evaluate((value) => {
             document.documentElement.dataset.theme = value;
           }, theme);
@@ -181,7 +201,9 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
           await expect(page.getByRole('checkbox', { name: 'Ship the fix' })).toBeChecked();
           await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
           if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
-          await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
+          await expect(
+            page.getByRole('button', { name: 'Parent · Release coordination' }),
+          ).toBeVisible();
           await page.evaluate((value) => {
             document.documentElement.dataset.theme = value;
           }, theme);

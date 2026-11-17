@@ -52,8 +52,9 @@ export interface WorkBandProps {
   priority?: 'high' | 'normal' | 'low';
   owner?: { id: string; name: string };
   pageState?: PageState | null;
-  /** This page's own state chip; the owner's is a menu of its own, which never toggles the band. */
+  /** This page's state control, independent of the sub-page list. */
   stateControl?: ReactNode;
+  beforeSubpages?: ReactNode;
   /** Direct sub-pages, in order. */
   subpages: readonly SubpageRow[];
   /** The next level under a sub-page, from what the viewer already has; empty when unknown. */
@@ -70,12 +71,11 @@ export interface WorkBandProps {
   onAdd?(): void;
 }
 
-/** On phones the page title and work controls scroll together as one content block. */
+/** The page title and work controls scroll together as one content block. */
 export function MobileWorkTitle({
   title,
   workNumber,
   onSize,
-  parent,
   children,
   next,
   blocked,
@@ -84,7 +84,6 @@ export function MobileWorkTitle({
   title: string;
   workNumber?: string;
   onSize(height: number): void;
-  parent?: ReactNode;
   children: ReactNode;
   next?: string;
   blocked?: string;
@@ -105,7 +104,6 @@ export function MobileWorkTitle({
   }, [onSize]);
   return (
     <div className="page-mobile-title" ref={element}>
-      {parent}
       <h1>
         {workNumber && (
           <>
@@ -114,23 +112,10 @@ export function MobileWorkTitle({
         )}
         {title}
       </h1>
-      <div className="page-mobile-title-chips">
-        {children}
-        {facts?.pulls.map(({ url, fact }) => (
-          <a className={ui.countChip} href={url} key={url} target="_blank" rel="noreferrer">
-            PR #{url.split('/').at(-1)} ·{' '}
-            {fact?.tag
-              ? text.workBand.releasedIn(fact.tag)
-              : (fact?.state ?? text.workBand.unknown)}
-            {fact && !fact.tag && facts.asOfMs - fact.observedAtMs >= PR_STALE_MS && (
-              <> · {text.workBand.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>
-            )}
-          </a>
-        ))}
-      </div>
+      <div className="page-mobile-title-chips">{children}</div>
       {(next || blocked || facts?.activity?.lastActivityMs != null) && (
         <div className="page-work-notes">
-          {blocked && <span>{text.workBand.blockedNote(blocked)}</span>}
+          {blocked && <span>{blocked}</span>}
           {next && <span>{text.workBand.nextNote(next)}</span>}
           {facts?.activity?.lastActivityMs != null && (
             <span>
@@ -143,6 +128,18 @@ export function MobileWorkTitle({
       )}
     </div>
   );
+}
+
+export function WorkPullChips({ facts }: { facts?: WorkFactView }) {
+  return facts?.pulls.map(({ url, fact }) => (
+    <a className={ui.countChip} href={url} key={url} target="_blank" rel="noreferrer">
+      PR #{url.split('/').at(-1)} ·{' '}
+      {fact?.tag ? text.workBand.releasedIn(fact.tag) : (fact?.state ?? text.workBand.unknown)}
+      {fact && !fact.tag && facts.asOfMs - fact.observedAtMs >= PR_STALE_MS && (
+        <> · {text.workBand.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>
+      )}
+    </a>
+  ));
 }
 
 function StateChip({ state }: { state?: PageState | null }) {
@@ -161,6 +158,7 @@ export function WorkBand({
   owner,
   pageState,
   stateControl,
+  beforeSubpages,
   subpages,
   onAdd,
   ...slots
@@ -241,6 +239,7 @@ export function WorkBand({
             </span>
           </span>
         )}
+        {beforeSubpages}
         {!empty && (
           <button
             type="button"
