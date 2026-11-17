@@ -176,12 +176,96 @@ pub fn command_chain<R: CommandRunner>(
     Err(AncestryError::Unavailable)
 }
 
+fn native_chain_pids<R: CommandRunner>(
+    runner: &R,
+    first: u64,
+    deadline: Instant,
+) -> Option<Vec<u64>> {
+    let mut pids = Vec::new();
+    let mut pid = first;
+    for _ in 0..MAX_DEPTH {
+        if pid == 0 || pid > MAX_JS_SAFE_INTEGER || pids.contains(&pid) {
+            return None;
+        }
+        pids.push(pid);
+        if pid == 1 {
+            return Some(pids);
+        }
+        let parent = runner.process_parent(pid, deadline)?;
+        if parent == 0 {
+            return Some(pids);
+        }
+        pid = parent;
+    }
+    None
+}
+
+fn batched_chain<R: CommandRunner>(
+    runner: &R,
+    pids: &[u64],
+    first: u64,
+    deadline: Instant,
+) -> Result<Vec<u64>, AncestryError> {
+    use std::collections::{HashMap, HashSet};
+    enum Rows {
+        One(u64),
+        Repeated,
+    }
+    if Instant::now() >= deadline {
+        return Err(timeout());
+    }
+    let list = pids
+        .iter()
+        .map(u64::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let selection: Vec<OsString> = ["-o", "pid=,ppid=", "-p", &list]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    let output =
+        query_ps(runner, &selection, deadline, MAX_OUTPUT).map_err(AncestryError::Command)?;
+    let text = std::str::from_utf8(&output.stdout).map_err(|_| AncestryError::Unavailable)?;
+    let mut rows: HashMap<u64, Rows> = HashMap::new();
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        if fields.len() != 2 {
+            return Err(AncestryError::Unavailable);
+        }
+        let row_pid = decimal(fields[0]).ok_or(AncestryError::Unavailable)?;
+        let parent = decimal(fields[1]).ok_or(AncestryError::Unavailable)?;
+        rows.entry(row_pid)
+            .and_modify(|row| *row = Rows::Repeated)
+            .or_insert(Rows::One(parent));
+    }
+    let mut chain = Vec::new();
+    let mut seen = HashSet::new();
+    let mut pid = first;
+    for _ in 0..MAX_DEPTH {
+        if pid == 0 || pid > MAX_JS_SAFE_INTEGER || !seen.insert(pid) {
+            return Err(AncestryError::Unavailable);
+        }
+        chain.push(pid);
+        let Some(&Rows::One(parent)) = rows.get(&pid) else {
+            return Err(AncestryError::Unavailable);
+        };
+        if parent == 0 {
+            return Ok(chain);
+        }
+        pid = parent;
+    }
+    Err(AncestryError::Unavailable)
+}
+
 /// `first` and its ancestors, nearest first, ending before PID 0.
 pub fn chain<R: CommandRunner>(
     runner: &R,
     first: u64,
     deadline: Instant,
 ) -> Result<Vec<u64>, AncestryError> {
+    if let Some(pids) = native_chain_pids(runner, first, deadline) {
+        return batched_chain(runner, &pids, first, deadline);
+    }
     let mut chain = Vec::new();
     let mut pid = first;
     for _ in 0..MAX_DEPTH {
@@ -190,9 +274,7 @@ pub fn chain<R: CommandRunner>(
         }
         chain.push(pid);
         if Instant::now() >= deadline {
-            return Err(AncestryError::Command(CommandError::new(
-                CommandFailure::Timeout,
-            )));
+            return Err(timeout());
         }
         let args: Vec<OsString> = ["-o", "pid=,ppid=", "-p", &pid.to_string()]
             .into_iter()
@@ -805,6 +887,144 @@ mod tests {
         );
         assert_eq!(command_chain(&partial, 1200, soon()).unwrap(), expected());
         assert!(partial.1.borrow()[0].iter().any(|arg| arg == "-A"));
+    }
+
+    #[test]
+    fn chain_batches_ten_deep_native_pids_into_one_ps_read() {
+        // 10-deep chain: 1000 -> 900 -> 800 -> 700 -> 600 -> 500 -> 400 -> 300 -> 200 -> 1 -> 0
+        const PAIRS: &[(u64, u64)] = &[
+            (1000, 900),
+            (900, 800),
+            (800, 700),
+            (700, 600),
+            (600, 500),
+            (500, 400),
+            (400, 300),
+            (300, 200),
+            (200, 1),
+            (1, 0),
+        ];
+        struct BatchedRunner {
+            tree: Tree,
+            use_native: bool,
+            calls: RefCell<Vec<Vec<String>>>,
+        }
+        impl CommandRunner for BatchedRunner {
+            fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
+                self.use_native
+                    .then(|| {
+                        self.tree
+                            .process_link(pid, deadline)
+                            .map(|link| link.parent)
+                    })
+                    .flatten()
+            }
+            fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                let args: Vec<String> = request
+                    .args
+                    .iter()
+                    .map(|a| a.to_string_lossy().into_owned())
+                    .collect();
+                let list = &args[args.iter().position(|a| a == "-p").unwrap() + 1];
+                let mut stdout = String::new();
+                for pid in list.split(',').map(|p| p.parse::<u64>().unwrap()) {
+                    if let Some(&(_, parent)) = PAIRS.iter().find(|&&(p, _)| p == pid) {
+                        stdout.push_str(&format!("{pid} {parent}\n"));
+                    }
+                }
+                self.calls.borrow_mut().push(args);
+                Ok(CommandOutput {
+                    stdout: stdout.into_bytes(),
+                    stderr: vec![],
+                })
+            }
+        }
+        let mut tree = Tree::default();
+        for (i, &(pid, parent)) in PAIRS.iter().enumerate() {
+            if pid != 1 {
+                tree = tree.native(pid, parent, 10_000 - i as u64 * 100, 0);
+            }
+        }
+        let expected: Vec<u64> = PAIRS.iter().map(|&(p, _)| p).collect();
+
+        let batched = BatchedRunner {
+            tree,
+            use_native: true,
+            calls: RefCell::default(),
+        };
+        assert_eq!(chain(&batched, 1000, soon()).unwrap(), expected);
+        let calls = batched.calls.borrow();
+        assert_eq!(calls.len(), 1, "10-deep native chain takes 1 ps spawn");
+        assert!(
+            calls[0].ends_with(&["-p".into(), "1000,900,800,700,600,500,400,300,200,1".into()])
+        );
+
+        // Without native process_link, falls back to 10 sequential per-PID ps spawns.
+        let fallback = BatchedRunner {
+            tree: Tree::default(),
+            use_native: false,
+            calls: RefCell::default(),
+        };
+        assert_eq!(chain(&fallback, 1000, soon()).unwrap(), expected);
+        assert_eq!(fallback.calls.borrow().len(), 10);
+    }
+
+    #[test]
+    fn chain_never_mixes_native_and_ps_walks_and_fails_closed_on_missing_pid() {
+        struct DivergentRunner {
+            tree: Tree,
+            ps_stdout: &'static str,
+        }
+        impl CommandRunner for DivergentRunner {
+            fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
+                self.tree
+                    .process_link(pid, deadline)
+                    .map(|link| link.parent)
+            }
+            fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                Ok(CommandOutput {
+                    stdout: self.ps_stdout.as_bytes().to_vec(),
+                    stderr: vec![],
+                })
+            }
+        }
+        let native_tree = || {
+            Tree::default()
+                .native(1000, 900, 4_000, 0)
+                .native(900, 700, 3_000, 0)
+                .native(700, 1, 2_000, 0)
+        };
+
+        // 1) A PID that exited between process_parent and query_ps fails closed.
+        let exited = DivergentRunner {
+            tree: native_tree(),
+            ps_stdout: "1000 900\n700 1\n1 0\n",
+        };
+        assert!(matches!(
+            chain(&exited, 1000, soon()),
+            Err(AncestryError::Unavailable)
+        ));
+
+        // 2) Reparenting to a PID absent from the ps snapshot fails closed.
+        let reparented_outside = DivergentRunner {
+            tree: native_tree(),
+            ps_stdout: "1000 900\n900 500\n700 1\n1 0\n",
+        };
+        assert!(matches!(
+            chain(&reparented_outside, 1000, soon()),
+            Err(AncestryError::Unavailable)
+        ));
+
+        // 3) When ps stays complete on an already-sampled ancestor (1000 -> 700 -> 1),
+        // the atomic ps snapshot wins without mixing in the stale 900 native hop.
+        let reparented_inside = DivergentRunner {
+            tree: native_tree(),
+            ps_stdout: "1000 700\n900 700\n700 1\n1 0\n",
+        };
+        assert_eq!(
+            chain(&reparented_inside, 1000, soon()).unwrap(),
+            [1000, 700, 1]
+        );
     }
 
     #[test]
