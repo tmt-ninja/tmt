@@ -1641,30 +1641,42 @@ fn selected_member_open_hint_uses_the_authored_jump_key_and_hides_when_unavailab
 }
 
 #[test]
-fn an_open_hint_yields_the_pane_edge_without_clipping_its_word_or_the_name() {
+fn an_open_hint_remains_visible_next_to_a_clipped_long_name() {
     use ratatui::{Terminal, backend::TestBackend};
-    let app = crate::board::app::workspace::tests::capture_case(
-        "action-needed",
-        crate::look::Look::default(),
-    );
-    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
-    terminal
-        .draw(|frame| crate::board::view::render(frame, &app))
-        .unwrap();
-    let lines: Vec<String> = terminal
-        .backend()
-        .buffer()
-        .content
-        .chunks(160)
-        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
-        .collect();
-    let selected = lines
-        .iter()
-        .find(|line| line.contains("worker") && line.contains('└'))
-        .unwrap();
-    assert!(
-        selected.contains("z open") || !selected.contains("z ope"),
-        "the hint is whole or hidden: {selected}"
-    );
-    assert!(selected.contains("worker"), "{selected}");
+    for name in [
+        "worker-with-a-very-long-member-name",
+        "界界界界界界界界界界界界界界界界",
+    ] {
+        let mut app = crate::board::app::workspace::tests::configured_member(
+            "",
+            serde_json::json!({"id":crate::board::app::workspace::tests::MEMBER,"name":name,"presence":"active","pane":{"id":"%3","location":{"host":"tmux"}}}),
+        );
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .members
+            .get_mut(crate::board::app::workspace::tests::MEMBER)
+            .unwrap()
+            .name = name.into();
+        app.overview_rows.borrow_mut().clear();
+        let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let lines: Vec<String> = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(160)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+        let selected = lines.iter().find(|line| line.contains('└')).unwrap();
+        let (name, _) = selected.split_once(" z open ").expect(selected);
+        assert!(name.trim_end().ends_with('…'), "{selected}");
+    }
 }
