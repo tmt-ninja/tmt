@@ -2,6 +2,9 @@
 //! extension materialization, hook wire mapping, and bounded JSONL transcript
 //! parsing. Payloads describe observations, never bindings.
 
+mod caller;
+mod caller_session;
+
 use crate::process::CommandRunner;
 pub use crate::runtime::hook_protocol::{CONTEXT_LIMIT, HOOK_INPUT_LIMIT};
 use serde::Deserialize;
@@ -34,13 +37,25 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     env: &["PI_CODING_AGENT_DIR"],
     locate,
     runtime: Some(super::Runtime {
-        session_env: &[],
+        session_env: &["PI_CODING_AGENT", "PI_SESSION_ID"],
         driver: || Box::new(PiRuntime),
         lifecycle: || Box::new(PiLifecycle),
         channel: None,
-        identify_caller: None,
+        identify_caller: Some(identify_caller),
     }),
 };
+
+fn identify_caller() -> tmt_core::driver::ActionResult<
+    tmt_core::driver::caller::RuntimeCaller,
+    crate::process::ancestry::AncestryError,
+> {
+    use tmt_core::driver::Driver;
+    caller::PiCaller::new(
+        &crate::process::UnixCommandRunner,
+        caller::CallerEnvironment::current(),
+    )
+    .identify_caller()
+}
 
 fn agent_dir(environment: &crate::skill_installation::ProviderEnvironment) -> PathBuf {
     let home = environment.home();
@@ -593,6 +608,43 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
         true
     }
 
+    fn caller_refusal(
+        &self,
+        name: Option<&str>,
+    ) -> Option<crate::runtime::lifecycle::RuntimeRefusal> {
+        let fix = format!("tmt run {} {NAME}", name.unwrap_or("<name>"));
+        Some(crate::runtime::lifecycle::RuntimeRefusal {
+            reason: "pi-shared-rpc",
+            why: "This Pi process runs without a dedicated terminal pane (`pi-rpc` / `--mode rpc`), so TMT cannot tell which pane commands come from.",
+            consequence: "This agent can still receive messages, but it cannot name itself, send as itself, or reply; anyone waiting on it will time out.",
+            instruction: format!("Exit this Pi, then start it with:  {fix}"),
+            fix,
+        })
+    }
+
+    fn caller_session(&self) -> Option<crate::runtime::lifecycle::CallerSession> {
+        caller_session::coordinates(std::env::var_os("PI_SESSION_ID").as_deref())
+    }
+
+    fn caller_session_observation(
+        &self,
+        coordinates: &crate::runtime::lifecycle::CallerSession,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        deadline: Instant,
+    ) -> Result<
+        Box<dyn crate::runtime::lifecycle::LifecycleObservation>,
+        crate::runtime::lifecycle::CallerSessionRefusal,
+    > {
+        caller_session::verify_header(coordinates, environment, deadline)?;
+        Ok(Box::new(PiObservation {
+            session: coordinates.session.clone(),
+            model: None,
+            transition: SessionTransition::Started,
+            starting: true,
+            startup_ready: false,
+        }))
+    }
+
     fn observe_main_caller(
         &self,
         runner: &dyn CommandRunner,
@@ -600,6 +652,14 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
         pane: u64,
         deadline: Instant,
     ) -> Option<ProcessIncarnation> {
+        let mut environment = caller::CallerEnvironment::current();
+        environment.process_id = u32::try_from(caller).ok()?;
+        let observed = caller::PiCaller::new(&runner, environment)
+            .observe_host_with_deadline(deadline)
+            .ok()??;
+        if observed.0 != tmt_core::driver::caller::HostAttribution::Independent {
+            return None;
+        }
         crate::runtime::evidence::observe_main_in_pane(&runner, caller, pane, deadline, NAME)
     }
 
@@ -1411,5 +1471,32 @@ mod tests {
                 OsString::from("claude-sonnet-4-5"),
             ]
         );
+    }
+
+    #[test]
+    fn runtime_exposes_minimal_session_env_and_shared_rpc_refusal() {
+        let runtime = DRIVER.runtime.as_ref().expect("pi runtime");
+        assert!(runtime.identify_caller.is_some());
+        assert_eq!(runtime.session_env, &["PI_CODING_AGENT", "PI_SESSION_ID"]);
+
+        let registered_env = crate::drivers::Registry::builtin().session_env();
+        for key in ["PI_CODING_AGENT", "PI_SESSION_ID"] {
+            assert!(
+                registered_env.contains(&key),
+                "registry session_env must include {key}"
+            );
+        }
+        for dropped in ["PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL"] {
+            assert!(
+                !registered_env.contains(&dropped),
+                "registry session_env must drop {dropped}"
+            );
+        }
+
+        let refusal = PiLifecycle
+            .caller_refusal(Some("'beta'"))
+            .expect("pi rpc refusal");
+        assert_eq!(refusal.reason, "pi-shared-rpc");
+        assert_eq!(refusal.fix, "tmt run 'beta' pi");
     }
 }
