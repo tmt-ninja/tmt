@@ -1,6 +1,6 @@
 //! Public completion setup; exact script generation remains grammar-owned.
 
-use crate::{invocation::OutputMode, output::Failure};
+use crate::output::Failure;
 use serde_json::json;
 use std::io::{self, Write};
 use tmt_adapters::{
@@ -9,19 +9,17 @@ use tmt_adapters::{
 };
 use tmt_cli_style::{detail, message};
 
-pub fn execute(shell: Option<&str>, mode: OutputMode) -> io::Result<u8> {
-    match run(shell, mode) {
-        Ok(()) => Ok(0),
-        Err(error) => error.publish(mode),
-    }
-}
-
 fn failure(error: impl std::error::Error + 'static) -> Failure {
     Failure::new("COMPLETION_ERROR", error.to_string(), 1).caused_by(error)
 }
 
-fn run(shell: Option<&str>, mode: OutputMode) -> Result<(), Failure> {
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
+pub struct Report {
+    selected: Shell,
+    detected: Option<Shell>,
+    plan: Plan,
+}
+
+pub fn run(shell: Option<&str>) -> Result<Report, Failure> {
     let detected = completion_install::detected_shell();
     let selected = shell.and_then(Shell::parse).or(detected).ok_or_else(|| {
         Failure::new(
@@ -31,10 +29,26 @@ fn run(shell: Option<&str>, mode: OutputMode) -> Result<(), Failure> {
         )
     })?;
     let plan = Plan::inspect(selected, ConfigPaths::shell_startup(selected)?).map_err(failure)?;
-    let terminal = output.terminal();
-    if !mode.json {
+    Ok(Report {
+        selected,
+        detected,
+        plan,
+    })
+}
+
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let selected = self.selected;
+        let detected = self.detected;
+        let plan = &self.plan;
         detail::write(
-            &mut output,
+            &mut &mut *stdout,
             terminal,
             "Shell completion",
             &[
@@ -52,33 +66,33 @@ fn run(shell: Option<&str>, mode: OutputMode) -> Result<(), Failure> {
                     .into(),
                 ),
             ],
-        )
-        .map_err(failure)?;
+        )?;
         writeln!(
-            output,
+            stdout,
             "This checks startup-file text, not functions loaded in your current shell."
-        )
-        .map_err(failure)?;
+        )?;
         if selected == Shell::Zsh {
-            writeln!(output, "Place the line after zsh completion initialization (compinit or your shell framework).").map_err(failure)?;
+            writeln!(
+                stdout,
+                "Place the line after zsh completion initialization (compinit or your shell framework)."
+            )?;
         }
         for warning in &plan.warnings {
-            message::hint(&mut output, terminal, warning).map_err(failure)?;
+            message::hint(&mut &mut *stdout, terminal, warning)?;
         }
+        Ok(())
     }
-    if mode.json {
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
         writeln!(
-            output,
+            stdout,
             "{}",
             json!({
-                "shell": selected.name(), "detectedShell": detected.map(Shell::name),
-                "installed": plan.configured, "evidence": "startup-file", "file": plan.file,
-                "line": selected.line(), "warnings": plan.warnings,
+                "shell": self.selected.name(), "detectedShell": self.detected.map(Shell::name),
+                "installed": self.plan.configured, "evidence": "startup-file", "file": self.plan.file,
+                "line": self.selected.line(), "warnings": self.plan.warnings,
             })
         )
-        .map_err(failure)?;
     }
-    Ok(())
 }
 
 /// Help remains available when shell detection or startup-file inspection fails.

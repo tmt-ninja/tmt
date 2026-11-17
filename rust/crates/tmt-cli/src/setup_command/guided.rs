@@ -469,7 +469,6 @@ pub(super) fn run(
         return Ok(0);
     }
     if !crate::consent::ask(
-        output,
         yes,
         mode,
         crate::consent::Consent {

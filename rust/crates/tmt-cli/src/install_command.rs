@@ -1,6 +1,6 @@
 //! Native skill installation composition; filesystem policy stays in adapters.
 
-use crate::{invocation::OutputMode, output::Failure};
+use crate::output::Failure;
 use std::{
     error::Error,
     io::{self, Write},
@@ -17,11 +17,13 @@ fn failure(error: impl Error + 'static) -> Failure {
     Failure::new("ERROR", error.to_string(), 1).caused_by(error)
 }
 
-fn run(
+pub struct Report(InstallReport, Option<String>);
+
+pub fn run(
     provider: Option<&str>,
     directory: Option<&str>,
     force: bool,
-) -> Result<(InstallReport, Option<String>), Failure> {
+) -> Result<Report, Failure> {
     let environment = ProviderEnvironment::capture().map_err(failure)?;
     let paths = ConfigPaths::discover()?;
     let report = skill_installation::install(
@@ -33,39 +35,35 @@ fn run(
     )
     .map_err(failure)?;
     let picker_hint = picker::missing_hint_after_install(&environment, &report);
-    Ok((report, picker_hint))
+    Ok(Report(report, picker_hint))
 }
 
-pub fn execute(
-    provider: Option<String>,
-    directory: Option<String>,
-    force: bool,
-    mode: OutputMode,
-) -> io::Result<u8> {
-    let (report, picker_hint) = match run(provider.as_deref(), directory.as_deref(), force) {
-        Ok(outcome) => outcome,
-        Err(error) => return error.publish(mode),
-    };
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
-    let terminal = output.terminal();
-    if mode.json {
-        let mut value = report_document(&report);
-        if let Some(hint) = &picker_hint {
-            value["pickerHint"] = hint.as_str().into();
-        }
-        writeln!(output, "{value}")?;
-    } else {
-        write_report_human(&report, &mut output)?;
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        write_report_human(&self.0, &mut &mut *stdout)?;
         tmt_cli_style::message::hint(
-            &mut output,
+            &mut &mut *stdout,
             terminal,
             "reload or restart your agent to use the current skill; existing conversations can read tmt learn --skill",
         )?;
-        if let Some(hint) = &picker_hint {
-            tmt_cli_style::message::hint(&mut output, terminal, hint)?;
+        if let Some(hint) = &self.1 {
+            tmt_cli_style::message::hint(&mut &mut *stdout, terminal, hint)?;
         }
+        Ok(())
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let mut value = report_document(&self.0);
+        if let Some(hint) = &self.1 {
+            value["pickerHint"] = hint.as_str().into();
+        }
+        writeln!(stdout, "{value}")
+    }
 }
 
 // Source-checked command samples for the printed-command guard.

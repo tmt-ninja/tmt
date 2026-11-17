@@ -12,8 +12,7 @@ use syn::visit::{self, Visit};
 
 /// Files that still decide interactivity on their own. Later #485 slices move
 /// core; the list only shrinks.
-pub const MIGRATING: &[(&str, &str)] =
-    &[("tmt-cli", "consent.rs"), ("tmt-cli", "skill_reminder.rs")];
+pub const MIGRATING: &[(&str, &str)] = &[("tmt-cli", "skill_reminder.rs")];
 
 /// Ordinary commands already migrated to paired reports. Extend with each batch.
 const REPORT_COMMANDS: &[&str] = &[
@@ -34,6 +33,13 @@ const REPORT_COMMANDS: &[&str] = &[
     "answer_command.rs",
     "exchange_command/presentation.rs",
     "talk_command/presentation.rs",
+    "host_command.rs",
+    "install_command.rs",
+    "storage_command.rs",
+    "channel_command.rs",
+    "check_command.rs",
+    "extension_hooks_command.rs",
+    "completion_command.rs",
 ];
 
 pub fn report_violations(sources: &[Source]) -> Vec<String> {

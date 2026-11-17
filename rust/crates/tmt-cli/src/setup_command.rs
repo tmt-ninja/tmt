@@ -81,7 +81,9 @@ fn run(
 ) -> Result<u8, Failure> {
     let drivers = Registry::builtin();
     if status {
-        return show_status(&drivers, provider, mode).map(|()| 0);
+        return tmt_cli_style::CliOutput::new(mode.json)
+            .finish(status_report(provider))
+            .map_err(failure);
     }
     if provider.is_none() {
         let environment = SetupEnvironment::capture(&drivers).map_err(failure)?;
@@ -175,7 +177,6 @@ fn run(
         }
     }
     if !crate::consent::ask(
-        &mut output,
         yes,
         mode,
         crate::consent::Consent {
@@ -360,7 +361,6 @@ fn run_per_launch(
         }
     }
     if !crate::consent::ask(
-        &mut output,
         yes,
         mode,
         crate::consent::Consent {
@@ -413,11 +413,8 @@ fn run_per_launch(
 }
 
 /// Settings-only inspection: no consent, provider execution, record adoption or DB.
-fn show_status(
-    drivers: &Registry,
-    provider: Option<&str>,
-    mode: OutputMode,
-) -> Result<(), Failure> {
+pub fn status_report(provider: Option<&str>) -> Result<StatusReport, Failure> {
+    let drivers = Registry::builtin();
     let selected: Vec<_> = match provider {
         Some(name) => drivers.find(name).into_iter().collect(),
         None => drivers
@@ -496,30 +493,40 @@ fn show_status(
         }
         integrations.push(row);
     }
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        writeln!(output, "{}", json!({"integrations": integrations})).map_err(failure)?;
-    } else {
-        for row in integrations {
+    Ok(StatusReport(integrations))
+}
+
+pub struct StatusReport(Vec<serde_json::Value>);
+impl tmt_cli_style::Render for StatusReport {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        for row in &self.0 {
             let provider = row["provider"].as_str().expect("driver name");
             if row["usage"] == true {
-                writeln!(output, "{provider}: consumption collection is on").map_err(failure)?;
+                writeln!(stdout, "{provider}: consumption collection is on")?;
             } else if let Some(diagnostic) = row["diagnostic"].as_str() {
-                writeln!(output, "{diagnostic}").map_err(failure)?;
+                writeln!(stdout, "{diagnostic}")?;
             } else {
-                writeln!(output, "{}", collection_off(provider)).map_err(failure)?;
+                writeln!(stdout, "{}", collection_off(provider))?;
             }
             if row["mod"]["waitingForFirstSession"] == true {
                 writeln!(
-                    output,
+                    stdout,
                     "{provider}: waiting for the first {} session since setup",
                     capitalized(provider)
-                )
-                .map_err(failure)?;
+                )?;
             }
         }
+        Ok(())
     }
-    Ok(())
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", json!({"integrations": self.0}))
+    }
 }
 
 // Source-checked command samples for the printed-command guard.

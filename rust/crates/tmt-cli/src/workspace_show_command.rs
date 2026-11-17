@@ -54,21 +54,30 @@ pub fn execute(
         })?;
         Ok((input, document))
     })();
-    let (input, document) = match outcome {
-        Ok(value) => value,
-        Err(error) => return error.publish(mode),
-    };
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        writeln!(output, "{document}")?;
-    } else {
+    tmt_cli_style::CliOutput::new(mode.json)
+        .finish(outcome.map(|(input, document)| SocketReport { input, document }))
+}
+
+struct SocketReport {
+    input: plan::WorkspacePlanInput,
+    document: serde_json::Value,
+}
+impl tmt_cli_style::Render for SocketReport {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let input = &self.input;
         let preview = tmt_core::workspace::plan::restore_plan(
             &input.snapshot,
             &input.identities,
             input.current_sessions.as_deref(),
         );
         writeln!(
-            output,
+            stdout,
             "Workspace on {} (captured {})",
             input.snapshot.server.socket,
             tmt_cli_style::value::relative_time(
@@ -83,7 +92,7 @@ pub fn execute(
                 .iter()
                 .find(|session| session.id == *id)
                 .expect("plan retains snapshot session");
-            writeln!(output, "  session {:?}: {}", session.name, action.as_str())?;
+            writeln!(stdout, "  session {:?}: {}", session.name, action.as_str())?;
             for link in &session.windows {
                 let window = input
                     .snapshot
@@ -92,7 +101,7 @@ pub fn execute(
                     .find(|window| window.id == link.window)
                     .expect("validated window link");
                 writeln!(
-                    output,
+                    stdout,
                     "    window {} {:?}: layout {}",
                     link.index, window.name, window.layout
                 )?;
@@ -111,7 +120,7 @@ pub fn execute(
                         .identity
                         .map(|record| record.entry.identity.name.as_str());
                     writeln!(
-                        output,
+                        stdout,
                         "      pane {} in {:?}: {}{}",
                         pane.index,
                         pane.cwd,
@@ -121,17 +130,20 @@ pub fn execute(
                             .unwrap_or_default()
                     )?;
                     if let Some(command) = &pane.command {
-                        writeln!(output, "        argv: {:?}", command.argv)?;
+                        writeln!(stdout, "        argv: {:?}", command.argv)?;
                     }
                 }
             }
         }
         writeln!(
-            output,
+            stdout,
             "Preview only; recovery rechecks live state before each effect."
         )?;
+        Ok(())
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", self.document)
+    }
 }
 
 fn pane_description(action: tmt_core::workspace::plan::WorkspacePaneAction) -> &'static str {
@@ -222,17 +234,27 @@ pub fn execute_builtin(
         });
         Ok((json, human))
     })();
-    let (json, human) = match outcome {
-        Ok(value) => value,
-        Err(error) => return error.publish(mode),
-    };
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        writeln!(output, "{json}")?;
-    } else {
-        writeln!(output, "{human}")?;
+    tmt_cli_style::CliOutput::new(mode.json)
+        .finish(outcome.map(|(json, human)| BuiltinReport { json, human }))
+}
+
+struct BuiltinReport {
+    json: serde_json::Value,
+    human: String,
+}
+impl tmt_cli_style::Render for BuiltinReport {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        writeln!(stdout, "{}", self.human)
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", self.json)
+    }
 }
 
 pub(crate) fn selected_socket(

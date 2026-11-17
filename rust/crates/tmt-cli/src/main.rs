@@ -288,7 +288,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Complete(words) => write_exact(|stdout| completion::query(&words, stdout))?,
         Invocation::Completion { shell } => {
-            return completion_command::execute(shell.as_deref(), parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(completion_command::run(shell.as_deref()));
         }
         Invocation::CompletionScript(shell) => {
             write_exact(|stdout| grammar::completion::generate(&shell, stdout))?;
@@ -322,13 +325,19 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return extension_install_command::execute(request, parsed.mode);
         }
         Invocation::ExtensionHooks(request) => {
-            return extension_hooks_command::execute(request, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(extension_hooks_command::run(request));
         }
         Invocation::Driver(request) => {
             return driver_command::execute(request, parsed.mode);
         }
         Invocation::Host(request) => {
-            return host_command::execute(request, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(host_command::run(request));
         }
         Invocation::Init => {
             return output
@@ -377,7 +386,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return pty_serve_command::execute(&directory, &id, cols, rows, program, terminal);
         }
         Invocation::Channel(request) => {
-            return channel_command::execute(request, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(channel_command::run(request));
         }
         Invocation::Resume {
             host,
@@ -417,7 +429,24 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             directory,
             force,
         } => {
-            return install_command::execute(target, directory, force, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(install_command::run(
+                    target.as_deref(),
+                    directory.as_deref(),
+                    force,
+                ));
+        }
+        Invocation::Setup {
+            provider,
+            status: true,
+            ..
+        } => {
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(setup_command::status_report(provider.as_deref()));
         }
         Invocation::Setup {
             provider,
@@ -492,6 +521,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 .expect("paired output")
                 .finish(room_command::run(request));
         }
+        Invocation::Tick(invocation::TickOperation::Status) => {
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(tick_command::status());
+        }
         Invocation::Tick(operation) => return tick_command::execute(operation, parsed.mode),
         Invocation::Orch(request) => return orch_command::execute(request, parsed.mode),
         Invocation::NotesPath { identity } => {
@@ -546,7 +581,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             capture_only,
             expect_name,
         } => {
-            return check_command::execute(target, lines, capture_only, expect_name, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(check_command::run(target, lines, capture_only, expect_name));
         }
         Invocation::Stop { name, close } => {
             return stop_command::execute(name, close, parsed.mode);
@@ -555,7 +593,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return focus_command::execute(target, into, parsed.mode);
         }
         Invocation::FocusClient => {
-            return focus_command::client(parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(focus_command::client());
         }
         Invocation::Attach {
             target,
@@ -654,7 +695,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return database_compaction_command::execute(parsed.mode);
         }
         Invocation::Storage => {
-            return storage_command::execute(parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(storage_command::run());
         }
         Invocation::NativeRefreshIntegrations => {
             return setup_command::refresh::execute(parsed.mode);

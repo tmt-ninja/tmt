@@ -124,18 +124,13 @@ fn without_builtin_snapshot(invocation: &Invocation, mode: OutputMode) -> Option
         "tmux workspace snapshots exist; select one with tmt workspace {command} --socket {}",
         crate::output::shell_word(first)
     );
+    let output = tmt_cli_style::CliOutput::new(mode.json);
     if command == "ls" {
-        let mut output = tmt_cli_style::stream::stdout(mode.json);
-        let written = if mode.json {
-            writeln!(
-                output,
-                "{}",
-                serde_json::json!({"version": 1, "host": HostKind::pty().as_str(), "snapshots": [], "socketStores": sockets})
-            )
-        } else {
-            writeln!(output, "No built-in member snapshots. {hint}.")
+        let report = Report {
+            json: serde_json::json!({"version": 1, "host": HostKind::pty().as_str(), "snapshots": [], "socketStores": sockets}),
+            human: format!("No built-in member snapshots. {hint}."),
         };
-        return Some(written.map(|()| 0));
+        return Some(output.finish::<_, Failure>(Ok(report)));
     }
     let failure = Failure::new(
         "WORKSPACE_SNAPSHOT_NOT_FOUND",
@@ -143,12 +138,7 @@ fn without_builtin_snapshot(invocation: &Invocation, mode: OutputMode) -> Option
         3,
     )
     .suggestion(hint);
-    if !mode.json {
-        return Some(failure.publish(mode));
-    }
-    let mut document = failure.document();
-    document["socketStores"] = sockets.into();
-    Some(writeln!(tmt_cli_style::stream::stdout(true), "{document}").map(|()| failure.status))
+    Some(output.finish::<Report, _>(Err(SocketStoresFailure { failure, sockets })))
 }
 
 pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
@@ -162,7 +152,9 @@ pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
             selected = select_builtin(invocation);
             &selected
         }
-        Err(error) => return error.publish(mode),
+        Err(error) => {
+            return tmt_cli_style::CliOutput::new(mode.json).finish::<Report, _>(Err(error));
+        }
     };
     match invocation {
         Invocation::WorkspaceShow {
@@ -321,17 +313,53 @@ pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
         };
         Ok((document, human))
     })();
-    let (document, human) = match outcome {
-        Ok(value) => value,
-        Err(error) => return error.publish(mode),
-    };
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        writeln!(output, "{document}")?;
-    } else {
-        writeln!(output, "{human}")?;
+    tmt_cli_style::CliOutput::new(mode.json)
+        .finish(outcome.map(|(json, human)| Report { json, human }))
+}
+
+struct Report {
+    json: serde_json::Value,
+    human: String,
+}
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        writeln!(stdout, "{}", self.human)
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", self.json)
+    }
+}
+
+struct SocketStoresFailure {
+    failure: Failure,
+    sockets: Vec<String>,
+}
+impl tmt_cli_style::Render for SocketStoresFailure {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        stderr: &mut dyn Write,
+        out: tmt_cli_style::Terminal,
+        err: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        tmt_cli_style::Render::human(&self.failure, stdout, stderr, out, err)
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let mut document = self.failure.document();
+        document["socketStores"] = self.sockets.clone().into();
+        writeln!(stdout, "{document}")
+    }
+}
+impl tmt_cli_style::RenderFailure for SocketStoresFailure {
+    fn exit_status(&self) -> u8 {
+        self.failure.status
+    }
 }
 
 #[cfg(test)]

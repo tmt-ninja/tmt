@@ -474,9 +474,7 @@ pub fn execute(
                 document.snapshot.panes.len(),
                 document.snapshot.agent_count()
             );
-            let mut prompt = tmt_cli_style::stream::stderr();
             if !crate::consent::ask(
-                &mut prompt,
                 false,
                 mode,
                 crate::consent::Consent {
@@ -567,10 +565,9 @@ pub fn execute(
                 .filter(|_| reached_host.get())
                 .and_then(|paths| write_report(paths, LAST_REPORT, &mut failed));
             error.message = with_report(&error.message, report.as_deref());
-            return error.publish(mode);
+            return tmt_cli_style::CliOutput::new(mode.json).finish::<RestoreReport, _>(Err(error));
         }
     };
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
     let partial = result.partial() || revival.iter().any(|pane| pane.failed);
     let mut document = serde_json::json!({"version": 1, "socket": socket, "name": name.map(|name| name.as_str()), "generation": generation, "digest": digest, "layoutOnly": layout_only,
         "status": if partial { "partial" } else { "completed" }, "sessions": result.sessions,
@@ -582,13 +579,49 @@ pub fn execute(
     let report = report_paths
         .as_ref()
         .and_then(|paths| write_report(paths, LAST_REPORT, &mut document));
-    if mode.json {
-        document["report"] = report.into();
-        if layout_only && revival.is_empty() {
-            document.as_object_mut().expect("object").remove("revival");
-        }
-        writeln!(output, "{document}")?;
-    } else {
+    document["report"] = report.clone().into();
+    if layout_only && revival.is_empty() {
+        document.as_object_mut().expect("object").remove("revival");
+    }
+    tmt_cli_style::CliOutput::new(mode.json).finish::<_, Failure>(Ok(RestoreReport {
+        document,
+        socket,
+        result,
+        revival,
+        report,
+        layout_only,
+        partial,
+    }))
+}
+
+struct RestoreReport {
+    document: serde_json::Value,
+    socket: String,
+    result: workspace::restore::LayoutRestore,
+    revival: Vec<Revival>,
+    report: Option<String>,
+    layout_only: bool,
+    partial: bool,
+}
+impl tmt_cli_style::Render for RestoreReport {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let Self {
+            socket,
+            result,
+            revival,
+            report,
+            layout_only,
+            partial,
+            ..
+        } = self;
+        let layout_only = *layout_only;
+        let partial = *partial;
         let count = |action: &str, beside: bool| {
             result
                 .sessions
@@ -621,17 +654,17 @@ pub fn execute(
         if partial {
             line.push_str(", partial restore");
         }
-        writeln!(output, "{line}.")?;
+        writeln!(stdout, "{line}.")?;
         // A name that was not simply recreated is always said, never left to be inferred.
         for session in &result.sessions {
             match (session.action.as_str(), session.restored_as.as_deref()) {
                 ("merged", Some(live)) => writeln!(
-                    output,
+                    stdout,
                     "  {:?}: its windows were added to your session {live:?}, after your window",
                     session.name
                 )?,
                 ("created", Some(alias)) => writeln!(
-                    output,
+                    stdout,
                     "  {:?}: the name is in use, so it was restored as {alias:?}",
                     session.name
                 )?,
@@ -640,44 +673,89 @@ pub fn execute(
         }
         for fallback in &result.fallbacks {
             writeln!(
-                output,
+                stdout,
                 "  Pane {} opened in {}: its recorded directory {} is missing",
                 fallback.pane, fallback.used, fallback.wanted
             )?;
         }
         for session in &result.sessions {
             if layout_only && session.restored_as.is_none() {
-                writeln!(output, "  {:?}: {}", session.name, session.action)?;
+                writeln!(stdout, "  {:?}: {}", session.name, session.action)?;
             }
             // A placeholder kept in a whole session is said in every mode, with why.
             match (&session.retained_bootstrap, &session.retained_reason) {
                 (Some(pane), Some(why)) => writeln!(
-                    output,
+                    stdout,
                     "  {:?}: its placeholder shell {pane} was left in place ({why}); close it yourself",
                     session.name
                 )?,
                 (Some(pane), None) if layout_only => {
-                    writeln!(output, "    Bootstrap retained: {pane}")?
+                    writeln!(stdout, "    Bootstrap retained: {pane}")?
                 }
                 _ => (),
             }
         }
-        for pane in &revival {
-            writeln!(output, "  {:?}: {}", pane.name, pane.message)?;
+        for pane in revival {
+            writeln!(stdout, "  {:?}: {}", pane.name, pane.message)?;
         }
         for failure in &result.failures {
-            writeln!(output, "  {failure}")?;
+            writeln!(stdout, "  {failure}")?;
         }
         if let Some(path) = report.as_deref().filter(|_| partial) {
-            writeln!(output, "  Full report: {path}")?;
+            writeln!(stdout, "  Full report: {path}")?;
         }
+        Ok(())
     }
-    Ok(u8::from(partial))
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", self.document)
+    }
+    fn exit_status(&self) -> u8 {
+        u8::from(self.partial)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_restore_retains_failure_status_and_report_through_output_owner() {
+        let report = RestoreReport {
+            document: serde_json::json!({"status": "partial", "report": "/private/report"}),
+            socket: "/private/socket".into(),
+            result: workspace::restore::LayoutRestore {
+                failures: vec!["failed pane".into()],
+                ..Default::default()
+            },
+            revival: Vec::new(),
+            report: Some("/private/report".into()),
+            layout_only: false,
+            partial: true,
+        };
+        for json in [false, true] {
+            let mut stdout = Vec::new();
+            let status = tmt_cli_style::CliOutput::new(json)
+                .finish_to::<_, Failure>(
+                    Ok(&report),
+                    &mut stdout,
+                    &mut Vec::new(),
+                    tmt_cli_style::Terminal::PLAIN,
+                    tmt_cli_style::Terminal::PLAIN,
+                )
+                .unwrap();
+            let output = String::from_utf8(stdout).unwrap();
+            assert_eq!(status, 1);
+            if json {
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&output).unwrap()["status"],
+                    "partial"
+                );
+            } else {
+                assert!(output.contains("failed pane"));
+                assert!(output.contains("/private/report"));
+            }
+        }
+    }
     use tmt_adapters::host::CallerEnvironment;
     use tmt_core::{
         binding::{

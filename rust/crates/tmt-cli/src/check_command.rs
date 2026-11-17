@@ -2,7 +2,6 @@
 
 use crate::{
     binding_error::socket_failure,
-    invocation::OutputMode,
     output::{Failure, after_cleanup},
     target,
 };
@@ -15,14 +14,14 @@ use tmt_adapters::{
 use tmt_cli_style::Token;
 use tmt_core::{binding::PaneIdentity, host::HostKind, request::RequestEndpoint};
 
-struct Report {
+pub struct Report {
     target: String,
     observed: PaneIdentity,
     lines: u64,
     output: String,
 }
 
-fn run(
+pub fn run(
     target: String,
     lines: Option<u64>,
     capture_only: bool,
@@ -115,38 +114,27 @@ fn write_captured(output: &mut impl Write, text: &str) -> io::Result<()> {
     writeln!(output, "{text}")
 }
 
-pub fn execute(
-    target: String,
-    lines: Option<u64>,
-    capture_only: bool,
-    expect_name: Option<String>,
-    mode: OutputMode,
-) -> io::Result<u8> {
-    let report = match run(target, lines, capture_only, expect_name) {
-        Ok(report) => report,
-        Err(error) => return error.publish(mode),
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        let mut document = serde_json::json!({
-            "target": report.target,
-            "pane": report.observed.pane.id,
-            "lines": report.lines,
-            "output": report.output,
-        });
-        if let Some(identity) = report.observed.identity {
-            document["identity"] = serde_json::json!({"name": identity.name, "canonicalName": identity.canonical_name});
-        }
-        writeln!(stdout, "{document}")?;
-    } else {
-        let terminal = stdout.terminal();
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
         let title = format!(
             "OUTPUT {} {}",
-            tmt_cli_style::table::escape(&report.target),
-            report.observed.pane.id
+            tmt_cli_style::table::escape(&self.target),
+            self.observed.pane.id
         );
         writeln!(stdout, "{}", terminal.paint(Token::Title, &title))?;
-        write_captured(&mut stdout, &report.output)?;
+        write_captured(&mut &mut *stdout, &self.output)
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let mut document = serde_json::json!({"target": self.target, "pane": self.observed.pane.id, "lines": self.lines, "output": self.output});
+        if let Some(identity) = &self.observed.identity {
+            document["identity"] = serde_json::json!({"name": identity.name, "canonicalName": identity.canonical_name});
+        }
+        writeln!(stdout, "{document}")
+    }
 }

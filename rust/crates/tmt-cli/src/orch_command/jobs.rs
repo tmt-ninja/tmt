@@ -220,11 +220,10 @@ pub(super) fn send(operation: OrchOperation, mode: OutputMode) -> io::Result<u8>
                         .caused_by(e)
                 })?;
             }
-            if !yes && !crate::consent::interactive(mode, &out) {
+            if !yes && !crate::consent::interactive(mode) {
                 return Ok(serde_json::to_vec(&preview).expect("job preview JSON"));
             }
             let accepted = crate::consent::ask(
-                &mut out,
                 yes,
                 mode,
                 crate::consent::Consent {

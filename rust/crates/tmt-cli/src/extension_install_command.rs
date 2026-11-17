@@ -86,7 +86,6 @@ fn ask_declining(
         consent::ask
     };
     ask(
-        &mut tmt_cli_style::stream::stdout(mode.json),
         yes,
         mode,
         consent::Consent {
@@ -102,19 +101,28 @@ fn ask_declining(
 }
 
 pub fn execute(request: ExtensionInstallRequest, mode: OutputMode) -> io::Result<u8> {
-    match run(request, mode) {
-        Ok(Some((document, human))) => {
-            let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-            let terminal = stdout.terminal();
-            if mode.json {
-                writeln!(stdout, "{document}")?;
-            } else {
-                human.write(&mut stdout, terminal)?;
-            }
-            Ok(0)
+    tmt_cli_style::CliOutput::new(mode.json).finish(run(request, mode).map(Report))
+}
+
+struct Report(Option<(serde_json::Value, Human)>);
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        if let Some((_, human)) = &self.0 {
+            human.write(&mut &mut *stdout, terminal)?;
         }
-        Ok(None) => Ok(0),
-        Err(error) => error.publish(mode),
+        Ok(())
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        if let Some((document, _)) = &self.0 {
+            writeln!(stdout, "{document}")?;
+        }
+        Ok(())
     }
 }
 

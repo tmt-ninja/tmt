@@ -197,28 +197,38 @@ fn run(
 
 /// Resolves the invoker's client exactly as a focus would, without switching
 /// anything or opening storage.
-pub fn client(mode: OutputMode) -> io::Result<u8> {
-    let view = match invoker().and_then(|invoker| {
+pub fn client() -> Result<ClientReport, Failure> {
+    let view = invoker().and_then(|invoker| {
         crate::caller_context::host(&CallerEnvironment::current())?
             .invoker_client(&invoker, OperationOptions::default())
             .map_err(|error| pane_failure(error, invoker.pane.as_deref().unwrap_or_default()))
-    }) {
-        Ok(view) => view,
-        Err(error) => return error.publish(mode),
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        let document = serde_json::json!({"client": view.client, "pane": view.pane});
-        writeln!(stdout, "{document}")?;
-    } else {
+    });
+    view.map(ClientReport)
+}
+
+pub struct ClientReport(tmt_adapters::host::ClientView);
+impl tmt_cli_style::Render for ClientReport {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
         writeln!(
             stdout,
             "Client {} shows {}.",
-            view.client,
-            view.pane.as_deref().unwrap_or("no pane")
-        )?;
+            self.0.client,
+            self.0.pane.as_deref().unwrap_or("no pane")
+        )
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(
+            stdout,
+            "{}",
+            serde_json::json!({"client": self.0.client, "pane": self.0.pane})
+        )
+    }
 }
 
 pub fn execute(target: String, into: Option<SwapDirection>, mode: OutputMode) -> io::Result<u8> {
@@ -228,52 +238,48 @@ pub fn execute(target: String, into: Option<SwapDirection>, mode: OutputMode) ->
             if into.is_some() && error.code == "HOST_UNSUPPORTED" {
                 error.message = "This host cannot swap panes for this invocation: use a verified caller pane and another target on the same server. Nothing changed.".into();
             }
-            return error.publish(mode);
+            return tmt_cli_style::CliOutput::new(mode.json).finish::<FocusResult, _>(Err(error));
         }
     };
     if let FocusResult::Attached(prepared) = result {
         return crate::attach_command::execute_prepared(prepared, false, mode);
     }
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    let terminal = stdout.terminal();
-    let focused = match result {
-        FocusResult::Attached(_) => unreachable!("attachment returned before text output"),
-        FocusResult::Swapped(swapped) => {
-            if mode.json {
-                let document = if swapped.already {
-                    serde_json::json!({"swapped": null, "with": {"pane": swapped.neighbour}, "already": true})
-                } else {
-                    serde_json::json!({"swapped": {"pane": swapped.target}, "with": {"pane": swapped.neighbour}})
-                };
-                writeln!(stdout, "{document}")?;
-            } else {
-                tmt_cli_style::message::success(
-                    &mut stdout,
-                    terminal,
-                    &if swapped.already {
-                        format!("{} is already beside this pane", swapped.target)
-                    } else {
-                        format!("Swapped {} with {}", swapped.target, swapped.neighbour)
-                    },
-                )?;
+    tmt_cli_style::CliOutput::new(mode.json).finish::<_, Failure>(Ok(result))
+}
+
+impl tmt_cli_style::Render for FocusResult {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let text = match self {
+            FocusResult::Attached(_) => unreachable!("attachment has its own output protocol"),
+            FocusResult::Swapped(swapped) if swapped.already => {
+                format!("{} is already beside this pane", swapped.target)
             }
-            return Ok(0);
-        }
-        FocusResult::Focused(focused) => focused,
-    };
-    if mode.json {
-        let document = serde_json::json!({
-            "focused": {"pane": focused.interface},
-            "from": focused.previous.map(|pane| serde_json::json!({"pane": pane})),
-            "client": focused.viewer,
-        });
-        writeln!(stdout, "{document}")?;
-    } else {
-        tmt_cli_style::message::success(
-            &mut stdout,
-            terminal,
-            &format!("Focused {}", focused.interface),
-        )?;
+            FocusResult::Swapped(swapped) => {
+                format!("Swapped {} with {}", swapped.target, swapped.neighbour)
+            }
+            FocusResult::Focused(focused) => format!("Focused {}", focused.interface),
+        };
+        tmt_cli_style::message::success(&mut &mut *stdout, terminal, &text)
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let document = match self {
+            FocusResult::Attached(_) => unreachable!("attachment has its own output protocol"),
+            FocusResult::Swapped(swapped) if swapped.already => {
+                serde_json::json!({"swapped": null, "with": {"pane": swapped.neighbour}, "already": true})
+            }
+            FocusResult::Swapped(swapped) => {
+                serde_json::json!({"swapped": {"pane": swapped.target}, "with": {"pane": swapped.neighbour}})
+            }
+            FocusResult::Focused(focused) => {
+                serde_json::json!({"focused": {"pane": focused.interface}, "from": focused.previous.as_ref().map(|pane| serde_json::json!({"pane": pane})), "client": focused.viewer})
+            }
+        };
+        writeln!(stdout, "{document}")
+    }
 }

@@ -210,7 +210,6 @@ fn install(
         })?;
     }
     let consented = consent::ask(
-        &mut output,
         yes,
         mode,
         consent::Consent {
@@ -408,24 +407,28 @@ pub fn execute(request: DriverRequest, mode: OutputMode) -> io::Result<u8> {
             DriverRequest::Remove(name) => remove(&paths, &name),
         }
     })();
-    match result {
-        Ok((value, human)) => {
-            let mut output = tmt_cli_style::stream::stdout(mode.json);
-            let terminal = output.terminal();
-            if mode.json {
-                writeln!(output, "{value}")?;
-            } else {
-                match human {
-                    Human::Nothing => {}
-                    Human::Success(text) => {
-                        tmt_cli_style::message::success(&mut output, terminal, &text)?
-                    }
-                    Human::Listing(rows) => write_listing(&mut output, terminal, &rows)?,
-                }
+    tmt_cli_style::CliOutput::new(mode.json).finish(result.map(Report))
+}
+
+struct Report(Answer);
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: Terminal,
+        _: Terminal,
+    ) -> io::Result<()> {
+        match &self.0.1 {
+            Human::Nothing => Ok(()),
+            Human::Success(text) => {
+                tmt_cli_style::message::success(&mut &mut *stdout, terminal, text)
             }
-            Ok(0)
+            Human::Listing(rows) => write_listing(&mut &mut *stdout, terminal, rows),
         }
-        Err(error) => error.publish(mode),
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", self.0.0)
     }
 }
 

@@ -327,7 +327,7 @@ pub enum Invocation {
     },
 }
 /// Explicit output boundary inventory. The exhaustive match forces every new invocation
-/// to be classified before it can be dispatched. Legacy ordinary commands migrate by batch.
+/// to be classified before it can be dispatched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputBoundary {
     Paired,
@@ -336,7 +336,6 @@ pub enum OutputBoundary {
     Interactive,
     External,
     Streaming,
-    Legacy,
 }
 
 impl Invocation {
@@ -364,7 +363,18 @@ impl Invocation {
             | Self::ExchangeFlow { .. }
             | Self::SendNow { .. }
             | Self::Inbox { .. }
-            | Self::Answer { .. } => OutputBoundary::Paired,
+            | Self::Answer { .. }
+            | Self::Host(..)
+            | Self::Install { .. }
+            | Self::Storage
+            | Self::Channel(..)
+            | Self::Check { .. }
+            | Self::ExtensionHooks(..)
+            | Self::Completion { .. }
+            | Self::FocusClient => OutputBoundary::Paired,
+            Self::Setup { status: true, .. } | Self::Tick(TickOperation::Status) => {
+                OutputBoundary::Paired
+            }
             Self::Exchange {
                 operation: ExchangeOperation::Listen { .. },
                 ..
@@ -399,30 +409,22 @@ impl Invocation {
                 OutputBoundary::Interactive
             }
             Self::Extension { .. } => OutputBoundary::External,
-            Self::Talk { .. } | Self::TalkRemote { .. } | Self::Orch(..) => {
-                OutputBoundary::Streaming
-            }
-            Self::Tick(..)
-            | Self::Completion { .. }
+            Self::Talk { .. }
+            | Self::TalkRemote { .. }
+            | Self::Orch(..)
+            | Self::Driver(..)
             | Self::WorkspaceRestore { .. }
             | Self::WorkspaceShow { .. }
             | Self::WorkspaceSave { .. }
             | Self::WorkspaceList { .. }
             | Self::WorkspaceRemove { .. }
-            | Self::Channel(..)
-            | Self::Stop { .. }
-            | Self::Check { .. }
-            | Self::Focus { .. }
-            | Self::FocusClient
-            | Self::ExtensionHooks(..)
-            | Self::Driver(..)
-            | Self::Host(..)
             | Self::ExtensionInstall(..)
-            | Self::Install { .. }
             | Self::Setup { .. }
             | Self::Upgrade { .. }
-            | Self::Storage
-            | Self::Uninstall { .. } => OutputBoundary::Legacy,
+            | Self::Uninstall { .. }
+            | Self::Stop { .. }
+            | Self::Focus { .. }
+            | Self::Tick(..) => OutputBoundary::Streaming,
         }
     }
 }

@@ -5,7 +5,7 @@
 //! never signals a process, sends, resends or pastes.
 
 use crate::{
-    invocation::{ChannelRequest, EnrollmentSelector, OutputMode},
+    invocation::{ChannelRequest, EnrollmentSelector},
     output::{Failure, after_cleanup},
     target,
 };
@@ -31,8 +31,8 @@ use tmt_cli_style::{Terminal, message};
 /// One absolute bound for every observation a command makes.
 const OBSERVATION_DEADLINE: Duration = Duration::from_secs(5);
 
-pub fn execute(request: ChannelRequest, mode: OutputMode) -> io::Result<u8> {
-    let outcome = validate(&request)
+pub fn run(request: ChannelRequest) -> Result<Outcome, Failure> {
+    validate(&request)
         .and_then(|()| binding(request.selector.clone()))
         .and_then(|(paths, binding_id)| {
             let directory = paths.channel_directory();
@@ -49,11 +49,7 @@ pub fn execute(request: ChannelRequest, mode: OutputMode) -> io::Result<u8> {
                     recover(&registry, &directory, &binding_id, generation, deadline)
                 }
             }
-        });
-    match outcome {
-        Ok(outcome) => publish(&outcome, mode),
-        Err(error) => error.publish(mode),
-    }
+        })
 }
 
 /// Binding IDs and generations are UUIDs, as talk and inspect print them; a
@@ -83,7 +79,7 @@ fn validate(request: &ChannelRequest) -> Result<(), Failure> {
     Ok(())
 }
 
-enum Outcome {
+pub enum Outcome {
     Inspected {
         binding_id: String,
         reports: Vec<(String, EnrollmentReport)>,
@@ -360,10 +356,68 @@ fn report_document(driver: &str, report: &EnrollmentReport) -> Value {
     })
 }
 
-fn publish(outcome: &Outcome, mode: OutputMode) -> io::Result<u8> {
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        let document = match outcome {
+impl tmt_cli_style::Render for Outcome {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: Terminal,
+        _: Terminal,
+    ) -> io::Result<()> {
+        match self {
+            Outcome::Inspected {
+                binding_id,
+                reports,
+            } => {
+                if reports.is_empty() {
+                    writeln!(
+                        stdout,
+                        "No channel enrollment is recorded for binding {binding_id}."
+                    )?;
+                }
+                for (driver, report) in reports {
+                    write_report(&mut &mut *stdout, terminal, driver, report)?;
+                }
+            }
+            Outcome::Recovered {
+                driver,
+                report,
+                removed,
+                kept,
+            } => {
+                message::success(
+                    &mut &mut *stdout,
+                    terminal,
+                    &format!(
+                        "Recovered the {driver} channel enrollment {} of binding {}",
+                        report.generation, report.binding_id
+                    ),
+                )?;
+                for path in removed {
+                    writeln!(stdout, "  removed  {}", path.display())?;
+                }
+                if !kept.is_empty() {
+                    message::warning(
+                        &mut &mut *stdout,
+                        terminal,
+                        &format!("Left in place: {}", paths(kept).join(", ")),
+                        Some(
+                            "Nothing proves these unused; remove them yourself only after checking.",
+                        ),
+                    )?;
+                }
+            }
+            Outcome::Absent { binding_id, .. } => {
+                writeln!(
+                    stdout,
+                    "No channel enrollment is recorded for binding {binding_id}; nothing to recover."
+                )?;
+            }
+        }
+        Ok(())
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let document = match self {
             Outcome::Inspected {
                 binding_id,
                 reports,
@@ -396,59 +450,8 @@ fn publish(outcome: &Outcome, mode: OutputMode) -> io::Result<u8> {
                 "recovered": false,
             }),
         };
-        writeln!(stdout, "{document}")?;
-        return Ok(0);
+        writeln!(stdout, "{document}")
     }
-    let terminal = stdout.terminal();
-    match outcome {
-        Outcome::Inspected {
-            binding_id,
-            reports,
-        } => {
-            if reports.is_empty() {
-                writeln!(
-                    stdout,
-                    "No channel enrollment is recorded for binding {binding_id}."
-                )?;
-            }
-            for (driver, report) in reports {
-                write_report(&mut stdout, terminal, driver, report)?;
-            }
-        }
-        Outcome::Recovered {
-            driver,
-            report,
-            removed,
-            kept,
-        } => {
-            message::success(
-                &mut stdout,
-                terminal,
-                &format!(
-                    "Recovered the {driver} channel enrollment {} of binding {}",
-                    report.generation, report.binding_id
-                ),
-            )?;
-            for path in removed {
-                writeln!(stdout, "  removed  {}", path.display())?;
-            }
-            if !kept.is_empty() {
-                message::warning(
-                    &mut stdout,
-                    terminal,
-                    &format!("Left in place: {}", paths(kept).join(", ")),
-                    Some("Nothing proves these unused; remove them yourself only after checking."),
-                )?;
-            }
-        }
-        Outcome::Absent { binding_id, .. } => {
-            writeln!(
-                stdout,
-                "No channel enrollment is recorded for binding {binding_id}; nothing to recover."
-            )?;
-        }
-    }
-    Ok(0)
 }
 
 fn write_report(
