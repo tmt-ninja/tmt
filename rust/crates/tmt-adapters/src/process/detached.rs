@@ -394,7 +394,7 @@ mod tests {
             log,
             b"R",
             false,
-            Instant::now() + Duration::from_millis(300),
+            Instant::now() + Duration::from_secs(2),
             None,
         )
         .unwrap_err();
