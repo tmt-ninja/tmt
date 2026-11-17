@@ -1,4 +1,4 @@
-import type { ComputedState } from './bootstrap.js';
+import type { ListStatus } from './bootstrap.js';
 import type { PageSummary } from './transport.js';
 
 /** The stages the page list tabs name; the owner derives them from a page's sub-pages. */
@@ -25,7 +25,7 @@ export function pageStage(page: PageSummary): PageStage | undefined {
 }
 
 /** Which list tab a computed status belongs to (#6520): one map for the Stage cell and the tabs. */
-export function statusTab(state: ComputedState): PageStage | 'needs' {
+export function statusTab(state: ListStatus): PageStage | 'needs' {
   switch (state) {
     case 'needs-you':
     case 'blocked':
@@ -39,6 +39,7 @@ export function statusTab(state: ComputedState): PageStage | 'needs' {
       return 'done';
     case 'discussing':
     case 'unknown':
+    case 'unchecked':
       return 'discussion';
   }
 }

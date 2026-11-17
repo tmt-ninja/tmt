@@ -97,6 +97,10 @@ export const COMPUTED_STATES = [
   'unknown',
 ] as const;
 export type ComputedState = (typeof COMPUTED_STATES)[number];
+/** A list row's status: a computed one, or `unchecked` when only an owner page view can decide it
+ * (contract: Owner page summaries). */
+export const LIST_STATUSES = [...COMPUTED_STATES, 'unchecked'] as const;
+export type ListStatus = (typeof LIST_STATUSES)[number];
 /** What the owner derives for the list: comment count, waiting items and the creator. */
 export interface PageActivity {
   comments: number;
@@ -115,7 +119,7 @@ export interface PageActivity {
   parent?: { page: string; index: number };
   /** The computed status the owner retained for this page's current state; omitted until the
    * page has been opened since it last changed. */
-  status?: ComputedState;
+  status?: ListStatus;
 }
 export interface PageInfo extends ExpiryInfo {
   state?: PageState | null;
@@ -206,7 +210,7 @@ export function activity(value: unknown): asserts value is PageActivity {
         !/\p{Cc}/u.test(value.author),
     );
   if ('work' in value) workRow(value.work);
-  if ('status' in value) requireValue(COMPUTED_STATES.some((state) => state === value.status));
+  if ('status' in value) requireValue(LIST_STATUSES.some((state) => state === value.status));
   if ('fields' in value) {
     const fields = value.fields;
     requireValue(fields !== null && typeof fields === 'object' && !Array.isArray(fields));

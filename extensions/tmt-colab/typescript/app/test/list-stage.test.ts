@@ -19,7 +19,11 @@ it('maps every computed status to one list tab and keeps the stage without one',
     (['working', 'possibly-stalled', 'waiting-ci', 'waiting-release'] as const).map(tab),
   ).toEqual(Array(4).fill('in-progress'));
   expect(tab('done')).toBe('done');
-  expect((['discussing', 'unknown'] as const).map(tab)).toEqual(['discussion', 'discussion']);
+  expect((['discussing', 'unknown', 'unchecked'] as const).map(tab)).toEqual([
+    'discussion',
+    'discussion',
+    'discussion',
+  ]);
   // No retained status: the sub-page stage stays, and a page not yet summarised is at none.
   expect(pageStage(page({ work: { stage: 'in-progress', done: 0, total: 1 } }))).toBe(
     'in-progress',

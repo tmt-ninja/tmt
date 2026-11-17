@@ -883,9 +883,9 @@ export function Home() {
                   stage:
                     status && !page.archived
                       ? {
-                          // The computed status the page itself shows; its tab gives the colour.
-                          id: statusTab(status),
-                          label: `${text.workBand.computedState[status]}${status === 'needs-you' && page.summary && page.summary.needsYou > 0 ? ` · ${page.summary.needsYou}` : ''}`,
+                          // The status the page itself shows; Blocked keeps the page's own tone.
+                          id: status === 'blocked' ? 'blocked' : statusTab(status),
+                          label: `${status === 'unchecked' ? t.notCheckedYet : text.workBand.computedState[status]}${status === 'needs-you' && page.summary && page.summary.needsYou > 0 ? ` · ${page.summary.needsYou}` : ''}`,
                         }
                       : waiting
                         ? {

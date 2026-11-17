@@ -1199,7 +1199,8 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             let parents = graph.parents();
             for page in catalog["pages"].as_array_mut().into_iter().flatten() {
                 let id = page["pageId"].as_str().unwrap_or_default().to_owned();
-                if let Some(work) = graph.row(&id, &archived) {
+                // The CLI has no fold cache: it counts sub-pages by their manual state.
+                if let Some(work) = graph.row(&id, &archived, &|_| None) {
                     page["work"] = work;
                 }
                 if let Some((parent, index)) = parents.get(&id) {

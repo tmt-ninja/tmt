@@ -1144,6 +1144,8 @@ export const text = {
     commentCount: (count: number) => `${count} ${count === 1 ? 'comment' : 'comments'}`,
     /** The mark means a shared pending item awaits the owner; the word is part of the mark. */
     waitingForYou: 'Needs you',
+    /** A row whose status needs its PR or owner facts, read only on the open page (#6474). */
+    notCheckedYet: 'Not checked yet',
     projectsFor: (title: string) => `Projects for ${title}`,
     newProjectItem: 'New project…',
     noMatch: 'No pages match.',

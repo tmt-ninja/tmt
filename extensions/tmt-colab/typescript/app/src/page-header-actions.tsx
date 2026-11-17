@@ -18,6 +18,7 @@ import {
   CornerDownRight,
   LayoutTemplate,
   X,
+  CircleDot,
 } from 'lucide-react';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
@@ -209,7 +210,15 @@ export function PageHeaderActions({
               },
             ]
           : []),
-        ...(canSetPageState ? [{ key: 'page-state', label: text.workBand.manualPageState }] : []),
+        ...(canSetPageState
+          ? [
+              {
+                key: 'page-state',
+                label: text.workBand.manualPageState,
+                leadingIcon: <CircleDot />,
+              },
+            ]
+          : []),
         ...(parentTitle
           ? [
               {

@@ -81,6 +81,13 @@
 .tmt-page-list-stage[data-stage='needs'] .tmt-page-list-stage-dot {
   background: var(--tmt-ui-color-waiting);
 }
+/* A blocked page reads in the page's own blocked tone, in the Needs you tab (#6474). */
+.tmt-page-list-stage[data-stage='blocked'] {
+  color: var(--tmt-ui-color-text);
+}
+.tmt-page-list-stage[data-stage='blocked'] .tmt-page-list-stage-dot {
+  background: var(--tmt-ui-color-blocked);
+}
 .tmt-page-list-count {
   color: var(--tmt-ui-color-secondary);
   font-variant-numeric: tabular-nums;

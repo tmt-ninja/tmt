@@ -57,6 +57,65 @@ pub enum OwnerActivity {
     Unknown,
 }
 
+/// The page list's status for a page no owner page view has computed (#6474): the same ordered
+/// rules over what the background fold already holds, with no external fact. It is decided only
+/// when every possible PR and owner-activity fact gives the same answer; otherwise `unchecked`.
+/// No GitHub or activity read happens here.
+pub fn derived_state(
+    todos: Option<(usize, usize)>,
+    blocked: bool,
+    needs_you: bool,
+    pr_links: Option<usize>,
+    has_owner: bool,
+    now_ms: u64,
+) -> &'static str {
+    let pulls = [
+        PullRequestFact::Open,
+        PullRequestFact::Merged {
+            released: Some(true),
+        },
+        PullRequestFact::Merged {
+            released: Some(false),
+        },
+        PullRequestFact::Closed,
+        PullRequestFact::Unknown,
+    ];
+    let activities: &[OwnerActivity] = if has_owner {
+        &[
+            OwnerActivity::Working {
+                last_activity_ms: Some(now_ms),
+                observed_at_ms: now_ms,
+            },
+            OwnerActivity::Working {
+                last_activity_ms: Some(0),
+                observed_at_ms: now_ms,
+            },
+            OwnerActivity::Waiting,
+            OwnerActivity::Other,
+            OwnerActivity::Unknown,
+        ]
+    } else {
+        &[OwnerActivity::Other]
+    };
+    let mut answer = None;
+    for &activity in activities {
+        // Every link with the same fact covers each rule a PR can decide.
+        let facts: Vec<Option<Vec<PullRequestFact>>> = match pr_links {
+            None => vec![None],
+            Some(0) => vec![Some(Vec::new())],
+            Some(count) => pulls.iter().map(|fact| Some(vec![*fact; count])).collect(),
+        };
+        for prs in &facts {
+            let state = computed_state(todos, blocked, needs_you, prs.as_deref(), activity, now_ms);
+            if answer.is_some_and(|known| known != state) {
+                return "unchecked";
+            }
+            answer = Some(state);
+        }
+    }
+    answer.unwrap_or("unchecked")
+}
+
 /// One ordered interpretation for owner-local web and CLI projections.
 pub fn computed_state(
     todos: Option<(usize, usize)>,
@@ -247,6 +306,60 @@ mod tests {
     use super::*;
 
     const CHILD: &str = "20000000-0000-4000-8000-000000000001";
+
+    #[test]
+    fn the_list_decides_a_status_only_when_no_external_fact_could_change_it() {
+        let now = 10 * STALL_THRESHOLD_MS;
+        // No owner and no PR link: every rule is decided by the fold.
+        assert_eq!(
+            derived_state(Some((1, 1)), false, false, Some(0), false, now),
+            "done"
+        );
+        assert_eq!(
+            derived_state(Some((0, 1)), false, false, Some(0), false, now),
+            "discussing"
+        );
+        assert_eq!(
+            derived_state(Some((0, 1)), true, false, Some(0), false, now),
+            "blocked"
+        );
+        assert_eq!(
+            derived_state(None, false, true, Some(0), false, now),
+            "needs-you"
+        );
+        // Blocked and needs-you come before PR and activity rules, unless the PR could finish it.
+        assert_eq!(
+            derived_state(Some((0, 1)), true, false, Some(2), true, now),
+            "blocked"
+        );
+        assert_eq!(
+            derived_state(Some((0, 1)), false, true, Some(1), true, now),
+            "needs-you"
+        );
+        assert_eq!(
+            derived_state(Some((1, 1)), true, false, Some(1), false, now),
+            "unchecked"
+        );
+        // A PR link or an owner otherwise needs the open page's facts.
+        assert_eq!(
+            derived_state(Some((0, 1)), false, false, Some(1), false, now),
+            "unchecked"
+        );
+        assert_eq!(
+            derived_state(Some((0, 1)), false, false, Some(0), true, now),
+            "unchecked"
+        );
+        // An owner does not change done when there is no PR link.
+        assert_eq!(
+            derived_state(Some((2, 2)), false, false, Some(0), true, now),
+            "done"
+        );
+        // Links the fold could not extract read as unavailable facts, as on the page.
+        assert_eq!(
+            derived_state(Some((0, 1)), false, false, None, false, now),
+            "unknown"
+        );
+    }
 
     #[test]
     fn computed_status_never_claims_release_from_unknown_facts() {

@@ -61,6 +61,17 @@ impl Graph<'_> {
         page: &str,
         archived: &BTreeSet<String>,
     ) -> Option<crate::page_state::Progress> {
+        self.progress_by(page, archived, &|_| None)
+    }
+
+    /// [`Graph::progress`] where a child's computed status decides it when one is known (#6474):
+    /// `done` is done; `unknown`, `unchecked` or no status fall back to the child's manual state.
+    pub fn progress_by(
+        &self,
+        page: &str,
+        archived: &BTreeSet<String>,
+        status: &dyn Fn(&str) -> Option<String>,
+    ) -> Option<crate::page_state::Progress> {
         let work = self.0.get(page)?.as_ref()?;
         let counted: Vec<String> = work
             .children
@@ -68,17 +79,31 @@ impl Graph<'_> {
             .filter(|child| !archived.contains(*child))
             .cloned()
             .collect();
-        Some(crate::page_state::progress(&counted, &|child| {
-            self.page_state(child).map(str::to_owned)
-        }))
+        Some(crate::page_state::progress(
+            &counted,
+            &|child| match status(child).as_deref() {
+                Some("done") => Some("done".to_owned()),
+                Some(
+                    "working" | "possibly-stalled" | "waiting-ci" | "waiting-release" | "blocked"
+                    | "needs-you",
+                ) => Some("in-progress".to_owned()),
+                Some("discussing") => Some("todo".to_owned()),
+                _ => self.page_state(child).map(str::to_owned),
+            },
+        ))
     }
 
     /// The list row's `work` for a page with sub-pages: its stage and direct progress, the same
     /// count the page's work panel shows. `None` for a page without counted sub-pages or outside
     /// the index.
-    pub fn row(&self, page: &str, archived: &BTreeSet<String>) -> Option<Value> {
+    pub fn row(
+        &self,
+        page: &str,
+        archived: &BTreeSet<String>,
+        status: &dyn Fn(&str) -> Option<String>,
+    ) -> Option<Value> {
         let progress = self
-            .progress(page, archived)
+            .progress_by(page, archived, status)
             .filter(|progress| progress.total > 0)?;
         Some(json!({"stage":progress.stage(),"done":progress.done,"total":progress.total}))
     }
@@ -247,25 +272,54 @@ mod tests {
             (1, 1, 1, 3)
         );
         assert_eq!(
-            graph.row("a", &none),
+            graph.row("a", &none, &|_| None),
             Some(json!({"stage":"in-progress","done":1,"total":3}))
         );
         // Only direct sub-pages count: b's own state is done, but its sub-page d is not.
         assert_eq!(
-            graph.row("b", &none),
+            graph.row("b", &none, &|_| None),
             Some(json!({"stage":"in-progress","done":0,"total":1}))
         );
-        assert_eq!(graph.row("c", &none), None);
+        assert_eq!(graph.row("c", &none, &|_| None), None);
         assert_eq!(graph.progress("gone", &none), None);
         // An archived sub-page keeps its link but leaves the count; all archived leaves no row.
         let archived = BTreeSet::from(["c".to_owned()]);
         assert_eq!(
-            graph.row("a", &archived),
+            graph.row("a", &archived, &|_| None),
             Some(json!({"stage":"in-progress","done":1,"total":2}))
         );
         let all = BTreeSet::from(["d".to_owned()]);
-        assert_eq!(graph.row("b", &all), None);
+        assert_eq!(graph.row("b", &all, &|_| None), None);
         assert_eq!(graph.progress("b", &all).unwrap().total, 0);
+    }
+
+    #[test]
+    fn a_sub_page_counts_by_its_computed_status_when_known() {
+        // b is manually done but its status says it waits for CI; c is manually to-do but its
+        // status is done; d has no known status and keeps its manual state.
+        let found = found(vec![
+            ("a", page("todo", &["b", "c", "d"])),
+            ("b", page("done", &[])),
+            ("c", page("todo", &[])),
+            ("d", page("done", &[])),
+        ]);
+        let graph = Graph(&found);
+        let none = BTreeSet::new();
+        let status = |child: &str| match child {
+            "b" => Some("waiting-ci".to_owned()),
+            "c" => Some("done".to_owned()),
+            "d" => Some("unchecked".to_owned()),
+            _ => None,
+        };
+        let progress = graph.progress_by("a", &none, &status).unwrap();
+        assert_eq!(
+            (progress.done, progress.in_progress, progress.total),
+            (2, 1, 3)
+        );
+        assert_eq!(
+            graph.row("a", &none, &status),
+            Some(json!({"stage":"in-progress","done":2,"total":3}))
+        );
     }
 
     #[test]
