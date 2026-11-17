@@ -233,6 +233,9 @@ pub trait OriginTicket: Send + Sync {
     /// The origin as the one lowercase UUIDv4 the extension is given.
     fn id(&self) -> String;
     fn establish(&self);
+    /// Bind the tunnel's nonblocking shutdown to this origin's removal. A ticket
+    /// already removed closes it immediately; the callback runs outside registry locks.
+    fn bind_transport(&self, close: Box<dyn FnOnce() + Send>);
     fn close(&self);
 }
 /// Monotonic time source shared by session idle checks and activity touches.
@@ -477,6 +480,15 @@ impl Mounts {
             let _ = client.shutdown(Shutdown::Both);
             return false;
         }
+        let client = Arc::new(client);
+        let extension = Arc::new(extension);
+        if let Some(origin) = &origin {
+            let (client, extension) = (Arc::clone(&client), Arc::clone(&extension));
+            origin.bind_transport(Box::new(move || {
+                let _ = client.shutdown(Shutdown::Both);
+                let _ = extension.shutdown(Shutdown::Both);
+            }));
+        }
         #[cfg(test)]
         let before_slot_drop = self.before_slot_drop.clone();
         let spawned = thread::Builder::new()
@@ -484,8 +496,8 @@ impl Mounts {
             .spawn(move || {
                 let _slot = slot;
                 splice(
-                    client,
-                    extension,
+                    &client,
+                    &extension,
                     idle,
                     session.as_ref().map(|t| t.0.as_ref()),
                 );
@@ -1273,12 +1285,13 @@ fn referrer_kept(name: &str, value: &str) -> bool {
 }
 /// `session` is the owner session the upgrade was admitted under, if any.
 fn splice(
-    mut client: TcpStream,
-    mut extension: UnixStream,
+    client: &TcpStream,
+    extension: &UnixStream,
     idle: Duration,
     session: Option<&SessionState>,
 ) {
-    let client = &mut client;
+    let mut client = client;
+    let mut extension = extension;
     const CHUNK: usize = 16 * 1024;
     let _ = (|| -> io::Result<()> {
         client.set_nonblocking(true)?;
@@ -1331,7 +1344,7 @@ fn splice(
                 && upstream.is_empty()
                 && !closing
             {
-                closing |= fill(client, &mut upstream, CHUNK)?;
+                closing |= fill(&mut client, &mut upstream, CHUNK)?;
                 if !upstream.is_empty() {
                     activity = Instant::now();
                     session.inspect(|s| s.touch());
@@ -1347,7 +1360,7 @@ fn splice(
                     session.inspect(|s| s.touch());
                 }
             }
-            if drain(client, &mut downstream)? | drain(&mut extension, &mut upstream)? {
+            if drain(&mut client, &mut downstream)? | drain(&mut extension, &mut upstream)? {
                 progress = Instant::now();
             }
         }

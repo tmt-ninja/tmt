@@ -1,5 +1,6 @@
 // PROVENANCE: #5971 (Ben's selected ninja); the input is an exact copy of the selected blog artwork at 4f94bffb07.
 // Generate product markup and icon sizes from those sources, never a traced copy.
+// A favicon change must also run `corepack pnpm --dir typescript --filter @tmt/browser-addon generate:icons` in the same PR.
 import { readFile, writeFile } from 'node:fs/promises';
 
 const mode = process.argv[2];

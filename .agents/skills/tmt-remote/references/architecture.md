@@ -73,6 +73,8 @@ Failed startup setup seeds its queue; each Local dispatch Hub has a weak sink to
 queue for its first end event. Backoff and attempt bounds live in `limits`; healthy channels
 have no scheduled work. Native project activation keeps its existing explicit semantics.
 No control operation, polling thread, second registry or storage opener is added.
+Mounted tunnels end with their object generation: removing an origin directly shuts down both
+transport sockets outside the origin registry lock, including a late transport binding.
 
 `native_sync` bounds COUNT probes and document reads and returns query pages/cursors
 for sealed-document consumers, including Colab. It has no Core authority. Native carrier

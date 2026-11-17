@@ -14,7 +14,7 @@
 //!
 //! Lock order: `Origins` before a channel's [`Events`]. Neither is held while a frame is
 //! written, and nothing here calls the sessions: closing a ticket never blocks on a socket
-//! or on a session.
+//! or on a session. Removed records shut down their mounted transport outside the registry lock.
 use crate::{
     mount::{OriginSink, OriginTicket, OwnerBinding},
     store::uuid_v4,
@@ -108,6 +108,7 @@ struct Record {
     /// The owner session the upgrade was admitted under, if any.
     owner: Option<OwnerBinding>,
     events: Arc<Events>,
+    close_transport: Option<Box<dyn FnOnce() + Send>>,
 }
 struct Attached {
     generation: Uuid4,
@@ -142,17 +143,30 @@ impl Origins {
     /// A channel ended: every origin of that generation is gone, with no notice (the bus is
     /// over) and nothing for a successor to inherit.
     pub(super) fn detach(&self, extension: &str, generation: Uuid4) {
-        let mut table = locked(&self.table);
-        if table
-            .channels
-            .get(extension)
-            .is_some_and(|channel| channel.generation == generation)
-        {
-            table.channels.remove(extension);
+        let closing = {
+            let mut table = locked(&self.table);
+            if table
+                .channels
+                .get(extension)
+                .is_some_and(|channel| channel.generation == generation)
+            {
+                table.channels.remove(extension);
+            }
+            let mut closing = Vec::new();
+            table.records.retain(|_, record| {
+                if record.generation != generation {
+                    return true;
+                }
+                if let Some(close) = record.close_transport.take() {
+                    closing.push(close);
+                }
+                false
+            });
+            closing
+        };
+        for close in closing {
+            close();
         }
-        table
-            .records
-            .retain(|_, record| record.generation != generation);
     }
     /// The established origin `id` of `extension` on channel `generation`; a Pending,
     /// closed, unknown, other-extension or other-generation origin is `None`.
@@ -191,12 +205,26 @@ impl Origins {
             record.events.push(id, OriginPhase::Established);
         }
     }
-    fn close(&self, id: Uuid4) {
+    fn bind_transport(&self, id: Uuid4, close: Box<dyn FnOnce() + Send>) {
         let mut table = locked(&self.table);
-        if let Some(record) = table.records.remove(&id)
-            && record.phase == Phase::Established
+        if let Some(record) = table.records.get_mut(&id)
+            && record.close_transport.is_none()
         {
-            record.events.push(id, OriginPhase::Closed);
+            record.close_transport = Some(close);
+            return;
+        }
+        drop(table);
+        close();
+    }
+    fn close(&self, id: Uuid4) {
+        let record = locked(&self.table).records.remove(&id);
+        if let Some(record) = record {
+            if record.phase == Phase::Established {
+                record.events.push(id, OriginPhase::Closed);
+            }
+            if let Some(close) = record.close_transport {
+                close();
+            }
         }
     }
 }
@@ -219,6 +247,7 @@ impl OriginSink for Origins {
                 phase: Phase::Pending,
                 owner,
                 events,
+                close_transport: None,
             },
         );
         Some(Arc::new(Ticket {
@@ -239,6 +268,9 @@ impl OriginTicket for Ticket {
     }
     fn establish(&self) {
         self.origins.establish(self.id);
+    }
+    fn bind_transport(&self, close: Box<dyn FnOnce() + Send>) {
+        self.origins.bind_transport(self.id, close);
     }
     fn close(&self) {
         self.origins.close(self.id);

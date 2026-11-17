@@ -331,15 +331,20 @@ fn serve_connection(
     let upgrade = text.to_ascii_lowercase().contains("upgrade: websocket");
     // The route `/refuse` is an extension that refuses the upgrade; every other one accepts.
     let refuses = text.contains(" /refuse ");
+    let echo = text.starts_with("GET /echo ");
     seen.lock().unwrap().push(text);
     match (upgrade, refuses) {
         (true, false) => {
             let _ = stream.write_all(
                 b"HTTP/1.1 101 Switching Protocols\r\nconnection: upgrade\r\nupgrade: websocket\r\n\r\n",
             );
-            // Hold the tunnel until the door closes it.
+            // The echo route proves bytes still cross the admitted tunnel.
             let mut sink = [0; 256];
-            while matches!(stream.read(&mut sink), Ok(count) if count > 0) {}
+            while let Ok(count) = stream.read(&mut sink) {
+                if count == 0 || (echo && stream.write_all(&sink[..count]).is_err()) {
+                    break;
+                }
+            }
         }
         (true, true) => {
             let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\n\r\n");
@@ -494,7 +499,17 @@ fn ending_a_channel_removes_every_origin_and_a_successor_inherits_none() {
     let env = Env::new();
     let (service, origins, live, ext) = world(&env);
     let old = service.activate(live.mounts(), "alpha").unwrap();
-    let (_client, _) = live.upgrade(OWNER, "");
+    let (mut client, head) = live.upgrade_at("echo", OWNER, "");
+    assert!(head.starts_with("HTTP/1.1 101"));
+    // Observe generation shutdown before the fixture's 5 s tunnel idle bound
+    // or 10 s extension read timeout could produce an unrelated EOF.
+    client
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    client.write_all(b"before").unwrap();
+    let mut bytes = [0; 6];
+    client.read_exact(&mut bytes).unwrap();
+    assert_eq!(&bytes, b"before");
     let origin = origin_of(&ext.head(0));
     assert_eq!(ext.notice().phase, OriginPhase::Established);
     let new = service.activate(live.mounts(), "alpha").unwrap();
@@ -503,7 +518,41 @@ fn ending_a_channel_removes_every_origin_and_a_successor_inherits_none() {
     assert_eq!(origins.count(), 0);
     assert!(origins.established(origin, "alpha", old).is_none());
     assert!(origins.established(origin, "alpha", new).is_none());
+    // Generation removal closes the transport itself; no traffic or timer is
+    // needed to observe standing loss. The bounded read fails if it stays open.
+    match client.read(&mut bytes) {
+        Ok(0) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {}
+        other => panic!("old generation tunnel survived: {other:?}"),
+    }
+    let (mut successor, head) = live.upgrade_at("echo", OWNER, "");
+    assert!(head.starts_with("HTTP/1.1 101"));
+    successor
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    let successor_origin = origin_of(&ext.head(1));
+    assert_ne!(successor_origin, origin);
+    let Frame::OriginState(notice) = ext
+        .bus_at(1, |bus| {
+            bus.recv(Some(Instant::now() + Duration::from_secs(10)))
+        })
+        .unwrap()
+    else {
+        panic!("successor origin not established");
+    };
+    assert_eq!(
+        (notice.origin_id, notice.generation, notice.phase),
+        (successor_origin, new, OriginPhase::Established)
+    );
+    successor.write_all(b"after!").unwrap();
+    successor.read_exact(&mut bytes).unwrap();
+    assert_eq!(&bytes, b"after!");
     service.shutdown();
+    match successor.read(&mut bytes) {
+        Ok(0) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {}
+        other => panic!("stopped generation tunnel survived: {other:?}"),
+    }
     assert_eq!(origins.count(), 0);
 }
 
@@ -534,6 +583,11 @@ fn a_close_wins_over_a_later_establish_and_every_phase_change_is_announced_once(
     // Closed while Pending: no notice, and a late establish does nothing.
     let early = ticket(&origins);
     early.close();
+    // If the generation ended before adoption bound the transport, shutdown
+    // still happens synchronously rather than leaving a late splice alive.
+    let (closed, observed) = mpsc::channel();
+    early.bind_transport(Box::new(move || closed.send(()).unwrap()));
+    assert_eq!(observed.try_recv(), Ok(()));
     early.establish();
     assert!(drained(&events).is_empty());
     assert_eq!(origins.count(), 0);
@@ -543,12 +597,19 @@ fn a_close_wins_over_a_later_establish_and_every_phase_change_is_announced_once(
     // Established once, closed twice (and dropped): one of each, in order.
     let live = ticket(&origins);
     let id = Uuid4::parse(&live.id()).unwrap();
+    let (closed, observed) = mpsc::channel();
+    live.bind_transport(Box::new(move || closed.send(()).unwrap()));
     live.establish();
     live.establish();
     assert!(origins.established(id, "alpha", generation).is_some());
     live.close();
+    assert_eq!(observed.try_recv(), Ok(()));
     live.close();
     drop(live);
+    assert!(matches!(
+        observed.try_recv(),
+        Err(mpsc::TryRecvError::Disconnected)
+    ));
     assert_eq!(
         drained(&events),
         vec![(id, OriginPhase::Established), (id, OriginPhase::Closed)]
