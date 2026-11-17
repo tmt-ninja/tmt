@@ -499,6 +499,193 @@ mod board {
     }
 
     #[test]
+    fn clicking_the_terminal_panel_focuses_it_without_changing_the_view() {
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let mut app =
+            super::super::scenes::capture_case("terminals-panel", crate::look::Look::default());
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let (x, y) = (0..buffer.area.height)
+            .find_map(|y| {
+                (0..buffer.area.width)
+                    .find(|x| {
+                        let row: String = (*x..buffer.area.width)
+                            .map(|x| buffer[(x, y)].symbol())
+                            .collect();
+                        row.starts_with("On branch fix/spinner")
+                    })
+                    .map(|x| (x, y))
+            })
+            .expect("terminal output is visible");
+        let selected = app.selected_terminal().unwrap().1.id.clone();
+        let offset = app.scrolls.offset(crate::config::Pane::Replies);
+        assert!(app.terminals.typing().is_none());
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: x,
+                row: y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert_eq!(
+            app.terminals.typing(),
+            Some(selected.as_str()),
+            "click focuses the selected terminal"
+        );
+        assert_eq!(app.scrolls.offset(crate::config::Pane::Replies), offset);
+    }
+
+    #[test]
+    fn dragging_terminal_text_copies_the_visible_selection_on_release() {
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let mut app =
+            super::super::scenes::capture_case("terminals-panel", crate::look::Look::default());
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let (x, y) = (0..buffer.area.height)
+            .find_map(|y| {
+                (0..buffer.area.width)
+                    .find(|x| {
+                        let row: String = (*x..buffer.area.width)
+                            .map(|x| buffer[(x, y)].symbol())
+                            .collect();
+                        row.starts_with("On branch fix/spinner")
+                    })
+                    .map(|x| (x, y))
+            })
+            .expect("terminal output is visible");
+        let mouse = |app: &mut App, kind, column| {
+            app.mouse(
+                MouseEvent {
+                    kind,
+                    column,
+                    row: y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now(),
+            )
+        };
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 9);
+        let result = mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 9);
+        assert!(
+            matches!(result, crate::board::app::Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "On branch")
+        );
+        let now = std::time::Instant::now();
+        let click = |app: &mut App, kind, millis| {
+            app.mouse(
+                MouseEvent {
+                    kind,
+                    column: x + 1,
+                    row: y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                now + std::time::Duration::from_millis(millis),
+            )
+        };
+        click(&mut app, MouseEventKind::Down(MouseButton::Left), 0);
+        click(&mut app, MouseEventKind::Up(MouseButton::Left), 1);
+        click(&mut app, MouseEventKind::Down(MouseButton::Left), 100);
+        let word = click(&mut app, MouseEventKind::Up(MouseButton::Left), 101);
+        assert!(
+            matches!(word, crate::board::app::Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "On")
+        );
+        click(&mut app, MouseEventKind::Down(MouseButton::Left), 200);
+        let line = click(&mut app, MouseEventKind::Up(MouseButton::Left), 201);
+        assert!(
+            matches!(line, crate::board::app::Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "On branch fix/spinner")
+        );
+    }
+
+    #[test]
+    fn focused_terminal_uses_the_pane_rule_and_terminal_footer_in_every_look() {
+        use tmt_cli_style::{Base, Depth, Theme};
+        for (base, depth) in [
+            (Base::Tmt, Depth::TrueColor),
+            (Base::TmtLight, Depth::TrueColor),
+            (Base::Terminal, Depth::Ansi16),
+            (Base::Mono, Depth::None),
+        ] {
+            for scene in [
+                "terminals-panel",
+                "terminals-panel-focused",
+                "terminals-panel-selected",
+            ] {
+                let mut app = super::super::scenes::capture_at(
+                    scene,
+                    crate::look::Look {
+                        theme: Theme::new(base),
+                        depth,
+                    },
+                    100,
+                    36,
+                );
+                let mut terminal =
+                    ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 36)).unwrap();
+                terminal
+                    .draw(|frame| {
+                        crate::board::view::prepare(&mut app, frame.area());
+                        crate::board::view::render(frame, &app);
+                    })
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let rows: Vec<String> = (0..36)
+                    .map(|y| (0..100).map(|x| buffer[(x, y)].symbol()).collect())
+                    .collect();
+                let title = rows
+                    .iter()
+                    .find(|row| row.contains("worker · Terminal 1"))
+                    .expect("panel title");
+                let footer = &rows[35];
+                if scene == "terminals-panel" {
+                    assert!(title.starts_with("── "), "{base:?}: {title}");
+                    assert!(rows.iter().any(|row| row.contains("click to type")));
+                } else {
+                    assert!(
+                        title.starts_with("▸━ ") && title.contains("typing"),
+                        "{base:?}: {title}"
+                    );
+                    assert!(
+                        footer.contains("ctrl-g") && footer.contains("drag to copy"),
+                        "{base:?}: {footer}"
+                    );
+                    assert!(
+                        !footer.contains("q quote") && !footer.contains("y copy"),
+                        "{base:?}: {footer}"
+                    );
+                    assert!(
+                        rows.iter()
+                            .any(|row| row.trim() == "Typing into Terminal 1")
+                    );
+                    assert_eq!(
+                        rows.iter()
+                            .filter(|row| row.contains("ctrl-g back to list"))
+                            .count(),
+                        1
+                    );
+                }
+                assert!(!rows.iter().any(|row| row.contains("┌──")), "no inner box");
+            }
+        }
+    }
+
+    #[test]
     fn ctrl_l_reaches_the_selected_terminal_as_input() {
         use crate::board::terminal_tab::stream::{
             Stream, StreamEvent,
@@ -540,8 +727,33 @@ mod board {
         assert!(app.terminals.typing().is_some());
         app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
         assert_eq!(socket.expect(), ClientMessage::Input(vec![0x0c]));
+        app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(socket.expect(), ClientMessage::Input(vec![0x03]));
         assert!(app.notes_overlay.is_none());
         assert!(app.terminals.typing().is_some());
+        app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL));
+        let mut screen =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        screen
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let area = app.terminal.area().expect("painted terminal");
+        app.mouse(
+            ratatui::crossterm::event::MouseEvent {
+                kind: ratatui::crossterm::event::MouseEventKind::Down(
+                    ratatui::crossterm::event::MouseButton::Left,
+                ),
+                column: area.x,
+                row: area.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        assert_eq!(socket.expect(), ClientMessage::Input(vec![0x0c]));
     }
 
     #[test]

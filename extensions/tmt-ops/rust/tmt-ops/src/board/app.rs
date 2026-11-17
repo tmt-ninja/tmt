@@ -551,6 +551,15 @@ pub enum RowTarget {
     },
 }
 
+impl RowTarget {
+    pub(in crate::board) fn targets_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::Workspace(super::workspace::OpsTarget::Terminal { .. })
+        )
+    }
+}
+
 /// The observed note recipient, including its identity when the source supplies it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct NoteRecipient {
@@ -5049,6 +5058,9 @@ impl App {
             self.last_click = None;
             return Effect::None;
         }
+        if let Some(effect) = self.terminal_panel_focus(event) {
+            return self.conversation_source_mouse(event, now).unwrap_or(effect);
+        }
         if let Some(effect) = self.conversation_menu_mouse(event) {
             return effect;
         }
@@ -5156,7 +5168,7 @@ impl App {
                 self.focus = 0;
             }
         }
-        if let Some(effect) = self.conversation_source_mouse(event) {
+        if let Some(effect) = self.conversation_source_mouse(event, now) {
             return effect;
         }
         if self.input.is_some() {

@@ -10,7 +10,7 @@ use crate::{
         workspace::OpsTarget,
     },
 };
-use ratatui::crossterm::event::KeyEvent;
+use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use tmt_tui::components::terminal::{key_bytes, paste_bytes};
 
 /// Whether a frame or stream key names one of these terminals rather than a member.
@@ -19,6 +19,20 @@ pub(in crate::board) fn is_terminal_key(key: &str) -> bool {
 }
 
 impl App {
+    /// A press on the selected terminal panel focuses it without changing the viewport.
+    pub(in crate::board) fn terminal_panel_focus(&mut self, event: MouseEvent) -> Option<Effect> {
+        if self.framed() || event.kind != MouseEventKind::Down(MouseButton::Left) {
+            return None;
+        }
+        let (_, row) = self.selected_terminal()?;
+        if row.ended {
+            return None;
+        }
+        self.terminals
+            .panel_contains(&row.id, (event.column, event.row).into())
+            .then(|| self.terminal_action(OpsUiAction::TerminalType))
+    }
+
     pub(in crate::board) fn terminal_action(&mut self, action: OpsUiAction) -> Effect {
         match action {
             OpsUiAction::TerminalNew => {
@@ -40,6 +54,7 @@ impl App {
                 }
                 let id = row.id.clone();
                 self.terminals.set_typing(Some(&id));
+                self.focus = 1;
                 Effect::None
             }
             OpsUiAction::TerminalFullScreen => {
@@ -139,6 +154,7 @@ impl App {
         self.typing_terminal()?;
         if self.back_key(key) {
             self.terminals.set_typing(None);
+            self.focus = 0;
             return Some(Effect::None);
         }
         if let Some(bytes) = key_bytes(&key, self.terminal.modes()) {

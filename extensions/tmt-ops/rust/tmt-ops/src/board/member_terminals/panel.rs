@@ -19,6 +19,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if area.height < 4 {
         return;
     }
+    app.terminals.drew_panel(&row.id, area);
     let member = app
         .workspace_snapshot()
         .and_then(|snapshot| snapshot.roster.members.get(identity))
@@ -29,11 +30,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         title.push_str(&directory);
     }
     let typing = app.terminals.typing() == Some(row.id.as_str());
+    let note = if typing {
+        Line::styled("typing", look.role(Role::Text))
+    } else {
+        Line::default()
+    };
     section_rule::paint(
         frame.buffer_mut(),
         Rect { height: 1, ..area },
         &title,
-        Line::default(),
+        note,
         typing,
         look,
     );
@@ -54,6 +60,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         app,
     );
     let view = (!row.ended).then(|| app.terminal.view(&row.id)).flatten();
+    app.terminal.place_caret(None);
     if !row.ended {
         app.terminal.drew(screen_area);
     }
@@ -86,11 +93,22 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             );
         }
     }
-    let back = app.member_back_label();
+    if !row.ended
+        && let Some(target) = app.workspace.selected.clone()
+    {
+        crate::board::conversation::source::publish(
+            app,
+            crate::board::app::RowTarget::Workspace(target),
+            screen_area,
+        );
+    }
     let words = match (row.ended, typing) {
         (true, _) => format!(" {} ended · x removes it", row.title()),
-        (false, true) => format!(" Typing into {} · {back} back to list", row.title()),
-        (false, false) => format!(" {} live · ⏎ type in · z full screen", row.title()),
+        (false, true) => format!(" Typing into {}", row.title()),
+        (false, false) => format!(
+            " {} live · click to type · ⏎ type in · z full screen",
+            row.title()
+        ),
     };
     muted(frame, footer, &words, app);
 }

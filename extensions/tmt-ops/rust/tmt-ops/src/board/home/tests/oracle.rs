@@ -406,7 +406,9 @@ fn member_terminals_frames(styles: &mut Styles) -> Vec<Value> {
         styles,
         crate::board::member_terminals::scenes::SCENES,
         |_| grid(&[160, 100], &[36]),
-        |scene, look, _, _| crate::board::member_terminals::scenes::capture_case(scene, look),
+        |scene, look, width, height| {
+            crate::board::member_terminals::scenes::capture_at(scene, look, width, height)
+        },
         |_, _| {},
     )
 }
@@ -1587,7 +1589,7 @@ macro_rules! oracle_groups {
         $group!(8, 128, timeline_frames($styles));
         $group!(7, 32, snapshot_frames($styles));
         $group!(7, 80, terminal_tab_frames($styles));
-        $group!(7, 16, member_terminals_frames($styles));
+        $group!(7, 32, member_terminals_frames($styles));
         $group!(8, 36, offline_resume_frames($styles));
         $group!(8, 16, settings_keys_frames($styles));
         $group!(7, 52, label_frames($styles));

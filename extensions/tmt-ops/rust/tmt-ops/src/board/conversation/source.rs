@@ -26,6 +26,54 @@ pub(super) struct Surface {
     text: Editor,
 }
 
+pub(super) struct Click {
+    target: RowTarget,
+    area: Rect,
+    point: (u16, u16),
+    at: std::time::Instant,
+    count: u8,
+}
+
+/// Cell columns of the clicked word or painted line, shared by transcript and frozen cells.
+fn click_range(surface: &Surface, row: usize, column: usize, count: u8) -> Option<(usize, usize)> {
+    let layout = surface.text.layout(surface.area.width);
+    let cells = &layout.lines.get(row)?.cells;
+    let index = cells
+        .iter()
+        .position(|cell| column >= cell.column && column < cell.column + cell.width)?;
+    if count == 3 {
+        return Some((
+            cells.first()?.column,
+            cells.last()?.column + cells.last()?.width,
+        ));
+    }
+    let word = |cell: &tmt_tui::components::EditorCell| {
+        cell.text
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
+    };
+    let kind = word(&cells[index]);
+    if cells[index].text.chars().all(char::is_whitespace) {
+        return None;
+    }
+    let mut first = index;
+    let mut last = index;
+    while first > 0
+        && word(&cells[first - 1]) == kind
+        && !cells[first - 1].text.chars().all(char::is_whitespace)
+    {
+        first -= 1;
+    }
+    while last + 1 < cells.len()
+        && word(&cells[last + 1]) == kind
+        && !cells[last + 1].text.chars().all(char::is_whitespace)
+    {
+        last += 1;
+    }
+    Some((cells[first].column, cells[last].column + cells[last].width))
+}
+
 impl Surface {
     #[cfg(test)]
     pub(super) fn text(&self) -> &str {
@@ -293,7 +341,9 @@ fn paint_cells(frame: &mut Frame, app: &App, source: &mut Source, surfaces: &[Su
                 frame.buffer_mut()[(column, y)].set_style(style);
             }
         }
-        source.control = menu::paint(frame, app, source.surface.area, end, first);
+        if !source.surface.target.targets_terminal() {
+            source.control = menu::paint(frame, app, source.surface.area, end, first);
+        }
     }
 }
 
@@ -813,11 +863,13 @@ impl App {
     pub(in crate::board) fn conversation_source_mouse(
         &mut self,
         event: MouseEvent,
+        now: std::time::Instant,
     ) -> Option<Effect> {
         if self.searching {
             return None;
         }
         let point = (event.column, event.row).into();
+        let selected_workspace = self.workspace.selected.clone();
         let mut state = self.conversation.borrow_mut();
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
@@ -826,6 +878,32 @@ impl App {
                     .iter()
                     .find(|surface| surface.area.contains(point))?
                     .clone();
+                let count = state
+                    .selection_click
+                    .as_ref()
+                    .filter(|last| {
+                        last.target == surface.target
+                            && last.area == surface.area
+                            && last.point == (event.column, event.row)
+                            && now.checked_duration_since(last.at).is_some_and(|elapsed| {
+                                elapsed <= std::time::Duration::from_millis(500)
+                            })
+                            && last.count < 3
+                    })
+                    .map_or(1, |last| last.count + 1);
+                state.selection_click = Some(Click {
+                    target: surface.target.clone(),
+                    area: surface.area,
+                    point: (event.column, event.row),
+                    at: now,
+                    count,
+                });
+                let row = usize::from(event.row - surface.area.y);
+                let column = usize::from(event.column - surface.area.x);
+                let range = (count > 1)
+                    .then(|| click_range(&surface, row, column, count))
+                    .flatten();
+                let terminal_surface = surface.target.targets_terminal();
                 let selection = if Some(surface.area) == state.response_area {
                     let key = state.active.clone()?;
                     let rendered = state.sessions.get(&key)?.rendered.as_ref()?;
@@ -834,23 +912,30 @@ impl App {
                     let offset = self.scrolls.offset(Pane::Replies);
                     let line = offset + row;
                     let text = displayed(&surface, rendered.mapped.lines.len(), offset).nth(row)?;
-                    Selection::Text(Anchored::start(
+                    let mut anchored = Anchored::start(
                         surface.target.clone(),
                         key,
                         area.width,
                         rendered,
-                        (line, usize::from(event.column - area.x)),
+                        (line, range.map_or(column, |(start, _)| start)),
                         text,
                         true,
-                    ))
+                    );
+                    if let Some((_, end)) = range {
+                        anchored.extend(rendered, line, end);
+                    }
+                    Selection::Text(anchored)
                 } else {
                     let mut text = surface.text.clone();
                     text.place(
                         surface.area.width,
-                        usize::from(event.row - surface.area.y),
-                        usize::from(event.column - surface.area.x),
+                        row,
+                        range.map_or(column, |(start, _)| start),
                         false,
                     );
+                    if let Some((_, end)) = range {
+                        text.place(surface.area.width, row, end, true);
+                    }
                     Selection::Cells(Source {
                         surface,
                         text,
@@ -859,7 +944,8 @@ impl App {
                     })
                 };
                 state.selection = Some(selection);
-                if let Some(active) = state.active.clone()
+                if !terminal_surface
+                    && let Some(active) = state.active.clone()
                     && let Some(session) = state.sessions.get_mut(&active)
                 {
                     session.set_follow(false);
@@ -869,6 +955,7 @@ impl App {
                 Some(Effect::None)
             }
             MouseEventKind::Drag(MouseButton::Left) => {
+                state.selection_click = None;
                 if matches!(&state.selection, Some(Selection::Text(_))) {
                     drop(state);
                     return self.extend_text_selection(event);
@@ -878,7 +965,8 @@ impl App {
                     surface.area == source.surface.area
                         && surface.target == source.surface.target
                         && surface.text.as_str() == source.surface.text.as_str()
-                }));
+                }) && (!source.surface.target.targets_terminal()
+                    || matches!(&source.surface.target, RowTarget::Workspace(target) if Some(target) == selected_workspace.as_ref())));
                 if !fresh {
                     if let Some(selection) = &mut state.selection {
                         selection.stop_drag();
@@ -904,6 +992,17 @@ impl App {
                 Some(Effect::None)
             }
             MouseEventKind::Up(MouseButton::Left) => {
+                if let Some(Selection::Cells(source)) = &state.selection
+                    && (!state.source_surfaces.iter().any(|surface| {
+                        surface.area == source.surface.area
+                            && surface.target == source.surface.target
+                            && surface.text.as_str() == source.surface.text.as_str()
+                    }) || (source.surface.target.targets_terminal()
+                        && !matches!(&source.surface.target, RowTarget::Workspace(target) if Some(target) == selected_workspace.as_ref())))
+                {
+                    state.selection = None;
+                    return Some(Effect::None);
+                }
                 state
                     .selection
                     .as_mut()

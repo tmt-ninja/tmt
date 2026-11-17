@@ -136,6 +136,7 @@ pub(in crate::board) fn render_frame(
     let look = app.look();
     app.input_band.set(None);
     app.input_viewport.set(None);
+    app.terminals.clear_panel();
     app.conversation.borrow_mut().pane = None;
     super::conversation::source::begin_frame(app);
     app.pane_resize.begin_frame();
