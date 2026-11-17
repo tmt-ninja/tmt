@@ -20,6 +20,86 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CLEANUP_WAIT: Duration = Duration::from_secs(2);
 
 #[test]
+fn shell_run_uses_the_supplied_verified_directory() {
+    let root = TestDirectory::new();
+    let result = UnixCommandRunner
+        .run_shell_in("pwd", &root.path, Duration::from_secs(3), 65_536)
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&result.stdout).trim(),
+        root.path.canonicalize().unwrap().to_str().unwrap()
+    );
+    assert_eq!(result.exit_code, Some(0));
+    assert!(!result.timed_out && !result.truncated);
+}
+
+#[test]
+fn shell_run_preserves_nonzero_exit_and_stderr() {
+    let root = TestDirectory::new();
+    let result = UnixCommandRunner
+        .run_shell_in(
+            "printf failure >&2; exit 7",
+            &root.path,
+            Duration::from_secs(3),
+            65_536,
+        )
+        .unwrap();
+    assert_eq!(result.exit_code, Some(7));
+    assert_eq!(result.stderr, b"failure");
+}
+
+#[test]
+fn shell_run_reports_bounded_output() {
+    let root = TestDirectory::new();
+    let result = UnixCommandRunner
+        .run_shell_in("printf 1234567890", &root.path, Duration::from_secs(3), 5)
+        .unwrap();
+    assert_eq!(result.stdout, b"12345");
+    assert!(result.truncated);
+}
+
+#[test]
+fn shell_run_shares_one_output_budget_and_removes_tmux_context() {
+    let root = TestDirectory::new();
+    let result = UnixCommandRunner
+        .run_shell_in(
+            "printf 1234; printf 5678 >&2; test -z \"$TMUX$TMUX_PANE\"",
+            &root.path,
+            Duration::from_secs(3),
+            6,
+        )
+        .unwrap();
+    assert_eq!(result.stdout.len() + result.stderr.len(), 6);
+    assert!(result.truncated);
+    let environment = UnixCommandRunner
+        .run_shell_in(
+            "test -z \"$TMUX$TMUX_PANE\"",
+            &root.path,
+            Duration::from_secs(3),
+            65_536,
+        )
+        .unwrap();
+    assert_eq!(environment.exit_code, Some(0));
+}
+
+#[test]
+fn shell_run_kills_and_reaps_its_timed_out_group() {
+    let root = TestDirectory::new();
+    let pidfile = root.path.join("child");
+    let command = format!("echo $$ > '{}'; exec sleep 30", pidfile.display());
+    let result = UnixCommandRunner
+        .run_shell_in(&command, &root.path, Duration::from_millis(500), 65_536)
+        .unwrap();
+    assert!(result.timed_out);
+    let pid = fs::read_to_string(pidfile)
+        .unwrap()
+        .trim()
+        .parse::<i32>()
+        .unwrap();
+    assert_eq!(kill(Pid::from_raw(pid), None), Err(Errno::ESRCH));
+}
+
+#[test]
 fn stderr_observation_arrives_before_child_exit_and_keeps_stdout_separate() {
     use nix::{sys::stat::Mode, unistd::mkfifo};
     use std::io::Write;

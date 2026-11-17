@@ -43,6 +43,17 @@ pub struct CommandOutput {
     pub stderr: Vec<u8>,
 }
 
+/// A shell command's bounded observation, including a terminated partial result.
+#[derive(Debug)]
+pub(crate) struct ShellOutput {
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub exit_code: Option<i32>,
+    pub signal: Option<i32>,
+    pub timed_out: bool,
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandFailure {
     Spawn,
@@ -363,6 +374,99 @@ impl CommandRunner for UnixCommandRunner {
 }
 
 impl UnixCommandRunner {
+    /// Run a command in an already-verified directory, owning its process group.
+    pub(crate) fn run_shell_in(
+        &self,
+        command: &str,
+        directory: &std::path::Path,
+        timeout: Duration,
+        limit: usize,
+    ) -> Result<ShellOutput, CommandError> {
+        let shell = std::env::var_os("SHELL")
+            .filter(|value| std::path::Path::new(value).is_absolute())
+            .unwrap_or_else(|| "/bin/sh".into());
+        let deadline = Instant::now() + timeout;
+        let job = Exec::cmd(shell)
+            .arg("-c")
+            .arg(command)
+            .cwd(directory)
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .stdin(Redirection::Null)
+            .stdout(Redirection::Pipe)
+            .stderr(Redirection::Pipe)
+            .setpgid()
+            .start()
+            .map_err(|cause| CommandError::io(CommandFailure::Spawn, cause))?;
+        let mut child = RunningCommand {
+            job,
+            finished: false,
+            deadline,
+            max_output_bytes: limit,
+            owns_group: true,
+        };
+        let remaining_bytes = std::cell::Cell::new(limit);
+        let truncated = std::cell::Cell::new(false);
+        let mut stdout = ShellCapture {
+            bytes: Vec::new(),
+            remaining: &remaining_bytes,
+            truncated: &truncated,
+        };
+        let mut stderr = ShellCapture {
+            bytes: Vec::new(),
+            remaining: &remaining_bytes,
+            truncated: &truncated,
+        };
+        let read = {
+            let communication = child
+                .job
+                .communicate()
+                .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+            communication
+                .limit_time(deadline.saturating_duration_since(Instant::now()))
+                .read_to(&mut stdout, &mut stderr)
+        };
+        let mut timed_out = false;
+        if let Err(error) = read {
+            if !truncated.get() && error.kind() != io::ErrorKind::TimedOut {
+                let mut failure = CommandError::io(CommandFailure::Io, error);
+                failure.cleanup_error = child.cleanup().err();
+                return Err(failure);
+            }
+            timed_out = !truncated.get();
+        }
+        let status = if timed_out || truncated.get() {
+            None
+        } else {
+            match remaining(deadline) {
+                Ok(left) => child
+                    .job
+                    .wait_timeout(left)
+                    .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?,
+                Err(_) => None,
+            }
+        };
+        if status.is_none() && !truncated.get() {
+            timed_out = true;
+        }
+        if status.is_some() {
+            child.finished = true;
+        } else {
+            child
+                .cleanup()
+                .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+        }
+        Ok(ShellOutput {
+            stdout: stdout.bytes,
+            stderr: stderr.bytes,
+            exit_code: status
+                .and_then(|value| value.code())
+                .and_then(|value| i32::try_from(value).ok()),
+            signal: status.and_then(|value| value.signal()),
+            timed_out,
+            truncated: truncated.get(),
+        })
+    }
     /// Spawn under a caller's short-lived ownership guard, then wait outside it.
     pub fn start(&self, request: CommandRequest<'_>) -> Result<RunningCommand, CommandError> {
         start_command(request, true)
@@ -376,6 +480,28 @@ impl UnixCommandRunner {
         environment: &[(OsString, OsString)],
     ) -> Result<CommandOutput, CommandError> {
         start_command_in(request, true, environment, Some(directory))?.wait()
+    }
+}
+
+struct ShellCapture<'a> {
+    bytes: Vec<u8>,
+    remaining: &'a std::cell::Cell<usize>,
+    truncated: &'a std::cell::Cell<bool>,
+}
+
+impl Write for ShellCapture<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let allowed = bytes.len().min(self.remaining.get());
+        self.bytes.extend_from_slice(&bytes[..allowed]);
+        self.remaining.set(self.remaining.get() - allowed);
+        if allowed < bytes.len() {
+            self.truncated.set(true);
+            return Err(io::Error::other("Shell output limit exceeded"));
+        }
+        Ok(allowed)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
