@@ -40,7 +40,7 @@ impl App {
             Some("Finish the status draft before closing this board.")
         } else if self.cron_draft.is_some() {
             Some("Finish the timer draft before closing this board.")
-        } else if self.in_flight > 0 || self.shell_running() {
+        } else if self.in_flight > 0 {
             Some("Wait for the pending action before closing this board.")
         } else if self.loading_since.is_some() || self.pending_resume.is_some() {
             Some("Wait for the pending board refresh before closing this board.")
@@ -58,7 +58,6 @@ impl App {
             || self.loading_since.is_some()
             || self.pending_resume.is_some()
             || self.in_flight > 0
-            || self.shell_running()
             || self.input.is_some()
             || self.workspace_form.is_some()
             || self.composer.has_drafts()
@@ -228,6 +227,15 @@ mod tests {
         let taken = Resume::take(&directory, 7, 1_000).unwrap();
         let _ = std::fs::remove_dir_all(directory);
         taken
+    }
+
+    #[test]
+    fn running_shell_does_not_hold_reload_or_member_handoff() {
+        let mut app = crate::board::app::workspace::tests::board();
+        let key = ("sender".to_owned(), "member".to_owned());
+        assert!(app.shell_start(&key, "sleep 30", true));
+        assert!(!app.reload_blocked());
+        assert!(app.member_session_blocker().is_none());
     }
 
     #[test]

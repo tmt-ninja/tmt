@@ -151,6 +151,10 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// terminal hangs up, so the board never waits on it directly; the thread ends
 /// with the process, and a read error disconnects the channel.
 pub(in crate::board) enum BoardEvent {
+    ShellCancelled {
+        key: (String, String),
+        confirmed: bool,
+    },
     ShellDone {
         key: (String, String),
         result: Result<serde_json::Value, String>,
@@ -317,6 +321,7 @@ pub(in crate::board) enum BoardEvent {
 impl BoardEvent {
     fn trace_cause(&self) -> &'static str {
         match self {
+            Self::ShellCancelled { .. } => "ShellCancelled",
             Self::ShellDone { .. } => "ShellDone",
             Self::Migration(_) => "Migration",
             Self::CronMigration(_) => "CronMigration",
@@ -1075,6 +1080,15 @@ fn session(
                     }
                     Ok(BoardEvent::CallerFailed(why)) => {
                         app.caller_failure = Some(why);
+                        Effect::None
+                    }
+                    Ok(BoardEvent::ShellCancelled { key, confirmed }) => {
+                        if confirmed {
+                            app.shell_cancelled(&key);
+                        } else {
+                            app.shell_cancel_unconfirmed(&key);
+                        }
+                        dirty = true;
                         Effect::None
                     }
                     Ok(BoardEvent::ShellDone { key, result }) => {
@@ -2174,6 +2188,8 @@ pub fn run(
         if let Some(signal) = terminal::stop_signal(&stop) {
             return Ok(Some(signal));
         }
+        let spawns = crate::core::shell_spawn_guard();
+        crate::core::signal_shell_apis(&spawns);
         return Err(failed(command.exec()));
     }
     Ok(signal)

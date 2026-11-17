@@ -541,11 +541,16 @@ kills the group and reaps it. Output is decoded as lossy UTF-8 and returned as
 code and signal are null when unavailable. A timeout or overflow is explicitly
 marked and captured output is partial. A refusal before spawn is distinct from
 `SHELL_RUN_UNCONFIRMED`, which means execution started but its result or cleanup
-could not be confirmed. `SIGTERM` asks the owner to cancel: it kills and reaps the
+could not be confirmed. For a framed `tmt api --session` request, the caller keeps
+the request pipe open for the duration of `shell.run`; hangup or EOF cancels it,
+including when the caller exits, execs, or crashes. `SIGTERM` also asks the owner
+to cancel: it kills and reaps the
 shell group and returns `SHELL_RUN_CANCELLED`, with no output promise. An Ops caller
 allows up to two seconds for clean cancellation before forcibly terminating the API
 process; forced termination is unconfirmed because the shell is in a separate group
-and may remain outside Core's reach. An uncertain call is never retried automatically.
+and may remain outside Core's reach. If a reload inherits the request pipe despite
+these guards, Core still enforces its 120-second deadline and reaps the group.
+An uncertain call is never retried automatically.
 This is a local API operation; it grants no Remote scope or operation.
 
 ### Terminals under a member

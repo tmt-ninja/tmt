@@ -28,6 +28,7 @@ pub(super) struct Run {
 }
 
 impl App {
+    #[cfg(test)]
     pub(in crate::board) fn shell_running(&self) -> bool {
         self.conversation
             .borrow()
@@ -90,6 +91,48 @@ impl App {
             run.result = Some(result);
             session.stale = true;
             session.set_follow(true);
+        }
+    }
+
+    /// A cancelled private run leaves no command or output in the conversation.
+    pub(in crate::board) fn shell_cancelled(&mut self, key: &(String, String)) {
+        let mut state = self.conversation.borrow_mut();
+        if let Some(session) = state
+            .sessions
+            .get_mut(&(Some(key.0.clone()), key.1.clone()))
+            && let Some(index) = session
+                .shell_runs
+                .iter()
+                .position(|run| run.result.is_none())
+        {
+            if session.shell_runs[index].private {
+                session.shell_runs.remove(index);
+            } else {
+                session.shell_runs[index].result =
+                    Some(Err("Shell cancelled; nothing was attached.".into()));
+            }
+            session.stale = true;
+        }
+    }
+
+    /// Keep only the uncertainty notice for a private run, never its content.
+    pub(in crate::board) fn shell_cancel_unconfirmed(&mut self, key: &(String, String)) {
+        let mut state = self.conversation.borrow_mut();
+        if let Some(session) = state
+            .sessions
+            .get_mut(&(Some(key.0.clone()), key.1.clone()))
+            && let Some(run) = session
+                .shell_runs
+                .iter_mut()
+                .find(|run| run.result.is_none())
+        {
+            if run.private {
+                run.command.clear();
+            }
+            run.result = Some(Err(
+                "Cancel unconfirmed: the command may still be running.".into()
+            ));
+            session.stale = true;
         }
     }
 
@@ -172,5 +215,41 @@ mod tests {
         let mut oversized = value;
         oversized["stdout"] = json!("x".repeat(3 * 65_536 + 1));
         assert!(!valid_result("member", &oversized));
+    }
+
+    #[test]
+    fn cancelled_runs_never_attach_and_private_runs_are_discarded() {
+        let mut app = crate::board::app::workspace::tests::board();
+        let key = ("person".to_owned(), "member".to_owned());
+        assert!(app.shell_start(&key, "private command", true));
+        app.shell_cancelled(&key);
+        assert!(!app.shell_running());
+        assert!(
+            app.conversation.borrow().sessions[&(Some(key.0.clone()), key.1.clone())]
+                .shell_runs
+                .is_empty()
+        );
+        assert!(app.shell_start(&key, "public command", false));
+        app.shell_cancelled(&key);
+        assert!(!app.shell_running());
+        assert_eq!(app.shell_attachment(&key, false), None);
+        let state = app.conversation.borrow();
+        let run = &state.sessions[&(Some(key.0.clone()), key.1.clone())].shell_runs[0];
+        assert!(matches!(&run.result, Some(Err(message)) if message.contains("cancelled")));
+    }
+
+    #[test]
+    fn unconfirmed_private_cancellation_keeps_only_a_warning() {
+        let mut app = crate::board::app::workspace::tests::board();
+        let key = ("person".to_owned(), "member".to_owned());
+        assert!(app.shell_start(&key, "private command", true));
+        app.shell_cancel_unconfirmed(&key);
+        assert_eq!(app.shell_attachment(&key, false), None);
+        let state = app.conversation.borrow();
+        let run = &state.sessions[&(Some(key.0.clone()), key.1.clone())].shell_runs[0];
+        assert!(run.command.is_empty());
+        assert!(
+            matches!(&run.result, Some(Err(message)) if message.contains("may still be running"))
+        );
     }
 }

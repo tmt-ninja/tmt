@@ -38,7 +38,11 @@ impl Response {
         }
     }
 }
-fn call(body: &[u8], session: &mut Option<api::Session>) -> Response {
+fn call(
+    body: &[u8],
+    session: &mut Option<api::Session>,
+    lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+) -> Response {
     let decoded = std::str::from_utf8(body)
         .map_err(|_| api::Fault::new("API_INPUT_INVALID", "Expected a UTF-8 JSON request."))
         .and_then(api::decode);
@@ -69,7 +73,7 @@ fn call(body: &[u8], session: &mut Option<api::Session>) -> Response {
         }
     }
     let session = session.as_mut().expect("selected paths");
-    match session.execute(request) {
+    match session.execute_with_lifeline(request, lifeline) {
         Ok(body) => Response {
             status: 0,
             body,
@@ -87,7 +91,7 @@ pub fn execute() -> io::Result<u8> {
         Duration::from_secs(5),
         api::INPUT_LIMIT,
     ) {
-        Ok(body) => call(body.as_bytes(), &mut session),
+        Ok(body) => call(body.as_bytes(), &mut session, None),
         Err(error) => Response::fault(
             api::Fault::new(
                 if error.kind == response_input::ResponseInputFailure::Timeout {
@@ -136,7 +140,10 @@ fn serve_session(
 pub fn execute_session() -> io::Result<u8> {
     let mut session = None;
     let stdout = tmt_cli_style::stream::stdout(true).into_inner();
-    let pending = serve_session(&io::stdin(), &stdout, |body| call(body, &mut session));
+    let stdin = io::stdin();
+    let pending = serve_session(&stdin, &stdout, |body| {
+        call(body, &mut session, Some(stdin.as_fd()))
+    });
     let closed = close(session);
     let status = pending?;
     if status == 0 {

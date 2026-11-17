@@ -214,6 +214,7 @@ pub(super) struct Lane {
     shell_core: Core,
     shell_events: Sender<BoardEvent>,
     shell_threads: std::cell::RefCell<Vec<JoinHandle<()>>>,
+    shell_stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Lane {
@@ -235,6 +236,7 @@ impl Lane {
             shell_core,
             shell_events,
             shell_threads: Default::default(),
+            shell_stop: Default::default(),
         }
     }
 
@@ -242,6 +244,7 @@ impl Lane {
         if let Job::Shell { key, command } = job {
             let core = self.shell_core.clone();
             let events = self.shell_events.clone();
+            let stopped = self.shell_stop.clone();
             let mut threads = self.shell_threads.borrow_mut();
             let mut index = 0;
             while index < threads.len() {
@@ -255,27 +258,44 @@ impl Lane {
             let worker = std::thread::Builder::new()
                 .name("ops-shell".into())
                 .spawn(move || {
-                    let result = core
-                        .api_within(
-                            "shell.run",
-                            serde_json::json!({"identityId":key.1,"command":command}),
-                            std::time::Duration::from_secs(130),
-                        )
-                        .map_err(|error| match error.code.as_str() {
-                            "SHELL_RUN_UNAVAILABLE" | "SHELL_RUN_FAILED" | "API_INPUT_INVALID" => {
-                                error.message
+                    let result = core.shell_run(
+                        serde_json::json!({"identityId":key.1,"command":command}),
+                        &stopped,
+                    );
+                    let event = match result {
+                        Err(error) if error.code == "SHELL_RUN_CANCELLED" => {
+                            BoardEvent::ShellCancelled {
+                                key,
+                                confirmed: true,
                             }
-                            _ => "Shell result unconfirmed; do not retry automatically.".to_owned(),
-                        })
-                        .and_then(|value| {
-                            if super::conversation::shell::valid_result(&key.1, &value) {
-                                Ok(value)
-                            } else {
-                                Err("Shell result unconfirmed; do not retry automatically."
-                                    .to_owned())
+                        }
+                        Err(error)
+                            if !matches!(
+                                error.code.as_str(),
+                                "SHELL_RUN_UNAVAILABLE" | "SHELL_RUN_FAILED" | "API_INPUT_INVALID"
+                            ) =>
+                        {
+                            BoardEvent::ShellCancelled {
+                                key,
+                                confirmed: false,
                             }
-                        });
-                    let _ = events.send(BoardEvent::ShellDone { key, result });
+                        }
+                        Err(error) => BoardEvent::ShellDone {
+                            key,
+                            result: Err(error.message),
+                        },
+                        Ok(value) if super::conversation::shell::valid_result(&key.1, &value) => {
+                            BoardEvent::ShellDone {
+                                key,
+                                result: Ok(value),
+                            }
+                        }
+                        Ok(_) => BoardEvent::ShellCancelled {
+                            key,
+                            confirmed: false,
+                        },
+                    };
+                    let _ = events.send(event);
                 });
             match worker {
                 Ok(thread) => threads.push(thread),
@@ -295,13 +315,14 @@ impl Lane {
 
     /// Ends the lane once its queued jobs finish; each command has its own deadline.
     pub fn finish(mut self) {
+        self.shell_stop
+            .store(true, std::sync::atomic::Ordering::Release);
         self.jobs = None;
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
-        for thread in self.shell_threads.into_inner() {
-            let _ = thread.join();
-        }
+        // The CLOEXEC request pipe closes on board exit or reload; Core reaps.
+        drop(self.shell_threads.into_inner());
     }
 }
 

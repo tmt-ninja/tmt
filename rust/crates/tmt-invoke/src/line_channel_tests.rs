@@ -31,6 +31,20 @@ fn exchange(channel: &mut LineChannel, payload: &[u8]) -> Result<Vec<u8>, Invoke
 }
 
 #[test]
+fn request_pipe_is_close_on_exec() {
+    let (_fixture, channel) = open("cat", 64);
+    let flags = fcntl(channel.stdin.as_ref().unwrap(), FcntlArg::F_GETFD).unwrap();
+    assert!(FdFlag::from_bits_truncate(flags).contains(FdFlag::FD_CLOEXEC));
+    assert!(
+        channel
+            .close(Instant::now() + START_BUDGET, || false)
+            .unwrap()
+            .status
+            .success()
+    );
+}
+
+#[test]
 fn several_byte_frames_use_one_child_and_clean_eof_reaps_it() {
     let (fixture, mut channel) = open("printf diagnostic >&2; cat; printf done > eof", 64);
     assert_eq!(exchange(&mut channel, b"first").unwrap(), b"first");
@@ -141,6 +155,33 @@ fn cancellation_after_request_admission_ends_the_channel() {
         assert!(matches!(error.cleanup, Cleanup::Confirmed));
     });
     assert_eq!(fs::read(fixture.0.join("seen")).unwrap(), b"effect");
+    gone(&fixture.0.join("pid"));
+}
+
+#[test]
+fn lifeline_cancellation_gives_child_a_graceful_cleanup() {
+    let (fixture, mut channel) = open(
+        "trap 'printf stopped > stopped; exit 0' TERM\nIFS= read -r line; echo ready > ready; while IFS= read -r line; do :; done; printf eof > eof",
+        64,
+    );
+    let stop = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            ready(&fixture.0.join("ready"));
+            stop.store(true, Ordering::Release);
+        });
+        let error = channel
+            .exchange_lifeline(
+                b"effect",
+                Instant::now() + START_BUDGET,
+                || stop.load(Ordering::Acquire),
+                || {},
+            )
+            .unwrap_err();
+        assert_eq!(error.kind, FailureKind::Interrupted);
+        assert!(matches!(error.cleanup, Cleanup::Confirmed));
+    });
+    assert!(fixture.0.join("stopped").exists() || fixture.0.join("eof").exists());
     gone(&fixture.0.join("pid"));
 }
 

@@ -104,6 +104,8 @@ impl Launcher {
 
     /// Replaces this process; returns only the reason it could not.
     fn exec(&self) -> io::Error {
+        let spawns = crate::core::shell_spawn_guard();
+        crate::core::signal_shell_apis(&spawns);
         Command::new(&self.program).args(&self.args).exec()
     }
 }

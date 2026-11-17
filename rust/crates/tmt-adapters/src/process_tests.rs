@@ -32,6 +32,7 @@ fn shell_signal_fixture() {
         root.display(),
         root.display()
     );
+    let stdin = std::io::stdin();
     let result = UnixCommandRunner
         .run_shell_in_interrupt(
             &command,
@@ -39,6 +40,12 @@ fn shell_signal_fixture() {
             Duration::from_secs(30),
             65_536,
             Some(&interrupt),
+            if std::env::var_os("TMT_TEST_SHELL_HANGUP").is_some() {
+                use std::os::fd::AsFd;
+                Some(stdin.as_fd())
+            } else {
+                None
+            },
         )
         .unwrap();
     assert!(result.cancelled);
@@ -74,6 +81,38 @@ fn sigterm_cancels_and_reaps_the_shell_process_group() {
         nix::sys::signal::Signal::SIGTERM,
     )
     .unwrap();
+    assert!(fixture.wait_for_exit(Duration::from_secs(3)).success());
+    assert_eq!(kill(Pid::from_raw(shell_pid), None), Err(Errno::ESRCH));
+}
+
+#[test]
+fn hangup_cancels_and_reaps_the_shell_process_group() {
+    use crate::test_support::TestChild;
+    use std::process::{Command, Stdio};
+    let root = TestDirectory::new();
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "process_tests::shell_signal_fixture",
+            "--nocapture",
+        ])
+        .env("TMT_TEST_SHELL_SIGNAL_ROOT", &root.path)
+        .env("TMT_TEST_SHELL_HANGUP", "1")
+        .env_remove("TMUX")
+        .env_remove("TMUX_PANE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut fixture = TestChild::new(child);
+    fixture.wait_for_content(&root.path.join("ready"), "ready\n", Duration::from_secs(5));
+    let shell_pid = fs::read_to_string(root.path.join("shell-pid"))
+        .unwrap()
+        .trim()
+        .parse::<i32>()
+        .unwrap();
+    drop(fixture.child.stdin.take());
     assert!(fixture.wait_for_exit(Duration::from_secs(3)).success());
     assert_eq!(kill(Pid::from_raw(shell_pid), None), Err(Errno::ESRCH));
 }

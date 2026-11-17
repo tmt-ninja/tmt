@@ -20,6 +20,7 @@ root=${0%/*}
 printf '%s\n' "$*" >> "$root/calls"
 case "$1:$2" in
   config:show) printf '{"paths":{"global":"%s/config.json"},"resolved":{}}\n' "$root" ;;
+  api:--session) IFS= read -r request; printf '%s\n' "$request" > "$root/api-input"; printf '%s\n' '{"identityId":"member","cwd":"/work","stdout":"","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false}'; cat >/dev/null ;;
   api:*) cat > "$root/api-input"; if grep -q '"operation":"shell.run"' "$root/api-input"; then printf '%s\n' '{"identityId":"member","cwd":"/work","stdout":"","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false}'; else printf '{"dataRoot":"%s/data"}\n' "$root"; fi ;;
   whoami:*) cat "$root/caller" ;;
   *) printf '%s\n' '{"error":{"code":"UNEXPECTED","message":"Unexpected fake-Core call."}}'; exit 1 ;;
@@ -74,7 +75,10 @@ fn shell_uses_one_dedicated_api_invocation_without_replay() {
     lane.finish();
     let calls = std::fs::read_to_string(fixture.root.join("calls")).unwrap();
     assert_eq!(
-        calls.lines().filter(|line| *line == "api").count(),
+        calls
+            .lines()
+            .filter(|line| *line == "api --session")
+            .count(),
         1,
         "{calls}"
     );

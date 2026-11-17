@@ -56,6 +56,7 @@ pub(super) fn run(
     storage: &mut Storage,
     identity_id: &str,
     command: &str,
+    lifeline: Option<std::os::fd::BorrowedFd<'_>>,
 ) -> Result<Vec<u8>, Fault> {
     let entry = delivery::current(storage, identity_id)
         .map_err(|_| no_directory())?
@@ -81,7 +82,7 @@ pub(super) fn run(
         )
     })?;
     interrupt.defer_emergency_exit();
-    let result = UnixCommandRunner.run_shell_in_interrupt(command, Path::new(&cwd), Duration::from_secs(120), 65_536, Some(&interrupt)).map_err(|error| {
+    let result = UnixCommandRunner.run_shell_in_interrupt(command, Path::new(&cwd), Duration::from_secs(120), 65_536, Some(&interrupt), lifeline).map_err(|error| {
         if matches!(error.kind, CommandFailure::Spawn) && !error.cleanup_failed() {
             Fault::new("SHELL_RUN_FAILED", "The shell could not be started. Nothing was run.")
         } else {
@@ -198,6 +199,7 @@ mod tests {
             &mut storage,
             "11111111-1111-4111-8111-111111111111",
             &command,
+            None,
         )
         .unwrap_err();
         assert_eq!(error.code(), "SHELL_RUN_UNAVAILABLE");

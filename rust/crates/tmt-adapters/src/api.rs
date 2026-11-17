@@ -621,8 +621,15 @@ impl Session {
         Ok(())
     }
     pub fn execute(&mut self, request: Request) -> Result<Vec<u8>, Fault> {
+        self.execute_with_lifeline(request, None)
+    }
+    pub fn execute_with_lifeline(
+        &mut self,
+        request: Request,
+        lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+    ) -> Result<Vec<u8>, Fault> {
         self.validate_schema()?;
-        let pending = self.run(request);
+        let pending = self.run(request, lifeline);
         if let Some(storage) = &self.storage {
             storage.flush_observations();
         }
@@ -641,7 +648,11 @@ impl Session {
         }
         Ok(())
     }
-    fn run(&mut self, request: Request) -> Result<Vec<u8>, Fault> {
+    fn run(
+        &mut self,
+        request: Request,
+        lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+    ) -> Result<Vec<u8>, Fault> {
         let paths = &self.paths;
         if matches!(request, Request::Capabilities) {
             return Ok(capabilities());
@@ -766,7 +777,7 @@ impl Session {
             Request::ShellRun {
                 identity_id,
                 command,
-            } => shell::run(storage, &identity_id, &command),
+            } => shell::run(storage, &identity_id, &command, lifeline),
             Request::TerminalList { identity_id } => terminal::list(paths, storage, &identity_id),
             Request::TerminalListMany { identity_ids } => {
                 terminal::list_many(paths, storage, &identity_ids)

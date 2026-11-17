@@ -384,7 +384,7 @@ impl UnixCommandRunner {
         timeout: Duration,
         limit: usize,
     ) -> Result<ShellOutput, CommandError> {
-        self.run_shell_in_interrupt(command, directory, timeout, limit, None)
+        self.run_shell_in_interrupt(command, directory, timeout, limit, None, None)
     }
 
     pub(crate) fn run_shell_in_interrupt(
@@ -394,8 +394,35 @@ impl UnixCommandRunner {
         timeout: Duration,
         limit: usize,
         interrupt: Option<&crate::interrupt::Interrupt>,
+        lifeline: Option<std::os::fd::BorrowedFd<'_>>,
     ) -> Result<ShellOutput, CommandError> {
-        if interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted) {
+        let is_cancelled = || {
+            interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted)
+                || lifeline.is_some_and(|fd| {
+                    let mut fds = [nix::poll::PollFd::new(fd, nix::poll::PollFlags::POLLIN)];
+                    match nix::poll::poll(&mut fds, 0u8) {
+                        Ok(_) => fds[0].revents().is_some_and(|flags| {
+                            use std::os::fd::AsRawFd;
+                            flags.intersects(
+                                nix::poll::PollFlags::POLLHUP
+                                    | nix::poll::PollFlags::POLLERR
+                                    | nix::poll::PollFlags::POLLNVAL,
+                            ) || (flags.contains(nix::poll::PollFlags::POLLIN)
+                                && matches!(
+                                    nix::sys::socket::recv(
+                                        fd.as_raw_fd(),
+                                        &mut [0u8; 1],
+                                        nix::sys::socket::MsgFlags::MSG_PEEK
+                                            | nix::sys::socket::MsgFlags::MSG_DONTWAIT
+                                    ),
+                                    Ok(0)
+                                ))
+                        }),
+                        Err(_) => true,
+                    }
+                })
+        };
+        if is_cancelled() {
             return Ok(ShellOutput {
                 stdout: Vec::new(),
                 stderr: Vec::new(),
@@ -447,7 +474,7 @@ impl UnixCommandRunner {
                 .communicate()
                 .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
             loop {
-                if interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted) {
+                if is_cancelled() {
                     break Err(io::Error::new(
                         io::ErrorKind::Interrupted,
                         "Shell cancelled",
@@ -464,7 +491,7 @@ impl UnixCommandRunner {
                 }
             }
         };
-        let cancelled = interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted);
+        let cancelled = is_cancelled();
         let mut timed_out = false;
         if let Err(error) = read {
             if !cancelled && !truncated.get() && error.kind() != io::ErrorKind::TimedOut {
@@ -478,7 +505,7 @@ impl UnixCommandRunner {
             None
         } else {
             loop {
-                if interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted) {
+                if is_cancelled() {
                     break None;
                 }
                 let Ok(left) = remaining(deadline) else {
@@ -493,9 +520,7 @@ impl UnixCommandRunner {
                 }
             }
         };
-        let cancelled = cancelled
-            || (status.is_none()
-                && interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted));
+        let cancelled = cancelled || (status.is_none() && is_cancelled());
         if status.is_none() && !truncated.get() && !cancelled {
             timed_out = true;
         }

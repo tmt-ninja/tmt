@@ -678,11 +678,13 @@ impl Session {
                 "Shell · attaches to next message · dropped on exit"
             };
             paint.caption(label);
-            paint.body(
-                &format!("$ {}", run.command),
-                false,
-                note_source::Source::Unavailable,
-            );
+            if !run.command.is_empty() {
+                paint.body(
+                    &format!("$ {}", run.command),
+                    false,
+                    note_source::Source::Unavailable,
+                );
+            }
             match &run.result {
                 None => paint.caption("Running…"),
                 Some(Err(error)) => {
