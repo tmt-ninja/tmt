@@ -115,9 +115,15 @@ for (const width of [1440, 390])
         'Where should the release checklist live?',
       );
       await expect(card(page, 'form-question').getByRole('radio')).toHaveCount(2);
+      // An ordinary question shows its Send button without scrolling, even on a phone.
+      await expect(
+        card(page, 'form-question').getByRole('button', { name: 'Send answer' }),
+      ).toBeInViewport({ ratio: 1 });
       // The oldest form is open; the rest are one line each and open on a click.
       for (const id of ['form-plan', 'form-permission', 'form-truncated']) {
         await expect(card(page, id)).toHaveAttribute('data-folded', '');
+        if (id === 'form-plan')
+          await expect(card(page, id)).toContainText('Move the release checklist');
         await card(page, id).getByRole('button', { expanded: false }).click();
         await expect(card(page, id)).not.toHaveAttribute('data-folded', '');
       }

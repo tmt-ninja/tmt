@@ -64,14 +64,21 @@ function drop(formId: string): void {
   }
 }
 
+/** A plan's first line of substance: headings are skipped, list marks dropped. */
+function planLine(plan: string): string | undefined {
+  const lines = plan
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const body = lines.find((line) => !line.startsWith('#')) ?? lines[0];
+  return body?.replace(/^(#+|>|[*+-]|\d+[.)])\s*/, '') || undefined;
+}
+
 /** What a form asks, in one line: its first question, its tool, or its plan's first line. */
 const asked = (form: ProviderForm): string =>
   form.questions?.[0]?.text ??
   form.tool?.name ??
-  form.plan
-    ?.split('\n')
-    .map((line) => line.replace(/^[#>*\-\s]+/, '').trim())
-    .find(Boolean) ??
+  (form.plan === undefined ? undefined : planLine(form.plan)) ??
   KIND[form.kind];
 
 function ago(ms: number): string {

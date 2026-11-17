@@ -1836,7 +1836,8 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-forms-open {
   display: grid;
   gap: var(--tmt-ui-space-m);
-  max-height: min(40vh, 30rem);
+  /* Fits an ordinary question card with its Send button on a phone; only long content scrolls. */
+  max-height: min(60vh, 32rem);
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;

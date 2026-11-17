@@ -12594,8 +12594,13 @@ function drop(formId) {
 		localStorage.removeItem(KEY + formId);
 	} catch {}
 }
+/** A plan's first line of substance: headings are skipped, list marks dropped. */
+function planLine(plan) {
+	const lines = plan.split("\n").map((line) => line.trim()).filter(Boolean);
+	return (lines.find((line) => !line.startsWith("#")) ?? lines[0])?.replace(/^(#+|>|[*+-]|\d+[.)])\s*/, "") || void 0;
+}
 /** What a form asks, in one line: its first question, its tool, or its plan's first line. */
-var asked = (form) => form.questions?.[0]?.text ?? form.tool?.name ?? form.plan?.split("\n").map((line) => line.replace(/^[#>*\-\s]+/, "").trim()).find(Boolean) ?? KIND[form.kind];
+var asked = (form) => form.questions?.[0]?.text ?? form.tool?.name ?? (form.plan === void 0 ? void 0 : planLine(form.plan)) ?? KIND[form.kind];
 function ago(ms) {
 	const minutes = Math.max(0, Math.round((Date.now() - ms) / 6e4));
 	if (minutes < 1) return "opened just now";
