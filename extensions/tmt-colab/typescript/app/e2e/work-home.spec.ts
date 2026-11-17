@@ -40,3 +40,22 @@ test('Work home counts open work, filters by a status and lists what was done', 
   await expect(recent).toContainText('gui-3');
   await expect(recent).toContainText('alpha.453');
 });
+
+// A working agent's activity time moves on every read; that alone must not read the list again,
+// and the re-read the first answer caused must not ask for activity again (#6578 review).
+test('Work home reads owner activity once per event, never in a loop', async ({ page }) => {
+  await page.goto('/');
+  await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
+  await page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    await (await import(path)).mountPageList('work-home', '/work');
+  });
+  const counts = () =>
+    page.evaluate(() => ({ activity: window.__activityReads, list: window.__listReads }));
+  await expect(page.locator('#list-fixture .tmt-ui-work-row').first()).toBeVisible();
+  // Opening: the mount's list read, one activity read, and the list re-read its answer asked for.
+  await expect.poll(counts).toEqual({ activity: 1, list: 2 });
+  // The tab becoming visible reads activity again; the same states re-read nothing.
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect.poll(counts).toEqual({ activity: 2, list: 2 });
+});

@@ -6434,12 +6434,14 @@ retained and never polled again for that filter. The reader requests only the ch
 No GitHub output is added to page HTML, and share readers receive none of these observations.
 
 Work home (`/work`, #6474) may POST `{owners}` to `/api/work-activity`: at most 256 owner ids,
-on its own events only (opening, the tab becoming visible, a list re-read), never on a timer. The
+on its own events only (opening, the tab becoming visible, a list re-read it did not ask for), never
+on a timer. The
 serve answers only for ids some page with a fresh fold names as its owner, after one
 `changes.cursor` read and one `identities.status` read for the owners whose cursor changed:
 `{owners:{<id>:{state,lastActivityMs,observedAtMs}}}`. An owner the read cannot report keeps its
 earlier observation; the list answer never waits for this read, and Work home reads the list again
-when an observation changed. Display only. When Remote's describe request names the `home` feature,
+when an owner's activity state changed (a newer activity time alone does not). Display only. Its
+work items are the pages with a fresh summary and the numbered to-dos that name an assignee. When Remote's describe request names the `home` feature,
 Colab's description claims Home with `homePage: "/work"`.
 
 The owner browser may POST `{pageId}` to `/api/work-facts` only while its owner sync connection
@@ -6682,7 +6684,7 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     a status it cannot decide (`unknown`, `unchecked`) changes nothing.
   - `release` is the release tag a retained owner fact proved for one of the page's PRs (the last
     such PR); absent when none is retained. The list read never reads GitHub for it.
-  - `todos` lists the page's visible to-dos in page order as work items, at most 64:
+  - `todos` lists the page's visible to-dos in page order, at most 64:
     `{id, text, checked, number?, assignee?, doneAtMs?}`. `text` is cut at 256 bytes on a
     character boundary; `number` is the to-do's issued work number; `doneAtMs` is when a list read
     first saw it checked (its page's last activity then, as above), cleared when it is unchecked

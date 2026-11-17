@@ -19,6 +19,8 @@ export const listNow = Date.UTC(2026, 9, 9, 0, 0);
 declare global {
   interface Window {
     __projectRequests: { page: string; changes: ProjectChange[] }[];
+    /** Work home's activity reads (#6474): each answers every owner working, with a newer time. */
+    __activityReads: number;
     /** Every `project.manage` request, in order. */
     __projectManage: ProjectManage[];
     /** Fail the page request with this index (0-based) once, as a lost connection. */
@@ -329,6 +331,7 @@ export async function mountPageList(
   root?.unmount();
   root = createRoot(host);
   window.__projectRequests = [];
+  window.__activityReads = 0;
   window.__projectManage = [];
   window.__failProjectRequest = undefined;
   window.__failManage = undefined;
@@ -663,6 +666,20 @@ export async function mountPageList(
   const router = createAppRouter({
     ...transport,
     ...(size === 'unmanaged' ? {} : { management }),
+    ...(size === 'work-home'
+      ? {
+          workActivity: async (owners: readonly string[]) => {
+            window.__activityReads += 1;
+            const at = listNow + window.__activityReads * 1000;
+            return Object.fromEntries(
+              owners.map((owner) => [
+                owner,
+                { state: 'working', lastActivityMs: at, observedAtMs: at },
+              ]),
+            );
+          },
+        }
+      : {}),
     spaceHome: async () => {
       await homeGate;
       window.__listReads += 1;

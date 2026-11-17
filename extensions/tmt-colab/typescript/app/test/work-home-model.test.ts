@@ -28,14 +28,22 @@ function page(
   } as PageSummary;
 }
 
-it('counts pages and numbered to-dos, never a plain checklist line', () => {
+it('counts pages and assigned numbered to-dos, never an unassigned or plain checklist line', () => {
   const items = workItems([
     page('working', {
       summary: {
         todos: [
-          { id: 'a', text: 'Reply', checked: false, number: 'C-2' },
+          { id: 'a', text: 'Reply', checked: false, number: 'C-2', assignee: 'gui-2' },
           { id: 'b', text: 'Line', checked: true },
-          { id: 'c', text: 'Ship', checked: true, number: 'C-3', doneAtMs: now - 1 },
+          {
+            id: 'c',
+            text: 'Ship',
+            checked: true,
+            number: 'C-3',
+            doneAtMs: now - 1,
+            assignee: 'gui-3',
+          },
+          { id: 'd', text: 'Someday', checked: false, number: 'C-4' },
         ],
       },
     }),

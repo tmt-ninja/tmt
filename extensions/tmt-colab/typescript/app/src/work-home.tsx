@@ -87,6 +87,9 @@ function useOwnerActivity(
 ) {
   const owners = activityOwners(items).join('\n');
   const seen = useRef<string>(undefined);
+  // The list re-read this hook asks for must not ask again: only opening, the tab becoming visible
+  // and a list re-read from elsewhere read activity (#6578 review).
+  const own = useRef(false);
   useEffect(() => {
     const read = transport.workActivity;
     if (!read || !owners) return;
@@ -94,18 +97,22 @@ function useOwnerActivity(
     const run = () =>
       void read(owners.split('\n'), controller.signal).then(
         (answer) => {
+          // Only a changed state can change a list status; a working agent's newer activity time
+          // alone is no reason to read the list again.
           const observed = JSON.stringify(
             Object.entries(answer)
-              .map(([owner, row]) => [owner, row.state, row.lastActivityMs])
+              .map(([owner, row]) => [owner, row.state])
               .sort(),
           );
           if (observed === seen.current) return;
           seen.current = observed;
+          own.current = true;
           reread();
         },
         () => undefined,
       );
-    run();
+    if (own.current) own.current = false;
+    else run();
     document.addEventListener(
       'visibilitychange',
       () => document.visibilityState === 'visible' && run(),
