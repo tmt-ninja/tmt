@@ -64,6 +64,7 @@ export function publishDraft(input: {
   tag: string;
   released?: boolean;
   wait?: () => void;
+  sleep?: (milliseconds: number) => void;
   declarationEvidence?: {
     map: import('./ci-scope.mjs').ComponentMap;
     observeCli: (
@@ -74,6 +75,11 @@ export function publishDraft(input: {
 }): {
   flags: string[];
 };
+export function runPublishCli(
+  argv: readonly string[],
+  environment: NodeJS.ProcessEnv,
+  options?: { sleep?: (milliseconds: number) => void }
+): void;
 export function checkPublishedRelease(input: {
   release: PublishedRelease;
   latest: PublishedRelease | null;

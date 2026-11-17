@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 const helper = new URL('../../scripts/colab-acceptance-run.mjs', import.meta.url).href;
 
-function runFixture(source: string, budgetMs = 3000, graceMs = 500) {
+function runFixture(source: string, budgetMs = 1000, graceMs = 100) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'tmt-acceptance-budget-'));
   try {
     const verdict = path.join(root, 'execution.json');

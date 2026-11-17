@@ -11,7 +11,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { checkReleaseParity } from '../../scripts/release-parity.mjs';
 
@@ -157,7 +157,7 @@ interface Scenario {
   indexRefResponses?: { status: number; message: string }[];
 }
 
-function scenario(options: Scenario = {}) {
+function scenario(options: Scenario = {}, retrySleepMs?: number) {
   const directory = mkdtempSync(path.join(root, 'case-'));
   const bin = path.join(directory, 'bin');
   mkdirSync(bin);
@@ -205,7 +205,21 @@ process.exit(result.status ?? 1);
   return {
     directory,
     run(args: string[], repository = 'wkh237/tmt') {
-      const result = spawnSync('node', [script, ...args], {
+      // Normal scenarios keep the literal CLI entry. Retry scenarios call that
+      // same owner with a short sleep adapter; attempt counts and gates stay real.
+      const entry =
+        retrySleepMs === undefined
+          ? [script, ...args]
+          : [
+              '--input-type=module',
+              '-e',
+              `import { runPublishCli } from ${JSON.stringify(pathToFileURL(script).href)};
+               runPublishCli(process.argv.slice(1), process.env, {
+                 sleep: () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${retrySleepMs})
+               });`,
+              ...args,
+            ];
+      const result = spawnSync('node', entry, {
         encoding: 'utf8',
         env: {
           PATH: `${bin}${path.delimiter}${process.env.PATH}`,
@@ -267,7 +281,7 @@ describe('release-publish.mjs publish', () => {
 
   it('retries an absent exact draft identity, then publishes once', () => {
     const candidate = draft(TAG, ASSETS);
-    const fixture = scenario({ drafts: [candidate], releaseListings: [[], [candidate]] });
+    const fixture = scenario({ drafts: [candidate], releaseListings: [[], [candidate]] }, 1);
     expect(fixture.run(publish)).toMatchObject({ status: 0, output: 'published=true\n' });
     const calls = fixture.calls();
     const edit = calls.findIndex(([command, sub]) => command === 'release' && sub === 'edit');
@@ -279,7 +293,7 @@ describe('release-publish.mjs publish', () => {
   });
 
   it('does not turn failed exact discovery into absence or add retries beyond acquisition', () => {
-    const fixture = scenario({ drafts: [draft(TAG, ASSETS)], listingFails: true });
+    const fixture = scenario({ drafts: [draft(TAG, ASSETS)], listingFails: true }, 1);
     const result = fixture.run(publish);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('HTTP 502: upstream unavailable');
@@ -295,10 +309,13 @@ describe('release-publish.mjs publish', () => {
     const newer = draft('tmt-remote-v0.1.0-alpha.3', ASSETS, {
       created_at: '2026-09-30T01:00:00Z',
     });
-    const fixture = scenario({
-      drafts: [draft(TAG, ASSETS)],
-      releaseListings: [[], [older], [older, release({ tag_name: 'v5.0.0-alpha.8' }), newer]],
-    });
+    const fixture = scenario(
+      {
+        drafts: [draft(TAG, ASSETS)],
+        releaseListings: [[], [older], [older, release({ tag_name: 'v5.0.0-alpha.8' }), newer]],
+      },
+      1
+    );
     const result = fixture.run(publish);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(`Not publishing: there is no release ${TAG}.`);
@@ -399,7 +416,7 @@ describe('release-publish.mjs publish', () => {
   });
 
   it('refuses a draft of another product and an unknown draft', () => {
-    const { run, calls } = scenario({ drafts: [draft(TAG, ASSETS)] });
+    const { run, calls } = scenario({ drafts: [draft(TAG, ASSETS)] }, 1);
     expect(run(['publish', '--product', 'digest', '--tag', TAG]).stderr).toContain(
       'is not a digest release tag'
     );

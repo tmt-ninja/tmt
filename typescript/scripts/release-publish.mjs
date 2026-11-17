@@ -143,6 +143,7 @@ export function publishDraft({
   tag,
   released = true,
   wait = () => {},
+  sleep,
   declarationEvidence,
 }) {
   const missing = `there is no release ${tag}`;
@@ -159,7 +160,11 @@ export function publishDraft({
       }
       return found;
     },
-    { label: 'Publication draft discovery', retryIf: (failure) => failure === absenceFailure }
+    {
+      label: 'Publication draft discovery',
+      retryIf: (failure) => failure === absenceFailure,
+      sleep,
+    }
   );
   const blocker = publishBlocker({ release, product, tag, released });
   if (blocker) throw new Error(`Not publishing: ${blocker}.`);
@@ -753,7 +758,7 @@ function report(environment, markdown) {
   if (environment.GITHUB_STEP_SUMMARY) appendFileSync(environment.GITHUB_STEP_SUMMARY, markdown);
 }
 
-function main(argv, environment) {
+function main(argv, environment, { sleep } = {}) {
   const [command, ...rest] = argv;
   const { values } = parseArgs({
     args: rest,
@@ -775,7 +780,7 @@ function main(argv, environment) {
   }
   const repository = environment.GITHUB_REPOSITORY;
   if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
-  const api = ghPublishApi({ repository });
+  const api = ghPublishApi({ repository, sleep });
 
   if (command === 'backfill-inventory') {
     process.stdout.write(
@@ -820,6 +825,7 @@ function main(argv, environment) {
       tag: values.tag,
       released: isProductReleased(map, values.product),
       wait: () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, VERIFY_WAIT_MS),
+      sleep,
     });
     report(
       environment,
@@ -884,11 +890,16 @@ function main(argv, environment) {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+/** The CLI owner accepts the same retry sleep port as the acquisition API. */
+export function runPublishCli(argv, environment, options = {}) {
   try {
-    main(process.argv.slice(2), process.env);
+    main(argv, environment, options);
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;
   }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  runPublishCli(process.argv.slice(2), process.env);
 }
