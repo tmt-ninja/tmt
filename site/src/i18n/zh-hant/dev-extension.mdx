@@ -34,8 +34,11 @@ $ tmt help hello          # runs: tmt-hello --help
   </dd>
   <dt>TMT_EXECUTABLE</dt>
   <dd>
-    啟動你的 tmt 的絕對路徑。回呼時一律使用它，而不是 PATH 上的任意 <code>tmt</code>
-    ，才能存取同一份安裝與資料。
+    <>
+      {"啟動你的 tmt 的絕對路徑。回呼時一律使用它，而不是 PATH 上的任意 "}
+      <code>tmt</code>
+      {"，才能存取同一份安裝與資料。"}
+    </>
   </dd>
 </Terms>
 
@@ -68,10 +71,23 @@ $ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXEC
 以上是主要操作；`capabilities` 會列出目前安裝的 tmt 支援的所有操作。
 
 <Aside title="寫入時標明執行者。">
-  寫入（<code>dispatch.create</code>、<code>rooms.write</code> 與 <code>rooms.retire</code>
-  ）要指定一個發起者：<code>identity</code>，或以 <code>"originator":"anonymous"</code>{" "}
-  不記錄執行者，與 CLI 不帶 <code>--identity</code>{" "}
-  時相同。同時指定兩者或都未指定會被拒絕。這是供同一使用者使用的本機介面，不是安全邊界；它記錄誰執行了操作，不授予額外權限。
+  <>
+    {"寫入（"}
+    <code>dispatch.create</code>
+    {"、"}
+    <code>rooms.write</code>
+    {" 與 "}
+    <code>rooms.retire</code>
+    {"）要指定一個發起者："}
+    <code>identity</code>
+    {"，或以 "}
+    <code>"originator":"anonymous"</code>
+    {" 不記錄執行者，與 CLI 不帶 "}
+    <code>--identity</code>
+    {
+      " 時相同。同時指定兩者或都未指定會被拒絕。這是供同一使用者使用的本機介面，不是安全邊界；它記錄誰執行了操作，不授予額外權限。"
+    }
+  </>
 </Aside>
 
 <Mdx.h3 id="a-complete-example">完整範例</Mdx.h3>

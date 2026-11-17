@@ -1,15 +1,39 @@
 ---
 source: site/src/chapters/meet.mdx
-sourceRevision: bfe2dc6ec01f4e63059ac4aac525f076a528fee9
-title: Meet
+sourceRevision: 5a7c0a88c40d1dbe99563c24758e7c303b4c81cb
+title: Meet：你與 agent 的會議室
 ---
 
+import { MeetRoom } from "../../chapter-scenes/MeetRoom";
 import { Callout } from "../../components/marks";
+import { components as Mdx } from "../../components/mdx";
 
-<Callout title="尚不可用。">
-  Meet 是已達成共識的主持人制會議設計，由{" "}
-  <a href="https://github.com/tmt-ninja/tmt/issues/842">#842</a>
-  追蹤。目前發布的 CLI 不提供會議命令或發言權控制。
+<Callout title="規劃中。">
+  Meet 是已達成共識的設計，由 <a href="https://github.com/tmt-ninja/tmt/issues/842">#842</a>{" "}
+  追蹤。目前發布的 CLI 沒有會議命令或發言權控制。本頁與示意圖介紹規劃中的設計，目前還不能執行。
 </Callout>
 
-現在可用 [talk 和 reply](/working) 與 agent 討論工作。[Ops](/extensions/squad) 展示團隊的對話與檢查清單。room 用來彙整參與者與請求歷史，不負責主持會議。
+<MeetRoom />
+
+<Mdx.h3 id="what-it-is">這是什麼</Mdx.h3>
+
+你與多個 agent 在終端機中進行的會議。它屬於 [Ops](/extensions/squad) 擴充套件，不是獨立的擴充套件。你指定主題與受邀的 agent 來開始會議，並決定誰發言。
+
+<Mdx.h3 id="who-has-the-floor">誰有發言權</Mdx.h3>
+
+- **只有你能開始會議。** agent 不能開始會議，也不能互相邀請。
+- **由你授予發言權。** 預設按 `g` 或以 `@name` 指定 agent。想發言的 agent 以一行文字說明意圖，舉手後等待；agent 發出的 `@mention` 只會加入舉手佇列。
+- **也可以先到先說。** 會議中按 `m` 切換模式。在此模式下，任何人都不能連續發言兩次。
+- **發言權會自動收回。** 發言回合結束後會自動收回；若發言者保持沉默，發言權會交給下一位舉手者。
+
+<Mdx.h3 id="what-it-builds-on">建立在什麼之上</Mdx.h3>
+
+會議是一個 `tmt room`，包含成員與會議紀錄。授予發言權就是向該 agent 傳送 `talk` 請求，它的 `reply` 就是這一輪發言。因此，沒有發言權的 agent 不會被喚醒，也不消耗額度。
+
+<Mdx.h3 id="when-it-ends">會議結束時</Mdx.h3>
+
+你會取得會議紀錄與自己記下的決策清單。決策可以轉成 issue，或透過 `tmt talk` 交給 agent，但必須先經過你的確認。會議中的內容不會自行執行。
+
+<Mdx.h3 id="what-comes-later">後續規劃</Mdx.h3>
+
+第一版是在終端機中進行文字交流。基於 [Colab](/extensions/colab) 的網頁檢視與語音功能會在之後推出。
