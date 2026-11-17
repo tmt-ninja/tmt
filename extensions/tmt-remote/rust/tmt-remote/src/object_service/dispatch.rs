@@ -54,15 +54,18 @@ pub(super) enum Pause {
 /// A test-only pause; it receives the request's deadline.
 #[cfg(test)]
 pub(super) type Hook = Option<Arc<dyn Fn(Pause, Instant) + Send + Sync>>;
+/// A test can expire a boundary directly instead of racing a short wall-clock bound.
+#[cfg(test)]
+pub(super) type DeadlineHook = Option<Arc<dyn Fn(Pause, Instant) -> Instant + Send + Sync>>;
 #[cfg(not(test))]
-pub(super) type Hook = ();
+pub(super) type DeadlineHook = ();
 
 /// Everything a channel needs to start besides its bus.
 pub(super) struct Launch<'a> {
     pub(super) recovery: Weak<super::Reactivation>,
     pub(super) source: ConfigSource,
     pub(super) bounds: &'a ServiceBounds,
-    pub(super) hook: Hook,
+    pub(super) hook: DeadlineHook,
     #[cfg(test)]
     pub(super) first_request: Option<Duration>,
     pub(super) origins: &'a Origins,
@@ -128,7 +131,7 @@ pub(super) struct Hub {
     callback: Duration,
     request: Duration,
     #[cfg_attr(not(test), allow(dead_code))]
-    hook: Hook,
+    hook: DeadlineHook,
     /// The bound of the first request this channel serves, taken once.
     #[cfg(test)]
     first_request: Mutex<Option<Duration>>,
@@ -524,21 +527,23 @@ fn config(hub: &Hub, bus: &Bus, request: &Request, deadline: Instant) -> Result<
     send_result(hub, bus, request, Outcome::Success(Success::Config(config)))
 }
 
-pub(super) fn between(hub: &Hub, deadline: Instant) {
+pub(super) fn between(hub: &Hub, deadline: Instant) -> Instant {
     #[cfg(test)]
     if let Some(hook) = &hub.hook {
-        hook(Pause::BetweenAdmissions, deadline);
+        return hook(Pause::BetweenAdmissions, deadline);
     }
     #[cfg(not(test))]
-    let _ = (hub, deadline);
+    let _ = hub;
+    deadline
 }
-pub(super) fn before_result(hub: &Hub, deadline: Instant) {
+pub(super) fn before_result(hub: &Hub, deadline: Instant) -> Instant {
     #[cfg(test)]
     if let Some(hook) = &hub.hook {
-        hook(Pause::BeforeResult, deadline);
+        return hook(Pause::BeforeResult, deadline);
     }
     #[cfg(not(test))]
-    let _ = (hub, deadline);
+    let _ = hub;
+    deadline
 }
 
 /// Send one admission callback and wait for its decision, within the callback bound and
@@ -573,9 +578,10 @@ pub(super) fn ask(
             operation,
         });
         #[cfg(test)]
-        if let Some(hook) = &hub.hook {
-            hook(Pause::BeforeAdmitWrite, limit);
-        }
+        let limit = hub
+            .hook
+            .as_ref()
+            .map_or(limit, |hook| hook(Pause::BeforeAdmitWrite, limit));
         match bus.send_until(&admit, limit) {
             Ok(()) => {}
             // The writer refused before admission: no callback is outstanding.
@@ -645,9 +651,10 @@ pub(super) fn send_until_or(
         return Err(ChannelEnd::Stopped);
     }
     #[cfg(test)]
-    if let Some(hook) = &hub.hook {
-        hook(Pause::BeforeResultWrite, deadline);
-    }
+    let deadline = hub
+        .hook
+        .as_ref()
+        .map_or(deadline, |hook| hook(Pause::BeforeResultWrite, deadline));
     let sent = bus.send_until(
         &Frame::Result(ResultFrame {
             generation: hub.generation,

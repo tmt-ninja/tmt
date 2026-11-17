@@ -173,7 +173,7 @@ pub struct ObjectService<'s> {
     state: Arc<Mutex<State>>,
     /// Pauses a worker between a request's two admissions, so a test can spend its time.
     #[cfg(test)]
-    hook: Mutex<dispatch::Hook>,
+    hook: Mutex<dispatch::DeadlineHook>,
     /// A shorter request bound for the first request of later channels only.
     #[cfg(test)]
     first_request: Mutex<Option<Duration>>,
@@ -541,6 +541,16 @@ impl<'s> ObjectService<'s> {
     /// Install the request boundary pause on later channels.
     #[cfg(test)]
     fn set_hook(&self, hook: dispatch::Hook) {
+        self.set_deadline_hook(hook.map(|observe| {
+            Arc::new(move |pause, deadline| {
+                observe(pause, deadline);
+                deadline
+            }) as _
+        }));
+    }
+    /// Force the selected boundary's deadline without shortening its real request budget.
+    #[cfg(test)]
+    fn set_deadline_hook(&self, hook: dispatch::DeadlineHook) {
         *self
             .hook
             .lock()
