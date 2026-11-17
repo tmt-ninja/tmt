@@ -4,9 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
-import { withE2EFixture, type E2EFixture } from './harness.js';
+import { processGroupSnapshot, withE2EFixture, type E2EFixture } from './harness.js';
 import { expectJsonResult } from './cli-assertions.js';
-import { processGroupSnapshot } from './harness/readiness.js';
 
 function query<T>(fixture: E2EFixture, sql: string): T[] {
   const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
