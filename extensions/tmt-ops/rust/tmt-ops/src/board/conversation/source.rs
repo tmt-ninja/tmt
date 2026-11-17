@@ -293,7 +293,12 @@ fn paint_cells(frame: &mut Frame, app: &App, source: &mut Source, surfaces: &[Su
                 frame.buffer_mut()[(column, y)].set_style(style);
             }
         }
-        source.control = menu::paint(frame, app, source.surface.area, end, first);
+        if !matches!(
+            &source.surface.target,
+            RowTarget::Workspace(crate::board::workspace::OpsTarget::Terminal { .. })
+        ) {
+            source.control = menu::paint(frame, app, source.surface.area, end, first);
+        }
     }
 }
 
@@ -904,6 +909,16 @@ impl App {
                 Some(Effect::None)
             }
             MouseEventKind::Up(MouseButton::Left) => {
+                if let Some(Selection::Cells(source)) = &state.selection
+                    && !state.source_surfaces.iter().any(|surface| {
+                        surface.area == source.surface.area
+                            && surface.target == source.surface.target
+                            && surface.text.as_str() == source.surface.text.as_str()
+                    })
+                {
+                    state.selection = None;
+                    return Some(Effect::None);
+                }
                 state
                     .selection
                     .as_mut()

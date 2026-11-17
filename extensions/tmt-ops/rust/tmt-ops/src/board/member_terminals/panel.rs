@@ -9,7 +9,7 @@ use crate::board::{
 };
 use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
-use tmt_tui::components::strip;
+use tmt_tui::components::{Outline, strip};
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
@@ -19,6 +19,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if area.height < 4 {
         return;
     }
+    app.terminals.drew_panel(&row.id, area);
     let member = app
         .workspace_snapshot()
         .and_then(|snapshot| snapshot.roster.members.get(identity))
@@ -29,15 +30,27 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         title.push_str(&directory);
     }
     let typing = app.terminals.typing() == Some(row.id.as_str());
-    section_rule::paint(
-        frame.buffer_mut(),
-        Rect { height: 1, ..area },
-        &title,
-        Line::default(),
-        typing,
-        look,
-    );
-    let screen_area = Rect::new(area.x, area.y + 2, area.width, area.height - 3);
+    let mut heading =
+        section_rule::line(&title, Line::default(), area.width as usize, typing, look);
+    if typing {
+        for span in &mut heading.spans {
+            span.style = look.role(Role::Accent);
+        }
+    }
+    strip::paint_left(frame.buffer_mut(), Rect { height: 1, ..area }, heading);
+    let frame_area = Rect::new(area.x, area.y + 2, area.width, area.height - 3);
+    let screen_area = if frame_area.width >= 3 && frame_area.height >= 3 {
+        let outline = Outline {
+            title: Line::default(),
+            border: look.role(if typing { Role::Accent } else { Role::Muted }),
+            title_style: look.role(Role::Text),
+        };
+        let inner = outline.inner(frame_area);
+        outline.paint(frame_area, frame.buffer_mut());
+        inner
+    } else {
+        frame_area
+    };
     let status = Rect::new(area.x, area.y + 1, area.width, 1);
     let footer = Rect::new(area.x, area.bottom() - 1, area.width, 1);
     // The shell's name comes from Core's listing, never from this process's `$SHELL`;
@@ -86,11 +99,23 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             );
         }
     }
+    if !row.ended
+        && let Some(target) = app.workspace.selected.clone()
+    {
+        crate::board::conversation::source::publish(
+            app,
+            crate::board::app::RowTarget::Workspace(target),
+            screen_area,
+        );
+    }
     let back = app.member_back_label();
     let words = match (row.ended, typing) {
         (true, _) => format!(" {} ended · x removes it", row.title()),
         (false, true) => format!(" Typing into {} · {back} back to list", row.title()),
-        (false, false) => format!(" {} live · ⏎ type in · z full screen", row.title()),
+        (false, false) => format!(
+            " {} live · click to type · ⏎ type in · z full screen",
+            row.title()
+        ),
     };
     muted(frame, footer, &words, app);
 }

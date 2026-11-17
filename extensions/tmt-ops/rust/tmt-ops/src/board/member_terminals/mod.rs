@@ -6,6 +6,7 @@
 //! the next one and applies what comes back.
 use crate::{board::workspace::OpsTarget, core::Core};
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet, VecDeque},
     path::PathBuf,
     time::Duration,
@@ -142,6 +143,8 @@ pub(in crate::board) struct Terminals {
     automatic: bool,
     /// Keys go to this terminal in the right panel until the back key.
     typing: Option<String>,
+    /// The selected terminal panel painted in the latest frame.
+    panel: RefCell<Option<(String, ratatui::layout::Rect)>>,
 }
 
 impl Default for Terminals {
@@ -156,11 +159,30 @@ impl Default for Terminals {
             swept: false,
             automatic: !cfg!(test),
             typing: None,
+            panel: RefCell::new(None),
         }
     }
 }
 
 impl Terminals {
+    pub(in crate::board) fn clear_panel(&self) {
+        self.panel.borrow_mut().take();
+    }
+
+    pub(in crate::board) fn drew_panel(&self, id: &str, area: ratatui::layout::Rect) {
+        *self.panel.borrow_mut() = Some((id.to_owned(), area));
+    }
+
+    pub(in crate::board) fn panel_contains(
+        &self,
+        id: &str,
+        point: ratatui::layout::Position,
+    ) -> bool {
+        self.panel
+            .borrow()
+            .as_ref()
+            .is_some_and(|(shown, area)| shown == id && area.contains(point))
+    }
     /// The terminal rows shown under `identity`, oldest first.
     pub(in crate::board) fn rows(&self, identity: &str) -> &[Row] {
         self.members

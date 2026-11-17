@@ -499,6 +499,95 @@ mod board {
     }
 
     #[test]
+    fn clicking_the_terminal_panel_focuses_it_without_changing_the_view() {
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let mut app =
+            super::super::scenes::capture_case("terminals-panel", crate::look::Look::default());
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let (x, y) = (0..buffer.area.height)
+            .find_map(|y| {
+                (0..buffer.area.width)
+                    .find(|x| {
+                        let row: String = (*x..buffer.area.width)
+                            .map(|x| buffer[(x, y)].symbol())
+                            .collect();
+                        row.starts_with("On branch fix/spinner")
+                    })
+                    .map(|x| (x, y))
+            })
+            .expect("terminal output is visible");
+        let selected = app.selected_terminal().unwrap().1.id.clone();
+        assert!(app.terminals.typing().is_none());
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: x,
+                row: y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        assert_eq!(
+            app.terminals.typing(),
+            Some(selected.as_str()),
+            "click focuses the selected terminal"
+        );
+    }
+
+    #[test]
+    fn dragging_terminal_text_copies_the_visible_selection_on_release() {
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let mut app =
+            super::super::scenes::capture_case("terminals-panel", crate::look::Look::default());
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let (x, y) = (0..buffer.area.height)
+            .find_map(|y| {
+                (0..buffer.area.width)
+                    .find(|x| {
+                        let row: String = (*x..buffer.area.width)
+                            .map(|x| buffer[(x, y)].symbol())
+                            .collect();
+                        row.starts_with("On branch fix/spinner")
+                    })
+                    .map(|x| (x, y))
+            })
+            .expect("terminal output is visible");
+        let mouse = |app: &mut App, kind, column| {
+            app.mouse(
+                MouseEvent {
+                    kind,
+                    column,
+                    row: y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now(),
+            )
+        };
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 9);
+        let result = mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 9);
+        assert!(
+            matches!(result, crate::board::app::Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "On branch")
+        );
+    }
+
+    #[test]
     fn ctrl_l_reaches_the_selected_terminal_as_input() {
         use crate::board::terminal_tab::stream::{
             Stream, StreamEvent,

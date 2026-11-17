@@ -5049,6 +5049,9 @@ impl App {
             self.last_click = None;
             return Effect::None;
         }
+        if let Some(effect) = self.terminal_panel_focus(event) {
+            return self.conversation_source_mouse(event).unwrap_or(effect);
+        }
         if let Some(effect) = self.conversation_menu_mouse(event) {
             return effect;
         }
