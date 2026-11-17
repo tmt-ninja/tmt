@@ -734,14 +734,17 @@ refuses, shows the reason on its row. `z` on a listed offline member that can st
 reopens the ask.
 On a member on any host, `t` opens an extra terminal (a login
 shell in its working directory, at most 8) listed under it as "Terminal N"; select one to see
-it live on the right, `⏎` to type into it (Ctrl-g returns to the list), `z` for full screen and
+it live on the right, click the panel or press `⏎` to type into it (Ctrl-g returns to the list), `z` for full screen and
 `x` to close it, which asks first while a program runs there and names that program when Core
 reports it. The panel's status line names the shell Core reports. An ended terminal stays greyed
-until `x` removes it or the board restarts. Every other member opens on its chat, where Enter composes as
-for a tmux member. A left drag over the screen selects its text and copies it with the
-chat's Copy. While a program asked for the mouse, Ops ignores a plain drag (only the wheel
-reaches the program); drag with your terminal's selection bypass (often Shift, Option in
-iTerm2) to select. A failed or uncertain launch keeps the draft; never retry before checking public
+until `x` removes it or the board restarts. The focused panel has a `▸━` rule and a `typing` note;
+an unfocused panel offers `click to type`. Drag there to select text and copy on release;
+double-click selects a word and triple-click a line. The panel owns mouse selection even when a
+program asks for mouse input; Ctrl+C still reaches the program. Every other member opens on its chat,
+where Enter composes as for a tmux member. In the full-screen member frame, a left drag selects and
+copies while program mouse mode is off. While a program asks for the mouse, Ops ignores a plain
+drag (only the wheel reaches the program); use your terminal's selection bypass (often Shift,
+Option in iTerm2) to select. A failed or uncertain launch keeps the draft; never retry before checking public
 state. Esc, Cancel or a click outside hides the form or its template editor with what you
 typed; `n` reopens it with Discard between Cancel and Create (Back · Discard · Save on the
 template) to drop it. Back steps from the template to the form. Esc during a launch or template

@@ -736,9 +736,13 @@ as `OpsTarget::Terminal`, which is never a recipient, room or Talk target; the m
 board's confirm, Cancel first), and removes an ended row without asking Core. The right panel
 (`panel`) is the selected live terminal through `terminal_tab`'s one stream (keyed by the
 terminal id, with the address from the list; `terminal.stream` is never asked for it), under
-the rule `member · Terminal N · directory`, a status line and a footer line; `⏎` sends keys to
-it until the `member-back` key, and `z` puts it in the member frame. Core reports only `busy`,
-so the confirm and the status line do not name the program or the shell yet (#6112).
+the rule `member · Terminal N · directory`, a status line and a footer line. A click or `⏎`
+focuses the panel for typing until `member-back`; its focused pane rule carries `typing` and
+the footer names the back key and drag-to-copy. The shared rendered-cell selection handles
+drag and copy on release, plus word and line selection on double and triple click; program
+mouse input is not forwarded from the panel, and Ctrl+C stays program input. `z` puts the
+terminal in the member frame, whose mouse rules remain separate. The status and close confirm
+use the shell or foreground program names only when Core supplies them.
 
 ## Checklist controller
 
