@@ -2,7 +2,6 @@
 
 use crate::{
     identity_context,
-    invocation::OutputMode,
     output::{Failure, after_cleanup},
 };
 use serde_json::json;
@@ -14,7 +13,7 @@ use tmt_adapters::{
 };
 use tmt_core::identity::{NotesIdentityError, NotesIdentityId};
 
-struct Report {
+pub struct Report {
     identity_id: String,
     notes: NotesPath,
 }
@@ -28,7 +27,7 @@ fn notes_failure(error: impl std::error::Error + 'static) -> Failure {
     .caused_by(error)
 }
 
-fn run(explicit: Option<String>) -> Result<Report, Failure> {
+pub fn run(explicit: Option<String>) -> Result<Report, Failure> {
     // Reject an absent or unverifiable implicit caller before filesystem or
     // database discovery. Explicit selectors still resolve through storage.
     let selector = identity_context::required(explicit.as_deref())?;
@@ -61,25 +60,26 @@ fn run(explicit: Option<String>) -> Result<Report, Failure> {
     after_cleanup(pending, || storage.close())
 }
 
-pub fn execute(identity: Option<String>, mode: OutputMode) -> io::Result<u8> {
-    let report = match run(identity) {
-        Ok(report) => report,
-        Err(error) => return error.publish(mode),
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        // The full path, never `~/`: scripts read it (see the command's Details).
+        writeln!(stdout, "{}", self.notes.path.display())
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
         writeln!(
             stdout,
             "{}",
             json!({
-                "identityId": report.identity_id,
-                "path": report.notes.path,
-                "created": report.notes.created,
+                "identityId": self.identity_id,
+                "path": self.notes.path,
+                "created": self.notes.created,
             })
-        )?;
-    } else {
-        // The full path, never `~/`: scripts read it (see the command's Details).
-        writeln!(stdout, "{}", report.notes.path.display())?;
+        )
     }
-    Ok(0)
 }

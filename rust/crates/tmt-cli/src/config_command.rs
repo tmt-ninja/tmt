@@ -1,7 +1,7 @@
 //! Thin configuration command composition and presentation. Policy and raw
 //! document mutation remain in the shared core and filesystem adapter.
 
-use crate::invocation::{ConfigRequest, OutputMode};
+use crate::invocation::ConfigRequest;
 use crate::output::Failure;
 use serde_json::json;
 use std::io::{self, Write};
@@ -32,7 +32,7 @@ fn editable_theme_base(value: &str) -> Result<tmt_cli_style::Base, Failure> {
         })
 }
 
-struct Shown {
+pub(crate) struct Shown {
     loaded: ResolvedSettings,
     theme: Vec<(String, String)>,
     /// A bad theme is reported, never a failure: it must not stop
@@ -41,12 +41,12 @@ struct Shown {
     paths: ConfigPaths,
 }
 
-enum Report {
+pub enum Report {
     Show(Box<Shown>),
     Changed(String),
 }
 
-fn run(request: ConfigRequest) -> Result<Report, Failure> {
+pub fn run(request: ConfigRequest) -> Result<Report, Failure> {
     let files = ConfigFiles {
         paths: ConfigPaths::discover()?,
     };
@@ -108,46 +108,46 @@ fn run(request: ConfigRequest) -> Result<Report, Failure> {
     }
 }
 
-pub fn execute(request: ConfigRequest, mode: OutputMode) -> io::Result<u8> {
-    let report = match run(request) {
-        Ok(report) => report,
-        Err(error) => return error.publish(mode),
-    };
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
-    let terminal = output.terminal();
-    match report {
-        Report::Changed(message) => {
-            if mode.json {
-                writeln!(output, "{{\"ok\":true}}")?;
-            } else {
-                tmt_cli_style::message::success(&mut output, terminal, &message)?;
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        mut output: &mut dyn Write,
+        mut stderr: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        stderr_terminal: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        match self {
+            Report::Changed(message) => {
+                tmt_cli_style::message::success(&mut output, terminal, message)
             }
-        }
-        Report::Show(shown) => {
-            let Shown {
-                loaded,
-                theme,
-                theme_error,
-                paths,
-            } = *shown;
-            if mode.json {
-                let mut document = show_json(&loaded, &theme, &paths);
-                document["themeError"] = theme_error.as_ref().map_or(
-                    serde_json::Value::Null,
-                    |problem| json!({"key": problem.key, "message": problem.message}),
-                );
-                writeln!(output, "{document}")?;
-            } else {
-                show_text(&mut output, terminal, &loaded, &theme, &paths)?;
-                if let Some(problem) = theme_error {
-                    let mut stderr = tmt_cli_style::stream::stderr();
-                    let terminal = stderr.terminal();
-                    write_theme_problem(&mut stderr, terminal, &theme, &problem)?;
+            Report::Show(shown) => {
+                show_text(
+                    &mut output,
+                    terminal,
+                    &shown.loaded,
+                    &shown.theme,
+                    &shown.paths,
+                )?;
+                if let Some(problem) = &shown.theme_error {
+                    write_theme_problem(&mut stderr, stderr_terminal, &shown.theme, problem)?;
                 }
+                Ok(())
             }
         }
     }
-    Ok(0)
+    fn json(&self, output: &mut dyn Write) -> io::Result<()> {
+        match self {
+            Report::Changed(_) => writeln!(output, "{{\"ok\":true}}"),
+            Report::Show(shown) => {
+                let mut document = show_json(&shown.loaded, &shown.theme, &shown.paths);
+                document["themeError"] = shown.theme_error.as_ref().map_or(
+                    serde_json::Value::Null,
+                    |problem| json!({"key": problem.key, "message": problem.message}),
+                );
+                writeln!(output, "{document}")
+            }
+        }
+    }
 }
 
 fn write_theme_problem(

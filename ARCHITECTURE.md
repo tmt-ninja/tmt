@@ -98,6 +98,14 @@ local [MCP](contracts/mcp-v1.md) and [lifecycle hooks](contracts/extension-api.m
 The [extension surface reference](.agents/skills/tmt-core-runtime/references/extension-surface.md)
 owns their module rules and the Core command surface.
 
+Ordinary commands migrated under #485 return a `tmt-cli-style::Render` report;
+`CliOutput` chooses its human or JSON presentation and stream. Core's
+`tmt-command-output::Failure` retains error details and status while adapting
+to that shared, dependency-light owner. Other command families retain their
+existing paths until migrated. Core's exhaustive `OutputBoundary` inventory
+classifies every invocation, including exact-byte and interactive protocols
+that keep their own contracts.
+
 Files under `contracts/` are Core contracts owned by tmt-lead, except the channel
 contracts #606 assigns to a squad (`remote-channel-v1.md`: tmt-remote);
 `extensions/<ext>/contracts/` belongs to the squad that owns `<ext>`.

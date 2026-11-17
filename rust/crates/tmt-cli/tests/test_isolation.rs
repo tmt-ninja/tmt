@@ -150,3 +150,83 @@ fn private_discovery_never_reads_local_config_above_the_admitted_root() {
     );
     assert_eq!(fs::read(f.root.join("tmt.json")).unwrap(), b"not JSON");
 }
+
+#[test]
+fn migrated_commands_keep_human_json_and_failure_streams() {
+    let mut f = Fixture::new();
+    let human_root = f.root.join("human");
+    let json_root = f.root.join("json");
+    for (root, json) in [(&human_root, false), (&json_root, true)] {
+        let args: &[&str] = if json { &["init", "--json"] } else { &["init"] };
+        let result = f.run(support::command(root, args));
+        assert_eq!(result.status.code(), Some(0));
+        assert!(result.stderr.is_empty());
+        let created = fs::canonicalize(root).unwrap().join("tmt.json");
+        let expected = if json {
+            format!("{}\n", serde_json::json!({"created": created}))
+        } else {
+            format!("✓ Created {}\n", created.display())
+        };
+        assert_eq!(result.stdout, expected.as_bytes());
+
+        let args: &[&str] = if json {
+            &["config", "set", "preambleEvery", "7", "--json"]
+        } else {
+            &["config", "set", "preambleEvery", "7"]
+        };
+        let result = f.run(support::command(root, args));
+        assert_eq!(result.status.code(), Some(0));
+        assert!(result.stderr.is_empty());
+        assert_eq!(
+            result.stdout,
+            if json {
+                b"{\"ok\":true}\n".as_slice()
+            } else {
+                "✓ Set preambleEvery=7 in local config (repo override)\n".as_bytes()
+            }
+        );
+
+        let bad: &[&str] = if json {
+            &["config", "set", "--global", "theme.base", "bad", "--json"]
+        } else {
+            &["config", "set", "--global", "theme.base", "bad"]
+        };
+        let result = f.run(support::command(root, bad));
+        assert_eq!(result.status.code(), Some(1));
+        if json {
+            assert_eq!(result.stdout, b"{\"error\":{\"code\":\"ERROR\",\"message\":\"Invalid value for theme.base: bad.\",\"suggestion\":\"Valid bases: tmt, tmt-light, terminal, mono\"}}\n");
+            assert!(result.stderr.is_empty());
+        } else {
+            assert!(result.stdout.is_empty());
+            assert_eq!(result.stderr, b"error: Invalid value for theme.base: bad\nhint: Valid bases: tmt, tmt-light, terminal, mono\n");
+        }
+        let created_identity = f.run(support::command(
+            root,
+            &["identity", "create", "worker", "--json"],
+        ));
+        assert_eq!(created_identity.status.code(), Some(0));
+        let identity: serde_json::Value = serde_json::from_slice(&created_identity.stdout).unwrap();
+        let id = identity["identity"]["id"].as_str().unwrap();
+        let notes = support::state_dir(root)
+            .join("notes")
+            .join(id)
+            .join("notes.md");
+        let args: &[&str] = if json {
+            &["notes", "path", "--identity", "worker", "--json"]
+        } else {
+            &["notes", "path", "--identity", "worker"]
+        };
+        let result = f.run(support::command(root, args));
+        assert_eq!(result.status.code(), Some(0));
+        assert!(result.stderr.is_empty());
+        let expected = if json {
+            format!(
+                "{}\n",
+                serde_json::json!({"identityId":id,"path":notes,"created":true})
+            )
+        } else {
+            format!("{}\n", notes.display())
+        };
+        assert_eq!(result.stdout, expected.as_bytes());
+    }
+}

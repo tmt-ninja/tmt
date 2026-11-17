@@ -326,6 +326,100 @@ pub enum Invocation {
         pin: tmt_core::native_install::PinAction,
     },
 }
+/// Explicit output boundary inventory. The exhaustive match forces every new invocation
+/// to be classified before it can be dispatched. Legacy ordinary commands migrate by batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputBoundary {
+    Paired,
+    Exact,
+    Protocol,
+    Interactive,
+    External,
+    Streaming,
+    Legacy,
+}
+
+impl Invocation {
+    pub fn output_boundary(&self) -> OutputBoundary {
+        match self {
+            Self::Init | Self::Config(..) | Self::NotesPath { .. } => OutputBoundary::Paired,
+            Self::Help(..)
+            | Self::Version
+            | Self::CompletionScript(..)
+            | Self::Complete(..)
+            | Self::Learn { .. } => OutputBoundary::Exact,
+            Self::Api
+            | Self::ApiSession
+            | Self::ConsumptionSample
+            | Self::AllowancePush { .. }
+            | Self::Mcp { .. }
+            | Self::ChannelServer { .. }
+            | Self::PtyServe { .. }
+            | Self::DigestHook { .. }
+            | Self::ProviderHook { .. }
+            | Self::HookFlush { .. }
+            | Self::ReplyNoticeWorker { .. }
+            | Self::RequestObserver { .. }
+            | Self::NativeRefreshSkills { .. }
+            | Self::NativeRefreshIntegrations
+            | Self::NativeRenameDatabase
+            | Self::NativeCompactDatabase
+            | Self::NativeUpgradeExtensions { .. }
+            | Self::NativeSchema { .. }
+            | Self::NativeInstall { .. }
+            | Self::NativeInstallHandoff { .. } => OutputBoundary::Protocol,
+            Self::Run { .. } | Self::Resume { .. } | Self::Attach { .. } => {
+                OutputBoundary::Interactive
+            }
+            Self::Extension { .. } => OutputBoundary::External,
+            Self::Talk { .. }
+            | Self::TalkRemote { .. }
+            | Self::Exchange { .. }
+            | Self::Inbox { .. } => OutputBoundary::Streaming,
+            Self::Tick(..)
+            | Self::Completion { .. }
+            | Self::WorkspaceRestore { .. }
+            | Self::WorkspaceShow { .. }
+            | Self::WorkspaceSave { .. }
+            | Self::WorkspaceList { .. }
+            | Self::WorkspaceRemove { .. }
+            | Self::Channel(..)
+            | Self::List { .. }
+            | Self::Bind { .. }
+            | Self::Discover { .. }
+            | Self::GuardedBind { .. }
+            | Self::BindMarked { .. }
+            | Self::Remove { .. }
+            | Self::Stop { .. }
+            | Self::Rename { .. }
+            | Self::Whoami
+            | Self::WhoamiContext
+            | Self::Unbind
+            | Self::Check { .. }
+            | Self::Focus { .. }
+            | Self::FocusClient
+            | Self::ExtensionHooks(..)
+            | Self::Driver(..)
+            | Self::Host(..)
+            | Self::ExtensionInstall(..)
+            | Self::Identity(..)
+            | Self::Room(..)
+            | Self::Orch(..)
+            | Self::Preamble(..)
+            | Self::Role { .. }
+            | Self::ExchangeFlow { .. }
+            | Self::Reply { .. }
+            | Self::Result { .. }
+            | Self::Answer { .. }
+            | Self::SendNow { .. }
+            | Self::Install { .. }
+            | Self::Setup { .. }
+            | Self::Upgrade { .. }
+            | Self::Storage
+            | Self::Uninstall { .. } => OutputBoundary::Legacy,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoomOperation {

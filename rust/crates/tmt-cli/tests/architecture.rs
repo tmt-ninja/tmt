@@ -268,6 +268,7 @@ fn workspace_obeys_native_architecture() {
         output_allowlist::MIGRATING,
     ));
     violations.extend(interaction::violations(&sources, interaction::MIGRATING));
+    violations.extend(interaction::report_violations(&sources));
     violations.extend(required_caller::violations(
         &sources,
         required_caller::CALLERS,

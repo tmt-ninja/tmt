@@ -217,6 +217,8 @@ fn write_exact(
 }
 
 fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
+    let output = (parsed.invocation.output_boundary() == invocation::OutputBoundary::Paired)
+        .then(|| tmt_cli_style::CliOutput::new(parsed.mode.json));
     match parsed.invocation {
         Invocation::Mcp { identity } => return mcp_command::execute(&identity),
         Invocation::Api => {
@@ -284,7 +286,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return binding_command::execute_guarded(request, parsed.mode);
         }
         Invocation::Config(request) => {
-            return config_command::execute(request, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(config_command::run(request));
         }
         request @ (Invocation::WorkspaceRestore { .. }
         | Invocation::WorkspaceShow { .. }
@@ -306,7 +311,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return host_command::execute(request, parsed.mode);
         }
         Invocation::Init => {
-            return init_command::execute(parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(init_command::run());
         }
         Invocation::Run {
             host,
@@ -449,7 +457,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Tick(operation) => return tick_command::execute(operation, parsed.mode),
         Invocation::Orch(request) => return orch_command::execute(request, parsed.mode),
         Invocation::NotesPath { identity } => {
-            return notes_command::execute(identity, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(notes_command::run(identity));
         }
         Invocation::ExchangeFlow {
             window_ms,
