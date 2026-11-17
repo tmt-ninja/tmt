@@ -1434,13 +1434,7 @@ fn observe_lifecycle_event(
             event: SessionLearningEvent::Unknown,
         });
     }
-    let BoundCaller {
-        host,
-        paths,
-        stored,
-        snapshot,
-        process,
-    } = match verified_caller(
+    let bound = match verified_caller(
         CallerRequest {
             provider,
             lifecycle,
@@ -1474,6 +1468,29 @@ fn observe_lifecycle_event(
         }
         Caller::Bound(bound) => *bound,
     };
+    observe_bound_lifecycle_event(
+        provider, harness, lifecycle, input, event, bound, deadline, learning,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn observe_bound_lifecycle_event(
+    provider: &str,
+    harness: HarnessId,
+    lifecycle: &dyn RuntimeLifecycle,
+    input: &[u8],
+    event: Box<dyn tmt_adapters::runtime::lifecycle::LifecycleObservation>,
+    bound: BoundCaller,
+    deadline: Instant,
+    learning: Option<&Learning>,
+) -> Result<Observation, ()> {
+    let BoundCaller {
+        host,
+        paths,
+        stored,
+        snapshot,
+        process,
+    } = bound;
     let binding = stored.entry.binding.as_ref().ok_or(())?;
     let pane = binding.pane_id.clone();
     if !matches!(
@@ -2283,26 +2300,36 @@ fn observe_main_event(
             && event.starting()
             && (unnamed_managed || matching_remembered)
         {
-            let observation = observe_lifecycle_event(
+            let binding_id = binding.id.clone();
+            let pane_id = binding.pane_id.clone();
+            let server = snapshot.server.clone();
+            let observation = observe_bound_lifecycle_event(
                 provider,
                 harness.clone(),
                 lifecycle,
                 bytes,
                 event,
+                BoundCaller {
+                    host,
+                    paths: paths.clone(),
+                    stored,
+                    snapshot: snapshot.clone(),
+                    process: process.clone(),
+                },
                 deadline,
                 run.learning,
             )?;
             if activity.is_some()
                 && let Some(refreshed) = Storage::context_by_pane(
                     &paths.database,
-                    snapshot.server.host,
-                    &binding.pane_id,
-                    &snapshot.server.server_id,
+                    server.host,
+                    &pane_id,
+                    &server.server_id,
                     tmt_adapters::request_runtime::wall_time_ms(),
                 )
                 .map_err(|_| ())?
                 && refreshed.entry.binding.as_ref().is_some_and(|current| {
-                    current.id == binding.id
+                    current.id == binding_id
                         && current.session.state
                             == tmt_core::binding::session::RuntimeState::Running
                         && current.session.key.as_ref().is_some_and(|key| {
