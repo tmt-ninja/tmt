@@ -177,8 +177,34 @@ export function mountWorkPage(
     source,
     state: manualState,
     pageState: manualState,
+    workFacts: {
+      state: scenario === 'work-fields' ? 'blocked' : 'working',
+      known: true,
+      pulls:
+        scenario === 'work-fields'
+          ? [
+              {
+                url: 'https://github.com/example/project/pull/42',
+                fact: {
+                  state: 'merged',
+                  checks: 'SUCCESS',
+                  released: true,
+                  tag: 'v1.2.3',
+                  observedAtMs: 1000000,
+                },
+              },
+            ]
+          : [],
+      activity: { state: 'working', lastActivityMs: 880000, observedAtMs: 1000000 },
+      asOfMs: 1000000,
+    },
     ...(scenario === 'work-fields'
-      ? { priority: 'high' as const, owner: { id: id(88), name: 'gui-3' } }
+      ? {
+          priority: 'high' as const,
+          owner: { id: id(88), name: 'gui-3' },
+          next: 'Review the mockup',
+          blocked: 'Waiting for Core',
+        }
       : {}),
     ...(current ? { work: current } : {}),
   });
@@ -187,6 +213,7 @@ export function mountWorkPage(
     title: row.title,
     state: row.state,
     sharing: 'private',
+    ...(scenario === 'work-fields' && row.id === PAGES.remote ? { workNumber: 'COLAB-129' } : {}),
     ...(row.archived ? { archived: true } : {}),
     ...(row.projects ? { projects: row.projects } : {}),
     ...(row.parent || row.author
@@ -197,6 +224,16 @@ export function mountWorkPage(
             needsYou: 0,
             ...(row.parent ? { parent: row.parent } : {}),
             ...(row.author ? { author: row.author } : {}),
+            ...(scenario === 'work-fields' && row.id === PAGES.remote
+              ? {
+                  fields: {
+                    priority: 'high' as const,
+                    owner: { id: id(88), name: 'gui-3' },
+                    next: 'Review the mockup',
+                    blocked: 'Waiting for Core',
+                  },
+                }
+              : {}),
           },
         }
       : {}),
@@ -207,6 +244,7 @@ export function mountWorkPage(
       title: pageTitle,
       state: manualState,
       sharing: 'private',
+      ...(scenario === 'work-fields' ? { projects: ['Colab'] } : {}),
       summary: {
         comments: 0,
         waiting: false,
@@ -332,6 +370,32 @@ export function mountWorkPage(
   ]);
   const routed = {
     ...transport,
+    ...(owner && scenario === 'work-fields'
+      ? {
+          management: {
+            read: async () => {
+              throw new Error('Not used by this fixture');
+            },
+            prepare: async () => {
+              throw new Error('Not used by this fixture');
+            },
+            send: async () => {
+              throw new Error('Not used by this fixture');
+            },
+            verify: async () => {
+              throw new Error('Not used by this fixture');
+            },
+            setProjects: async () => {},
+            manageProject: async () => {},
+            setPinned: async () => {},
+            newPage: async () => {
+              throw new Error('Not used by this fixture');
+            },
+            setDefaultTemplate: async () => 'starter',
+            readTemplates: async () => ({ default: 'starter', templates: [] }),
+          },
+        }
+      : {}),
     async spaceHome() {
       return { title: 'Review space', pages: listed() };
     },

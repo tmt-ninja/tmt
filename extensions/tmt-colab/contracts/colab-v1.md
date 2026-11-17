@@ -6414,6 +6414,36 @@ readable page-scoped creation statement follow in page-ID order. The number is o
 display data, not authority.
 `tmt colab page create --project NAME` sets the initial project before allocating the page number;
 `tmt colab project set NAME --prefix PREFIX` changes a project's prefix for future allocations.
+`tmt colab project set NAME --release-tag-prefix PREFIX` sets an optional owner-local filter for
+release tags; `--clear-release-tag-prefix` removes it. A page uses the first canonical project
+with a filter, or accepts any release tag when none has one. A merged PR is released only when
+its merge commit is an ancestor of an eligible GitHub release tag from its repository. Show that
+tag; an empty release list, a failed read or an unavailable `gh` means unknown, not released.
+
+The owner service derives computed work status as unsigned, owner-local display data. It may call
+the user's logged-in `gh` executable, never reading, storing or forwarding a token. PRs are keyed
+only by explicit GitHub PR URLs in the admitted page, not a number guessed from a title. An owner
+page must be open on its admitted sync connection for a read; closing it or moving its content
+cancels its in-flight request. At most one GitHub read is in flight per owner service. Open PRs
+are read at most once per 60 seconds; each command has a five-second deadline, and a page refresh
+starts no further GitHub commands after its 30-second budget. Release lists are read at most once per repository per five
+minutes and contain at most the newest ten releases including prereleases. A failed read backs off;
+missing `gh`, logged-out access, unknown checks and unproven release facts remain unknown. A
+successful comparison is retained per PR, merge and candidate tag; a positive release and tag are
+retained and never polled again for that filter. The reader requests only the checks rollup state.
+No GitHub output is added to page HTML, and share readers receive none of these observations.
+
+The owner browser may POST `{pageId}` to `/api/work-facts` only while its owner sync connection
+for that page is open. The reply is `{pageId,known,pulls,state,activity,asOfMs}`: `pulls` holds
+only admitted PR URLs and bounded derived facts, `activity` is a bounded local observation or null,
+and unavailable data stays unknown. Activity is read from `identities.status` for the admitted
+owner on page open, visibility, owner sync events and PR refresh, after comparing `changes.cursor`;
+there is no activity timer or watcher. A missed update between those events is accepted. An
+activity observation older than the named provisional stall threshold cannot claim working or
+possibly stalled. Last activity is not a heartbeat. The current owner-local result is retained by
+page fingerprint for `ls --json` and `show --json` as `computedStatus`; these reads do not start
+GitHub requests. A missing, stale or failed observation is unknown. The threshold is provisional;
+the user has not chosen it. There is no automatic stalled-work follow-up in this version.
 
 A structured to-do block also receives an owner-local number, keyed by its page and stable block
 ID; delete and restore keep that number. After a new content publication commits, the owner queues
@@ -6587,7 +6617,7 @@ The CLI has `pin PAGE` and `unpin PAGE` (`--json` prints `{spaceId, pageId, pinn
 ### Page summary (#2588)
 
 Each page in the owner-served `GET /api/pages` list may carry a display-only `summary` the
-The home page list shows with its title: `{comments, waiting, needsYou, author?, work?, parent?}`. Like projects it is **not signed**,
+The home page list shows with its title: `{comments, waiting, needsYou, author?, work?, parent?, fields?}`. Like projects it is **not signed**,
 is never an owner-log statement and never enters a page's content or any stream, and it
 appears only in this owner list: not in a reader link's or a member's views, and not in the
 CLI's `ls`/`show`. A client treats it as untrusted text.
@@ -6606,6 +6636,9 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   agent reply. Agent prose, device labels and publisher clocks cannot substitute for provenance.
 - `waiting` is exactly `needsYou > 0`, not a separate definition.
 - `author` is the effective creator's bounded display label ([question metadata](#question-metadata-5052)), falling back to `originalAuthor` for legacy display only. That label alone is never a creator, routing reference, identity proof or the last editor.
+- `fields`, when present, is the owner fold's `{owner?, priority?, next?, blocked?}` using the
+  admitted work-field bounds. It is display-only and may be omitted when it does not fit the
+  discovery response budget. Its text is never interpreted as HTML or authority.
 - `work` is the page's direct sub-pages as the list shows them (see [Work](#work-4050)), omitted
   for a page without sub-pages, so a fresh summary without it is in discussion. It is
   `{stage, done, total}`: the derived stage and the direct sub-pages done and in all, each counted

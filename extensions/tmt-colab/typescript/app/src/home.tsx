@@ -1,4 +1,5 @@
 import { useShortcuts } from './use-shortcuts.js';
+import { WorkFieldDetails } from './work-band.js';
 import { useMedia } from './use-media.js';
 import { ShortcutDialog } from './shortcut-dialogs.js';
 import type { Shortcut } from './shortcuts.js';
@@ -835,6 +836,9 @@ export function Home() {
                   name,
                   title: (
                     <span className="tmt-ui-list-title tmt-data-table-text">
+                      {page.workNumber && (
+                        <span className="colab-work-number">{page.workNumber} </span>
+                      )}
                       <HomeTitleLink page={page} hints={titleHints} scope={scope} />
                     </span>
                   ),
@@ -883,10 +887,14 @@ export function Home() {
                       : stage
                         ? { id: stage, label: t.stageNames[stage] }
                         : undefined,
-                  progress:
-                    page.summary?.work && page.summary.work.total > 0
-                      ? t.subpagesDone(page.summary.work.done, page.summary.work.total)
-                      : undefined,
+                  progress: (
+                    <>
+                      <WorkFieldDetails fields={page.summary?.fields} />
+                      {page.summary?.work && page.summary.work.total > 0
+                        ? t.subpagesDone(page.summary.work.done, page.summary.work.total)
+                        : null}
+                    </>
+                  ),
                   updated: updated.label,
                   updatedDateTime: updated.dateTime,
                   updatedTitle: updated.absolute,

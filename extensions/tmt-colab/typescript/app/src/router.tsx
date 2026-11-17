@@ -1646,7 +1646,6 @@ function OpenPage({
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
   const [workBandSize, setWorkBandSize] = useState(0);
-  const compactWorkTitle = useMedia('(max-width: 900px)');
   const [addingSubpage, setAddingSubpage] = useState(false);
   const addSubpageDraft = useRef<import('./page-list-search.js').SearchEdit | undefined>(undefined);
   const {
@@ -2738,6 +2737,8 @@ function OpenPage({
       work={view.work}
       priority={view.priority}
       owner={view.owner}
+      workFacts={view.workFacts}
+      blockedReason={view.blocked}
       pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
       binding={archived || liveError ? undefined : snapshot.binding}
       transport={transport}
@@ -2787,7 +2788,6 @@ function OpenPage({
       />
       {!design && (
         <ColabHeader
-          workNumber={snapshot.workNumber}
           embedded={embedded}
           remoteMenu={false}
           remoteChip={false}
@@ -2798,16 +2798,12 @@ function OpenPage({
                   {text.templates.templateChip}
                 </span>
               )}
-              {!compactWorkTitle && workControls}
-              {!compactWorkTitle && projectControls}
             </>
           }
           crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
-          // A sub-page names its parent where the remembered scope would be (#5506).
-          lead={compactWorkTitle ? undefined : hierarchy.parent}
           barRef={toolbar}
           page
-          title={view.title || snapshot.title || text.unknownPageTitle}
+          title={text.product}
           remote={{ deviceName: transport.backendName }}
           caption={
             view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)
@@ -3183,15 +3179,18 @@ function OpenPage({
         </section>
       </BrowserDrawer>
       <div className="workspace">
-        {compactWorkTitle && workControls && (
+        {workControls && (
           <MobileWorkTitle
             title={view.title || snapshot.title}
             workNumber={snapshot.workNumber}
             onSize={setWorkBandSize}
-            parent={hierarchy.parent}
+            next={view.next}
+            blocked={view.blocked}
+            facts={view.workFacts}
           >
             {workControls}
             {projectControls}
+            {hierarchy.parent}
           </MobileWorkTitle>
         )}
         {!design && pageLinkBar}

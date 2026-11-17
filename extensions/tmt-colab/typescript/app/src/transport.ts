@@ -18,6 +18,8 @@ import type { OwnState, Projection } from './fold-protocol.js';
 import type { BlocksResult, MetadataAction, SubpageBatchResult, WorkAction } from './save.js';
 import type { BlockOp } from './block-model.js';
 export interface PageView extends Projection {
+  /** Unsigned owner-local work observations; absent on readers or when unavailable. */
+  readonly workFacts?: import('./reading-details.js').WorkFactView;
   /** Owner-local labels for admitted to-do blocks, absent to readers. */
   readonly todoNumbers?: Readonly<Record<string, string>>;
   /** The local, per-binding order of the content this view shows: higher is newer. It orders views

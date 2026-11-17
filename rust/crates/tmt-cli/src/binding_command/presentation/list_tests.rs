@@ -712,7 +712,12 @@ fn activity_projection_requires_current_scope_and_runtime_evidence() {
         10,
     );
     let project = |binding: &Binding, remembered: &RememberedSession, runtime| {
-        crate::output::activity_document(Some(binding), Some(remembered), runtime, &registry)
+        tmt_adapters::runtime::activity_document(
+            Some(binding),
+            Some(remembered),
+            runtime,
+            &registry,
+        )
     };
     assert_eq!(
         project(&binding, &remembered, RuntimeState::Running),

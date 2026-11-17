@@ -497,7 +497,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
         DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
-        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=2;",
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=2;",
     )
     .unwrap();
     let store = Store::open(&f.layout).unwrap();

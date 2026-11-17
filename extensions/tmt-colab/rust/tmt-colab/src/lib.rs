@@ -66,6 +66,7 @@ pub mod threads;
 pub mod transitions;
 pub mod work;
 pub mod work_admission;
+pub mod work_facts;
 pub mod work_index;
 pub mod work_links;
 

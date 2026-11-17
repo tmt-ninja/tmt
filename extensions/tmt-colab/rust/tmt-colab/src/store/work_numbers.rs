@@ -191,6 +191,195 @@ impl super::Store {
             )
             .optional()?)
     }
+    /// The first canonical project that has an explicit release tag filter.
+    pub fn release_tag_prefix_for_page(&self, page: &str) -> StoreResult<Option<String>> {
+        Ok(self.connection.query_row(
+            "SELECT m.release_tag_prefix FROM page_projects p JOIN project_meta m ON m.name=p.project WHERE p.page=? AND m.release_tag_prefix IS NOT NULL ORDER BY p.project LIMIT 1",
+            [page],
+            |row| row.get(0),
+        ).optional()?)
+    }
+    pub fn release_tag_prefixes(&self) -> StoreResult<std::collections::BTreeMap<String, String>> {
+        let mut query = self.connection.prepare(
+            "SELECT name,release_tag_prefix FROM project_meta WHERE release_tag_prefix IS NOT NULL ORDER BY name",
+        )?;
+        let rows = query.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+    /// Immutable positive release ancestry evidence, retained across serve restarts.
+    pub fn work_release_facts(&self, pr: &str) -> StoreResult<Vec<(String, String, u64)>> {
+        let mut query = self.connection.prepare(
+            "SELECT merge_sha,tag,observed_ms FROM work_release_facts WHERE pr=? ORDER BY tag,merge_sha",
+        )?;
+        let rows = query.query_map([pr], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+        Ok(rows
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter_map(|(sha, tag, at)| u64::try_from(at).ok().map(|at| (sha, tag, at)))
+            .collect())
+    }
+    pub fn remember_work_release(
+        &self,
+        pr: &str,
+        merge: &str,
+        tag: &str,
+        observed_ms: u64,
+    ) -> StoreResult<()> {
+        self.connection.execute(
+            "INSERT OR IGNORE INTO work_release_facts(pr,merge_sha,tag,observed_ms) VALUES(?,?,?,?)",
+            rusqlite::params![pr, merge, tag, i64::try_from(observed_ms).map_err(|_| super::Fault::Capacity)?],
+        )?;
+        Ok(())
+    }
+    pub fn work_release_comparison(
+        &self,
+        pr: &str,
+        merge: &str,
+        tag: &str,
+    ) -> StoreResult<Option<bool>> {
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT contains FROM work_release_checks WHERE pr=? AND merge_sha=? AND tag=?",
+                rusqlite::params![pr, merge, tag],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+    pub fn remember_work_release_comparison(
+        &self,
+        pr: &str,
+        merge: &str,
+        tag: &str,
+        contains: bool,
+    ) -> StoreResult<()> {
+        let inserted = self.connection.execute(
+            "INSERT OR IGNORE INTO work_release_checks(pr,merge_sha,tag,contains) SELECT ?,?,?,? WHERE (SELECT COUNT(*) FROM work_release_checks) < 100000",
+            rusqlite::params![pr, merge, tag, contains],
+        )?;
+        if inserted == 0 && self.work_release_comparison(pr, merge, tag)?.is_none() {
+            return Err(super::Fault::Capacity);
+        }
+        Ok(())
+    }
+    /// Store only bounded owner-local display facts; a fingerprint prevents stale page data
+    /// being attached to a newer admitted page.
+    pub fn remember_work_status(
+        &self,
+        page: &str,
+        fingerprint: &str,
+        value: &serde_json::Value,
+    ) -> StoreResult<()> {
+        let value = serde_json::to_string(value).map_err(|_| super::Fault::Capacity)?;
+        if value.len() > 32 * 1024 {
+            return Err(super::Fault::Capacity);
+        }
+        self.connection.execute(
+            "INSERT INTO work_status_cache(page,fingerprint,value) VALUES(?,?,?) ON CONFLICT(page) DO UPDATE SET fingerprint=excluded.fingerprint,value=excluded.value",
+            rusqlite::params![page, fingerprint, value],
+        )?;
+        Ok(())
+    }
+    /// Share one verified fingerprint snapshot across a catalog read.
+    pub fn work_status_fingerprints(
+        &self,
+        key: &crate::keyring::Keyring,
+    ) -> crate::Result<std::collections::BTreeMap<String, String>> {
+        let any: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM work_status_cache)",
+            [],
+            |row| row.get(0),
+        )?;
+        if !any {
+            return Ok(std::collections::BTreeMap::new());
+        }
+        self.owner_read(&key.space_id, &key.owner_public(), |tx| {
+            tx.page_fingerprints()
+        })
+    }
+
+    /// Current cached work display for CLI consumers; stale or malformed data is unknown.
+    pub fn cached_work_status_with_fingerprints(
+        &self,
+        key: &crate::keyring::Keyring,
+        page: &str,
+        now: u64,
+        fingerprints: Option<&std::collections::BTreeMap<String, String>>,
+    ) -> crate::Result<Option<serde_json::Value>> {
+        let cached: Option<(String, String)> = self
+            .connection
+            .query_row(
+                "SELECT fingerprint,value FROM work_status_cache WHERE page=?",
+                rusqlite::params![page],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((cached_fingerprint, raw)) = cached.filter(|(_, raw)| raw.len() <= 32 * 1024)
+        else {
+            return Ok(None);
+        };
+        let fingerprint = match fingerprints {
+            Some(fingerprints) => fingerprints.get(page).cloned(),
+            None => self.owner_read(&key.space_id, &key.owner_public(), |tx| {
+                tx.page_fingerprint(page)
+            })?,
+        };
+        if fingerprint.as_deref() != Some(cached_fingerprint.as_str()) {
+            return Ok(None);
+        }
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return Ok(None);
+        };
+        if value["pageId"] != page
+            || !matches!(
+                value["state"].as_str(),
+                Some(
+                    "done"
+                        | "blocked"
+                        | "needs-you"
+                        | "waiting-ci"
+                        | "waiting-release"
+                        | "working"
+                        | "possibly-stalled"
+                        | "discussing"
+                        | "unknown"
+                )
+            )
+        {
+            return Ok(None);
+        }
+        if matches!(
+            value["state"].as_str(),
+            Some("working" | "possibly-stalled")
+        ) {
+            let observed = value
+                .pointer("/activity/observedAtMs")
+                .and_then(serde_json::Value::as_u64);
+            let last = value
+                .pointer("/activity/lastActivityMs")
+                .and_then(serde_json::Value::as_u64);
+            value["state"] = if observed
+                .is_none_or(|at| now < at || now - at >= crate::work_index::STALL_THRESHOLD_MS)
+            {
+                "unknown"
+            } else if last
+                .is_some_and(|at| now >= at && now - at >= crate::work_index::STALL_THRESHOLD_MS)
+            {
+                "possibly-stalled"
+            } else {
+                "working"
+            }
+            .into();
+        }
+        value["asOfMs"] = now.into();
+        Ok(Some(value))
+    }
 }
 
 /// Backfill from admitted log rows in revision order; unreadable rows do not block migration.

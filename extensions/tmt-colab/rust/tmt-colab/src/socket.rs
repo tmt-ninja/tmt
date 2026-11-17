@@ -126,6 +126,8 @@ struct Cloud {
 #[derive(Clone)]
 struct Browser {
     space_id: String,
+    layout: Layout,
+    work_facts: Arc<crate::work_facts::Facts>,
     app: Option<Arc<App>>,
     /// How a root-local stop request is answered and acted on.
     control: Control,
@@ -172,6 +174,8 @@ impl MountSocket {
             path,
             browser: Browser {
                 space_id: space_id.to_owned(),
+                layout: layout.clone(),
+                work_facts: Arc::new(crate::work_facts::Facts::default()),
                 app: None,
                 control: Control::new(),
                 release: None,
@@ -894,6 +898,121 @@ fn serve(
             });
         let (status, body) = match result {
             Ok(bytes) => (200, bytes),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
+        return;
+    }
+    if request.method == "POST" && !request.upgrade && request.path == registration::WORK_FACTS_PATH
+    {
+        let result = (|| {
+            let service = registration.ok_or(registration::Code::Unavailable)?;
+            let registration::WorkFactsInput {
+                device,
+                page,
+                projection,
+                prefix,
+                fingerprint,
+            } = service
+                .lock()
+                .map_err(|_| registration::Code::Unavailable)?
+                .work_facts_input(request.context.as_deref(), &request.body)?;
+            let server = sync.ok_or(registration::Code::Unavailable)?;
+            let stop = server
+                .owner_page_token(&device, &page)
+                .ok_or(registration::Code::Denied)?;
+            let Some(projection) = projection else {
+                return Ok(
+                    serde_json::json!({"pageId":page,"known":false,"pulls":[],"state":"unknown","activity":null,"asOfMs":registration::now_ms()?}),
+                );
+            };
+            let fields = projection.summary.work.as_ref().map(|work| &work.fields);
+            let owner = fields
+                .and_then(|fields| fields.pointer("/owner/id"))
+                .and_then(serde_json::Value::as_str);
+            let activity = owner.and_then(|owner| browser.work_facts.activity(owner, &stop));
+            let owner_activity = match activity.as_ref().map(|activity| activity.state.as_str()) {
+                Some("working") => crate::work_index::OwnerActivity::Working {
+                    last_activity_ms: activity
+                        .as_ref()
+                        .and_then(|activity| activity.last_activity_ms),
+                    observed_at_ms: activity
+                        .as_ref()
+                        .map_or(0, |activity| activity.observed_at_ms),
+                },
+                Some("waiting") => crate::work_index::OwnerActivity::Waiting,
+                Some("idle" | "ended") => crate::work_index::OwnerActivity::Other,
+                None if owner.is_none() => crate::work_index::OwnerActivity::Other,
+                _ => crate::work_index::OwnerActivity::Unknown,
+            };
+            let known = projection.pr_links.is_some();
+            let mut pulls = Vec::new();
+            let mut statuses = Vec::new();
+            // A page may link many PRs; keep one refresh bounded even when every provider is slow.
+            let fact_deadline = Instant::now() + Duration::from_secs(30);
+            for link in projection.pr_links.unwrap_or_default() {
+                let fact = browser.work_facts.observe(
+                    &browser.layout,
+                    &link,
+                    prefix.as_deref(),
+                    &stop,
+                    || !stop.load(Ordering::Acquire) && Instant::now() < fact_deadline,
+                );
+                statuses.push(match fact.as_ref() {
+                    Some(fact) if fact.state == "open" => crate::work_index::PullRequestFact::Open,
+                    Some(fact) if fact.state == "merged" => {
+                        crate::work_index::PullRequestFact::Merged {
+                            released: fact.released,
+                        }
+                    }
+                    Some(fact) if fact.state == "closed" => {
+                        crate::work_index::PullRequestFact::Closed
+                    }
+                    _ => crate::work_index::PullRequestFact::Unknown,
+                });
+                pulls.push(
+                    serde_json::json!({"url":link.url(),"fact":fact.map(|fact| fact.json())}),
+                );
+            }
+            if stop.load(Ordering::Acquire) {
+                return Err(registration::Code::Denied);
+            }
+            let blocked = fields
+                .and_then(|fields| fields.get("blocked"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|reason| !reason.is_empty());
+            let as_of = registration::now_ms()?;
+            let state = crate::work_index::computed_state(
+                projection.todo_counts,
+                blocked,
+                projection.summary.waiting,
+                known.then_some(statuses.as_slice()),
+                owner_activity,
+                as_of,
+            );
+            let activity = activity.map(|activity| serde_json::json!({"state":activity.state,"lastActivityMs":activity.last_activity_ms,"observedAtMs":activity.observed_at_ms}));
+            let result = serde_json::json!({"pageId":page,"known":known,"pulls":pulls,"state":state,"activity":activity,"asOfMs":as_of});
+            let current = service
+                .lock()
+                .map_err(|_| registration::Code::Unavailable)?
+                .work_facts_input(request.context.as_deref(), &request.body)?
+                .fingerprint;
+            if current != fingerprint || stop.load(Ordering::Acquire) {
+                return Err(registration::Code::Unavailable);
+            }
+            if let Ok(store) = Store::write_existing(&browser.layout) {
+                let _ = store.remember_work_status(&page, &fingerprint, &result);
+            }
+            if stop.load(Ordering::Acquire) {
+                return Err(registration::Code::Denied);
+            }
+            Ok(result)
+        })();
+        let (status, body) = match result {
+            Ok(value) => (200, serde_json::to_vec(&value).expect("work facts JSON")),
             Err(code) => (
                 code.status(),
                 serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
@@ -1955,6 +2074,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | "/api/serve-release"
             | "/api/pages"
             | registration::WORK_NUMBERS_PATH
+            | registration::WORK_FACTS_PATH
             | TEMPLATES
             | management::PATH
             | management::LOCAL_PATH

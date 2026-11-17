@@ -1,5 +1,6 @@
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { BrowserMenu } from '@tmt/browser-ui/react';
+import { Popover, PopoverContent, PopoverTrigger, UiTheme } from '@tmt/browser-ui/ui';
 import { MoreHorizontal } from 'lucide-react';
 import { text } from './strings.js';
 import { SaveNotApplied, SaveRefused, saveMessage, type MetadataAction } from './save.js';
@@ -10,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -21,6 +23,8 @@ import { rememberPages } from './quick-switcher-source.js';
 import { useLinkedPages } from './work-stages.js';
 import { subpageTree, type SubpageRow } from './work-tree.js';
 import type { StoredWork } from './work.js';
+import { relativeTime } from './display-time.js';
+import { getTheme, subscribeTheme } from './theme.js';
 
 const PAGE_STATES = ['todo', 'in-progress', 'done'] as const;
 const t = text.workBand;
@@ -64,6 +68,8 @@ export function PageWorkBand({
   adding,
   onAddingChange,
   addDraft,
+  workFacts,
+  blockedReason,
   ...band
 }: Omit<WorkBandProps, 'subpages' | 'childrenOf' | 'counts' | 'stateControl'> & {
   /** Absent for a page that never had work. */
@@ -80,6 +86,8 @@ export function PageWorkBand({
   adding: boolean;
   onAddingChange(open: boolean): void;
   addDraft?: RefObject<SearchEdit | undefined>;
+  workFacts?: import('./reading-details.js').WorkFactView;
+  blockedReason?: string;
 }): ReactNode {
   const { observed, pages } = useLinkedPages(transport, space, work);
   const tree = useMemo(() => subpageTree(pageId, work, pages), [pageId, work, pages]);
@@ -99,7 +107,11 @@ export function PageWorkBand({
     }
   }, [transport, space]);
   const owner = binding?.work !== undefined && binding.canWork?.() === true;
-  const stateControl = <PageStateMenu binding={binding} state={band.pageState} />;
+  const stateControl = owner ? (
+    <ComputedStatus facts={workFacts} blocked={blockedReason} />
+  ) : (
+    <PageStateMenu binding={binding} state={band.pageState} />
+  );
   const shared = {
     ...band,
     stateControl,
@@ -165,6 +177,62 @@ export function PageWorkBand({
         />
       )}
     </>
+  );
+}
+
+function ComputedStatus({
+  facts,
+  blocked,
+}: {
+  facts?: import('./reading-details.js').WorkFactView;
+  blocked?: string;
+}) {
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
+  const state = facts?.state ?? 'unknown';
+  const label = t.computedState[state];
+  const tone =
+    state === 'blocked'
+      ? 'blocked'
+      : state === 'working'
+        ? 'working'
+        : ['needs-you', 'waiting-ci', 'waiting-release', 'possibly-stalled'].includes(state)
+          ? 'waiting'
+          : 'muted';
+  return (
+    <UiTheme theme={theme}>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={`work-page-state ${ui.countChip}`}
+            aria-label={t.statusDetails(label)}
+          >
+            <span className={ui.stateMark} data-shape="dot" data-tone={tone} aria-hidden="true" />
+            {label}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="work-status-details">
+          <strong>{label}</strong>
+          {blocked && <p>{t.blockedNote(blocked)}</p>}
+          {facts?.activity && (
+            <p>
+              {facts.activity.state} ·{' '}
+              {t.factAge(relativeTime(facts.activity.observedAtMs, facts.asOfMs))}
+            </p>
+          )}
+          {facts?.pulls.map(({ url, fact }) => (
+            <p key={url}>
+              PR #{url.split('/').at(-1)} ·{' '}
+              {fact?.tag ? t.releasedIn(fact.tag) : (fact?.state ?? t.unknown)}
+              {fact?.checks && <> · {t.checks[fact.checks]}</>}
+              {fact?.state === 'open' && !fact.checks && <> · {t.checksUnavailable}</>}
+              {fact && <> · {t.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>}
+            </p>
+          ))}
+          {!facts && <p>{t.statusUnavailable}</p>}
+        </PopoverContent>
+      </Popover>
+    </UiTheme>
   );
 }
 

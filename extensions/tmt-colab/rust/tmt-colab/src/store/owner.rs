@@ -601,6 +601,19 @@ impl OwnerTransaction<'_> {
                 }
                 super::work_numbers::set_prefix(self.tx, name, prefix)?;
             }
+            Change::ReleaseTagPrefix { name, prefix } => {
+                if !exists(name)?
+                    || prefix
+                        .as_deref()
+                        .is_some_and(|value| !crate::projects::valid_release_tag_prefix(value))
+                {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                self.tx.execute(
+                    "UPDATE project_meta SET release_tag_prefix=? WHERE name=?",
+                    rusqlite::params![prefix, name],
+                )?;
+            }
             Change::Pins(names) => self.set_project_pins(names)?,
         }
         Ok(())

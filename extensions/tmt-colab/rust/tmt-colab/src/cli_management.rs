@@ -1210,8 +1210,10 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
         let state_found = state_index(&layout, &store, &key, &ids).unwrap_or_default();
         let state_graph = tmt_colab::work_links::Graph(&state_found);
+        let status_fingerprints = store.work_status_fingerprints(&key).unwrap_or_default();
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             attach_state_progress(page, &state_graph, &archived);
+            attach_computed_status(page, &store, &key, Some(&status_fingerprints));
             page.as_object_mut()
                 .expect("page catalog row")
                 .remove("progress");
@@ -1290,6 +1292,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         let graph = tmt_colab::work_links::Graph(&found);
         attach_hierarchy_warnings(&graph, &mut page);
         attach_state_progress(&mut page, &graph, &archived);
+        attach_computed_status(&mut page, &store, &key, None);
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
         }
@@ -1539,6 +1542,29 @@ fn attach_state_progress(
             }
         }
     }
+}
+
+/// CLI reads only the owner's retained display observation; it never starts a GitHub read.
+fn attach_computed_status(
+    page: &mut Value,
+    store: &Store,
+    key: &Keyring,
+    fingerprints: Option<&std::collections::BTreeMap<String, String>>,
+) {
+    let Some(id) = page["pageId"].as_str() else {
+        return;
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+    let cached = now.and_then(|now| {
+        store
+            .cached_work_status_with_fingerprints(key, id, now, fingerprints)
+            .ok()
+            .flatten()
+    });
+    page["computedStatus"] = cached.unwrap_or_else(|| json!({"state":"unknown"}));
 }
 
 /// A page's work on one dim line: its stage and how many of its direct sub-pages are done.

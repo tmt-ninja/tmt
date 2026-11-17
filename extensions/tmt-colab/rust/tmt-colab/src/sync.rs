@@ -195,6 +195,7 @@ pub trait Admission: Send {
 }
 struct Peer {
     principal: String,
+    closed: Arc<std::sync::atomic::AtomicBool>,
     scope: Option<SyncScope>,
     subscribed: bool,
     queue: VecDeque<Delivery>,
@@ -237,9 +238,15 @@ fn bootstrap_error(error: Box<dyn std::error::Error + Send + Sync>) -> Code {
     }
 }
 impl Peer {
+    fn invalidate_observations(&mut self) {
+        self.closed
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    }
     fn new(principal: String) -> Self {
         Self {
             principal,
+            closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             scope: None,
             subscribed: false,
             queue: VecDeque::new(),
@@ -255,6 +262,8 @@ impl Peer {
         }
     }
     fn end(&mut self, code: Code) {
+        self.closed
+            .store(true, std::sync::atomic::Ordering::Release);
         self.queue.clear();
         self.catchup = None;
         self.incoming = None;
@@ -284,6 +293,12 @@ impl Peer {
         } else {
             self.queue.push_back(delivery);
         }
+    }
+}
+impl Drop for Peer {
+    fn drop(&mut self) {
+        self.closed
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 }
 /// A transfer or committed batch reserves one queue slot and emits one bounded frame per
@@ -690,6 +705,27 @@ pub struct Server<A>(Arc<Mutex<State<A>>>);
 impl<A> Clone for Server<A> {
     fn clone(&self) -> Self {
         Self(Arc::clone(&self.0))
+    }
+}
+impl<A> Server<A> {
+    /// Cancellation token for an admitted open page on this owner's device.
+    pub(crate) fn owner_page_token(
+        &self,
+        principal: &str,
+        page: &str,
+    ) -> Option<Arc<std::sync::atomic::AtomicBool>> {
+        let state = self.0.lock().ok()?;
+        state
+            .peers
+            .values()
+            .find(|peer| {
+                peer.principal == principal
+                    && peer.hello
+                    && peer.subscribed
+                    && peer.terminal.is_none()
+                    && peer.scope.as_ref().is_some_and(|scope| scope.page == page)
+            })
+            .map(|peer| Arc::clone(&peer.closed))
     }
 }
 /// One transport broadcast per verified entry, in sequence order, prepared before the commit so
@@ -1438,8 +1474,11 @@ impl<A: Admission> State<A> {
         for peer in self
             .peers
             .values_mut()
-            .filter(|p| p.subscribed && p.scope.as_ref() == Some(scope))
+            .filter(|p| p.subscribed && p.terminal.is_none() && p.scope.as_ref() == Some(scope))
         {
+            // A page event can remove a PR link. Stop any observation bound to the previous view;
+            // the next owner event may take a fresh token after its new view is admitted.
+            peer.invalidate_observations();
             peer.enqueue(delivery.clone());
         }
     }
@@ -2344,6 +2383,7 @@ impl<A: Admission> State<A> {
         fields["membershipHead"]["more"] = serde_json::json!(membership.more);
         let text = wire::output(scope, "catchup", fields)?;
         let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+        peer.invalidate_observations();
         peer.subscribed = false;
         peer.catchup = Some(Catchup {
             positions,
@@ -3181,6 +3221,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             if let Err(code) = state.catchup_page(self.id) {
                 let peer = state.peers.get_mut(&self.id).ok_or(Code::Denied)?;
                 peer.catchup = None;
+                peer.invalidate_observations();
                 peer.subscribed = false;
                 peer.push(wire::output(
                     peer.scope.as_ref().ok_or(Code::Denied)?,
@@ -3245,4 +3286,22 @@ impl<S: Read + Write, A> Drop for Connection<S, A> {
 }
 fn would_block(e: &tungstenite::Error) -> bool {
     matches!(e, tungstenite::Error::Io(io) if io.kind() == std::io::ErrorKind::WouldBlock)
+}
+
+#[cfg(test)]
+mod work_facts_tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn observation_stops_when_page_admission_changes_or_connection_closes() {
+        let mut peer = Peer::new("owner".to_owned());
+        let before = Arc::clone(&peer.closed);
+        peer.invalidate_observations();
+        assert!(before.load(Ordering::Acquire));
+        let after = Arc::clone(&peer.closed);
+        assert!(!after.load(Ordering::Acquire));
+        drop(peer);
+        assert!(after.load(Ordering::Acquire));
+    }
 }

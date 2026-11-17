@@ -184,7 +184,7 @@ remain independent of storage access.
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                                                                                                         | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                                                                                                  |
 | `identity.stop`          | `identityId` (canonical UUID), `expectedName`, `close` (bool)                                                                                                                 | `outcome`: `stopped`, `already-ended`, `not-running`, `conflict` or `not-found`; with `close`, `pane`: `closed`, `gone` or `kept` (see [below](#verified-stop-and-identity-remove))                                                     |
 | `identity.remove`        | `identityId` (canonical UUID), `expectedName`                                                                                                                                 | `outcome`: `removed`, `conflict` or `not-found`; refuses `AGENT_RUNNING` (see [below](#verified-stop-and-identity-remove))                                                                                                              |
-| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                                                                                                  | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, `canPassthrough` (see [below](#passthrough-dispatch)), `paused`, `ended` and `foreground` as for `terminal.stream`                    |
+| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                                                                                                  | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, `canPassthrough` (see [below](#passthrough-dispatch)), `paused`, `ended` and `foreground` as for `terminal.stream`, and `session.activity` as in [lifecycle hooks](#lifecycle-hooks)                    |
 | `extensions.uses`        | `extension`, `feature`                                                                                                                                                        | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                                                                                            |
 
 `storage.root` reports the data directory selected by the invoking core, including
@@ -1699,7 +1699,9 @@ confused with a failed lookup; more than 256 IDs or a non-canonical UUID is
 `identities.status` returns self-reported status for many identities in one call,
 in input order. Core applies expiry: `status.stale` is computed at read time, and an
 expired status is still returned (stale) so a client can show it as such. Unknown IDs
-are `{id, found:false}` entries, not errors. It never reports presence; join it with
+are `{id, found:false}` entries, not errors. Each found row also has `session.activity`, the
+same runtime-evidence-based object as [the list activity projection](#lifecycle-hooks).
+An unverified runtime remains unknown; a missing identity has no `session` member. It never reports presence; join it with
 `tmt ls --json`, which verifies tmux endpoints.
 
 `changes.cursor` tells a client cheaply whether board-relevant stored data has

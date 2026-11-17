@@ -1,4 +1,5 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test, type Page, type Locator } from '@playwright/test';
 import { pairBrowser, startDoor, openReaderLink } from './harness/browser.js';
 import { createPage, openPage, run } from './harness/ask.js';
@@ -22,6 +23,44 @@ async function panelTheme(page: Page, chip: Locator, theme: string) {
 }
 
 test.afterEach(disposeActiveWorlds);
+
+test('an open linked PR supplies the owner page status', async () => {
+  await withWorld(async (world) => {
+    const result = JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            state: 'OPEN',
+            mergeCommit: null,
+            commits: { nodes: [{ commit: { statusCheckRollup: { state: 'PENDING' } } }] },
+          },
+        },
+      },
+    });
+    writeFileSync(join(world.root, 'wrap', 'gh'), `#!/bin/sh\nprintf '%s\\n' '${result}'\n`, {
+      mode: 0o700,
+    });
+    const created = createPage(
+      world,
+      'Linked work',
+      '<p><a href="https://github.com/example/project/pull/42">Review</a></p>',
+    );
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'work-facts-owner');
+    const page = await openPage(door, browser, created);
+    const status = page.getByRole('button', { name: 'Waiting for CI, show status details' });
+    await expect(status).toBeVisible();
+    await status.click();
+    await expect(page.getByText(/PR #42.*CI pending/)).toBeVisible();
+    const shown = JSON.parse(run(world, world.binaries.colab, ['show', created.pageId, '--json']));
+    expect(shown.page.computedStatus.state).toBe('waiting-ci');
+    const listed = JSON.parse(run(world, world.binaries.colab, ['ls', '--json']));
+    expect(
+      listed.pages.find((entry: { pageId: string }) => entry.pageId === created.pageId)
+        .computedStatus.state,
+    ).toBe('waiting-ci');
+  });
+});
 
 test('CLI work fields and to-do numbers appear on the owner page', async () => {
   await withWorld(async (world) => {
@@ -66,6 +105,8 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
       'aria-label',
       'release-coordination-agent',
     );
+    await expect(page.getByRole('button', { name: /Projects for .*: Colab/ })).toBeVisible();
+    await expect(page.getByText('Next · Review the result', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '3 sub-pages' })).toBeVisible();
     await expect(page.getByText('COLAB-2', { exact: true })).toBeVisible();
     await expect(page.locator('[data-block-id]').filter({ hasText: 'Ship the fix' })).toBeVisible();
@@ -119,27 +160,7 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
           await expect(page.getByRole('checkbox', { name: 'Ship the fix' })).toBeChecked();
           await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
           if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
-          if (width === 1100) {
-            await expect(page.locator('.page-hierarchy-name')).toBeHidden();
-            await page.getByRole('button', { name: 'More', exact: true }).click();
-            await expect(
-              page.getByRole('menuitem', { name: 'Back to Release coordination' }),
-            ).toBeVisible();
-            await page.keyboard.press('Escape');
-            const pin = page.locator('.page-header-pin:visible');
-            const controls = page.locator('.tmt-ui-topbar-controls:visible');
-            if (await pin.count()) {
-              const pinBox = await pin.boundingBox();
-              const controlsBox = await controls.boundingBox();
-              expect(pinBox!.x + pinBox!.width).toBeLessThan(controlsBox!.x);
-            } else {
-              await page.getByRole('button', { name: 'More', exact: true }).click();
-              await expect(page.getByRole('menuitem', { name: 'Pin to top' })).toBeVisible();
-              await page.keyboard.press('Escape');
-            }
-          } else {
-            await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
-          }
+          await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
           await page.evaluate((value) => {
             document.documentElement.dataset.theme = value;
           }, theme);
@@ -160,8 +181,7 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
           await expect(page.getByRole('checkbox', { name: 'Ship the fix' })).toBeChecked();
           await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
           if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
-          if (width === 1100) await expect(page.locator('.page-hierarchy-name')).toBeHidden();
-          else await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
+          await expect(page.getByRole('link', { name: 'Release coordination' })).toBeVisible();
           await page.evaluate((value) => {
             document.documentElement.dataset.theme = value;
           }, theme);

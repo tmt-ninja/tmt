@@ -14,6 +14,8 @@ import { record } from './storage.js';
 import { shortPageId, validPagePrefix } from './short-links.js';
 import { jsonResponse } from './registration.js';
 import { SUBPAGES } from './work.js';
+import { validateRegisteredAgent } from './question-registry.js';
+import type { Projection } from './fold-protocol.js';
 
 import type { ExpiryInfo } from './expiry.js';
 
@@ -91,6 +93,7 @@ export interface PageActivity {
   needsYou: number;
   /** The page's creation label (`meta.originalAuthor`); omitted when it has none. */
   author?: string;
+  fields?: Pick<Projection, 'owner' | 'priority' | 'next' | 'blocked'>;
   /** The page's sub-pages; omitted for a page with none, so a fresh summary without it is in
    * discussion. */
   work?: PageWorkRow;
@@ -164,6 +167,7 @@ export function activity(value: unknown): asserts value is PageActivity {
     'waiting',
     'needsYou',
     ...('author' in value ? ['author'] : []),
+    ...('fields' in value ? ['fields'] : []),
     ...('work' in value ? ['work'] : []),
     ...('parent' in value ? ['parent'] : []),
   ]);
@@ -185,6 +189,28 @@ export function activity(value: unknown): asserts value is PageActivity {
         !/\p{Cc}/u.test(value.author),
     );
   if ('work' in value) workRow(value.work);
+  if ('fields' in value) {
+    const fields = value.fields;
+    requireValue(fields !== null && typeof fields === 'object' && !Array.isArray(fields));
+    exactKeys(
+      fields,
+      ['owner', 'priority', 'next', 'blocked'].filter((key) => key in fields),
+    );
+    if ('owner' in fields) validateRegisteredAgent(fields.owner);
+    if ('priority' in fields)
+      requireValue(['high', 'normal', 'low'].includes(fields.priority as string));
+    for (const key of ['next', 'blocked'] as const) {
+      if (key in fields) {
+        const line = fields[key];
+        requireValue(
+          typeof line === 'string' &&
+            [...line].length > 0 &&
+            [...line].length <= 200 &&
+            !/[\p{Cc}\p{Cs}]/u.test(line),
+        );
+      }
+    }
+  }
   if ('parent' in value) {
     const parent = value.parent;
     requireValue(parent !== null && typeof parent === 'object' && !Array.isArray(parent));

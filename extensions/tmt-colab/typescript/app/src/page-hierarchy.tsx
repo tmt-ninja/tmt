@@ -66,12 +66,13 @@ export function usePageHierarchy({
     const siblings = tree.childrenOf(link.page);
     const counts = tree.counts(siblings);
     parent = (
-      <span className="page-hierarchy-parent">
-        <ListTree className="page-hierarchy-icon" aria-hidden="true" />
-        <a className="page-hierarchy-name" href={pageHref(link.page)} title={holder.title}>
-          {holder.title}
-        </a>
-        <UiTheme theme={theme}>
+      <UiTheme theme={theme}>
+        <span className={`page-hierarchy-parent ${c.countChip}`}>
+          <ListTree className="page-hierarchy-icon" aria-hidden="true" />
+          <span>{t.parentLabel}</span>
+          <a className="page-hierarchy-name" href={pageHref(link.page)} title={holder.title}>
+            {holder.title}
+          </a>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -79,7 +80,7 @@ export function usePageHierarchy({
                 className={`page-hierarchy-count ${c.countChip}`}
                 aria-label={t.parentMenu(holder.title, counts.done, counts.total)}
               >
-                {t.count(counts.done, counts.total)}
+                {t.subpages(counts.total)} · {t.count(counts.done, counts.total)}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="page-hierarchy-menu">
@@ -101,11 +102,11 @@ export function usePageHierarchy({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-        </UiTheme>
-        <span className="page-hierarchy-separator" aria-hidden="true">
-          ›
+          <span className="page-hierarchy-separator" aria-hidden="true">
+            ›
+          </span>
         </span>
-      </span>
+      </UiTheme>
     );
   }
   return {

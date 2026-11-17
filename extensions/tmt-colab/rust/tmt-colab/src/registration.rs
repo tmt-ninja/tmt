@@ -72,12 +72,26 @@ struct Context {
     grant_revision: u64,
 }
 pub(crate) const WORK_NUMBERS_PATH: &str = "/api/work-numbers";
+pub(crate) const WORK_FACTS_PATH: &str = "/api/work-facts";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct WorkNumbersRequest {
     page_id: String,
     blocks: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WorkFactsRequest {
+    page_id: String,
+}
+
+pub(crate) struct WorkFactsInput {
+    pub device: String,
+    pub page: String,
+    pub projection: Option<crate::summary::SummaryProjection>,
+    pub prefix: Option<String>,
+    pub fingerprint: String,
 }
 impl Context {
     fn parse(raw: Option<&str>) -> std::result::Result<Self, Code> {
@@ -411,8 +425,32 @@ impl Registration {
                 crate::summary::drain(&self.summaries, open);
             }
         }
-        crate::page_titles::attach_to_catalog(&mut catalog, &titles);
         catalog["listToken"] = serde_json::json!(list_token(&fingerprints)?);
+        crate::page_titles::attach_to_catalog(&mut catalog, &titles);
+        // Work fields are optional display data. Keep the complete catalog within the existing
+        // discovery bound even when every page has the longest allowed notes.
+        let mut used = serde_json::to_vec(&catalog)
+            .map_err(|_| Code::Unavailable)?
+            .len();
+        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+            let Some(fields) = page["pageId"]
+                .as_str()
+                .and_then(|id| fresh.get(id))
+                .and_then(|summary| summary.work.as_ref())
+                .map(|work| &work.fields)
+                .filter(|fields| fields.as_object().is_some_and(|fields| !fields.is_empty()))
+            else {
+                continue;
+            };
+            let cost = serde_json::to_vec(fields)
+                .map_err(|_| Code::Unavailable)?
+                .len()
+                + 16;
+            if used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
+                page["summary"]["fields"] = fields.clone();
+                used += cost;
+            }
+        }
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
     }
     /// The page list's opaque change token (contract: Live page list): it moves when any page's
@@ -470,6 +508,40 @@ impl Registration {
             .map_err(map_error)?;
         serde_json::to_vec(&serde_json::json!({"pageId":request.page_id,"numbers":numbers}))
             .map_err(|_| Code::Unavailable)
+    }
+
+    /// The owner page's admitted PR links, never a URL supplied by the browser.
+    pub(crate) fn work_facts_input(
+        &mut self,
+        context: Option<&str>,
+        body: &[u8],
+    ) -> std::result::Result<WorkFactsInput, Code> {
+        let request: WorkFactsRequest = serde_json::from_slice(body).map_err(|_| Code::Invalid)?;
+        values::generated_id(&request.page_id).map_err(|_| Code::Invalid)?;
+        let device = Context::parse(context)?.device_id;
+        self.active_device(context, now_ms()?)?;
+        let fingerprint = self
+            .store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                tx.page_fingerprint(&request.page_id)
+            })
+            .map_err(map_error)?
+            .ok_or(Code::Denied)?;
+        let projection = match self.summaries.details(&request.page_id, &fingerprint) {
+            crate::summary::CachedDetails::Ready(projection) => Some(projection),
+            _ => None,
+        };
+        let prefix = self
+            .store
+            .release_tag_prefix_for_page(&request.page_id)
+            .map_err(|_| Code::Unavailable)?;
+        Ok(WorkFactsInput {
+            device,
+            page: request.page_id,
+            projection,
+            prefix,
+            fingerprint,
+        })
     }
 
     /// Complete cached chapter metadata. The owner read checks authority and the current

@@ -385,6 +385,19 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
                     prefix: value.prefix,
                 }));
             }
+            if tag.action == "release-tag-prefix" {
+                let value: ProjectPrefix = typed(bytes)?;
+                if !valid(&value.name)
+                    || (!value.prefix.is_empty()
+                        && !crate::projects::valid_release_tag_prefix(&value.prefix))
+                {
+                    return Err(tmt_colab_model::Invalid);
+                }
+                return Ok(Action::Project(Change::ReleaseTagPrefix {
+                    name: value.name,
+                    prefix: (!value.prefix.is_empty()).then_some(value.prefix),
+                }));
+            }
             let value: ProjectManage = typed(bytes)?;
             let named = |name: &String| valid(name).then(|| name.clone());
             let name = named(&value.name).ok_or(tmt_colab_model::Invalid)?;

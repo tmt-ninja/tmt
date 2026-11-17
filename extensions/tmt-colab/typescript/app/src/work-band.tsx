@@ -13,7 +13,35 @@ import {
 import { text } from './strings.js';
 import type { PageState } from './bootstrap.js';
 import type { SubpageCounts, SubpageRow } from './work-tree.js';
+import type { PageActivity } from './bootstrap.js';
+import type { WorkFactView } from './reading-details.js';
+import { relativeTime } from './display-time.js';
 import './work-band.css';
+
+const PR_STALE_MS = 10 * 60 * 1000;
+
+/** Owner-local list details, rendered as text rather than authority. */
+export function WorkFieldDetails({ fields }: { fields?: PageActivity['fields'] }) {
+  if (!fields) return null;
+  return (
+    <span className="work-field-details">
+      {fields.priority && fields.priority !== 'normal' && (
+        <span
+          aria-label={
+            fields.priority === 'high' ? text.workBand.priorityHigh : text.workBand.priorityLow
+          }
+        >
+          {fields.priority === 'high'
+            ? text.workBand.priorityHighChip
+            : text.workBand.priorityLowChip}
+        </span>
+      )}
+      {fields.owner && <span>{fields.owner.name}</span>}
+      {fields.blocked && <span>{text.workBand.blockedNote(fields.blocked)}</span>}
+      {fields.next && <span>{text.workBand.nextNote(fields.next)}</span>}
+    </span>
+  );
+}
 
 type RowSlots = Pick<
   WorkBandProps,
@@ -49,12 +77,18 @@ export function MobileWorkTitle({
   onSize,
   parent,
   children,
+  next,
+  blocked,
+  facts,
 }: {
   title: string;
   workNumber?: string;
   onSize(height: number): void;
   parent?: ReactNode;
   children: ReactNode;
+  next?: string;
+  blocked?: string;
+  facts?: WorkFactView;
 }) {
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -80,7 +114,33 @@ export function MobileWorkTitle({
         )}
         {title}
       </h1>
-      <div className="page-mobile-title-chips">{children}</div>
+      <div className="page-mobile-title-chips">
+        {children}
+        {facts?.pulls.map(({ url, fact }) => (
+          <a className={ui.countChip} href={url} key={url} target="_blank" rel="noreferrer">
+            PR #{url.split('/').at(-1)} ·{' '}
+            {fact?.tag
+              ? text.workBand.releasedIn(fact.tag)
+              : (fact?.state ?? text.workBand.unknown)}
+            {fact && !fact.tag && facts.asOfMs - fact.observedAtMs >= PR_STALE_MS && (
+              <> · {text.workBand.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>
+            )}
+          </a>
+        ))}
+      </div>
+      {(next || blocked || facts?.activity?.lastActivityMs != null) && (
+        <div className="page-work-notes">
+          {blocked && <span>{text.workBand.blockedNote(blocked)}</span>}
+          {next && <span>{text.workBand.nextNote(next)}</span>}
+          {facts?.activity?.lastActivityMs != null && (
+            <span>
+              {text.workBand.lastActivity(
+                relativeTime(facts.activity.lastActivityMs, facts.asOfMs),
+              )}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -267,6 +327,7 @@ function Row({
             <span className="work-twisty" />
           )}
           <FileText className="work-row-icon" aria-hidden="true" />
+          {row.workNumber && <span className="colab-work-number">{row.workNumber}</span>}
           {pageHref ? (
             <a className="work-row-title" href={pageHref(row.id)}>
               {title}
@@ -280,6 +341,7 @@ function Row({
         </span>
         <span className="work-row-state">{rowState?.(row) ?? <StateChip state={row.state} />}</span>
         <span className="work-row-more">{rowActions?.(row)}</span>
+        <WorkFieldDetails fields={row.fields} />
       </div>
       {open && below.length > 0 && (
         <ul className="work-tree">
