@@ -102,10 +102,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             screen_area,
         );
     }
-    let back = app.member_back_label();
     let words = match (row.ended, typing) {
         (true, _) => format!(" {} ended · x removes it", row.title()),
-        (false, true) => format!(" Typing into {} · {back} back to list", row.title()),
+        (false, true) => format!(" Typing into {}", row.title()),
         (false, false) => format!(
             " {} live · click to type · ⏎ type in · z full screen",
             row.title()

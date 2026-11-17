@@ -669,6 +669,16 @@ mod board {
                         !footer.contains("q quote") && !footer.contains("y copy"),
                         "{base:?}: {footer}"
                     );
+                    assert!(
+                        rows.iter()
+                            .any(|row| row.trim() == "Typing into Terminal 1")
+                    );
+                    assert_eq!(
+                        rows.iter()
+                            .filter(|row| row.contains("ctrl-g back to list"))
+                            .count(),
+                        1
+                    );
                 }
                 assert!(!rows.iter().any(|row| row.contains("┌──")), "no inner box");
             }
