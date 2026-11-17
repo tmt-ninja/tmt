@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -25,6 +33,8 @@ const ASSETS = [
 let root: string;
 beforeAll(() => {
   root = mkdtempSync(path.join(os.tmpdir(), 'release-publish-'));
+  // Only executable bytes are shared; mutation remains in the scenario's state file.
+  writeExecutable(path.join(root, 'gh'), FAKE_GH, 0o755);
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -152,7 +162,7 @@ function scenario(options: Scenario = {}) {
   const bin = path.join(directory, 'bin');
   mkdirSync(bin);
   const ghFile = path.join(bin, 'gh');
-  writeExecutable(ghFile, FAKE_GH, 0o755);
+  symlinkSync(path.join(root, 'gh'), ghFile);
   if (options.sourceRoot)
     writeExecutable(
       path.join(bin, 'git'),

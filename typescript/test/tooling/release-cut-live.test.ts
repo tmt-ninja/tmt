@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -11,7 +12,16 @@ import {
 import { availableParallelism, cpus, loadavg, tmpdir } from 'node:os';
 import { performance, type EventLoopUtilization } from 'node:perf_hooks';
 import { basename, join } from 'node:path';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vite-plus/test';
 import {
   createCutClient,
   cutExitCode,
@@ -257,6 +267,8 @@ function releaseCutDiagnostics(
 }
 
 const roots: string[] = [];
+let repositoryTemplates: string;
+const fixtureRepositories = new Map<string, { root: string; previous: string; cut: string }>();
 const inheritedCargoHome = process.env.CARGO_HOME;
 const inheritedRustupHome = process.env.RUSTUP_HOME;
 function privateCargoHome() {
@@ -275,6 +287,7 @@ let caseCargoHome: ReturnType<typeof privateCargoHome>;
 let diagnostics: ReturnType<typeof releaseCutDiagnostics>;
 const fixtureWorkspaces = new Map<boolean, CargoWorkspace>();
 beforeAll(async () => {
+  repositoryTemplates = mkdtempSync(join(tmpdir(), 'release-live-repositories-'));
   const actual = await vi.importActual<typeof import('../../scripts/cargo-workspace.mjs')>(
     '../../scripts/cargo-workspace.mjs'
   );
@@ -294,6 +307,7 @@ beforeAll(async () => {
     cargoHome.cleanup();
   }
 }, 60_000);
+afterAll(() => rmSync(repositoryTemplates, { recursive: true, force: true }));
 beforeEach(() => {
   vi.mocked(readCargoWorkspace).mockReset();
   caseCargoHome = privateCargoHome();
@@ -388,73 +402,85 @@ function fixture(activateExtensions = false, allProducts = false, releasableDriv
     ]);
     return command(['rev-parse', 'HEAD']);
   };
-  command(['init', '-q', '-b', 'main']);
-  mkdirSync(join(root, '.github'));
-  mkdirSync(join(root, 'extensions/ops'), { recursive: true });
-  writeFileSync(
-    join(root, '.github/components.json'),
-    JSON.stringify({
-      components: {
-        cli: { owns: ['.'], excludes: ['extensions'], package: 'tmt-cli' },
-        ops: { owns: ['extensions/ops'], package: 'tmt-ops' },
-        private: { owns: ['shared'], release: false, releaseConsumers: ['ops'] },
-        'driver-herdr': { owns: ['driver'], package: 'tmt-driver-herdr', release: false },
-      },
-    })
-  );
-  const fixtureMap = () => command(['show', 'HEAD:.github/components.json']);
-  writeReleaseWorkspace(root, allProducts ? ['driver-herdr'] : []);
-  const previous = commit('chore: initial fixture');
-  command(['tag', 'v5.0.0-alpha.48']);
-  command(['tag', 'tmt-ops-v0.1.0-alpha.14']);
-  const registry = JSON.parse(fixtureMap());
-  registry.components.ops.requiresCliSha = previous;
-  writeFileSync(join(root, '.github/components.json'), JSON.stringify(registry));
-  if (activateExtensions) {
-    for (const product of ['remote', 'colab', ...(allProducts ? ['digest'] : [])]) {
-      registry.components[`tmt-${product}`] = {
-        package: `tmt-${product}`,
-        owns: [`extensions/tmt-${product}`],
-        bootstrapSha: previous,
-        initialVersion: '0.1.0-alpha.1',
-        requiresCliSha: previous,
-      };
-    }
-    registry.components['colab-app'] = {
-      owns: ['extensions/tmt-colab/typescript/app'],
-      release: false,
-      releaseConsumers: ['tmt-colab'],
-    };
-    registry.components['remote-client'] = {
-      owns: ['extensions/tmt-remote/typescript/remote-client'],
-      release: false,
-      releaseConsumers: ['tmt-remote'],
-    };
-    if (allProducts) {
-      const driver = registry.components['driver-herdr'];
-      delete registry.components['driver-herdr'];
-      registry.components['driver-herdr'] = {
-        ...driver,
-        release: true,
-        bootstrapSha: previous,
-        initialVersion: '0.1.0-alpha.1',
-      };
-    }
+  const key = `${activateExtensions}:${allProducts}:${releasableDriver}`;
+  let repository = fixtureRepositories.get(key);
+  if (repository) {
+    // Copy Git objects and refs too: no case shares mutable history or worktrees.
+    cpSync(repository.root, root, { recursive: true });
+  } else {
+    command(['init', '-q', '-b', 'main']);
+    mkdirSync(join(root, '.github'));
+    mkdirSync(join(root, 'extensions/ops'), { recursive: true });
+    writeFileSync(
+      join(root, '.github/components.json'),
+      JSON.stringify({
+        components: {
+          cli: { owns: ['.'], excludes: ['extensions'], package: 'tmt-cli' },
+          ops: { owns: ['extensions/ops'], package: 'tmt-ops' },
+          private: { owns: ['shared'], release: false, releaseConsumers: ['ops'] },
+          'driver-herdr': { owns: ['driver'], package: 'tmt-driver-herdr', release: false },
+        },
+      })
+    );
+    const fixtureMap = () => command(['show', 'HEAD:.github/components.json']);
+    writeReleaseWorkspace(root, allProducts ? ['driver-herdr'] : []);
+    const previous = commit('chore: initial fixture');
+    command(['tag', 'v5.0.0-alpha.48']);
+    command(['tag', 'tmt-ops-v0.1.0-alpha.14']);
+    const registry = JSON.parse(fixtureMap());
+    registry.components.ops.requiresCliSha = previous;
     writeFileSync(join(root, '.github/components.json'), JSON.stringify(registry));
-    writeReleaseWorkspace(root, [
-      'remote',
-      'colab',
-      ...(allProducts ? ['digest', 'driver-herdr'] : []),
-    ]);
+    if (activateExtensions) {
+      for (const product of ['remote', 'colab', ...(allProducts ? ['digest'] : [])]) {
+        registry.components[`tmt-${product}`] = {
+          package: `tmt-${product}`,
+          owns: [`extensions/tmt-${product}`],
+          bootstrapSha: previous,
+          initialVersion: '0.1.0-alpha.1',
+          requiresCliSha: previous,
+        };
+      }
+      registry.components['colab-app'] = {
+        owns: ['extensions/tmt-colab/typescript/app'],
+        release: false,
+        releaseConsumers: ['tmt-colab'],
+      };
+      registry.components['remote-client'] = {
+        owns: ['extensions/tmt-remote/typescript/remote-client'],
+        release: false,
+        releaseConsumers: ['tmt-remote'],
+      };
+      if (allProducts) {
+        const driver = registry.components['driver-herdr'];
+        delete registry.components['driver-herdr'];
+        registry.components['driver-herdr'] = {
+          ...driver,
+          release: true,
+          bootstrapSha: previous,
+          initialVersion: '0.1.0-alpha.1',
+        };
+      }
+      writeFileSync(join(root, '.github/components.json'), JSON.stringify(registry));
+      writeReleaseWorkspace(root, [
+        'remote',
+        'colab',
+        ...(allProducts ? ['digest', 'driver-herdr'] : []),
+      ]);
+    }
+    if (releasableDriver) {
+      mkdirSync(join(root, 'driver'), { recursive: true });
+      writeFileSync(join(root, 'driver/feature.txt'), 'feature');
+    }
+    writeFileSync(join(root, 'cli.txt'), 'feature');
+    writeFileSync(join(root, 'extensions/ops/feature.txt'), 'feature');
+    const cut = commit('feat: shared feature');
+    command(['update-ref', 'refs/remotes/origin/main', cut]);
+    const template = mkdtempSync(join(repositoryTemplates, 'graph-'));
+    cpSync(root, template, { recursive: true });
+    repository = { root: template, previous, cut };
+    fixtureRepositories.set(key, repository);
   }
-  if (releasableDriver) {
-    mkdirSync(join(root, 'driver'), { recursive: true });
-    writeFileSync(join(root, 'driver/feature.txt'), 'feature');
-  }
-  writeFileSync(join(root, 'cli.txt'), 'feature');
-  writeFileSync(join(root, 'extensions/ops/feature.txt'), 'feature');
-  const cut = commit('feat: shared feature');
-  command(['update-ref', 'refs/remotes/origin/main', cut]);
+  const { previous, cut } = repository;
   const releases: DraftRelease[] = ['v5.0.0-alpha.48', 'tmt-ops-v0.1.0-alpha.14'].map(
     (tag_name, index) => ({
       id: index + 1,
