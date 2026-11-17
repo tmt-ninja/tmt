@@ -10,8 +10,19 @@ use std::{
 };
 
 /// Writes `bytes` to `path` with mode 0600 through a staged file renamed
-/// into place, creating the directory first.
+/// into place, creating the directory first and syncing file and directory.
 pub fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    replace_with_sync(path, bytes, true)
+}
+
+/// Writes an ephemeral coordination file atomically with mode 0600 and
+/// `create_new` staging without `sync_all`, for non-recovery records whose loss
+/// on a crash only drops an advisory cooldown.
+pub(crate) fn replace_ephemeral(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    replace_with_sync(path, bytes, false)
+}
+
+fn replace_with_sync(path: &Path, bytes: &[u8], sync: bool) -> io::Result<()> {
     let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -32,9 +43,14 @@ pub fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
         .open(&staging)?;
     let result = (|| {
         file.write_all(bytes)?;
-        file.sync_all()?;
+        if sync {
+            file.sync_all()?;
+        }
         fs::rename(&staging, path)?;
-        File::open(directory)?.sync_all()
+        if sync {
+            File::open(directory)?.sync_all()?;
+        }
+        Ok(())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&staging);
@@ -115,15 +131,21 @@ mod tests {
     #[test]
     fn successful_publication_has_exact_private_bytes_and_no_stage() {
         let directory = TestDirectory::new();
-        let destination = directory.path.join("nested/settings.json");
-        for bytes in [b"first".as_slice(), b"replacement\n\0"] {
-            replace(&destination, bytes).unwrap();
-            assert_eq!(fs::read(&destination).unwrap(), bytes);
-            assert_eq!(
-                fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
-                0o600
-            );
-            assert!(!staging(&destination).exists());
+        for (name, ephemeral) in [("settings.json", false), ("ephemeral.json", true)] {
+            let destination = directory.path.join("nested").join(name);
+            for bytes in [b"first".as_slice(), b"replacement\n\0"] {
+                if ephemeral {
+                    replace_ephemeral(&destination, bytes).unwrap();
+                } else {
+                    replace(&destination, bytes).unwrap();
+                }
+                assert_eq!(fs::read(&destination).unwrap(), bytes);
+                assert_eq!(
+                    fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+                assert!(!staging(&destination).exists());
+            }
         }
     }
 }

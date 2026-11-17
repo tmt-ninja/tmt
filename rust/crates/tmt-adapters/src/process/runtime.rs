@@ -288,10 +288,8 @@ pub fn observe_starts<R: CommandRunner>(
         return Ok(HashMap::new());
     }
     // Fall back as a whole batch, preserving all-unknown acquisition failures.
-    let native: Option<Vec<_>> = pids
-        .iter()
-        .map(|pid| runner.process_observation(*pid, deadline))
-        .collect();
+    let pid_list: Vec<u64> = pids.iter().copied().collect();
+    let native = runner.process_observations(&pid_list, deadline);
     if let Some(native) = native {
         if Instant::now() >= deadline {
             return Ok(HashMap::new());
@@ -771,6 +769,38 @@ mod tests {
             1,
             "fallback failure discards native positives too"
         );
+    }
+
+    #[test]
+    fn native_batch_omits_gone_pid_without_ps_fallback() {
+        struct GoneBatch {
+            calls: std::cell::Cell<usize>,
+        }
+        impl CommandRunner for GoneBatch {
+            fn process_observation(&self, pid: u64, _: Instant) -> Option<ProcessObservation> {
+                let key = ProcessIncarnation::new(pid, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap();
+                match pid {
+                    42 => Some(ProcessObservation::Live(key)),
+                    43 => Some(ProcessObservation::Stopped(key)),
+                    44 => Some(ProcessObservation::Gone),
+                    _ => None,
+                }
+            }
+            fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                self.calls.set(self.calls.get() + 1);
+                panic!("gone pid must not trigger ps fallback");
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let runner = GoneBatch {
+            calls: std::cell::Cell::new(0),
+        };
+        let observed = observe_starts(&runner, &[42, 43, 44], deadline).unwrap();
+        assert_eq!(runner.calls.get(), 0);
+        assert_eq!(observed.len(), 2);
+        assert!(observed.contains_key(&42));
+        assert!(observed.contains_key(&43));
+        assert!(!observed.contains_key(&44));
     }
 
     #[test]

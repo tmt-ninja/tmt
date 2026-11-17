@@ -783,14 +783,21 @@ fn workspace_projection(
             .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
             .map_err(|error| classify(error, "Read workspace projection"))?
     };
-    for record in &mut records {
-        record.preferences = session::preferences(&transaction, &record.entry.identity.id)?;
-    }
     if records.len() > tmt_core::workspace::MAX_PANES {
         return Err(classify(
             rusqlite::Error::InvalidQuery,
             "Workspace identity limit",
         ));
+    }
+    let ids: Vec<&str> = records
+        .iter()
+        .map(|record| record.entry.identity.id.as_str())
+        .collect();
+    let retained = session::retained_sessions_for_ids(&transaction, &ids)?;
+    for record in &mut records {
+        if let Some(entries) = retained.get(&record.entry.identity.id) {
+            record.preferences.retained = entries.clone();
+        }
     }
     transaction
         .commit()

@@ -4,6 +4,7 @@ use super::{
     ancestry::{ProcessLink, StartOrder},
     runtime::ProcessObservation,
 };
+use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use std::time::Instant;
 use tmt_core::endpoint::ProcessIncarnation;
 
@@ -18,18 +19,60 @@ struct Info {
     parent: u64,
 }
 
+fn gone_if_esrch(pid: i32) -> Option<ProcessObservation> {
+    (kill(Pid::from_raw(pid), None) == Err(Errno::ESRCH)).then_some(ProcessObservation::Gone)
+}
+
 pub(super) fn observe(pid: u64, deadline: Instant) -> Option<ProcessObservation> {
     if Instant::now() >= deadline {
         return Some(ProcessObservation::Unknown);
     }
-    let pid = i32::try_from(pid).ok().filter(|pid| *pid > 0)?;
-    let observation =
-        platform::info(pid).and_then(|info| observation(pid as u64, info.seconds, info.state));
+    let raw = i32::try_from(pid).ok().filter(|pid| *pid > 0)?;
+    let observation = match platform::info(raw) {
+        Some(info) => observation(pid, info.seconds, info.state),
+        // A gone pid (ESRCH) is conclusively not live; keep None on any other error
+        // or unsupported state so callers still fall back to ps.
+        None => gone_if_esrch(raw),
+    };
     // A late read is never current evidence. No background work survives it.
     if Instant::now() >= deadline {
         Some(ProcessObservation::Unknown)
     } else {
         observation
+    }
+}
+
+/// Observes a batch of PIDs natively. On Linux this reads `/proc/stat` `btime`
+/// once for the batch instead of once per PID; macOS stays per-PID `bsd_info`.
+pub(super) fn observe_batch(pids: &[u64], deadline: Instant) -> Option<Vec<ProcessObservation>> {
+    if Instant::now() >= deadline {
+        return Some(vec![ProcessObservation::Unknown; pids.len()]);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let clock = platform::LinuxClock::read()?;
+        let observations: Option<Vec<_>> = pids
+            .iter()
+            .map(|&pid| {
+                if Instant::now() >= deadline {
+                    return Some(ProcessObservation::Unknown);
+                }
+                let raw = i32::try_from(pid).ok().filter(|pid| *pid > 0)?;
+                match platform::info_with_clock(raw, clock) {
+                    Some(info) => observation(pid, info.seconds, info.state),
+                    None => gone_if_esrch(raw),
+                }
+            })
+            .collect();
+        if Instant::now() >= deadline {
+            Some(vec![ProcessObservation::Unknown; pids.len()])
+        } else {
+            observations
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        pids.iter().map(|pid| observe(*pid, deadline)).collect()
     }
 }
 
@@ -129,6 +172,31 @@ mod platform {
     use nix::unistd::{SysconfVar, sysconf};
     use std::path::Path;
 
+    #[derive(Clone, Copy)]
+    pub(super) struct LinuxClock {
+        hz: u64,
+        boot: u64,
+    }
+
+    impl LinuxClock {
+        pub(super) fn read() -> Option<Self> {
+            let hz = u64::try_from(sysconf(SysconfVar::CLK_TCK).ok()??)
+                .ok()
+                .filter(|hz| *hz > 0)?;
+            // Re-read boot time, as ps does, rather than caching across clock changes.
+            let bytes =
+                crate::bounded_file::read_no_follow(Path::new("/proc/stat"), 1024 * 1024).ok()?;
+            let boot = std::str::from_utf8(&bytes)
+                .ok()?
+                .lines()
+                .find_map(|line| line.strip_prefix("btime "))?
+                .trim()
+                .parse::<u64>()
+                .ok()?;
+            Some(Self { hz, boot })
+        }
+    }
+
     fn stat(pid: i32) -> Option<(u8, u64, u64)> {
         let bytes =
             crate::bounded_file::read_no_follow(Path::new(&format!("/proc/{pid}/stat")), 8192)
@@ -142,23 +210,25 @@ mod platform {
 
     pub(super) fn info(pid: i32) -> Option<super::Info> {
         let (state, ticks, parent) = stat(pid)?;
-        let hz = u64::try_from(sysconf(SysconfVar::CLK_TCK).ok()??)
-            .ok()
-            .filter(|hz| *hz > 0)?;
-        // Re-read boot time, as ps does, rather than caching across clock changes.
-        let bytes =
-            crate::bounded_file::read_no_follow(Path::new("/proc/stat"), 1024 * 1024).ok()?;
-        let boot = std::str::from_utf8(&bytes)
-            .ok()?
-            .lines()
-            .find_map(|line| line.strip_prefix("btime "))?
-            .trim()
-            .parse::<u64>()
-            .ok()?;
+        let clock = LinuxClock::read()?;
+        info_from_stat(state, ticks, parent, clock)
+    }
+
+    pub(super) fn info_with_clock(pid: i32, clock: LinuxClock) -> Option<super::Info> {
+        let (state, ticks, parent) = stat(pid)?;
+        info_from_stat(state, ticks, parent, clock)
+    }
+
+    fn info_from_stat(
+        state: u8,
+        ticks: u64,
+        parent: u64,
+        clock: LinuxClock,
+    ) -> Option<super::Info> {
         Some(super::Info {
-            seconds: boot.checked_add(ticks / hz)?,
+            seconds: clock.boot.checked_add(ticks / clock.hz)?,
             // btime has whole seconds; the subsecond part comes from the ticks.
-            micros: u32::try_from(ticks % hz * 1_000_000 / hz).ok(),
+            micros: u32::try_from(ticks % clock.hz * 1_000_000 / clock.hz).ok(),
             state,
             parent,
         })
@@ -295,6 +365,17 @@ mod tests {
         assert_eq!(native, observe_starts(&Ps, &[pid], deadline).unwrap());
         child.0.kill().unwrap();
         child.0.wait().unwrap();
+        let current_pid = u64::from(std::process::id());
+        assert_eq!(observe(pid, deadline), Some(ProcessObservation::Gone));
+        let batch = observe_batch(&[current_pid, pid], deadline).expect("native batch without ps");
+        assert!(matches!(
+            batch.as_slice(),
+            [ProcessObservation::Live(_), ProcessObservation::Gone]
+        ));
+        let mixed = observe_starts(&UnixCommandRunner, &[current_pid, pid], deadline).unwrap();
+        assert_eq!(mixed.len(), 1);
+        assert!(mixed.contains_key(&current_pid));
+        assert!(!mixed.contains_key(&pid));
         assert!(
             observe_starts(&UnixCommandRunner, &[pid], deadline)
                 .unwrap()
