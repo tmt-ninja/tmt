@@ -356,4 +356,77 @@ mod tests {
             "failed startup must not return with a live or unreaped child"
         );
     }
+
+    #[test]
+    fn timed_out_startup_kills_its_group_and_reaps_the_child() {
+        let directory = TestDirectory::new();
+        let pid_file = directory.path.join("timeout.pid");
+        let log = File::create(directory.path.join("timeout.log")).unwrap();
+        let error = start_acknowledged(
+            OsStr::new("python3"),
+            &[
+                "-c".into(),
+                "import os, signal, sys; os.setsid(); open(sys.argv[1], 'w').write(str(os.getpid())); signal.pause()".into(),
+                pid_file.as_os_str().to_owned(),
+            ],
+            log,
+            b"R",
+            false,
+            Instant::now() + Duration::from_secs(3),
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        let pid = fs::read_to_string(pid_file)
+            .unwrap()
+            .parse::<i32>()
+            .unwrap();
+        use nix::sys::signal::kill;
+        use nix::unistd::Pid;
+        assert_eq!(
+            kill(Pid::from_raw(pid), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+        assert_eq!(
+            kill(Pid::from_raw(-pid), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+    }
+
+    #[test]
+    fn acknowledged_worker_killed_at_teardown_is_reaped() {
+        let directory = TestDirectory::new();
+        let pid_file = directory.path.join("acknowledged.pid");
+        let log = File::create(directory.path.join("acknowledged.log")).unwrap();
+        start(
+            OsStr::new("python3"),
+            &[
+                "-c".into(),
+                "import os, signal, sys; os.setsid(); open(sys.argv[1], 'w').write(str(os.getpid())); os.write(1, b'R'); signal.pause()".into(),
+                pid_file.as_os_str().to_owned(),
+            ],
+            log,
+        )
+        .unwrap();
+        let pid = fs::read_to_string(pid_file)
+            .unwrap()
+            .parse::<i32>()
+            .unwrap();
+        use nix::sys::signal::{Signal, kill};
+        use nix::unistd::Pid;
+        kill(Pid::from_raw(-pid), Signal::SIGKILL).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let process = kill(Pid::from_raw(pid), None);
+            let group = kill(Pid::from_raw(-pid), None);
+            if process == Err(nix::errno::Errno::ESRCH) && group == Err(nix::errno::Errno::ESRCH) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "owned worker or its group survived teardown"
+            );
+            thread::yield_now();
+        }
+    }
 }
