@@ -27,6 +27,171 @@ export const english = {
     nextTitle: "Open a terminal.\nConnect the team.",
     readGuide: "Read the getting started guide",
     footer: "Independent agents. Connected work.",
+    // The rest of the Home page's own words (#6542). The illustrations (the terminal's commands
+    // and output, the Ops board and the Colab page) stay English sample data in the page.
+    theme: "Theme: {theme}. Change theme",
+    heroSteps: ["01 / CONNECT", "02 / DELEGATE", "03 / RETURN"],
+    compatibility: "Your agents. Your tools. Your machines.",
+    andMore: "and more",
+    workflowEyebrow: "01 / THE WORKFLOW",
+    workflowReach: "Across agent apps and terminals. Add Remote to connect from another machine.",
+    workflowSteps: [
+      "01 / Give your agent an identity · in the reviewer terminal",
+      "02 / Send a request · from another agent terminal",
+      "03 / Pick up the reply",
+    ],
+    copyExample: "Copy example command",
+    exchangeLocal: "LOCAL EXCHANGE",
+    exchangeFlow: "REQUEST → REPLY → RESULT",
+    installTitle: "Install TMT",
+    installDescription: "Give your agent a name. Start a conversation.",
+    copyCommand: "Copy command",
+    copy: "copy",
+    copied: "copied",
+    commandCopied: "Command copied",
+    opsEyebrow: "02 / SQUAD",
+    opsTagline: "Your teams. One clear view.",
+    opsDescription: "A lead briefs the other agents and keeps the board current.",
+    exploreOps: "Explore Ops",
+    installOps: "Install Ops",
+    colabEyebrow: "03 / COLAB",
+    colabTagline: "Annotate here. Reach any agent.",
+    colabDescription:
+      "A self-hosted alternative to Claude Artifacts, across agents and environments.",
+    colabNote: "Shared documents. In-context discussions. Your infrastructure.",
+    exploreColab: "Explore Colab",
+    // Colab's release status; its illustration above stays labeled as a concept preview.
+    colabStatus: "ALPHA",
+    installColab: "Install Colab",
+    nextEyebrow: "02 / YOUR NEXT SESSION",
+  },
+  // The Colab landing page's own words (#6542). Commands and the illustrated sample pages stay
+  // in the page. A highlighted phrase is `highlight`, with the words before and after it.
+  colabLanding: {
+    changeTheme: "Change theme",
+    overline: "SELF-HOSTED PAGES FOR PEOPLE AND AGENTS",
+    title: "Annotate the work.\nBring your agents in.",
+    intro: {
+      before: "",
+      highlight: "Select a point.",
+      after:
+        " On a page you host, mention TMT-connected agents and teammates; their replies stay with the work.",
+    },
+    explore: "Explore Colab",
+    installAndUse: "Install & use",
+    featureIndex: "Feature close-ups",
+    // One entry per feature: annotate, agents, collaborate, organize.
+    features: [
+      {
+        label: "Annotate",
+        title: "Start with a precise point.",
+        harness: "",
+        copy: {
+          before: "",
+          highlight: "Select a sentence.",
+          after:
+            " Add an annotation and keep the discussion attached to the work. The answer comes back to that same place.",
+        },
+        next: "Next: talk to agents",
+      },
+      {
+        label: "Talk to agents",
+        title: "Talk to agents from the page.",
+        harness: "With your TMT-connected agents.",
+        copy: {
+          before: "",
+          highlight: "Mention an agent and a teammate",
+          after: " in one annotation. With Remote, reach agents in another environment too.",
+        },
+        next: "Next: write together",
+      },
+      {
+        label: "Write together",
+        title: "Write together, live.",
+        harness: "",
+        copy: {
+          before: "",
+          highlight: "The document updates as people work.",
+          after: " Notes, replies, and the latest version stay with the page.",
+        },
+        next: "Next: organize work",
+      },
+      {
+        label: "Organize work",
+        title: "Give the project a place.",
+        harness: "",
+        copy: {
+          before: "",
+          highlight: "Collect plans, checklists, and decisions.",
+          after: " Use labels to find related pages again.",
+        },
+        next: "Next: get started",
+      },
+    ],
+    install: {
+      eyebrow: "GET STARTED",
+      title: "One page is enough to begin.",
+      copy: {
+        before: "Install TMT and Colab. ",
+        highlight: "Start a local page",
+        after: ", then pair each new browser when prompted.",
+      },
+      // One label per install step: TMT, Colab, open, create.
+      steps: ["Install TMT", "Add Colab", "Open Colab", "Create a page"],
+    },
+    deploy: {
+      eyebrow: "HOST IT YOUR WAY",
+      title: "Start local. Plan for your team.",
+      copy: {
+        before: "",
+        highlight: "Host the page yourself.",
+        after: " Start locally, then explore the Remote options below.",
+      },
+      backendTabs: "Colab backend",
+      noCommand: "No command available yet.",
+      capability: "Capability",
+      colabStatus: "Colab status",
+      capabilities: ["Realtime editing", "Page search", "Full-text search", "Vector search"],
+      note: "Status here describes Colab features, not everything the underlying providers can offer. Realtime editing means shared document updates; full-text and vector search are not Colab features yet.",
+      ownReferences: {
+        before: "Read the ",
+        backend: "Remote backend references",
+        middle: " for the adapter and conformance guides, and the ",
+        skill: "Colab agent skill",
+        after: " for page workflows.",
+      },
+      // Each backend's words; its command stays in the page. `capabilities` follows the list above.
+      backends: {
+        local: {
+          label: "Local",
+          status: "Available",
+          commandLabel: "RUN ON YOUR MACHINE",
+          note: "Open a local page and pair a new browser when prompted.",
+          capabilities: ["Available", "Title, label, author", "Not yet", "Not yet"],
+        },
+        firestore: {
+          label: "Firestore",
+          status: "Alpha",
+          commandLabel: "READ-ONLY DEPLOYMENT PLAN",
+          note: "Read the exact plan first; it changes nothing. To deploy into your own Firebase project, review it and run it again yourself with --authorize and the plan's digest. Pages you serve then sync through it, and you choose who gets a share link.",
+          capabilities: ["Alpha, on the open page", "Not yet", "Not yet", "Not yet"],
+        },
+        cloudflare: {
+          label: "Cloudflare",
+          status: "Planned",
+          commandLabel: "DEPLOYMENT",
+          note: "The Cloudflare backend and its deployment command are planned, not available yet.",
+          capabilities: ["Planned", "Planned", "Not yet", "Not yet"],
+        },
+        own: {
+          label: "Your own provider",
+          status: "Developer path",
+          commandLabel: "START SELF-HOSTED",
+          note: "One command runs your page locally. A custom Remote backend needs an adapter and conformance checks; hosted setup is still a developer path.",
+          capabilities: ["Not wired yet", "Not wired yet", "Not yet", "Not yet"],
+        },
+      },
+    },
   },
   ui: {
     notTranslated: "Not yet translated. This page is shown in English.",
@@ -81,7 +246,7 @@ export const english = {
     yourHarness: "your harness",
     yourServer: "your server",
     planned: "planned",
-    designing: "designing",
+    alpha: "alpha",
     install: "Install",
     start: "Start with one message ↓",
     // The hero scene: a request from Claude Code to Codex and the reply back.
@@ -300,9 +465,9 @@ export const english = {
       {
         title: "3 · colab",
         hint: "One shared page",
-        status: "in progress",
+        status: "alpha",
         caption:
-          "Colab is a shared page for the lead's plan, notes and discussion, so teammates and agents on other machines read and comment on the same page. What you see is the design, not a release.",
+          "Colab is a shared page for the lead's plan, notes and discussion, so teammates and agents on other machines read and comment on the same page. The scene is an illustration; Colab itself ships as Alpha.",
       },
       {
         title: "4 · meet",

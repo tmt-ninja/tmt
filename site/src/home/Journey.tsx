@@ -6,12 +6,12 @@ import { useFrames } from "../scenes/useFrames";
 import { BoardStepScene, ColabScene, MeetScene, TalkScene } from "./journey-scenes";
 
 // Each step adds one layer on the same foundation: stopping at any step leaves
-// something that works. Only the first two are released; the others say so.
+// something that works. The first three are released; meet says it is planned.
 // The words (title, hint, status label, caption) come from the language's strings.
 const steps: { id: string; status?: "alpha" | "planned"; scene: ReactNode }[] = [
   { id: "talk", scene: <TalkScene /> },
   { id: "board", status: "alpha", scene: <BoardStepScene /> },
-  { id: "colab", status: "planned", scene: <ColabScene /> },
+  { id: "colab", status: "alpha", scene: <ColabScene /> },
   { id: "meet", status: "planned", scene: <MeetScene /> },
 ];
 

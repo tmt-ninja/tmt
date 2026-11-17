@@ -1,14 +1,20 @@
 import { Inline } from "../components/Inline";
 import { LocalLink } from "../components/LocalLink";
-import { Tag } from "../components/marks";
+import { Tag, type Status } from "../components/marks";
 import { useStrings } from "../lang/useStrings";
 import { SpatialExchange } from "./SpatialExchange";
 
 export function Hero() {
   const { home } = useStrings();
   // Agents from different tools mix freely; the built-in drivers are examples,
-  // not the list of what works. Planned ones are labeled.
-  const groups: { label: string; mix?: boolean; chips: { name: string; note?: string }[] }[] = [
+  // not the list of what works. Planned and Alpha ones are labeled; only planned ones are dashed.
+  // External runtime drivers can be approved but are not used yet; a server of your own is
+  // Remote on your own Firebase project, which ships as Alpha.
+  const groups: {
+    label: string;
+    mix?: boolean;
+    chips: { name: string; note?: { kind: Status; label: string } }[];
+  }[] = [
     {
       label: home.agents,
       mix: true,
@@ -18,8 +24,8 @@ export function Hero() {
     {
       label: home.next,
       chips: [
-        { name: home.yourHarness, note: home.planned },
-        { name: home.yourServer, note: home.designing },
+        { name: home.yourHarness, note: { kind: "planned", label: home.planned } },
+        { name: home.yourServer, note: { kind: "alpha", label: home.alpha } },
       ],
     },
   ];
@@ -54,13 +60,13 @@ export function Hero() {
                       )}
                       <span
                         className={`border-[1.5px] bg-sheet px-2.5 py-1 ${
-                          chip.note
+                          chip.note?.kind === "planned"
                             ? "border-dashed border-dim text-muted"
                             : "border-text text-text"
                         }`}
                       >
                         {chip.name}
-                        {chip.note && <Tag kind="planned">{chip.note}</Tag>}
+                        {chip.note && <Tag kind={chip.note.kind}>{chip.note.label}</Tag>}
                       </span>
                     </span>
                   ))}

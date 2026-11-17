@@ -22,13 +22,14 @@ const INSTALL = "curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/downlo
 const EXAMPLE = 'tmt talk reviewer "Review this patch" --detach';
 const THEMES: ThemeChoice[] = ["system", "light", "dark"];
 function HomeControls() {
+  const { landing } = useStrings();
   const [theme, setTheme] = useAtom(themeAtom);
   return (
     <div className="home-controls">
       <LanguageSwitcher variant="bar" />
       <button
         type="button"
-        aria-label={`Theme: ${theme}. Change theme`}
+        aria-label={landing.theme.replace("{theme}", theme)}
         onClick={() => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
       >
         {theme === "dark" ? "●" : theme === "light" ? "○" : "◐"}
@@ -45,7 +46,7 @@ function TopInstall({
   label?: string;
   id?: string;
 }) {
-  const { home } = useStrings();
+  const { home, landing } = useStrings();
   const [copied, setCopied] = useState(false);
   return (
     <div className="top-install" id={id}>
@@ -53,7 +54,7 @@ function TopInstall({
       <code>{command}</code>
       <button
         type="button"
-        aria-label="Copy command"
+        aria-label={landing.copyCommand}
         onClick={async () => {
           try {
             await navigator.clipboard.writeText(command);
@@ -63,7 +64,7 @@ function TopInstall({
           }
         }}
       >
-        {copied ? "copied" : "copy"}
+        {copied ? landing.copied : landing.copy}
       </button>
     </div>
   );
@@ -85,6 +86,8 @@ export function HomePage() {
 }
 function HomeContent() {
   const { landing } = useStrings();
+  // The captions inside the English example terminal are in the page's language.
+  const pageLang = languageOf(useLang().lang).htmlLang;
   const [copied, setCopied] = useState(false);
   const copyExample = async () => {
     try {
@@ -123,23 +126,23 @@ function HomeContent() {
             </LocalLink>
           </div>
           <div className="hero-footnote">
-            <span>01 / CONNECT</span>
+            <span>{landing.heroSteps[0]}</span>
             <span className="line"></span>
-            <span>02 / DELEGATE</span>
+            <span>{landing.heroSteps[1]}</span>
             <span className="line"></span>
-            <span>03 / RETURN</span>
+            <span>{landing.heroSteps[2]}</span>
           </div>
         </div>
       </section>
 
       <section className="compatibility">
         <div className="content compatibility-inner">
-          <span>Your agents. Your tools. Your machines.</span>
+          <span>{landing.compatibility}</span>
           <div>
             <span>Codex</span>
             <span>Claude Code</span>
             <span>Gemini</span>
-            <span className="muted">and more</span>
+            <span className="muted">{landing.andMore}</span>
           </div>
         </div>
       </section>
@@ -147,14 +150,12 @@ function HomeContent() {
       <section id="workflow" className="workflow content">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">01 / THE WORKFLOW</p>
+            <p className="eyebrow">{landing.workflowEyebrow}</p>
             <h2>{landing.workflowTitle}</h2>
           </div>
           <div className="workflow-summary">
             <p>{landing.workflowDescription}</p>
-            <p className="workflow-reach">
-              Across agent apps and terminals. Add Remote to connect from another machine.
-            </p>
+            <p className="workflow-reach">{landing.workflowReach}</p>
           </div>
         </div>
         <div className="terminal-demo">
@@ -168,14 +169,16 @@ function HomeContent() {
             <span className="example-label">{landing.exampleSession}</span>
           </div>
           <div className="terminal-body" lang="en">
-            <p className="workflow-step">
-              01 / Give your agent an identity · in the reviewer terminal
+            <p className="workflow-step" lang={pageLang}>
+              {landing.workflowSteps[0]}
             </p>
             <div className="terminal-command">
               <span className="prompt">$</span>
               <span>tmt this reviewer</span>
             </div>
-            <p className="workflow-step">02 / Send a request · from another agent terminal</p>
+            <p className="workflow-step" lang={pageLang}>
+              {landing.workflowSteps[1]}
+            </p>
             <div className="terminal-command">
               <span className="prompt">$</span>
               <span>
@@ -184,8 +187,8 @@ function HomeContent() {
               <button
                 className="icon-button"
                 id="copy-command"
-                aria-label="Copy example command"
-                title="Copy example command"
+                aria-label={landing.copyExample}
+                title={landing.copyExample}
                 type="button"
                 onClick={() => copyExample()}
               >
@@ -200,11 +203,13 @@ function HomeContent() {
                 Keep working. Pick up the result when you're ready.
               </span>
             </div>
-            <p className="workflow-step">03 / Pick up the reply</p>
+            <p className="workflow-step" lang={pageLang}>
+              {landing.workflowSteps[2]}
+            </p>
             <div className="terminal-command">
               <span className="prompt">$</span>
               <span>
-                tmt result <span className="example-id">7f3a1c</span>
+                tmt result <span className="example-id">7f3a1c94</span>
               </span>
             </div>
             <div className="terminal-output terminal-reply">
@@ -219,9 +224,10 @@ function HomeContent() {
           </div>
           <div className="terminal-bottom">
             <span>
-              <span className="signal"></span>LOCAL EXCHANGE
+              <span className="signal"></span>
+              {landing.exchangeLocal}
             </span>
-            <span>REQUEST → REPLY → RESULT</span>
+            <span>{landing.exchangeFlow}</span>
           </div>
         </div>
         <div className="principles">
@@ -242,8 +248,8 @@ function HomeContent() {
           </article>
         </div>
         <div className="workflow-install">
-          <h3>Install TMT</h3>
-          <p>Give your agent a name. Start a conversation.</p>
+          <h3>{landing.installTitle}</h3>
+          <p>{landing.installDescription}</p>
           <TopInstall />
         </div>
       </section>
@@ -251,13 +257,13 @@ function HomeContent() {
       <section id="squad" className="study-product content rich-section">
         <div className="section-heading squad-heading">
           <div>
-            <p className="eyebrow">02 / SQUAD</p>
+            <p className="eyebrow">{landing.opsEyebrow}</p>
             <h2>
               <span>Ops</span>
-              <span className="squad-heading-line">Your teams. One clear view.</span>
+              <span className="squad-heading-line">{landing.opsTagline}</span>
             </h2>
           </div>
-          <p>A lead briefs the other agents and keeps the board current.</p>
+          <p>{landing.opsDescription}</p>
         </div>
         <div
           lang="en"
@@ -414,23 +420,23 @@ function HomeContent() {
           </div>
         </div>
         <LocalLink className="study-chapter" to="/" hash="squad-demo">
-          Explore Ops <span>↗</span>
+          {landing.exploreOps} <span>↗</span>
         </LocalLink>
-        <TopInstall command="tmt extension install ops" label="Install Ops" />
+        <TopInstall command="tmt extension install ops" label={landing.installOps} />
       </section>
       <section id="colab" className="study-product content rich-section">
         <div className="section-heading colab-heading">
           <div>
-            <p className="eyebrow">03 / COLAB</p>
+            <p className="eyebrow">{landing.colabEyebrow}</p>
             <h2>
               <span>Colab</span>
-              <span className="squad-heading-line">Annotate here. Reach any agent.</span>
+              <span className="squad-heading-line">{landing.colabTagline}</span>
             </h2>
           </div>
           <p>
-            A self-hosted alternative to Claude Artifacts, across agents and environments.
+            {landing.colabDescription}
             <br />
-            <small>Shared documents. In-context discussions. Your infrastructure.</small>
+            <small>{landing.colabNote}</small>
           </p>
         </div>
         <div
@@ -544,7 +550,7 @@ function HomeContent() {
               </div>
               <div>
                 <span className="bridge-label">AGENT → SAME THREAD</span>
-                <code>✓ tmt reply · 7f3a1c</code>
+                <code>✓ tmt reply · 7f3a1c94</code>
                 <p>Checked at 390px. The layout fits.</p>
               </div>
             </div>
@@ -552,17 +558,17 @@ function HomeContent() {
         </div>
         <div className="section-tail">
           <LocalLink className="study-chapter" to="/" hash="colab-demo">
-            Explore Colab <span>↗</span>
+            {landing.exploreColab} <span>↗</span>
           </LocalLink>
-          <small>IN PROGRESS</small>
+          <small>{landing.colabStatus}</small>
         </div>
-        <TopInstall command="tmt extension install colab --skills" label="Install Colab" />
+        <TopInstall command="tmt extension install colab --skills" label={landing.installColab} />
       </section>
 
       <section id="start" className="start-section">
         <div className="content start-inner">
           <BrandMark size={78} />
-          <p className="eyebrow">02 / YOUR NEXT SESSION</p>
+          <p className="eyebrow">{landing.nextEyebrow}</p>
           <h2>{landing.nextTitle}</h2>
           <LocalLink className="button primary" to="/" hash="install">
             <span>{landing.getStarted}</span>
@@ -571,7 +577,7 @@ function HomeContent() {
         </div>
       </section>
       <div className="copy-status" role="status">
-        {copied ? "Command copied" : ""}
+        {copied ? landing.commandCopied : ""}
       </div>
     </main>
   );
