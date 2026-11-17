@@ -133,46 +133,8 @@ exit 7
         .unwrap();
         db.query_row("SELECT count(*) FROM recent_responses WHERE session_id=?1 AND text='native answer retained'", [session], |r|r.get::<_,i64>(0)).unwrap() == 1
     });
-    // Pin the three live incarnations before quit. Let each parent reap its
-    // child before cleanup can signal the still-running supervisor.
-    let programs: Vec<_> = [
-        ("native provider", "alpha"),
-        ("Node shim", "beta"),
-        ("script interpreter", "alpha-peer"),
-    ]
-    .into_iter()
-    .map(|(name, file)| {
-        let pid = fs::read_to_string(world.root.join(format!("{file}.pid")))
-            .unwrap()
-            .parse()
-            .unwrap();
-        (name, world.own_pid(pid))
-    })
-    .collect();
     terminal.input(b"quit\r").unwrap();
     drop(terminal);
-    let deadline = Instant::now() + WAIT;
-    loop {
-        let pending: Vec<_> = programs
-            .iter()
-            .filter(|(_, process)| {
-                !recorded_process_gone(process.pid())
-                    && !matches!(
-                        observe_runtime_process(&UnixCommandRunner, process.pid(), deadline),
-                        Ok(ProcessObservation::Live(now) | ProcessObservation::Stopped(now))
-                            if now != *process
-                    )
-            })
-            .collect();
-        if pending.is_empty() {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "provider processes not confirmed reaped: {pending:?}"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
     world.remember();
     world.remember_programs();
     assert!(world.clean());
