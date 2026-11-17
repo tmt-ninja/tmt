@@ -21,10 +21,9 @@ pub(super) fn shell_prefix(text: &str) -> Option<(bool, &str)> {
         .or_else(|| text.strip_prefix("！！"))
     {
         (true, rest)
-    } else if let Some(rest) = text.strip_prefix('!').or_else(|| text.strip_prefix('！')) {
-        (false, rest)
     } else {
-        return None;
+        let rest = text.strip_prefix('!').or_else(|| text.strip_prefix('！'))?;
+        (false, rest)
     };
     Some((private, rest.strip_prefix(' ').unwrap_or(rest)))
 }
