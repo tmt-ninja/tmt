@@ -29,6 +29,7 @@ pub(super) mod layout;
 pub(in crate::board) mod note_source;
 pub(super) mod outgoing;
 pub(in crate::board) mod screen;
+pub(super) mod shell;
 pub(in crate::board) use outgoing::FeedbackClock;
 pub(in crate::board) mod source;
 pub(in crate::board) mod timeline;
@@ -204,6 +205,7 @@ enum AnswerFailure {
 }
 
 struct Session {
+    shell_runs: Vec<shell::Run>,
     reply: Option<Reply>,
     finals: Vec<Reply>,
     rendered: Option<Rendered>,
@@ -249,6 +251,7 @@ struct Session {
 impl Default for Session {
     fn default() -> Self {
         Self {
+            shell_runs: Vec::new(),
             reply: None,
             finals: Vec::new(),
             rendered: None,

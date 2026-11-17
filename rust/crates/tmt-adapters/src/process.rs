@@ -43,6 +43,18 @@ pub struct CommandOutput {
     pub stderr: Vec<u8>,
 }
 
+/// A shell command's bounded observation, including a terminated partial result.
+#[derive(Debug)]
+pub(crate) struct ShellOutput {
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub exit_code: Option<i32>,
+    pub signal: Option<i32>,
+    pub timed_out: bool,
+    pub truncated: bool,
+    pub cancelled: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandFailure {
     Spawn,
@@ -363,6 +375,174 @@ impl CommandRunner for UnixCommandRunner {
 }
 
 impl UnixCommandRunner {
+    /// Run a command in an already-verified directory, owning its process group.
+    #[cfg(test)]
+    pub(crate) fn run_shell_in(
+        &self,
+        command: &str,
+        directory: &std::path::Path,
+        timeout: Duration,
+        limit: usize,
+    ) -> Result<ShellOutput, CommandError> {
+        self.run_shell_in_interrupt(command, directory, timeout, limit, None, None)
+    }
+
+    pub(crate) fn run_shell_in_interrupt(
+        &self,
+        command: &str,
+        directory: &std::path::Path,
+        timeout: Duration,
+        limit: usize,
+        interrupt: Option<&crate::interrupt::Interrupt>,
+        lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+    ) -> Result<ShellOutput, CommandError> {
+        let is_cancelled = || {
+            interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted)
+                || lifeline.is_some_and(|fd| {
+                    let mut fds = [nix::poll::PollFd::new(fd, nix::poll::PollFlags::POLLIN)];
+                    match nix::poll::poll(&mut fds, 0u8) {
+                        Ok(_) => fds[0].revents().is_some_and(|flags| {
+                            use std::os::fd::AsRawFd;
+                            flags.intersects(
+                                nix::poll::PollFlags::POLLHUP
+                                    | nix::poll::PollFlags::POLLERR
+                                    | nix::poll::PollFlags::POLLNVAL,
+                            ) || (flags.contains(nix::poll::PollFlags::POLLIN)
+                                && matches!(
+                                    nix::sys::socket::recv(
+                                        fd.as_raw_fd(),
+                                        &mut [0u8; 1],
+                                        nix::sys::socket::MsgFlags::MSG_PEEK
+                                            | nix::sys::socket::MsgFlags::MSG_DONTWAIT
+                                    ),
+                                    Ok(0)
+                                ))
+                        }),
+                        Err(_) => true,
+                    }
+                })
+        };
+        if is_cancelled() {
+            return Ok(ShellOutput {
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+                exit_code: None,
+                signal: None,
+                timed_out: false,
+                truncated: false,
+                cancelled: true,
+            });
+        }
+        let shell = std::env::var_os("SHELL")
+            .filter(|value| std::path::Path::new(value).is_absolute())
+            .unwrap_or_else(|| "/bin/sh".into());
+        let deadline = Instant::now() + timeout;
+        let job = Exec::cmd(shell)
+            .arg("-c")
+            .arg(command)
+            .cwd(directory)
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .stdin(Redirection::Null)
+            .stdout(Redirection::Pipe)
+            .stderr(Redirection::Pipe)
+            .setpgid()
+            .start()
+            .map_err(|cause| CommandError::io(CommandFailure::Spawn, cause))?;
+        let mut child = RunningCommand {
+            job,
+            finished: false,
+            deadline,
+            max_output_bytes: limit,
+            owns_group: true,
+        };
+        let remaining_bytes = std::cell::Cell::new(limit);
+        let truncated = std::cell::Cell::new(false);
+        let mut stdout = ShellCapture {
+            bytes: Vec::new(),
+            remaining: &remaining_bytes,
+            truncated: &truncated,
+        };
+        let mut stderr = ShellCapture {
+            bytes: Vec::new(),
+            remaining: &remaining_bytes,
+            truncated: &truncated,
+        };
+        let read = {
+            let mut communication = child
+                .job
+                .communicate()
+                .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+            loop {
+                if is_cancelled() {
+                    break Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "Shell cancelled",
+                    ));
+                }
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    break Err(io::Error::new(io::ErrorKind::TimedOut, "Shell deadline"));
+                }
+                communication = communication.limit_time(left.min(INTERRUPT_SLICE));
+                match communication.read_to(&mut stdout, &mut stderr) {
+                    Err(error) if error.kind() == io::ErrorKind::TimedOut => continue,
+                    result => break result,
+                }
+            }
+        };
+        let cancelled = is_cancelled();
+        let mut timed_out = false;
+        if let Err(error) = read {
+            if !cancelled && !truncated.get() && error.kind() != io::ErrorKind::TimedOut {
+                let mut failure = CommandError::io(CommandFailure::Io, error);
+                failure.cleanup_error = child.cleanup().err();
+                return Err(failure);
+            }
+            timed_out = !cancelled && !truncated.get();
+        }
+        let status = if cancelled || timed_out || truncated.get() {
+            None
+        } else {
+            loop {
+                if is_cancelled() {
+                    break None;
+                }
+                let Ok(left) = remaining(deadline) else {
+                    break None;
+                };
+                if let Some(status) = child
+                    .job
+                    .wait_timeout(left.min(INTERRUPT_SLICE))
+                    .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?
+                {
+                    break Some(status);
+                }
+            }
+        };
+        let cancelled = cancelled || (status.is_none() && is_cancelled());
+        if status.is_none() && !truncated.get() && !cancelled {
+            timed_out = true;
+        }
+        if status.is_some() {
+            child.finished = true;
+        } else {
+            child
+                .cleanup()
+                .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
+        }
+        Ok(ShellOutput {
+            stdout: stdout.bytes,
+            stderr: stderr.bytes,
+            exit_code: status
+                .and_then(|value| value.code())
+                .and_then(|value| i32::try_from(value).ok()),
+            signal: status.and_then(|value| value.signal()),
+            timed_out,
+            truncated: truncated.get(),
+            cancelled,
+        })
+    }
     /// Spawn under a caller's short-lived ownership guard, then wait outside it.
     pub fn start(&self, request: CommandRequest<'_>) -> Result<RunningCommand, CommandError> {
         start_command(request, true)
@@ -376,6 +556,28 @@ impl UnixCommandRunner {
         environment: &[(OsString, OsString)],
     ) -> Result<CommandOutput, CommandError> {
         start_command_in(request, true, environment, Some(directory))?.wait()
+    }
+}
+
+struct ShellCapture<'a> {
+    bytes: Vec<u8>,
+    remaining: &'a std::cell::Cell<usize>,
+    truncated: &'a std::cell::Cell<bool>,
+}
+
+impl Write for ShellCapture<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let allowed = bytes.len().min(self.remaining.get());
+        self.bytes.extend_from_slice(&bytes[..allowed]);
+        self.remaining.set(self.remaining.get() - allowed);
+        if allowed < bytes.len() {
+            self.truncated.set(true);
+            return Err(io::Error::other("Shell output limit exceeded"));
+        }
+        Ok(allowed)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 

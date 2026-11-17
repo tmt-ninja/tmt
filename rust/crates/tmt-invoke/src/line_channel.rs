@@ -3,7 +3,7 @@
 use crate::{FailureKind, InvokeError, LaunchOptions, Output, Phase, Stream, process};
 use nix::{
     errno::Errno,
-    fcntl::{FcntlArg, OFlag, fcntl},
+    fcntl::{FcntlArg, FdFlag, OFlag, fcntl},
     poll::{PollFd, PollFlags, PollTimeout, poll},
 };
 use std::{
@@ -12,7 +12,7 @@ use std::{
     io::{self, Read, Write},
     os::fd::AsFd,
     path::Path,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 pub struct LineChannelOptions<'a> {
@@ -66,6 +66,12 @@ impl LineChannel {
             let stderr = take(child.job.stderr.take())?;
             for pipe in [&stdin, &stdout, &stderr] {
                 nonblocking(pipe)?;
+                let flags = fcntl(pipe, FcntlArg::F_GETFD).map_err(io::Error::from)?;
+                fcntl(
+                    pipe,
+                    FcntlArg::F_SETFD(FdFlag::from_bits_truncate(flags) | FdFlag::FD_CLOEXEC),
+                )
+                .map_err(io::Error::from)?;
             }
             Ok::<_, io::Error>((stdin, stdout, stderr))
         })();
@@ -97,6 +103,28 @@ impl LineChannel {
         deadline: Instant,
         stopped: impl Fn() -> bool,
     ) -> Result<Vec<u8>, InvokeError> {
+        self.exchange_inner(payload, deadline, stopped, false, || {})
+    }
+
+    /// A lifeline request gives its child time to clean up after the pipe closes.
+    pub fn exchange_lifeline(
+        &mut self,
+        payload: &[u8],
+        deadline: Instant,
+        stopped: impl Fn() -> bool,
+        before_cleanup: impl FnOnce(),
+    ) -> Result<Vec<u8>, InvokeError> {
+        self.exchange_inner(payload, deadline, stopped, true, before_cleanup)
+    }
+
+    fn exchange_inner(
+        &mut self,
+        payload: &[u8],
+        deadline: Instant,
+        stopped: impl Fn() -> bool,
+        lifeline: bool,
+        before_cleanup: impl FnOnce(),
+    ) -> Result<Vec<u8>, InvokeError> {
         process::budget(deadline, stopped())?;
         if !self.pending.is_empty() {
             return Err(io_failure(io::Error::new(
@@ -118,10 +146,19 @@ impl LineChannel {
         }
         let result = self.communicate(Some(payload), deadline, &stopped);
         if let Err(mut error) = result {
+            before_cleanup();
             self.stdin.take();
             self.stdout.take();
             self.stderr.take();
             let mut child = self.child.take().expect("exchange owns a child");
+            if lifeline {
+                let _ = child.terminate_owned();
+                if matches!(child.job.wait_timeout(Duration::from_secs(2)), Ok(Some(_))) {
+                    child.finished = true;
+                    error.cleanup = crate::Cleanup::Confirmed;
+                    return Err(error);
+                }
+            }
             error.cleanup = child.cleanup();
             child.finished = true;
             return Err(error);
@@ -307,6 +344,11 @@ impl LineChannel {
                 Err(error)
             }
         }
+    }
+
+    /// PID of the still-owned child, before close or failed exchange reaps it.
+    pub fn pid(&self) -> Option<u32> {
+        self.child.as_ref().map(|child| child.job.pid())
     }
 
     pub fn stderr(&self) -> &[u8] {

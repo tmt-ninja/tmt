@@ -151,6 +151,14 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// terminal hangs up, so the board never waits on it directly; the thread ends
 /// with the process, and a read error disconnects the channel.
 pub(in crate::board) enum BoardEvent {
+    ShellCancelled {
+        key: (String, String),
+        confirmed: bool,
+    },
+    ShellDone {
+        key: (String, String),
+        result: Result<serde_json::Value, String>,
+    },
     OrchestrationRead {
         read: orchestration::Read,
         observation: orchestration::Observation,
@@ -313,6 +321,8 @@ pub(in crate::board) enum BoardEvent {
 impl BoardEvent {
     fn trace_cause(&self) -> &'static str {
         match self {
+            Self::ShellCancelled { .. } => "ShellCancelled",
+            Self::ShellDone { .. } => "ShellDone",
             Self::Migration(_) => "Migration",
             Self::CronMigration(_) => "CronMigration",
             Self::CallerFailed(_) => "CallerFailed",
@@ -1072,6 +1082,20 @@ fn session(
                         app.caller_failure = Some(why);
                         Effect::None
                     }
+                    Ok(BoardEvent::ShellCancelled { key, confirmed }) => {
+                        if confirmed {
+                            app.shell_cancelled(&key);
+                        } else {
+                            app.shell_cancel_unconfirmed(&key);
+                        }
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::ShellDone { key, result }) => {
+                        app.shell_finished(key, result);
+                        dirty = true;
+                        Effect::None
+                    }
                     Ok(BoardEvent::Checklist(completed)) => {
                         app.finished_checklist(completed);
                         dirty = true;
@@ -1774,6 +1798,9 @@ fn session(
                             }
                         }
                     }
+                    Effect::Shell { key, command } => {
+                        io(lane::Job::Shell { key, command });
+                    }
                     Effect::Act(action) => {
                         let job = if let Some(ticket) = app.outgoing_ticket(&action) {
                             lane::Job::Send {
@@ -2161,6 +2188,8 @@ pub fn run(
         if let Some(signal) = terminal::stop_signal(&stop) {
             return Ok(Some(signal));
         }
+        let spawns = crate::core::shell_spawn_guard();
+        crate::core::signal_shell_apis(&spawns);
         return Err(failed(command.exec()));
     }
     Ok(signal)

@@ -976,6 +976,44 @@ fn provider_form_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+/// Shell mode and its owner-local member conversation, without running commands.
+fn shell_composer_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &[
+            "shell-marker",
+            "shell-running",
+            "shell-done",
+            "shell-failed",
+        ],
+        |_| grid(&[160, 100], &[36]),
+        |state, look, width, _| {
+            let mut app = capture_case("overview", look);
+            app.focus_composer();
+            let key = app.input.as_ref().unwrap().draft_key.clone().unwrap();
+            if state == "shell-marker" {
+                app.input.as_mut().unwrap().text = if width == 100 {
+                    "！！ pwd"
+                } else {
+                    "！ pwd"
+                }
+                .into();
+            } else {
+                assert!(app.shell_start(&key, "pwd", false));
+                if state == "shell-done" {
+                    app.shell_finished(key, Ok(json!({"identityId":MEMBER,"cwd":"/work","stdout":"/work\n","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false})));
+                } else if state == "shell-failed" {
+                    app.shell_finished(key, Err("Could not start; nothing was run.".into()));
+                }
+            }
+            app
+        },
+        |captured, app| {
+            captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()))
+        },
+    )
+}
+
 /// Paste attachments and forms share their scene owner with decoded review.
 fn paste_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
@@ -1505,6 +1543,7 @@ macro_rules! oracle_groups {
         $group!(7, 36, measure_exchanges_frames($styles));
         $group!(7, 180, agents_activity_frames($styles));
         $group!(7, 40, provider_form_frames($styles));
+        $group!(7, 32, shell_composer_frames($styles));
         $group!(8, 228, paste_frames($styles));
         $group!(7, 60, file_chip_frames($styles));
         $group!(7, 144, quote_frames($styles));

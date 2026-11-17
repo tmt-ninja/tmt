@@ -319,6 +319,10 @@ pub enum Effect {
     PickTheme,
     SaveTheme,
     Act(Request),
+    Shell {
+        key: (String, String),
+        command: String,
+    },
     Checklist(super::checklist::load::Task),
     Recovery(super::recovery::load::Task),
     Discovery(super::discovery::load::Task),
@@ -3772,6 +3776,52 @@ impl App {
         }) {
             return self.say("The response source changed; nothing sent. Draft retained.");
         }
+        let shell = self.input.as_ref().and_then(|input| {
+            if !matches!(input.compose, Compose::Talk { .. }) {
+                return None;
+            }
+            let (private, command) = super::composer::shell_prefix(input.text.as_str())?;
+            Some((
+                private,
+                command.to_owned(),
+                input.draft_key.clone(),
+                input.row_send.clone(),
+                input.text.folds().is_empty(),
+            ))
+        });
+        if let Some((private, command, key, row_send, no_folds)) = shell {
+            let Some(key) = key else {
+                return self.say("Select a member; nothing was run.");
+            };
+            if !no_folds || !tmt_pty_protocol::valid_command(&command) {
+                return self.say(
+                    "Enter one visible shell command of at most 4096 bytes; nothing was run.",
+                );
+            }
+            if self
+                .input
+                .as_ref()
+                .and_then(|input| self.draft_identity(input))
+                .as_ref()
+                != Some(&key)
+                || row_send.as_ref().is_none_or(|send| {
+                    self.input
+                        .as_ref()
+                        .is_none_or(|input| !send.valid(self, input))
+                })
+            {
+                return self.say("The member changed; nothing was run. Draft retained.");
+            }
+            if !self.shell_start(&key, &command, private) {
+                return self.say("A shell command is already running or this conversation is full; nothing was run.");
+            }
+            if let Some(input) = self.input.as_mut() {
+                input.text.clear();
+                input.inline_quotes.clear();
+            }
+            self.remember_draft();
+            return Effect::Shell { key, command };
+        }
         let persistent = self
             .input
             .as_ref()
@@ -3895,14 +3945,21 @@ impl App {
                 };
                 Some((send.sender_id.clone()?, recipient, send.name.clone()))
             });
-        let fallback = text;
-        let text = if chat.is_some() {
+        let mut fallback = text;
+        let mut text = if chat.is_some() {
             input.quoted_message_with(&|id| self.mention_name(id), &|name| {
                 self.skill_sent(&input, name)
             })
         } else {
             fallback.clone()
         };
+        let attachment_key = matches!(input.compose, Compose::Talk { .. })
+            .then_some(input.draft_key.as_ref())
+            .flatten();
+        if let Some(attachment) = attachment_key.and_then(|key| self.shell_attachment(key, false)) {
+            text = format!("{attachment}{text}");
+            fallback = format!("{attachment}{fallback}");
+        }
         let Some(me) = self.view.as_ref().and_then(|view| view.me.clone()) else {
             return Effect::None;
         };
@@ -3912,6 +3969,9 @@ impl App {
         if text.len() > MESSAGE_LIMIT {
             return self
                 .say("Message including quotes exceeds 1 MiB; nothing sent. Draft retained.");
+        }
+        if let Some(key) = attachment_key {
+            self.shell_attachment(key, true);
         }
         self.begin_outgoing(&input, &text);
         self.sending_draft(&input);
@@ -4333,7 +4393,17 @@ impl App {
         } else {
             None
         };
-        trace.navigation(json!({"event":phase, "key":format!("{:?}",key.code),
+        let traced_key = if matches!(key.code, KeyCode::Char(_))
+            && self
+                .input
+                .as_ref()
+                .is_some_and(|input| matches!(input.compose, Compose::Talk { .. }))
+        {
+            "<text>".to_owned()
+        } else {
+            format!("{:?}", key.code)
+        };
+        trace.navigation(json!({"event":phase, "key":traced_key,
             "modifiers":format!("{:?}",key.modifiers), "kind":format!("{:?}",key.kind),
             "owner":format!("{owner:?}"), "verb":verb, "selected":self.trace_target(),
             "effect":effect.map(|effect| match effect {

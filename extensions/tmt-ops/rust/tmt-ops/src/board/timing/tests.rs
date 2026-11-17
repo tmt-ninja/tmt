@@ -217,6 +217,27 @@ fn navigation_records_end_ownership_and_action() {
 }
 
 #[test]
+fn navigation_trace_does_not_record_private_shell_text() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = crate::board::app::workspace::tests::board();
+    app.focus_composer();
+    let (trace, buffer) = Trace::buffer();
+    app.navigation_trace = Some(trace);
+    for ch in "!! secret".chars() {
+        app.key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let rows = records(&buffer);
+    assert!(
+        rows.iter()
+            .filter(|row| row["event"] == "key_before")
+            .all(|row| row["key"] == "<text>")
+    );
+    let logged = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
+    assert!(!logged.contains("secret"));
+    assert!(!logged.contains("Char('s')"));
+}
+
+#[test]
 fn navigation_trace_distinguishes_pane_switch_from_refresh() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = crate::board::app::workspace::tests::board();

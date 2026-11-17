@@ -153,6 +153,7 @@ remain independent of storage access.
 | `terminal.stream`        | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `host`, `socket`, `pane`, `paused`: where a built-in-host member's terminal stream is (see [below](#terminal-stream))                                                                                                     |
 | `terminal.resume`        | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `resumed`: continues a built-in-host member stopped by job control (see [below](#resume-a-paused-member))                                                                                                                 |
 | `terminal.relaunch`      | `identityId` (canonical UUID), `kind`: `resume`, `new` or `shell`                                                                                                             | `identityId`, `relaunched`: starts a program on the kept terminal of a built-in-host member whose program ended, or a new terminal when its supervisor is gone (see [below](#relaunch-on-a-kept-terminal))                              |
+| `shell.run`              | `identityId`, `command`                                                                                                                                                       | `identityId`, `cwd`, `stdout`, `stderr`, `exitCode`, `signal`, `timedOut`, `truncated` (see [Shell command](#shell-command))                                                                                                            |
 | `terminal.open`          | `identityId` (canonical UUID)                                                                                                                                                 | `identityId`, `terminalId`, `socket`, `pane`, `directory`: opens an extra terminal under a member on any host (see [below](#terminals-under-a-member))                                                                                  |
 | `terminal.run`           | `identityId`, `terminalId`, `command`                                                                                                                                         | `identityId`, `terminalId`, `submitted: true`; confirmed submission, never command completion                                                                                                                                           |
 | `terminal.list`          | `identityId` (canonical UUID), or `identityIds` (1 to 256)                                                                                                                    | `identityId`, `terminals`: a member's extra terminals on any host, read-only; `lists` for `identityIds` (see [below](#terminals-under-a-member))                                                                                        |
@@ -519,6 +520,38 @@ exit and last lines, and no terminal is kept. A supervisor that could not start 
 Two calls at once may both find the supervisor gone: the second launcher finds the first's
 live binding and refuses, as `tmt resume` does, so the second call is
 `TERMINAL_RELAUNCH_FAILED`.
+
+### Shell command
+
+`shell.run` executes a user-submitted command once on this machine, in the current
+working directory of the exact live member. Input is `{identityId, command}`; the
+canonical member UUID is required. The command uses the same single-line, 4096-byte
+`valid_command` admission as `terminal.run`. The caller cannot supply a directory,
+shell or argument vector. Core resolves the bound member and its current cwd from
+fresh local host evidence; stale, unknown, remote or unavailable evidence refuses
+before starting rather than falling back to another directory.
+
+The user's absolute `$SHELL` is invoked as `$SHELL -c <command>`, falling back to
+`/bin/sh` only if `SHELL` is unset or not absolute. The child inherits the board's
+environment except `TMUX` and `TMUX_PANE`; stdin is `/dev/null` and no TTY is
+attached. It runs in an owned process group with a 120-second deadline and a 64 KiB
+combined stdout/stderr capture budget. On deadline or output overflow the owner
+kills the group and reaps it. Output is decoded as lossy UTF-8 and returned as
+`{identityId, cwd, stdout, stderr, exitCode, signal, timedOut, truncated}`; exit
+code and signal are null when unavailable. A timeout or overflow is explicitly
+marked and captured output is partial. A refusal before spawn is distinct from
+`SHELL_RUN_UNCONFIRMED`, which means execution started but its result or cleanup
+could not be confirmed. For a framed `tmt api --session` request, the caller keeps
+the request pipe open for the duration of `shell.run`; hangup or EOF cancels it,
+including when the caller exits, execs, or crashes. `SIGTERM` also asks the owner
+to cancel: it kills and reaps the
+shell group and returns `SHELL_RUN_CANCELLED`, with no output promise. An Ops caller
+allows up to two seconds for clean cancellation before forcibly terminating the API
+process; forced termination is unconfirmed because the shell is in a separate group
+and may remain outside Core's reach. If a reload inherits the request pipe despite
+these guards, Core still enforces its 120-second deadline and reaps the group.
+An uncertain call is never retried automatically.
+This is a local API operation; it grants no Remote scope or operation.
 
 ### Terminals under a member
 

@@ -230,6 +230,15 @@ mod tests {
     }
 
     #[test]
+    fn running_shell_does_not_hold_reload_or_member_handoff() {
+        let mut app = crate::board::app::workspace::tests::board();
+        let key = ("sender".to_owned(), "member".to_owned());
+        assert!(app.shell_start(&key, "sleep 30", true));
+        assert!(!app.reload_blocked());
+        assert!(app.member_session_blocker().is_none());
+    }
+
+    #[test]
     fn agent_details_holds_reload_until_the_user_closes_it() {
         let mut app = crate::board::app::workspace::tests::board();
         assert!(!app.reload_blocked());

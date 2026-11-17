@@ -19,6 +19,7 @@ mod responses;
 mod rooms;
 #[cfg(test)]
 mod session_tests;
+mod shell;
 mod skills;
 mod terminal;
 mod timeline;
@@ -75,6 +76,7 @@ const OPS: &[&str] = &[
     "terminal.run",
     "terminal.list",
     "terminal.close",
+    "shell.run",
     "forms.list",
     "forms.answer",
     "dispatch.show",
@@ -298,6 +300,10 @@ pub enum Request {
     TerminalClose {
         terminal_id: String,
         force: bool,
+    },
+    ShellRun {
+        identity_id: String,
+        command: String,
     },
     ConsumptionHistory {
         identities: Vec<String>,
@@ -527,6 +533,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "terminal.run" => terminal::decode_run(input)?,
         "terminal.list" => terminal::decode_list(input)?,
         "terminal.close" => terminal::decode_close(input)?,
+        "shell.run" => shell::decode(input)?,
         "forms.list" => forms::decode_list(input)?,
         "forms.answer" => forms::decode_answer(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
@@ -614,8 +621,15 @@ impl Session {
         Ok(())
     }
     pub fn execute(&mut self, request: Request) -> Result<Vec<u8>, Fault> {
+        self.execute_with_lifeline(request, None)
+    }
+    pub fn execute_with_lifeline(
+        &mut self,
+        request: Request,
+        lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+    ) -> Result<Vec<u8>, Fault> {
         self.validate_schema()?;
-        let pending = self.run(request);
+        let pending = self.run(request, lifeline);
         if let Some(storage) = &self.storage {
             storage.flush_observations();
         }
@@ -634,7 +648,11 @@ impl Session {
         }
         Ok(())
     }
-    fn run(&mut self, request: Request) -> Result<Vec<u8>, Fault> {
+    fn run(
+        &mut self,
+        request: Request,
+        lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+    ) -> Result<Vec<u8>, Fault> {
         let paths = &self.paths;
         if matches!(request, Request::Capabilities) {
             return Ok(capabilities());
@@ -756,6 +774,10 @@ impl Session {
                 terminal_id,
                 command,
             } => terminal::run(paths, storage, &identity_id, &terminal_id, &command),
+            Request::ShellRun {
+                identity_id,
+                command,
+            } => shell::run(storage, &identity_id, &command, lifeline),
             Request::TerminalList { identity_id } => terminal::list(paths, storage, &identity_id),
             Request::TerminalListMany { identity_ids } => {
                 terminal::list_many(paths, storage, &identity_ids)
@@ -880,6 +902,31 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn shell_run_admits_only_a_bounded_command_and_exact_identity() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        let request =
+            |input| json!({"version":1,"operation":"shell.run","input":input}).to_string();
+        assert!(decode(&request(json!({"identityId":id,"command":"pwd"}))).is_ok());
+        assert!(
+            decode(&request(
+                json!({"identityId":id,"command":"x".repeat(4096)})
+            ))
+            .is_ok()
+        );
+        assert!(capabilities_list().contains(&"shell.run".to_owned()));
+        for input in [
+            json!({"identityId":"missing","command":"pwd"}),
+            json!({"identityId":id,"command":""}),
+            json!({"identityId":id,"command":"a\nb"}),
+            json!({"identityId":id,"command":"x".repeat(4097)}),
+            json!({"identityId":id,"command":"a\u{202e}b"}),
+            json!({"identityId":id,"command":"pwd","cwd":"/tmp"}),
+        ] {
+            assert!(decode(&request(input)).is_err());
+        }
+    }
 
     #[test]
     fn recent_responses_default_and_explicit_limit_are_admitted_without_an_originator() {

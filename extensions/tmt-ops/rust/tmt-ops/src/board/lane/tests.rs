@@ -20,7 +20,8 @@ root=${0%/*}
 printf '%s\n' "$*" >> "$root/calls"
 case "$1:$2" in
   config:show) printf '{"paths":{"global":"%s/config.json"},"resolved":{}}\n' "$root" ;;
-  api:*) cat > /dev/null; printf '{"dataRoot":"%s/data"}\n' "$root" ;;
+  api:--session) IFS= read -r request; printf '%s\n' "$request" > "$root/api-input"; printf '%s\n' '{"identityId":"member","cwd":"/work","stdout":"","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false}'; cat >/dev/null ;;
+  api:*) cat > "$root/api-input"; if grep -q '"operation":"shell.run"' "$root/api-input"; then printf '%s\n' '{"identityId":"member","cwd":"/work","stdout":"","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false}'; else printf '{"dataRoot":"%s/data"}\n' "$root"; fi ;;
   whoami:*) cat "$root/caller" ;;
   *) printf '%s\n' '{"error":{"code":"UNEXPECTED","message":"Unexpected fake-Core call."}}'; exit 1 ;;
 esac
@@ -55,6 +56,71 @@ fn selection() -> super::super::settings::host_action::Selection {
         invoker_tmux: true,
         ops: json!({}),
     }
+}
+
+#[test]
+fn finish_does_not_join_an_in_flight_shell_worker() {
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+    let fixture = Fixture::new();
+    let (started, ready) = channel();
+    let (release, held) = channel::<()>();
+    let (finished, observed) = channel();
+    let worker = std::thread::spawn(move || {
+        started.send(()).unwrap();
+        let _ = held.recv();
+        finished.send(()).unwrap();
+    });
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    let (events, _received) = channel();
+    let lane = Lane {
+        jobs: None,
+        thread: None,
+        shell_core: fixture.core.clone(),
+        shell_events: events,
+        shell_threads: std::cell::RefCell::new(vec![worker]),
+        shell_stop: Default::default(),
+    };
+    let (returned, done) = channel();
+    let closer = std::thread::spawn(move || {
+        lane.finish();
+        returned.send(()).unwrap();
+    });
+    let outcome = done.recv_timeout(Duration::from_secs(2));
+    release.send(()).unwrap();
+    observed.recv_timeout(Duration::from_secs(2)).unwrap();
+    closer.join().unwrap();
+    outcome.expect("quit must not wait for an in-flight shell worker");
+}
+
+#[test]
+fn shell_uses_one_dedicated_api_invocation_without_replay() {
+    let fixture = Fixture::new();
+    let (events, received) = std::sync::mpsc::channel();
+    let core = fixture.core.clone().with_api_session().unwrap();
+    let lane = Lane::spawn(core, None, events);
+    let key = ("sender".to_owned(), "member".to_owned());
+    lane.submit(Job::Shell {
+        key: key.clone(),
+        command: "pwd".into(),
+    });
+    assert!(
+        matches!(received.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), BoardEvent::ShellDone { key: actual, result: Ok(_) } if actual == key)
+    );
+    lane.finish();
+    let calls = std::fs::read_to_string(fixture.root.join("calls")).unwrap();
+    assert_eq!(
+        calls
+            .lines()
+            .filter(|line| *line == "api --session")
+            .count(),
+        1,
+        "{calls}"
+    );
+    let input: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(fixture.root.join("api-input")).unwrap()).unwrap();
+    assert_eq!(input["operation"], "shell.run");
+    assert_eq!(input["input"]["command"], "pwd");
 }
 
 #[test]

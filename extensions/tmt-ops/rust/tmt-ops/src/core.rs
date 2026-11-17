@@ -19,6 +19,26 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 // Above `tmt api`'s own advertised output bound, so its errors stay readable.
 const OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
 const CONFIG_LOOKUP: &str = "TMT_OPS_CONFIG_LOOKUP";
+// Serializes shell API spawning with board exec, including macOS pipe CLOEXEC setup.
+static SHELL_SPAWNS: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeSet<u32>>> =
+    std::sync::OnceLock::new();
+pub(crate) fn shell_spawn_guard() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<u32>>
+{
+    SHELL_SPAWNS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+pub(crate) fn signal_shell_apis(pids: &std::collections::BTreeSet<u32>) {
+    for pid in pids {
+        if let Ok(pid) = i32::try_from(*pid) {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid),
+                nix::sys::signal::Signal::SIGTERM,
+            );
+        }
+    }
+}
 
 /// A squad or passed-through core failure. Core codes are never renamed.
 /// `message` is the whole text `--json` reports; human output shows it as
@@ -191,6 +211,17 @@ impl Core {
         }
     }
 
+    /// A long-running effect must not occupy either shared serial API session.
+    pub(crate) fn one_shot(&self) -> Self {
+        Self {
+            session: None,
+            retained: None,
+            deadline: None,
+            cancellation: None,
+            ..self.clone()
+        }
+    }
+
     pub(crate) fn with_retained_reads(&self, retained: Arc<RetainedReads>) -> Self {
         Self {
             retained: Some(retained),
@@ -301,6 +332,59 @@ impl Core {
         operands: &[&str],
     ) -> Result<Value, SquadError> {
         document(self.json_finished_with_operands(args, operands, TIMEOUT)?)
+    }
+
+    /// A dedicated session keeps its request pipe open as the shell's lifeline.
+    pub(crate) fn shell_run(
+        &self,
+        input: Value,
+        stopped: &std::sync::atomic::AtomicBool,
+    ) -> Result<Value, SquadError> {
+        runner::assert_commands_allowed("shell API request");
+        let deadline = Instant::now() + Duration::from_secs(130);
+        let args = ["api".into(), "--session".into()];
+        let mut spawns = shell_spawn_guard();
+        let mut channel = tmt_invoke::LineChannel::start(
+            tmt_invoke::LineChannelOptions {
+                program: &self.executable,
+                args: &args,
+                deadline,
+                max_frame_bytes: OUTPUT_LIMIT,
+                launch: Default::default(),
+            },
+            || stopped.load(std::sync::atomic::Ordering::Acquire),
+        )
+        .map_err(|e| invocation_error(runner::run_error(e.kind)))?;
+        let pid = channel.pid().expect("started channel owns child");
+        spawns.insert(pid);
+        drop(spawns);
+        let unregister = || {
+            shell_spawn_guard().remove(&pid);
+        };
+        let request = json!({"version": 1, "operation": "shell.run", "input": input}).to_string();
+        let response = channel.exchange_lifeline(
+            request.as_bytes(),
+            deadline,
+            || stopped.load(std::sync::atomic::Ordering::Acquire),
+            unregister,
+        );
+        unregister();
+        let response = response.map_err(|e| invocation_error(runner::run_error(e.kind)))?;
+        let exit = channel
+            .close(deadline, || false)
+            .map_err(|e| invocation_error(runner::run_error(e.kind)))?;
+        if !exit.status.success() {
+            return Err(unavailable(
+                "Shell result unconfirmed; do not retry automatically.",
+            ));
+        }
+        let document: Value = serde_json::from_slice(&response)
+            .map_err(|_| unavailable("Shell result unconfirmed; do not retry automatically."))?;
+        if document.get("error").is_some() {
+            resource_error(&document)
+        } else {
+            Ok(document)
+        }
     }
 
     /// One versioned `tmt api` request.

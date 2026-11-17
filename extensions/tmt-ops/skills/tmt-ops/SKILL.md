@@ -996,6 +996,13 @@ opens a note to its observed squad lead with the member named, even when a reque
 is pending. Both actions follow the selection while the conversation is focused.
 A missing lead or Common pool membership shows a notice instead of opening a
 composer to another recipient. Authored bindings retain precedence.
+In a member's Talk composer, `! command` (or `！ command`) runs a shell command
+in that member's current verified local directory. Its result is shown in Talk and
+attached once to the next message to that member; it is dropped if the board exits
+first. `!! command` (or `！！ command`) shows the result only here and never attaches
+it to a message. The Shell marker shows while the prefix is being typed. A timeout,
+truncated output or unconfirmed outcome is shown; do not retry an unconfirmed run
+automatically.
 `reply` focuses the same member message composer; Core settles questions after
 direct delivery as described below. Notes retain the actual lead or explicit member
 recipient, with the recipient and source rechecked at submission. Esc returns to
