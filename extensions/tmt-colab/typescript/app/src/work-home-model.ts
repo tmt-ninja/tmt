@@ -23,6 +23,8 @@ export interface WorkItem {
   lastMs?: number;
   doneAtMs?: number;
   blockedSinceMs?: number;
+  /** The release a retained fact proved for the page's PR. */
+  release?: string;
   projects: readonly string[];
 }
 
@@ -84,6 +86,7 @@ export function workItems(pages: readonly PageSummary[]): WorkItem[] {
       ...(lastMs === undefined ? {} : { lastMs }),
       ...(summary.doneAtMs === undefined ? {} : { doneAtMs: summary.doneAtMs }),
       ...(summary.blockedSinceMs === undefined ? {} : { blockedSinceMs: summary.blockedSinceMs }),
+      ...(summary.release ? { release: summary.release } : {}),
       projects,
     });
     // A numbered to-do is a small task of its own; a plain checklist line is the page's content.

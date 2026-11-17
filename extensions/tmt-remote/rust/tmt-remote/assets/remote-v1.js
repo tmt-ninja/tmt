@@ -5603,7 +5603,7 @@ function mountShell(root, view, select, layerHost) {
 			}
 			const row = document.createElement("li");
 			row.append(anchor);
-			if (item === current && pages) row.append(nested(pages, selected));
+			if (item === current && pages && item.id !== "home") row.append(nested(pages, selected));
 			list.append(row);
 		}
 		return list;

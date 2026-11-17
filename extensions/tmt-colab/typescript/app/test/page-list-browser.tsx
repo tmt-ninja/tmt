@@ -112,6 +112,149 @@ function work(stage: PageWorkRow['stage'], done: number, total: number): PageWor
 }
 const idle = { comments: 0, waiting: false, needsYou: 0 };
 
+/** Work home's fixture (#6474): the spec mockup's projects and items, read at `listNow`. */
+function workHomePages(): PageSummary[] {
+  const agents: Record<string, string> = {};
+  const agent = (name: string) => ({
+    id: (agents[name] ??=
+      `20000000-0000-4000-8000-${String(Object.keys(agents).length + 100).padStart(12, '0')}`),
+    name,
+  });
+  const minutes = (count: number) => listNow - count * 60_000;
+  let n = 0;
+  const item = (
+    title: string,
+    project: string | undefined,
+    number: string,
+    status: string,
+    fields: Record<string, unknown>,
+    age: number,
+    extra: Record<string, unknown> = {},
+  ) => {
+    n += 1;
+    return page(n, title, project ? [project] : [], {
+      workNumber: number,
+      lastUpdateAtMs: minutes(age),
+      summary: { ...idle, status, fields, ...extra } as PageSummary['summary'],
+    });
+  };
+  return [
+    item(
+      'Batch reads for large design pages',
+      'Colab',
+      'COLAB-119',
+      'blocked',
+      {
+        owner: agent('gui-2'),
+        priority: 'high',
+        blocked: 'Waiting for Core to decide the protocol',
+      },
+      24 * 60,
+      { blockedSinceMs: minutes(26 * 60) },
+    ),
+    item(
+      'A Colab page is the work',
+      'Colab',
+      'COLAB-140',
+      'needs-you',
+      { owner: agent('tmt-gui-lead'), priority: 'high', next: 'Answer 4 questions' },
+      10,
+    ),
+    item(
+      'Mockup toolbar has no spacing',
+      'Colab',
+      'COLAB-143',
+      'working',
+      { owner: agent('gui-3'), next: 'PR #6470 in review' },
+      3,
+    ),
+    item(
+      'Page field data format',
+      'Colab',
+      'COLAB-141',
+      'working',
+      { owner: agent('gui-2'), next: 'Writing the spec' },
+      60,
+    ),
+    item(
+      'Delete the timing-only tests',
+      'Web Ops',
+      'OPS-37',
+      'possibly-stalled',
+      { owner: agent('gui-3'), next: 'Idle 3 hours, asked once' },
+      180,
+    ),
+    item(
+      'Ops channel round 6',
+      'Web Ops',
+      'OPS-26',
+      'working',
+      { owner: agent('gui-4'), priority: 'high', next: 'Fix the thread layout on phones' },
+      5,
+    ),
+    item(
+      'The You tag on messages',
+      'Web Ops',
+      'OPS-33',
+      'waiting-ci',
+      { owner: agent('gui-2'), next: 'Waiting for CI · PR #6461' },
+      20,
+    ),
+    item(
+      'Pi becomes a full driver',
+      'Core',
+      'CORE-88',
+      'waiting-release',
+      { owner: agent('core-2'), next: 'Waiting for release · PR #6459' },
+      40,
+    ),
+    item(
+      'Fix the mockup that would not open',
+      'Colab',
+      'COLAB-128',
+      'done',
+      { owner: agent('gui-3') },
+      120,
+      { doneAtMs: minutes(120), release: 'alpha.453' },
+    ),
+    item(
+      'Agents default to block pages',
+      'Colab',
+      'COLAB-125',
+      'done',
+      { owner: agent('tmt-gui-lead') },
+      200,
+      { doneAtMs: minutes(200), release: 'alpha.453' },
+    ),
+    item('Ops channel round 5', 'Web Ops', 'OPS-25', 'done', { owner: agent('gui-4') }, 500, {
+      doneAtMs: minutes(500),
+      release: 'alpha.297',
+    }),
+    item(
+      'Digest price table update',
+      'Core',
+      'CORE-86',
+      'done',
+      { owner: agent('core-3') },
+      26 * 60,
+      { doneAtMs: minutes(26 * 60), release: 'alpha.616' },
+    ),
+    ...[2, 3, 4, 5].flatMap((day) =>
+      Array.from({ length: day }, (_, k) =>
+        item(
+          `Earlier work ${day}.${k}`,
+          'Colab',
+          `COLAB-${90 + day * 5 + k}`,
+          'done',
+          { owner: agent('gui-2') },
+          day * 24 * 60,
+          { doneAtMs: minutes(day * 24 * 60 + k) },
+        ),
+      ),
+    ),
+  ];
+}
+
 /** The owner's default list, as the owner computes it: the five projects whose newest active page was updated last. */
 function automaticPins(pages: readonly PageSummary[]): string[] {
   const newest = new Map<string, number>();
@@ -155,6 +298,8 @@ export async function mountPageList(
     | 'cold'
     /** A dashboard (shell page). */
     | 'shells'
+    /** Work home (#6474): the spec mockup's items, with owners, statuses and done times. */
+    | 'work-home'
     /** Twenty-two projects of one page each; page n is n hours old, so Project 01 is the newest. */
     | 'projects' = 'few',
   hash = '/',
@@ -230,120 +375,125 @@ export async function mountPageList(
               summary: { ...idle, work: work('in-progress', 0, 2) },
             }),
           ]
-        : size === 'work' || size === 'work-pinned'
-          ? [
-              ...Array.from({ length: 75 }, (_, n) => {
-                const stage = (['discussion', 'in-progress', 'done'] as const)[n % 3];
-                return page(
-                  n + 1,
-                  // CJK is necessary fixture data for the requested mixed-script visual check.
-                  size === 'work-pinned' && n === 0
-                    ? '夜のレビュー：共有ページと進捗'
-                    : size === 'work-pinned' && n === 2
-                      ? 'A deliberately long page title that must truncate cleanly without pushing other columns outside the list'
-                      : `${['Spec', 'Review', 'Plan', 'Notes', 'Report'][n % 5]} ${n + 1}`,
-                  size === 'work-pinned' && n === 2
-                    ? ['pm', 'spec', 'blog']
-                    : n % 4
-                      ? [['spec', 'blog', 'pm'][n % 3]]
-                      : [],
-                  {
-                    ...(size === 'work-pinned' && n < 3 ? { pinned: true } : {}),
-                    ...(size === 'work-pinned' && n === 0 ? { sharing: 'link' as const } : {}),
-                    ...(size === 'work' && n === 0 ? { workNumber: 'COLAB-128' } : {}),
-                    summary: {
-                      comments: n % 6,
-                      waiting: n === 1,
-                      needsYou: n === 1 ? (size === 'work-pinned' ? 3 : 1) : 0,
-                      author: n % 2 ? 'Ada' : 'feat-1',
-                      ...(size === 'work' && n === 0
-                        ? {
-                            fields: {
-                              owner: { id: '20000000-0000-4000-8000-000000000088', name: 'gui-3' },
-                              priority: 'high' as const,
-                              next: 'Review the mockup',
-                              blocked: 'Waiting for Core',
-                            },
-                          }
-                        : {}),
-                      ...(size === 'work-pinned' && (n === 0 || n === 2)
-                        ? {}
-                        : { work: work(stage, stage === 'done' ? 4 : n % 4, 4) }),
-                    },
-                  },
-                );
-              }),
-              page(76, 'Archived spec', ['spec'], { archived: true, summary: idle }),
-            ]
-          : size === 'quiet'
+        : size === 'work-home'
+          ? workHomePages()
+          : size === 'work' || size === 'work-pinned'
             ? [
-                page(1, 'Gamma notes', ['design'], { summary: idle }),
-                page(2, 'Zeta notes', [], { summary: idle }),
-              ]
-            : size === 'cold'
-              ? [page(1, 'Gamma notes', ['design']), page(2, 'Zeta notes', [])]
-              : size === 'bulk'
-                ? [
-                    ...Array.from({ length: 130 }, (_, n) =>
-                      page(n + 1, `Bulk ${String(n + 1).padStart(3, '0')}`, ['old']),
-                    ),
-                    page(131, 'Bulk archived', ['old', 'z'], { archived: true }),
-                  ]
-                : size === 'none'
-                  ? []
-                  : [
-                      // The longest names the owner admits: 32 wide characters, 32 letters, a long creator.
-                      ...(size === 'long'
-                        ? [
-                            page(6, 'Long names', ['漢'.repeat(32), 'W'.repeat(32)], {
-                              summary: {
-                                comments: 0,
-                                waiting: false,
-                                needsYou: 0,
-                                author: 'W'.repeat(120),
+                ...Array.from({ length: 75 }, (_, n) => {
+                  const stage = (['discussion', 'in-progress', 'done'] as const)[n % 3];
+                  return page(
+                    n + 1,
+                    // CJK is necessary fixture data for the requested mixed-script visual check.
+                    size === 'work-pinned' && n === 0
+                      ? '夜のレビュー：共有ページと進捗'
+                      : size === 'work-pinned' && n === 2
+                        ? 'A deliberately long page title that must truncate cleanly without pushing other columns outside the list'
+                        : `${['Spec', 'Review', 'Plan', 'Notes', 'Report'][n % 5]} ${n + 1}`,
+                    size === 'work-pinned' && n === 2
+                      ? ['pm', 'spec', 'blog']
+                      : n % 4
+                        ? [['spec', 'blog', 'pm'][n % 3]]
+                        : [],
+                    {
+                      ...(size === 'work-pinned' && n < 3 ? { pinned: true } : {}),
+                      ...(size === 'work-pinned' && n === 0 ? { sharing: 'link' as const } : {}),
+                      ...(size === 'work' && n === 0 ? { workNumber: 'COLAB-128' } : {}),
+                      summary: {
+                        comments: n % 6,
+                        waiting: n === 1,
+                        needsYou: n === 1 ? (size === 'work-pinned' ? 3 : 1) : 0,
+                        author: n % 2 ? 'Ada' : 'feat-1',
+                        ...(size === 'work' && n === 0
+                          ? {
+                              fields: {
+                                owner: {
+                                  id: '20000000-0000-4000-8000-000000000088',
+                                  name: 'gui-3',
+                                },
+                                priority: 'high' as const,
+                                next: 'Review the mockup',
+                                blocked: 'Waiting for Core',
                               },
-                            }),
-                          ]
-                        : []),
-                      // A page already in the most projects it can be, and one project it is not in.
-                      ...(size === 'full'
-                        ? [
-                            page(
-                              7,
-                              'Full page',
-                              Array.from({ length: 8 }, (_, n) => `p${n + 1}`),
-                            ),
-                            page(8, 'Extra page', ['extra']),
-                          ]
-                        : []),
-                      ...(size === 'shells'
-                        ? [page(9, 'Reading shell', [], { pageType: 'shell' })]
-                        : []),
-                      page(
-                        1,
-                        'Alpha plan',
-                        size === 'groups'
-                          ? ['design', 'q4 plan', 'research', 'ops']
-                          : ['design', 'q4 plan'],
-                        {
-                          summary: {
-                            comments: 3,
-                            waiting: true,
-                            needsYou: 1,
-                            author: 'Studio agent',
-                          },
-                        },
+                            }
+                          : {}),
+                        ...(size === 'work-pinned' && (n === 0 || n === 2)
+                          ? {}
+                          : { work: work(stage, stage === 'done' ? 4 : n % 4, 4) }),
+                      },
+                    },
+                  );
+                }),
+                page(76, 'Archived spec', ['spec'], { archived: true, summary: idle }),
+              ]
+            : size === 'quiet'
+              ? [
+                  page(1, 'Gamma notes', ['design'], { summary: idle }),
+                  page(2, 'Zeta notes', [], { summary: idle }),
+                ]
+              : size === 'cold'
+                ? [page(1, 'Gamma notes', ['design']), page(2, 'Zeta notes', [])]
+                : size === 'bulk'
+                  ? [
+                      ...Array.from({ length: 130 }, (_, n) =>
+                        page(n + 1, `Bulk ${String(n + 1).padStart(3, '0')}`, ['old']),
                       ),
-                      page(2, 'Beta review', ['design'], {
-                        summary: { comments: 1, waiting: false, needsYou: 0, author: 'Ada' },
-                      }),
-                      // No summary yet: the row shows only what the list already knows.
-                      page(3, 'Gamma notes', []),
-                      page(4, 'Delta ops', ['ops'], {
-                        summary: { comments: 0, waiting: false, needsYou: 0 },
-                      }),
-                      page(5, 'Archived spec', ['design'], { archived: true }),
-                    ],
+                      page(131, 'Bulk archived', ['old', 'z'], { archived: true }),
+                    ]
+                  : size === 'none'
+                    ? []
+                    : [
+                        // The longest names the owner admits: 32 wide characters, 32 letters, a long creator.
+                        ...(size === 'long'
+                          ? [
+                              page(6, 'Long names', ['漢'.repeat(32), 'W'.repeat(32)], {
+                                summary: {
+                                  comments: 0,
+                                  waiting: false,
+                                  needsYou: 0,
+                                  author: 'W'.repeat(120),
+                                },
+                              }),
+                            ]
+                          : []),
+                        // A page already in the most projects it can be, and one project it is not in.
+                        ...(size === 'full'
+                          ? [
+                              page(
+                                7,
+                                'Full page',
+                                Array.from({ length: 8 }, (_, n) => `p${n + 1}`),
+                              ),
+                              page(8, 'Extra page', ['extra']),
+                            ]
+                          : []),
+                        ...(size === 'shells'
+                          ? [page(9, 'Reading shell', [], { pageType: 'shell' })]
+                          : []),
+                        page(
+                          1,
+                          'Alpha plan',
+                          size === 'groups'
+                            ? ['design', 'q4 plan', 'research', 'ops']
+                            : ['design', 'q4 plan'],
+                          {
+                            summary: {
+                              comments: 3,
+                              waiting: true,
+                              needsYou: 1,
+                              author: 'Studio agent',
+                            },
+                          },
+                        ),
+                        page(2, 'Beta review', ['design'], {
+                          summary: { comments: 1, waiting: false, needsYou: 0, author: 'Ada' },
+                        }),
+                        // No summary yet: the row shows only what the list already knows.
+                        page(3, 'Gamma notes', []),
+                        page(4, 'Delta ops', ['ops'], {
+                          summary: { comments: 0, waiting: false, needsYou: 0 },
+                        }),
+                        page(5, 'Archived spec', ['design'], { archived: true }),
+                      ],
   };
   window.__reportTasks = () => {
     state.pages = state.pages.map((p, index) =>

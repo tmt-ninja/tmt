@@ -996,7 +996,9 @@ export function mountShell(
       }
       const row = document.createElement('li');
       row.append(anchor);
-      if (item === current && pages) row.append(nested(pages, selected));
+      // A module's menu belongs to its module: a claimed Home (#6474) is current on a module's page
+      // and shows none of it.
+      if (item === current && pages && item.id !== 'home') row.append(nested(pages, selected));
       list.append(row);
     }
     return list;

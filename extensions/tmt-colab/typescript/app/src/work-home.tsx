@@ -485,6 +485,7 @@ export function WorkHome() {
                       <span>{item.owner.name}</span>
                     </span>
                   ) : null}
+                  <span className="work-home-recent-release">{item.release ?? ''}</span>
                   <span className="work-home-recent-time">{doneLabel(item.doneAtMs!, now)}</span>
                 </Link>
               </li>

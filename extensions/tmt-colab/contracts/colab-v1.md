@@ -6680,6 +6680,8 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     `blocked` field, so work already done when the list first sees it keeps the time of its last
     edit and needs no backfill. A read that sees the page reopened or unblocked clears the time;
     a status it cannot decide (`unknown`, `unchecked`) changes nothing.
+  - `release` is the release tag a retained owner fact proved for one of the page's PRs (the last
+    such PR); absent when none is retained. The list read never reads GitHub for it.
   - `todos` lists the page's visible to-dos in page order as work items, at most 64:
     `{id, text, checked, number?, assignee?, doneAtMs?}`. `text` is cut at 256 bytes on a
     character boundary; `number` is the to-do's issued work number; `doneAtMs` is when a list read

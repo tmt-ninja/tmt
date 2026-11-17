@@ -214,7 +214,10 @@
 }
 .work-home-recent a {
   display: grid;
-  grid-template: 'mark number title owner time' / 14px 104px minmax(0, 1fr) 150px 130px;
+  grid-template: 'mark number title owner release time' / 14px 104px minmax(
+      0,
+      1fr
+    ) 150px 110px 130px;
   gap: 14px;
   align-items: center;
   padding: 10px 0;
@@ -248,10 +251,14 @@
 .work-home-recent-owner {
   grid-area: owner;
 }
+.work-home-recent-release {
+  grid-area: release;
+}
 .work-home-recent-time {
   grid-area: time;
 }
 .work-home-recent-number,
+.work-home-recent-release,
 .work-home-recent-time,
 .work-home-recent-mark {
   color: var(--tmt-ui-color-secondary);
@@ -298,7 +305,7 @@
   .work-home-recent a {
     grid-template:
       'mark title title title'
-      '. number owner time' / 14px max-content max-content minmax(0, 1fr);
+      '. number owner release time' / 14px max-content max-content max-content minmax(0, 1fr);
     gap: 2px 6px;
   }
   .work-home-recent-title {
@@ -308,6 +315,7 @@
     text-align: start;
   }
   .work-home-recent-owner::before,
+  .work-home-recent-release:not(:empty)::before,
   .work-home-recent-time::before {
     content: '· ';
     color: var(--tmt-ui-color-secondary);
