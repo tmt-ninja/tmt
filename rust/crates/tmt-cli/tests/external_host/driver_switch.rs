@@ -126,6 +126,43 @@ pub(super) fn missing_launch_evidence(
     None
 }
 
+/// Preserve the normal readiness wait; collect bounded evidence only when it fails.
+pub(super) fn wait_for_launch_evidence(
+    fixture: &Fixture,
+    expected: &ExpectedLaunch<'_>,
+    provider: &str,
+    what: &str,
+    launch_to_pid: std::time::Duration,
+) {
+    use std::io::Read;
+    let mut missing = None;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        wait_until(what, || {
+            missing = missing_launch_evidence(&remembered(fixture), expected);
+            missing.is_none()
+        });
+    }));
+    if let Err(panic) = result {
+        let bounded = |name: &str| {
+            let mut bytes = Vec::new();
+            match fs::File::open(fixture.root.join(name)) {
+                Ok(file) => match file.take(4096).read_to_end(&mut bytes) {
+                    Ok(_) => String::from_utf8_lossy(&bytes).into_owned(),
+                    Err(error) => format!("unavailable: {error}"),
+                },
+                Err(error) => format!("unavailable: {error}"),
+            }
+        };
+        eprintln!(
+            "launch admission: provider={provider}, last missing={missing:?}, launch to agent.pid={launch_to_pid:?}\nhook status: {:?}\nhook stderr: {:?}\nlaunch stderr: {:?}",
+            bounded("switch.hook.status"),
+            bounded("switch.hook.err"),
+            bounded("launched.err"),
+        );
+        std::panic::resume_unwind(panic);
+    }
+}
+
 fn assert_recorded_switch(fixture: &Fixture, launched: &Launched, driver: &str, session: &str) {
     let status = fs::read_to_string(fixture.root.join("switch.hook.status"))
         .unwrap()
@@ -186,6 +223,7 @@ fn a_switch_context_notice_requires_a_successful_hook_and_committed_launch() {
                 fixture.root.join("bin").display()
             ),
         );
+        let launch_started = std::time::Instant::now();
         let mut launched = Launched::start(&fixture, command);
         wait_until("the switch fixture starts or refuses", || {
             fixture.root.join("agent.pid").exists()
@@ -197,6 +235,7 @@ fn a_switch_context_notice_requires_a_successful_hook_and_committed_launch() {
                     .unwrap()
                     .is_some()
         });
+        let launch_to_pid = launch_started.elapsed();
         assert!(
             fixture.root.join("agent.pid").exists(),
             "{}",
@@ -204,9 +243,13 @@ fn a_switch_context_notice_requires_a_successful_hook_and_committed_launch() {
         );
         launched.adopt("agent.pid", false);
         let expected = expected_launch(&launched, provider, SESSION);
-        wait_until("the exact switch session is committed", || {
-            missing_launch_evidence(&remembered(&fixture), &expected).is_none()
-        });
+        wait_for_launch_evidence(
+            &fixture,
+            &expected,
+            provider,
+            "the exact switch session is committed",
+            launch_to_pid,
+        );
         assert_recorded_switch(&fixture, &launched, provider, SESSION);
         let mut stored = remembered(&fixture);
         assert_ne!(expected.owner, expected.provider);
@@ -365,6 +408,7 @@ fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
                     fixture.root.join("bin").display()
                 ),
             );
+            let launch_started = std::time::Instant::now();
             let mut launched = Launched::start(&fixture, command);
             if disposition != "gone" {
                 wait_until("one handoff request is submitted", || {
@@ -436,6 +480,7 @@ fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
                 );
                 std::thread::sleep(Duration::from_millis(20));
             }
+            let launch_to_pid = launch_started.elapsed();
             assert!(
                 fixture.root.join("agent.pid").exists(),
                 "{}",
@@ -445,9 +490,13 @@ fn driver_switch_keeps_identity_history_and_hands_off_once_before_launch() {
             let expected =
                 expected_launch(&launched, target, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
             assert_eq!(process.seen(), Seen::Ended);
-            wait_until("the new exact session is committed", || {
-                missing_launch_evidence(&remembered(&fixture), &expected).is_none()
-            });
+            wait_for_launch_evidence(
+                &fixture,
+                &expected,
+                target,
+                "the new exact session is committed",
+                launch_to_pid,
+            );
             let after = remembered(&fixture);
             assert_recorded_switch(
                 &fixture,

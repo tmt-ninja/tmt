@@ -1,7 +1,7 @@
 //! `tmt resume --new` keeps the identity and starts its driver with a fresh
 //! session handed off from the notebook. Provider trees and executables live
 //! only under the fixture's private root.
-use super::driver_switch::{expected_launch, missing_launch_evidence, switch_provider};
+use super::driver_switch::{expected_launch, switch_provider, wait_for_launch_evidence};
 use super::move_session::{destination, remembered, start};
 use super::*;
 
@@ -55,6 +55,7 @@ fn fresh_command(fixture: &Fixture, provider_on_path: bool) -> std::process::Com
 /// The fresh session starts with the handoff and replaces the remembered one.
 fn assert_fresh_launch(fixture: &Fixture, provider: &str) {
     switch_provider(fixture, provider, FRESH, "startup");
+    let launch_started = std::time::Instant::now();
     let mut launched = Launched::start(fixture, fresh_command(fixture, true));
     wait_until("the fresh provider starts or the command ends", || {
         fixture.root.join("agent.pid").exists()
@@ -66,6 +67,7 @@ fn assert_fresh_launch(fixture: &Fixture, provider: &str) {
                 .unwrap()
                 .is_some()
     });
+    let launch_to_pid = launch_started.elapsed();
     assert!(
         fixture.root.join("agent.pid").exists(),
         "{}",
@@ -73,9 +75,13 @@ fn assert_fresh_launch(fixture: &Fixture, provider: &str) {
     );
     launched.adopt("agent.pid", false);
     let expected = expected_launch(&launched, provider, FRESH);
-    wait_until("the fresh session is committed", || {
-        missing_launch_evidence(&remembered(fixture), &expected).is_none()
-    });
+    wait_for_launch_evidence(
+        fixture,
+        &expected,
+        provider,
+        "the fresh session is committed",
+        launch_to_pid,
+    );
     let args = fs::read(fixture.root.join("switch.args")).unwrap();
     let args = args
         .split(|byte| *byte == 0)
