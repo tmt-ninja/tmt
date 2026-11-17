@@ -34,6 +34,7 @@ pub const MODE_DEFAULT: &str = "default";
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::PI,
+    identify_caller: Some(identify_caller),
     env: &["PI_CODING_AGENT_DIR"],
     locate,
     runtime: Some(super::Runtime {
@@ -41,7 +42,6 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
         driver: || Box::new(PiRuntime),
         lifecycle: || Box::new(PiLifecycle),
         channel: None,
-        identify_caller: Some(identify_caller),
     }),
 };
 
@@ -1476,7 +1476,7 @@ mod tests {
     #[test]
     fn runtime_exposes_minimal_session_env_and_shared_rpc_refusal() {
         let runtime = DRIVER.runtime.as_ref().expect("pi runtime");
-        assert!(runtime.identify_caller.is_some());
+        assert!(DRIVER.identify_caller.is_some());
         assert_eq!(runtime.session_env, &["PI_CODING_AGENT", "PI_SESSION_ID"]);
 
         let registered_env = crate::drivers::Registry::builtin().session_env();

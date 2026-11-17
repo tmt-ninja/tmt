@@ -7,6 +7,7 @@
 pub mod agy;
 pub mod claude;
 pub mod codex;
+pub mod cursor;
 pub mod gemini;
 pub mod muse;
 pub mod opencode;
@@ -56,15 +57,13 @@ pub struct Locations {
     pub hook_settings: Option<PathBuf>,
 }
 
-/// A driver's runtime: launch and resume, lifecycle observation, and caller
-/// recognition when the runtime can tell which conversation invoked TMT.
+/// A driver's runtime: launch and resume, lifecycle observation, and channels.
 pub struct Runtime {
     pub driver: fn() -> Box<RuntimeDriver>,
     pub lifecycle: fn() -> Box<dyn RuntimeLifecycle>,
     /// A channel to hand messages to a running agent without terminal paste,
     /// when the provider has a supported one.
     pub channel: Option<fn() -> Box<dyn crate::runtime::channel::RuntimeChannel>>,
-    pub identify_caller: Option<fn() -> ActionResult<RuntimeCaller, AncestryError>>,
     /// The provider's session variables. Any of them set is a hint that suppresses questions
     /// even when it cannot prove identity; a member's extra terminal starts without them.
     pub session_env: &'static [&'static str],
@@ -76,6 +75,8 @@ pub struct DriverDefinition {
     pub env: &'static [&'static str],
     pub locate: fn(&ProviderEnvironment) -> Locations,
     pub runtime: Option<Runtime>,
+    /// Caller evidence is independent of launch/lifecycle support.
+    pub identify_caller: Option<fn() -> ActionResult<RuntimeCaller, AncestryError>>,
 }
 
 impl DriverDefinition {
@@ -99,7 +100,7 @@ impl PartialEq for DriverDefinition {
 impl Eq for DriverDefinition {}
 
 /// One adapter module per core descriptor.
-static MODULES: [&DriverDefinition; 7] = [
+static MODULES: [&DriverDefinition; 8] = [
     &claude::DRIVER,
     &codex::DRIVER,
     &gemini::DRIVER,
@@ -107,6 +108,7 @@ static MODULES: [&DriverDefinition; 7] = [
     &pi::DRIVER,
     &opencode::DRIVER,
     &muse::DRIVER,
+    &cursor::DRIVER,
 ];
 
 /// A registered driver's name when it is a whole word of a pane's command,
@@ -120,7 +122,12 @@ pub(crate) fn suggested_name(command: &str) -> Option<String> {
     Registry::builtin()
         .names()
         .into_iter()
-        .find(|name| words.contains(name))
+        .find(|name| {
+            words.contains(name)
+                || command.split_whitespace().any(|word| {
+                    descriptor::for_executable(word).is_some_and(|driver| driver.name == *name)
+                })
+        })
         .map(str::to_owned)
 }
 
@@ -257,10 +264,10 @@ impl Registry {
             .collect()
     }
 
-    /// The first runtime that recognizes this invocation's caller.
+    /// The first driver that recognizes this invocation's caller.
     pub fn identify_caller(&self) -> ActionResult<RuntimeCaller, AncestryError> {
         self.iter()
-            .filter_map(|driver| driver.runtime.as_ref()?.identify_caller)
+            .filter_map(|driver| driver.identify_caller)
             .fold(ActionResult::Unsupported, |found, identify| {
                 found.or_unsupported(identify)
             })
@@ -405,7 +412,7 @@ mod tests {
 
     /// Fixture executables keyed to the built-in drivers, and the
     /// environment that finds them.
-    fn fixture(directory: &TestDirectory) -> (ProviderEnvironment, [&'static str; 7]) {
+    fn fixture(directory: &TestDirectory) -> (ProviderEnvironment, [&'static str; 8]) {
         let home = directory.path.join("home");
         let bin = directory.path.join("bin");
         fs::create_dir_all(&bin).unwrap();
@@ -418,6 +425,7 @@ mod tests {
             configured,
             _absent,
             _also_absent,
+            _cursor_absent,
         ] = names;
         // Each script records that it ran, so detection can prove it did not.
         script(
@@ -463,6 +471,7 @@ mod tests {
                 configured,
                 absent,
                 also_absent,
+                cursor_absent,
             ],
         ) = fixture(&directory);
         let unversioned = Detection::Present { version: None };
@@ -476,6 +485,7 @@ mod tests {
                 (configured, Detection::ConfigOnly),
                 (absent, Detection::Absent),
                 (also_absent, Detection::Absent),
+                (cursor_absent, Detection::Absent),
             ]
         );
         let ran = fs::read_dir(directory.path.join("bin"))
@@ -505,6 +515,7 @@ mod tests {
                 configured,
                 absent,
                 also_absent,
+                cursor_absent,
             ],
         ) = fixture(&directory);
         assert_eq!(
@@ -526,6 +537,7 @@ mod tests {
                 (configured, Detection::ConfigOnly),
                 (absent, Detection::Absent),
                 (also_absent, Detection::Absent),
+                (cursor_absent, Detection::Absent),
             ]
         );
     }
@@ -572,6 +584,47 @@ mod tests {
         );
         assert_eq!(detect_muse(), Detection::Present { version: None });
         assert!(!bin.join("muse.ran").exists());
+    }
+
+    #[test]
+    fn suggested_names_include_exact_hyphenated_aliases_without_claiming_generic_agent() {
+        for (command, expected) in [
+            ("/fixture/bin/cursor-agent", Some(descriptor::CURSOR.name)),
+            ("cursor-agent --print", Some(descriptor::CURSOR.name)),
+            ("/fixture/bin/cursor-agent-server", None),
+            ("agent", None),
+            ("/fixture/bin/codex", Some(descriptor::CODEX.name)),
+            ("claude --resume", Some(descriptor::CLAUDE.name)),
+        ] {
+            assert_eq!(suggested_name(command).as_deref(), expected, "{command}");
+        }
+    }
+
+    #[test]
+    fn basic_caller_dispatch_does_not_require_a_launch_runtime() {
+        static BASIC: DriverDefinition = DriverDefinition {
+            descriptor: &descriptor::CURSOR,
+            env: &[],
+            locate: cursor::DRIVER.locate,
+            runtime: None,
+            identify_caller: Some(|| {
+                ActionResult::Completed(RuntimeCaller {
+                    harness: tmt_core::binding::session::HarnessId::new(descriptor::CURSOR.name)
+                        .unwrap(),
+                    session: None,
+                    host: tmt_core::driver::caller::HostAttribution::Ambiguous,
+                })
+            }),
+        };
+        let registry = Registry {
+            drivers: vec![&BASIC],
+        };
+        let ActionResult::Completed(caller) = registry.identify_caller() else {
+            panic!("basic caller callback must be dispatched without a runtime");
+        };
+        assert_eq!(caller.harness.as_str(), descriptor::CURSOR.name);
+        assert!(!caller.permits_host_fallback());
+        assert!(caller.session.is_none());
     }
 
     #[test]

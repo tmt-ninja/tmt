@@ -6,6 +6,7 @@ const NAME: &str = tmt_core::driver::descriptor::OPENCODE.name;
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::OPENCODE,
+    identify_caller: None,
     env: &["OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME"],
     locate,
     runtime: None,

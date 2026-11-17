@@ -89,8 +89,22 @@ fn all_install_deduplicates_shared_targets_but_reports_stable_provider_order() {
             .map(|item| item.agent.unwrap().name())
             .collect::<Vec<_>>(),
         vec![
-            "claude", "claude", "codex", "codex", "gemini", "gemini", "agy", "agy", "pi", "pi",
-            "opencode", "opencode", "muse", "muse"
+            "claude",
+            "claude",
+            "codex",
+            "codex",
+            "gemini",
+            "gemini",
+            "agy",
+            "agy",
+            "pi",
+            "pi",
+            "opencode",
+            "opencode",
+            "muse",
+            "muse",
+            "cursor-agent",
+            "cursor-agent"
         ]
     );
     assert_eq!(
