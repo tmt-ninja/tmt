@@ -525,6 +525,7 @@ mod board {
             })
             .expect("terminal output is visible");
         let selected = app.selected_terminal().unwrap().1.id.clone();
+        let offset = app.scrolls.offset(crate::config::Pane::Replies);
         assert!(app.terminals.typing().is_none());
         app.mouse(
             MouseEvent {
@@ -540,6 +541,7 @@ mod board {
             Some(selected.as_str()),
             "click focuses the selected terminal"
         );
+        assert_eq!(app.scrolls.offset(crate::config::Pane::Replies), offset);
     }
 
     #[test]
@@ -585,6 +587,30 @@ mod board {
         assert!(
             matches!(result, crate::board::app::Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "On branch")
         );
+        let now = std::time::Instant::now();
+        let click = |app: &mut App, kind, millis| {
+            app.mouse(
+                MouseEvent {
+                    kind,
+                    column: x + 1,
+                    row: y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                now + std::time::Duration::from_millis(millis),
+            )
+        };
+        click(&mut app, MouseEventKind::Down(MouseButton::Left), 0);
+        click(&mut app, MouseEventKind::Up(MouseButton::Left), 1);
+        click(&mut app, MouseEventKind::Down(MouseButton::Left), 100);
+        let word = click(&mut app, MouseEventKind::Up(MouseButton::Left), 101);
+        assert!(
+            matches!(word, crate::board::app::Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "On")
+        );
+        click(&mut app, MouseEventKind::Down(MouseButton::Left), 200);
+        let line = click(&mut app, MouseEventKind::Up(MouseButton::Left), 201);
+        assert!(
+            matches!(line, crate::board::app::Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "On branch fix/spinner")
+        );
     }
 
     #[test]
@@ -629,8 +655,33 @@ mod board {
         assert!(app.terminals.typing().is_some());
         app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
         assert_eq!(socket.expect(), ClientMessage::Input(vec![0x0c]));
+        app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(socket.expect(), ClientMessage::Input(vec![0x03]));
         assert!(app.notes_overlay.is_none());
         assert!(app.terminals.typing().is_some());
+        app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL));
+        let mut screen =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        screen
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let area = app.terminal.area().expect("painted terminal");
+        app.mouse(
+            ratatui::crossterm::event::MouseEvent {
+                kind: ratatui::crossterm::event::MouseEventKind::Down(
+                    ratatui::crossterm::event::MouseButton::Left,
+                ),
+                column: area.x,
+                row: area.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        assert_eq!(socket.expect(), ClientMessage::Input(vec![0x0c]));
     }
 
     #[test]

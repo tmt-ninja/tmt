@@ -67,6 +67,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         app,
     );
     let view = (!row.ended).then(|| app.terminal.view(&row.id)).flatten();
+    app.terminal.place_caret(None);
     if !row.ended {
         app.terminal.drew(screen_area);
     }

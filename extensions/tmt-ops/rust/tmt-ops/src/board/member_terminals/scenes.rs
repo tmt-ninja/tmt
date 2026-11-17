@@ -16,7 +16,12 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::{path::PathBuf, sync::Arc};
 use tmt_tui::components::terminal::Screen;
 
-pub(in crate::board) const SCENES: &[&str] = &["terminals-panel", "terminals-close-confirm"];
+pub(in crate::board) const SCENES: &[&str] = &[
+    "terminals-panel",
+    "terminals-panel-focused",
+    "terminals-panel-selected",
+    "terminals-close-confirm",
+];
 
 fn listed(n: u8, busy: bool) -> Listed {
     Listed {
@@ -90,11 +95,64 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         "the terminal row is selected"
     );
     assert!(app.terminal_sync(), "the selected terminal's stream opens");
-    if scene == "terminals-panel" {
+    if scene != "terminals-close-confirm" {
         app.apply_terminal(1, StreamEvent::Screen(shell()));
+        if scene == "terminals-panel-focused" {
+            app.terminals.set_typing(Some(&listed(1, false).id));
+        }
     } else {
         app.apply_terminal(1, StreamEvent::Screen(building()));
         app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    }
+    app
+}
+
+/// Capture an actual drag over the rendered screen at the oracle's dimensions.
+pub(in crate::board) fn capture_at(
+    scene: &str,
+    look: crate::look::Look,
+    width: u16,
+    height: u16,
+) -> App {
+    let mut app = capture_case(scene, look);
+    if scene != "terminals-panel-selected" {
+        return app;
+    }
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let (x, y) = (0..height)
+        .find_map(|y| {
+            (0..width)
+                .find(|x| {
+                    let text: String = (*x..width).map(|x| buffer[(x, y)].symbol()).collect();
+                    text.starts_with("On branch")
+                })
+                .map(|x| (x, y))
+        })
+        .expect("terminal fixture has a visible branch line");
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let now = std::time::Instant::now();
+    for (kind, column) in [
+        (MouseEventKind::Down(MouseButton::Left), x),
+        (MouseEventKind::Drag(MouseButton::Left), x + 9),
+        (MouseEventKind::Up(MouseButton::Left), x + 9),
+    ] {
+        app.mouse(
+            MouseEvent {
+                kind,
+                column,
+                row: y,
+                modifiers: KeyModifiers::NONE,
+            },
+            now,
+        );
     }
     app
 }

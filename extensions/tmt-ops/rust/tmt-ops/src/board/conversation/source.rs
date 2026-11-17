@@ -28,6 +28,7 @@ pub(super) struct Surface {
 
 pub(super) struct Click {
     target: RowTarget,
+    area: Rect,
     point: (u16, u16),
     at: std::time::Instant,
     count: u8,
@@ -871,6 +872,7 @@ impl App {
             return None;
         }
         let point = (event.column, event.row).into();
+        let selected_workspace = self.workspace.selected.clone();
         let mut state = self.conversation.borrow_mut();
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
@@ -884,6 +886,7 @@ impl App {
                     .as_ref()
                     .filter(|last| {
                         last.target == surface.target
+                            && last.area == surface.area
                             && last.point == (event.column, event.row)
                             && now.checked_duration_since(last.at).is_some_and(|elapsed| {
                                 elapsed <= std::time::Duration::from_millis(500)
@@ -893,6 +896,7 @@ impl App {
                     .map_or(1, |last| last.count + 1);
                 state.selection_click = Some(Click {
                     target: surface.target.clone(),
+                    area: surface.area,
                     point: (event.column, event.row),
                     at: now,
                     count,
@@ -902,6 +906,10 @@ impl App {
                 let range = (count > 1)
                     .then(|| click_range(&surface, row, column, count))
                     .flatten();
+                let terminal_surface = matches!(
+                    &surface.target,
+                    RowTarget::Workspace(crate::board::workspace::OpsTarget::Terminal { .. })
+                );
                 let selection = if Some(surface.area) == state.response_area {
                     let key = state.active.clone()?;
                     let rendered = state.sessions.get(&key)?.rendered.as_ref()?;
@@ -942,7 +950,8 @@ impl App {
                     })
                 };
                 state.selection = Some(selection);
-                if let Some(active) = state.active.clone()
+                if !terminal_surface
+                    && let Some(active) = state.active.clone()
                     && let Some(session) = state.sessions.get_mut(&active)
                 {
                     session.set_follow(false);
@@ -962,7 +971,8 @@ impl App {
                     surface.area == source.surface.area
                         && surface.target == source.surface.target
                         && surface.text.as_str() == source.surface.text.as_str()
-                }));
+                }) && (!matches!(&source.surface.target, RowTarget::Workspace(crate::board::workspace::OpsTarget::Terminal { .. }))
+                    || selected_workspace.as_ref().is_some_and(|target| source.surface.target == RowTarget::Workspace(target.clone()))));
                 if !fresh {
                     if let Some(selection) = &mut state.selection {
                         selection.stop_drag();
@@ -989,11 +999,16 @@ impl App {
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 if let Some(Selection::Cells(source)) = &state.selection
-                    && !state.source_surfaces.iter().any(|surface| {
+                    && (!state.source_surfaces.iter().any(|surface| {
                         surface.area == source.surface.area
                             && surface.target == source.surface.target
                             && surface.text.as_str() == source.surface.text.as_str()
-                    })
+                    }) || (matches!(
+                        &source.surface.target,
+                        RowTarget::Workspace(crate::board::workspace::OpsTarget::Terminal { .. })
+                    ) && !selected_workspace.as_ref().is_some_and(|target| {
+                        source.surface.target == RowTarget::Workspace(target.clone())
+                    })))
                 {
                     state.selection = None;
                     return Some(Effect::None);
