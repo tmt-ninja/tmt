@@ -103,6 +103,48 @@ fn the_first_rendered_drag_selects_in_place_and_mouse_up_copies_visible_text() {
     );
 }
 
+#[test]
+fn repeated_clicks_copy_the_word_then_the_line() {
+    let mut app = fixture("hello world");
+    let buffer = draw(&mut app, 100, 36);
+    let (x, y) = (0..buffer.area.height)
+        .find_map(|y| {
+            (0..buffer.area.width)
+                .find(|x| {
+                    let row: String = (*x..buffer.area.width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect();
+                    row.starts_with("hello world")
+                })
+                .map(|x| (x, y))
+        })
+        .expect("the message is visible");
+    let now = std::time::Instant::now();
+    let click = |app: &mut App, kind, millis| {
+        app.mouse(
+            MouseEvent {
+                kind,
+                column: x + 1,
+                row: y,
+                modifiers: KeyModifiers::NONE,
+            },
+            now + std::time::Duration::from_millis(millis),
+        )
+    };
+    click(&mut app, MouseEventKind::Down(MouseButton::Left), 0);
+    click(&mut app, MouseEventKind::Up(MouseButton::Left), 1);
+    click(&mut app, MouseEventKind::Down(MouseButton::Left), 100);
+    let word = click(&mut app, MouseEventKind::Up(MouseButton::Left), 101);
+    assert!(
+        matches!(word, Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "hello")
+    );
+    click(&mut app, MouseEventKind::Down(MouseButton::Left), 200);
+    let line = click(&mut app, MouseEventKind::Up(MouseButton::Left), 201);
+    assert!(
+        matches!(line, Effect::Act(crate::board::app::Request::Copy { text, .. }) if text.contains("hello world"))
+    );
+}
+
 fn select_words(app: &mut App, words: &str) -> (u16, u16) {
     select_at_width(app, words, 100)
 }

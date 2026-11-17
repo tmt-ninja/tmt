@@ -5050,7 +5050,7 @@ impl App {
             return Effect::None;
         }
         if let Some(effect) = self.terminal_panel_focus(event) {
-            return self.conversation_source_mouse(event).unwrap_or(effect);
+            return self.conversation_source_mouse(event, now).unwrap_or(effect);
         }
         if let Some(effect) = self.conversation_menu_mouse(event) {
             return effect;
@@ -5159,7 +5159,7 @@ impl App {
                 self.focus = 0;
             }
         }
-        if let Some(effect) = self.conversation_source_mouse(event) {
+        if let Some(effect) = self.conversation_source_mouse(event, now) {
             return effect;
         }
         if self.input.is_some() {

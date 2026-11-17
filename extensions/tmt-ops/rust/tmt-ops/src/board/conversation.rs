@@ -163,6 +163,7 @@ pub(super) struct State {
     source_surfaces: Vec<source::Surface>,
     source_areas: Vec<(RowTarget, Rect)>,
     selection: Option<source::Selection>,
+    selection_click: Option<source::Click>,
     response_area: Option<Rect>,
     /// The selected pane's live screen in place of the chat (`v`), until toggled back.
     pub(in crate::board) screen_mode: bool,
