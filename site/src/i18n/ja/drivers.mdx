@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 628f2b70052ad2c0f34a10db2f107d51b08ab792
+sourceRevision: 47a16e590dd17b2cccbab079da0ac5f31677f35d
 title: driver
 ---
 
@@ -50,12 +50,12 @@ tmt を更新しても承認は引き継がれます。新版の driver が追�
 
 <Mdx.h3 id="usage-counters">使用量カウンター</Mdx.h3>
 
-使用量の記録は任意です。`tmt setup --usage`（または `tmt setup claude --usage`、`tmt setup codex --usage`、`tmt setup agy --usage`）は、ターン終了時に実行される hook も追加し、agent の使用量を記録します。
+新規インストールでは、`tmt setup` はコンテキストと消費量の記録を既定で有効にします。`--no-usage` で無効にすると、その選択が保存されます。`--usage` で有効にできます。`tmt setup claude`、`tmt setup codex`、`tmt setup agy` でプロバイダーを一つ指定できます。使用量の hook はターン終了時に次の値を記録します。
 
 - **コンテキストのサイズ**は `resume.usage` に記録されます。`tokens` は次のリクエストで再送する量、`windowTokens` はプロバイダーが示すコンテキストウィンドウです（Codex は示しますが、Claude Code は示しません）。
 - **消費量**は `resume.consumption` に記録されます。完了したリクエストのトークン数です。`inputTokens` はキャッシュ済みの入力を含み、`outputTokens` は推論を含む出力です。合計は入力と出力の和です。
 
-どちらも `tmt ls --json` と `tmt identity show --json` に表示されます。[Ops](/extensions/squad) の列にコンテキストのサイズを表示することもできます。保存するのはトークン数だけで、会話は保存しません。この hook によって、ターン終了時に `session.activity` を idle に戻すこともできます。hook がなければ、tmt は応答がないことから idle を推測しません。`tmt setup --no-usage` はこの hook だけを削除します。
+どちらも `tmt ls --json` と `tmt identity show --json` に表示されます。[Ops](/extensions/squad) の列にコンテキストのサイズを表示することもできます。保存するのはトークン数だけで、会話は保存しません。この hook によって、ターン終了時に `session.activity` を idle に戻すこともできます。hook がなければ、tmt は応答がないことから idle を推測しません。
 
 数値は費用ではなく、トークン数として読みます。進行中のストリーミングではなく、完了したリクエストを示し、1 ターン遅れることもあります。各カウンターは最初の読み取りから始まり、それ以前の履歴は数えません。カウンターがない場合は取得不能を意味し、ゼロではありません。使用ペースを計算するツールは、最初の読み取り、`epoch` の変更、`gap` が true の場合、またはカウンターが減った場合に、新しい基準値から計算する必要があります。
 

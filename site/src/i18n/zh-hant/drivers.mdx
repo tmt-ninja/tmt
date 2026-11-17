@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 628f2b70052ad2c0f34a10db2f107d51b08ab792
+sourceRevision: 47a16e590dd17b2cccbab079da0ac5f31677f35d
 title: Driver
 ---
 
@@ -50,12 +50,12 @@ tmt 升級後會沿用核准。如果新版 driver 提出更多要求，下次�
 
 <Mdx.h3 id="usage-counters">用量計數</Mdx.h3>
 
-用量記錄需要自行啟用。`tmt setup --usage`（或 `tmt setup claude --usage`、`tmt setup codex --usage`、`tmt setup agy --usage`）會另外加入一個 hook，在每輪結束時記錄 agent 的用量：
+新安裝時，`tmt setup` 預設啟用 context 與消耗量記錄。使用 `--no-usage` 可停用並記住此選擇，使用 `--usage` 可啟用。可以用 `tmt setup claude`、`tmt setup codex` 或 `tmt setup agy` 選擇一個 provider。用量 hook 在每輪結束時記錄以下數值：
 
 - **Context 大小**，記在 `resume.usage`：`tokens` 是下一次請求會重新送出的 token 數；`windowTokens` 是 provider 有回報時的 context window 大小（Codex 會回報，Claude Code 不會）。
 - **消耗量**，記在 `resume.consumption`：已完成請求使用的 token 數。`inputTokens` 包含快取輸入；`outputTokens` 是輸出，包含推理；總量是輸入加輸出。
 
-兩者都會出現在 `tmt ls --json` 和 `tmt identity show --json` 中，[Ops](/extensions/squad) 的欄位也能顯示 context 大小。只會儲存 token 數，不會儲存對話。這個 hook 也讓 `session.activity` 在一輪結束後回到 idle；沒有它，tmt 不會根據沉默猜測 agent 已閒置。`tmt setup --no-usage` 只會移除這個 hook。
+兩者都會出現在 `tmt ls --json` 和 `tmt identity show --json` 中，[Ops](/extensions/squad) 的欄位也能顯示 context 大小。只會儲存 token 數，不會儲存對話。這個 hook 也讓 `session.activity` 在一輪結束後回到 idle；沒有它，tmt 不會根據沉默猜測 agent 已閒置。
 
 這些數字是 token 數，不是費用。它們記錄已完成的請求，不是即時串流，可能落後一輪。每個計數都從第一次讀取時開始，不會補算更早的紀錄。沒有計數表示無法取得，不代表零。計算速率的工具應在第一次讀取、`epoch` 改變、`gap` 為 true，或計數下降時，重新建立基準。
 

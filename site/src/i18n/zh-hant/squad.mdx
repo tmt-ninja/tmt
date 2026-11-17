@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: ef19822173899d458bbf80568041360d55b1d7e6
+sourceRevision: 82c2e3156e35e8af41b4837e2466d285366a9b84
 title: Ops：lead、成員與工作區
 ---
 
@@ -14,7 +14,7 @@ import { components as Mdx } from "../../components/mdx";
 
 <Mdx.h3 id="start-a-squad">建立 squad</Mdx.h3>
 
-Squad 是名稱為 `squad-<name>` 的 room。加入已經在執行的 agent、選擇 lead，再開啟board。指定 lead 與成員的描述性 role 是兩回事。從 squad 移除成員不會停止該 agent。
+Squad 是名稱為 `squad-<name>` 的 room。加入已經在執行的 agent、選擇 lead，再開啟 board。指定 lead 與成員的描述性 role 是兩回事。從 squad 移除成員不會停止該 agent。
 
 <Cmd>{`
 $ tmt extension install ops --skills
@@ -24,9 +24,9 @@ $ tmt ops squad lead reviewer --squad product
 $ tmt ops ui
 `}</Cmd>
 
-選擇 lead 時，也會提供將目前 Ops leads 發布到 Core orchestration 設定的選項。請另外檢閱並確認該預覽；拒絕發布不會撤銷 squad 的變更。board的 **New member** 表單可在你檢閱命令後，透過可用的 host 啟動 agent。使用 `squad add` 加入既有成員不會啟動它。
+選擇 lead 時，也會提供將目前 Ops leads 發布到 Core orchestration 設定的選項。請另外檢閱並確認該預覽；拒絕發布不會撤銷 squad 的變更。board 的 **New member** 表單可在你檢閱命令後，透過可用的 host 啟動 agent。使用 `squad add` 加入既有成員不會啟動它。
 
-Ops board使用你設定的使用者身分。`tmt ops squad me` 顯示該身分；`tmt ops squad me ben` 設定的全域名稱與 `tmt config set user.name ben --global` 相同。這與哪個 agent 擔任 squad lead 無關。
+Ops board 使用你設定的使用者身分。`tmt ops squad me` 顯示該身分；`tmt ops squad me ben` 設定的全域名稱與 `tmt config set user.name ben --global` 相同。這與哪個 agent 擔任 squad lead 無關。
 
 <Mdx.h3 id="the-workspace">工作區</Mdx.h3>
 
@@ -42,12 +42,9 @@ Squads / members       │ Talk · Measure · Checklist
 Common pool            │ Message to builder
 `}</Code>
 
-<Caption>
-  依原始碼整理的 Agents 示意圖，不是即時board，也不是精確的終端機擷取畫面。名稱與數值僅供示例。
-  寬終端機會並排顯示，較窄時會上下堆疊或只顯示聚焦窗格。本頁範例不會傳送訊息或變更清單。
-</Caption>
+<Caption>Agents 視圖示意圖。寬終端機會並排顯示，較窄時會上下堆疊或只顯示聚焦窗格。</Caption>
 
-board在背景取得資訊。缺少觀測代表未知，不代表閒置或零。切換視圖時，shell 的注意事項摘要仍涵蓋全域。手動填寫的 task／state 欄位、清單的未完成項目，以及等待你回覆的請求，是各自獨立的資訊。
+board 在背景更新資訊。缺少讀數表示未知，不代表閒置或零。切換視圖時，注意事項摘要仍會顯示。
 
 | 預設按鍵        | 工作區中的動作                                           |
 | --------------- | -------------------------------------------------------- |
@@ -56,23 +53,23 @@ board在背景取得資訊。缺少觀測代表未知，不代表閒置或零。
 | Enter           | 聚焦所選對話的輸入框                                     |
 | Tab / Shift+Tab | 移動窗格焦點；啟用中的編輯器或對話框會優先處理自己的按鍵 |
 | `e`             | 編輯所選成員或 squad                                     |
-| `l`             | 為成員選擇私人board標籤                                  |
+| `l`             | 為成員選擇私人 board 標籤                                |
 | `,` / `?`       | 設定 / 目前生效的操作說明                                |
 | Ctrl+R          | 重新整理                                                 |
 
-你設定的按鍵綁定優先。請查看頁尾與 `?`，確認所選目標可用的動作。點擊只會聚焦窗格，不會送出訊息；捲動窗格不會改變收件者。聚焦控制項的分隔線較亮，並標有 `▸`；選取狀態與鍵盤焦點仍然不同。
+查看頁尾與 `?`，了解所選目標可用的按鍵。你設定的按鍵綁定優先。點擊窗格可聚焦；目前操作的控制項標有 `▸`。
 
 <Mdx.h3 id="talk-without-losing-your-place">對話不中斷工作位置</Mdx.h3>
 
-在輸入框按 Enter 會送出訊息。Alt+Enter 或 Ctrl+J 插入換行；終端機支援增強按鍵回報時，也可用 Shift+Enter。Esc 離開編輯器並保留草稿。括號貼上模式不會送出訊息。切換視圖或變更成員資格時，草稿會跟隨 agent 的 UUID，但一般的board重新啟動不會保留草稿。
+在輸入框按 Enter 送出訊息。Alt+Enter 或 Ctrl+J 插入換行；終端機支援增強按鍵回報時，也可用 Shift+Enter。Esc 離開編輯器並保留草稿。切換視圖不會遺失草稿，但重新啟動 board 會清除草稿。
 
-閱讀較早的輸出會暫停自動跟隨。**Jump to latest** 或 End 可回到最新訊息。已關聯的回覆與觀測到的窗格輸出會分開標示；單憑窗格文字不能判定請求完成。請求一旦受理，即使送達狀態不確定，也會清除已送出的草稿。再次傳送前，先檢查該請求。若操作被拒絕且沒有保留請求，草稿會留下。
+閱讀較早的輸出會暫停自動跟隨。**Jump to latest** 或 End 可回到最新訊息。回覆與窗格輸出會分開標示。若送達狀態不確定，請先檢查請求再決定是否重送。
 
 <Mdx.h3 id="checklists-belong-to-a-room">清單屬於 room</Mdx.h3>
 
-每個 room 都有自己的手動清單。每位成員也可以在該 room 中有獨立的對話清單。Room 與成員的 UUID 讓清單在重新命名後仍保持一致；同名的新身分不會繼承清單。讀取不會建立清單；第一次獲准新增項目時才會建立。
+每個 room 都有清單，每位成員也可以在其中擁有獨立的對話清單。重新命名後，清單仍屬於原來的 room 與成員。
 
-選擇成員後，按 **C** 開啟 Checklist。在聊天編輯器中，**Ctrl+L** 會開啟所選成員的清單，保留草稿與游標位置；Esc 返回編輯器。連結與待辦項目會一起顯示，並在資訊可得時附上作者與經過時間。有參考連結的項目仍可標為未完成或完成；封存項目不會出現在一般清單與計數中。
+選擇成員並按 **C** 開啟 Checklist。在聊天編輯器中，**Ctrl+L** 開啟該清單並保留草稿與游標位置；Esc 返回編輯器。連結與待辦項目會顯示作者及經過時間。已封存的項目會隱藏。
 
 <Code>{`
 Checklist · builder
@@ -81,9 +78,7 @@ Checklist · builder
 [x] Record the build result     builder · 5m
 `}</Code>
 
-<Caption>
-  清單狀態示例。連結是參考資料，不是任務派送。勾選項目不會回覆請求，也不會清除成員的 pending 狀態。
-</Caption>
+<Caption>清單示例。勾選項目會完成該待辦事項；等待回覆的請求仍須另外答覆。</Caption>
 
 Agent 可用三個簡短命令維護自己的對話清單。同時加入多個 squad 時，請加上 `--room` 並指定精確的 room UUID。請使用自己執行 `add` 或 `ls` 得到的短項目 ID，不要使用下方的範例 ID。
 
@@ -105,23 +100,17 @@ $ tmt ops squad checklist ls --room 44444444-4444-4444-8444-444444444444 --membe
 | 目前的 room 成員         | 建立未指派項目；編輯內容；完成或重新開啟未封存的項目     |
 | 使用者或目前的 room lead | 上述動作，加上指派／取消指派、封存／還原、刪除與重新排序 |
 
-即使在建立時指派給自己，也需要管理權限。受指派者必須是同一 room 的有效成員。指派只記錄責任歸屬，不會傳送訊息、啟動 agent 或更新 task／pending 欄位。離開 room 的成員仍會顯示為不可用的受指派者，直到管理者變更指派。
-
-自動化使用的 `create`、`edit`、`assign`、`complete` 等明確動詞，需要精確的 UUID 與項目／清單版本。`tmt ops squad checklist --help` 及各動詞的說明會列出所需輸入。版本過期或權限變更時，操作會被拒絕：先查看目前清單、重新檢閱，再明確做出新的選擇。**Outcome unknown** 不代表可以重送。board也使用相同的權限與版本檢查。
-
-封存會保留項目的內容、完成狀態與位置；還原只讓它重新可見，不改變完成狀態。刪除會移除撰寫的內容，只留下最小刪除紀錄。完成項目不會改變請求、收件匣注意事項、手動狀態或 pending 標記。等待中的請求仍須另外回覆。
+更多清單操作請執行 `tmt ops squad checklist --help` 查看。
 
 <Mdx.h3 id="read-usage-as-observations">把用量視為觀測結果</Mdx.h3>
 
-Token 時間窗顯示已完成請求的總量，不是每秒 token 數或預測。輸入加輸出的計數只會把快取輸入算一次。在 Settings 選擇 **Token window**。`0` 代表觀測到的零；涵蓋不完整與無法取得的讀數各有標記。沒有計數器的成員不代表零成本，混合供應商的 token 總量也不是可比較的價格。
-
-畫面上的數字可能以最長 600 ms 的動畫漸變到新總量。這只影響呈現：最後的總量、占比與涵蓋範圍仍來自觀測。首次讀數、不可用的值、資料擁有者或時間窗變更，以及減少動態效果模式，都會立即顯示最終值。
+在 Settings 選擇 **Token window**，查看已完成請求的總量。輸入加輸出只會把快取輸入計算一次。請同時查看涵蓋標記：缺少讀數不代表零，token 總量也不等於費用。
 
 Digest 的 **Est. ctx avoided** 是透過批次處理省下多少上下文輸入的估計，不是實測的計費 token、輪次或金額節省。它的範圍與 Agents 的 token 時間窗獨立。讀取任何總量時，都要一起看涵蓋範圍。
 
 <Mdx.h3 id="make-it-yours">依你的方式設定</Mdx.h3>
 
-按 `,` 開啟設定，使用其中顯示的有效控制項。**New member** 與 **Edit** 會先顯示預計執行的命令或變更；失敗時，可能已有部分步驟生效，而其他步驟尚未執行。請閱讀結果，不要把對話框關閉當成成功。單純閱讀本頁範例不會改動使用者的設定。
+按 `,` 開啟 Settings。**New member** 與 **Edit** 讓你在套用前檢閱預計執行的命令或變更。
 
 <Cmd>{`
 $ tmt ops ui --squad product --squad infra
@@ -130,7 +119,7 @@ $ tmt ops ui --tab digest
 $ tmt ops squad config show --squad product
 `}</Cmd>
 
-重複指定 `--squad` 可限制這次board工作階段的範圍，不會改寫已儲存的隱藏 squad 設定。具名的 `--view` 各自保留目的地、選取、搜尋與窗格配置。**Reset view** 清除此檢視層，不會移除 squad 成員或其工作。原地重新載入會保留目前視圖與位置。
+重複指定 `--squad` 可限制這次 board 工作階段的範圍，不會改寫已儲存的隱藏 squad 設定。具名的 `--view` 各自保留目的地、選取、搜尋與窗格配置。**Reset view** 清除此檢視層，不會移除 squad 成員或其工作。原地重新載入會保留目前視圖與位置。
 
 <Mdx.h3 id="layout-rows-lines-and-panes">配置：列、顯示行與窗格</Mdx.h3>
 
@@ -140,23 +129,23 @@ $ tmt ops squad config show --squad product
 
 <Mdx.h3 id="colors-and-themes">顏色與主題</Mdx.h3>
 
-board主題與命令列顏色分開設定。在 Settings 選擇 **Theme**，套用至所有board或所選 squad。即使使用 `NO_COLOR`，文字、符號與焦點提示仍會傳達含義；顏色本身不能證明工作中、受阻或等待狀態。Basic driver 無法回報與 full driver 相同的活動／模型細節，board會標示這項限制。
+board 主題與命令列顏色分開設定。在 Settings 選擇 **Theme**，套用至所有 board 或所選 squad。即使使用 `NO_COLOR`，文字、符號與焦點提示仍會傳達含義；顏色本身不能證明工作中、受阻或等待狀態。Basic driver 無法回報與 full driver 相同的活動／模型細節，board 會標示這項限制。
 
 <Mdx.h3 id="jumping-between-members">切換到成員</Mdx.h3>
 
-在board對話與跳到 agent 終端機是不同動作。請使用所選成員可用的跳轉動作，或在你的 tmux client 執行下列命令。跳轉會改變你看到的畫面，不會改變收件者的工作；返回則回到該次 squad 跳轉的起點。
+在 board 對話與跳到 agent 終端機是不同動作。請使用所選成員可用的跳轉動作，或在你的 tmux client 執行下列命令。跳轉會改變你看到的畫面，不會改變收件者的工作；返回則回到該次 squad 跳轉的起點。
 
 <Cmd>{`
 $ tmt ops squad jump builder --squad product
 $ tmt ops squad back
 `}</Cmd>
 
-board也能顯示成員的 Session 資訊。確認前，先閱讀精確目標與預計執行的 resume／move 命令。缺少或尚未觀測到執行狀態，不代表啟動另一個 agent 就是安全的。
+開啟成員的 Session 資訊，查看目標及預計執行的 resume 或 move 命令。
 
 <Mdx.h3 id="skills-for-your-lead">給 lead 的 skill</Mdx.h3>
 
-`tmt extension install ops --skills` 會隨擴充套件發布 lead skill。請 lead 閱讀它，並與你約定命名、派工、狀態更新與審查方式。Skill 說明命令的行為，不會授權額外啟動 agent 或改變你的工作流程。
+`tmt extension install ops --skills` 會隨擴充套件發布 lead skill。請 lead 閱讀它，並與你約定命名、派工、狀態更新與審查方式。
 
 <Mdx.h3 id="where-state-lives">狀態存放在哪裡</Mdx.h3>
 
-Core 管理身分、room 成員資格、請求與回覆。Ops 管理自己的清單與board偏好；視圖快取可以丟棄。成員筆記本的路徑來自 `tmt notes path`，不是列的 `note` 欄位中的另一份副本。將持續需要的工作脈絡保留在筆記本，並用 task、state 與 pending 欄位摘要目前情況。
+使用 `tmt notes path` 尋找成員的筆記本。將持續需要的工作脈絡保留在其中，並用 task、state 與 pending 欄位摘要目前情況。

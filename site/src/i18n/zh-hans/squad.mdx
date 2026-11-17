@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: ef19822173899d458bbf80568041360d55b1d7e6
+sourceRevision: 82c2e3156e35e8af41b4837e2466d285366a9b84
 title: Ops：lead、成员与工作区
 ---
 
@@ -42,12 +42,9 @@ Squads / members       │ Talk · Measure · Checklist
 Common pool            │ Message to builder
 `}</Code>
 
-<Caption>
-  根据源代码整理的 Agents 示意图，不是实时看板，也不是精确的终端截图。名称与数值仅供示例。
-  宽终端会并排显示，较窄时会上下堆叠或只显示聚焦窗格。本页示例不会发送消息或更改清单。
-</Caption>
+<Caption>Agents 视图示意图。宽终端并排显示，较窄时上下堆叠或只显示聚焦窗格。</Caption>
 
-看板在后台获取信息。缺少观测代表未知，不代表空闲或零。切换视图时，shell 的注意事项摘要仍涵盖全局。手动填写的 task／state 字段、清单的未完成项目，以及等待你回复的请求，是各自独立的信息。
+看板在后台更新信息。缺少读数表示未知，不代表空闲或零。切换视图时，注意事项摘要仍会显示。
 
 | 默认按键        | 工作区中的操作                                            |
 | --------------- | --------------------------------------------------------- |
@@ -60,19 +57,19 @@ Common pool            │ Message to builder
 | `,` / `?`       | 设置 / 当前生效的操作说明                                 |
 | Ctrl+R          | 刷新                                                      |
 
-你配置的按键绑定优先。请查看页脚与 `?`，确认所选目标可用的操作。点击只会聚焦窗格，不会发送消息；滚动窗格不会改变收件人。聚焦控件的分隔线较亮，并标有 `▸`；选中状态与键盘焦点仍然不同。
+查看页脚和 `?`，了解所选目标可用的按键。你配置的按键绑定优先。点击窗格可聚焦；当前操作控件标有 `▸`。
 
 <Mdx.h3 id="talk-without-losing-your-place">对话不中断工作位置</Mdx.h3>
 
-在输入框按 Enter 会发送消息。Alt+Enter 或 Ctrl+J 插入换行；终端支持增强按键报告时，也可用 Shift+Enter。Esc 离开编辑器并保留草稿。括号粘贴模式不会发送消息。切换视图或更改成员资格时，草稿会跟随 agent 的 UUID，但一般的看板重启不会保留草稿。
+在输入框按 Enter 发送消息。Alt+Enter 或 Ctrl+J 插入换行；终端支持增强按键回报时，也可用 Shift+Enter。Esc 离开编辑器并保留草稿。切换视图不会丢失草稿，但重启看板会清除草稿。
 
-阅读较早的输出会暂停自动跟随。**Jump to latest** 或 End 可回到最新消息。已关联的回复与观测到的窗格输出会分别标注；单凭窗格文字不能判定请求完成。请求一旦受理，即使送达状态不确定，也会清除已提交的草稿。再次发送前，先检查该请求。如果操作被拒绝且没有保留请求，草稿会留下。
+阅读较早的输出会暂停自动跟随。**Jump to latest** 或 End 可回到最新消息。回复与窗格输出会分别标注。若送达状态不确定，请先检查请求再决定是否重发。
 
 <Mdx.h3 id="checklists-belong-to-a-room">清单属于 room</Mdx.h3>
 
-每个 room 都有自己的手动清单。每位成员也可以在该 room 中有独立的对话清单。Room 与成员的 UUID 让清单在重命名后仍保持一致；同名的新身份不会继承清单。读取不会创建清单；第一次获准添加项目时才会创建。
+每个 room 都有清单，每位成员也可以在其中拥有独立的对话清单。重新命名后，清单仍属于原来的 room 和成员。
 
-选择成员后，按 **C** 打开 Checklist。在聊天编辑器中，**Ctrl+L** 会打开所选成员的清单，保留草稿与光标位置；Esc 返回编辑器。链接与待办项目会一起显示，并在信息可得时附上作者与经过时间。有参考链接的项目仍可标为未完成或完成；归档项目不会出现在普通列表与计数中。
+选择成员并按 **C** 打开 Checklist。在聊天编辑器中，**Ctrl+L** 打开该清单并保留草稿和光标位置；Esc 返回编辑器。链接和待办事项会显示作者及经过时间。已归档的项目会隐藏。
 
 <Code>{`
 Checklist · builder
@@ -81,9 +78,7 @@ Checklist · builder
 [x] Record the build result     builder · 5m
 `}</Code>
 
-<Caption>
-  清单状态示例。链接是参考资料，不是任务派发。勾选项目不会回复请求，也不会清除成员的 pending 状态。
-</Caption>
+<Caption>清单示例。勾选项目会完成该待办事项；等待回复的请求仍需单独答复。</Caption>
 
 Agent 可用三个简短命令维护自己的对话清单。同时加入多个 squad 时，请加上 `--room` 并指定精确的 room UUID。请使用自己运行 `add` 或 `ls` 得到的短项目 ID，不要使用下方的示例 ID。
 
@@ -105,23 +100,17 @@ $ tmt ops squad checklist ls --room 44444444-4444-4444-8444-444444444444 --membe
 | 当前 room 成员       | 创建未分配项目；编辑内容；完成或重新打开未归档的项目     |
 | 用户或当前 room lead | 上述操作，加上分配／取消分配、归档／还原、删除与重新排序 |
 
-即使在创建时分配给自己，也需要管理权限。受分配者必须是同一 room 的有效成员。分配只记录责任归属，不会发送消息、启动 agent 或更新 task／pending 字段。离开 room 的成员仍会显示为不可用的受分配者，直到管理者更改分配。
-
-自动化使用的 `create`、`edit`、`assign`、`complete` 等明确动词，需要精确的 UUID 与项目／清单版本。`tmt ops squad checklist --help` 及各动词的说明会列出所需输入。版本过期或权限变更时，操作会被拒绝：先查看当前清单、重新审阅，再明确做出新的选择。**Outcome unknown** 不代表可以重发。看板也使用相同的权限与版本检查。
-
-归档会保留项目的内容、完成状态与位置；还原只让它重新可见，不改变完成状态。删除会移除编写的内容，只留下最小删除记录。完成项目不会改变请求、收件箱注意事项、手动状态或 pending 标记。等待中的请求仍须单独回复。
+更多清单操作请运行 `tmt ops squad checklist --help` 查看。
 
 <Mdx.h3 id="read-usage-as-observations">把用量视为观测结果</Mdx.h3>
 
-Token 时间窗显示已完成请求的总量，不是每秒 token 数或预测。输入加输出的计数只会把缓存输入算一次。在 Settings 选择 **Token window**。`0` 代表观测到的零；覆盖不完整与无法获取的读数各有标记。没有计数器的成员不代表零成本，混合供应商的 token 总量也不是可比较的价格。
-
-画面上的数字可能以最长 600 ms 的动画渐变到新总量。这只影响显示：最终的总量、占比与覆盖范围仍来自观测。首次读数、不可用的值、数据所有者或时间窗变更，以及减少动态效果模式，都会立即显示最终值。
+在 Settings 选择 **Token window**，查看已完成请求的总量。输入加输出只会把缓存输入计算一次。请同时查看覆盖标记：缺少读数不代表零，token 总量也不等于费用。
 
 Digest 的 **Est. ctx avoided** 是通过批处理省下多少上下文输入的估计，不是实测的计费 token、轮次或金额节省。它的范围与 Agents 的 token 时间窗独立。读取任何总量时，都要一起看覆盖范围。
 
 <Mdx.h3 id="make-it-yours">按你的方式配置</Mdx.h3>
 
-按 `,` 打开设置，使用其中显示的有效控件。**New member** 与 **Edit** 会先显示准备执行的命令或变更；失败时，可能已有部分步骤生效，而其他步骤尚未运行。请阅读结果，不要把对话框关闭当成成功。仅仅阅读本页示例不会改动用户的设置。
+按 `,` 打开 Settings。**New member** 和 **Edit** 会让你在应用前查看准备执行的命令或变更。
 
 <Cmd>{`
 $ tmt ops ui --squad product --squad infra
@@ -151,12 +140,12 @@ $ tmt ops squad jump builder --squad product
 $ tmt ops squad back
 `}</Cmd>
 
-看板也能显示成员的 Session 信息。确认前，先阅读精确目标与准备执行的 resume／move 命令。缺少或尚未观测到运行状态，不代表启动另一个 agent 就是安全的。
+打开成员的 Session 信息，查看目标及准备执行的 resume 或 move 命令。
 
 <Mdx.h3 id="skills-for-your-lead">给 lead 的 skill</Mdx.h3>
 
-`tmt extension install ops --skills` 会随扩展发布 lead skill。请 lead 阅读它，并与你约定命名、派工、状态更新与审查方式。Skill 说明命令的行为，不会授权额外启动 agent 或改变你的工作流程。
+`tmt extension install ops --skills` 会随扩展发布 lead skill。请 lead 阅读它，并与你约定命名、派工、状态更新与审查方式。
 
 <Mdx.h3 id="where-state-lives">状态存放在哪里</Mdx.h3>
 
-Core 管理身份、room 成员资格、请求与回复。Ops 管理自己的清单与看板偏好；视图缓存可以丢弃。成员笔记本的路径来自 `tmt notes path`，不是行的 `note` 字段中的另一份副本。将持续需要的工作上下文保留在笔记本，并用 task、state 与 pending 字段概括当前情况。
+使用 `tmt notes path` 查找成员的笔记本。将持续需要的工作上下文保存在其中，并用 task、state 和 pending 字段概括当前情况。

@@ -37,12 +37,10 @@ Common pool            │ Message to builder
 `}</Code>
 
 <Caption>
-  Source-only schematic of the Agents view, not a live board or an exact terminal capture. Names and
-  values are examples. Wide terminals use columns; narrower terminals stack or focus one pane. No
-  example on this page sends a message or changes a checklist.
+  Illustrative Agents view. Wide terminals use columns; narrower terminals stack or focus one pane.
 </Caption>
 
-The board acquires information in the background. A missing observation is unknown, not idle or zero. The shell's attention summary stays global when you switch views. Manual task/state fields, a checklist's open items and requests awaiting your reply are separate facts.
+The board refreshes information in the background. Missing readings mean unknown, not idle or zero. The attention summary stays visible across views.
 
 | Default key     | In the workspace                                                          |
 | --------------- | ------------------------------------------------------------------------- |
@@ -55,19 +53,19 @@ The board acquires information in the background. A missing observation is unkno
 | `,` / `?`       | Settings / effective help                                                 |
 | Ctrl+R          | Refresh                                                                   |
 
-Your configured bindings win. Read the footer and `?` for actions available on the selected target. A click focuses its pane without sending; scrolling a pane does not change the message recipient. The focused control rule is brighter and marked with `▸`; selection remains distinct from keyboard focus.
+Read the footer and `?` for the keys available on the selected target. Your configured bindings take precedence. Click a pane to focus it; the focused control is marked with `▸`.
 
 ### Talk without losing your place
 
-Enter sends from the composer. Alt+Enter or Ctrl+J inserts a newline; Shift+Enter also works when the terminal reports enhanced keys. Esc leaves the editor with its draft kept. Bracketed paste never submits. Drafts follow the agent's UUID across view and membership changes, but ordinary board restarts do not preserve them.
+Enter sends from the composer. Alt+Enter or Ctrl+J inserts a newline; Shift+Enter also works when the terminal reports enhanced keys. Esc leaves the editor with its draft kept. You can switch views without losing a draft, but restarting the board clears it.
 
-Reading older output pauses follow. **Jump to latest** or End returns to the newest messages. Correlated replies and observed pane output are labeled separately; pane text alone does not complete a request. An accepted request clears the submitted draft even if delivery is uncertain. Inspect that request before sending again. A refusal that retained no request keeps the draft.
+Reading older output pauses follow. **Jump to latest** or End returns to the newest messages. Replies and pane output are labeled separately. If delivery is uncertain, inspect the request before sending again.
 
 ### Checklists belong to a room
 
-A room has its own manually authored checklist. Each member can also have a separate conversation checklist in that room. The room and member UUIDs keep these lists stable through renames; another identity with the same name does not inherit them. Reads do not create a list. The first admitted add creates it.
+Each room has a checklist, and each member can have a separate conversation checklist within it. Lists stay with the room and member when you rename them.
 
-On a member, press **C** for Checklist. In a chat editor, **Ctrl+L** opens the selected member's checklist while preserving the draft and caret; Esc returns to the editor. Links and todos are shown together with their authors and ages when known. An item with a reference can still be open or complete; archived items are hidden from the ordinary list and its counts.
+Select a member and press **C** for Checklist. In a chat editor, **Ctrl+L** opens that list while keeping your draft and caret; Esc returns to the editor. Links and todos appear with their authors and ages. Archived items are hidden.
 
 <Code>{`
 Checklist · builder
@@ -77,8 +75,7 @@ Checklist · builder
 `}</Code>
 
 <Caption>
-  Illustrative checklist states. The link is a reference, not a task dispatch. A checked item does
-  not answer a request or clear the member's pending state.
+  Example checklist. Checking an item completes the todo; answer any waiting request separately.
 </Caption>
 
 An agent can keep its own conversation list with three short commands. When it belongs to several squads, add `--room` with the exact room UUID. Use the short item ID returned by your own `add` or `ls`, not the example ID below.
@@ -101,23 +98,17 @@ $ tmt ops squad checklist ls --room 44444444-4444-4444-8444-444444444444 --membe
 | Current room member       | Create an unassigned item; edit content; complete or reopen an unarchived item |
 | User or current room lead | Those actions, plus assign/unassign, archive/restore, delete and reorder       |
 
-Even initial self-assignment requires manager permission. An assignee must be an active member of the same room. Assignment records responsibility; it does not send a message, start an agent or update task/pending fields. A member who leaves remains shown as an unavailable assignee until a manager changes it.
-
-For automation, `create`, `edit`, `assign`, `complete` and the other explicit verbs use exact UUIDs and item/inventory revisions. `tmt ops squad checklist --help` and each verb's help describe their inputs. A stale revision or changed permission refuses the mutation: inspect the current list, review again and make a new explicit choice. **Outcome unknown** is not permission to replay. The board uses the same admission and revision checks.
-
-Archive retains the item's content, completion and position; restore makes it visible again without changing completion. Delete removes authored content and keeps a minimal tombstone. Completing an item changes no request, inbox attention, manual state or pending flag. Answer a waiting request separately.
+For more checklist actions, run `tmt ops squad checklist --help`.
 
 ### Read usage as observations
 
-Token windows show completed-request totals, not tokens per second or a forecast. Input plus output counts cached input once. Choose **Token window** in Settings. `0` is a measured zero; incomplete coverage and unavailable readings have their own marks. A member without counters is not a zero-cost member, and mixed providers' token totals are not comparable prices.
-
-The displayed digits may ease toward a new total for at most 600 ms. That transition changes presentation only: the settled total, shares and coverage come from the observations. First readings, unavailable values, owner/window changes and reduced motion settle immediately.
+Choose **Token window** in Settings to see completed-request totals. Input plus output counts cached input once. Check the coverage marks: missing readings are not zero, and token totals are not prices.
 
 Digest's **Est. ctx avoided** is an estimate of context input avoided by batching, not measured billed tokens, turns or money saved. Its range is separate from the Agents token window. Read coverage alongside any total.
 
 ### Make it yours
 
-Use `,` for settings and the effective controls shown there. **New member** and **Edit** show the proposed commands or changes before applying them; a failure can leave some steps applied and others not run. Read that result instead of treating a closed dialog as success. User-owned settings are never changed merely by reading an example here.
+Press `,` for Settings. **New member** and **Edit** let you review the proposed commands or changes before applying them.
 
 <Cmd>{`
 $ tmt ops ui --squad product --squad infra
@@ -147,12 +138,12 @@ $ tmt ops squad jump builder --squad product
 $ tmt ops squad back
 `}</Cmd>
 
-The board can also show a member's Session information. Read its exact target and proposed resume/move command before confirming. Missing or unobserved runtime state is not evidence that starting another agent is safe.
+Open a member's Session information to review its target and proposed resume or move command.
 
 ### Skills for your lead
 
-`tmt extension install ops --skills` publishes the lead skill with the extension. Ask the lead to read it and agree on naming, dispatch, status updates and review conventions. The skill describes what commands do; it does not grant permission to launch extra agents or change your workflow.
+`tmt extension install ops --skills` publishes the lead skill with the extension. Ask the lead to read it and agree on naming, dispatch, status updates and review conventions.
 
 ### Where state lives
 
-Core owns identities, room membership, requests and replies. Ops owns its checklists and board preferences; the view cache is disposable. A member's notebook comes from `tmt notes path`, not a second copy in a row's `note` field. Keep durable working context there and use task, state and pending fields for the current summary.
+Use `tmt notes path` to find a member's notebook. Keep durable working context there, and use task, state and pending fields for the current summary.
