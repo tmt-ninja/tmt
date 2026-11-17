@@ -439,6 +439,10 @@ mod tests {
         publish_event(&paths, &snapshot.server.socket, || Ok(snapshot.clone())).unwrap();
         (root, paths, snapshot)
     }
+    // These cases test outcomes and cadence, not whether the host runs within 200 ms.
+    fn live_deadline() -> Instant {
+        Instant::now() + std::time::Duration::from_secs(24 * 60 * 60)
+    }
     fn reasons(report: &WorkspaceCaptureReport) -> Vec<(CaptureReason, usize)> {
         report
             .reasons
@@ -485,13 +489,9 @@ mod tests {
         let root = TestDirectory::new();
         let paths = paths(&root.path);
         let mut report = WorkspaceCaptureReport::default();
-        recorded_builtin(
-            &paths,
-            &mut report,
-            1,
-            Instant::now() + CAPTURE_BUDGET,
-            |_| panic!("an absent store is never initialized"),
-        )
+        recorded_builtin(&paths, &mut report, 1, live_deadline(), |_| {
+            panic!("an absent store is never initialized")
+        })
         .unwrap();
         assert_eq!(
             (report.attempted, report.published, report.skipped),
@@ -503,7 +503,7 @@ mod tests {
             members: Vec::new(),
         };
         super::super::publish_store_event(&paths, Store::Builtin, || Ok(snapshot(1))).unwrap();
-        let deadline = Instant::now() + CAPTURE_BUDGET;
+        let deadline = live_deadline();
         recorded_builtin(&paths, &mut report, 100_000, deadline, |_| Ok(snapshot(2))).unwrap();
         assert_eq!(reasons(&report), [(CaptureReason::Unchanged, 1)]);
         recorded_builtin(&paths, &mut report, 100_001, deadline, |_| {
@@ -519,7 +519,7 @@ mod tests {
         let (_root, paths, mut snapshot) = fixture();
         let directory = paths.workspace_directory(&snapshot.server.socket);
         let before = files(&directory);
-        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = live_deadline();
         let first = recorded_with(&paths, 10_000, deadline, |previous, _| {
             assert_eq!(previous, &snapshot.server);
             Ok(snapshot.clone())
@@ -557,7 +557,7 @@ mod tests {
         let (_root, paths, snapshot) = fixture();
         let directory = paths.workspace_directory(&snapshot.server.socket);
         let before = files(&directory);
-        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = live_deadline();
         let failed = recorded_with(&paths, 100_000, deadline, |_, _| {
             Err(io::Error::other("capture refused"))
         })
@@ -587,7 +587,7 @@ mod tests {
         use std::os::unix::fs::symlink;
         let (root, paths, snapshot) = fixture();
         let directory = paths.workspace_directory(&snapshot.server.socket);
-        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = live_deadline();
         let before = files(&directory);
         let lock = crate::file_lock::exclusive(&directory.join("publication.lock")).unwrap();
         let busy =
@@ -639,7 +639,7 @@ mod tests {
             r#"{"workspace":{"snapshotEnabled":false},"opaque":{"keep":1}}"#,
         )
         .unwrap();
-        let disabled = recorded_with(&paths, 1, Instant::now() + CAPTURE_BUDGET, |_, _| {
+        let disabled = recorded_with(&paths, 1, live_deadline(), |_, _| {
             panic!("disabled capture")
         })
         .unwrap();
@@ -653,7 +653,7 @@ mod tests {
     }
     #[test]
     fn a_failed_attempt_names_why_and_a_spent_budget_outranks_a_pre_check() {
-        let live = Instant::now() + std::time::Duration::from_secs(5);
+        let live = live_deadline();
         for reason in [
             CaptureReason::ServerNotCurrent,
             CaptureReason::ServerChanged,
@@ -684,7 +684,7 @@ mod tests {
         let mut second = sample();
         second.server.socket = root.path.join("second.sock").display().to_string();
         publish_event(&paths, &second.server.socket, || Ok(second.clone())).unwrap();
-        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = live_deadline();
         let report = recorded_with(&paths, 1, deadline, |previous, _| {
             if previous.socket == first.server.socket {
                 Ok(first.clone())
