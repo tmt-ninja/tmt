@@ -321,6 +321,19 @@ impl SummaryCache {
                     .map(|projection| projection.summary.clone())
             })
     }
+    /// Every owner id a cached fold names (`fields.owner.id`).
+    pub fn owners(&self) -> std::collections::HashSet<String> {
+        self.lock()
+            .values()
+            .filter_map(|entry| entry.projection.as_ref()?.summary.work.as_ref())
+            .filter_map(|work| {
+                work.fields
+                    .pointer("/owner/id")?
+                    .as_str()
+                    .map(str::to_owned)
+            })
+            .collect()
+    }
     /// The page's to-do work items at this fingerprint, or `None` without a fresh projection.
     pub fn todo_items(&self, page: &str, fingerprint: &str) -> Option<Vec<TodoItem>> {
         self.lock()
@@ -330,12 +343,14 @@ impl SummaryCache {
             .map(|projection| projection.todo_items.clone())
     }
     /// The page list's status from this fresh fold alone (`work_index::derived_state`), or `None`
-    /// without a fresh projection.
+    /// without a fresh projection. `activity` gives an owner's already observed activity, if any;
+    /// nothing is read here.
     pub fn derived_state(
         &self,
         page: &str,
         fingerprint: &str,
         now_ms: u64,
+        activity: &dyn Fn(&str) -> Option<crate::work_index::OwnerActivity>,
     ) -> Option<&'static str> {
         let entries = self.lock();
         let projection = entries
@@ -348,15 +363,16 @@ impl SummaryCache {
             .and_then(|fields| fields.get("blocked"))
             .and_then(Value::as_str)
             .is_some_and(|reason| !reason.is_empty());
-        let has_owner = fields
+        let owner = fields
             .and_then(|fields| fields.pointer("/owner/id"))
-            .is_some();
+            .and_then(Value::as_str)
+            .map(activity);
         Some(crate::work_index::derived_state(
             projection.todo_counts,
             blocked,
             projection.summary.waiting,
             projection.pr_links.as_ref().map(Vec::len),
-            has_owner,
+            owner,
             now_ms,
         ))
     }

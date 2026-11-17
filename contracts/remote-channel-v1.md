@@ -132,7 +132,10 @@ its reason. Design follows Colab's availability; the composed rail order places 
 between Colab and Remote. Its root route imports only the explicitly described, mount-confined extra entry.
 A missing entry stays link-only via the paired Colab alias. `/` is Home: it lists, per module,
 the described Needs-you count, a waiting pairing offer from `/sdk/pair-offer`, and the modules'
-described `home` cards; it reads nothing else. `/settings` and `/settings/` are TMT settings, its
+described `home` cards; it reads nothing else. When exactly one primary module's description
+carries a valid `homePage` (#6474), the Home rail item and `/` open that page instead, and Home is
+current there; no claim, an invalid claim or more than one keeps this Home. The pairing offer stays
+the shell's notification on every route. `/settings` and `/settings/` are TMT settings, its
 sections listed in the module menu. `/ops` and `/digest` are Ops and Digest; their data have
 their [owner browser reads](#owner-browser-reads). Until a page has a browser read, the page says it is not in the browser yet, names the terminal command
 that shows the same facts and shows no values. Home preferences remain a
@@ -2286,7 +2289,7 @@ no page, operation or sending access.
 
 On demand, Remote asks each enabled extension on its admitted owner-only mount socket:
 `GET /.tmt/remote/describe`, with `tmt-describe: 1` and
-`tmt-describe-features: modules`, the actual `tmt-mount`, the door's
+`tmt-describe-features: modules, home`, the actual `tmt-mount`, the door's
 `Host`, no body and `Connection: close`. Browser traffic cannot reach the `/.tmt` subtree
 or supply the callback marker. A callback has one second for connect/write/read and a
 16 KiB body cap; only HTTP 200 with `application/json` is admitted.
@@ -2304,9 +2307,14 @@ whole answer. Its fields are:
 - Optional `needsYou`: integer 0–9999, equal to the module's own in-app Needs-you
   number. Absent means unknown and shows no badge; explicit null is refused.
 - Optional `home`: up to eight `{id, title, path}` items, title 1–40 scalars.
+- Optional `homePage`: one path, under the same path rules, to the page the module offers as Home
+  (#6474). Remote resolves it under the module's own mount, so it never leaves that mount. An
+  extension includes it only when the request's `tmt-describe-features` contain `home`, since an
+  older Remote refuses the whole answer for an unknown field. A module that sends it claims
+  Home; the browser opens it only when exactly one module claims Home.
 - Optional `modules`: at most one extra `{id, rail, menu, settings, entry?, rootAppFamily?}`. It uses
   the same field rules and bounds as the primary, including link-only fallback for
-  an invalid entry. It has no `version`, `needsYou` or `home`. An invalid extra or
+  an invalid entry. It has no `version`, `needsYou`, `home` or `homePage`. An invalid extra or
   explicit null refuses the entire answer; the combined body retains the 16 KiB cap.
   An extension includes this field only when the request's `tmt-describe-features`
   comma-separated tokens contain `modules`; otherwise it returns the exact old
@@ -2349,7 +2357,7 @@ under the same CSP and Origin policy. Pairing, cookie scope and mounted content
 admission remain unchanged.
 
 The composed answer is `{version:1, modules:[{extension, module?, rail, menu, settings,
-needsYou?, home?, entry?, rootAppFamily?}]}`. The primary has no `module` field; an extra has the
+needsYou?, home?, homePage?, entry?, rootAppFamily?}]}`. The primary has no `module` field; an extra has the
 same `extension` and `module` equal to its `id`. The pair is unique. Remote adds
 its own primary and sorts by rail order, extension name, then primary before extra.
 Only the declared navigation exception above leaves the same extension mount. Extras share their extension's

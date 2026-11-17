@@ -513,8 +513,11 @@ fn serve(
         let (pages, all_pages) = open_pages(&store, &keyring);
         let save_root = root.to_path_buf();
         let summary_root = root.to_path_buf();
+        // One owner-activity cache: the socket's reads fill it, the list reads what it retains.
+        let work_facts = Arc::new(tmt_colab::work_facts::Facts::default());
         let registration = Arc::new(Mutex::new(
             Registration::new(store, keyring, std::env::current_exe()?)?
+                .with_work_facts(Arc::clone(&work_facts))
                 .with_save_source(Arc::new(move || {
                     tmt_colab::page::save::open_source(
                         &save_root,
@@ -535,6 +538,7 @@ fn serve(
         let mut socket = MountSocket::bind(&layout, &space_id, Tunnels::PRODUCT)?
             .with_registration(&layout, Arc::clone(&registration))?
             .with_release(Arc::clone(&release))
+            .with_work_facts(work_facts)
             .with_app(app);
         // An executable whose declaration cannot be produced refuses itself everywhere else;
         // here it simply never syncs.

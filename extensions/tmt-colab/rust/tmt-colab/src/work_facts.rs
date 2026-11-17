@@ -177,6 +177,20 @@ pub struct OwnerObservation {
     pub last_activity_ms: Option<u64>,
     pub observed_at_ms: u64,
 }
+impl OwnerObservation {
+    /// The status rules' reading of this observation.
+    pub fn activity(&self) -> crate::work_index::OwnerActivity {
+        match self.state.as_str() {
+            "working" => crate::work_index::OwnerActivity::Working {
+                last_activity_ms: self.last_activity_ms,
+                observed_at_ms: self.observed_at_ms,
+            },
+            "waiting" => crate::work_index::OwnerActivity::Waiting,
+            "idle" | "ended" => crate::work_index::OwnerActivity::Other,
+            _ => crate::work_index::OwnerActivity::Unknown,
+        }
+    }
+}
 struct ActivityEntry {
     cursor: Value,
     activity: OwnerObservation,
@@ -208,6 +222,87 @@ fn core_api(operation: &str, input: Value, stop: &AtomicBool) -> Option<Value> {
     serde_json::from_slice(&output.stdout).ok()
 }
 impl Facts {
+    /// The last observation of an owner, read nowhere: what a list answer may use (#6474).
+    pub fn retained_activity(&self, owner: &str) -> Option<OwnerObservation> {
+        self.retained_activities.lock().ok()?.get(owner).cloned()
+    }
+    /// Work home's batch (#6474): one `changes.cursor` read, then one `identities.status` read for
+    /// the owners whose cached cursor differs, at most [`crate::limits::WORK_ACTIVITY_OWNERS`]. An
+    /// owner the read cannot report keeps its earlier observation. Never blocks on a read another
+    /// caller holds: it answers with what is retained.
+    pub fn activities(
+        &self,
+        owners: &[String],
+        stop: &AtomicBool,
+    ) -> std::collections::BTreeMap<String, OwnerObservation> {
+        let retained = |owners: &[String]| {
+            owners
+                .iter()
+                .filter_map(|owner| Some((owner.clone(), self.retained_activity(owner)?)))
+                .collect()
+        };
+        let Ok(mut cache) = self.activities.try_lock() else {
+            return retained(owners);
+        };
+        let Some(cursor) = core_api("changes.cursor", json!({}), stop)
+            .and_then(|value| value.get("cursor").cloned())
+            .filter(Value::is_u64)
+        else {
+            return retained(owners);
+        };
+        let stale: Vec<&String> = owners
+            .iter()
+            .filter(|owner| cache.get(*owner).is_none_or(|entry| entry.cursor != cursor))
+            .collect();
+        let read = (!stale.is_empty())
+            .then(|| core_api("identities.status", json!({"identityIds": stale}), stop))
+            .flatten();
+        let now = crate::registration::now_ms().unwrap_or_default();
+        for row in read
+            .as_ref()
+            .and_then(|value| value["identities"].as_array())
+            .into_iter()
+            .flatten()
+        {
+            let Some(owner) = row["id"]
+                .as_str()
+                .filter(|id| stale.iter().any(|s| s == id))
+            else {
+                continue;
+            };
+            let Some(activity) = row
+                .pointer("/session/activity")
+                .filter(|_| row["found"] == true)
+            else {
+                continue;
+            };
+            let Some(state) = activity["state"].as_str().filter(|state| {
+                matches!(*state, "unknown" | "working" | "idle" | "waiting" | "ended")
+            }) else {
+                continue;
+            };
+            let observation = OwnerObservation {
+                state: state.to_owned(),
+                last_activity_ms: activity["lastActivityMs"].as_u64(),
+                observed_at_ms: now,
+            };
+            if !cache.contains_key(owner) && cache.len() >= 1024 {
+                continue;
+            }
+            cache.insert(
+                owner.to_owned(),
+                ActivityEntry {
+                    cursor: cursor.clone(),
+                    activity: observation.clone(),
+                },
+            );
+            if let Ok(mut retained) = self.retained_activities.lock() {
+                retained.insert(owner.to_owned(), observation);
+            }
+        }
+        drop(cache);
+        retained(owners)
+    }
     /// Re-read only on caller events; a cursor read alone never refreshes observation age.
     pub fn activity(&self, owner: &str, stop: &AtomicBool) -> ActivityRead {
         let mut cache = match self.activities.try_lock() {

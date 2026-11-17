@@ -1,4 +1,5 @@
 import {
+  claimedHome,
   loadShellAnswer,
   mountShell,
   rememberedShellAnswer,
@@ -166,8 +167,17 @@ export function appRail(
         }
       : undefined;
   const rail = shellRail(answer, place, host);
-  for (const item of [...rail.main, ...rail.bottom])
+  const home = claimedHome(answer);
+  for (const item of [...rail.main, ...rail.bottom]) {
     if (item.id !== 'home') item.href = appHref(routes, item.href, item.id);
+    else if (home) item.href = appHref(routes, home);
+  }
+  // In the app a claimed Home is current on its in-app route (#6474).
+  if (home) {
+    const here = place.href.split(/[?#]/)[0];
+    const atHome = rail.main.find((item) => item.id === 'home')!.href === here;
+    if (atHome) for (const item of rail.main) item.current = item.id === 'home';
+  }
   return rail;
 }
 

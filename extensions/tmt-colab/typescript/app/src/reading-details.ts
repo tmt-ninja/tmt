@@ -449,3 +449,46 @@ export class ProgressReads {
     this.#dirty = false;
   }
 }
+
+/** One owner's last observed activity (#6474): display only, never a send or a grant. */
+export interface OwnerActivityView {
+  state: 'unknown' | 'working' | 'idle' | 'waiting' | 'ended';
+  lastActivityMs: number | null;
+  observedAtMs: number;
+}
+const ACTIVITY_STATES = ['unknown', 'working', 'idle', 'waiting', 'ended'];
+/** Work home's batch: the owner service reads at most 256 owners some page names, after its own
+ * `changes.cursor` compare, and answers with what it observed. */
+export async function readWorkActivity(
+  mount: URL,
+  owners: readonly string[],
+  signal?: AbortSignal,
+): Promise<Record<string, OwnerActivityView>> {
+  requireValue(owners.length <= 256 && owners.every((owner) => owner.length > 0));
+  const response = await fetch(new URL('api/work-activity', mount), {
+    method: 'POST',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ owners }),
+    signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(30_000)]),
+  });
+  const value = await jsonResponse(response, READING_DETAILS_BYTES);
+  exactKeys(value, ['owners']);
+  const rows = value.owners;
+  requireValue(rows !== null && typeof rows === 'object' && !Array.isArray(rows));
+  const answer: Record<string, OwnerActivityView> = {};
+  for (const [owner, row] of Object.entries(rows as Record<string, unknown>)) {
+    requireValue(owners.includes(owner) && row !== null && typeof row === 'object');
+    exactKeys(row, ['state', 'lastActivityMs', 'observedAtMs']);
+    const { state, lastActivityMs, observedAtMs } = row as Record<string, unknown>;
+    requireValue(
+      typeof state === 'string' &&
+        ACTIVITY_STATES.includes(state) &&
+        (lastActivityMs === null || Number.isSafeInteger(lastActivityMs)) &&
+        Number.isSafeInteger(observedAtMs),
+    );
+    answer[owner] = row as unknown as OwnerActivityView;
+  }
+  return answer;
+}

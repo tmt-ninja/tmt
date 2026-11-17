@@ -103,6 +103,14 @@ pub(crate) struct Description {
         deserialize_with = "present"
     )]
     home: Option<Vec<Home>>,
+    /// The page that replaces Remote's Home when this is the one module claiming it (#6474): a
+    /// path under the module's own mount, resolved like every other path here.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    home_page: Option<String>,
     /// The module's lazy ES module for the one TMT app, a path under its own mount (#3937).
     #[serde(
         default,
@@ -148,6 +156,7 @@ impl Description {
                 .iter()
                 .flatten()
                 .any(|h| !label(&h.title, limits::DESCRIBE_LABEL) || !path(&h.path))
+            || d.home_page.as_deref().is_some_and(|home| !path(home))
             || !validate_module(&mut d.rail, &d.menu, &d.settings, &mut d.entry)
             || d.modules
                 .as_ref()
@@ -184,6 +193,9 @@ impl Description {
         );
         for h in self.home.iter_mut().flatten() {
             h.path = format!("{}{}", base.trim_end_matches('/'), h.path);
+        }
+        if let Some(home) = self.home_page.as_mut() {
+            *home = format!("{}{}", base.trim_end_matches('/'), home);
         }
         let mut v = serde_json::to_value(self).expect("bounded display fields");
         v["extension"] = json!(extension);

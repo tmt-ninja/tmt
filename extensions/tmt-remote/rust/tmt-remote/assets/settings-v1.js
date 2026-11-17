@@ -293,86 +293,6 @@ function settingsChoice(trigger, surface) {
 	};
 }
 //#endregion
-//#region src/remote-menu.ts
-function remoteMenu(actions, shell = void 0) {
-	if (!shell) return () => {};
-	const href = (view) => new URL(remotePath(view), location.href).href;
-	let projection;
-	function paint() {
-		const view = projection?.current.connection;
-		const showing = remoteItem(location.pathname)?.id;
-		const item = (id) => {
-			return {
-				id,
-				label: REMOTE_ITEMS.find((candidate) => candidate.id === id).label,
-				href: href(id),
-				current: showing === id
-			};
-		};
-		const recovery = view?.action;
-		shell.setMenu({
-			title: "Remote",
-			groups: [{ items: [{
-				...item("remotes"),
-				current: [
-					"remotes",
-					"create",
-					"join"
-				].includes(showing ?? ""),
-				total: projection?.rows.length
-			}] }, {
-				label: "This machine",
-				items: [item("members"), item("my-devices")],
-				action: recovery ? {
-					icon: "link",
-					label: recovery,
-					onActivate: () => actions.recover(recovery)
-				} : void 0
-			}],
-			settings: {
-				...item("settings"),
-				label: "Remote settings",
-				current: showing === "settings" || showing === "service"
-			}
-		});
-	}
-	paint();
-	window.addEventListener("popstate", paint, { signal: shell.signal });
-	const refresh = () => {
-		paint();
-		actions.refresh();
-	};
-	const entered = (event) => {
-		const menu = event.target?.closest?.(".tmt-ui-module-menu, .tmt-ui-rail-sub");
-		if (menu && !menu.contains(event.relatedTarget)) refresh();
-	};
-	document.addEventListener("pointerover", entered, { signal: shell.signal });
-	document.addEventListener("focusin", entered, { signal: shell.signal });
-	return (next) => {
-		projection = next;
-		if (next.current.connection.word === "connected" && next.address) shell.describe(next.address);
-		paint();
-	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/overlay.ts
-/** Modified, repeated and composing keys cannot dismiss an actionable layer. */
-function admitsOverlayEscape(event) {
-	return event.isTrusted && !event.repeat && !(event.nativeEvent?.isComposing ?? event.isComposing) && event.keyCode !== 229 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
-}
-function restoreOverlayFocus(origin, fallback) {
-	const usable = (node) => node instanceof HTMLElement && node.isConnected && node.getClientRects().length > 0 && !node.closest("[inert]") && !node.matches(":disabled");
-	if (usable(origin)) origin.focus({ preventScroll: true });
-	else {
-		const node = fallback?.() ?? null;
-		if (usable(node)) node.focus({ preventScroll: true });
-	}
-}
-function outsideOverlay(node, x, y) {
-	const box = node.getBoundingClientRect();
-	return x < box.left || x >= box.right || y < box.top || y >= box.bottom;
-}
-//#endregion
 //#region ../../../../design/browser-ui/src/icon-action-tooltip.ts
 var activeTooltips = /* @__PURE__ */ new WeakMap();
 /** Help has one ephemeral owner per document, independent of menu/dialog state. */
@@ -574,331 +494,6 @@ function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 			wrapper.removeEventListener("pointerleave", leave);
 			button.removeEventListener("focus", focus);
 			button.removeEventListener("blur", blur);
-		}
-	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/menu-position.ts
-/** Menus share the leaf's below/flip/clamp rule, aligning to the trigger's end. */
-function browserMenuPosition(anchor, width, height, viewport, gutter = 8) {
-	const placed = iconActionTooltipPosition(anchor, width, height, viewport, gutter);
-	return {
-		...placed,
-		left: Math.max(viewport.left + gutter, Math.min(anchor.right - Math.min(width, placed.maxWidth), viewport.left + viewport.width - gutter - Math.min(width, placed.maxWidth)))
-	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/popup.ts
-var activePopups = /* @__PURE__ */ new WeakMap();
-/** Menu and combobox surfaces share one replacement owner, without owning host commands. */
-function claimBrowserPopup(document, dismiss) {
-	activePopups.get(document)?.();
-	activePopups.set(document, dismiss);
-	return () => {
-		if (activePopups.get(document) === dismiss) activePopups.delete(document);
-	};
-}
-/** One scope owns its popup and outside-pointer listener for the same lifetime. */
-function claimScopedBrowserPopup(anchor, surface, dismiss) {
-	const scope = anchor.closest("[data-tmt-ds-scope]");
-	const release = claimBrowserPopup(scope ?? anchor.ownerDocument, dismiss);
-	const outside = (event) => {
-		if (event.target instanceof Node && !surface.contains(event.target) && !anchor.contains(event.target)) dismiss();
-	};
-	scope?.addEventListener("pointerdown", outside, true);
-	return {
-		scope,
-		release() {
-			scope?.removeEventListener("pointerdown", outside, true);
-			release();
-		}
-	};
-}
-function placeBrowserPopup(anchor, surface, dismiss, scope = anchor.closest?.("[data-tmt-ds-scope]") ?? null) {
-	const view = anchor.ownerDocument.defaultView;
-	const viewport = view.visualViewport;
-	const place = () => {
-		if (!anchor.isConnected || !anchor.getClientRects().length) return dismiss();
-		const scopeBox = scope?.getBoundingClientRect();
-		const bounds = scope && scopeBox ? {
-			left: scopeBox.left + scope.clientLeft,
-			top: scopeBox.top + scope.clientTop,
-			width: scope.clientWidth,
-			height: scope.clientHeight
-		} : {
-			left: viewport?.offsetLeft ?? 0,
-			top: viewport?.offsetTop ?? 0,
-			width: viewport?.width ?? view.innerWidth,
-			height: viewport?.height ?? view.innerHeight
-		};
-		surface.style.maxWidth = `${Math.max(0, bounds.width - 16)}px`;
-		const box = surface.getBoundingClientRect();
-		const position = browserMenuPosition(anchor.getBoundingClientRect(), box.width, Math.max(box.height, surface.scrollHeight + surface.offsetHeight - surface.clientHeight), bounds);
-		Object.assign(surface.style, {
-			left: `${position.left - (scopeBox?.left ?? 0)}px`,
-			top: `${position.top - (scopeBox?.top ?? 0)}px`,
-			maxHeight: `${position.maxHeight}px`
-		});
-	};
-	place();
-	let frame;
-	const observer = new ResizeObserver(() => {
-		if (frame !== void 0) return;
-		frame = view.requestAnimationFrame(() => {
-			frame = void 0;
-			place();
-		});
-	});
-	observer.observe(anchor);
-	observer.observe(surface);
-	if (scope) observer.observe(scope);
-	view.addEventListener("resize", place);
-	view.addEventListener("scroll", place, true);
-	viewport?.addEventListener("resize", place);
-	viewport?.addEventListener("scroll", place);
-	return () => {
-		observer.disconnect();
-		if (frame !== void 0) view.cancelAnimationFrame(frame);
-		view.removeEventListener("resize", place);
-		view.removeEventListener("scroll", place, true);
-		viewport?.removeEventListener("resize", place);
-		viewport?.removeEventListener("scroll", place);
-	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/menu-controller.ts
-/** Segment items without changing the flat controller order. Unheaded leading items remain ungrouped. */
-function menuGroups(items) {
-	const groups = [];
-	items.forEach((item, index) => {
-		if (item.heading || groups.length === 0) groups.push({
-			heading: item.heading,
-			entries: []
-		});
-		groups[groups.length - 1].entries.push({
-			item,
-			index
-		});
-	});
-	return groups;
-}
-/** One transient menu owner for React and framework-free renderers; commands stay with callers. */
-function createMenuController(options) {
-	let snapshot = {
-		open: false,
-		present: false
-	};
-	const listeners = /* @__PURE__ */ new Set();
-	let first = "first";
-	let search = {
-		text: "",
-		at: 0
-	};
-	let focused;
-	let reported = false;
-	let disposed = false;
-	let detach;
-	let cancelExit;
-	const enabled = () => options.items().flatMap((item, index) => item.disabled ? [] : [index]);
-	const publish = (open, present) => {
-		if (snapshot.open === open && snapshot.present === present) return;
-		snapshot = {
-			open,
-			present
-		};
-		for (const notify of listeners) notify();
-	};
-	const report = (open) => {
-		if (reported === open) return;
-		reported = open;
-		options.onOpenChange(open);
-	};
-	const canOpen = () => !disposed && !options.disabled() && (enabled().length > 0 || options.hasDescription());
-	function open(edge = "first") {
-		if (!canOpen() || snapshot.open) return;
-		cancelExit?.();
-		cancelExit = void 0;
-		first = edge;
-		focused = void 0;
-		search = {
-			text: "",
-			at: 0
-		};
-		publish(true, true);
-	}
-	function close(refocus = true) {
-		if (!snapshot.open) return;
-		const node = options.surface();
-		publish(false, snapshot.present);
-		if (node) {
-			node.dataset.state = "closed";
-			if (node.open) node.close();
-		}
-		detach?.();
-		report(false);
-		if (refocus) restoreOverlayFocus(options.trigger());
-		const animations = node?.getAnimations?.() ?? [];
-		if (!animations.length) {
-			publish(false, false);
-			return;
-		}
-		let current = true;
-		cancelExit = () => {
-			current = false;
-		};
-		Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
-			if (current && !snapshot.open && !disposed) {
-				cancelExit = void 0;
-				publish(false, false);
-			}
-		});
-	}
-	function attachSurface() {
-		const node = options.surface();
-		const anchor = options.trigger();
-		if (!snapshot.open || !node || !anchor) return;
-		if (!node.isConnected || !anchor.isConnected || !anchor.getClientRects().length) {
-			close(false);
-			return;
-		}
-		if (detach) return detach;
-		const { scope, release } = claimScopedBrowserPopup(anchor, node, () => close(false));
-		let position;
-		const cleanup = () => {
-			if (detach !== cleanup) return;
-			detach = void 0;
-			position?.();
-			release();
-			if (node.open) node.close();
-			queueMicrotask(() => {
-				const current = options.surface();
-				if (!node.isConnected && snapshot.open && (!current || current === node)) close(false);
-			});
-		};
-		detach = cleanup;
-		try {
-			if (scope) node.show();
-			else node.showModal();
-			position = placeBrowserPopup(anchor, node, () => close(false), scope);
-			if (!snapshot.open) return cleanup;
-			report(true);
-			if (!snapshot.open) return cleanup;
-			const choices = enabled();
-			const index = first === "last" ? choices.at(-1) : choices[0];
-			focused = index === void 0 ? void 0 : options.items()[index]?.key;
-			(index === void 0 ? node : options.entries()[index] ?? node).focus();
-		} catch (error) {
-			cleanup();
-			close(false);
-			throw error;
-		}
-		return cleanup;
-	}
-	function refresh() {
-		const node = options.surface();
-		if (!snapshot.open || !node) return;
-		const active = node.ownerDocument.activeElement;
-		if (active === node) return;
-		if (active !== node.ownerDocument.body && (!active || !node.contains(active))) return;
-		const entries = options.entries();
-		const choices = enabled();
-		if (choices.some((index) => entries[index] === active)) return;
-		const next = choices.find((index) => options.items()[index].key === focused) ?? choices[0];
-		(next === void 0 ? node : entries[next] ?? node).focus();
-	}
-	return {
-		getSnapshot: () => snapshot,
-		subscribe(notify) {
-			listeners.add(notify);
-			return () => {
-				listeners.delete(notify);
-			};
-		},
-		canOpen,
-		open,
-		close,
-		attachSurface,
-		refresh,
-		focused(key) {
-			if (snapshot.open) focused = key;
-		},
-		triggerKey(event) {
-			if (!["ArrowDown", "ArrowUp"].includes(event.key) || !event.isTrusted || (event.nativeEvent?.isComposing ?? event.isComposing)) return;
-			event.preventDefault();
-			open(event.key === "ArrowUp" ? "last" : "first");
-		},
-		menuKey(event) {
-			if (!snapshot.open || event.defaultPrevented) return;
-			if (event.key === "Escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				if (admitsOverlayEscape(event)) close();
-				return;
-			}
-			if ((event.nativeEvent?.isComposing ?? event.isComposing) || event.altKey || event.ctrlKey || event.metaKey) return;
-			if (event.key === "Tab") {
-				close();
-				return;
-			}
-			const choices = enabled();
-			const entries = options.entries();
-			const at = choices.indexOf(entries.findIndex((node) => node === node?.ownerDocument.activeElement));
-			let next;
-			if (event.key === "ArrowDown") next = choices[(at + 1) % choices.length];
-			else if (event.key === "ArrowUp") next = choices[(at - 1 + choices.length) % choices.length];
-			else if (event.key === "Home") next = choices[0];
-			else if (event.key === "End") next = choices.at(-1);
-			else if (event.key.length === 1 && event.key !== " ") {
-				const now = performance.now();
-				search = {
-					text: (now - search.at > 700 ? "" : search.text) + event.key.toLocaleLowerCase(),
-					at: now
-				};
-				next = [...choices.slice(at + 1), ...choices.slice(0, at + 1)].find((index) => options.items()[index].label.toLocaleLowerCase().startsWith(search.text));
-			} else return;
-			event.preventDefault();
-			if (next !== void 0) {
-				focused = options.items()[next]?.key;
-				entries[next]?.focus();
-			}
-		},
-		select(key, event) {
-			const item = options.items().find((item) => item.key === key);
-			if (!snapshot.open || !event.isTrusted || !item || item.disabled) return;
-			const select = options.selection();
-			close();
-			select(key, event);
-		},
-		nativeClose(event) {
-			event.stopPropagation();
-			const node = options.surface();
-			if (snapshot.open && event.target === node && !node?.open) close();
-		},
-		cancel(event) {
-			event.preventDefault();
-			event.stopPropagation();
-			if (event.isTrusted) close();
-		},
-		pointerDown(event) {
-			const node = options.surface();
-			if (node && event.target === node && outsideOverlay(node, event.clientX, event.clientY)) event.preventDefault();
-		},
-		surfaceClick(event) {
-			const node = options.surface();
-			if (!node || event.target !== node || !outsideOverlay(node, event.clientX, event.clientY)) return;
-			event.preventDefault();
-			event.stopPropagation();
-			if (event.isTrusted) close();
-		},
-		dispose() {
-			if (disposed) return;
-			close(false);
-			detach?.();
-			cancelExit?.();
-			cancelExit = void 0;
-			disposed = true;
-			publish(false, false);
-			listeners.clear();
 		}
 	};
 }
@@ -1342,6 +937,349 @@ function createIcon(name, doc = document) {
 	return svg;
 }
 //#endregion
+//#region ../../../../design/browser-ui/src/overlay.ts
+/** Modified, repeated and composing keys cannot dismiss an actionable layer. */
+function admitsOverlayEscape(event) {
+	return event.isTrusted && !event.repeat && !(event.nativeEvent?.isComposing ?? event.isComposing) && event.keyCode !== 229 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+}
+function restoreOverlayFocus(origin, fallback) {
+	const usable = (node) => node instanceof HTMLElement && node.isConnected && node.getClientRects().length > 0 && !node.closest("[inert]") && !node.matches(":disabled");
+	if (usable(origin)) origin.focus({ preventScroll: true });
+	else {
+		const node = fallback?.() ?? null;
+		if (usable(node)) node.focus({ preventScroll: true });
+	}
+}
+function outsideOverlay(node, x, y) {
+	const box = node.getBoundingClientRect();
+	return x < box.left || x >= box.right || y < box.top || y >= box.bottom;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-position.ts
+/** Menus share the leaf's below/flip/clamp rule, aligning to the trigger's end. */
+function browserMenuPosition(anchor, width, height, viewport, gutter = 8) {
+	const placed = iconActionTooltipPosition(anchor, width, height, viewport, gutter);
+	return {
+		...placed,
+		left: Math.max(viewport.left + gutter, Math.min(anchor.right - Math.min(width, placed.maxWidth), viewport.left + viewport.width - gutter - Math.min(width, placed.maxWidth)))
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/popup.ts
+var activePopups = /* @__PURE__ */ new WeakMap();
+/** Menu and combobox surfaces share one replacement owner, without owning host commands. */
+function claimBrowserPopup(document, dismiss) {
+	activePopups.get(document)?.();
+	activePopups.set(document, dismiss);
+	return () => {
+		if (activePopups.get(document) === dismiss) activePopups.delete(document);
+	};
+}
+/** One scope owns its popup and outside-pointer listener for the same lifetime. */
+function claimScopedBrowserPopup(anchor, surface, dismiss) {
+	const scope = anchor.closest("[data-tmt-ds-scope]");
+	const release = claimBrowserPopup(scope ?? anchor.ownerDocument, dismiss);
+	const outside = (event) => {
+		if (event.target instanceof Node && !surface.contains(event.target) && !anchor.contains(event.target)) dismiss();
+	};
+	scope?.addEventListener("pointerdown", outside, true);
+	return {
+		scope,
+		release() {
+			scope?.removeEventListener("pointerdown", outside, true);
+			release();
+		}
+	};
+}
+function placeBrowserPopup(anchor, surface, dismiss, scope = anchor.closest?.("[data-tmt-ds-scope]") ?? null) {
+	const view = anchor.ownerDocument.defaultView;
+	const viewport = view.visualViewport;
+	const place = () => {
+		if (!anchor.isConnected || !anchor.getClientRects().length) return dismiss();
+		const scopeBox = scope?.getBoundingClientRect();
+		const bounds = scope && scopeBox ? {
+			left: scopeBox.left + scope.clientLeft,
+			top: scopeBox.top + scope.clientTop,
+			width: scope.clientWidth,
+			height: scope.clientHeight
+		} : {
+			left: viewport?.offsetLeft ?? 0,
+			top: viewport?.offsetTop ?? 0,
+			width: viewport?.width ?? view.innerWidth,
+			height: viewport?.height ?? view.innerHeight
+		};
+		surface.style.maxWidth = `${Math.max(0, bounds.width - 16)}px`;
+		const box = surface.getBoundingClientRect();
+		const position = browserMenuPosition(anchor.getBoundingClientRect(), box.width, Math.max(box.height, surface.scrollHeight + surface.offsetHeight - surface.clientHeight), bounds);
+		Object.assign(surface.style, {
+			left: `${position.left - (scopeBox?.left ?? 0)}px`,
+			top: `${position.top - (scopeBox?.top ?? 0)}px`,
+			maxHeight: `${position.maxHeight}px`
+		});
+	};
+	place();
+	let frame;
+	const observer = new ResizeObserver(() => {
+		if (frame !== void 0) return;
+		frame = view.requestAnimationFrame(() => {
+			frame = void 0;
+			place();
+		});
+	});
+	observer.observe(anchor);
+	observer.observe(surface);
+	if (scope) observer.observe(scope);
+	view.addEventListener("resize", place);
+	view.addEventListener("scroll", place, true);
+	viewport?.addEventListener("resize", place);
+	viewport?.addEventListener("scroll", place);
+	return () => {
+		observer.disconnect();
+		if (frame !== void 0) view.cancelAnimationFrame(frame);
+		view.removeEventListener("resize", place);
+		view.removeEventListener("scroll", place, true);
+		viewport?.removeEventListener("resize", place);
+		viewport?.removeEventListener("scroll", place);
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/menu-controller.ts
+/** Segment items without changing the flat controller order. Unheaded leading items remain ungrouped. */
+function menuGroups(items) {
+	const groups = [];
+	items.forEach((item, index) => {
+		if (item.heading || groups.length === 0) groups.push({
+			heading: item.heading,
+			entries: []
+		});
+		groups[groups.length - 1].entries.push({
+			item,
+			index
+		});
+	});
+	return groups;
+}
+/** One transient menu owner for React and framework-free renderers; commands stay with callers. */
+function createMenuController(options) {
+	let snapshot = {
+		open: false,
+		present: false
+	};
+	const listeners = /* @__PURE__ */ new Set();
+	let first = "first";
+	let search = {
+		text: "",
+		at: 0
+	};
+	let focused;
+	let reported = false;
+	let disposed = false;
+	let detach;
+	let cancelExit;
+	const enabled = () => options.items().flatMap((item, index) => item.disabled ? [] : [index]);
+	const publish = (open, present) => {
+		if (snapshot.open === open && snapshot.present === present) return;
+		snapshot = {
+			open,
+			present
+		};
+		for (const notify of listeners) notify();
+	};
+	const report = (open) => {
+		if (reported === open) return;
+		reported = open;
+		options.onOpenChange(open);
+	};
+	const canOpen = () => !disposed && !options.disabled() && (enabled().length > 0 || options.hasDescription());
+	function open(edge = "first") {
+		if (!canOpen() || snapshot.open) return;
+		cancelExit?.();
+		cancelExit = void 0;
+		first = edge;
+		focused = void 0;
+		search = {
+			text: "",
+			at: 0
+		};
+		publish(true, true);
+	}
+	function close(refocus = true) {
+		if (!snapshot.open) return;
+		const node = options.surface();
+		publish(false, snapshot.present);
+		if (node) {
+			node.dataset.state = "closed";
+			if (node.open) node.close();
+		}
+		detach?.();
+		report(false);
+		if (refocus) restoreOverlayFocus(options.trigger());
+		const animations = node?.getAnimations?.() ?? [];
+		if (!animations.length) {
+			publish(false, false);
+			return;
+		}
+		let current = true;
+		cancelExit = () => {
+			current = false;
+		};
+		Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+			if (current && !snapshot.open && !disposed) {
+				cancelExit = void 0;
+				publish(false, false);
+			}
+		});
+	}
+	function attachSurface() {
+		const node = options.surface();
+		const anchor = options.trigger();
+		if (!snapshot.open || !node || !anchor) return;
+		if (!node.isConnected || !anchor.isConnected || !anchor.getClientRects().length) {
+			close(false);
+			return;
+		}
+		if (detach) return detach;
+		const { scope, release } = claimScopedBrowserPopup(anchor, node, () => close(false));
+		let position;
+		const cleanup = () => {
+			if (detach !== cleanup) return;
+			detach = void 0;
+			position?.();
+			release();
+			if (node.open) node.close();
+			queueMicrotask(() => {
+				const current = options.surface();
+				if (!node.isConnected && snapshot.open && (!current || current === node)) close(false);
+			});
+		};
+		detach = cleanup;
+		try {
+			if (scope) node.show();
+			else node.showModal();
+			position = placeBrowserPopup(anchor, node, () => close(false), scope);
+			if (!snapshot.open) return cleanup;
+			report(true);
+			if (!snapshot.open) return cleanup;
+			const choices = enabled();
+			const index = first === "last" ? choices.at(-1) : choices[0];
+			focused = index === void 0 ? void 0 : options.items()[index]?.key;
+			(index === void 0 ? node : options.entries()[index] ?? node).focus();
+		} catch (error) {
+			cleanup();
+			close(false);
+			throw error;
+		}
+		return cleanup;
+	}
+	function refresh() {
+		const node = options.surface();
+		if (!snapshot.open || !node) return;
+		const active = node.ownerDocument.activeElement;
+		if (active === node) return;
+		if (active !== node.ownerDocument.body && (!active || !node.contains(active))) return;
+		const entries = options.entries();
+		const choices = enabled();
+		if (choices.some((index) => entries[index] === active)) return;
+		const next = choices.find((index) => options.items()[index].key === focused) ?? choices[0];
+		(next === void 0 ? node : entries[next] ?? node).focus();
+	}
+	return {
+		getSnapshot: () => snapshot,
+		subscribe(notify) {
+			listeners.add(notify);
+			return () => {
+				listeners.delete(notify);
+			};
+		},
+		canOpen,
+		open,
+		close,
+		attachSurface,
+		refresh,
+		focused(key) {
+			if (snapshot.open) focused = key;
+		},
+		triggerKey(event) {
+			if (!["ArrowDown", "ArrowUp"].includes(event.key) || !event.isTrusted || (event.nativeEvent?.isComposing ?? event.isComposing)) return;
+			event.preventDefault();
+			open(event.key === "ArrowUp" ? "last" : "first");
+		},
+		menuKey(event) {
+			if (!snapshot.open || event.defaultPrevented) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				if (admitsOverlayEscape(event)) close();
+				return;
+			}
+			if ((event.nativeEvent?.isComposing ?? event.isComposing) || event.altKey || event.ctrlKey || event.metaKey) return;
+			if (event.key === "Tab") {
+				close();
+				return;
+			}
+			const choices = enabled();
+			const entries = options.entries();
+			const at = choices.indexOf(entries.findIndex((node) => node === node?.ownerDocument.activeElement));
+			let next;
+			if (event.key === "ArrowDown") next = choices[(at + 1) % choices.length];
+			else if (event.key === "ArrowUp") next = choices[(at - 1 + choices.length) % choices.length];
+			else if (event.key === "Home") next = choices[0];
+			else if (event.key === "End") next = choices.at(-1);
+			else if (event.key.length === 1 && event.key !== " ") {
+				const now = performance.now();
+				search = {
+					text: (now - search.at > 700 ? "" : search.text) + event.key.toLocaleLowerCase(),
+					at: now
+				};
+				next = [...choices.slice(at + 1), ...choices.slice(0, at + 1)].find((index) => options.items()[index].label.toLocaleLowerCase().startsWith(search.text));
+			} else return;
+			event.preventDefault();
+			if (next !== void 0) {
+				focused = options.items()[next]?.key;
+				entries[next]?.focus();
+			}
+		},
+		select(key, event) {
+			const item = options.items().find((item) => item.key === key);
+			if (!snapshot.open || !event.isTrusted || !item || item.disabled) return;
+			const select = options.selection();
+			close();
+			select(key, event);
+		},
+		nativeClose(event) {
+			event.stopPropagation();
+			const node = options.surface();
+			if (snapshot.open && event.target === node && !node?.open) close();
+		},
+		cancel(event) {
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.isTrusted) close();
+		},
+		pointerDown(event) {
+			const node = options.surface();
+			if (node && event.target === node && outsideOverlay(node, event.clientX, event.clientY)) event.preventDefault();
+		},
+		surfaceClick(event) {
+			const node = options.surface();
+			if (!node || event.target !== node || !outsideOverlay(node, event.clientX, event.clientY)) return;
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.isTrusted) close();
+		},
+		dispose() {
+			if (disposed) return;
+			close(false);
+			detach?.();
+			cancelExit?.();
+			cancelExit = void 0;
+			disposed = true;
+			publish(false, false);
+			listeners.clear();
+		}
+	};
+}
+//#endregion
 //#region ../../../../design/browser-ui/src/menu-host.ts
 /** Mount the existing menu presentation without a framework; hosts retain values and commands. */
 function mountBrowserMenu(container, initial) {
@@ -1596,6 +1534,68 @@ function mountBrowserMenu(container, initial) {
 			root.remove();
 			rows.clear();
 		}
+	};
+}
+//#endregion
+//#region src/remote-menu.ts
+function remoteMenu(actions, shell = void 0) {
+	if (!shell) return () => {};
+	const href = (view) => new URL(remotePath(view), location.href).href;
+	let projection;
+	function paint() {
+		const view = projection?.current.connection;
+		const showing = remoteItem(location.pathname)?.id;
+		const item = (id) => {
+			return {
+				id,
+				label: REMOTE_ITEMS.find((candidate) => candidate.id === id).label,
+				href: href(id),
+				current: showing === id
+			};
+		};
+		const recovery = view?.action;
+		shell.setMenu({
+			title: "Remote",
+			groups: [{ items: [{
+				...item("remotes"),
+				current: [
+					"remotes",
+					"create",
+					"join"
+				].includes(showing ?? ""),
+				total: projection?.rows.length
+			}] }, {
+				label: "This machine",
+				items: [item("members"), item("my-devices")],
+				action: recovery ? {
+					icon: "link",
+					label: recovery,
+					onActivate: () => actions.recover(recovery)
+				} : void 0
+			}],
+			settings: {
+				...item("settings"),
+				label: "Remote settings",
+				current: showing === "settings" || showing === "service"
+			}
+		});
+	}
+	paint();
+	window.addEventListener("popstate", paint, { signal: shell.signal });
+	const refresh = () => {
+		paint();
+		actions.refresh();
+	};
+	const entered = (event) => {
+		const menu = event.target?.closest?.(".tmt-ui-module-menu, .tmt-ui-rail-sub");
+		if (menu && !menu.contains(event.relatedTarget)) refresh();
+	};
+	document.addEventListener("pointerover", entered, { signal: shell.signal });
+	document.addEventListener("focusin", entered, { signal: shell.signal });
+	return (next) => {
+		projection = next;
+		if (next.current.connection.word === "connected" && next.address) shell.describe(next.address);
+		paint();
 	};
 }
 //#endregion

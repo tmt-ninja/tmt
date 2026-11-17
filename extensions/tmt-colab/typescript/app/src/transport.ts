@@ -209,6 +209,11 @@ export interface PageTransport {
   readonly management?: ManagementPort;
   /** The space's page list. A `signal` that aborts ends the read: a reader that leaves cancels it. */
   spaceHome(signal?: AbortSignal): Promise<SpaceHome>;
+  /** Owner-only (#6474): the last observed activity of the named page owners, one bounded batch. */
+  workActivity?(
+    owners: readonly string[],
+    signal: AbortSignal,
+  ): Promise<Record<string, import('./reading-details.js').OwnerActivityView>>;
   /** Optional, owner-only cached reading metadata. No page subscription, fold or publication. */
   readingDetails?(id: string, signal: AbortSignal): Promise<ReadingDetails>;
   /** A verified title only: no editor, discussion or live subscription. */

@@ -122,6 +122,8 @@ export function ColabShell({
     const shown = (listed ?? NO_PAGES).filter((page) => !page.archived);
     const settings = location.pathname === '/settings';
     const templatesRoute = location.pathname === '/templates';
+    // Work home (#6474) is the shell's Home; no Colab menu row is current there.
+    const workRoute = location.pathname === '/work';
     // A dashboard selects its own row, ahead of the shortcut its list showed.
     const shells = shown
       .filter((page) => page.pageType === 'shell')
@@ -136,7 +138,7 @@ export function ColabShell({
     const dashboard = shells.some((row) => row.current);
     const rows = shortcutRows(
       shortcuts.items,
-      settings || dashboard || templatesRoute ? undefined : shortcutId,
+      settings || dashboard || templatesRoute || workRoute ? undefined : shortcutId,
       (item) => href('/', { ...item.search, shortcut: item.id }),
       listed,
     );
@@ -154,7 +156,11 @@ export function ColabShell({
               total: all!.count,
               count: all!.waiting ? shellCount(all!.waiting) : undefined,
               current:
-                !settings && !templatesRoute && !dashboard && !rows.some((row) => row.current),
+                !settings &&
+                !templatesRoute &&
+                !workRoute &&
+                !dashboard &&
+                !rows.some((row) => row.current),
             },
             // Templates (#5077): a fixed Colab row with All pages, above the Shortcuts group, so
             // it never reads as a shortcut Manage could remove.

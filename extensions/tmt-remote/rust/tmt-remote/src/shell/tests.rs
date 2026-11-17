@@ -569,3 +569,34 @@ fn root_extra_navigation_is_declared_by_any_extension_and_script_stays_mounted()
         );
     }
 }
+
+#[test]
+fn a_home_page_is_a_path_under_the_module_mount_or_the_description_is_refused() {
+    let mut claimed = value();
+    claimed["homePage"] = json!("/work");
+    let module = parse(&claimed)
+        .unwrap()
+        .module("colab", "https://door/r/abc/x/colab/");
+    assert_eq!(module["homePage"], "https://door/r/abc/x/colab/work");
+    for bad in [
+        "work",
+        "//evil.example/x",
+        "/../remote/",
+        "https://evil.example/",
+        "/a b",
+    ] {
+        let mut refused = value();
+        refused["homePage"] = json!(bad);
+        assert!(parse(&refused).is_none(), "{bad}");
+    }
+    let mut null = value();
+    null["homePage"] = serde_json::Value::Null;
+    assert!(parse(&null).is_none(), "a present field must hold a path");
+    assert!(
+        parse(&value())
+            .unwrap()
+            .module("colab", "https://door/r/abc/x/colab/")
+            .get("homePage")
+            .is_none()
+    );
+}

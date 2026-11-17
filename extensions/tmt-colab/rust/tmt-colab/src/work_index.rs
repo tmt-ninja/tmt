@@ -66,7 +66,7 @@ pub fn derived_state(
     blocked: bool,
     needs_you: bool,
     pr_links: Option<usize>,
-    has_owner: bool,
+    owner: Option<Option<OwnerActivity>>,
     now_ms: u64,
 ) -> &'static str {
     let pulls = [
@@ -80,8 +80,16 @@ pub fn derived_state(
         PullRequestFact::Closed,
         PullRequestFact::Unknown,
     ];
-    let activities: &[OwnerActivity] = if has_owner {
-        &[
+    // No owner reads as `Other`; an owner's observed activity is one fact; an owner not observed
+    // yet could be any activity.
+    let observed;
+    let activities: &[OwnerActivity] = match owner {
+        None => &[OwnerActivity::Other],
+        Some(Some(activity)) => {
+            observed = [activity];
+            &observed
+        }
+        Some(None) => &[
             OwnerActivity::Working {
                 last_activity_ms: Some(now_ms),
                 observed_at_ms: now_ms,
@@ -93,9 +101,7 @@ pub fn derived_state(
             OwnerActivity::Waiting,
             OwnerActivity::Other,
             OwnerActivity::Unknown,
-        ]
-    } else {
-        &[OwnerActivity::Other]
+        ],
     };
     let mut answer = None;
     for &activity in activities {
@@ -312,51 +318,82 @@ mod tests {
         let now = 10 * STALL_THRESHOLD_MS;
         // No owner and no PR link: every rule is decided by the fold.
         assert_eq!(
-            derived_state(Some((1, 1)), false, false, Some(0), false, now),
+            derived_state(Some((1, 1)), false, false, Some(0), None, now),
             "done"
         );
         assert_eq!(
-            derived_state(Some((0, 1)), false, false, Some(0), false, now),
+            derived_state(Some((0, 1)), false, false, Some(0), None, now),
             "discussing"
         );
         assert_eq!(
-            derived_state(Some((0, 1)), true, false, Some(0), false, now),
+            derived_state(Some((0, 1)), true, false, Some(0), None, now),
             "blocked"
         );
         assert_eq!(
-            derived_state(None, false, true, Some(0), false, now),
+            derived_state(None, false, true, Some(0), None, now),
             "needs-you"
         );
         // Blocked and needs-you come before PR and activity rules, unless the PR could finish it.
         assert_eq!(
-            derived_state(Some((0, 1)), true, false, Some(2), true, now),
+            derived_state(Some((0, 1)), true, false, Some(2), Some(None), now),
             "blocked"
         );
         assert_eq!(
-            derived_state(Some((0, 1)), false, true, Some(1), true, now),
+            derived_state(Some((0, 1)), false, true, Some(1), Some(None), now),
             "needs-you"
         );
         assert_eq!(
-            derived_state(Some((1, 1)), true, false, Some(1), false, now),
+            derived_state(Some((1, 1)), true, false, Some(1), None, now),
             "unchecked"
         );
         // A PR link or an owner otherwise needs the open page's facts.
         assert_eq!(
-            derived_state(Some((0, 1)), false, false, Some(1), false, now),
+            derived_state(Some((0, 1)), false, false, Some(1), None, now),
             "unchecked"
         );
         assert_eq!(
-            derived_state(Some((0, 1)), false, false, Some(0), true, now),
+            derived_state(Some((0, 1)), false, false, Some(0), Some(None), now),
             "unchecked"
         );
         // An owner does not change done when there is no PR link.
         assert_eq!(
-            derived_state(Some((2, 2)), false, false, Some(0), true, now),
+            derived_state(Some((2, 2)), false, false, Some(0), Some(None), now),
             "done"
+        );
+        // An owner whose activity was already observed is one known fact, read nowhere here.
+        let working = |last| {
+            Some(Some(OwnerActivity::Working {
+                last_activity_ms: Some(last),
+                observed_at_ms: now,
+            }))
+        };
+        assert_eq!(
+            derived_state(Some((0, 1)), false, false, Some(0), working(now), now),
+            "working"
+        );
+        assert_eq!(
+            derived_state(Some((0, 1)), false, false, Some(0), working(0), now),
+            "possibly-stalled"
+        );
+        assert_eq!(
+            derived_state(
+                Some((0, 1)),
+                false,
+                false,
+                Some(0),
+                Some(Some(OwnerActivity::Waiting)),
+                now
+            ),
+            "needs-you"
+        );
+        assert_eq!(
+            derived_state(Some((0, 1)), false, false, Some(1), working(now), now),
+            "unchecked",
+            "a PR link still needs the page's facts"
         );
         // Links the fold could not extract read as unavailable facts, as on the page.
         assert_eq!(
-            derived_state(Some((0, 1)), false, false, None, false, now),
+            derived_state(Some((0, 1)), false, false, None, None, now),
             "unknown"
         );
     }
