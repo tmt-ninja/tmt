@@ -303,7 +303,7 @@ describe(
 // deliberately held. SQLite is only an independent readiness/cleanup oracle;
 // feature assertions use the ordinary public ls and bounded API projection.
 for (const provider of providers) {
-  it(`samples ${provider.name} before Stop and seeds closed history without recounting`, async () => {
+  it(`samples ${provider.name} before Stop ${provider.name === 'claude' ? 'and seeds closed history without recounting' : 'without recounting'}`, async () => {
     await withE2EFixture(async (fixture) => {
       const home = path.join(fixture.root, 'sampling-home');
       const tree = path.join(home, provider.tree);
@@ -439,55 +439,59 @@ for (const provider of providers) {
         observe('foreground counter observed', observed);
         fs.writeFileSync(appendReady, 'continue');
         await fixture.waitFor(() => fs.existsSync(stopReady), 2000, 'held Stop checkpoint');
-        await fixture.waitFor(
-          () => {
-            const through = Math.floor(Date.now() / 5000) * 5000;
-            const coverage = database
-              .prepare(
-                'SELECT SUM(covered_ms) AS covered FROM consumption_buckets WHERE identity_id=? AND from_ms<?'
-              )
-              .get(observed.identity_id, through) as { covered: number | null };
-            return (
-              through > Math.floor(observed.sampled_at_ms / 5000) * 5000 &&
-              (coverage.covered ?? 0) > 0
-            );
-          },
-          7000,
-          'sample bucket closed with confirmed coverage'
-        );
-        const request = {
-          version: 1,
-          operation: 'consumption.history',
-          input: { identityIds: [observed.identity_id], windowsMs: [60000], maxBuckets: 120 },
-        };
-        const history = JSON.parse(
-          execFileSync(
-            fixture.executables.cli.executable,
-            [...fixture.executables.cli.args, 'api'],
-            {
-              input: JSON.stringify(request),
-              encoding: 'utf8',
-              timeout: 5000,
-              env: { PATH: process.env.PATH, HOME: home, TMT_HOME: fixture.globalDir },
-            }
-          )
-        );
-        const seeded = history.identities[0];
-        expect(seeded.latest.consumption).toMatchObject(provider.updated);
-        expect(seeded.lastSampleAtMs).toBeLessThan(history.throughMs);
-        const buckets = seeded.windows[0].buckets as Array<{
-          inputTokens: number;
-          outputTokens: number;
-          coveredMs: number;
-        }>;
-        expect(buckets.reduce((sum, row) => sum + row.inputTokens, 0)).toBe(
-          provider.updated.inputTokens - provider.consumption.inputTokens
-        );
-        expect(buckets.reduce((sum, row) => sum + row.outputTokens, 0)).toBe(
-          provider.updated.outputTokens - provider.consumption.outputTokens
-        );
-        expect(buckets.reduce((sum, row) => sum + row.coveredMs, 0)).toBeGreaterThan(0);
-        observe('history seeded; releasing Stop');
+        // Keep one real closed-bucket history control; the same commit and
+        // no-recount arithmetic is exercised with explicit timestamps in Rust.
+        if (provider.name === 'claude') {
+          await fixture.waitFor(
+            () => {
+              const through = Math.floor(Date.now() / 5000) * 5000;
+              const coverage = database
+                .prepare(
+                  'SELECT SUM(covered_ms) AS covered FROM consumption_buckets WHERE identity_id=? AND from_ms<?'
+                )
+                .get(observed.identity_id, through) as { covered: number | null };
+              return (
+                through > Math.floor(observed.sampled_at_ms / 5000) * 5000 &&
+                (coverage.covered ?? 0) > 0
+              );
+            },
+            7000,
+            'sample bucket closed with confirmed coverage'
+          );
+          const request = {
+            version: 1,
+            operation: 'consumption.history',
+            input: { identityIds: [observed.identity_id], windowsMs: [60000], maxBuckets: 120 },
+          };
+          const history = JSON.parse(
+            execFileSync(
+              fixture.executables.cli.executable,
+              [...fixture.executables.cli.args, 'api'],
+              {
+                input: JSON.stringify(request),
+                encoding: 'utf8',
+                timeout: 5000,
+                env: { PATH: process.env.PATH, HOME: home, TMT_HOME: fixture.globalDir },
+              }
+            )
+          );
+          const seeded = history.identities[0];
+          expect(seeded.latest.consumption).toMatchObject(provider.updated);
+          expect(seeded.lastSampleAtMs).toBeLessThan(history.throughMs);
+          const buckets = seeded.windows[0].buckets as Array<{
+            inputTokens: number;
+            outputTokens: number;
+            coveredMs: number;
+          }>;
+          expect(buckets.reduce((sum, row) => sum + row.inputTokens, 0)).toBe(
+            provider.updated.inputTokens - provider.consumption.inputTokens
+          );
+          expect(buckets.reduce((sum, row) => sum + row.outputTokens, 0)).toBe(
+            provider.updated.outputTokens - provider.consumption.outputTokens
+          );
+          expect(buckets.reduce((sum, row) => sum + row.coveredMs, 0)).toBeGreaterThan(0);
+        }
+        observe('releasing Stop after pre-Stop sample');
         fs.writeFileSync(stopReady, 'continue');
         await fixture.waitFor(
           () => fs.existsSync(status),

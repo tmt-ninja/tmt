@@ -526,8 +526,22 @@ fn rollback_discontinuity_and_expiry_are_fail_closed_and_bounded() {
 }
 #[test]
 fn binding_and_preferences_cas_commits_counter_and_history_once() {
+    for driver in ["claude", "codex"] {
+        assert_counter_and_history_once(driver);
+    }
+}
+
+fn assert_counter_and_history_once(driver: &str) {
     let (_directory, path, id) = fixture();
     let mut storage = Storage::open(&path).unwrap();
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE identity_session_preferences SET preferred_harness=?, remembered_harness=? WHERE identity_id=?",
+            [driver, driver, &id],
+        )
+        .unwrap();
     let original = Storage::context_by_identity(&path, &id, 6000)
         .unwrap()
         .unwrap();
@@ -595,13 +609,31 @@ fn binding_and_preferences_cas_commits_counter_and_history_once() {
     let history = storage
         .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000, false, None)
         .unwrap();
-    let sum: u64 = history["identities"][0]["windows"][0]["buckets"]
+    assert_eq!(history["identities"][0]["latest"]["driver"], driver);
+    assert_eq!(
+        history["identities"][0]["latest"]["consumption"]["inputTokens"],
+        110
+    );
+    assert_eq!(
+        history["identities"][0]["latest"]["consumption"]["outputTokens"],
+        55
+    );
+    assert!(
+        history["identities"][0]["lastSampleAtMs"].as_u64().unwrap()
+            < history["throughMs"].as_u64().unwrap()
+    );
+    let buckets = history["identities"][0]["windows"][0]["buckets"]
         .as_array()
-        .unwrap()
-        .iter()
-        .map(|row| row["inputTokens"].as_u64().unwrap())
-        .sum();
-    assert_eq!(sum, 10);
+        .unwrap();
+    let sum = |field: &str| {
+        buckets
+            .iter()
+            .map(|row| row[field].as_u64().unwrap())
+            .sum::<u64>()
+    };
+    assert_eq!(sum("inputTokens"), 10);
+    assert_eq!(sum("outputTokens"), 5);
+    assert!(sum("coveredMs") > 0);
     storage
         .connection()
         .unwrap()
