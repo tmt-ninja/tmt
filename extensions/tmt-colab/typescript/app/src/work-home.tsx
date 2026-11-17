@@ -115,6 +115,9 @@ function useOwnerActivity(
   }, [transport, owners, listed, reread]);
 }
 
+/** The part's state for an overview status: waiting for CI and for release share one tone. */
+const partState = (status: OverviewStatus) => (status === 'waiting' ? 'waiting-ci' : status);
+
 function Dot({ status }: { status: string }) {
   return <span className="tmt-ui-work-dot" data-state={status} aria-hidden="true" />;
 }
@@ -131,7 +134,7 @@ function Ratio({ counts }: { counts: Partial<Record<OverviewStatus, number>> }) 
       )}
     >
       {parts.map((status) => (
-        <span key={status} data-state={status} style={{ flexGrow: counts[status] }} />
+        <span key={status} data-state={partState(status)} style={{ flexGrow: counts[status] }} />
       ))}
     </div>
   );
@@ -289,7 +292,7 @@ export function WorkHome() {
                   >
                     <span className="tmt-ui-work-count-number">{now7.counts[status]}</span>
                     <span className="tmt-ui-work-count-label">
-                      <Dot status={status === 'waiting' ? 'waiting-ci' : status} />
+                      <Dot status={partState(status)} />
                       {t.status[status]}
                     </span>
                   </button>
@@ -416,7 +419,7 @@ export function WorkHome() {
                 <span className="work-home-section-counts">
                   {OVERVIEW.filter((status) => section.counts[status]).map((status) => (
                     <span key={status}>
-                      <Dot status={status === 'waiting' ? 'waiting-ci' : status} />
+                      <Dot status={partState(status)} />
                       {section.counts[status]} {t.status[status]}
                     </span>
                   ))}

@@ -20,6 +20,16 @@ test('Work home counts open work, filters by a status and lists what was done', 
     '1Blocked',
     '1Possibly stalled',
   ]);
+  // Every ratio segment uses the tone of its count's dot (waiting shares the CI/release tone).
+  const dot = await home
+    .locator('.tmt-ui-work-count .tmt-ui-work-dot')
+    .nth(1)
+    .evaluate((node) => getComputedStyle(node).backgroundColor);
+  const segment = await home
+    .locator('.work-home-card .tmt-ui-work-ratio > span')
+    .nth(1)
+    .evaluate((node) => getComputedStyle(node).backgroundColor);
+  expect(segment).toBe(dot);
   const rows = home.locator('.tmt-ui-work-row');
   await expect(rows).toHaveCount(8);
   await home.getByRole('button', { name: '1 Blocked' }).click();
