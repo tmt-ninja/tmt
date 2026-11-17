@@ -13,6 +13,21 @@ pub(super) mod paste;
 pub(super) use chat_quotes::{QuoteSource, normalized_quote};
 
 type DraftKey = (String, String);
+/// Shell prefixes are meaningful only to a selected member's Talk composer.
+/// The boolean selects the local-only result; the command bytes are preserved.
+pub(super) fn shell_prefix(text: &str) -> Option<(bool, &str)> {
+    let (private, rest) = if let Some(rest) = text
+        .strip_prefix("!!")
+        .or_else(|| text.strip_prefix("！！"))
+    {
+        (true, rest)
+    } else if let Some(rest) = text.strip_prefix('!').or_else(|| text.strip_prefix('！')) {
+        (false, rest)
+    } else {
+        return None;
+    };
+    Some((private, rest.strip_prefix(' ').unwrap_or(rest)))
+}
 static EMPTY_QUOTES: BTreeMap<u64, QuoteSource> = BTreeMap::new();
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Draft {
@@ -129,6 +144,13 @@ impl App {
         });
         super::input_field::Info {
             name: projection.recipient,
+            shell: projection
+                .text
+                .is_some_and(|text| shell_prefix(text.as_str()).is_some())
+                && self
+                    .input
+                    .as_ref()
+                    .is_none_or(|input| matches!(input.compose, Compose::Talk { .. })),
             newline: self.newline_key(),
             checklist: projection.focused
                 && !self.modal_open()

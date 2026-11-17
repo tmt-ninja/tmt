@@ -310,6 +310,13 @@ clipped summary. The selected member's Talk pane shows the retained form in a
 scrollable read-only view, including truncation and terminal-jump availability.
 Only a user can invoke the existing jump; the board never calls `forms.answer`.
 
+A member's Talk composer recognizes `!`/`！` and `!!`/`！！` before normal
+message dispatch. The Shell marker uses the composer info row; the conversation
+session owns running and completed local results. A dedicated one-shot Core call
+keeps a long shell command out of both shared API lanes. One command per member can
+be in flight; a public result attaches once to the next Talk message, while a private
+result never enters message storage. Both are dropped with the board session.
+
 The tree keeps STATE, TOK 1h, `◷` and the lead marker; Digest/model/runtime belong
 in focus. Supplied savings keep their shared tokens/cost/percent choice: one
 whole compact estimate in the member DIGEST detail, or in the squad Usage rule

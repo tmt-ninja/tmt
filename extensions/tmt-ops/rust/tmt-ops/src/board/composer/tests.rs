@@ -28,6 +28,107 @@ fn close(app: &mut App) {
 }
 
 #[test]
+fn shell_prefixes_keep_the_command_and_distinguish_private_results() {
+    for (text, private, command) in [
+        ("! pwd", false, "pwd"),
+        ("!! pwd", true, "pwd"),
+        ("！ pwd", false, "pwd"),
+        ("！！ pwd", true, "pwd"),
+        ("!printf  hi ", false, "printf  hi "),
+    ] {
+        assert_eq!(shell_prefix(text), Some((private, command)));
+    }
+    assert_eq!(shell_prefix("ordinary ! pwd"), None);
+    assert_eq!(shell_prefix(""), None);
+    assert_eq!(shell_prefix("!"), Some((false, "")));
+}
+
+#[test]
+fn shell_submission_is_once_per_member_and_private_results_never_attach() {
+    use crate::board::app::Effect;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    let key = app.input.as_ref().unwrap().draft_key.clone().unwrap();
+    app.input.as_mut().unwrap().text = "！！ pwd".into();
+    assert!(app.composer_info(&app.composer_projection().unwrap()).shell);
+    assert!(
+        matches!(app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Shell { command, .. } if command == "pwd")
+    );
+    app.input.as_mut().unwrap().text = "! pwd".into();
+    assert!(!matches!(
+        app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::Shell { .. }
+    ));
+    app.shell_finished(key.clone(), Ok(json!({"cwd":"/work","stdout":"private","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false})));
+    assert_eq!(app.shell_attachment(&key, false), None);
+    assert!(matches!(
+        app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::Shell { .. }
+    ));
+    app.shell_finished(key.clone(), Ok(json!({"cwd":"/work","stdout":"public","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false})));
+    let attached = app.shell_attachment(&key, true).unwrap();
+    assert!(attached.contains("public"));
+    assert!(!attached.contains("private"));
+    assert_eq!(app.shell_attachment(&key, true), None);
+}
+
+#[test]
+fn shell_result_is_prepended_to_the_next_talk_once() {
+    use crate::board::app::{Effect, Request};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    let key = app.input.as_ref().unwrap().draft_key.clone().unwrap();
+    app.input.as_mut().unwrap().text = "! pwd".into();
+    assert!(matches!(
+        app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::Shell { .. }
+    ));
+    app.shell_finished(key.clone(), Ok(json!({"cwd":"/work","stdout":"/work\n","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false})));
+    assert_eq!(
+        app.shell_attachment(&(key.0.clone(), "other-member".into()), false),
+        None
+    );
+    app.input.as_mut().unwrap().text = "Please continue".into();
+    let sent = app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        matches!(sent, Effect::Act(Request::Chat { text, .. }) if text.starts_with("--- shell result ---") && text.contains("/work") && text.ends_with("Please continue"))
+    );
+    assert_eq!(app.shell_attachment(&key, false), None);
+}
+
+#[test]
+fn shell_marker_and_results_appear_in_the_member_talk() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = crate::board::app::workspace::tests::board();
+    draw(&mut app, 160, 40);
+    app.focus_composer();
+    let key = app.input.as_ref().unwrap().draft_key.clone().unwrap();
+    app.input.as_mut().unwrap().text = "！ pwd".into();
+    let screen = draw(&mut app, 160, 40)
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(screen.contains("Shell"), "{screen}");
+    app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let screen = draw(&mut app, 160, 40)
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(screen.contains("Running"), "{screen}");
+    app.shell_finished(key, Ok(json!({"cwd":"/work","stdout":"visible-result","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false})));
+    let screen = draw(&mut app, 160, 40)
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(screen.contains("visible-result"), "{screen}");
+}
+
+#[test]
 fn switching_recipients_retains_independent_session_drafts() {
     let mut app = app();
     open(&mut app, "auth-fix");

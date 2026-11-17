@@ -127,6 +127,11 @@ check keeps name/pane routing and its existing Digest opportunity.
 
 ## Local API and MCP
 
+- `shell.run` is a local-only, one-shot command owner: exact member and current
+  directory come from verified host evidence, and the shared terminal command
+  validator admits the command. Its bounded process group, output, timeout and
+  refusal semantics belong to the [extension API contract](../../../../contracts/extension-api.md#shell-command).
+
 - `tmt-adapters::api` owns envelope admission and composition; the facade `api.rs` keeps the
   dispatcher, bounds, per-request settings/admission and lazy `Session` storage lifetime;
   private `api/` modules own operation families. Explicit `tmt api --session` reuses one

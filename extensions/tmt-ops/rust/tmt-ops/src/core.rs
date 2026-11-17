@@ -191,6 +191,17 @@ impl Core {
         }
     }
 
+    /// A long-running effect must not occupy either shared serial API session.
+    pub(crate) fn one_shot(&self) -> Self {
+        Self {
+            session: None,
+            retained: None,
+            deadline: None,
+            cancellation: None,
+            ..self.clone()
+        }
+    }
+
     pub(crate) fn with_retained_reads(&self, retained: Arc<RetainedReads>) -> Self {
         Self {
             retained: Some(retained),

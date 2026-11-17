@@ -24,6 +24,10 @@ pub(super) enum Opening {
 
 #[derive(Debug)]
 pub(super) enum Job {
+    Shell {
+        key: (String, String),
+        command: String,
+    },
     Act(Request),
     Jump {
         member: String,
@@ -78,6 +82,7 @@ impl Job {
     /// What the board shows until the job's event arrives.
     pub fn progress(&self) -> &'static str {
         match self {
+            Self::Shell { .. } => "Running shell…",
             Self::Act(request) | Self::Send { request, .. } => request.progress(),
             Self::Jump { .. } => "Jumping…",
             Self::AcknowledgeAnswers(_) => "Acknowledging answers…",
@@ -107,6 +112,7 @@ impl Job {
 /// The result of one job.
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
+        Job::Shell { .. } => unreachable!("shell has a dedicated worker"),
         Job::LocalUnread(task) => {
             let actor = task.actor().to_owned();
             BoardEvent::LocalUnreadPublished {
@@ -205,10 +211,15 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
 pub(super) struct Lane {
     jobs: Option<Sender<Job>>,
     thread: Option<JoinHandle<()>>,
+    shell_core: Core,
+    shell_events: Sender<BoardEvent>,
+    shell_threads: std::cell::RefCell<Vec<JoinHandle<()>>>,
 }
 
 impl Lane {
     pub fn spawn(core: Core, labels: Option<Refresh>, events: Sender<BoardEvent>) -> Self {
+        let shell_core = core.one_shot();
+        let shell_events = events.clone();
         let core = core.interactive();
         let (jobs, queue) = channel();
         let thread = std::thread::spawn(move || {
@@ -221,10 +232,62 @@ impl Lane {
         Self {
             jobs: Some(jobs),
             thread: Some(thread),
+            shell_core,
+            shell_events,
+            shell_threads: Default::default(),
         }
     }
 
     pub fn submit(&self, job: Job) {
+        if let Job::Shell { key, command } = job {
+            let core = self.shell_core.clone();
+            let events = self.shell_events.clone();
+            let mut threads = self.shell_threads.borrow_mut();
+            let mut index = 0;
+            while index < threads.len() {
+                if threads[index].is_finished() {
+                    let _ = threads.swap_remove(index).join();
+                } else {
+                    index += 1;
+                }
+            }
+            let failure_key = key.clone();
+            let worker = std::thread::Builder::new()
+                .name("ops-shell".into())
+                .spawn(move || {
+                    let result = core
+                        .api_within(
+                            "shell.run",
+                            serde_json::json!({"identityId":key.1,"command":command}),
+                            std::time::Duration::from_secs(130),
+                        )
+                        .map_err(|error| match error.code.as_str() {
+                            "SHELL_RUN_UNAVAILABLE" | "SHELL_RUN_FAILED" | "API_INPUT_INVALID" => {
+                                error.message
+                            }
+                            _ => "Shell result unconfirmed; do not retry automatically.".to_owned(),
+                        })
+                        .and_then(|value| {
+                            if super::conversation::shell::valid_result(&key.1, &value) {
+                                Ok(value)
+                            } else {
+                                Err("Shell result unconfirmed; do not retry automatically."
+                                    .to_owned())
+                            }
+                        });
+                    let _ = events.send(BoardEvent::ShellDone { key, result });
+                });
+            match worker {
+                Ok(thread) => threads.push(thread),
+                Err(_) => {
+                    let _ = self.shell_events.send(BoardEvent::ShellDone {
+                        key: failure_key,
+                        result: Err("Shell could not start; nothing was run.".into()),
+                    });
+                }
+            }
+            return;
+        }
         if let Some(jobs) = &self.jobs {
             let _ = jobs.send(job);
         }
@@ -234,6 +297,9 @@ impl Lane {
     pub fn finish(mut self) {
         self.jobs = None;
         if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        for thread in self.shell_threads.into_inner() {
             let _ = thread.join();
         }
     }

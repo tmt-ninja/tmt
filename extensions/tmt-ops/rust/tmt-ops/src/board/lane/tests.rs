@@ -20,7 +20,7 @@ root=${0%/*}
 printf '%s\n' "$*" >> "$root/calls"
 case "$1:$2" in
   config:show) printf '{"paths":{"global":"%s/config.json"},"resolved":{}}\n' "$root" ;;
-  api:*) cat > /dev/null; printf '{"dataRoot":"%s/data"}\n' "$root" ;;
+  api:*) cat > "$root/api-input"; if grep -q '"operation":"shell.run"' "$root/api-input"; then printf '%s\n' '{"identityId":"member","cwd":"/work","stdout":"","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false}'; else printf '{"dataRoot":"%s/data"}\n' "$root"; fi ;;
   whoami:*) cat "$root/caller" ;;
   *) printf '%s\n' '{"error":{"code":"UNEXPECTED","message":"Unexpected fake-Core call."}}'; exit 1 ;;
 esac
@@ -55,6 +55,33 @@ fn selection() -> super::super::settings::host_action::Selection {
         invoker_tmux: true,
         ops: json!({}),
     }
+}
+
+#[test]
+fn shell_uses_one_dedicated_api_invocation_without_replay() {
+    let fixture = Fixture::new();
+    let (events, received) = std::sync::mpsc::channel();
+    let core = fixture.core.clone().with_api_session().unwrap();
+    let lane = Lane::spawn(core, None, events);
+    let key = ("sender".to_owned(), "member".to_owned());
+    lane.submit(Job::Shell {
+        key: key.clone(),
+        command: "pwd".into(),
+    });
+    assert!(
+        matches!(received.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), BoardEvent::ShellDone { key: actual, result: Ok(_) } if actual == key)
+    );
+    lane.finish();
+    let calls = std::fs::read_to_string(fixture.root.join("calls")).unwrap();
+    assert_eq!(
+        calls.lines().filter(|line| *line == "api").count(),
+        1,
+        "{calls}"
+    );
+    let input: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(fixture.root.join("api-input")).unwrap()).unwrap();
+    assert_eq!(input["operation"], "shell.run");
+    assert_eq!(input["input"]["command"], "pwd");
 }
 
 #[test]
