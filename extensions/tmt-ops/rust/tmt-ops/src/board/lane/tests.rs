@@ -59,6 +59,41 @@ fn selection() -> super::super::settings::host_action::Selection {
 }
 
 #[test]
+fn finish_does_not_join_an_in_flight_shell_worker() {
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+    let fixture = Fixture::new();
+    let (started, ready) = channel();
+    let (release, held) = channel::<()>();
+    let (finished, observed) = channel();
+    let worker = std::thread::spawn(move || {
+        started.send(()).unwrap();
+        let _ = held.recv();
+        finished.send(()).unwrap();
+    });
+    ready.recv_timeout(Duration::from_secs(2)).unwrap();
+    let (events, _received) = channel();
+    let lane = Lane {
+        jobs: None,
+        thread: None,
+        shell_core: fixture.core.clone(),
+        shell_events: events,
+        shell_threads: std::cell::RefCell::new(vec![worker]),
+        shell_stop: Default::default(),
+    };
+    let (returned, done) = channel();
+    let closer = std::thread::spawn(move || {
+        lane.finish();
+        returned.send(()).unwrap();
+    });
+    let outcome = done.recv_timeout(Duration::from_secs(2));
+    release.send(()).unwrap();
+    observed.recv_timeout(Duration::from_secs(2)).unwrap();
+    closer.join().unwrap();
+    outcome.expect("quit must not wait for an in-flight shell worker");
+}
+
+#[test]
 fn shell_uses_one_dedicated_api_invocation_without_replay() {
     let fixture = Fixture::new();
     let (events, received) = std::sync::mpsc::channel();
