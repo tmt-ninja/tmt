@@ -84,10 +84,7 @@ pub(crate) fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
             SEND_BUDGET,
         )
     });
-    match result {
-        Ok(report) => publish(report, mode),
-        Err(error) => error.publish(mode),
-    }
+    tmt_cli_style::CliOutput::new(mode.json).finish(result)
 }
 
 /// Everything resolved before a request is prepared: a missing or incompatible Remote refuses
@@ -379,40 +376,43 @@ fn settlement(outcome: &RemoteMessageOutcome) -> (Settlement, Option<Failure>) {
     }
 }
 
-fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
-    let held = report.status == AttemptStatus::Queued;
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    let terminal = stdout.terminal();
-    if mode.json {
-        let mut target = serde_json::json!({"name": report.target_name});
-        if let Some(id) = &report.target_id {
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let text = if self.status == AttemptStatus::Queued {
+            format!(
+                "Queued request {} for {} on {}; it waits for the peer owner's approval",
+                self.request_id, self.target_name, self.remote
+            )
+        } else {
+            format!(
+                "Sent request {} to {} on {}; it is in the peer's inbox",
+                self.request_id, self.target_name, self.remote
+            )
+        };
+        tmt_cli_style::message::success(&mut &mut *stdout, terminal, &text)
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let mut target = serde_json::json!({"name": self.target_name});
+        if let Some(id) = &self.target_id {
             target["id"] = id.clone().into();
         }
         writeln!(
             stdout,
             "{}",
             serde_json::json!({
-                "status": if held { "queued" } else { "sent" },
-                "requestId": report.request_id,
-                "remote": report.remote,
+                "status": if self.status == AttemptStatus::Queued { "queued" } else { "sent" },
+                "requestId": self.request_id,
+                "remote": self.remote,
                 "target": target,
             })
-        )?;
-    } else {
-        let text = if held {
-            format!(
-                "Queued request {} for {} on {}; it waits for the peer owner's approval",
-                report.request_id, report.target_name, report.remote
-            )
-        } else {
-            format!(
-                "Sent request {} to {} on {}; it is in the peer's inbox",
-                report.request_id, report.target_name, report.remote
-            )
-        };
-        tmt_cli_style::message::success(&mut stdout, terminal, &text)?;
+        )
     }
-    Ok(0)
 }
 
 #[cfg(test)]

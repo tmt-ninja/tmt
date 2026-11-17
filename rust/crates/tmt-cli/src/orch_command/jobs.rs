@@ -255,8 +255,39 @@ pub(super) fn send(operation: OrchOperation, mode: OutputMode) -> io::Result<u8>
         })();
         after_cleanup(pending, || s.close())
     })();
-    match result {
-        Ok(bytes)=>{if mode.json {out.write_all(&bytes)?;writeln!(out)?;}else{let v:Value=serde_json::from_slice(&bytes).expect("job result JSON");if v["requiresConsent"]!=true {let terminal=out.terminal();tmt_cli_style::detail::write(&mut out,terminal,"Job accepted",&[("operation",operation_id),("run",text(&v["runId"]))])?;}}Ok(0)},
-        Err(e)=>e.suggestion(format!("Retain operation ID {operation_id}; recover its canonical dispatch receipt before retrying.")).publish(mode)
+    let result = result.map(|bytes| SendReport { bytes, operation_id: operation_id.clone() })
+        .map_err(|e| e.suggestion(format!("Retain operation ID {operation_id}; recover its canonical dispatch receipt before retrying.")));
+    tmt_cli_style::CliOutput::new(mode.json).finish(result)
+}
+
+struct SendReport {
+    bytes: Vec<u8>,
+    operation_id: String,
+}
+impl tmt_cli_style::Render for SendReport {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let value: Value = serde_json::from_slice(&self.bytes).expect("job result JSON");
+        if value["requiresConsent"] != true {
+            tmt_cli_style::detail::write(
+                &mut &mut *stdout,
+                terminal,
+                "Job accepted",
+                &[
+                    ("operation", self.operation_id.clone()),
+                    ("run", text(&value["runId"])),
+                ],
+            )?;
+        }
+        Ok(())
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        stdout.write_all(&self.bytes)?;
+        writeln!(stdout)
     }
 }

@@ -28,6 +28,12 @@ const REPORT_COMMANDS: &[&str] = &[
     "config_command.rs",
     "init_command.rs",
     "notes_command.rs",
+    "response_command.rs",
+    "exchange_flow_command.rs",
+    "send_now_command.rs",
+    "answer_command.rs",
+    "exchange_command/presentation.rs",
+    "talk_command/presentation.rs",
 ];
 
 pub fn report_violations(sources: &[Source]) -> Vec<String> {

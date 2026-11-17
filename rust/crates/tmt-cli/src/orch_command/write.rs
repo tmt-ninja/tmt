@@ -143,7 +143,10 @@ pub(super) fn execute(
 ) -> io::Result<u8> {
     let (paths, mut storage) = match open_storage() {
         Ok(v) => v,
-        Err(e) => return e.publish(mode),
+        Err(e) => {
+            return tmt_cli_style::CliOutput::new(mode.json)
+                .finish::<super::BytesOnlyReport, _>(Err(e));
+        }
     };
     let mut out = tmt_cli_style::stream::stdout(mode.json);
     let result = (|| {
@@ -226,14 +229,6 @@ pub(super) fn execute(
         }
         Ok(result)
     })();
-    match after_cleanup(result, || storage.close()) {
-        Ok(bytes) => {
-            if mode.json {
-                out.write_all(&bytes)?;
-                writeln!(out)?;
-            }
-            Ok(0)
-        }
-        Err(e) => e.publish(mode),
-    }
+    tmt_cli_style::CliOutput::new(mode.json)
+        .finish(after_cleanup(result, || storage.close()).map(super::BytesOnlyReport))
 }

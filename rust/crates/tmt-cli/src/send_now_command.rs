@@ -4,7 +4,7 @@
 
 use crate::{
     identity_context,
-    invocation::{Invocation, OutputMode},
+    invocation::Invocation,
     output::{Failure, after_cleanup},
     response_command::selection_failure,
 };
@@ -75,7 +75,9 @@ fn delivery_failure(delivery: Delivery, request_id: &str) -> Failure {
 }
 
 /// The full request ID the command acted on, with what happened.
-fn run(request: Invocation) -> Result<(String, Report), Failure> {
+pub struct Output(String, Report);
+
+pub fn run(request: Invocation) -> Result<Output, Failure> {
     let Invocation::SendNow {
         request_id,
         identity,
@@ -116,34 +118,36 @@ fn run(request: Invocation) -> Result<(String, Report), Failure> {
             SendNow::Closed => Err(rejection(SendNowRejection::Closed, &request_id)),
         }
     })();
-    after_cleanup(pending, || storage.close())
+    after_cleanup(pending, || storage.close()).map(|(id, report)| Output(id, report))
 }
 
-pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    let (request_id, report) = match run(request) {
-        Ok(done) => done,
-        Err(error) => return error.publish(mode),
-    };
-    let (status, state, line) = match &report {
-        Report::Sent => ("sent", "delivered", "Sent now."),
-        Report::Already(state) => (
-            "already",
-            state.as_str(),
-            "It already reached the agent, or is on its way; it was not sent again.",
-        ),
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
+impl tmt_cli_style::Render for Output {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let line = match self.1 {
+            Report::Sent => "Sent now.",
+            Report::Already(_) => {
+                "It already reached the agent, or is on its way; it was not sent again."
+            }
+        };
+        message::success(&mut &mut *stdout, terminal, line)
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let (status, state) = match &self.1 {
+            Report::Sent => ("sent", "delivered"),
+            Report::Already(state) => ("already", state.as_str()),
+        };
         writeln!(
             stdout,
             "{}",
-            json!({"status": status, "requestId": request_id, "state": state})
-        )?;
-    } else {
-        let terminal = stdout.terminal();
-        message::success(&mut stdout, terminal, line)?;
+            json!({"status": status, "requestId": self.0, "state": state})
+        )
     }
-    Ok(0)
 }
 
 // Source-checked command samples for the printed-command guard.

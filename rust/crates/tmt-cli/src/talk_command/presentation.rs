@@ -70,15 +70,17 @@ pub(super) fn unconfirmed_handoff(correlation: &Correlation) -> String {
     )
 }
 
-pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
-    let correlation = report.correlation;
-    let completed = report.response.is_some();
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    let terminal = stdout.terminal();
-    if mode.json {
-        writeln!(stdout, "{}", json_document(correlation, report.response))?;
-    } else {
-        if let Some(response) = &report.response {
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let correlation = &self.correlation;
+        let completed = self.response.is_some();
+        if let Some(response) = &self.response {
             let text = if correlation.inbox {
                 format!(
                     "Completed queued request {} for {}",
@@ -90,10 +92,10 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                     correlation.request_id, correlation.target, correlation.pane
                 )
             };
-            tmt_cli_style::message::success(&mut stdout, terminal, &text)?;
+            tmt_cli_style::message::success(&mut &mut *stdout, terminal, &text)?;
             if correlation.delivery_uncertain {
                 tmt_cli_style::message::hint(
-                    &mut stdout,
+                    &mut &mut *stdout,
                     terminal,
                     "delivery was unconfirmed at send time; this reply confirms it",
                 )?;
@@ -119,7 +121,7 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             )?;
         } else if correlation.unbound {
             tmt_cli_style::message::success(
-                &mut stdout,
+                &mut &mut *stdout,
                 terminal,
                 &format!(
                     "Queued request {} for {} without a live endpoint",
@@ -134,7 +136,7 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             )?;
         } else if correlation.inbox {
             tmt_cli_style::message::success(
-                &mut stdout,
+                &mut &mut *stdout,
                 terminal,
                 &format!(
                     "Queued request {} for {}",
@@ -143,14 +145,14 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             )?;
         } else if correlation.delivery_uncertain {
             tmt_cli_style::message::warning(
-                &mut stdout,
+                &mut &mut *stdout,
                 terminal,
-                &unconfirmed_handoff(&correlation),
+                &unconfirmed_handoff(correlation),
                 Some("the channel gives no receipt; do not resend"),
             )?;
         } else if correlation.passthrough {
             tmt_cli_style::message::success(
-                &mut stdout,
+                &mut &mut *stdout,
                 terminal,
                 &format!(
                     "Typed {} into {}'s pane as written",
@@ -159,7 +161,7 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             )?;
         } else {
             tmt_cli_style::message::success(
-                &mut stdout,
+                &mut &mut *stdout,
                 terminal,
                 &format!(
                     "Sent request {} to {} ({})",
@@ -168,18 +170,29 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             )?;
         }
         if correlation.offline && !completed {
-            tmt_cli_style::message::hint(&mut stdout, terminal, &correlation.recipient_recovery())?;
+            tmt_cli_style::message::hint(
+                &mut &mut *stdout,
+                terminal,
+                &correlation.recipient_recovery(),
+            )?;
         }
         tmt_cli_style::message::hint(
-            &mut stdout,
+            &mut &mut *stdout,
             terminal,
             &format!(
                 "retrieve it later with tmt result {}",
                 correlation.request_id
             ),
         )?;
+        Ok(())
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(
+            stdout,
+            "{}",
+            json_document(self.correlation.clone(), self.response.clone())
+        )
+    }
 }
 
 /// Commands use the retained recipient UUID, never a possibly reused display name.

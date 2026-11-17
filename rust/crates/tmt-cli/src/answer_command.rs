@@ -4,7 +4,7 @@
 
 use crate::{
     identity_context,
-    invocation::{Invocation, OutputMode},
+    invocation::Invocation,
     output::{Failure, after_cleanup, identity_document, identity_missing},
     response_command::{body, response_failure},
 };
@@ -112,14 +112,16 @@ fn identity(storage: &Storage, name: &str) -> Result<Identity, Failure> {
         .ok_or_else(|| identity_missing(name))
 }
 
-fn run(request: Invocation) -> Result<(Identity, Report), Failure> {
+pub struct Output(Identity, Report);
+
+pub fn run(request: Invocation) -> Result<Output, Failure> {
     let selected = match &request {
         Invocation::Inbox { identity, .. } | Invocation::Answer { identity, .. } => {
             identity_context::required(identity.as_deref())?
         }
         _ => unreachable!("answer dispatch only accepts inbox/answer"),
     };
-    run_selected(None, selected, request)
+    run_selected(None, selected, request).map(|(identity, report)| Output(identity, report))
 }
 
 fn run_selected(
@@ -266,72 +268,74 @@ fn document(me: &Identity, report: &Report) -> Value {
     value
 }
 
-pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    let (me, report) = match run(request) {
-        Ok(done) => done,
-        Err(error) => return error.publish(mode),
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        writeln!(stdout, "{}", document(&me, &report))?;
-        return Ok(0);
-    }
-    let terminal = stdout.terminal();
-    match report {
-        Report::Inbox { page, .. } if page.items.is_empty() => {
-            writeln!(stdout, "Nothing is waiting on you.")?;
-        }
-        Report::Inbox { page, names } => {
-            let now = wall_time_ms();
-            let mut rows =
-                Table::new(&[Column::Fixed, Column::Fixed, Column::Fixed, Column::Detail]);
-            for item in &page.items {
-                let from = from_document(item, &names);
-                rows.row([
-                    Cell::from(from["canonicalName"].as_str().unwrap_or("anonymous")),
-                    Cell::styled(
-                        value::relative_time(now.saturating_sub(item.prepared_at_ms)),
-                        Token::Dim,
-                    ),
-                    // Whole: `answer --request` takes it.
-                    Cell::styled(&item.request_id, Token::Dim),
-                    Cell::from(preview(item)),
-                ]);
+impl tmt_cli_style::Render for Output {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        match &self.1 {
+            Report::Inbox { page, .. } if page.items.is_empty() => {
+                writeln!(stdout, "Nothing is waiting on you.")?;
             }
-            let note = page
-                .more
-                .then_some("newer requests not shown; raise --limit");
-            list::write(
-                &mut stdout,
+            Report::Inbox { page, names } => {
+                let now = wall_time_ms();
+                let mut rows =
+                    Table::new(&[Column::Fixed, Column::Fixed, Column::Fixed, Column::Detail]);
+                for item in &page.items {
+                    let from = from_document(item, names);
+                    rows.row([
+                        Cell::from(from["canonicalName"].as_str().unwrap_or("anonymous")),
+                        Cell::styled(
+                            value::relative_time(now.saturating_sub(item.prepared_at_ms)),
+                            Token::Dim,
+                        ),
+                        // Whole: `answer --request` takes it.
+                        Cell::styled(&item.request_id, Token::Dim),
+                        Cell::from(preview(item)),
+                    ]);
+                }
+                let note = page
+                    .more
+                    .then_some("newer requests not shown; raise --limit");
+                list::write(
+                    &mut &mut *stdout,
+                    terminal,
+                    &[Section {
+                        title: "waiting on you",
+                        count: Some(page.items.len()),
+                        rows,
+                        note,
+                        hint: Some("tmt answer <name> \"…\""),
+                    }],
+                )?;
+            }
+            Report::Answered {
+                from,
+                response,
+                notification,
+            } => message::success(
+                &mut &mut *stdout,
                 terminal,
-                &[Section {
-                    title: "waiting on you",
-                    count: Some(page.items.len()),
-                    rows,
-                    note,
-                    hint: Some("tmt answer <name> \"…\""),
-                }],
-            )?;
+                &format!(
+                    "Answered {} ({}){}",
+                    from.as_ref()
+                        .map_or("an anonymous sender", |from| from.canonical_name.as_str()),
+                    response.request_id,
+                    notification
+                        .map(|value| format!("; originator notification {}", value.as_str()))
+                        .unwrap_or_default()
+                ),
+            )?,
         }
-        Report::Answered {
-            from,
-            response,
-            notification,
-        } => message::success(
-            &mut stdout,
-            terminal,
-            &format!(
-                "Answered {} ({}){}",
-                from.as_ref()
-                    .map_or("an anonymous sender", |from| from.canonical_name.as_str()),
-                response.request_id,
-                notification
-                    .map(|value| format!("; originator notification {}", value.as_str()))
-                    .unwrap_or_default()
-            ),
-        )?,
+        Ok(())
     }
-    Ok(0)
+
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", document(&self.0, &self.1))
+    }
 }
 
 // Source-checked command samples for the printed-command guard.

@@ -385,6 +385,21 @@ fn a_timeout_after_an_unacknowledged_write_reports_uncertain_delivery_and_no_res
     assert_eq!(document["deliveryState"], "uncertain");
     assert_eq!(document["status"], "timeout");
     assert_eq!(document["requestId"], "request-observe");
+    let mut output = Vec::new();
+    let status = tmt_cli_style::CliOutput::new(true)
+        .finish_to::<Report, _>(
+            Err(failure),
+            &mut output,
+            &mut Vec::new(),
+            tmt_cli_style::Terminal::PLAIN,
+            tmt_cli_style::Terminal::PLAIN,
+        )
+        .unwrap();
+    let printed: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(status, 4);
+    assert_eq!(printed["requestId"], "request-observe");
+    assert_eq!(printed["target"], "worker");
+    assert_eq!(printed["pane"], "%1");
     // A confirmed delivery states nothing about uncertainty.
     let confirmed = observe(
         || Ok(None),

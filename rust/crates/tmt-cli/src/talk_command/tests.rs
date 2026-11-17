@@ -340,3 +340,28 @@ fn a_binding_that_turned_plain_after_preparation_keeps_the_stored_request_queued
         "{document}"
     );
 }
+
+#[test]
+fn uncertain_delivery_keeps_correlation_through_output_owner() {
+    let failure = correlation().error(
+        "DELIVERY_UNCERTAIN",
+        "Recipient delivery did not complete; inspect the retained request.",
+        1,
+    );
+    let mut output = Vec::new();
+    let status = tmt_cli_style::CliOutput::new(true)
+        .finish_to::<Report, _>(
+            Err(failure),
+            &mut output,
+            &mut Vec::new(),
+            tmt_cli_style::Terminal::PLAIN,
+            tmt_cli_style::Terminal::PLAIN,
+        )
+        .unwrap();
+    let printed: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(status, 1);
+    assert_eq!(printed["error"]["code"], "DELIVERY_UNCERTAIN");
+    assert_eq!(printed["requestId"], "request-talk");
+    assert_eq!(printed["target"], "worker");
+    assert_eq!(printed["pane"], "%1");
+}

@@ -27,6 +27,31 @@ import {
 } from './response-fixture.js';
 
 describe('native response authorization and retention boundaries', () => {
+  it.each([
+    { label: 'identical reply', body: 'first final', status: 0 },
+    { label: 'different reply', body: 'another final', status: 5 },
+  ])(
+    'preserves the immutable final for a $label through the output owner',
+    async ({ body, status }) => {
+      await withSandbox(async (sandbox) => {
+        await initializeSchema(sandbox);
+        const seeded = seedResponse(sandbox.database, 'owner-retry');
+        const args = ['reply', seeded.requestId, '--receipt', seeded.compactReceipt, '--message'];
+        const first = await runCli(sandbox, [...args, 'first final', '--json']);
+        const submitted = assertSubmitted(first, seeded);
+        const before = responseSnapshot(sandbox.database, seeded.requestId);
+        const again = await runCli(sandbox, [...args, body, '--json']);
+        expect(again.status).toBe(status);
+        if (status === 0) {
+          expect(assertSubmitted(again, seeded).submittedAtMs).toBe(submitted.submittedAtMs);
+        } else {
+          expectError(again, 'RESPONSE_CONFLICT');
+        }
+        expect(responseSnapshot(sandbox.database, seeded.requestId)).toEqual(before);
+      });
+    }
+  );
+
   it('identifies an unwritable data directory before reply, result, or talk effects', async () => {
     await withSandbox(async (sandbox) => {
       await initializeSchema(sandbox);
