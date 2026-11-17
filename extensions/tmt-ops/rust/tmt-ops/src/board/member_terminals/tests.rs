@@ -614,6 +614,68 @@ mod board {
     }
 
     #[test]
+    fn focused_terminal_uses_the_pane_rule_and_terminal_footer_in_every_look() {
+        use tmt_cli_style::{Base, Depth, Theme};
+        for (base, depth) in [
+            (Base::Tmt, Depth::TrueColor),
+            (Base::TmtLight, Depth::TrueColor),
+            (Base::Terminal, Depth::Ansi16),
+            (Base::Mono, Depth::None),
+        ] {
+            for scene in [
+                "terminals-panel",
+                "terminals-panel-focused",
+                "terminals-panel-selected",
+            ] {
+                let mut app = super::super::scenes::capture_at(
+                    scene,
+                    crate::look::Look {
+                        theme: Theme::new(base),
+                        depth,
+                    },
+                    100,
+                    36,
+                );
+                let mut terminal =
+                    ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 36)).unwrap();
+                terminal
+                    .draw(|frame| {
+                        crate::board::view::prepare(&mut app, frame.area());
+                        crate::board::view::render(frame, &app);
+                    })
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let rows: Vec<String> = (0..36)
+                    .map(|y| (0..100).map(|x| buffer[(x, y)].symbol()).collect())
+                    .collect();
+                let title = rows
+                    .iter()
+                    .find(|row| row.contains("worker · Terminal 1"))
+                    .expect("panel title");
+                let footer = &rows[35];
+                if scene == "terminals-panel" {
+                    assert!(title.starts_with("── "), "{base:?}: {title}");
+                    assert!(rows.iter().any(|row| row.contains("click to type")));
+                } else {
+                    assert!(
+                        title.starts_with("▸━ ") && title.contains("typing"),
+                        "{base:?}: {title}"
+                    );
+                    assert!(
+                        footer.contains("ctrl-g") && footer.contains("drag to copy"),
+                        "{base:?}: {footer}"
+                    );
+                    assert!(
+                        !footer.contains("q quote") && !footer.contains("y copy"),
+                        "{base:?}: {footer}"
+                    );
+                }
+                assert!(!rows.iter().any(|row| row.contains("┌──")), "no inner box");
+            }
+        }
+    }
+
+    #[test]
     fn ctrl_l_reaches_the_selected_terminal_as_input() {
         use crate::board::terminal_tab::stream::{
             Stream, StreamEvent,

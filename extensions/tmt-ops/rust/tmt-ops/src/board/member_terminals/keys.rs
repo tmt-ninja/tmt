@@ -54,6 +54,7 @@ impl App {
                 }
                 let id = row.id.clone();
                 self.terminals.set_typing(Some(&id));
+                self.focus = 1;
                 Effect::None
             }
             OpsUiAction::TerminalFullScreen => {
@@ -153,6 +154,7 @@ impl App {
         self.typing_terminal()?;
         if self.back_key(key) {
             self.terminals.set_typing(None);
+            self.focus = 0;
             return Some(Effect::None);
         }
         if let Some(bytes) = key_bytes(&key, self.terminal.modes()) {

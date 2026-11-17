@@ -9,7 +9,7 @@ use crate::board::{
 };
 use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
-use tmt_tui::components::{Outline, strip};
+use tmt_tui::components::strip;
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
@@ -30,27 +30,20 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         title.push_str(&directory);
     }
     let typing = app.terminals.typing() == Some(row.id.as_str());
-    let mut heading =
-        section_rule::line(&title, Line::default(), area.width as usize, typing, look);
-    if typing {
-        for span in &mut heading.spans {
-            span.style = look.role(Role::Accent);
-        }
-    }
-    strip::paint_left(frame.buffer_mut(), Rect { height: 1, ..area }, heading);
-    let frame_area = Rect::new(area.x, area.y + 2, area.width, area.height - 3);
-    let screen_area = if frame_area.width >= 3 && frame_area.height >= 3 {
-        let outline = Outline {
-            title: Line::default(),
-            border: look.role(if typing { Role::Accent } else { Role::Muted }),
-            title_style: look.role(Role::Text),
-        };
-        let inner = outline.inner(frame_area);
-        outline.paint(frame_area, frame.buffer_mut());
-        inner
+    let note = if typing {
+        Line::styled("typing", look.role(Role::Text))
     } else {
-        frame_area
+        Line::default()
     };
+    section_rule::paint(
+        frame.buffer_mut(),
+        Rect { height: 1, ..area },
+        &title,
+        note,
+        typing,
+        look,
+    );
+    let screen_area = Rect::new(area.x, area.y + 2, area.width, area.height - 3);
     let status = Rect::new(area.x, area.y + 1, area.width, 1);
     let footer = Rect::new(area.x, area.bottom() - 1, area.width, 1);
     // The shell's name comes from Core's listing, never from this process's `$SHELL`;

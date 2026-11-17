@@ -1076,6 +1076,17 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         let mut line = paint_hints(&hints, look, Role::Text);
         line.spans.insert(0, Span::raw(" "));
         line
+    } else if app
+        .selected_terminal()
+        .is_some_and(|(_, row)| app.terminals.typing() == Some(row.id.as_str()))
+    {
+        Line::styled(
+            crate::board::view::fit(
+                &format!(" {} back to list · drag to copy", app.member_back_label()),
+                usize::from(hint_area.width),
+            ),
+            look.role(Role::Muted),
+        )
     } else if let Some(hint) = app.member_link_hint() {
         if matches!(app.shell.tab, crate::board::shell::OpsTab::Agents) {
             crate::board::key_hints::legacy_line(hint, look, look.role(Role::Text), "  ")

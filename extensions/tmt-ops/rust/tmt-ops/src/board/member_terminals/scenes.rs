@@ -98,7 +98,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     if scene != "terminals-close-confirm" {
         app.apply_terminal(1, StreamEvent::Screen(shell()));
         if scene == "terminals-panel-focused" {
-            app.terminals.set_typing(Some(&listed(1, false).id));
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         }
     } else {
         app.apply_terminal(1, StreamEvent::Screen(building()));
