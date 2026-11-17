@@ -1364,7 +1364,11 @@ test.describe('the Digest route on the owner reads', () => {
       });
       const cards = page.locator('#digest-sections .tmt-ui-card');
       await expect(cards.first()).toBeVisible();
-      expect(await cards.count()).toBe(4);
+      await expect(cards).toHaveCount(5);
+      // This older report has seat usage but no provider projection; it is not zero usage.
+      await expect(page.locator('#digest-provider-usage')).toContainText(
+        'Provider usage is unavailable in this report.',
+      );
       await expect(page.locator('#digest-activity')).toHaveCount(0);
       await expect(cards.first()).toHaveCSS('border-radius', '2px');
       const provider = page.locator('.digest-provider').first();
