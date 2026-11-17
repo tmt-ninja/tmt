@@ -148,149 +148,154 @@ pub(super) fn document(report: &Report) -> Value {
     value
 }
 
-pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        writeln!(stdout, "{}", document(&report))?;
-        return Ok(0);
-    }
-    let terminal = stdout.terminal();
-    match &report.result {
-        ResultKind::Withdraw(result) => message::success(
-            &mut stdout,
-            terminal,
-            &format!(
-                "{} {}: {}",
-                if result.changed {
-                    "Withdrew"
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        match &self.result {
+            ResultKind::Withdraw(result) => message::success(
+                &mut &mut *stdout,
+                terminal,
+                &format!(
+                    "{} {}: {}",
+                    if result.changed {
+                        "Withdrew"
+                    } else {
+                        "Already withdrew"
+                    },
+                    result.request_id,
+                    result.withdrawal.reason
+                ),
+            )?,
+            ResultKind::List(page) => {
+                if page.items.is_empty() {
+                    writeln!(stdout, "No unacknowledged exchanges.")?;
                 } else {
-                    "Already withdrew"
-                },
-                result.request_id,
-                result.withdrawal.reason
-            ),
-        )?,
-        ResultKind::List(page) => {
-            if page.items.is_empty() {
-                writeln!(stdout, "No unacknowledged exchanges.")?;
-            } else {
-                // Request ids stay whole: `x show`, `x ack` and `result` take them.
-                let mut rows = Table::new(&[
-                    Column::Name,
-                    Column::Fixed,
-                    Column::Fixed,
-                    Column::Fixed,
-                    Column::Fixed,
-                ]);
-                for item in &page.items {
-                    rows.row([
-                        Cell::from(&item.request_id),
-                        Cell::styled(
-                            item.recipient_identity_id
-                                .as_deref()
-                                .map_or("-", value::short_id),
-                            Token::Dim,
-                        ),
-                        Cell::from(if item.delivery_policy.urgent {
-                            format!("{} urgent", item.message_state.state.as_str())
-                        } else {
-                            item.message_state.state.as_str().to_owned()
-                        }),
-                        Cell::from(item.final_state.as_str()),
-                        Cell::styled(format!("r{}", item.revision), Token::Dim),
+                    // Request ids stay whole: `x show`, `x ack` and `result` take them.
+                    let mut rows = Table::new(&[
+                        Column::Name,
+                        Column::Fixed,
+                        Column::Fixed,
+                        Column::Fixed,
+                        Column::Fixed,
                     ]);
+                    for item in &page.items {
+                        rows.row([
+                            Cell::from(&item.request_id),
+                            Cell::styled(
+                                item.recipient_identity_id
+                                    .as_deref()
+                                    .map_or("-", value::short_id),
+                                Token::Dim,
+                            ),
+                            Cell::from(if item.delivery_policy.urgent {
+                                format!("{} urgent", item.message_state.state.as_str())
+                            } else {
+                                item.message_state.state.as_str().to_owned()
+                            }),
+                            Cell::from(item.final_state.as_str()),
+                            Cell::styled(format!("r{}", item.revision), Token::Dim),
+                        ]);
+                    }
+                    let next = page.next_after.map(|after| {
+                        format!(
+                            "more with tmt x ls --after {after} --identity {}",
+                            crate::output::shell_word(&self.identity.canonical_name)
+                        )
+                    });
+                    list::write(
+                        &mut &mut *stdout,
+                        terminal,
+                        &[Section {
+                            title: "exchanges",
+                            count: Some(page.items.len()),
+                            rows,
+                            note: None,
+                            hint: next.as_deref(),
+                        }],
+                    )?;
                 }
-                let next = page.next_after.map(|after| {
-                    format!(
-                        "more with tmt x ls --after {after} --identity {}",
-                        crate::output::shell_word(&report.identity.canonical_name)
-                    )
-                });
-                list::write(
-                    &mut stdout,
-                    terminal,
-                    &[Section {
-                        title: "exchanges",
-                        count: Some(page.items.len()),
-                        rows,
-                        note: None,
-                        hint: next.as_deref(),
-                    }],
-                )?;
             }
-        }
-        ResultKind::Show { detail, receipt } => {
-            let item = &detail.exchange;
-            let mut rows = vec![
-                ("message", message_row(&item.message_state)),
-                ("urgent", item.delivery_policy.urgent.to_string()),
-                ("digest kind", item.delivery_policy.kind.as_str().to_owned()),
-            ];
-            // A request is the default; only the exception needs a row.
-            if item.delivery_policy.mode == DeliveryMode::Passthrough {
-                rows.push(("mode", item.delivery_policy.mode.as_str().to_owned()));
-            }
-            rows.extend([
-                ("final", item.final_state.as_str().to_owned()),
-                ("revision", item.revision.to_string()),
-                ("acknowledged", item.acknowledged.to_string()),
-                ("settled", item.settled.to_string()),
-            ]);
-            tmt_cli_style::detail::write(&mut stdout, terminal, &item.request_id, &rows)?;
-            writeln!(
-                stdout,
-                "{} {}",
-                terminal.paint(Token::Title, "PROMPT"),
-                terminal.paint(Token::Dim, prompt_status(&detail.prompt))
-            )?;
-            if let RequestPrompt::Retained(prompt) = &detail.prompt {
-                write_exact(&mut stdout, &prompt.message)?;
-            }
-            if let FinalState::Retained { content, .. } = &item.final_state {
-                writeln!(stdout, "{}", terminal.paint(Token::Title, "FINAL"))?;
-                write_exact(&mut stdout, content)?;
-            }
-            if let FinalState::Withdrawn(withdrawal) = &item.final_state {
+            ResultKind::Show { detail, receipt } => {
+                let item = &detail.exchange;
+                let mut rows = vec![
+                    ("message", message_row(&item.message_state)),
+                    ("urgent", item.delivery_policy.urgent.to_string()),
+                    ("digest kind", item.delivery_policy.kind.as_str().to_owned()),
+                ];
+                // A request is the default; only the exception needs a row.
+                if item.delivery_policy.mode == DeliveryMode::Passthrough {
+                    rows.push(("mode", item.delivery_policy.mode.as_str().to_owned()));
+                }
+                rows.extend([
+                    ("final", item.final_state.as_str().to_owned()),
+                    ("revision", item.revision.to_string()),
+                    ("acknowledged", item.acknowledged.to_string()),
+                    ("settled", item.settled.to_string()),
+                ]);
+                tmt_cli_style::detail::write(&mut &mut *stdout, terminal, &item.request_id, &rows)?;
                 writeln!(
                     stdout,
-                    "Withdrawn at {}: {}",
-                    withdrawal.withdrawn_at_ms, withdrawal.reason
+                    "{} {}",
+                    terminal.paint(Token::Title, "PROMPT"),
+                    terminal.paint(Token::Dim, prompt_status(&detail.prompt))
                 )?;
+                if let RequestPrompt::Retained(prompt) = &detail.prompt {
+                    write_exact(&mut &mut *stdout, &prompt.message)?;
+                }
+                if let FinalState::Retained { content, .. } = &item.final_state {
+                    writeln!(stdout, "{}", terminal.paint(Token::Title, "FINAL"))?;
+                    write_exact(&mut &mut *stdout, content)?;
+                }
+                if let FinalState::Withdrawn(withdrawal) = &item.final_state {
+                    writeln!(
+                        stdout,
+                        "Withdrawn at {}: {}",
+                        withdrawal.withdrawn_at_ms, withdrawal.reason
+                    )?;
+                }
+                if let Some(receipt) = receipt {
+                    message::hint(
+                        &mut &mut *stdout,
+                        terminal,
+                        &format!(
+                            "tmt reply {} --receipt {receipt} --message <text>",
+                            item.request_id
+                        ),
+                    )?;
+                }
             }
-            if let Some(receipt) = receipt {
-                message::hint(
-                    &mut stdout,
-                    terminal,
-                    &format!(
-                        "tmt reply {} --receipt {receipt} --message <text>",
-                        item.request_id
-                    ),
-                )?;
-            }
-        }
-        ResultKind::Ack(ack) if ack.changed => message::success(
-            &mut stdout,
-            terminal,
-            &format!(
-                "Acknowledged {} at revision {}",
+            ResultKind::Ack(ack) if ack.changed => message::success(
+                &mut &mut *stdout,
+                terminal,
+                &format!(
+                    "Acknowledged {} at revision {}",
+                    ack.request_id, ack.revision
+                ),
+            )?,
+            ResultKind::Ack(ack) => writeln!(
+                stdout,
+                "{} was already acknowledged at revision {}",
                 ack.request_id, ack.revision
-            ),
-        )?,
-        ResultKind::Ack(ack) => writeln!(
-            stdout,
-            "{} was already acknowledged at revision {}",
-            ack.request_id, ack.revision
-        )?,
-        ResultKind::Ackall(through) => message::success(
-            &mut stdout,
-            terminal,
-            &format!(
-                "Acknowledged '{}' through revision {through}; later revisions remain unacknowledged",
-                report.identity.name
-            ),
-        )?,
+            )?,
+            ResultKind::Ackall(through) => message::success(
+                &mut &mut *stdout,
+                terminal,
+                &format!(
+                    "Acknowledged '{}' through revision {through}; later revisions remain unacknowledged",
+                    self.identity.name
+                ),
+            )?,
+        }
+        Ok(())
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", document(self))
+    }
 }
 
 /// A prompt or final response byte for byte, like `tmt result`: it is the

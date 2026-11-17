@@ -358,7 +358,18 @@ impl Invocation {
             | Self::Remove { .. }
             | Self::Rename { .. }
             | Self::Whoami
-            | Self::Unbind => OutputBoundary::Paired,
+            | Self::Unbind
+            | Self::Reply { .. }
+            | Self::Result { .. }
+            | Self::ExchangeFlow { .. }
+            | Self::SendNow { .. }
+            | Self::Inbox { .. }
+            | Self::Answer { .. } => OutputBoundary::Paired,
+            Self::Exchange {
+                operation: ExchangeOperation::Listen { .. },
+                ..
+            } => OutputBoundary::Streaming,
+            Self::Exchange { .. } => OutputBoundary::Paired,
             Self::Help(..)
             | Self::Version
             | Self::CompletionScript(..)
@@ -388,10 +399,9 @@ impl Invocation {
                 OutputBoundary::Interactive
             }
             Self::Extension { .. } => OutputBoundary::External,
-            Self::Talk { .. }
-            | Self::TalkRemote { .. }
-            | Self::Exchange { .. }
-            | Self::Inbox { .. } => OutputBoundary::Streaming,
+            Self::Talk { .. } | Self::TalkRemote { .. } | Self::Orch(..) => {
+                OutputBoundary::Streaming
+            }
             Self::Tick(..)
             | Self::Completion { .. }
             | Self::WorkspaceRestore { .. }
@@ -408,12 +418,6 @@ impl Invocation {
             | Self::Driver(..)
             | Self::Host(..)
             | Self::ExtensionInstall(..)
-            | Self::Orch(..)
-            | Self::ExchangeFlow { .. }
-            | Self::Reply { .. }
-            | Self::Result { .. }
-            | Self::Answer { .. }
-            | Self::SendNow { .. }
             | Self::Install { .. }
             | Self::Setup { .. }
             | Self::Upgrade { .. }
@@ -818,4 +822,34 @@ pub struct PtyTerminal {
     pub member_start: String,
     pub created_ms: u64,
     pub directory: std::path::PathBuf,
+}
+
+#[cfg(test)]
+mod output_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn exchange_list_is_paired_and_listener_keeps_its_live_boundary() {
+        let exchange = |operation| Invocation::Exchange {
+            identity: None,
+            operation,
+        };
+        assert_eq!(
+            exchange(ExchangeOperation::List {
+                limit: None,
+                after: None
+            })
+            .output_boundary(),
+            OutputBoundary::Paired
+        );
+        assert_eq!(
+            exchange(ExchangeOperation::Listen {
+                room: None,
+                timeout_seconds: 1.0,
+                debounce_seconds: 0.1
+            })
+            .output_boundary(),
+            OutputBoundary::Streaming
+        );
+    }
 }

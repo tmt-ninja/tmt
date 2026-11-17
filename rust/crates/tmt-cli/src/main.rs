@@ -84,7 +84,7 @@ mod cli_style_tests;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
-use invocation::{Invocation, OutputMode};
+use invocation::{ExchangeOperation, Invocation, OutputMode};
 
 fn main() -> ExitCode {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
@@ -504,13 +504,29 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             window_ms,
             bucket_ms,
         } => {
-            return exchange_flow_command::execute(window_ms, bucket_ms, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(exchange_flow_command::run(
+                    window_ms,
+                    bucket_ms,
+                    !parsed.mode.json,
+                ));
+        }
+        Invocation::Exchange {
+            identity,
+            operation: operation @ ExchangeOperation::Listen { .. },
+        } => {
+            return exchange_command::execute(identity, operation, parsed.mode);
         }
         Invocation::Exchange {
             identity,
             operation,
         } => {
-            return exchange_command::execute(identity, operation, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(exchange_command::run(identity, operation));
         }
         request @ Invocation::Talk { .. } => {
             return talk_command::execute(request, parsed.mode);
@@ -548,13 +564,22 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return attach_command::execute(target, detach_others, parsed.mode);
         }
         request @ (Invocation::Reply { .. } | Invocation::Result { .. }) => {
-            return response_command::execute(request, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(response_command::run(request));
         }
         request @ (Invocation::Inbox { .. } | Invocation::Answer { .. }) => {
-            return answer_command::execute(request, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(answer_command::run(request));
         }
         request @ Invocation::SendNow { .. } => {
-            return send_now_command::execute(request, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(send_now_command::run(request));
         }
         Invocation::WhoamiContext => {
             return output

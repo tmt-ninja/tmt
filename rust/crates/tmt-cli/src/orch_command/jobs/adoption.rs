@@ -109,37 +109,45 @@ pub(in crate::orch_command) fn execute(
         }
         _ => Err(invalid()),
     })();
-    match result {
-        Err(error) => error.publish(mode),
-        Ok(value) => {
-            if mode.json {
-                serde_json::to_writer(&mut out, &value)?;
-                writeln!(out)?;
-            } else if value["receipt"].is_object() {
-                let terminal = out.terminal();
-                tmt_cli_style::detail::write(
-                    &mut out,
-                    terminal,
-                    "Job adoption receipt",
-                    &[
-                        (
-                            "source",
-                            value["receipt"]["sourceId"]
-                                .as_str()
-                                .unwrap_or("unknown")
-                                .to_owned(),
-                        ),
-                        (
-                            "digest",
-                            value["receipt"]["sourceDigest"]
-                                .as_str()
-                                .unwrap_or("unknown")
-                                .to_owned(),
-                        ),
-                    ],
-                )?;
-            }
-            Ok(0)
+    tmt_cli_style::CliOutput::new(mode.json).finish(result.map(AdoptionReport))
+}
+
+struct AdoptionReport(Value);
+impl tmt_cli_style::Render for AdoptionReport {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        if self.0["receipt"].is_object() {
+            tmt_cli_style::detail::write(
+                &mut &mut *stdout,
+                terminal,
+                "Job adoption receipt",
+                &[
+                    (
+                        "source",
+                        self.0["receipt"]["sourceId"]
+                            .as_str()
+                            .unwrap_or("unknown")
+                            .to_owned(),
+                    ),
+                    (
+                        "digest",
+                        self.0["receipt"]["sourceDigest"]
+                            .as_str()
+                            .unwrap_or("unknown")
+                            .to_owned(),
+                    ),
+                ],
+            )?;
         }
+        Ok(())
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        serde_json::to_writer(&mut &mut *stdout, &self.0)?;
+        writeln!(stdout)
     }
 }

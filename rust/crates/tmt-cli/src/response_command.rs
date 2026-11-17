@@ -2,7 +2,7 @@
 //! before storage; all final-response decisions remain in RequestService.
 
 use crate::{
-    invocation::{ContentInput, Invocation, OutputMode},
+    invocation::{ContentInput, Invocation},
     output::{Failure, after_cleanup},
 };
 use serde_json::json;
@@ -26,7 +26,7 @@ use tmt_core::{
     },
 };
 
-enum Report {
+pub enum Report {
     Withdrawn(String, tmt_core::request::Withdrawal),
     NotRequired(String),
     Submitted(
@@ -149,7 +149,7 @@ pub(crate) fn body(input: ContentInput) -> Result<String, Failure> {
     }
 }
 
-fn run(request: Invocation) -> Result<Report, Failure> {
+pub fn run(request: Invocation) -> Result<Report, Failure> {
     run_at(None, request)
 }
 
@@ -237,44 +237,52 @@ fn run_at(paths: Option<&ConfigPaths>, request: Invocation) -> Result<Report, Fa
     })
 }
 
-pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    let report = match run(request) {
-        Ok(report) => report,
-        Err(error) => return error.publish(mode),
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    let terminal = stdout.terminal();
-    match report {
-        report if mode.json => writeln!(stdout, "{}", document(&report))?,
-        Report::Withdrawn(request_id, withdrawal) => writeln!(
-            stdout,
-            "Request '{request_id}' withdrawn at {}: {}",
-            withdrawal.withdrawn_at_ms, withdrawal.reason
-        )?,
-        Report::NotRequired(request_id) => writeln!(
-            stdout,
-            "Announcement '{request_id}' does not require a response."
-        )?,
-        Report::Submitted(record, notification) => tmt_cli_style::message::success(
-            &mut stdout,
-            terminal,
-            &format!(
-                "Submitted response for request {} ({} bytes){}",
-                record.request_id,
-                record.body_bytes,
-                notification
-                    .map(|value| format!("; originator notification {}", value.as_str()))
-                    .unwrap_or_default()
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        match self {
+            Report::Withdrawn(request_id, withdrawal) => writeln!(
+                stdout,
+                "Request '{request_id}' withdrawn at {}: {}",
+                withdrawal.withdrawn_at_ms, withdrawal.reason
             ),
-        )?,
-        Report::Completed(record) => write_result(&mut stdout, &record.request_id, &record.body)?,
+            Report::NotRequired(request_id) => writeln!(
+                stdout,
+                "Announcement '{request_id}' does not require a response."
+            ),
+            Report::Submitted(record, notification) => tmt_cli_style::message::success(
+                &mut &mut *stdout,
+                terminal,
+                &format!(
+                    "Submitted response for request {} ({} bytes){}",
+                    record.request_id,
+                    record.body_bytes,
+                    notification
+                        .map(|value| format!("; originator notification {}", value.as_str()))
+                        .unwrap_or_default()
+                ),
+            ),
+            Report::Completed(record) => write_result(stdout, &record.request_id, &record.body),
+        }
     }
-    Ok(0)
+
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", document(self))
+    }
 }
 
 /// `tmt result`: a header, then the stored response byte for byte. The body is
 /// the responder's exact text, so it is never styled or escaped.
-fn write_result(output: &mut impl Write, request_id: &str, body: &str) -> io::Result<()> {
+fn write_result(
+    output: &mut (impl Write + ?Sized),
+    request_id: &str,
+    body: &str,
+) -> io::Result<()> {
     writeln!(output, "Response for request '{request_id}':\n{body}")
 }
 

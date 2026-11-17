@@ -762,9 +762,10 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         })?;
         Ok((paths, settings))
     })();
+    let output = tmt_cli_style::CliOutput::new(mode.json);
     let (paths, settings) = match preflight {
         Ok(value) => value,
-        Err(error) => return error.publish(mode),
+        Err(error) => return output.finish::<Report, _>(Err(error)),
     };
     // Keep callbacks alive through waiter/storage cleanup and output. A second
     // SIGINT retains emergency termination if synchronous work cannot finish.
@@ -774,20 +775,16 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         match Interrupt::install() {
             Ok(guard) => Some(guard),
             Err(error) => {
-                return Failure::new(
+                return output.finish::<Report, _>(Err(Failure::new(
                     "ERROR",
                     "Could not install observer interruption handling.",
                     1,
                 )
-                .caused_by(error)
-                .publish(mode);
+                .caused_by(error)));
             }
         }
     };
-    match run(input, paths, settings, interrupt.as_ref(), mode) {
-        Ok(report) => presentation::publish(report, mode),
-        Err(error) => error.publish(mode),
-    }
+    output.finish(run(input, paths, settings, interrupt.as_ref(), mode))
 }
 
 /// What both paste sites tell the user when channel evidence stops a paste: the

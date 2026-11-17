@@ -439,20 +439,45 @@ pub fn execute(operation: OrchOperation, mode: OutputMode) -> io::Result<u8> {
         OrchOperation::Write { operation, yes } => return write::execute(operation, yes, mode),
         read => read,
     };
-    let bytes = match run(operation) {
-        Ok(v) => v,
-        Err(e) => return e.publish(mode),
-    };
-    let mut out = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        out.write_all(&bytes)?;
-        writeln!(out)?;
-    } else {
-        let value: Value = serde_json::from_slice(&bytes).expect("shared orchestration JSON");
-        let terminal = out.terminal();
-        write_human(&mut out, terminal, &value)?;
+    tmt_cli_style::CliOutput::new(mode.json).finish(run(operation).map(ReadReport))
+}
+
+struct ReadReport(Vec<u8>);
+
+impl tmt_cli_style::Render for ReadReport {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let value: Value = serde_json::from_slice(&self.0).expect("shared orchestration JSON");
+        write_human(&mut &mut *stdout, terminal, &value)
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        stdout.write_all(&self.0)?;
+        writeln!(stdout)
+    }
+}
+
+// Human previews and confirmation are already printed at their original point in
+// the interaction; only JSON remains for this final report.
+struct BytesOnlyReport(Vec<u8>);
+impl tmt_cli_style::Render for BytesOnlyReport {
+    fn human(
+        &self,
+        _: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        Ok(())
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        stdout.write_all(&self.0)?;
+        writeln!(stdout)
+    }
 }
 
 #[cfg(test)]

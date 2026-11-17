@@ -34,7 +34,7 @@ enum ResultKind {
     Ackall(u64),
 }
 
-struct Report {
+pub struct Report {
     identity: Identity,
     result: ResultKind,
 }
@@ -67,7 +67,7 @@ fn request_failure(error: RequestError<StorageError>) -> Failure {
     Failure::new(code, error.to_string(), status).caused_by(error)
 }
 
-fn run(identity: Option<String>, operation: ExchangeOperation) -> Result<Report, Failure> {
+pub fn run(identity: Option<String>, operation: ExchangeOperation) -> Result<Report, Failure> {
     let selector = identity_context::required(identity.as_deref())?;
     let paths = ConfigPaths::discover().map_err(unavailable)?;
     run_selected(&paths, selector, operation)
@@ -181,10 +181,7 @@ pub fn execute(
             mode,
         );
     }
-    match run(identity, operation) {
-        Ok(report) => presentation::publish(report, mode),
-        Err(error) => error.publish(mode),
-    }
+    unreachable!("ordinary exchanges use the paired output boundary")
 }
 
 #[cfg(test)]

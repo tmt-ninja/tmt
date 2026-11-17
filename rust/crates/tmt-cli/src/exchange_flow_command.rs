@@ -1,8 +1,5 @@
 //! Whole-team read over the request owner's content-free projection.
-use crate::{
-    invocation::OutputMode,
-    output::{Failure, after_cleanup},
-};
+use crate::output::{Failure, after_cleanup};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -15,11 +12,14 @@ use tmt_core::request::{
     flow::{self, FlowReport},
 };
 
-fn run(
+pub struct Report {
+    flow: FlowReport,
+    names: BTreeMap<String, String>,
     window_ms: u64,
     bucket_ms: u64,
-    human: bool,
-) -> Result<(FlowReport, BTreeMap<String, String>), Failure> {
+}
+
+pub fn run(window_ms: u64, bucket_ms: u64, human: bool) -> Result<Report, Failure> {
     let paths = ConfigPaths::discover()
         .map_err(|e| Failure::new("X_ERROR", "Could not read exchange flow.", 1).caused_by(e))?;
     let mut storage = Storage::open(&paths.database).map_err(|e| {
@@ -47,19 +47,23 @@ fn run(
             })?;
         // IdentityReader excludes retired identities. Only the human projection
         // needs current display names; JSON remains a UUID-only aggregate read.
-        let names = if human {
-            storage
+        let names = names_for_human(human, || {
+            let names = storage
                 .list_identities()
                 .map_err(|e| {
                     Failure::new("X_ERROR", "Could not read exchange flow names.", 1).caused_by(e)
                 })?
                 .into_iter()
                 .map(|identity| (identity.id, identity.name))
-                .collect()
-        } else {
-            BTreeMap::new()
-        };
-        Ok((report, names))
+                .collect::<BTreeMap<_, _>>();
+            Ok::<_, Failure>(names)
+        })?;
+        Ok(Report {
+            flow: report,
+            names,
+            window_ms,
+            bucket_ms,
+        })
     })();
     after_cleanup(result, || storage.close())
 }
@@ -70,18 +74,26 @@ fn document(report: &FlowReport, bucket_ms: u64) -> Value {
             "kind": row.kind.as_str(), "bucketStartMs": row.bucket_start_ms, "count": row.count, "bytes": row.bytes
         })).collect::<Vec<_>>()})
 }
-pub fn execute(window_ms: u64, bucket_ms: u64, mode: OutputMode) -> io::Result<u8> {
-    let (report, names) = match run(window_ms, bucket_ms, !mode.json) {
-        Ok(report) => report,
-        Err(e) => return e.publish(mode),
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        writeln!(stdout, "{}", document(&report, bucket_ms))?;
-    } else {
-        write_human(&mut stdout, &report, &names, window_ms)?;
+fn names_for_human<E>(
+    human: bool,
+    read: impl FnOnce() -> Result<BTreeMap<String, String>, E>,
+) -> Result<BTreeMap<String, String>, E> {
+    if human { read() } else { Ok(BTreeMap::new()) }
+}
+
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        write_human(&mut &mut *stdout, &self.flow, &self.names, self.window_ms)
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", document(&self.flow, self.bucket_ms))
+    }
 }
 
 fn write_human(
@@ -174,6 +186,20 @@ fn window_label(ms: u64) -> String {
 mod tests {
     use super::*;
     use tmt_core::request::flow::{FlowKind, FlowRow};
+
+    #[test]
+    fn json_flow_does_not_read_names() {
+        let names = names_for_human(false, || -> Result<BTreeMap<String, String>, ()> {
+            panic!("JSON must not read identity names")
+        })
+        .unwrap();
+        assert!(names.is_empty());
+        let names = names_for_human(true, || -> Result<BTreeMap<String, String>, ()> {
+            Ok(BTreeMap::from([("id".into(), "name".into())]))
+        })
+        .unwrap();
+        assert_eq!(names.get("id").map(String::as_str), Some("name"));
+    }
 
     #[test]
     fn human_flow_names_participants_sums_buckets_and_formats_utc() {

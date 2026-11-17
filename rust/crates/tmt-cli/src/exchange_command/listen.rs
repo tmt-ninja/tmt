@@ -237,13 +237,14 @@ pub(super) fn execute(
     let interrupt = match Interrupt::install() {
         Ok(value) => value,
         Err(error) => {
-            return Failure::new(
-                "X_ERROR",
-                "Could not install listener interruption handling.",
-                1,
-            )
-            .caused_by(error)
-            .publish(mode);
+            return tmt_cli_style::CliOutput::new(mode.json).finish::<Report, _>(Err(
+                Failure::new(
+                    "X_ERROR",
+                    "Could not install listener interruption handling.",
+                    1,
+                )
+                .caused_by(error),
+            ));
         }
     };
     let result = run(
@@ -254,29 +255,55 @@ pub(super) fn execute(
         &interrupt,
         started,
     );
-    let (identity, reason, page, identities) = match result {
-        Ok(value) => value,
-        Err(error) => return error.publish(mode),
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
+    tmt_cli_style::CliOutput::new(mode.json).finish(result.map(
+        |(identity, reason, page, identities)| Report {
+            identity,
+            reason,
+            page,
+            identities,
+        },
+    ))
+}
+
+struct Report {
+    identity: Identity,
+    reason: Reason,
+    page: IncomingPage,
+    identities: HashMap<String, Identity>,
+}
+
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        if self.page.items.is_empty() {
+            writeln!(stdout, "No incoming messages before the listener timeout.")
+        } else {
+            write_incoming(
+                &mut &mut *stdout,
+                terminal,
+                &self.identity,
+                &self.page,
+                &self.identities,
+            )
+        }
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
         writeln!(
             stdout,
             "{}",
             json!({
-                "reason": match reason { Reason::Messages => "messages", Reason::Timeout => "timeout" },
-                "identityId": identity.id,
-                "items": page.items.iter().map(|item| item_document(item, &identities, &identity)).collect::<Vec<_>>(),
-                "nextAfter": page.next_after,
+                "reason": match self.reason { Reason::Messages => "messages", Reason::Timeout => "timeout" },
+                "identityId": self.identity.id,
+                "items": self.page.items.iter().map(|item| item_document(item, &self.identities, &self.identity)).collect::<Vec<_>>(),
+                "nextAfter": self.page.next_after,
             })
-        )?;
-    } else if page.items.is_empty() {
-        writeln!(stdout, "No incoming messages before the listener timeout.")?;
-    } else {
-        let terminal = stdout.terminal();
-        write_incoming(&mut stdout, terminal, &identity, &page, &identities)?;
+        )
     }
-    Ok(0)
 }
 
 fn write_incoming(
