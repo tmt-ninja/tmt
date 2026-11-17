@@ -5,6 +5,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 let context: BrowserContext, popup: Page, source: Page, profile: string;
 let server: ReturnType<typeof createServer>;
@@ -87,6 +88,49 @@ async function grantThroughBrowserAction(): Promise<void> {
 }
 test('packaged permissions and no-gesture/page-message paths cannot capture or send', async () => {
   const manifest = JSON.parse(await readFile('dist/manifest.json', 'utf8'));
+  expect(manifest.icons).toEqual({
+    16: 'icons/icon-16.png',
+    32: 'icons/icon-32.png',
+    48: 'icons/icon-48.png',
+    128: 'icons/icon-128.png',
+  });
+  expect(manifest.action.default_icon).toEqual({
+    16: 'icons/icon-16.png',
+    24: 'icons/icon-24.png',
+    32: 'icons/icon-32.png',
+  });
+  const worker = await extensionWorker();
+  expect(await worker.evaluate(() => chrome.runtime.getManifest())).toMatchObject({
+    icons: manifest.icons,
+    action: { default_icon: manifest.action.default_icon },
+  });
+  const provenance = JSON.parse(await readFile('dist/icons/source.json', 'utf8'));
+  expect(provenance.source).toBe('design/browser-ui/generated/favicon.svg');
+  const svg = await readFile(
+    new URL('../../../../../design/browser-ui/generated/favicon.svg', import.meta.url),
+  );
+  expect(provenance.sha256).toBe(createHash('sha256').update(svg).digest('hex'));
+  const sizes = [16, 24, 32, 48, 128];
+  const paths = sizes.map((size) => `icons/icon-${size}.png`);
+  for (const path of paths) {
+    const png = await readFile(join('dist', path));
+    expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  }
+  const decoded = await popup.evaluate(
+    async (paths) =>
+      Promise.all(
+        paths.map(async (path) => {
+          const image = new Image();
+          image.src = chrome.runtime.getURL(path);
+          await image.decode();
+          return { path, width: image.naturalWidth, height: image.naturalHeight };
+        }),
+      ),
+    paths,
+  );
+  expect(decoded).toEqual(
+    sizes.map((size) => ({ path: `icons/icon-${size}.png`, width: size, height: size })),
+  );
   expect(manifest.permissions).toEqual(['activeTab', 'scripting', 'contextMenus']);
   for (const key of [
     'host_permissions',

@@ -199,6 +199,9 @@ Rules that are easy to get wrong:
   [object-backends.md](object-backends.md) before changing it.
 - **Parked add-on.** `typescript/browser-addon` is a demo shell with no crypto,
   pairing or network; it is not a working channel (#1056).
+  Its manifest PNG icons derive from the shared generated favicon through
+  `scripts/generate-icons.mjs`; the existing browser case checks references,
+  decoded sizes and the recorded source hash, without cross-host raster equality.
 
 ## Browser remote list
 
