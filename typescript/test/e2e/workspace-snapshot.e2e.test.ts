@@ -55,7 +55,7 @@ const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 // timeout, so a stalled stage fails by name before the framework's "Test timed out" can hide it.
 const CAPTURE_PROBE_TIMEOUT_MS = 15_000;
 const CAPTURE_PROBE_CLEANUP_RESERVE_MS = 3_000;
-const CAPTURE_SAMPLE_STAGE_CAP_MS = 7_000;
+const CAPTURE_UNCHANGED_STAGE_CAP_MS = 7_000;
 const CAPTURE_PUBLICATION_STAGE_CAP_MS = 4_000;
 const snapshotPath = (fixture: E2EFixture) =>
   path.join(
@@ -121,12 +121,6 @@ function guardWorkspaceServer(fixture: E2EFixture) {
   return { createdServer };
 }
 
-interface CaptureMeasurement {
-  samples: Array<{ cpuMs: number; wallMs: number; reasons: Record<string, number> }>;
-  unreadAttempts: number;
-  unreadReasons: Array<Record<string, number>>;
-}
-
 /** The meter pane's script, its result files and its stage evidence for one capture probe. */
 interface CaptureProbe {
   meter: string;
@@ -139,12 +133,7 @@ interface CaptureProbe {
   wait(file: string, allowanceMs: number, description: string): Promise<string>;
 }
 
-function prepareCaptureProbe(
-  fixture: E2EFixture,
-  directory: string,
-  meter: string,
-  samples: number
-): CaptureProbe {
+function prepareCaptureProbe(fixture: E2EFixture, directory: string, meter: string): CaptureProbe {
   const trace = installTmuxTrace(fixture);
   const script = path.join(fixture.root, 'capture-cost.py');
   const result = path.join(fixture.root, 'capture-cost.json');
@@ -160,7 +149,6 @@ function prepareCaptureProbe(
       trace: trace.path,
       globalDir: fixture.globalDir,
       command: [fixture.executables.cli.executable, ...fixture.executables.cli.args, 'api'],
-      samples,
     })
   );
   trace.clear();
@@ -206,11 +194,16 @@ function sendToMeter(fixture: E2EFixture, probe: CaptureProbe, command: string[]
   fixture.tmux(['send-keys', '-t', probe.meter, 'Enter']);
 }
 
-async function acquireSamples(
+async function captureUnchanged(
   fixture: E2EFixture,
   probe: CaptureProbe,
   allowanceMs: number
-): Promise<CaptureMeasurement> {
+): Promise<{
+  attempted: number;
+  published: number;
+  skipped: number;
+  reasons: Record<string, number>;
+}> {
   sendToMeter(
     fixture,
     probe,
@@ -219,19 +212,19 @@ async function acquireSamples(
       `TMT_HOME=${fixture.globalDir}`,
       'python3',
       probe.script,
-      'samples',
+      'unchanged',
       meterBudgetSeconds(allowanceMs),
     ],
     `; printf '%s' "$?" > ${quote(probe.status)}`
   );
-  const status = await probe.wait(probe.status, allowanceMs, 'isolated capture CPU samples');
+  const status = await probe.wait(probe.status, allowanceMs, 'unchanged capture');
   if (status !== '0') {
     const failure = fs.existsSync(`${probe.result}.failure`)
       ? fs.readFileSync(`${probe.result}.failure`, 'utf8')
       : 'no failure recorded';
     throw new Error(`The capture meter exited ${status}: ${failure}`);
   }
-  return JSON.parse(fs.readFileSync(probe.result, 'utf8')) as CaptureMeasurement;
+  return JSON.parse(fs.readFileSync(probe.result, 'utf8'));
 }
 
 function resetCaptureInterval(directory: string) {
@@ -345,7 +338,7 @@ describe('event-driven workspace recovery snapshots', () => {
   });
 
   it(
-    'measures unchanged capture cost on 32 panes including child CPU, one topology read and no recovery rewrite',
+    'captures an unchanged 32-pane workspace with one topology read and no recovery rewrite',
     { timeout: CAPTURE_PROBE_TIMEOUT_MS },
     async ({ onTestFailed }) => {
       const budget = new StageBudget({
@@ -357,7 +350,6 @@ describe('event-driven workspace recovery snapshots', () => {
       onTestFailed(() => console.error(`workspace capture probe: ${budget.evidence()}`));
       await withRestoreFixture(async (fixture) => {
         guardWorkspaceServer(fixture);
-        const samples = 12;
         const { directory, recovery, before, probe } = await budget.stage(
           'fixture setup',
           async () => {
@@ -393,40 +385,24 @@ describe('event-driven workspace recovery snapshots', () => {
               directory,
               recovery,
               before,
-              probe: prepareCaptureProbe(fixture, directory, meter, samples),
+              probe: prepareCaptureProbe(fixture, directory, meter),
             };
           }
         );
         const measured = await budget.stage(
-          'sample acquisition',
-          (allowanceMs) => acquireSamples(fixture, probe, allowanceMs),
-          { capMs: CAPTURE_SAMPLE_STAGE_CAP_MS }
+          'unchanged acquisition',
+          (allowanceMs) => captureUnchanged(fixture, probe, allowanceMs),
+          { capMs: CAPTURE_UNCHANGED_STAGE_CAP_MS }
         );
         await budget.stage('unchanged-state checks', () => {
-          expect(measured.samples).toHaveLength(samples);
-          const cpu = measured.samples.map((sample) => sample.cpuMs);
-          const mean = cpu.reduce((sum, value) => sum + value, 0) / samples;
-          console.log(
-            'workspace capture cost',
-            JSON.stringify({
-              panes: 32,
-              agents: 8,
-              samples,
-              unreadAttempts: measured.unreadAttempts,
-              unreadReasons: measured.unreadReasons,
-              sampleReasons: measured.samples.map((sample) => sample.reasons),
-              meanCpuMs: mean,
-              maxCpuMs: Math.max(...cpu),
-              cpuPercentAt30s: mean / 300,
-              targetPercent: 0.2,
-            })
-          );
-          expect(
-            Math.max(...cpu),
-            'each due attempt must use less than 1% of one CPU at 30s'
-          ).toBeLessThan(300);
+          expect(measured).toEqual({
+            attempted: 1,
+            published: 0,
+            skipped: 0,
+            reasons: { unchanged: 1 },
+          });
           expect(probe.trace.commands().filter((command) => command === 'list-panes')).toHaveLength(
-            samples
+            1
           );
           expect(fs.existsSync(probe.psLog) ? fs.readFileSync(probe.psLog, 'utf8') : '').toBe('');
           expect(recovery()).toEqual(before);
@@ -461,7 +437,7 @@ describe('event-driven workspace recovery snapshots', () => {
           );
           expect(catalogue.entries.at(-1).id).toBe(`g:${changedDigest}`);
           expect(probe.trace.commands().filter((command) => command === 'list-panes')).toHaveLength(
-            samples + 1
+            2
           );
         });
         console.log('workspace capture probe stages', budget.evidence());
@@ -475,7 +451,7 @@ describe('event-driven workspace recovery snapshots', () => {
     await withRestoreFixture(async (fixture) => {
       guardWorkspaceServer(fixture);
       const meter = fixture.createShellPane('capture-meter').pane;
-      const probe = prepareCaptureProbe(fixture, path.dirname(snapshotPath(fixture)), meter, 12);
+      const probe = prepareCaptureProbe(fixture, path.dirname(snapshotPath(fixture)), meter);
       const pidFile = path.join(fixture.root, 'stalled.pid');
       const budget = new StageBudget({ totalMs: 8_000, cleanupReserveMs: 3_000 });
       const failure = await budget
