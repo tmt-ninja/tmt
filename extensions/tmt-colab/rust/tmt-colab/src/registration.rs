@@ -395,6 +395,7 @@ impl Registration {
         let graph = crate::work_links::Graph(&found);
         let parents = graph.parents();
         let archived = crate::inspection::catalog_archived_ids(&catalog);
+        let now = now_ms()?;
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
                 continue;
@@ -412,6 +413,17 @@ impl Registration {
             };
             page["state"] = serde_json::json!(graph.page_state(&id));
             page["summary"] = summary.json();
+            // The list shows the computed status the owner retained for this exact fingerprint
+            // (the one `show` reports); a page without one keeps its stage. Never computed here.
+            if let Some(state) = self
+                .store
+                .cached_work_status_with_fingerprints(&self.keyring, &id, now, Some(&fingerprints))
+                .ok()
+                .flatten()
+                .and_then(|status| status["state"].as_str().map(str::to_owned))
+            {
+                page["summary"]["status"] = serde_json::json!(state);
+            }
             if let Some(work) = graph.row(&id, &archived) {
                 page["summary"]["work"] = work;
             }
@@ -2075,6 +2087,23 @@ mod describe_tests {
         put(top, &fingerprints[top], Some(&top_work));
         put(leaf, &fingerprints[leaf], Some(&leaf_work));
         put(bare, &fingerprints[bare], Some(&json!({})));
+        // A retained computed status reaches the list only for the page's current fingerprint.
+        service
+            .store
+            .remember_work_status(
+                bare,
+                &fingerprints[bare],
+                &json!({"pageId":bare,"state":"waiting-ci"}),
+            )
+            .unwrap();
+        service
+            .store
+            .remember_work_status(
+                top,
+                "an older fingerprint",
+                &json!({"pageId":top,"state":"done"}),
+            )
+            .unwrap();
         let rows =
             |service: &Registration| -> std::collections::BTreeMap<String, serde_json::Value> {
                 let list: serde_json::Value =
@@ -2116,6 +2145,8 @@ mod describe_tests {
         assert!(list[bare].get("progress").is_none());
         assert!(list[top]["summary"].get("parent").is_none());
         assert!(list[unread].get("summary").is_none());
+        assert_eq!(list[bare]["summary"]["status"], "waiting-ci");
+        assert!(list[top]["summary"].get("status").is_none());
 
         // The sub-page goes stale: its state is unknown, so it no longer counts as done.
         put(leaf, "stale fingerprint", Some(&leaf_work));

@@ -6651,6 +6651,12 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   sub-page without a fresh entry counts as unknown, never done.
 - `parent` is `{page, index}`, the page that lists this page and this page's position in that list,
   omitted when none does. With several (two writers raced) it is the lowest page ID.
+- `status`, when present, is the computed work status the owner retained for this page's current
+  fingerprint: the same projection `show --json` reports as `computedStatus.state`, one of `done`,
+  `blocked`, `needs-you`, `waiting-ci`, `waiting-release`, `working`, `possibly-stalled`,
+  `discussing` or `unknown`. A list read only reads that retained value; it never computes a status
+  or reads GitHub. It is omitted until an owner page view has computed the status since the page
+  last changed, so a page not opened since then keeps its stage. Display only, never authority.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the
@@ -6660,7 +6666,8 @@ anchors the renderer can display, not any saved record or admission. An unresolv
 adopts another heading's answer or read; a text/match-budget failure or the 200 ms projection
 deadline leaves the summary unavailable, never a false zero. The decoder keeps its existing 2 s bound.
 
-The list's needs-you filter keeps the pages whose summary says `waiting`. A page without a
+The list's needs-you filter keeps the pages whose summary says `waiting` or whose `status` is
+`needs-you` or `blocked`. A page without a
 summary is unknown, never a false zero, so the filter does not count it. Navigation back to Home
 or a browser reload makes the existing owner-list read again. While a page that is not archived
 still has no summary, the visible Home list also reads again every 2 s, at most 15 times, and stops
@@ -6686,7 +6693,7 @@ The cache holds each page's _own_ work (its manual state and direct sub-pages); 
 never cached, because a page's progress changes when a sub-page's state does.
 `summary` is at most `{comments:4294967295, waiting, needsYou:350, author:128 bytes, work:{counts
 to 256}, parent}` per page (the author escapes to at most 256 bytes on the wire), so a full space of
-1,000 pages with the longest labels measures 1,052,197 bytes before titles and stays within the
+1,000 pages with the longest labels measures 1,052,197 bytes before titles (`status` adds at most 28 bytes a page, 28,000 in all) and stays within the
 2 MiB discovery cap with every page's longest title (the browser boundary test pins the complete
 encoded reply).
 
@@ -8264,8 +8271,10 @@ no download and follows the create-only rules above.
 The paired owner app exposes sharing/history, member add/remove/role, link
 create/remove/Reset and epoch advance in parent chrome. Home and page chrome open
 the same dialog; local samples remain read-only. Home offers the tabs All, Needs you (the
-active pages waiting on the viewer, `needs=true`), Discussion, In progress and Done (the stage of
-each row's `summary.work`, a fresh summary without work being in discussion) and Archived, and
+active pages waiting on the viewer, `needs=true`), Discussion, In progress and Done (from each row's `summary.status` when present: `needs-you`
+and `blocked` are in Needs you; `working`, `possibly-stalled`, `waiting-ci` and `waiting-release`
+are In progress; `done` is Done; `discussing` and `unknown` are Discussion. Without a status, the
+stage of `summary.work`, a fresh summary without work being in discussion) and Archived, and
 opens on All (a link with `stage=in-progress` opens on In progress; a mounted address is the list and no more, so a reload,
 Back and Forward return to the tab the entry was left on); an
 archived page counts only under Archived, and a page whose summary has not arrived is in no stage

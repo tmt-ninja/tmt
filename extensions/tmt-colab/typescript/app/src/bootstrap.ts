@@ -84,6 +84,19 @@ export function pageProgress(value: unknown): asserts value is PageProgress {
   );
 }
 
+/** The owner's computed work status values (contract: Owner page summaries). */
+export const COMPUTED_STATES = [
+  'done',
+  'blocked',
+  'needs-you',
+  'waiting-ci',
+  'waiting-release',
+  'working',
+  'possibly-stalled',
+  'discussing',
+  'unknown',
+] as const;
+export type ComputedState = (typeof COMPUTED_STATES)[number];
 /** What the owner derives for the list: comment count, waiting items and the creator. */
 export interface PageActivity {
   comments: number;
@@ -100,6 +113,9 @@ export interface PageActivity {
   /** The page this one is a sub-page of, and its position in that page's list; omitted when it
    * has no parent. */
   parent?: { page: string; index: number };
+  /** The computed status the owner retained for this page's current state; omitted until the
+   * page has been opened since it last changed. */
+  status?: ComputedState;
 }
 export interface PageInfo extends ExpiryInfo {
   state?: PageState | null;
@@ -170,6 +186,7 @@ export function activity(value: unknown): asserts value is PageActivity {
     ...('fields' in value ? ['fields'] : []),
     ...('work' in value ? ['work'] : []),
     ...('parent' in value ? ['parent'] : []),
+    ...('status' in value ? ['status'] : []),
   ]);
   requireValue(
     Number.isSafeInteger(value.comments) &&
@@ -189,6 +206,7 @@ export function activity(value: unknown): asserts value is PageActivity {
         !/\p{Cc}/u.test(value.author),
     );
   if ('work' in value) workRow(value.work);
+  if ('status' in value) requireValue(COMPUTED_STATES.some((state) => state === value.status));
   if ('fields' in value) {
     const fields = value.fields;
     requireValue(fields !== null && typeof fields === 'object' && !Array.isArray(fields));
