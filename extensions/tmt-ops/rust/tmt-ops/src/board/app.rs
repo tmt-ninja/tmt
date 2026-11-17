@@ -551,6 +551,15 @@ pub enum RowTarget {
     },
 }
 
+impl RowTarget {
+    pub(in crate::board) fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::Workspace(super::workspace::OpsTarget::Terminal { .. })
+        )
+    }
+}
+
 /// The observed note recipient, including its identity when the source supplies it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct NoteRecipient {
