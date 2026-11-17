@@ -1,6 +1,6 @@
 //! A finite advisory JSON observation, without post-command learning or capture.
 
-use crate::{invocation::OutputMode, output::Failure};
+use crate::output::Failure;
 use serde_json::{Value, json};
 use std::{
     io::{self, Write},
@@ -139,18 +139,13 @@ pub(super) struct Scan {
     pub(super) cleanup_failure: Option<String>,
 }
 
-pub fn execute(
-    selected_host: Option<&str>,
-    socket: Option<&str>,
-    mode: OutputMode,
-) -> io::Result<u8> {
+pub(crate) struct Report(Value);
+
+pub(crate) fn run(selected_host: Option<&str>, socket: Option<&str>) -> Result<Report, Failure> {
     // One read of the approvals; discovery never adopts or rewrites one.
     let admitted = tmt_adapters::host::external::admitted();
     tmt_adapters::host::external::register(&admitted.records);
-    match discovered(observe(&admitted, selected_host, socket)) {
-        Ok(document) => print(document, mode),
-        Err(failure) => failure.publish(mode),
-    }
+    discovered(observe(&admitted, selected_host, socket)).map(Report)
 }
 
 /// What `tmt discover` prints: the scan document, or only its cleanup
@@ -324,11 +319,15 @@ fn refused_sources(template: &Value, refusal: &Refusal) -> Vec<Value> {
         .collect()
 }
 
-fn print(document: Value, mode: OutputMode) -> io::Result<u8> {
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        writeln!(output, "{document}")?;
-    } else {
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        output: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let document = &self.0;
         for source in document["sources"].as_array().expect("source array") {
             writeln!(
                 output,
@@ -347,8 +346,11 @@ fn print(document: Value, mode: OutputMode) -> io::Result<u8> {
                 row["state"].as_str().unwrap_or("unknown")
             )?;
         }
+        Ok(())
     }
-    Ok(0)
+    fn json(&self, output: &mut dyn Write) -> io::Result<()> {
+        writeln!(output, "{}", self.0)
+    }
 }
 
 #[cfg(test)]

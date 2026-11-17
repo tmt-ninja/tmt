@@ -465,6 +465,10 @@ fn output_boundary_inventory_keeps_reports_and_protocols_distinct() {
         &["init"][..],
         &["config", "show"][..],
         &["notes", "path"][..],
+        &["whoami"][..],
+        &["identity", "list"][..],
+        &["room", "list"][..],
+        &["discover"][..],
     ] {
         assert_eq!(
             parsed(words).invocation.output_boundary(),
@@ -476,7 +480,7 @@ fn output_boundary_inventory_keeps_reports_and_protocols_distinct() {
         (&["api"][..], OutputBoundary::Protocol),
         (&["attach", "worker"][..], OutputBoundary::Interactive),
         (&["talk", "worker", "hello"][..], OutputBoundary::Streaming),
-        (&["whoami"][..], OutputBoundary::Legacy),
+        (&["storage"][..], OutputBoundary::Legacy),
     ] {
         assert_eq!(
             parsed(words).invocation.output_boundary(),

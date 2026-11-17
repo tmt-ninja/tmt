@@ -2,7 +2,7 @@
 
 use crate::{
     identity_context,
-    invocation::{OutputMode, RoomOperation},
+    invocation::RoomOperation,
     output::{Failure, after_cleanup},
 };
 use std::io::{self, Write};
@@ -45,7 +45,7 @@ fn failure(error: DispatchError, operation_id: &str) -> Failure {
         .caused_by(error)
 }
 
-fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
+pub(super) fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
     run_with(
         operation,
         || ConfigPaths::discover().map_err(Failure::from),
@@ -142,23 +142,23 @@ fn run_with(
     })
 }
 
-pub(super) fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<u8> {
-    let receipt = match run(operation) {
-        Ok(receipt) => receipt,
-        Err(error) => return error.publish(mode),
-    };
-    let mut out = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        out.write_all(&encode_receipt(&receipt))?;
-        writeln!(out)?;
-    } else {
+pub(crate) struct Report(pub(super) DispatchReceipt);
+
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        mut out: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
         use tmt_cli_style::{
             Token,
             list::{self, Section},
             table::{Cell, Column, Table},
             value,
         };
-        let terminal = out.terminal();
+        let receipt = &self.0;
         let queued = receipt
             .items
             .iter()
@@ -199,8 +199,12 @@ pub(super) fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<
                 hint: Some("queued is not completed; inspect each with tmt result <request-id>"),
             }],
         )?;
+        Ok(())
     }
-    Ok(0)
+    fn json(&self, out: &mut dyn Write) -> io::Result<()> {
+        out.write_all(&encode_receipt(&self.0))?;
+        writeln!(out)
+    }
 }
 
 // Source-checked command samples for the printed-command guard.

@@ -27,7 +27,7 @@ fn human(report: &Report) -> (String, String) {
     let mut output = Vec::new();
     text(&mut output, Terminal::PLAIN, report).unwrap();
     let mut errors = tmt_cli_style::stream::Stream::new(Terminal::PLAIN, Vec::new());
-    warnings(&mut errors, report).unwrap();
+    warnings(&mut errors, Terminal::PLAIN, report).unwrap();
     (
         String::from_utf8(output).unwrap(),
         String::from_utf8(errors.into_inner()).unwrap(),

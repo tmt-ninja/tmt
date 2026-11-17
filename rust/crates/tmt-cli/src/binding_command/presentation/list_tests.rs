@@ -1239,6 +1239,31 @@ fn an_unreaped_scan_child_makes_one_partial_list_with_the_complete_members() {
             listed.ends_with("DETECTED 0\n    fake: unknown (cleanup_failed)\n"),
             "{read}: {listed}"
         );
+        let presentation = super::super::Presentation {
+            report,
+            agent_name: None,
+            completion: None,
+        };
+        for json_mode in [false, true] {
+            let (mut out, mut err) = (Vec::new(), Vec::new());
+            let status = tmt_cli_style::CliOutput::new(json_mode)
+                .finish_to::<_, crate::output::Failure>(
+                    Ok(&presentation),
+                    &mut out,
+                    &mut err,
+                    Terminal::PLAIN,
+                    Terminal::PLAIN,
+                )
+                .unwrap();
+            assert_eq!(status, 1, "{read}");
+            if json_mode {
+                assert_eq!(serde_json::from_slice::<Value>(&out).unwrap(), json);
+                assert!(err.is_empty());
+            } else {
+                assert_eq!(String::from_utf8(out).unwrap(), listed);
+                assert!(String::from_utf8(err).unwrap().contains("cleanup failed"));
+            }
+        }
     }
 }
 

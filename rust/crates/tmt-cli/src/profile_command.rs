@@ -2,7 +2,7 @@
 
 use crate::{
     identity_context,
-    invocation::{ContentInput, Invocation, OutputMode, PreambleRequest, RoleOperation},
+    invocation::{ContentInput, Invocation, PreambleRequest, RoleOperation},
     output::{Failure, after_cleanup, identity_document},
 };
 use std::{
@@ -25,7 +25,7 @@ enum Action {
     Clear,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Change {
+pub(crate) enum Change {
     Shown,
     Set,
     Cleared,
@@ -41,7 +41,7 @@ impl Change {
         }
     }
 }
-enum Report {
+pub(crate) enum Report {
     Role {
         identity: Identity,
         profile: Option<Profile>,
@@ -100,7 +100,7 @@ fn role_input(input: ContentInput) -> Result<String, Failure> {
     }
 }
 
-fn run(request: Invocation) -> Result<Report, Failure> {
+pub(crate) fn run(request: Invocation) -> Result<Report, Failure> {
     let (kind, name, action) = match request {
         Invocation::Role {
             identity,
@@ -214,41 +214,15 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     after_cleanup(pending, || storage.close())
 }
 
-pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    let report = match run(request) {
-        Ok(report) => report,
-        Err(error) => return error.publish(mode),
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    let terminal = stdout.terminal();
-    if mode.json {
-        let value = match report {
-            Report::Role {
-                identity, profile, ..
-            } => {
-                serde_json::json!({"identity": identity_document(&identity), "role": profile.map(|profile| serde_json::json!({"content": profile.content, "updatedAt": profile.updated_at}))})
-            }
-            Report::Preamble {
-                name,
-                profile,
-                change,
-            } => {
-                let mut value = serde_json::json!({"agent": name});
-                if matches!(change, Change::Shown | Change::Set) {
-                    value["preamble"] = profile.map(|profile| profile.content).into();
-                }
-                if let Some(status) = change.status() {
-                    value["status"] = status.into();
-                }
-                value
-            }
-            Report::List(rows) => {
-                serde_json::json!({"preambles": rows.into_iter().map(|(identity, profile)| serde_json::json!({"agent": identity.name, "preamble": profile.content})).collect::<Vec<_>>()})
-            }
-        };
-        writeln!(stdout, "{value}")?;
-    } else {
-        match report {
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        mut stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        match self {
             Report::Role {
                 identity,
                 profile,
@@ -269,9 +243,9 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
                     writeln!(
                         stdout,
                         "{}",
-                        profile.map_or_else(
+                        profile.as_ref().map_or_else(
                             || "No role profile is set.".into(),
-                            |profile| profile.content
+                            |profile| profile.content.clone()
                         )
                     )?;
                 }
@@ -309,6 +283,38 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
                 }
             }
         }
+        Ok(())
     }
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let value = match self {
+            Report::Role {
+                identity, profile, ..
+            } => {
+                serde_json::json!({"identity": identity_document(identity), "role": profile.as_ref().map(|profile| serde_json::json!({"content": profile.content, "updatedAt": profile.updated_at}))})
+            }
+            Report::Preamble {
+                name,
+                profile,
+                change,
+            } => {
+                let mut value = serde_json::json!({"agent": name});
+                if matches!(change, Change::Shown | Change::Set) {
+                    value["preamble"] = profile
+                        .as_ref()
+                        .map(|profile| profile.content.clone())
+                        .into();
+                }
+                if let Some(status) = change.status() {
+                    value["status"] = status.into();
+                }
+                value
+            }
+            Report::List(rows) => {
+                serde_json::json!({"preambles": rows.iter().map(|(identity, profile)| serde_json::json!({"agent": identity.name, "preamble": profile.content})).collect::<Vec<_>>()})
+            }
+        };
+        writeln!(stdout, "{value}")?;
+
+        Ok(())
+    }
 }

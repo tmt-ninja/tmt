@@ -11,7 +11,7 @@ mod session;
 
 use crate::{
     binding_error::{binding_failure, endpoint_failure},
-    invocation::{Invocation, ListScope, OutputMode},
+    invocation::{Invocation, ListScope},
     output::{Failure, after_cleanup},
 };
 use std::io::{self, Write};
@@ -834,11 +834,14 @@ fn bound_panes(storage: &mut Storage) -> Result<Vec<detected::BoundPane>, Failur
         .collect())
 }
 
-pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    let (mut report, agent_name) = match run(request) {
-        Ok(ran) => ran,
-        Err(error) => return error.publish(mode),
-    };
+pub(crate) struct Presentation {
+    report: Report,
+    agent_name: Option<AgentNameOutcome>,
+    completion: Option<session::Completion>,
+}
+
+pub(crate) fn prepare(request: Invocation) -> Result<Presentation, Failure> {
+    let (mut report, agent_name) = run(request)?;
     // Only a listing that succeeded and closed storage scans; the scan's
     // doubt is data, and only an unreaped child fails the command.
     if let Report::Listed {
@@ -857,9 +860,87 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         Report::Bound(result) => Some(session::complete(result)),
         _ => None,
     };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        let mut document = presentation::document(&report);
+    Ok(Presentation {
+        report,
+        agent_name,
+        completion,
+    })
+}
+
+impl Presentation {
+    pub(crate) fn reminder(&self) -> crate::skill_reminder::Outcome {
+        use crate::skill_reminder::Outcome;
+        match &self.report {
+            Report::Bound(result) if result.created => {
+                if result.presence.identity.lifetime == tmt_core::identity::Lifetime::Temporary {
+                    Outcome::TemporaryIdentityCreated {
+                        name: result.presence.identity.name.clone(),
+                    }
+                } else {
+                    Outcome::SavedIdentityCreated {
+                        name: result.presence.identity.name.clone(),
+                    }
+                }
+            }
+            _ => Outcome::None,
+        }
+    }
+    pub(crate) fn refresh(&self) {
+        let changed_binding = match &self.report {
+            Report::Bound(result) => result.presence.binding.as_ref(),
+            Report::Unbound { result, .. } => result.binding.as_ref(),
+            Report::Removed { entry, .. } => entry.binding.as_ref(),
+            Report::Renamed { result, .. } if result.changed() => result.binding.as_ref(),
+            _ => None,
+        };
+        // A member removed on purpose leaves the default built-in restore, bound or not.
+        // Advisory: the removal already happened and keeps its result.
+        if let Report::Removed { entry, .. } = &self.report
+            && let Ok(paths) = ConfigPaths::discover()
+        {
+            let _ = tmt_adapters::workspace::forget_builtin_member(&paths, &entry.identity.id);
+        }
+        if let Some(binding) = changed_binding
+            && let Ok(paths) = ConfigPaths::discover()
+        {
+            let host = Host::for_server(&binding.server);
+            tmt_adapters::workspace::refresh_server(&paths, &host, &binding.server);
+        }
+    }
+}
+
+impl tmt_cli_style::Render for Presentation {
+    fn human(
+        &self,
+        mut stdout: &mut dyn Write,
+        mut stderr: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        stderr_terminal: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let report = &self.report;
+        let completion = &self.completion;
+        let agent_name = &self.agent_name;
+        presentation::text(&mut stdout, terminal, report)?;
+        write_partial(&mut stderr, stderr_terminal, report)?;
+        presentation::warnings(&mut stderr, stderr_terminal, report)?;
+        if let Some(warning) = completion.as_ref().and_then(|value| value.warning.as_ref()) {
+            tmt_cli_style::message::warning(&mut stderr, stderr_terminal, &warning.reason, None)?;
+            tmt_cli_style::message::fix(&mut stderr, stderr_terminal, &warning.fix)?;
+        }
+        if let Some(AgentNameOutcome {
+            name,
+            result: Err(error),
+        }) = &agent_name
+        {
+            presentation::agent_name_warning(&mut stderr, stderr_terminal, name, error)?;
+        }
+        Ok(())
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let report = &self.report;
+        let completion = &self.completion;
+        let agent_name = &self.agent_name;
+        let mut document = presentation::document(report);
         if let Some(outcome) = &agent_name {
             presentation::add_agent_name(&mut document, outcome);
         }
@@ -879,66 +960,11 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
             }
         }
         writeln!(stdout, "{document}")?;
-    } else {
-        let terminal = stdout.terminal();
-        presentation::text(&mut stdout, terminal, &report)?;
+        Ok(())
     }
-    drop(stdout);
-    if !mode.json {
-        let mut stderr = tmt_cli_style::stream::stderr();
-        let terminal = stderr.terminal();
-        write_partial(&mut stderr, terminal, &report)?;
-        presentation::warnings(&mut stderr, &report)?;
-        if let Some(warning) = completion.as_ref().and_then(|value| value.warning.as_ref()) {
-            let terminal = stderr.terminal();
-            tmt_cli_style::message::warning(&mut stderr, terminal, &warning.reason, None)?;
-            tmt_cli_style::message::fix(&mut stderr, terminal, &warning.fix)?;
-        }
-        if let Some(AgentNameOutcome {
-            name,
-            result: Err(error),
-        }) = &agent_name
-        {
-            presentation::agent_name_warning(&mut stderr, name, error)?;
-        }
+    fn exit_status(&self) -> u8 {
+        status(&self.report)
     }
-    use crate::skill_reminder::Outcome;
-    let outcome = match &report {
-        Report::Bound(result) if result.created => {
-            if result.presence.identity.lifetime == tmt_core::identity::Lifetime::Temporary {
-                Outcome::TemporaryIdentityCreated {
-                    name: result.presence.identity.name.clone(),
-                }
-            } else {
-                Outcome::SavedIdentityCreated {
-                    name: result.presence.identity.name.clone(),
-                }
-            }
-        }
-        _ => Outcome::None,
-    };
-    crate::skill_reminder::present(outcome, mode, true);
-    let changed_binding = match &report {
-        Report::Bound(result) => result.presence.binding.as_ref(),
-        Report::Unbound { result, .. } => result.binding.as_ref(),
-        Report::Removed { entry, .. } => entry.binding.as_ref(),
-        Report::Renamed { result, .. } if result.changed() => result.binding.as_ref(),
-        _ => None,
-    };
-    // A member removed on purpose leaves the default built-in restore, bound or not.
-    // Advisory: the removal already happened and keeps its result.
-    if let Report::Removed { entry, .. } = &report
-        && let Ok(paths) = ConfigPaths::discover()
-    {
-        let _ = tmt_adapters::workspace::forget_builtin_member(&paths, &entry.identity.id);
-    }
-    if let Some(binding) = changed_binding
-        && let Ok(paths) = ConfigPaths::discover()
-    {
-        let host = Host::for_server(&binding.server);
-        tmt_adapters::workspace::refresh_server(&paths, &host, &binding.server);
-    }
-    Ok(status(&report))
 }
 
 /// The one error of a partial list, whose scan child was not reaped.
@@ -1077,49 +1103,66 @@ fn run_guarded<R: tmt_adapters::process::CommandRunner + Clone>(
     after_cleanup(result, || storage.close())
 }
 
-/// A guarded add's one result: its document, or its failure with `partial`
-/// once host effects may have happened.
-fn present_guarded(
-    output: &mut impl Write,
-    mode: OutputMode,
-    pane: &str,
-    outcome: Result<GuardedOutcome, Failure>,
+/// A guarded bind preserves admitted effects and its exact partial failure envelope.
+pub(crate) struct GuardedReport(GuardedOutcome);
+pub(crate) struct GuardedFailure {
+    failure: Box<Failure>,
+    pane: String,
     partial: bool,
-) -> io::Result<u8> {
-    match outcome {
-        Ok((result, agent_name)) => {
-            let row = &result.bound.presence;
-            let pane = &row.pane.as_ref().expect("verified binding").id;
-            if mode.json {
-                let mut document = serde_json::json!({"version":1,"status":if result.already_bound {"already_bound"}else{"bound"},"bound":true,"id":row.identity.id,"name":row.identity.name,"pane":pane,"lifetime":row.identity.lifetime.as_str()});
-                if let Some(outcome) = &agent_name {
-                    presentation::add_agent_name(&mut document, outcome);
-                }
-                writeln!(output, "{document}")?;
-            } else {
-                writeln!(output, "Bound {:?} on {}", row.identity.name, pane)?;
-                if let Some(AgentNameOutcome {
-                    name,
-                    result: Err(error),
-                }) = &agent_name
-                {
-                    let mut stderr = tmt_cli_style::stream::stderr();
-                    presentation::agent_name_warning(&mut stderr, name, error)?;
-                }
-            }
-            Ok(0)
+}
+
+impl tmt_cli_style::Render for GuardedReport {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        mut stderr: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        terminal: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        let (result, agent_name) = &self.0;
+        let row = &result.bound.presence;
+        let pane = &row.pane.as_ref().expect("verified binding").id;
+        writeln!(stdout, "Bound {:?} on {}", row.identity.name, pane)?;
+        if let Some(AgentNameOutcome {
+            name,
+            result: Err(error),
+        }) = agent_name
+        {
+            presentation::agent_name_warning(&mut stderr, terminal, name, error)?;
         }
-        Err(error) => {
-            if mode.json {
-                let mut document = error.document();
-                document["status"] = if partial { "partial" } else { "refused" }.into();
-                document["pane"] = pane.into();
-                writeln!(output, "{document}")?;
-                Ok(error.status)
-            } else {
-                error.publish(mode)
-            }
+        Ok(())
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let (result, agent_name) = &self.0;
+        let row = &result.bound.presence;
+        let pane = &row.pane.as_ref().expect("verified binding").id;
+        let mut document = serde_json::json!({"version":1,"status":if result.already_bound {"already_bound"}else{"bound"},"bound":true,"id":row.identity.id,"name":row.identity.name,"pane":pane,"lifetime":row.identity.lifetime.as_str()});
+        if let Some(outcome) = agent_name {
+            presentation::add_agent_name(&mut document, outcome);
         }
+        writeln!(stdout, "{document}")
+    }
+}
+impl tmt_cli_style::Render for GuardedFailure {
+    fn human(
+        &self,
+        _: &mut dyn Write,
+        mut stderr: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        terminal: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        self.failure.write_human(&mut stderr, terminal)
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        let mut document = self.failure.document();
+        document["status"] = if self.partial { "partial" } else { "refused" }.into();
+        document["pane"] = self.pane.clone().into();
+        writeln!(stdout, "{document}")
+    }
+}
+impl tmt_cli_style::RenderFailure for GuardedFailure {
+    fn exit_status(&self) -> u8 {
+        self.failure.status
     }
 }
 
@@ -1141,7 +1184,7 @@ struct GuardedRequest<'a> {
 
 /// Guarded add bypasses optional learning/capture on refusal. It shares the
 /// existing binding/publication policy, with admission before storage creation.
-pub fn execute_guarded(request: Invocation, mode: OutputMode) -> io::Result<u8> {
+pub(crate) fn prepare_guarded(request: Invocation) -> Result<GuardedReport, GuardedFailure> {
     let Invocation::GuardedBind {
         pane,
         name,
@@ -1184,6 +1227,11 @@ pub fn execute_guarded(request: Invocation, mode: OutputMode) -> io::Result<u8> 
             &mut partial,
         )
     })();
-    let mut output = tmt_cli_style::stream::stdout(mode.json);
-    present_guarded(&mut output, mode, &pane, outcome, partial)
+    outcome
+        .map(GuardedReport)
+        .map_err(|failure| GuardedFailure {
+            failure: Box::new(failure),
+            pane,
+            partial,
+        })
 }

@@ -16,7 +16,19 @@ pub const MIGRATING: &[(&str, &str)] =
     &[("tmt-cli", "consent.rs"), ("tmt-cli", "skill_reminder.rs")];
 
 /// Ordinary commands already migrated to paired reports. Extend with each batch.
-const REPORT_COMMANDS: &[&str] = &["config_command.rs", "init_command.rs", "notes_command.rs"];
+const REPORT_COMMANDS: &[&str] = &[
+    "binding_command.rs",
+    "identity_command.rs",
+    "profile_command.rs",
+    "room_command.rs",
+    "room_command/dispatch.rs",
+    "context_command.rs",
+    "context_command/presentation.rs",
+    "discovery_command.rs",
+    "config_command.rs",
+    "init_command.rs",
+    "notes_command.rs",
+];
 
 pub fn report_violations(sources: &[Source]) -> Vec<String> {
     let mut violations = Vec::new();

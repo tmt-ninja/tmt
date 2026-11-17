@@ -342,7 +342,23 @@ pub enum OutputBoundary {
 impl Invocation {
     pub fn output_boundary(&self) -> OutputBoundary {
         match self {
-            Self::Init | Self::Config(..) | Self::NotesPath { .. } => OutputBoundary::Paired,
+            Self::Init
+            | Self::Config(..)
+            | Self::NotesPath { .. }
+            | Self::Identity(..)
+            | Self::Room(..)
+            | Self::Role { .. }
+            | Self::Preamble(..)
+            | Self::WhoamiContext
+            | Self::Discover { .. }
+            | Self::List { .. }
+            | Self::Bind { .. }
+            | Self::GuardedBind { .. }
+            | Self::BindMarked { .. }
+            | Self::Remove { .. }
+            | Self::Rename { .. }
+            | Self::Whoami
+            | Self::Unbind => OutputBoundary::Paired,
             Self::Help(..)
             | Self::Version
             | Self::CompletionScript(..)
@@ -384,17 +400,7 @@ impl Invocation {
             | Self::WorkspaceList { .. }
             | Self::WorkspaceRemove { .. }
             | Self::Channel(..)
-            | Self::List { .. }
-            | Self::Bind { .. }
-            | Self::Discover { .. }
-            | Self::GuardedBind { .. }
-            | Self::BindMarked { .. }
-            | Self::Remove { .. }
             | Self::Stop { .. }
-            | Self::Rename { .. }
-            | Self::Whoami
-            | Self::WhoamiContext
-            | Self::Unbind
             | Self::Check { .. }
             | Self::Focus { .. }
             | Self::FocusClient
@@ -402,11 +408,7 @@ impl Invocation {
             | Self::Driver(..)
             | Self::Host(..)
             | Self::ExtensionInstall(..)
-            | Self::Identity(..)
-            | Self::Room(..)
             | Self::Orch(..)
-            | Self::Preamble(..)
-            | Self::Role { .. }
             | Self::ExchangeFlow { .. }
             | Self::Reply { .. }
             | Self::Result { .. }

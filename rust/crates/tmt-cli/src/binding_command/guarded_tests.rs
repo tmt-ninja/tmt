@@ -3,8 +3,7 @@
 //! private store, and a runner that reports the `name-agent` driver process
 //! as not cleaned up. No environment variable or production path changes.
 
-use super::{GuardedRequest, present_guarded, run_guarded};
-use crate::invocation::OutputMode;
+use super::{GuardedFailure, GuardedReport, GuardedRequest, run_guarded};
 use std::{
     ffi::OsStr,
     fs,
@@ -160,8 +159,22 @@ fn a_naming_cleanup_failure_after_the_bind_is_partial_and_never_replayed() {
     assert_eq!(calls(&root.0, "name-agent"), 1);
     // The JSON a caller sees, through the command's own presentation.
     let mut printed = Vec::new();
-    let mode = OutputMode { json: true };
-    let status = present_guarded(&mut printed, mode, "fake-1", outcome, partial).unwrap();
+    let result = outcome
+        .map(GuardedReport)
+        .map_err(|failure| GuardedFailure {
+            failure: Box::new(failure),
+            pane: "fake-1".into(),
+            partial,
+        });
+    let status = tmt_cli_style::CliOutput::new(true)
+        .finish_to(
+            result,
+            &mut printed,
+            &mut Vec::new(),
+            tmt_cli_style::Terminal::PLAIN,
+            tmt_cli_style::Terminal::PLAIN,
+        )
+        .unwrap();
     assert_eq!(status, 1);
     let document: serde_json::Value = serde_json::from_slice(&printed).unwrap();
     assert_eq!(document["error"]["code"], "CLEANUP_ERROR");
