@@ -424,7 +424,7 @@ function providerUsageCard(doc: UsageDocument): HTMLElement {
       name.title = row.driver;
       const cost = el(
         'span',
-        undefined,
+        row.inputCost ? ui.tableMono : undefined,
         row.inputCost ? money.format(row.inputCost.usdMicros / 1_000_000) : 'Unavailable',
       );
       if (!row.inputCost)

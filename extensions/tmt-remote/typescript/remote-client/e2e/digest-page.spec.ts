@@ -54,6 +54,18 @@ test('provider usage renders native records independently of prices and allowanc
       ).toBeLessThanOrEqual(0);
       await card.getByRole('region').focus();
       await expect(card.getByRole('region')).toHaveCSS('outline-style', 'solid');
+      if (width === 1440) {
+        const bodyFont = await card
+          .locator('tbody th')
+          .first()
+          .evaluate((node) => getComputedStyle(node).fontFamily);
+        await expect(card.locator('tbody tr').last().locator('td').nth(3)).toHaveCSS(
+          'font-family',
+          bodyFont,
+        );
+        await expect(agy.locator('td').last()).toHaveCSS('font-family', bodyFont);
+        await expect(agy.locator('td').last()).toHaveCSS('white-space', 'nowrap');
+      }
       const file = info.outputPath(`provider-usage-${width}-${colorScheme}.png`);
       await page.screenshot({ path: file, fullPage: true, animations: 'disabled' });
       await info.attach(`provider-usage-${width}-${colorScheme}`, {

@@ -8322,7 +8322,7 @@ function providerUsageCard(doc) {
 	], rows.map((row) => {
 		const name = el$1("span", void 0, providerLabel$1(row.driver));
 		name.title = row.driver;
-		const cost = el$1("span", void 0, row.inputCost ? money.format(row.inputCost.usdMicros / 1e6) : "Unavailable");
+		const cost = el$1("span", row.inputCost ? browserUiClasses.tableMono : void 0, row.inputCost ? money.format(row.inputCost.usdMicros / 1e6) : "Unavailable");
 		if (!row.inputCost) cost.append(el$1("span", "usage-note", ` — ${row.costUnavailable.map((reason) => Object.hasOwn(reasons, reason) ? reasons[reason] : reason).join(" ")}`));
 		const coverage = row.partialSeats ? `Partial (${row.partialSeats} ${row.partialSeats === 1 ? "seat" : "seats"})` : "Recorded";
 		const compact = el$1("span", browserUiClasses.tableCompactMeta);
