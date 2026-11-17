@@ -23,7 +23,7 @@ import {
 import type { ConversationUnread } from './conversation-seen.js';
 import { OPS_SECTIONS, opsMenu, opsPlace, type OpsPlace } from './ops-menu.js';
 import { forms, type RemoteForms } from './forms.js';
-import { opsForms } from './ops-forms.js';
+import { FormsNotAllowed, opsForms } from './ops-forms.js';
 
 /** The board's own reload cadence (`tmt ops ui`). */
 const REFRESH_MS = 5000;
@@ -47,7 +47,7 @@ export function opsPage(
     return page.devices.find((device) => device.thisBrowser)?.name ?? null;
   },
   formsConnect: () => Promise<RemoteForms> = async () => {
-    if (!shell.session) throw new Error('No signed browser session.');
+    if (!shell.session) throw new FormsNotAllowed('No signed browser session.');
     return forms(await shell.session());
   },
 ): void {
@@ -117,6 +117,7 @@ export function opsPage(
         },
         unread,
         hasDraft,
+        (memberId) => providerForms.waiting(memberId),
       ),
     );
   };

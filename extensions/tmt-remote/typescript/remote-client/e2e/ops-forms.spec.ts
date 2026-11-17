@@ -239,3 +239,54 @@ test('forms that cannot be read say so instead of looking empty', async ({ page 
   await page.evaluate(() => (location.hash = '#channel/sample'));
   await expect(page.locator('.ops-channel-summary')).toContainText('Forms unavailable');
 });
+
+test('a lost answer whose form closed can be dismissed by the person', async ({ page }) => {
+  await open(page, 1440, 'light');
+  await show(page, [forms[0]!]);
+  const question = card(page, 'form-question');
+  await question.getByRole('radio', { name: /Shared runbook/ }).check();
+  await page.evaluate(() => (window.formsOutcome = 'lost'));
+  await question.getByRole('button', { name: 'Send answer' }).click();
+  await expect(question).toContainText('Not sure it arrived.');
+  // Only a closed form offers Dismiss; an open one keeps its answer controls locked instead.
+  await expect(question.getByRole('button', { name: 'Dismiss' })).toHaveCount(0);
+  await show(page, []);
+  const left = page.locator('.ops-form[aria-label="Answered form"]');
+  await left.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(left).toHaveCount(0);
+  await expect(page.locator('.ops-channel-chips')).not.toContainText('waiting');
+  expect(
+    await page.evaluate(() =>
+      Object.keys(localStorage).filter((key) => key.startsWith('tmt-ops-form-answer:')),
+    ),
+  ).toEqual([]);
+});
+
+test('typing in Other survives other forms changing and the clock moving', async ({ page }) => {
+  await open(page, 1440, 'light');
+  await show(page, [forms[0]!]);
+  const other = card(page, 'form-question').getByRole('textbox');
+  await other.fill('In the repo wiki');
+  await other.press('ArrowLeft');
+  await show(page, [forms[0]!, forms[2]!]);
+  await page.clock.runFor(61_000);
+  await expect(other).toHaveValue('In the repo wiki');
+  await expect(other).toBeFocused();
+  expect(await other.evaluate((input: HTMLInputElement) => input.selectionStart)).toBe(15);
+  // The rail marks the member who waits on the person: the shell's attention dot and count.
+  await expect(
+    page.getByRole('navigation').getByRole('link', { name: /^sample-1\b/ }),
+  ).toHaveAttribute('aria-label', /2 need you/);
+});
+
+test('a browser that may not read forms draws nothing and stops asking', async ({ page }) => {
+  await open(page, 1440, 'light');
+  await page.evaluate(() => (window.formsRefuse = true));
+  await page.clock.runFor(5001);
+  const asked = await page.evaluate(() => window.formsCursors);
+  await page.clock.runFor(30_000);
+  expect(await page.evaluate(() => window.formsCursors)).toBe(asked);
+  await expect(page.locator('.ops-forms')).toBeHidden();
+  await page.evaluate(() => (location.hash = '#channel/sample'));
+  await expect(page.locator('.ops-channel-summary')).not.toContainText('Forms');
+});

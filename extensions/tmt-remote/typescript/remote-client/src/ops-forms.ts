@@ -10,7 +10,11 @@ import type {
   ProviderForm,
   RemoteForms,
 } from './forms.js';
+import { RefusalError } from './operations.js';
 import { el } from './ops-parts.js';
+
+/** This browser may not read provider forms (no signed session); thrown by the connector. */
+export class FormsNotAllowed extends Error {}
 
 /** One answer this browser started: kept until Core's outcome for its operation ID is settled. */
 interface Sent {
@@ -89,6 +93,14 @@ function ago(ms: number): string {
   return hours < 24 ? `opened ${hours} h ago` : `opened ${Math.round(hours / 24)} d ago`;
 }
 
+/** A kept card with its opened time brought up to date, without rebuilding it. */
+function fresh(node: HTMLElement, form: ProviderForm): HTMLElement {
+  const time = node.querySelector('.ops-form-time');
+  const text = ago(form.openedMs);
+  if (time && time.textContent !== text) time.textContent = text;
+  return node;
+}
+
 export interface OpsForms {
   /** Reads Core's cursor and lists forms again only when it moved. */
   refresh(): Promise<boolean>;
@@ -107,7 +119,9 @@ export function opsForms(
   newId: () => string = () => crypto.randomUUID(),
 ): OpsForms {
   let api: Promise<RemoteForms> | undefined;
-  let status: 'loading' | 'ready' | 'unavailable' = 'loading';
+  /** `off`: this browser may not read forms (no session, not the owner browser, or a grant
+   * without every agent). Nothing is drawn and Remote is not asked again on this page. */
+  let status: 'loading' | 'ready' | 'unavailable' | 'off' = 'loading';
   let cursor: number | undefined;
   let list: ProviderForm[] = [];
   const sent = stored();
@@ -119,6 +133,8 @@ export function opsForms(
   /** Forms the person opened; the oldest form is always open, so several never bury the talk. */
   const opened = new Set<string>();
   const views = new Map<string, HTMLElement>();
+  /** Focus to put back after a rebuilt card is placed. */
+  let refocus: (() => void) | undefined;
   let version = 0;
   const bump = () => {
     version++;
@@ -281,9 +297,9 @@ export function opsForms(
 
   /** A form folded to one line: its kind, what it asks and when; a click opens it. */
   function folded(form: ProviderForm): HTMLElement {
-    const seen = JSON.stringify(['folded', form, ago(form.openedMs)]);
+    const seen = JSON.stringify(['folded', form]);
     const cached = cards.get(form.formId);
-    if (cached?.seen === seen) return cached.node;
+    if (cached?.seen === seen) return fresh(cached.node, form);
     const node = el('section', `${c.card} ops-form`);
     node.dataset.formId = form.formId;
     node.dataset.kind = form.kind;
@@ -317,9 +333,10 @@ export function opsForms(
     const locked =
       inFlight ||
       (!!entry && (entry.state !== 'refused' || entry.reason === 'FORM_DELIVERY_UNSUPPORTED'));
-    const seen = JSON.stringify([form, entry, inFlight, memberName, ago(form.openedMs)]);
+    // The opened time is updated in place: a rebuild would interrupt typing in the card.
+    const seen = JSON.stringify([form, entry, inFlight, memberName]);
     const cached = cards.get(form.formId);
-    if (cached?.seen === seen) return cached.node;
+    if (cached?.seen === seen) return fresh(cached.node, form);
     const node = el('section', `${c.card} ops-form`);
     node.dataset.formId = form.formId;
     node.dataset.kind = form.kind;
@@ -388,7 +405,8 @@ export function opsForms(
     }
     node.append(...lines);
     // A rebuilt card keeps the person's unsent choices.
-    if (cached && open && !('folded' in cached.node.dataset)) carry(cached.node, node);
+    if (cached && open && !('folded' in cached.node.dataset))
+      refocus = carry(cached.node, node) ?? refocus;
     cards.set(form.formId, { node, seen });
     return node;
   }
@@ -400,11 +418,25 @@ export function opsForms(
     node.append(el('p', `${c.cardTitle} ops-form-text`, entry.asked));
     const said = outcome(entry, memberName);
     if (said) node.append(said);
+    // The form is closed and its outcome may never be known (Remote cannot tell an answer it
+    // never received from one it cannot read now): only the person can let it go.
+    if (!busy.has(entry.formId)) {
+      const dismiss = el('button', c.action, 'Dismiss');
+      dismiss.type = 'button';
+      dismiss.dataset.variant = 'text';
+      dismiss.addEventListener('click', () => {
+        sent.delete(entry.formId);
+        drop(entry.formId);
+        bump();
+      });
+      node.append(dismiss);
+    }
     return node;
   }
 
   return {
     async refresh() {
+      if (status === 'off') return true;
       try {
         const forms = await client();
         const next = await forms.cursor();
@@ -434,9 +466,19 @@ export function opsForms(
             void check(entry);
           }
         return true;
-      } catch {
-        // All or nothing: a list that cannot be read is unavailable, never empty.
+      } catch (error) {
         const was = status;
+        if (
+          error instanceof FormsNotAllowed ||
+          (error instanceof RefusalError && error.code === 'REMOTE_SCOPE_DENIED')
+        ) {
+          status = 'off';
+          list = [];
+          cards.clear();
+          bump();
+          return true;
+        }
+        // All or nothing: a list that cannot be read is unavailable, never empty.
         status = 'unavailable';
         cursor = undefined;
         list = [];
@@ -470,6 +512,10 @@ export function opsForms(
       const [openBox, foldedBox] = [...slot.children] as [HTMLElement, HTMLElement];
       const open: HTMLElement[] = [];
       const rows: HTMLElement[] = [];
+      if (status === 'off') {
+        slot.hidden = true;
+        return slot;
+      }
       if (status === 'unavailable')
         open.push(
           el('p', 'ops-detail-note', 'Provider forms unavailable. This page tries again shortly.'),
@@ -500,6 +546,8 @@ export function opsForms(
         box.hidden = parts.length === 0;
       }
       slot.hidden = open.length + rows.length === 0;
+      refocus?.();
+      refocus = undefined;
       return slot;
     },
   };
@@ -523,7 +571,10 @@ function read(body: HTMLFormElement, form: ProviderForm): FormAnswer | undefined
   return other.some((text) => text !== null) ? { choices, other } : { choices };
 }
 
-function carry(from: HTMLElement, to: HTMLElement): void {
+/** Copies unsent choices to the rebuilt card; returns how to put the person's focus back once
+ * the new card is in place. */
+function carry(from: HTMLElement, to: HTMLElement): (() => void) | undefined {
+  let restore: (() => void) | undefined;
   for (const input of from.querySelectorAll<HTMLInputElement>('input')) {
     const twin = [...to.querySelectorAll<HTMLInputElement>('input')].find(
       (candidate) =>
@@ -532,6 +583,14 @@ function carry(from: HTMLElement, to: HTMLElement): void {
     if (!twin) continue;
     if (input.type === 'text') twin.value = input.value;
     else twin.checked = input.checked;
+    if (input === document.activeElement) {
+      const [start, end] = [input.selectionStart, input.selectionEnd];
+      restore = () => {
+        twin.focus({ preventScroll: true });
+        if (twin.type === 'text') twin.setSelectionRange(start, end);
+      };
+    }
   }
   to.querySelector('form')?.dispatchEvent(new Event('input'));
+  return restore;
 }

@@ -1852,6 +1852,8 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-forms {
   display: grid;
   gap: var(--tmt-ui-space-m);
+  /* The cards' width: the open box's scrollbar sits against them, not at the column's edge. */
+  max-width: 48rem;
   min-width: 0;
 }
 .ops-form {

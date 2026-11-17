@@ -21,6 +21,7 @@ import type {
 import type { ChannelPort } from '../src/channel-stream.js';
 import type { RoomPage, RoomInput } from '../src/conversations.js';
 import type { FormAnswerInput, FormAnswerState, ProviderForm } from '../src/forms.js';
+import { RefusalError } from '../src/operations.js';
 
 declare global {
   interface Window {
@@ -54,6 +55,9 @@ declare global {
     formsList: ProviderForm[];
     formsCursor: number;
     formsFail: boolean;
+    /** This browser's grant does not cover forms: Remote refuses before Core. */
+    formsRefuse: boolean;
+    formsCursors: number;
     formsLists: number;
     formsAnswers: (FormAnswerInput & { storedFirst: string | null })[];
     formsChecks: string[];
@@ -66,6 +70,8 @@ window.channelReads = 0;
 window.formsList = [];
 window.formsCursor = 1;
 window.formsFail = false;
+window.formsRefuse = false;
+window.formsCursors = 0;
 window.formsLists = 0;
 window.formsAnswers = [];
 window.formsChecks = [];
@@ -680,6 +686,16 @@ opsPage(
   async () => 'This laptop',
   async () => ({
     async cursor() {
+      window.formsCursors++;
+      if (window.formsRefuse)
+        throw new RefusalError(
+          'REMOTE_SCOPE_DENIED',
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          'all_agents_required',
+        );
       if (window.formsFail) throw new Error('Core did not answer.');
       return { cursor: window.formsCursor };
     },

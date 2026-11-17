@@ -10356,9 +10356,17 @@ function opsHref(pathname, place) {
 }
 /** The rail's mark for a channel or DM whose message box holds unsent words. */
 var DRAFT = "✎ Draft";
-function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => false) {
+function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => false, formsWaiting = () => 0) {
 	const unreadItem = (id) => {
 		const value = unread?.get(id);
+		const forms = formsWaiting(id);
+		if (forms > 0) return {
+			...value?.state === "known" && value.count > 0 ? { emphasis: "unread" } : {},
+			count: {
+				text: String(forms),
+				needsYou: true
+			}
+		};
 		return value?.state === "known" && value.count > 0 ? {
 			emphasis: "unread",
 			count: {
@@ -12562,6 +12570,8 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}, for
 * the form in its DM, and its row says so. Only the person answers, and only a form the board saw
 * whole and Core lets the client answer. An answer is stored before it is sent and is recovered by
 * its own operation ID only; nothing here retries delivery or allocates a second ID for it. */
+/** This browser may not read provider forms (no signed session); thrown by the connector. */
+var FormsNotAllowed = class extends Error {};
 var KEY = "tmt-ops-form-answer:";
 var KIND = {
 	question: "Question",
@@ -12608,8 +12618,17 @@ function ago(ms) {
 	const hours = Math.round(minutes / 60);
 	return hours < 24 ? `opened ${hours} h ago` : `opened ${Math.round(hours / 24)} d ago`;
 }
+/** A kept card with its opened time brought up to date, without rebuilding it. */
+function fresh(node, form) {
+	const time = node.querySelector(".ops-form-time");
+	const text = ago(form.openedMs);
+	if (time && time.textContent !== text) time.textContent = text;
+	return node;
+}
 function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
 	let api;
+	/** `off`: this browser may not read forms (no session, not the owner browser, or a grant
+	* without every agent). Nothing is drawn and Remote is not asked again on this page. */
 	let status = "loading";
 	let cursor;
 	let list = [];
@@ -12622,6 +12641,8 @@ function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
 	/** Forms the person opened; the oldest form is always open, so several never bury the talk. */
 	const opened = /* @__PURE__ */ new Set();
 	const views = /* @__PURE__ */ new Map();
+	/** Focus to put back after a rebuilt card is placed. */
+	let refocus;
 	let version = 0;
 	const bump = () => {
 		version++;
@@ -12756,13 +12777,9 @@ function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
 	}
 	/** A form folded to one line: its kind, what it asks and when; a click opens it. */
 	function folded(form) {
-		const seen = JSON.stringify([
-			"folded",
-			form,
-			ago(form.openedMs)
-		]);
+		const seen = JSON.stringify(["folded", form]);
 		const cached = cards.get(form.formId);
-		if (cached?.seen === seen) return cached.node;
+		if (cached?.seen === seen) return fresh(cached.node, form);
 		const node = el("section", `${browserUiClasses.card} ops-form`);
 		node.dataset.formId = form.formId;
 		node.dataset.kind = form.kind;
@@ -12795,11 +12812,10 @@ function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
 			form,
 			entry,
 			inFlight,
-			memberName,
-			ago(form.openedMs)
+			memberName
 		]);
 		const cached = cards.get(form.formId);
-		if (cached?.seen === seen) return cached.node;
+		if (cached?.seen === seen) return fresh(cached.node, form);
 		const node = el("section", `${browserUiClasses.card} ops-form`);
 		node.dataset.formId = form.formId;
 		node.dataset.kind = form.kind;
@@ -12857,7 +12873,7 @@ function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
 			body.append(actions);
 		}
 		node.append(...lines);
-		if (cached && open && !("folded" in cached.node.dataset)) carry(cached.node, node);
+		if (cached && open && !("folded" in cached.node.dataset)) refocus = carry(cached.node, node) ?? refocus;
 		cards.set(form.formId, {
 			node,
 			seen
@@ -12871,10 +12887,22 @@ function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
 		node.append(el("p", `${browserUiClasses.cardTitle} ops-form-text`, entry.asked));
 		const said = outcome(entry, memberName);
 		if (said) node.append(said);
+		if (!busy.has(entry.formId)) {
+			const dismiss = el("button", browserUiClasses.action, "Dismiss");
+			dismiss.type = "button";
+			dismiss.dataset.variant = "text";
+			dismiss.addEventListener("click", () => {
+				sent.delete(entry.formId);
+				drop(entry.formId);
+				bump();
+			});
+			node.append(dismiss);
+		}
 		return node;
 	}
 	return {
 		async refresh() {
+			if (status === "off") return true;
 			try {
 				const forms = await client();
 				const next = await forms.cursor();
@@ -12896,8 +12924,15 @@ function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
 					check(entry);
 				}
 				return true;
-			} catch {
+			} catch (error) {
 				const was = status;
+				if (error instanceof FormsNotAllowed || error instanceof RefusalError && error.code === "REMOTE_SCOPE_DENIED") {
+					status = "off";
+					list = [];
+					cards.clear();
+					bump();
+					return true;
+				}
 				status = "unavailable";
 				cursor = void 0;
 				list = [];
@@ -12922,6 +12957,10 @@ function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
 			const [openBox, foldedBox] = [...slot.children];
 			const open = [];
 			const rows = [];
+			if (status === "off") {
+				slot.hidden = true;
+				return slot;
+			}
 			if (status === "unavailable") open.push(el("p", "ops-detail-note", "Provider forms unavailable. This page tries again shortly."));
 			list.filter((form) => form.identityId === identityId).forEach((form, index) => index === 0 || opened.has(form.formId) || sent.has(form.formId) ? open.push(card(form, memberName)) : rows.push(folded(form)));
 			for (const entry of sent.values()) if (entry.identityId === identityId && entry.state === "uncertain" && !list.some((form) => form.formId === entry.formId)) open.push(gone(entry, memberName));
@@ -12930,6 +12969,8 @@ function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
 				box.hidden = parts.length === 0;
 			}
 			slot.hidden = open.length + rows.length === 0;
+			refocus?.();
+			refocus = void 0;
 			return slot;
 		}
 	};
@@ -12952,14 +12993,25 @@ function read(body, form) {
 		other
 	} : { choices };
 }
+/** Copies unsent choices to the rebuilt card; returns how to put the person's focus back once
+* the new card is in place. */
 function carry(from, to) {
+	let restore;
 	for (const input of from.querySelectorAll("input")) {
 		const twin = [...to.querySelectorAll("input")].find((candidate) => candidate.name === input.name && (input.type === "text" || candidate.value === input.value));
 		if (!twin) continue;
 		if (input.type === "text") twin.value = input.value;
 		else twin.checked = input.checked;
+		if (input === document.activeElement) {
+			const [start, end] = [input.selectionStart, input.selectionEnd];
+			restore = () => {
+				twin.focus({ preventScroll: true });
+				if (twin.type === "text") twin.setSelectionRange(start, end);
+			};
+		}
 	}
 	to.querySelector("form")?.dispatchEvent(new Event("input"));
+	return restore;
 }
 //#endregion
 //#region src/ops-page.ts
@@ -12981,7 +13033,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 		limit: 100
 	})).devices.find((device) => device.thisBrowser)?.name ?? null;
 }, formsConnect = async () => {
-	if (!shell.session) throw new Error("No signed browser session.");
+	if (!shell.session) throw new FormsNotAllowed("No signed browser session.");
 	return forms(await shell.session());
 }) {
 	const main = document.getElementById("ops-section");
@@ -13025,7 +13077,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 				else collapsedSquads.add(squad);
 				paint();
 			}
-		}, unread, hasDraft));
+		}, unread, hasDraft, (memberId) => providerForms.waiting(memberId)));
 	};
 	const paint = () => {
 		const section = current();
