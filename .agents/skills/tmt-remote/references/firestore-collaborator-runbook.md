@@ -26,11 +26,12 @@ Anonymous sign-in alone grants no agent-talk write access; enrollment needs the 
 Start the local door on both machines and keep it running:
 
 ```sh
-tmt remote serve --no-open
+tmt remote serve
 ```
 
-Use another terminal for the following commands. The serving process owns message
-delivery and observes local replies; stopping it postpones delivery without cancelling requests.
+The door starts in the background, so you can run the following commands in the same
+terminal. The serving process owns message delivery and observes local replies;
+stopping it postpones delivery without cancelling requests.
 
 ## Pair once
 
