@@ -65,6 +65,152 @@ fn rows(database: &std::path::Path, table: &str) -> i64 {
 }
 
 #[test]
+fn live_replacement_requires_an_independent_host_and_no_live_or_unknown_owner() {
+    let private = HostEvidence::Independent { runtime_pid: None };
+    for (host, previous, owner, allowed) in [
+        (private, RuntimeLiveness::Alive, None, true),
+        (
+            private,
+            RuntimeLiveness::Alive,
+            Some(RuntimeLiveness::Gone),
+            true,
+        ),
+        (
+            private,
+            RuntimeLiveness::Alive,
+            Some(RuntimeLiveness::Alive),
+            false,
+        ),
+        (
+            private,
+            RuntimeLiveness::Alive,
+            Some(RuntimeLiveness::Unknown),
+            false,
+        ),
+        (private, RuntimeLiveness::Unknown, None, false),
+        (
+            HostEvidence::Ambiguous { runtime_pid: 20 },
+            RuntimeLiveness::Alive,
+            None,
+            false,
+        ),
+    ] {
+        assert_eq!(live_replacement_allowed(host, previous, owner), allowed);
+    }
+}
+
+#[test]
+fn live_replacement_loses_to_a_concurrent_binding_or_preferences_change() {
+    use tmt_core::binding::session::{BindingSessionState, ObservedSessionKey, SessionTransition};
+    let harness = HarnessId::new("claude").unwrap();
+    let registry = RuntimeRegistry::first_party();
+    let lifecycle = registry.lifecycle(&harness).unwrap();
+    let event = lifecycle.decode(br#"{"hook_event_name":"SessionStart","session_id":"new","source":"startup","cwd":"/src","model":"test"}"#).unwrap();
+    let mode = RuntimeMode::new("default").unwrap();
+    for race in ["unchanged", "binding", "preferences"] {
+        let directory = Directory::new();
+        let database = directory.0.join("state.db");
+        let mut storage = Storage::open(&database).unwrap();
+        let identity = create_or_resolve(&mut storage, "Worker", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let server = ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
+            server_id: "123e4567-e89b-42d3-a456-426614174000".into(),
+            socket_path: "/tmp/test.sock".into(),
+            server_pid: 10,
+            server_start_time: "server".into(),
+        };
+        let pane = PaneObservation {
+            agent_name: None,
+            id: "%1".into(),
+            target: None,
+            cwd: None,
+            command: "claude".into(),
+            pane_pid: 11,
+            pane_incarnation: Some("pane".into()),
+            suggested_name: None,
+            marker: None,
+            location: None,
+        };
+        let old = BindingSessionState::default()
+            .admit(
+                ObservedSessionKey {
+                    incarnation: ProcessIncarnation::new(20, "old").unwrap(),
+                    provider_session: Some(ProviderSessionId::new("old").unwrap()),
+                },
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                let binding = records.insert_binding(&identity, &server, &pane)?;
+                records.set_session_state(&binding.id, &binding.session, &old)?;
+                Ok(())
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let stored = Storage::context_by_identity(&database, &identity.id, 0)
+            .unwrap()
+            .unwrap();
+        let next = event
+            .propose_superseding(&old, &ProcessIncarnation::new(21, "new").unwrap())
+            .unwrap();
+        let mut storage = Storage::open(&database).unwrap();
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                match race {
+                    "binding" => {
+                        records.detach_binding(&stored.entry.binding.as_ref().unwrap().id)?;
+                        records.insert_binding(&identity, &server, &pane)?;
+                    }
+                    "preferences" => {
+                        let preferences = SessionPreferences {
+                            channel: Some(true),
+                            preferred_harness: Some(harness.clone()),
+                            ..Default::default()
+                        };
+                        records.set_session_preferences(&identity.id, &preferences)?;
+                    }
+                    _ => (),
+                }
+                Ok(())
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let before = Storage::context_by_identity(&database, &identity.id, 0)
+            .unwrap()
+            .unwrap();
+        let mut storage = Storage::open(&database).unwrap();
+        let changed = commit_session(
+            &mut storage,
+            SessionCommit {
+                stored: &stored,
+                next: &next,
+                event: event.as_ref(),
+                harness: &harness,
+                mode: &mode,
+                fence_preferences: true,
+                launch: None,
+            },
+        )
+        .unwrap();
+        storage.close().unwrap();
+        let after = Storage::context_by_identity(&database, &identity.id, 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(changed, race == "unchanged", "{race}");
+        if changed {
+            assert_eq!(after.entry.binding.unwrap().session, next);
+        } else {
+            assert_eq!(after.entry, before.entry, "{race}");
+            assert_eq!(after.preferences, before.preferences, "{race}");
+        }
+    }
+}
+
+#[test]
 fn a_racing_binding_or_preferences_change_wins_over_an_interrupt() {
     assert_activity_cas("codex", "Interrupt", ActivityPhase::Idle);
 }

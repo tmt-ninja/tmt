@@ -220,6 +220,9 @@ fn preflight(
             };
             crate::caller_context::require_independent_host_for(name)?;
             return labeled_caller_pane(host, environment, || {
+                if matches!(request, Invocation::Whoami) {
+                    crate::caller_context::missing_caller_pane_hint();
+                }
                 Failure::new(
                     "PANE_NOT_FOUND",
                     "Not running inside a resolvable tmux pane.",

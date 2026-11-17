@@ -1408,6 +1408,16 @@ fn unsupported_host(run: Run<'_>) -> Result<Observation, ()> {
     Ok(Observation::default())
 }
 
+fn live_replacement_allowed(
+    host: HostEvidence,
+    previous: RuntimeLiveness,
+    owner: Option<RuntimeLiveness>,
+) -> bool {
+    matches!(host, HostEvidence::Independent { .. })
+        && previous == RuntimeLiveness::Alive
+        && matches!(owner, None | Some(RuntimeLiveness::Gone))
+}
+
 fn observe_lifecycle_event(
     provider: &str,
     harness: HarnessId,
@@ -1501,7 +1511,35 @@ fn observe_lifecycle_event(
             observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline)
                 .is_ok_and(|value| value.matches(owner) == RuntimeLiveness::Alive)
         });
-    let proposed = event.propose(&binding.session, &process, previous, host, owned_resume);
+    // A live incumbent is not dead: independently prove that it is not the
+    // pane's main provider before admitting the verified incoming start.
+    let superseding = event.starting()
+        && matches!(host, HostEvidence::Independent { .. })
+        && previous == RuntimeLiveness::Alive
+        && binding.session.key.as_ref().is_some_and(|old| {
+            old.incarnation != process
+                && live_replacement_allowed(
+                    host,
+                    previous,
+                    binding.session.launch_owner.as_ref().map(|owner| {
+                        observe_runtime_process(&SupervisedProbeRunner, owner.pid(), deadline)
+                            .map_or(RuntimeLiveness::Unknown, |observed| observed.matches(owner))
+                    }),
+                )
+                && lifecycle.proves_live_supersession(
+                    &SupervisedProbeRunner,
+                    u64::from(std::process::id()),
+                    binding.pane_pid,
+                    &process,
+                    &old.incarnation,
+                    deadline,
+                )
+        });
+    let proposed = if superseding {
+        event.propose_superseding(&binding.session, &process)
+    } else {
+        event.propose(&binding.session, &process, previous, host, owned_resume)
+    };
     // A verified channel maps its server back to the already-admitted
     // foreground. Its proposal proves the private record/owner fences; it is
     // not adoption of the server process as a new pane attachment.
@@ -1518,6 +1556,7 @@ fn observe_lifecycle_event(
                 process: &process,
                 previous,
                 host,
+                superseding,
             },
             lifecycle,
             &harness,
@@ -1694,6 +1733,7 @@ pub(super) struct StartCandidate<'a> {
     pub process: &'a ProcessIncarnation,
     pub previous: RuntimeLiveness,
     pub host: HostEvidence,
+    pub superseding: bool,
 }
 
 pub(super) fn refused_start(
@@ -1711,6 +1751,7 @@ pub(super) fn refused_start(
         process,
         previous,
         host,
+        superseding,
     } = candidate;
     let binding = stored.entry.binding.as_ref()?;
     let key = binding.session.key.as_ref();
@@ -1757,7 +1798,7 @@ pub(super) fn refused_start(
     }
     let ended = binding.session.state == RuntimeState::Ended
         || binding.session.last_transition == Some(SessionTransition::Ended);
-    if !plain && key.is_some() && !ended && previous != RuntimeLiveness::Gone {
+    if !plain && key.is_some() && !ended && previous != RuntimeLiveness::Gone && !superseding {
         return Some(if previous == RuntimeLiveness::Alive {
             Why::PreviousSessionLive
         } else {

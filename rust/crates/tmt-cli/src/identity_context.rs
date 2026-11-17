@@ -134,9 +134,13 @@ fn select(host: &Host, allow_anonymous: bool) -> Result<Option<Selector>, Failur
             Err(error)
         };
     }
-    host.caller_pane(&CallerEnvironment::current())
-        .map(|pane| pane.map(Selector::Pane))
-        .map_err(endpoint_failure)
+    let pane = host
+        .caller_pane(&CallerEnvironment::current())
+        .map_err(endpoint_failure)?;
+    if allow_anonymous && pane.is_none() {
+        crate::caller_context::missing_caller_pane_hint();
+    }
+    Ok(pane.map(Selector::Pane))
 }
 
 fn selected<H: std::borrow::Borrow<Host>>(

@@ -284,7 +284,20 @@ fn an_agent_ended_by_ctrl_c_keeps_its_terminal_a_failed_resume_keeps_it_and_rm_c
 fn lose_supervisor(world: &mut World, name: &str) {
     let supervisor = world.supervisor_of(name);
     kill(Pid::from_raw(supervisor.pid() as i32), Signal::SIGKILL).unwrap();
-    wait_for_gone(&supervisor);
+    // The host requires ESRCH or a different incarnation; `gone` also treats
+    // an unreaped zombie as gone, before the host can prove the binding lost.
+    super::attach::wait_for("the supervisor to be reaped or replaced", || {
+        recorded_process_gone(supervisor.pid())
+            || matches!(
+                observe_runtime_process(
+                    &UnixCommandRunner,
+                    supervisor.pid(),
+                    Instant::now() + Duration::from_secs(3),
+                ),
+                Ok(ProcessObservation::Live(now) | ProcessObservation::Stopped(now))
+                    if now != supervisor
+            )
+    });
 }
 
 /// After a reboot the member gets a new built-in terminal in the folder the workspace

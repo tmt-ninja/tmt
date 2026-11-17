@@ -339,6 +339,14 @@ pane ([list detected panes](../../../../contracts/identity-status-v1.md#list-det
   - When Claude sets `CLAUDE_PID`, it must equal the main provider's PID. A present value that
     is not a nonzero `u32`, or is not UTF-8, refuses. Without it (an older Claude), the main
     provider is admitted as before.
+  - A verified main start may replace a distinct, still-live recorded runtime only when one
+    process snapshot proves both the incoming main provider and the recorded incarnation's
+    non-main placement. The old launch owner must be absent or conclusively gone; shared
+    hosts and uncertain evidence refuse. The existing full binding/preferences CAS commits
+    the replacement, without declaring the old process dead or changing the pane identity.
+  - If caller-pane proof fails and `CLAUDE_JOB_DIR` is present, Claude supplies an explanatory
+    stderr hint to stop the background agent and resume its session in the pane. The variable
+    selects a hint only: it grants no caller, binding, or delivery authority.
   - A hook on a shared runtime host keeps its own rule: the exact stored provider session or
     verified binding, and the host's runtime PID, attribute it, not pane ancestry.
   - Known limit: a continuation that a Claude daemon hosts is not recorded for the pane. To
