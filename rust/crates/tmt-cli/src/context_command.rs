@@ -2,7 +2,7 @@
 
 mod presentation;
 
-use crate::invocation::OutputMode;
+use crate::output::Failure;
 use std::{
     io::{self, Write},
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -20,11 +20,25 @@ use tmt_core::{
     identity::NotesIdentityId,
 };
 
-pub fn execute(mode: OutputMode) -> io::Result<u8> {
-    let document = observe().unwrap_or_else(presentation::unavailable);
-    let output = presentation::bounded(document, mode.json)?;
-    tmt_cli_style::stream::stdout(mode.json).write_all(output.as_bytes())?;
-    Ok(0)
+pub(crate) struct Report(serde_json::Value);
+
+pub(crate) fn run() -> Result<Report, Failure> {
+    Ok(Report(observe().unwrap_or_else(presentation::unavailable)))
+}
+
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        _: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        stdout.write_all(presentation::bounded_human(self.0.clone())?.as_bytes())
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        stdout.write_all(presentation::bounded_json(self.0.clone())?.as_bytes())
+    }
 }
 
 fn observe() -> Option<serde_json::Value> {
@@ -126,7 +140,7 @@ pub(crate) fn render_verified(
         .notes_compaction_reminder()
         .unwrap_or(false);
     let document = verified_document_with_reminder(stored, paths, deadline, enabled);
-    presentation::bounded(document, false)
+    presentation::bounded_human(document)
 }
 
 /// An already verified prompt carries incoming attention and consented extension
@@ -148,7 +162,7 @@ pub(crate) fn render_prompt(
 }
 
 pub(crate) fn unbound_text() -> io::Result<String> {
-    presentation::bounded(presentation::unbound(), false)
+    presentation::bounded_human(presentation::unbound())
 }
 
 #[cfg(test)]

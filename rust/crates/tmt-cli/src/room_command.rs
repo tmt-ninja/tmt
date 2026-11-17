@@ -4,7 +4,7 @@ mod dispatch;
 
 use crate::{
     identity_context,
-    invocation::{OutputMode, RoomOperation},
+    invocation::RoomOperation,
     output::{Failure, after_cleanup},
 };
 use std::io::{self, Write};
@@ -65,12 +65,16 @@ fn resolve_failure(error: ResolveError<RoomStoreError>, selector: &str) -> Failu
     }
 }
 
-enum Report {
+pub(crate) enum Report {
+    Dispatch(dispatch::Report),
     One(MeetingRoom),
     List(Vec<MeetingRoom>),
 }
 
-fn run(operation: RoomOperation) -> Result<Report, Failure> {
+pub(crate) fn run(operation: RoomOperation) -> Result<Report, Failure> {
+    if matches!(operation, RoomOperation::Dispatch { .. }) {
+        return dispatch::run(operation).map(|receipt| Report::Dispatch(dispatch::Report(receipt)));
+    }
     let selector = match &operation {
         RoomOperation::Membership { identity, .. } => {
             Some(identity_context::required(identity.as_deref())?)
@@ -169,26 +173,18 @@ fn write_list(
     list::write(output, terminal, &sections)
 }
 
-pub fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<u8> {
-    if matches!(operation, RoomOperation::Dispatch { .. }) {
-        return dispatch::execute(operation, mode);
-    }
-    let report = match run(operation) {
-        Ok(report) => report,
-        Err(error) => return error.publish(mode),
-    };
-    let mut out = tmt_cli_style::stream::stdout(mode.json);
-    if mode.json {
-        let value = match &report {
-            Report::One(room) => serde_json::json!({"room": RoomWire::from(room)}),
-            Report::List(rooms) => {
-                serde_json::json!({"rooms": rooms.iter().map(RoomWire::from).collect::<Vec<_>>()})
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        mut out: &mut dyn Write,
+        stderr: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        stderr_terminal: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        match self {
+            Report::Dispatch(receipt) => {
+                tmt_cli_style::Render::human(receipt, &mut out, stderr, terminal, stderr_terminal)?
             }
-        };
-        writeln!(out, "{value}")?;
-    } else {
-        let terminal = out.terminal();
-        match &report {
             Report::One(room) => tmt_cli_style::detail::write(
                 &mut out,
                 terminal,
@@ -213,8 +209,21 @@ pub fn execute(operation: RoomOperation, mode: OutputMode) -> io::Result<u8> {
             }
             Report::List(rooms) => write_list(&mut out, terminal, rooms)?,
         }
+        Ok(())
     }
-    Ok(0)
+    fn json(&self, out: &mut dyn Write) -> io::Result<()> {
+        match self {
+            Report::Dispatch(receipt) => tmt_cli_style::Render::json(receipt, out),
+            Report::One(room) => {
+                writeln!(out, "{}", serde_json::json!({"room": RoomWire::from(room)}))
+            }
+            Report::List(rooms) => writeln!(
+                out,
+                "{}",
+                serde_json::json!({"rooms": rooms.iter().map(RoomWire::from).collect::<Vec<_>>() })
+            ),
+        }
+    }
 }
 
 // Source-checked command samples for the printed-command guard.

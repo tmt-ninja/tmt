@@ -57,6 +57,28 @@ pub trait Render {
         stderr_terminal: Terminal,
     ) -> io::Result<()>;
     fn json(&self, stdout: &mut dyn Write) -> io::Result<()>;
+    /// A report may carry a partial result with a nonzero status.
+    fn exit_status(&self) -> u8 {
+        0
+    }
+}
+
+impl<T: Render + ?Sized> Render for &T {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        stderr: &mut dyn Write,
+        out: Terminal,
+        err: Terminal,
+    ) -> io::Result<()> {
+        T::human(self, stdout, stderr, out, err)
+    }
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        T::json(self, stdout)
+    }
+    fn exit_status(&self) -> u8 {
+        T::exit_status(self)
+    }
 }
 
 /// A failure owns its existing exit status, independent of its presentation.
@@ -104,7 +126,7 @@ impl CliOutput {
                 } else {
                     value.human(stdout, stderr, stdout_terminal, stderr_terminal)?;
                 }
-                Ok(0)
+                Ok(value.exit_status())
             }
             Err(error) => {
                 if self.json {
@@ -112,7 +134,7 @@ impl CliOutput {
                 } else {
                     error.human(stdout, stderr, stdout_terminal, stderr_terminal)?;
                 }
-                Ok(error.exit_status())
+                Ok(RenderFailure::exit_status(&error))
             }
         }
     }
@@ -124,6 +146,7 @@ mod output_tests {
 
     struct Good;
     struct Bad;
+    struct Partial;
     impl Render for Good {
         fn human(
             &self,
@@ -156,6 +179,41 @@ mod output_tests {
         fn exit_status(&self) -> u8 {
             4
         }
+    }
+
+    impl Render for Partial {
+        fn human(
+            &self,
+            out: &mut dyn Write,
+            err: &mut dyn Write,
+            ot: Terminal,
+            et: Terminal,
+        ) -> io::Result<()> {
+            Good.human(out, err, ot, et)
+        }
+        fn json(&self, out: &mut dyn Write) -> io::Result<()> {
+            Good.json(out)
+        }
+        fn exit_status(&self) -> u8 {
+            5
+        }
+    }
+
+    #[test]
+    fn partial_report_is_printed_with_its_nonzero_status() {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let status = CliOutput::new(true)
+            .finish_to::<_, Bad>(
+                Ok(&Partial),
+                &mut out,
+                &mut err,
+                Terminal::PLAIN,
+                Terminal::PLAIN,
+            )
+            .unwrap();
+        assert_eq!(status, 5);
+        assert_eq!(out, b"{\"ok\":true}\n");
+        assert!(err.is_empty());
     }
 
     #[test]

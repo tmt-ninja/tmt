@@ -3,7 +3,7 @@
 
 use crate::{
     identity_context,
-    invocation::{IdentityFilterRequest, IdentityMetadataRequest, IdentityRequest, OutputMode},
+    invocation::{IdentityFilterRequest, IdentityMetadataRequest, IdentityRequest},
     output::{Failure, after_cleanup, identity_document},
 };
 use serde_json::json;
@@ -24,7 +24,7 @@ use tmt_core::{
 
 mod status;
 
-enum Report {
+pub(crate) enum Report {
     Status(status::Report),
     Created(identity::CreatedIdentity),
     /// The identity with its remembered-session projection (JSON only) and, for a pinned
@@ -112,7 +112,7 @@ fn metadata_failure(error: MetadataError<StorageError>) -> Failure {
     }
 }
 
-fn run(request: IdentityRequest) -> Result<Report, Failure> {
+pub(crate) fn run(request: IdentityRequest) -> Result<Report, Failure> {
     // Explicit named identity operations remain storage-only and do not probe tmux.
     let selector = match &request {
         IdentityRequest::Metadata { identity, .. } | IdentityRequest::Status { identity, .. } => {
@@ -399,26 +399,28 @@ fn write_list(
     list::write(output, terminal, &sections)
 }
 
-pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
-    let report = match run(request) {
-        Ok(report) => report,
-        Err(error) => return error.publish(mode),
-    };
-    let outcome = match &report {
-        Report::Created(result) if result.created => {
-            crate::skill_reminder::Outcome::SavedIdentityCreated {
-                name: result.identity.name.clone(),
+impl Report {
+    pub(crate) fn reminder(&self) -> crate::skill_reminder::Outcome {
+        match self {
+            Report::Created(result) if result.created => {
+                crate::skill_reminder::Outcome::SavedIdentityCreated {
+                    name: result.identity.name.clone(),
+                }
             }
+            _ => crate::skill_reminder::Outcome::None,
         }
-        _ => crate::skill_reminder::Outcome::None,
-    };
-    let mut stdout = tmt_cli_style::stream::stdout(mode.json);
-    let terminal = stdout.terminal();
-    if mode.json {
-        let document = document(&report);
-        writeln!(stdout, "{document}")?;
-    } else {
-        match report {
+    }
+}
+
+impl tmt_cli_style::Render for Report {
+    fn human(
+        &self,
+        mut stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: tmt_cli_style::Terminal,
+        _: tmt_cli_style::Terminal,
+    ) -> io::Result<()> {
+        match self {
             Report::Status(report) => report.write(&mut stdout, terminal)?,
             Report::Created(result) => {
                 if result.created {
@@ -441,11 +443,11 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
             Report::Shown(identity, _, presence, learning) => {
                 let mut fields = vec![
                     ("lifetime", identity.lifetime.as_str().to_owned()),
-                    ("canonical", identity.canonical_name),
-                    ("id", identity.id),
+                    ("canonical", identity.canonical_name.clone()),
+                    ("id", identity.id.clone()),
                 ];
                 if let Some(presence) = presence {
-                    fields.push(("presence", presence.to_owned()));
+                    fields.push(("presence", (*presence).to_owned()));
                 }
                 tmt_cli_style::detail::write(&mut stdout, terminal, &identity.name, &fields)?;
                 if let Some(learning) = learning {
@@ -461,14 +463,14 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                 writeln!(stdout, "No identities found.")?;
                 tmt_cli_style::message::hint(&mut stdout, terminal, "tmt name <name>")?;
             }
-            Report::Listed(identities) => write_list(&mut stdout, terminal, identities)?,
+            Report::Listed(identities) => write_list(&mut stdout, terminal, identities.clone())?,
             Report::MetadataSet {
                 key,
                 value,
                 changed,
                 ..
             } => {
-                if changed {
+                if *changed {
                     tmt_cli_style::message::success(
                         &mut stdout,
                         terminal,
@@ -503,7 +505,7 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                     .collect::<Vec<_>>(),
             )?,
             Report::MetadataRemoved { key, removed, .. } => {
-                if removed {
+                if *removed {
                     tmt_cli_style::message::success(
                         &mut stdout,
                         terminal,
@@ -514,10 +516,11 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                 }
             }
         }
+        Ok(())
     }
-    drop(stdout);
-    crate::skill_reminder::present(outcome, mode, true);
-    Ok(0)
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        writeln!(stdout, "{}", document(self))
+    }
 }
 
 // Source-checked command samples for the printed-command guard.

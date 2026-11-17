@@ -9,7 +9,7 @@ use tmt_adapters::{
 };
 use tmt_core::identity_status::{self, IdentityStatus, StatusError};
 
-pub(super) enum Report {
+pub(crate) enum Report {
     Snapshot {
         identity_id: String,
         status: Option<IdentityStatus>,

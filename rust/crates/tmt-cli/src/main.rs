@@ -128,10 +128,12 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         return workspace_snapshot_command::execute(&parsed.invocation, parsed.mode);
     }
     if let Invocation::Discover { host, socket } = &parsed.invocation {
-        return discovery_command::execute(host.as_deref(), socket.as_deref(), parsed.mode);
+        return tmt_cli_style::CliOutput::new(parsed.mode.json)
+            .finish(discovery_command::run(host.as_deref(), socket.as_deref()));
     }
     if matches!(parsed.invocation, Invocation::GuardedBind { .. }) {
-        return binding_command::execute_guarded(parsed.invocation, parsed.mode);
+        return tmt_cli_style::CliOutput::new(parsed.mode.json)
+            .finish(binding_command::prepare_guarded(parsed.invocation));
     }
     // The updater's frozen skill-refresh protocol owns its own path admission
     // and output. Driver registration would discover configuration first and
@@ -216,6 +218,18 @@ fn write_exact(
     write(&mut io::stdout().lock())
 }
 
+/// Advisory work follows a successfully written result, never a failed publication.
+fn output_then_advisories(
+    publish: impl FnOnce() -> io::Result<u8>,
+    reminder: impl FnOnce(),
+    refresh: impl FnOnce(),
+) -> io::Result<u8> {
+    let status = publish()?;
+    reminder();
+    refresh();
+    Ok(status)
+}
+
 fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
     let output = (parsed.invocation.output_boundary() == invocation::OutputBoundary::Paired)
         .then(|| tmt_cli_style::CliOutput::new(parsed.mode.json));
@@ -280,10 +294,16 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             write_exact(|stdout| grammar::completion::generate(&shell, stdout))?;
         }
         Invocation::Discover { host, socket } => {
-            return discovery_command::execute(host.as_deref(), socket.as_deref(), parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(discovery_command::run(host.as_deref(), socket.as_deref()));
         }
         request @ Invocation::GuardedBind { .. } => {
-            return binding_command::execute_guarded(request, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(binding_command::prepare_guarded(request));
         }
         Invocation::Config(request) => {
             return output
@@ -449,10 +469,28 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return request_observer_command::execute(&request_id);
         }
         Invocation::Identity(request) => {
-            return identity_command::execute(request, parsed.mode);
+            let report = match identity_command::run(request) {
+                Ok(report) => report,
+                Err(error) => {
+                    return output
+                        .as_ref()
+                        .expect("paired output")
+                        .finish::<identity_command::Report, _>(Err(error));
+                }
+            };
+            let reminder = report.reminder();
+            let status = output
+                .as_ref()
+                .expect("paired output")
+                .finish::<_, crate::output::Failure>(Ok(&report))?;
+            crate::skill_reminder::present(reminder, parsed.mode, true);
+            return Ok(status);
         }
         Invocation::Room(request) => {
-            return room_command::execute(request, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(room_command::run(request));
         }
         Invocation::Tick(operation) => return tick_command::execute(operation, parsed.mode),
         Invocation::Orch(request) => return orch_command::execute(request, parsed.mode),
@@ -481,7 +519,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return talk_command::remote::execute(request, parsed.mode);
         }
         request @ (Invocation::Role { .. } | Invocation::Preamble(_)) => {
-            return profile_command::execute(request, parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(profile_command::run(request));
         }
         Invocation::Check {
             target,
@@ -516,7 +557,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return send_now_command::execute(request, parsed.mode);
         }
         Invocation::WhoamiContext => {
-            return context_command::execute(parsed.mode);
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(context_command::run());
         }
         request @ (Invocation::Bind { .. }
         | Invocation::BindMarked { .. }
@@ -525,7 +569,25 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         | Invocation::Remove { .. }
         | Invocation::Rename { .. }
         | Invocation::List { .. }) => {
-            return binding_command::execute(request, parsed.mode);
+            let report = match binding_command::prepare(request) {
+                Ok(report) => report,
+                Err(error) => {
+                    return output
+                        .as_ref()
+                        .expect("paired output")
+                        .finish::<binding_command::Presentation, _>(Err(error));
+                }
+            };
+            return output_then_advisories(
+                || {
+                    output
+                        .as_ref()
+                        .expect("paired output")
+                        .finish::<_, crate::output::Failure>(Ok(&report))
+                },
+                || crate::skill_reminder::present(report.reminder(), parsed.mode, true),
+                || report.refresh(),
+            );
         }
         Invocation::Upgrade {
             channel,
@@ -641,6 +703,30 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 #[cfg(test)]
 mod failure_tests {
     use super::*;
+
+    #[test]
+    fn binding_output_precedes_reminder_and_workspace_refresh() {
+        let order = std::cell::RefCell::new(Vec::new());
+        let status = output_then_advisories(
+            || {
+                order.borrow_mut().push("output");
+                Ok(3)
+            },
+            || order.borrow_mut().push("reminder"),
+            || order.borrow_mut().push("refresh"),
+        )
+        .unwrap();
+        assert_eq!(status, 3);
+        assert_eq!(*order.borrow(), ["output", "reminder", "refresh"]);
+        order.borrow_mut().clear();
+        let result = output_then_advisories(
+            || Err(io::Error::other("closed")),
+            || order.borrow_mut().push("reminder"),
+            || order.borrow_mut().push("refresh"),
+        );
+        assert!(result.is_err());
+        assert!(order.borrow().is_empty());
+    }
 
     #[test]
     fn parser_hints_are_human_only_and_replace_claps_help_footer() {

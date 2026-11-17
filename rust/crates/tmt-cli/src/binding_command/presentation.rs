@@ -860,10 +860,10 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
 
 /// Non-fatal problems after a committed change, for standard error.
 pub(super) fn warnings(
-    output: &mut tmt_cli_style::stream::Stream<impl Write>,
+    output: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
     report: &Report,
 ) -> io::Result<()> {
-    let terminal = output.terminal();
     match report {
         Report::Renamed {
             result,
@@ -887,11 +887,11 @@ pub(super) fn warnings(
 /// The host did not confirm the agent name after a committed bind or rename:
 /// the cause, that the binding stays, and the fix.
 pub(super) fn agent_name_warning(
-    output: &mut tmt_cli_style::stream::Stream<impl Write>,
+    output: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
     name: &str,
     error: &tmt_adapters::host::HostError,
 ) -> io::Result<()> {
-    let terminal = output.terminal();
     let (what, fix) = agent_name_text(name, error);
     message::warning(output, terminal, &what, Some(&fix))
 }
