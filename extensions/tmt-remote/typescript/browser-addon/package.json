@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vp build",
-    "check": "tsc --noEmit && vp lint --config vite.config.ts --deny-warnings src e2e *.ts && vp fmt --config vite.config.ts --check .",
+    "check": "tsc --noEmit && vp lint --config vite.config.ts --deny-warnings src e2e scripts *.ts && vp fmt --config vite.config.ts --check .",
     "test": "vp test run --config vite.config.ts",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "generate:icons": "node scripts/generate-icons.mjs --write"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'extensions/tmt-remote/typescript/browser-addon/**'
+      - 'design/browser-ui/generated/favicon.svg'
       - '.github/workflows/browser-addon.yml'
       - '.github/actions/setup-tooling/**'
       - '.github/actions/install-chromium-deps/**'
