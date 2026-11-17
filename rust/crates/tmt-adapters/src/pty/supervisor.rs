@@ -99,6 +99,9 @@ pub struct TerminalOf {
     pub owner: String,
     /// When it was opened, in Unix milliseconds.
     pub created_ms: u64,
+    /// Exact member process incarnation recorded at open.
+    pub member_pid: u64,
+    pub member_start: String,
     /// Whether the owner's member supervisor still runs (its PID and start time), asked
     /// once per `OWNER_CHECK`.
     pub member_alive: Box<dyn FnMut() -> bool + Send>,
@@ -109,6 +112,23 @@ pub struct TerminalOf {
 fn shell_name(program: &std::ffi::OsStr) -> Option<String> {
     let name = Path::new(program).file_name()?.to_string_lossy();
     tmt_pty_protocol::display_name(name.trim_start_matches('-'))
+}
+
+/// Resolve the expected image before starting it; never adopt an arbitrary later
+/// image as the shell. macOS sh(1) documents its /bin/sh re-exec selector. If that
+/// selector is unknown, Run refuses rather than guessing the dispatcher's fallback.
+fn shell_executable(program: &std::ffi::OsStr) -> Option<PathBuf> {
+    let path = fs::canonicalize(program).ok()?;
+    #[cfg(target_os = "macos")]
+    if path == Path::new("/bin/sh") {
+        let selected = fs::canonicalize("/private/var/select/sh").ok()?;
+        return matches!(
+            selected.to_str(),
+            Some("/bin/bash" | "/bin/dash" | "/bin/zsh")
+        )
+        .then_some(selected);
+    }
+    Some(path)
 }
 
 /// The socket and lock files of a running supervisor, removed when it ends. Ids
@@ -312,6 +332,8 @@ pub struct Supervisor {
     /// An extra terminal's shell name (#6112): the started program's file name
     /// without a login dash, cleaned as display text.
     shell_name: Option<String>,
+    /// The selected shell binary, separate from its untrusted display name.
+    shell_executable: Option<PathBuf>,
     // Drop order: the files go before the lock is released.
     _files: Files,
     _lock: Flock<File>,
@@ -399,6 +421,7 @@ impl Supervisor {
         fcntl(&terminal.master, FcntlArg::F_SETFL(OFlag::O_NONBLOCK))?;
         let slave_path = ttyname(&terminal.slave)?;
         let settings = tcgetattr(&terminal.slave)?;
+        let shell_executable = extra.as_ref().and_then(|_| shell_executable(name));
         let child = spawn(name, arguments, &environment, terminal.slave)?;
         Ok(Self {
             listener,
@@ -431,6 +454,7 @@ impl Supervisor {
             paused: false,
             foreground: (Instant::now(), false),
             shell_name: extra.as_ref().and_then(|_| shell_name(name)),
+            shell_executable,
             terminal: extra.map(|extra| (extra, Instant::now())),
             _files: files,
             _lock: lock,
@@ -1039,7 +1063,8 @@ impl Supervisor {
     }
 
     /// Controls share the supervisor's serialization with the stream. No control
-    /// creates key activity, resizes the terminal or captures scrollback.
+    /// creates key activity, resizes the terminal or captures scrollback. TerminalRun
+    /// is an explicit human-confirmed submission to an extra shell, serialized here.
     fn control(&mut self, index: usize, request: Control) {
         // Nothing runs to listen or launch after the program ended, so a wait that
         // arrives then is answered at once instead of never.
@@ -1102,7 +1127,61 @@ impl Supervisor {
                 close: true,
                 terminal: self.terminal.is_some(),
                 terminal_detail: self.terminal.is_some(),
+                terminal_run: self.terminal.is_some(),
             },
+            Control::TerminalRun {
+                owner,
+                member_pid,
+                member_start,
+                command,
+            } => {
+                use tmt_pty_protocol::TerminalRunResult;
+                let result = match &self.terminal {
+                    None => TerminalRunResult::Stale,
+                    Some((terminal, _))
+                        if terminal.owner != owner
+                            || terminal.member_pid != member_pid
+                            || terminal.member_start != member_start =>
+                    {
+                        TerminalRunResult::Stale
+                    }
+                    Some(_) if self.child.is_none() || self.closing => TerminalRunResult::Ended,
+                    Some(_) => {
+                        // Unknown foreground evidence refuses, rather than treating it as idle.
+                        let foreground_is_shell =
+                            tcgetpgrp(self.master.as_fd()).ok().is_some_and(|group| {
+                                self.child.as_ref().is_some_and(|child| {
+                                    group.as_raw() > 0
+                                        && group.as_raw().unsigned_abs() == child.id()
+                                })
+                            });
+                        // `exec` can keep the shell's PID and foreground group. Only the
+                        // kernel's executable path, never a display name, confirms its image.
+                        let shell_unchanged =
+                            self.shell_executable.as_ref().is_some_and(|expected| {
+                                self.child
+                                    .as_ref()
+                                    .and_then(|child| i32::try_from(child.id()).ok())
+                                    .and_then(tmt_sys::process_executable)
+                                    .is_some_and(|actual| Path::new(&actual) == expected)
+                            });
+                        if !foreground_is_shell || !shell_unchanged || !self.input.is_empty() {
+                            TerminalRunResult::Busy
+                        } else {
+                            if self.screen.screen().bracketed_paste() {
+                                self.input.extend(b"\x1b[200~");
+                            }
+                            self.input.extend(command.as_bytes());
+                            if self.screen.screen().bracketed_paste() {
+                                self.input.extend(b"\x1b[201~");
+                            }
+                            self.input.push_back(b'\r');
+                            TerminalRunResult::Submitted
+                        }
+                    }
+                };
+                ControlReply::TerminalRan(result)
+            }
             Control::Terminal => match &self.terminal {
                 Some((terminal, _)) => ControlReply::Terminal {
                     owner: terminal.owner.clone(),

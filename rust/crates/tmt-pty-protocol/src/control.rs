@@ -19,6 +19,7 @@ const RELAUNCH: u8 = 0x2c;
 const CLOSE: u8 = 0x2d;
 const TERMINAL: u8 = 0x2e;
 const TERMINAL_DETAIL: u8 = 0x2f;
+const TERMINAL_RUN: u8 = 0x30;
 const STATE: u8 = 0xa0;
 const APPLIED: u8 = 0xa1;
 const SCREEN: u8 = 0xa2;
@@ -27,6 +28,7 @@ const LAUNCHED: u8 = 0xa4;
 const CAPABILITY_FLAGS: u8 = 0xa5;
 const TERMINAL_OWNER: u8 = 0xa6;
 const TERMINAL_DETAILS: u8 = 0xa7;
+const TERMINAL_RAN: u8 = 0xa8;
 /// Bit 0 of the capability flags: the supervisor answers `Control::Resume`.
 const RESUME_FLAG: u8 = 0x01;
 /// Bit 1: the supervisor keeps its terminal after the program ends and answers
@@ -39,6 +41,18 @@ const CLOSE_FLAG: u8 = 0x04;
 const TERMINAL_FLAG: u8 = 0x08;
 /// Bit 4: the extra terminal also answers `Control::TerminalDetail` (#6112).
 const TERMINAL_DETAIL_FLAG: u8 = 0x10;
+const TERMINAL_RUN_FLAG: u8 = 0x20;
+/// Maximum bytes in a human-confirmed, single-line terminal command.
+pub const COMMAND_LIMIT: usize = 4096;
+
+/// Commands shown in a confirmation must contain no hidden input or line breaks.
+pub fn valid_command(command: &str) -> bool {
+    !command.trim().is_empty()
+        && command.len() <= COMMAND_LIMIT
+        && !command.chars().any(|c| {
+            c.is_control() || matches!(c, '\u{00ad}' | '\u{034f}' | '\u{061c}' | '\u{180e}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{fff9}'..='\u{fffb}')
+        })
+}
 /// A shell or program name is display text; this bounds it in bytes.
 pub const NAME_LIMIT: usize = 64;
 /// An identity UUID and a start identity are short; this bounds a reply.
@@ -103,6 +117,22 @@ pub enum Control {
     /// capability answers it; the reply to `Terminal` keeps its released bytes,
     /// because a released decoder refuses trailing bytes.
     TerminalDetail,
+    /// Submit once to an extra terminal's idle shell, only for this member launch.
+    TerminalRun {
+        owner: String,
+        member_pid: u64,
+        member_start: String,
+        command: String,
+    },
+}
+
+/// Closed result of an atomic ownership/foreground check and submission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalRunResult {
+    Submitted,
+    Stale,
+    Busy,
+    Ended,
 }
 
 /// What a relaunch starts. Only `Shell` changes what the supervisor reports:
@@ -147,6 +177,7 @@ pub enum ControlReply {
         relaunching: bool,
     },
     Applied(bool),
+    TerminalRan(TerminalRunResult),
     Screen(String),
     Error(String),
     /// The committed binding marker accompanying a managed-launch receipt.
@@ -160,6 +191,7 @@ pub enum ControlReply {
         close: bool,
         terminal: bool,
         terminal_detail: bool,
+        terminal_run: bool,
     },
     /// The answer to `Control::Terminal`: the identity UUID the terminal was
     /// opened for, when it started (Unix milliseconds), and whether the
@@ -259,6 +291,7 @@ impl Frame for Control {
             Self::Close => CLOSE,
             Self::Terminal => TERMINAL,
             Self::TerminalDetail => TERMINAL_DETAIL,
+            Self::TerminalRun { .. } => TERMINAL_RUN,
         }
     }
     fn write_payload(&self, out: &mut Vec<u8>) {
@@ -282,6 +315,17 @@ impl Frame for Control {
                 put(out, key);
                 put(out, marker);
                 put(out, expected_key.as_deref().unwrap_or(""));
+            }
+            Self::TerminalRun {
+                owner,
+                member_pid,
+                member_start,
+                command,
+            } => {
+                put(out, owner);
+                out.extend_from_slice(&member_pid.to_be_bytes());
+                put(out, member_start);
+                put(out, command);
             }
             Self::Clear { key } => put(out, key),
             Self::Paste(bytes) => out.extend_from_slice(bytes),
@@ -321,6 +365,21 @@ impl Frame for Control {
             CLOSE => Self::Close,
             TERMINAL => Self::Terminal,
             TERMINAL_DETAIL => Self::TerminalDetail,
+            TERMINAL_RUN => {
+                let owner = nonempty(string(&mut bytes, OWNER_LIMIT)?)?;
+                let member_pid = u64::from_be_bytes(take(&mut bytes, 8)?.try_into().unwrap());
+                let member_start = nonempty(string(&mut bytes, OWNER_LIMIT)?)?;
+                let command = string(&mut bytes, COMMAND_LIMIT)?;
+                if member_pid == 0 || !valid_command(&command) {
+                    return Err(malformed());
+                }
+                Self::TerminalRun {
+                    owner,
+                    member_pid,
+                    member_start,
+                    command,
+                }
+            }
             RELAUNCH => {
                 let kind = match take(&mut bytes, 1)? {
                     [0] => RelaunchKind::Resume,
@@ -393,6 +452,7 @@ impl Frame for ControlReply {
         match self {
             Self::State { .. } => STATE,
             Self::Applied(_) => APPLIED,
+            Self::TerminalRan(_) => TERMINAL_RAN,
             Self::Screen(_) => SCREEN,
             Self::Error(_) => ERROR,
             Self::Launched(_) => LAUNCHED,
@@ -428,6 +488,12 @@ impl Frame for ControlReply {
                 out.push(u8::from(*shell));
                 out.push(u8::from(*relaunching));
             }
+            Self::TerminalRan(result) => out.push(match result {
+                TerminalRunResult::Submitted => 0,
+                TerminalRunResult::Stale => 1,
+                TerminalRunResult::Busy => 2,
+                TerminalRunResult::Ended => 3,
+            }),
             Self::Applied(value) => out.push(u8::from(*value)),
             Self::Capabilities {
                 resume,
@@ -435,6 +501,7 @@ impl Frame for ControlReply {
                 close,
                 terminal,
                 terminal_detail,
+                terminal_run,
             } => out.push(
                 [
                     (resume, RESUME_FLAG),
@@ -442,6 +509,7 @@ impl Frame for ControlReply {
                     (close, CLOSE_FLAG),
                     (terminal, TERMINAL_FLAG),
                     (terminal_detail, TERMINAL_DETAIL_FLAG),
+                    (terminal_run, TERMINAL_RUN_FLAG),
                 ]
                 .into_iter()
                 .filter(|(granted, _)| **granted)
@@ -521,6 +589,13 @@ impl Frame for ControlReply {
                     relaunching,
                 }
             }
+            TERMINAL_RAN => Self::TerminalRan(match take(&mut bytes, 1)? {
+                [0] => TerminalRunResult::Submitted,
+                [1] => TerminalRunResult::Stale,
+                [2] => TerminalRunResult::Busy,
+                [3] => TerminalRunResult::Ended,
+                _ => return Err(malformed()),
+            }),
             APPLIED => {
                 let answer = match take(&mut bytes, 1)? {
                     [0] => false,
@@ -539,6 +614,7 @@ impl Frame for ControlReply {
                     close: flags & CLOSE_FLAG != 0,
                     terminal: flags & TERMINAL_FLAG != 0,
                     terminal_detail: flags & TERMINAL_DETAIL_FLAG != 0,
+                    terminal_run: flags & TERMINAL_RUN_FLAG != 0,
                 }
             }
             TERMINAL_OWNER | TERMINAL_DETAILS => {

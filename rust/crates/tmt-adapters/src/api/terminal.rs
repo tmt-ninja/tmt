@@ -5,6 +5,7 @@
 //! terminal of a member whose program ended; they are the operations here with an effect.
 //! `terminal.open`, `terminal.list` and `terminal.close` manage a member's extra terminals
 //! (`pty::terminal`) on any host: login shells the member owns, never panes or Talk targets.
+//! `terminal.run` confirms one command submission through that terminal owner.
 use super::{Fault, Request, invalid};
 use crate::{
     config::ConfigPaths,
@@ -128,6 +129,84 @@ pub(super) fn decode_close(input: &[u8]) -> Result<Request, Fault> {
         terminal_id: input.terminal_id,
         force: input.force,
     })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RunInput {
+    identity_id: String,
+    terminal_id: String,
+    command: String,
+}
+
+pub(super) fn decode_run(input: &[u8]) -> Result<Request, Fault> {
+    let input: RunInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+    if !tmt_core::dispatch::canonical_id(&input.identity_id)
+        || !terminal::is_terminal_id(&input.terminal_id)
+        || !tmt_pty_protocol::valid_command(&input.command)
+    {
+        return Err(invalid());
+    }
+    Ok(Request::TerminalRun {
+        identity_id: input.identity_id,
+        terminal_id: input.terminal_id,
+        command: input.command,
+    })
+}
+
+pub(super) fn run(
+    paths: &ConfigPaths,
+    storage: &mut Storage,
+    id: &str,
+    terminal_id: &str,
+    command: &str,
+) -> Result<Vec<u8>, Fault> {
+    use terminal::RunError;
+    use tmt_pty_protocol::TerminalRunResult;
+    let binding = member(storage, id)?;
+    let (pid, start) = owner_process(&binding).map_err(|_| no_live_member())?;
+    terminal::run(
+        paths,
+        terminal_id,
+        &terminal::Owner {
+            identity: id,
+            pid,
+            start: &start,
+        },
+        command,
+    )
+    .map_err(|error| match error {
+        RunError::NotFound => Fault::new(
+            "TERMINAL_NOT_FOUND",
+            "No running terminal has this id; nothing was submitted.",
+        ),
+        RunError::Unavailable(cause) => Fault::detailed(
+            "TERMINAL_STREAM_UNAVAILABLE",
+            format!("Nothing was submitted: the terminal could not be confirmed: {cause}"),
+        ),
+        RunError::Unsupported => Fault::new(
+            "TERMINAL_RUN_UNSUPPORTED",
+            "This terminal cannot confirm command submission; nothing was submitted.",
+        ),
+        RunError::Refused(TerminalRunResult::Busy) => Fault::new(
+            "TERMINAL_BUSY",
+            "The terminal's shell is not idle; nothing was submitted.",
+        ),
+        RunError::Refused(TerminalRunResult::Ended) => Fault::new(
+            "TERMINAL_ENDED",
+            "The terminal has ended; nothing was submitted.",
+        ),
+        RunError::Refused(_) => Fault::new(
+            "TERMINAL_STALE",
+            "The terminal belongs to a different member launch; nothing was submitted.",
+        ),
+        RunError::Unconfirmed(cause) => Fault::detailed(
+            "TERMINAL_RUN_UNCONFIRMED",
+            format!("The command may have been submitted; do not retry automatically: {cause}"),
+        ),
+    })?;
+    serde_json::to_vec(&json!({"identityId": id, "terminalId": terminal_id, "submitted": true}))
+        .map_err(|_| Fault::unavailable())
 }
 
 fn unavailable() -> Fault {
@@ -638,6 +717,32 @@ mod tests {
         ] {
             assert_eq!(
                 decode(input.to_string().as_bytes()).err().unwrap().code(),
+                "API_INPUT_INVALID",
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn command_requests_pin_the_identity_terminal_and_exact_text_without_extra_authority() {
+        let valid = json!({"identityId":"11111111-1111-4111-8111-111111111111", "terminalId":format!("term_{}", "1".repeat(32)), "command":"printf '%s' 'one value'"});
+        assert!(
+            matches!(decode_run(valid.to_string().as_bytes()).unwrap(), Request::TerminalRun { command, .. } if command == "printf '%s' 'one value'")
+        );
+        for (field, value) in [
+            ("identityId", json!("owner")),
+            ("terminalId", json!("pty_member")),
+            ("command", json!(42)),
+            ("cwd", json!("/tmp")),
+            ("force", json!(true)),
+        ] {
+            let mut input = valid.clone();
+            input[field] = value;
+            assert_eq!(
+                decode_run(input.to_string().as_bytes())
+                    .err()
+                    .unwrap()
+                    .code(),
                 "API_INPUT_INVALID",
                 "{input}"
             );

@@ -66,11 +66,14 @@ impl Part {
         }
     }
 
-    /// One caption laid out whole: a file reference.
+    /// One source reference laid out as a whole caption.
     fn is_atomic(&self) -> bool {
         matches!(
             &self.member,
-            Some((super::member_links::Target::File(_), _))
+            Some((
+                super::member_links::Target::File(_) | super::member_links::Target::Command(_),
+                _
+            ))
         )
     }
 
@@ -110,6 +113,8 @@ struct Renderer<'a> {
     table: Option<tables::Build>,
     files: Vec<files::Reference>,
     next_file: usize,
+    commands: Vec<super::member_links::commands::Reference>,
+    next_command: usize,
 }
 
 impl Renderer<'_> {
@@ -360,6 +365,53 @@ impl Renderer<'_> {
         if self.table_event(&event, &range) {
             return;
         }
+        while self.next_command < self.commands.len()
+            && self.commands[self.next_command].range.end <= range.start
+        {
+            self.next_command += 1;
+        }
+        if self.next_command < self.commands.len()
+            && self.commands[self.next_command].range.start == range.start
+        {
+            let reference = self.commands[self.next_command].clone();
+            let occurrence = self.next_mention;
+            self.next_mention += 1;
+            let first = self
+                .starts
+                .partition_point(|start| *start <= reference.content.start)
+                .saturating_sub(1);
+            let mut content_start = reference.content.start;
+            for (offset, text) in reference.shown.split('\n').enumerate() {
+                if offset > 0 {
+                    self.finish();
+                }
+                self.source_line = first + offset;
+                if self.current.is_none() {
+                    self.start(String::new(), 0);
+                }
+                let mut part = Part::new(
+                    text.into(),
+                    self.style()
+                        .patch(self.look.role(Role::Code))
+                        .add_modifier(Modifier::UNDERLINED),
+                    first + offset,
+                    Some((
+                        super::member_links::Target::Command(reference.shown.clone()),
+                        occurrence,
+                    )),
+                );
+                part.source_range = Some(content_start..content_start + text.len());
+                content_start += text.len() + 1;
+                self.current
+                    .as_mut()
+                    .expect("a command block is open")
+                    .spans
+                    .push(part);
+            }
+            self.skip_until = reference.range.end;
+            self.next_command += 1;
+            return;
+        }
         match event {
             Event::Start(
                 Tag::HtmlBlock
@@ -521,7 +573,7 @@ pub(super) fn render_with_members<'a>(
     look: crate::look::Look,
     inventory: Option<&'a super::inventory::Inventory>,
 ) -> Mapped {
-    project(text, width, look, inventory, Format::Markdown)
+    project(text, width, look, inventory, Format::Markdown, false)
 }
 /// Conversation messages keep authored single newlines without rewriting source bytes.
 pub(super) fn render_conversation_with_members<'a>(
@@ -530,7 +582,16 @@ pub(super) fn render_conversation_with_members<'a>(
     look: crate::look::Look,
     inventory: Option<&'a super::inventory::Inventory>,
 ) -> Mapped {
-    project(text, width, look, inventory, Format::Message)
+    // Display normalization must never silently rewrite a command that can be submitted.
+    let clean = super::notes::sanitize(text);
+    project(
+        &clean,
+        width,
+        look,
+        inventory,
+        Format::Message,
+        clean == text,
+    )
 }
 pub(super) fn render_plain_with_members<'a>(
     text: &'a str,
@@ -538,7 +599,7 @@ pub(super) fn render_plain_with_members<'a>(
     look: crate::look::Look,
     inventory: &'a super::inventory::Inventory,
 ) -> Mapped {
-    project(text, width, look, Some(inventory), Format::Plain)
+    project(text, width, look, Some(inventory), Format::Plain, false)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -554,6 +615,7 @@ fn project<'a>(
     look: crate::look::Look,
     inventory: Option<&'a super::inventory::Inventory>,
     format: Format,
+    commands_unchanged: bool,
 ) -> Mapped {
     let options = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES;
     let mut files = if format == Format::Message {
@@ -592,6 +654,12 @@ fn project<'a>(
         table: None,
         files,
         next_file: 0,
+        commands: if commands_unchanged {
+            super::member_links::commands::scan(text)
+        } else {
+            Vec::new()
+        },
+        next_command: 0,
     };
     if format == Format::Plain {
         for (source, line) in text.split('\n').enumerate() {
@@ -853,6 +921,32 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
 mod tests {
     use super::*;
     use crate::look::Look;
+
+    #[test]
+    fn command_captions_keep_exact_content_ranges_and_fence_body_line_numbers() {
+        use super::super::member_links::Target;
+        let source = "Header\n\n```sh\n! printf first\nprintf second\n```";
+        let mapped = render_conversation_with_members(source, 80, Look::default(), None);
+        let commands: Vec<_> = mapped
+            .mentions
+            .iter()
+            .enumerate()
+            .flat_map(|(row, links)| {
+                links
+                    .iter()
+                    .filter(|link| matches!(link.target, Target::Command(_)))
+                    .map(move |link| (row, link))
+            })
+            .collect();
+        assert_eq!(commands.len(), 2);
+        for ((row, link), (line, text)) in commands
+            .into_iter()
+            .zip([(3, "! printf first"), (4, "printf second")])
+        {
+            assert_eq!(mapped.sources[row], line);
+            assert_eq!(&source[link.source.as_ref().unwrap().source.clone()], text);
+        }
+    }
 
     #[test]
     fn fenced_code_is_filled_and_clipped_without_wrapping_or_fences() {

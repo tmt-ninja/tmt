@@ -1253,7 +1253,7 @@ mod named_surface_tests {
                             .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                             .collect();
                         let cells:Vec<_> = buffer.content.iter().map(|cell| serde_json::json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect();
-                        let hits:Vec<_> = app.member_links.borrow().hits.iter().map(|hit|serde_json::json!({"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height,"identity":match &hit.target { Target::Member(id) | Target::Url(id) | Target::File(id) => id },"reader":hit.reader})).collect();
+                        let hits:Vec<_> = app.member_links.borrow().hits.iter().map(|hit|serde_json::json!({"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height,"identity":match &hit.target { Target::Member(id) | Target::Url(id) | Target::File(id) | Target::Command(id) => id },"reader":hit.reader})).collect();
                         frames.push(serde_json::json!({"scene":scene,"width":width,"height":36,"base":base,"depth":format!("{depth:?}"),"lines":lines,"cells":cells,"memberHits":hits}));
                     }
                 }
@@ -1589,4 +1589,82 @@ mod raw_link_tests {
             }
         }
     }
+}
+
+#[test]
+fn selected_member_open_hint_uses_the_authored_jump_key_and_hides_when_unavailable() {
+    use crate::board::app::workspace::tests::{MEMBER, configured_member};
+    let row = serde_json::json!({"id":MEMBER,"name":"worker","presence":"active","pane":{"id":"%3","location":{"host":"tmux"}}});
+    let app = configured_member("", row.clone());
+    let target = app.workspace.selected.clone().unwrap();
+    assert_eq!(
+        app.member_open_hint(&target).unwrap().to_string(),
+        " z open"
+    );
+    let mut covered = configured_member("", row.clone());
+    covered.menu = Some(Menu {
+        link: None,
+        prefill: String::new(),
+        title: "Actions".into(),
+        entries: Vec::new(),
+        selected: 0,
+        anchor: None,
+        surface: std::cell::RefCell::new(None),
+    });
+    assert!(
+        covered.member_open_hint(&target).is_none(),
+        "a menu owns input, so the jump hint is hidden"
+    );
+    let app = configured_member("[bind]\nv='jump'\nz='refresh'\n", row.clone());
+    assert_eq!(
+        app.member_open_hint(&target).unwrap().to_string(),
+        " v open"
+    );
+    let app = configured_member("[bind]\nz='refresh'\n", row.clone());
+    assert!(app.member_open_hint(&target).is_none());
+    let app = configured_member("[bind]\nv='jump lead'\nz='refresh'\n", row.clone());
+    assert!(
+        app.member_open_hint(&target).is_none(),
+        "a lead shortcut does not open the selected member"
+    );
+    let mut built_in = row.clone();
+    built_in["pane"]["location"]["host"] = crate::board::new_member::model::BUILT_IN_HOST.into();
+    let app = configured_member("", built_in);
+    assert_eq!(
+        app.member_open_hint(&target).unwrap().to_string(),
+        " z open"
+    );
+    let mut offline = row;
+    offline["presence"] = "offline".into();
+    let app = configured_member("", offline);
+    assert!(app.member_open_hint(&target).is_none());
+}
+
+#[test]
+fn an_open_hint_yields_the_pane_edge_without_clipping_its_word_or_the_name() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let app = crate::board::app::workspace::tests::capture_case(
+        "action-needed",
+        crate::look::Look::default(),
+    );
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let lines: Vec<String> = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(160)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+        .collect();
+    let selected = lines
+        .iter()
+        .find(|line| line.contains("worker") && line.contains('└'))
+        .unwrap();
+    assert!(
+        selected.contains("z open") || !selected.contains("z ope"),
+        "the hint is whole or hidden: {selected}"
+    );
+    assert!(selected.contains("worker"), "{selected}");
 }

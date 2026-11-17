@@ -48,6 +48,7 @@ export const scenes = [
   'conversation-loading',
   'usage-disabled-each',
   'mention-picker',
+  'command-popover',
   'frame-live',
   'frame-connecting',
 ];

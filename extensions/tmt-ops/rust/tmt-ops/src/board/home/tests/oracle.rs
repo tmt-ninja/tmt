@@ -1508,7 +1508,7 @@ macro_rules! oracle_groups {
         $group!(8, 228, paste_frames($styles));
         $group!(7, 60, file_chip_frames($styles));
         $group!(7, 144, quote_frames($styles));
-        $group!(7, 36, link_popover_frames($styles));
+        $group!(7, 48, link_popover_frames($styles));
         $group!(7, 80, link_file_frames($styles));
         $group!(7, 60, talk_screen_frames($styles));
         $group!(7, 96, conversation_refresh_frames($styles));

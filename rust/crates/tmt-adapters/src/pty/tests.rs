@@ -920,6 +920,7 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
             close: true,
             terminal: false,
             terminal_detail: false,
+            terminal_run: false,
         }
     );
     let deadline = Instant::now() + WAIT;
@@ -1720,9 +1721,18 @@ fn start_terminal(
     let root = TestDirectory::new();
     let directory = root.path.join("pty");
     let mut launch = launch(&directory, "term_test", program);
+    // Interactive shell cases must not read the caller's startup files.
+    launch.environment = vec![
+        ("HOME".into(), Some(root.path.as_os_str().to_owned())),
+        ("ZDOTDIR".into(), Some(root.path.as_os_str().to_owned())),
+        ("ENV".into(), None),
+        ("BASH_ENV".into(), None),
+    ];
     launch.terminal = Some(super::TerminalOf {
         owner: "11111111-1111-4111-8111-111111111111".into(),
         created_ms: 1_762_300_000_000,
+        member_pid: 123,
+        member_start: "test-start".into(),
         member_alive: Box::new(move || alive.load(std::sync::atomic::Ordering::SeqCst)),
     });
     let supervisor = Supervisor::start(launch).expect("start the terminal");
@@ -1781,6 +1791,7 @@ fn an_extra_terminal_names_its_owner_and_says_when_a_program_holds_it() {
             close: true,
             terminal: true,
             terminal_detail: true,
+            terminal_run: true,
         }
     );
     assert!(matches!(
@@ -1859,4 +1870,113 @@ fn an_extra_terminal_ends_when_its_member_is_gone() {
         kill(Pid::from_raw(terminal.pid as i32), None).is_err(),
         "its program was hung up"
     );
+}
+
+#[test]
+fn terminal_command_refuses_a_different_launch_without_typing_into_the_shell() {
+    use tmt_pty_protocol::{Control, ControlReply, TerminalRunResult};
+    let terminal = start_terminal(&["/bin/sh", "-i"], alive());
+    let mut client = terminal.connect();
+    // Establish an accepting shell before testing the unrelated owner fence.
+    client
+        .control(Control::Paste(b"printf 'READY-%s\\n' SHELL".to_vec()), WAIT)
+        .unwrap();
+    client.control(Control::Enter, WAIT).unwrap();
+    collect(&mut client, says("READY-SHELL"));
+    let output = terminal._root.path.join("command-ran");
+    let command = format!(
+        "printf ok > '{}'; printf 'FENCE-%s\\n' DONE",
+        output.display()
+    );
+    let request = |pid, start: &str| Control::TerminalRun {
+        owner: "11111111-1111-4111-8111-111111111111".into(),
+        member_pid: pid,
+        member_start: start.into(),
+        command: command.clone(),
+    };
+    for (pid, start) in [(124, "test-start"), (123, "different-start")] {
+        assert_eq!(
+            client.control(request(pid, start), WAIT).unwrap(),
+            ControlReply::TerminalRan(TerminalRunResult::Stale)
+        );
+        assert!(!output.exists());
+    }
+    assert_eq!(
+        client.control(request(123, "test-start"), WAIT).unwrap(),
+        ControlReply::TerminalRan(TerminalRunResult::Submitted)
+    );
+    collect(&mut client, says("FENCE-DONE"));
+    assert_eq!(std::fs::read_to_string(output).unwrap(), "ok");
+    close(&terminal.directory, &terminal.id);
+}
+
+#[test]
+fn terminal_command_refuses_an_exec_replacement_without_typing() {
+    use tmt_pty_protocol::{Control, ControlReply, TerminalRunResult};
+    let terminal = start_terminal(&["/bin/sh", "-i"], alive());
+    let mut client = terminal.connect();
+    let received = terminal._root.path.join("exec-input");
+    let ready = terminal._root.path.join("exec-ready");
+    // The native test executable is distinct from the shell on multi-call systems too;
+    // /bin/sh and /bin/cat can otherwise both be the same BusyBox image.
+    let quote = |path: &Path| format!("'{}'", path.to_str().unwrap().replace('\'', "'\\''"));
+    let program = std::env::current_exe().unwrap();
+    let command = format!(
+        "TMT_TEST_EXEC_ROOT={} exec {} --exact pty::tests::terminal_exec_input_fixture --ignored",
+        quote(&terminal._root.path),
+        quote(&program)
+    );
+    client
+        .control(Control::Paste(command.into_bytes()), WAIT)
+        .unwrap();
+    client.control(Control::Enter, WAIT).unwrap();
+    let deadline = Instant::now() + WAIT;
+    while !ready.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "the shell never exec'd the input fixture"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let answer = client
+        .control(
+            Control::TerminalRun {
+                owner: "11111111-1111-4111-8111-111111111111".into(),
+                member_pid: 123,
+                member_start: "test-start".into(),
+                command: "printf NEVER-SUBMIT-TO-PROGRAM".into(),
+            },
+            WAIT,
+        )
+        .unwrap();
+    client.input(b"manual-only-fence\r").unwrap();
+    loop {
+        let text = std::fs::read_to_string(&received).unwrap_or_default();
+        if text.contains("manual-only-fence") {
+            assert_eq!(
+                text, "manual-only-fence\n",
+                "Run must not type into the replacement program"
+            );
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the replacement never recorded the manual input"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(answer, ControlReply::TerminalRan(TerminalRunResult::Busy));
+    close(&terminal.directory, &terminal.id);
+}
+
+/// A private native stdin recorder reached through `exec`, never an installed provider or
+/// user program. Only the parent case supplies its owned directory and selects this test.
+#[test]
+#[ignore = "private exec input fixture; invoked by its parent regression"]
+fn terminal_exec_input_fixture() {
+    let root =
+        PathBuf::from(std::env::var_os("TMT_TEST_EXEC_ROOT").expect("parent-owned fixture root"));
+    let mut received = std::fs::File::create(root.join("exec-input")).unwrap();
+    std::fs::write(root.join("exec-ready"), b"ready").unwrap();
+    std::io::copy(&mut std::io::stdin().lock(), &mut received).unwrap();
 }

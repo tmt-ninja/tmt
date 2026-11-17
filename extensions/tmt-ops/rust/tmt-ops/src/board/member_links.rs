@@ -1,5 +1,7 @@
 //! Resolved member references over the held identity inventory. Display keeps
 //! its own geometry; raw conversation source remains untouched.
+mod command_popover;
+pub(in crate::board) mod commands;
 use super::inventory::Inventory;
 use std::ops::Range;
 
@@ -160,12 +162,13 @@ pub(super) fn resolve(text: &str, inventory: &Inventory) -> Vec<Resolved> {
     found
 }
 
-/// What a painted reference stands for: a member, an address, or an inert file path.
+/// What a painted reference stands for: a member, address, inert path or command.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Target {
     Member(String),
     Url(String),
     File(String),
+    Command(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -404,7 +407,10 @@ pub(super) fn paint_hits(
                     .role(presentation.role)
                     .remove_modifier(Modifier::BOLD)
                     .add_modifier(Modifier::UNDERLINED);
-                if matches!(hit.target, Target::Url(_) | Target::File(_)) {
+                if matches!(
+                    hit.target,
+                    Target::Url(_) | Target::File(_) | Target::Command(_)
+                ) {
                     // A web link keeps the colour the renderer gave its label.
                     if focused || hover {
                         frame.buffer_mut()[(x, hit.area.y)]
@@ -489,6 +495,47 @@ impl App {
                     .cloned()
             })
     }
+    /// The selected row advertises the effective jump key, with the same held-data eligibility
+    /// as the action. The keycap is omitted altogether when the host action is unavailable.
+    pub(in crate::board) fn member_open_hint(
+        &self,
+        target: &OpsTarget,
+    ) -> Option<ratatui::text::Line<'static>> {
+        use crate::{action::Verb, config::OpsKeyScope};
+        if !self.workspace_strip_enabled()
+            || self.workspace.selected.as_ref() != Some(target)
+            || !matches!(target, OpsTarget::Member { .. })
+        {
+            return None;
+        }
+        let row = self.target_row(&RowTarget::Workspace(target.clone()))?;
+        if row["presence"] != "active" {
+            return None;
+        }
+        if self.invoker_tmux && !self.selected_built_in() {
+            super::overview::actions::host(row, self.invoker_tmux).ok()?;
+        }
+        let mut keys = self.workspace_context_bindings(
+            Some(target),
+            OpsKeyScope::Member,
+            row["pane"]["location"]["host"].as_str(),
+        );
+        // A shortcut for the lead is a different destination.
+        keys.retain(|_, action| action.verb != Verb::Jump || action.args.is_empty());
+        let key = super::view::footer::configured_key(
+            self,
+            &keys,
+            self.workspace_binding_sources_for(OpsKeyScope::Member),
+            Verb::Jump,
+            "z",
+        )?;
+        let key = super::view::footer::key_label(&key);
+        Some(ratatui::text::Line::from(vec![
+            super::keycap::control_span(self, key, None),
+            ratatui::text::Span::styled("open", self.look().role(tmt_cli_style::Role::Muted)),
+        ]))
+    }
+
     fn member_link_jump(&self, target: &OpsTarget) -> Result<crate::action::Action, String> {
         use crate::config::OpsKeyScope;
         let row = self
@@ -586,6 +633,9 @@ impl App {
         self.perform_context(action, Some(target))
     }
     fn open_member_link(&mut self, hit: Hit) -> Effect {
+        if let Target::Command(shown) = &hit.target {
+            return self.command_popover(shown, hit.area);
+        }
         if let Target::File(path) = &hit.target {
             return self.file_popover(path, hit.area);
         }

@@ -487,7 +487,14 @@ resume` of an identity whose kept terminal runs no agent relaunch there with the
   (`tcgetpgrp` of the master is not the shell). `Control::TerminalDetail` (`0x2f`, bit 4,
   #6112) adds the shell's file name and, while busy, the foreground group leader's
   `tmt_sys::process_name`, both through `display_name`; the released `Terminal` reply keeps
-  its bytes because a released decoder refuses trailing ones, so `pty::terminal` asks
+  its bytes because a released decoder refuses trailing ones. `TerminalRun` (`0x30`, bit 5)
+  compares the terminal's recorded identity and owner PID/start with Core's fresh binding,
+  confirms the kernel executable path still matches the selected shell binary (never a
+  display name), refuses unknown/busy/replaced images or pending input, and queues one
+  bounded command
+  plus Enter on the same loop. No older-supervisor raw-input fallback or uncertain replay
+  exists; the public [terminal operation](../../../../contracts/extension-api.md#terminals-under-a-member)
+  owns its bounds and refusals. `pty::terminal` asks
   `Capabilities` first and falls back to it. In terminal mode it refuses Publish,
   PublishIf and Relaunch, ends when its shell ends, and closes itself when its member
   supervisor's PID and start no longer match. The loop only signals the PID each second

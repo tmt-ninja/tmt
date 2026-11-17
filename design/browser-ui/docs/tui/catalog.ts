@@ -123,6 +123,7 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
       { name: 'Column labels', row: 9, text: 'SQUAD / AGENT' },
       { name: 'Group', row: 11, text: 'product' },
       { name: 'Selected row', row: 12, text: 'worker' },
+      { name: 'Effective open shortcut', row: 12, text: 'z open' },
     ],
     states: [
       {
@@ -223,7 +224,8 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
     parts: [
       { name: 'Recipient and unread context', row: 35, text: 'worker' },
       { name: 'Input action', row: 35, text: 'send' },
-      { name: 'Pane navigation', row: 36, text: '↑↓←→ move' },
+      { name: 'Row navigation', row: 36, text: '↑↓←→ move' },
+      { name: 'Member action', row: 36, text: 'n new' },
     ],
     states: [
       {
@@ -281,6 +283,7 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
         sample: { state: 'usage-disabled-each', width: 60, height: 51 },
       },
       { kind: 'narrow', label: 'Narrow settings layer', sample: narrow('settings-menu') },
+      { kind: 'focused', label: 'Confirmed command actions', sample: sample('command-popover') },
     ],
     keys: ['↑↓', 'Enter', 'Esc'],
     roles: ['text', 'muted', 'dim', 'selection', 'accent'],

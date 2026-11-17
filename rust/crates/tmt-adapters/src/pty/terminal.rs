@@ -325,6 +325,65 @@ pub fn list_owned(
     owned
 }
 
+/// A command is submitted at most once. An error after sending leaves the effect unknown;
+/// callers must never turn it into an automatic retry.
+#[derive(Debug)]
+pub(crate) enum RunError {
+    NotFound,
+    Unavailable(io::Error),
+    Unsupported,
+    Refused(tmt_pty_protocol::TerminalRunResult),
+    Unconfirmed(io::Error),
+}
+
+pub(crate) fn run(
+    paths: &ConfigPaths,
+    id: &str,
+    owner: &Owner<'_>,
+    command: &str,
+) -> Result<(), RunError> {
+    let pty = paths.pty_directory();
+    if !is_terminal_id(id) || super::validate(&pty, id).is_err() {
+        return Err(RunError::NotFound);
+    }
+    let mut client = Connection::connect(&pty, id).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            RunError::NotFound
+        } else {
+            RunError::Unavailable(error)
+        }
+    })?;
+    if !matches!(
+        client
+            .control(Control::Capabilities, PER_SOCKET)
+            .map_err(RunError::Unavailable)?,
+        ControlReply::Capabilities {
+            terminal_run: true,
+            ..
+        }
+    ) {
+        return Err(RunError::Unsupported);
+    }
+    match client
+        .control(
+            Control::TerminalRun {
+                owner: owner.identity.to_owned(),
+                member_pid: owner.pid,
+                member_start: owner.start.to_owned(),
+                command: command.to_owned(),
+            },
+            PER_SOCKET,
+        )
+        .map_err(RunError::Unconfirmed)?
+    {
+        ControlReply::TerminalRan(tmt_pty_protocol::TerminalRunResult::Submitted) => Ok(()),
+        ControlReply::TerminalRan(result) => Err(RunError::Refused(result)),
+        _ => Err(RunError::Unconfirmed(io::Error::other(
+            "unexpected terminal run reply",
+        ))),
+    }
+}
+
 /// Closes terminal `id`: refused while busy unless `force`, then confirmed once its
 /// supervisor ended.
 pub fn close(paths: &ConfigPaths, id: &str, force: bool) -> Result<(), TerminalError> {

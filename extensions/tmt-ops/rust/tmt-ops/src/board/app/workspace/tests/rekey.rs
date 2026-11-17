@@ -20,12 +20,12 @@ fn text(app: &App) -> String {
 }
 
 #[test]
-fn a_rebound_checklist_key_shows_on_the_chip_footer_and_help() {
+fn a_rebound_checklist_key_shows_on_the_chip_and_help_without_a_redundant_footer() {
     let mut app = board();
     app.focus = 0;
     let before = text(&app);
     assert!(
-        before.contains("C  Checklist") && before.contains("C checklist"),
+        before.contains("C  Checklist") && !before.contains("C checklist"),
         "{before}"
     );
     let scratch = crate::test_support::Scratch::new("rekey");
@@ -51,8 +51,8 @@ fn a_rebound_checklist_key_shows_on_the_chip_footer_and_help() {
         "the chip leads with K\n{shown}"
     );
     assert!(
-        shown.contains("K checklist"),
-        "the footer names the new key\n{shown}"
+        !shown.contains("K checklist"),
+        "the chip owns the key hint, so the footer stays short\n{shown}"
     );
     assert!(
         !shown.contains("C  Checklist") && !shown.contains("C checklist"),

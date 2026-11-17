@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Cells a popover line holds: the menu is 48 wide, less borders, key and cursor columns.
-const LINE: usize = 40;
+pub(super) const LINE: usize = 40;
 
 /// The address up to and including its host, so a look-alike label cannot hide where it goes.
 fn origin(url: &str) -> &str {
@@ -21,7 +21,7 @@ fn origin(url: &str) -> &str {
 }
 
 /// `text` cut into lines of at most `width` cells, between characters.
-fn chunks(text: &str, width: usize) -> Vec<String> {
+pub(super) fn chunks(text: &str, width: usize) -> Vec<String> {
     let mut lines = vec![String::new()];
     let mut used = 0;
     for character in text.chars() {
@@ -283,7 +283,7 @@ impl App {
         let (text, title, copy) = match target {
             Target::Url(url) => (url.clone(), "Full link", Choice::LinkCopy(url)),
             Target::File(path) => (path.clone(), "Full path", Choice::FileCopy(path.into())),
-            Target::Member(_) => return Effect::None,
+            Target::Member(_) | Target::Command(_) => return Effect::None,
         };
         let entries: Vec<_> = chunks(&text, LINE)
             .into_iter()
@@ -320,7 +320,12 @@ impl App {
 /// The oracle's link scenes: the popover for a link in the chat, without a browser, and the
 /// whole address. The address is fixed and synthetic.
 #[cfg(test)]
-pub(in crate::board) const SCENES: &[&str] = &["link-popover", "link-no-browser", "link-full"];
+pub(in crate::board) const SCENES: &[&str] = &[
+    "link-popover",
+    "link-no-browser",
+    "link-full",
+    "command-popover",
+];
 
 #[cfg(test)]
 pub(in crate::board) fn capture_case(
@@ -329,6 +334,10 @@ pub(in crate::board) fn capture_case(
     width: u16,
     height: u16,
 ) -> App {
+    if scene == "command-popover" {
+        return super::command_popover::capture_case(look, width, height);
+    }
+
     use crate::board::app::workspace::tests::{MEMBER, board};
     use ratatui::{Terminal, backend::TestBackend};
     let url = "https://docs.example.com/guides/getting-started/installing-the-board?ref=chat&section=links";
@@ -419,7 +428,7 @@ mod tests {
             .iter()
             .filter_map(|hit| match &hit.target {
                 Target::Url(url) => Some((hit.area, url.clone())),
-                Target::Member(_) | Target::File(_) => None,
+                Target::Member(_) | Target::File(_) | Target::Command(_) => None,
             })
             .collect()
     }

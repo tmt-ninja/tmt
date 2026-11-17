@@ -6,7 +6,10 @@
 //! The crate has no dependencies and no effects.
 
 mod control;
-pub use control::{Control, ControlReply, NAME_LIMIT, RelaunchKind, display_name};
+pub use control::{
+    COMMAND_LIMIT, Control, ControlReply, NAME_LIMIT, RelaunchKind, TerminalRunResult,
+    display_name, valid_command,
+};
 
 use std::fmt;
 
@@ -238,7 +241,7 @@ impl Frame for ClientMessage {
 
     fn read(kind: u8, payload: &[u8]) -> Result<Self, ProtocolError> {
         match kind {
-            0x20..=0x2f => Control::read(kind, payload).map(Self::Control),
+            0x20..=0x30 => Control::read(kind, payload).map(Self::Control),
             HELLO => {
                 let [v0, v1] = payload else {
                     return Err(ProtocolError::Malformed("a hello is two bytes"));
