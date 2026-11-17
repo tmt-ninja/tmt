@@ -46,9 +46,18 @@ export function opsMenu(
   disclosure?: { collapsed: ReadonlySet<string>; toggle(squad: string): void },
   unread?: ReadonlyMap<string, ConversationUnread>,
   hasDraft: (key: string) => boolean = () => false,
+  /** Provider forms waiting on a member (#6445): the rail's needs-you count. */
+  formsWaiting: (memberId: string) => number = () => 0,
 ): ShellMenu {
   const unreadItem = (id: string) => {
     const value = unread?.get(id);
+    const forms = formsWaiting(id);
+    // A member stuck on a form needs the person: that count wins over unread messages.
+    if (forms > 0)
+      return {
+        ...(value?.state === 'known' && value.count > 0 ? { emphasis: 'unread' as const } : {}),
+        count: { text: String(forms), needsYou: true },
+      };
     return value?.state === 'known' && value.count > 0
       ? {
           emphasis: 'unread' as const,

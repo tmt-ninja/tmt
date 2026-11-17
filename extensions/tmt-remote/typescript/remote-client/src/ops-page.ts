@@ -22,6 +22,8 @@ import {
 } from './conversation-history.js';
 import type { ConversationUnread } from './conversation-seen.js';
 import { OPS_SECTIONS, opsMenu, opsPlace, type OpsPlace } from './ops-menu.js';
+import { forms, type RemoteForms } from './forms.js';
+import { FormsNotAllowed, opsForms } from './ops-forms.js';
 
 /** The board's own reload cadence (`tmt ops ui`). */
 const REFRESH_MS = 5000;
@@ -43,6 +45,10 @@ export function opsPage(
     if (!shell.session) return null;
     const page = await management(await shell.session()).devices({ cursor: null, limit: 100 });
     return page.devices.find((device) => device.thisBrowser)?.name ?? null;
+  },
+  formsConnect: () => Promise<RemoteForms> = async () => {
+    if (!shell.session) throw new FormsNotAllowed('No signed browser session.');
+    return forms(await shell.session());
   },
 ): void {
   const main = document.getElementById('ops-section');
@@ -68,7 +74,15 @@ export function opsPage(
   };
   // A stale-roster refusal reads the board again at once (set once the board read exists below).
   let rereadBoard = () => {};
-  const channel = channelView(location.pathname, shell, channelPort, () => rereadBoard());
+  // Forms repaint only the open section; the board's own reread is unchanged.
+  const providerForms = opsForms(formsConnect, () => paint());
+  const channel = channelView(
+    location.pathname,
+    shell,
+    channelPort,
+    () => rereadBoard(),
+    providerForms,
+  );
   const collapsedSquads = new Set<string>();
   const unread = new Map<string, ConversationUnread>();
   let unreadScope = '';
@@ -103,6 +117,7 @@ export function opsPage(
         },
         unread,
         hasDraft,
+        (memberId) => providerForms.waiting(memberId),
       ),
     );
   };
@@ -203,4 +218,6 @@ export function opsPage(
   };
   rereadBoard = () => void readBoard();
   whileVisible(REFRESH_MS, shell.signal, readBoard);
+  // Core's change cursor says when forms moved; the list is read again only then.
+  whileVisible(REFRESH_MS, shell.signal, () => providerForms.refresh());
 }

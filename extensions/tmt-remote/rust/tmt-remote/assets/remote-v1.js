@@ -10356,9 +10356,17 @@ function opsHref(pathname, place) {
 }
 /** The rail's mark for a channel or DM whose message box holds unsent words. */
 var DRAFT = "✎ Draft";
-function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => false) {
+function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => false, formsWaiting = () => 0) {
 	const unreadItem = (id) => {
 		const value = unread?.get(id);
+		const forms = formsWaiting(id);
+		if (forms > 0) return {
+			...value?.state === "known" && value.count > 0 ? { emphasis: "unread" } : {},
+			count: {
+				text: String(forms),
+				needsYou: true
+			}
+		};
 		return value?.state === "known" && value.count > 0 ? {
 			emphasis: "unread",
 			count: {
@@ -12225,13 +12233,27 @@ function avatar(name, size) {
 	node.setAttribute("aria-hidden", "true");
 	return node;
 }
+/** A member waiting on provider forms (#6445): what the row and the DM header say. */
+function formChip(count) {
+	const node = el("span", `${browserUiClasses.chip} ops-form-chip`);
+	node.dataset.tone = "waiting";
+	node.append(mark("dot", "waiting"), el("span", browserUiClasses.chipLabel, count === 1 ? "Form waiting" : `${count} forms waiting`));
+	return node;
+}
 function chip(text) {
 	const node = el("span", `${browserUiClasses.chip} ops-channel-chip`);
 	node.append(el("span", browserUiClasses.chipLabel, text));
 	return node;
 }
-function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
+function channelView(pathname, shell, port = void 0, rereadBoard = () => {}, forms) {
 	const page = el("div", "ops-channel");
+	/** The channel summary's forms words: a count, or that they could not be read. */
+	const formsWord = (people) => {
+		if (!forms) return [];
+		if (forms.unavailable()) return ["Forms unavailable"];
+		const count = people.reduce((sum, agent) => sum + forms.waiting(agent.id), 0);
+		return count ? [`${count} form${count === 1 ? "" : "s"} waiting`] : [];
+	};
 	const head = el("header", "ops-channel-head");
 	const titleRow = el("div", "ops-channel-titlebar");
 	const face = el("span", "ops-channel-face");
@@ -12317,7 +12339,8 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 	toggle.addEventListener("click", () => setOpen(!open));
 	const history = el("section", "ops-channel-history");
 	const stream = channelStream(shell, port, rereadBoard);
-	page.append(head, panel, history, stream.thread);
+	const formsHost = el("div", "ops-forms-host");
+	page.append(head, panel, formsHost, history, stream.thread);
 	setOpen(false);
 	const viewHeight = () => visualViewport?.height ?? innerHeight;
 	const fit = () => {
@@ -12350,7 +12373,13 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 		if (agent.role === "lead") who.append(el("span", "ops-member-role", "Lead"));
 		const task = el("span", "ops-member-task", agent.task || "No task reported");
 		if (!agent.task) task.dataset.empty = "";
-		row.append(who, task, el("span", "ops-member-usage", usage(agent)), stateBadge(agent));
+		const state = stateBadge(agent);
+		const waiting = forms?.waiting(agent.id) ?? 0;
+		if (waiting) {
+			const flags = el("span", "ops-member-flags");
+			flags.append(formChip(waiting), state);
+			row.append(who, task, el("span", "ops-member-usage", usage(agent)), flags);
+		} else row.append(who, task, el("span", "ops-member-usage", usage(agent)), state);
 		return row;
 	}
 	function drawMembers(people, truncated) {
@@ -12368,7 +12397,8 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				agent.task,
 				memberState(agent),
 				agent.tokens1d,
-				agent.checklistCount
+				agent.checklistCount,
+				forms?.waiting(agent.id) ?? 0
 			]);
 			let row = memberRows.get(agent.id);
 			if (!row || row.fingerprint !== seen) {
@@ -12418,7 +12448,8 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				squad,
 				jobs,
 				known,
-				truncated: board.truncated
+				truncated: board.truncated,
+				forms: forms?.fingerprint()
 			});
 			if (seen === fingerprint) return;
 			fingerprint = seen;
@@ -12435,6 +12466,12 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 				panel,
 				history
 			]) part.hidden = !known;
+			formsHost.hidden = !known || !member || !forms;
+			if (member && forms) {
+				const view = forms.view(member.id, member.name);
+				if (formsHost.firstChild !== view) formsHost.replaceChildren(view);
+				formsHost.hidden = view.hidden;
+			} else formsHost.replaceChildren();
 			if (!known) {
 				stream.select(void 0);
 				missing.textContent = board.truncated ? "This selection is not in the partial board. Open Ops in the terminal to see the full list." : place.memberId ? "This member is no longer listed in this squad. Choose a current member from the sidebar." : "This squad is no longer listed. Choose a current squad from the sidebar.";
@@ -12449,6 +12486,8 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 			chips.replaceChildren();
 			if (member) {
 				face.replaceChildren(avatar(member.name, "m"));
+				const waiting = forms?.waiting(member.id) ?? 0;
+				if (waiting) chips.append(formChip(waiting));
 				title.textContent = member.name;
 				const state = memberState(member);
 				const facts = el("span", "ops-channel-member-facts");
@@ -12493,7 +12532,8 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 			summary.replaceChildren(...member ? [] : [el("span", void 0, [
 				board.truncated ? "Members (partial)" : `${people.length} member${people.length === 1 ? "" : "s"}`,
 				`${working} working`,
-				`${idle} idle`
+				`${idle} idle`,
+				...formsWord(people)
 			].join(" · "))], el("span", "ops-channel-summary-timers", timersWord));
 			buttons[0].hidden = !!member;
 			buttons[0].textContent = board.truncated ? "Members" : `Members ${people.length}`;
@@ -12525,6 +12565,455 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}) {
 	};
 }
 //#endregion
+//#region src/ops-forms.ts
+/** Provider forms in web Ops (#6445): a member waiting on a Claude Code, Codex or agy form shows
+* the form in its DM, and its row says so. Only the person answers, and only a form the board saw
+* whole and Core lets the client answer. An answer is stored before it is sent and is recovered by
+* its own operation ID only; nothing here retries delivery or allocates a second ID for it. */
+/** This browser may not read provider forms (no signed session); thrown by the connector. */
+var FormsNotAllowed = class extends Error {};
+var KEY = "tmt-ops-form-answer:";
+var KIND = {
+	question: "Question",
+	permission: "Permission",
+	planApproval: "Plan approval"
+};
+function stored() {
+	const found = /* @__PURE__ */ new Map();
+	try {
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i);
+			if (!key?.startsWith(KEY)) continue;
+			const value = JSON.parse(localStorage.getItem(key) ?? "null");
+			if (value?.operationId && value.formId === key.slice(20)) found.set(value.formId, value);
+		}
+	} catch {}
+	return found;
+}
+/** False when the answer could not be kept; it is then not sent. */
+function keep(sent) {
+	try {
+		localStorage.setItem(KEY + sent.formId, JSON.stringify(sent));
+		return localStorage.getItem(KEY + sent.formId) === JSON.stringify(sent);
+	} catch {
+		return false;
+	}
+}
+function drop(formId) {
+	try {
+		localStorage.removeItem(KEY + formId);
+	} catch {}
+}
+/** A plan's first line of substance: headings are skipped, list marks dropped. */
+function planLine(plan) {
+	const lines = plan.split("\n").map((line) => line.trim()).filter(Boolean);
+	return (lines.find((line) => !line.startsWith("#")) ?? lines[0])?.replace(/^(#+|>|[*+-]|\d+[.)])\s*/, "") || void 0;
+}
+/** What a form asks, in one line: its first question, its tool, or its plan's first line. */
+var asked = (form) => form.questions?.[0]?.text ?? form.tool?.name ?? (form.plan === void 0 ? void 0 : planLine(form.plan)) ?? KIND[form.kind];
+function ago(ms) {
+	const minutes = Math.max(0, Math.round((Date.now() - ms) / 6e4));
+	if (minutes < 1) return "opened just now";
+	if (minutes < 60) return `opened ${minutes} min ago`;
+	const hours = Math.round(minutes / 60);
+	return hours < 24 ? `opened ${hours} h ago` : `opened ${Math.round(hours / 24)} d ago`;
+}
+/** A kept card with its opened time brought up to date, without rebuilding it. */
+function fresh(node, form) {
+	const time = node.querySelector(".ops-form-time");
+	const text = ago(form.openedMs);
+	if (time && time.textContent !== text) time.textContent = text;
+	return node;
+}
+function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
+	let api;
+	/** `off`: this browser may not read forms (no session, not the owner browser, or a grant
+	* without every agent). Nothing is drawn and Remote is not asked again on this page. */
+	let status = "loading";
+	let cursor;
+	let list = [];
+	const sent = stored();
+	/** What is in flight for a form: its first send, or a check of the same ID. */
+	const busy = /* @__PURE__ */ new Map();
+	/** Stored answers from an earlier page are checked once by their own ID, then on request. */
+	const resumed = /* @__PURE__ */ new Set();
+	const cards = /* @__PURE__ */ new Map();
+	/** Forms the person opened; the oldest form is always open, so several never bury the talk. */
+	const opened = /* @__PURE__ */ new Set();
+	const views = /* @__PURE__ */ new Map();
+	/** Focus to put back after a rebuilt card is placed. */
+	let refocus;
+	let version = 0;
+	const bump = () => {
+		version++;
+		changed();
+	};
+	const client = () => api ??= connect().catch((error) => {
+		api = void 0;
+		throw error;
+	});
+	function settle(entry, state) {
+		if (state.state === "accepted") entry.state = "accepted";
+		else {
+			entry.state = state.state;
+			entry.reason = state.reason;
+			entry.message = state.message;
+		}
+		if (entry.state === "uncertain") keep(entry);
+		else drop(entry.formId);
+	}
+	async function check(entry) {
+		if (busy.has(entry.formId)) return;
+		busy.set(entry.formId, "check");
+		bump();
+		try {
+			settle(entry, await (await client()).operation(entry.operationId));
+		} catch {
+			entry.state = "uncertain";
+		} finally {
+			busy.delete(entry.formId);
+			bump();
+		}
+	}
+	async function send(form, answer) {
+		if (busy.has(form.formId)) return;
+		const previous = sent.get(form.formId);
+		if (previous && (previous.state !== "refused" || previous.reason === "FORM_DELIVERY_UNSUPPORTED")) return;
+		const entry = {
+			operationId: newId(),
+			formId: form.formId,
+			identityId: form.identityId,
+			asked: asked(form),
+			answer,
+			state: "uncertain"
+		};
+		if (!keep(entry)) {
+			sent.set(form.formId, {
+				...entry,
+				state: "refused",
+				reason: "LOCAL_STORAGE",
+				message: "This browser could not keep the answer, so it was not sent."
+			});
+			bump();
+			return;
+		}
+		sent.set(form.formId, entry);
+		busy.set(form.formId, "send");
+		bump();
+		try {
+			settle(entry, await (await client()).answer({
+				operationId: entry.operationId,
+				formId: form.formId,
+				answer
+			}));
+		} catch {
+			entry.state = "uncertain";
+		} finally {
+			busy.delete(form.formId);
+			bump();
+		}
+	}
+	function note(text, action) {
+		const line = el("p", "ops-form-note", text);
+		if (action) line.append(" ", action);
+		return line;
+	}
+	function outcome(entry, memberName) {
+		if (busy.has(entry.formId)) return note(busy.get(entry.formId) === "check" ? "Checking…" : "Sending…");
+		if (entry.state === "accepted") return note("Sent.");
+		if (entry.state === "uncertain") {
+			const again = el("button", browserUiClasses.action, "Check again");
+			again.type = "button";
+			again.dataset.variant = "text";
+			again.addEventListener("click", () => {
+				resumed.add(entry.formId);
+				check(entry);
+			});
+			return note("Not sure it arrived.", again);
+		}
+		if (entry.reason === "FORM_DELIVERY_UNSUPPORTED") return note(`This form can't be answered from the browser yet. Answer it in the terminal where ${memberName} runs.`);
+		if (entry.state === "refused") return note(`Not sent: ${entry.message ?? entry.reason ?? "refused"}.`);
+	}
+	function question(form, item, index, open) {
+		const part = el("div", "ops-form-question");
+		const text = el("p", `${browserUiClasses.cardTitle} ops-form-text`, item.text);
+		text.id = `ops-form-${form.formId}-${index}-text`;
+		if (open) {
+			part.setAttribute("role", "group");
+			part.setAttribute("aria-labelledby", text.id);
+		}
+		if (item.header) part.append(el("p", "ops-form-header", item.header));
+		part.append(text);
+		const options = el(open ? "div" : "ul", "ops-form-options");
+		item.options.forEach((option, at) => {
+			const words = el("span", "ops-form-option-words");
+			words.append(el("strong", void 0, option.label));
+			if (option.description) words.append(el("span", "ops-form-option-description", option.description));
+			if (!open) {
+				const row = el("li", "ops-form-option");
+				row.append(words);
+				options.append(row);
+				return;
+			}
+			const row = el("label", `${browserUiClasses.checkboxLabel} ops-form-option`);
+			const input = el("input", item.choice === "single" ? browserUiClasses.radio : browserUiClasses.checkbox);
+			input.type = item.choice === "single" ? "radio" : "checkbox";
+			input.name = `ops-form-${form.formId}-${index}`;
+			input.value = String(at);
+			row.append(input, words);
+			options.append(row);
+		});
+		part.append(options);
+		if (open && item.freeText) {
+			const row = el("label", `${browserUiClasses.field} ops-form-other`);
+			row.append(el("span", browserUiClasses.fieldLabel, "Other"));
+			const input = el("input", browserUiClasses.fieldControl);
+			input.type = "text";
+			input.name = `ops-form-${form.formId}-${index}-other`;
+			row.append(input);
+			part.append(row);
+		}
+		return part;
+	}
+	/** A form folded to one line: its kind, what it asks and when; a click opens it. */
+	function folded(form) {
+		const seen = JSON.stringify(["folded", form]);
+		const cached = cards.get(form.formId);
+		if (cached?.seen === seen) return fresh(cached.node, form);
+		const node = el("section", `${browserUiClasses.card} ops-form`);
+		node.dataset.formId = form.formId;
+		node.dataset.kind = form.kind;
+		node.dataset.folded = "";
+		node.setAttribute("aria-label", `${KIND[form.kind]} form`);
+		const toggle = el("button", "ops-form-toggle");
+		toggle.type = "button";
+		toggle.setAttribute("aria-expanded", "false");
+		const kind = el("span", browserUiClasses.chip);
+		kind.append(el("span", browserUiClasses.chipLabel, KIND[form.kind]));
+		toggle.append(kind, el("span", "ops-form-toggle-text", asked(form)), el("span", "ops-form-time", ago(form.openedMs)));
+		toggle.addEventListener("click", () => {
+			opened.add(form.formId);
+			bump();
+			cards.get(form.formId)?.node.focus();
+		});
+		node.append(toggle);
+		cards.set(form.formId, {
+			node,
+			seen
+		});
+		return node;
+	}
+	function card(form, memberName) {
+		const entry = sent.get(form.formId);
+		const inFlight = busy.has(form.formId);
+		const open = form.answerable && !form.truncated && form.kind !== "permission";
+		const locked = inFlight || !!entry && (entry.state !== "refused" || entry.reason === "FORM_DELIVERY_UNSUPPORTED");
+		const seen = JSON.stringify([
+			form,
+			entry,
+			inFlight,
+			memberName
+		]);
+		const cached = cards.get(form.formId);
+		if (cached?.seen === seen) return fresh(cached.node, form);
+		const node = el("section", `${browserUiClasses.card} ops-form`);
+		node.dataset.formId = form.formId;
+		node.dataset.kind = form.kind;
+		node.tabIndex = -1;
+		node.setAttribute("aria-label", `${KIND[form.kind]} form`);
+		const head = el("div", `${browserUiClasses.cardHead} ops-form-head`);
+		const kind = el("span", browserUiClasses.chip);
+		kind.append(el("span", browserUiClasses.chipLabel, KIND[form.kind]));
+		head.append(kind, el("span", "ops-form-time", ago(form.openedMs)));
+		node.append(head);
+		const body = el(open ? "form" : "div", "ops-form-body");
+		if (form.kind === "permission" && form.tool) {
+			body.append(el("p", `${browserUiClasses.cardTitle} ops-form-text`, form.tool.name));
+			body.append(el("p", "ops-form-summary", form.tool.summary));
+		}
+		if (form.kind === "planApproval") {
+			body.append(el("p", `${browserUiClasses.cardTitle} ops-form-text`, "Approve this plan?"));
+			if (form.plan !== void 0) body.append(el("pre", "ops-form-plan", form.plan));
+		}
+		form.questions?.forEach((item, index) => body.append(question(form, item, index, open)));
+		node.append(body);
+		const lines = [];
+		if (form.truncated) lines.push(note(`Only part of this form is shown here. Answer it in the terminal where ${memberName} runs.`));
+		else if (!open) lines.push(note(`Answer this in the terminal where ${memberName} runs.`));
+		const said = entry && outcome(entry, memberName);
+		if (said) lines.push(said);
+		if (open && body instanceof HTMLFormElement) {
+			const actions = el("div", "ops-form-actions");
+			if (form.kind === "planApproval") for (const [label, decision] of [["Approve", "allow"], ["Keep planning", "deny"]]) {
+				const button = el("button", browserUiClasses.action, label);
+				button.type = "button";
+				if (decision === "allow") button.dataset.variant = "primary";
+				button.disabled = locked;
+				button.addEventListener("click", () => void send(form, { decision }));
+				actions.append(button);
+			}
+			else {
+				const button = el("button", browserUiClasses.action, "Send answer");
+				button.type = "submit";
+				button.dataset.variant = "primary";
+				const ready = () => {
+					const answer = read(body, form);
+					button.disabled = locked || !answer;
+				};
+				body.addEventListener("input", ready);
+				body.addEventListener("submit", (event) => {
+					event.preventDefault();
+					const answer = read(body, form);
+					if (answer && !locked) send(form, answer);
+				});
+				actions.append(button);
+				ready();
+			}
+			for (const control of body.querySelectorAll("input")) control.disabled = locked;
+			body.append(actions);
+		}
+		node.append(...lines);
+		if (cached && open && !("folded" in cached.node.dataset)) refocus = carry(cached.node, node) ?? refocus;
+		cards.set(form.formId, {
+			node,
+			seen
+		});
+		return node;
+	}
+	function gone(entry, memberName) {
+		const node = el("section", `${browserUiClasses.card} ops-form`);
+		node.dataset.formId = entry.formId;
+		node.setAttribute("aria-label", "Answered form");
+		node.append(el("p", `${browserUiClasses.cardTitle} ops-form-text`, entry.asked));
+		const said = outcome(entry, memberName);
+		if (said) node.append(said);
+		if (!busy.has(entry.formId)) {
+			const dismiss = el("button", browserUiClasses.action, "Dismiss");
+			dismiss.type = "button";
+			dismiss.dataset.variant = "text";
+			dismiss.addEventListener("click", () => {
+				sent.delete(entry.formId);
+				drop(entry.formId);
+				bump();
+			});
+			node.append(dismiss);
+		}
+		return node;
+	}
+	return {
+		async refresh() {
+			if (status === "off") return true;
+			try {
+				const forms = await client();
+				const next = await forms.cursor();
+				if (status !== "ready" || next.cursor !== cursor) {
+					list = [...(await forms.list()).forms].sort((a, b) => a.openedMs - b.openedMs);
+					cursor = next.cursor;
+					status = "ready";
+					const live = new Set(list.map((form) => form.formId));
+					for (const id of cards.keys()) if (!live.has(id)) cards.delete(id);
+					for (const id of opened) if (!live.has(id)) opened.delete(id);
+					for (const [id, entry] of sent) if (!live.has(id) && entry.state !== "uncertain") {
+						sent.delete(id);
+						drop(id);
+					}
+					bump();
+				}
+				for (const entry of sent.values()) if (entry.state === "uncertain" && !resumed.has(entry.formId) && !busy.has(entry.formId)) {
+					resumed.add(entry.formId);
+					check(entry);
+				}
+				return true;
+			} catch (error) {
+				const was = status;
+				if (error instanceof FormsNotAllowed || error instanceof RefusalError && error.code === "REMOTE_SCOPE_DENIED") {
+					status = "off";
+					list = [];
+					cards.clear();
+					bump();
+					return true;
+				}
+				status = "unavailable";
+				cursor = void 0;
+				list = [];
+				cards.clear();
+				if (was !== "unavailable") bump();
+				return false;
+			}
+		},
+		waiting(identityId) {
+			return list.filter((form) => form.identityId === identityId).length + [...sent.values()].filter((entry) => entry.identityId === identityId && entry.state === "uncertain" && !list.some((form) => form.formId === entry.formId)).length;
+		},
+		unavailable: () => status === "unavailable",
+		fingerprint: () => `${status}:${version}`,
+		view(identityId, memberName) {
+			let slot = views.get(identityId);
+			if (!slot) {
+				slot = el("div", "ops-forms");
+				slot.setAttribute("aria-label", "Provider forms");
+				slot.append(el("div", "ops-forms-open"), el("div", "ops-forms-folded"));
+				views.set(identityId, slot);
+			}
+			const [openBox, foldedBox] = [...slot.children];
+			const open = [];
+			const rows = [];
+			if (status === "off") {
+				slot.hidden = true;
+				return slot;
+			}
+			if (status === "unavailable") open.push(el("p", "ops-detail-note", "Provider forms unavailable. This page tries again shortly."));
+			list.filter((form) => form.identityId === identityId).forEach((form, index) => index === 0 || opened.has(form.formId) || sent.has(form.formId) ? open.push(card(form, memberName)) : rows.push(folded(form)));
+			for (const entry of sent.values()) if (entry.identityId === identityId && entry.state === "uncertain" && !list.some((form) => form.formId === entry.formId)) open.push(gone(entry, memberName));
+			for (const [box, parts] of [[openBox, open], [foldedBox, rows]]) {
+				if (parts.length !== box.children.length || parts.some((part, i) => box.children[i] !== part)) box.replaceChildren(...parts);
+				box.hidden = parts.length === 0;
+			}
+			slot.hidden = open.length + rows.length === 0;
+			refocus?.();
+			refocus = void 0;
+			return slot;
+		}
+	};
+}
+/** The answer the controls hold, or nothing until every question has one. */
+function read(body, form) {
+	const questions = form.questions ?? [];
+	const choices = [];
+	const other = [];
+	for (let index = 0; index < questions.length; index++) {
+		const name = `ops-form-${form.formId}-${index}`;
+		const picked = [...body.querySelectorAll(`input[name="${name}"]`)].filter((input) => input.checked).map((input) => Number(input.value));
+		const typed = body.querySelector(`input[name="${name}-other"]`)?.value.trim();
+		if (!picked.length && !typed) return void 0;
+		choices.push(picked);
+		other.push(typed || null);
+	}
+	return other.some((text) => text !== null) ? {
+		choices,
+		other
+	} : { choices };
+}
+/** Copies unsent choices to the rebuilt card; returns how to put the person's focus back once
+* the new card is in place. */
+function carry(from, to) {
+	let restore;
+	for (const input of from.querySelectorAll("input")) {
+		const twin = [...to.querySelectorAll("input")].find((candidate) => candidate.name === input.name && (input.type === "text" || candidate.value === input.value));
+		if (!twin) continue;
+		if (input.type === "text") twin.value = input.value;
+		else twin.checked = input.checked;
+		if (input === document.activeElement) {
+			const [start, end] = [input.selectionStart, input.selectionEnd];
+			restore = () => {
+				twin.focus({ preventScroll: true });
+				if (twin.type === "text") twin.setSelectionRange(start, end);
+			};
+		}
+	}
+	to.querySelector("form")?.dispatchEvent(new Event("input"));
+	return restore;
+}
+//#endregion
 //#region src/ops-page.ts
 /** The Ops web view: local squad channels and Orchestration, one section at a time
 * from the module menu. Only Orchestration changes anything, through Core's own preview and confirm
@@ -12543,6 +13032,9 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 		cursor: null,
 		limit: 100
 	})).devices.find((device) => device.thisBrowser)?.name ?? null;
+}, formsConnect = async () => {
+	if (!shell.session) throw new FormsNotAllowed("No signed browser session.");
+	return forms(await shell.session());
 }) {
 	const main = document.getElementById("ops-section");
 	const note = document.getElementById("ops-note");
@@ -12562,7 +13054,8 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 		return orchestration.refresh();
 	};
 	let rereadBoard = () => {};
-	const channel = channelView(location.pathname, shell, channelPort, () => rereadBoard());
+	const providerForms = opsForms(formsConnect, () => paint());
+	const channel = channelView(location.pathname, shell, channelPort, () => rereadBoard(), providerForms);
 	const collapsedSquads = /* @__PURE__ */ new Set();
 	const unread = /* @__PURE__ */ new Map();
 	let unreadScope = "";
@@ -12584,7 +13077,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 				else collapsedSquads.add(squad);
 				paint();
 			}
-		}, unread, hasDraft));
+		}, unread, hasDraft, (memberId) => providerForms.waiting(memberId)));
 	};
 	const paint = () => {
 		const section = current();
@@ -12653,6 +13146,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 	};
 	rereadBoard = () => void readBoard();
 	whileVisible(REFRESH_MS, shell.signal, readBoard);
+	whileVisible(REFRESH_MS, shell.signal, () => providerForms.refresh());
 }
 //#endregion
 //#region src/members.ts
