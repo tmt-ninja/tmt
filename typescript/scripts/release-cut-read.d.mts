@@ -6,6 +6,7 @@ export function readCutMetadata(
     cut: string;
     token: string;
     draftVisibility: string;
+    sleep?: (milliseconds: number) => void;
   },
   execute?: (
     executable: string,
@@ -33,7 +34,7 @@ export function readCutMetadata(
   }[];
 };
 
-export function readReleaseCatalog(input: { repository: string; token?: string }, execute?: Parameters<typeof readCutMetadata>[1]): ReturnType<typeof readCutMetadata>['releases'];
+export function readReleaseCatalog(input: { repository: string; token?: string; sleep?: (milliseconds: number) => void }, execute?: Parameters<typeof readCutMetadata>[1]): ReturnType<typeof readCutMetadata>['releases'];
 
 export function createReleaseReader(input: { repository: string; token?: string; sleep?: (milliseconds: number) => void }, execute?: Parameters<typeof readCutMetadata>[1]): {
   byTag(tag: string): ReleaseDetails | null;
