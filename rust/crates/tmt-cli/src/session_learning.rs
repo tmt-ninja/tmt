@@ -299,7 +299,14 @@ impl Learning {
             return if has_diagnostic { Ok(()) } else { Err(()) };
         }
         let owner = self.owner_with(runner, deadline)?;
-        let mut storage = Storage::open_hook(&self.paths.database, deadline).map_err(|_| ())?;
+        // Diagnostics may drop under real contention, so Learning::fail tries once
+        // within whatever budget remains without borrowing from HOOK_COMPLETION_RESERVE.
+        let mut storage = if matches!(update, Update::Fail(_)) {
+            Storage::open_hook_once(&self.paths.database, deadline)
+        } else {
+            Storage::open_hook(&self.paths.database, deadline)
+        }
+        .map_err(|_| ())?;
         let operation = |records: &mut dyn BindingRecords<Error = StorageError>| {
             let Some(observed) = records.launch_observation(&self.launch.binding_id, &owner)?
             else {

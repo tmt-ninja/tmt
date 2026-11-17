@@ -51,7 +51,7 @@ pub use consumption_history::{
     BUCKET_MS, ConsumptionLatest, HISTORY_MS, MAX_BUCKETS, MAX_RESPONSE_BUCKETS,
     RuntimeObservation, SampledAccount, TurnBoundary, window_resolution_ms,
 };
-pub use context::{ContextRequests, IdentityContextSnapshot};
+pub use context::{ContextRequests, ContextWait, IdentityContextSnapshot};
 pub use database_rename::{DatabaseRename, Kept, rename_database};
 pub use dispatch::DispatchError;
 pub use errors::{StorageError, StorageErrorCode, classify};
@@ -109,6 +109,7 @@ const WAL_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const WAL_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(50);
 const HOOK_WRITER_WAIT: Duration = Duration::from_millis(500);
 const HOOK_COMPLETION_RESERVE: Duration = Duration::from_millis(100);
+const CONTEXT_READ_WAIT: Duration = Duration::from_millis(100);
 
 fn spent_allowance(error: StorageError, allowance: Instant) -> StorageError {
     if Instant::now() >= allowance && error.is_plain_busy() {
@@ -120,17 +121,14 @@ fn spent_allowance(error: StorageError, allowance: Instant) -> StorageError {
 
 /// The Digest worker's wait for other writers: all of its time before `deadline` but the
 /// completion reserve, with no hook cap (#6029).
-fn worker_writer_wait(deadline: Instant, now: Instant) -> Duration {
+pub(super) fn worker_writer_wait(deadline: Instant, now: Instant) -> Duration {
     deadline
         .saturating_duration_since(now)
         .saturating_sub(HOOK_COMPLETION_RESERVE)
 }
 
 fn hook_writer_wait(deadline: Instant, now: Instant) -> Duration {
-    deadline
-        .saturating_duration_since(now)
-        .saturating_sub(HOOK_COMPLETION_RESERVE)
-        .min(HOOK_WRITER_WAIT)
+    worker_writer_wait(deadline, now).min(HOOK_WRITER_WAIT)
 }
 
 /// One invocation-owned connection. The raw handle never crosses this adapter's
@@ -203,7 +201,30 @@ impl Storage {
             )
             .hook_allowance_spent());
         }
-        let allowance = now + wait;
+        Self::open_hook_with_wait(path, wait, now + wait)
+    }
+
+    /// Tries once within whatever hook writer budget remains before `deadline`
+    /// without borrowing from `HOOK_COMPLETION_RESERVE` (diagnostics may drop
+    /// under real contention when zero busy wait remains).
+    pub fn open_hook_once(path: &Path, deadline: Instant) -> Result<Self, StorageError> {
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(StorageError::new(
+                StorageErrorCode::Busy,
+                "Hook storage budget is exhausted",
+            )
+            .hook_allowance_spent());
+        }
+        let wait = hook_writer_wait(deadline, now);
+        Self::open_hook_with_wait(path, wait, now + wait)
+    }
+
+    fn open_hook_with_wait(
+        path: &Path,
+        wait: Duration,
+        allowance: Instant,
+    ) -> Result<Self, StorageError> {
         let opened = (|| {
             let connection =
                 Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)

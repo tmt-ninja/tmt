@@ -743,3 +743,134 @@ fn initial_session_adoption_preserves_preferences_and_loses_to_concurrent_change
         }
     }
 }
+
+#[test]
+fn detaching_during_prompt_context_callback_refuses_context_and_emits_notice() {
+    let registry = RuntimeRegistry::first_party();
+    let harness = HarnessId::new("claude").unwrap();
+    let lifecycle = registry.lifecycle(&harness).unwrap();
+    let session = ProviderSessionId::new("11111111-1111-4111-8111-111111111111").unwrap();
+    let process = ProcessIncarnation::new(20, "runtime").unwrap();
+    let host = HostEvidence::Independent { runtime_pid: None };
+
+    for detach_in_callback in [false, true] {
+        let directory = Directory::new();
+        let paths = ConfigPaths {
+            global_dir: directory.0.clone(),
+            global_config: directory.0.join("config.json"),
+            local_config: directory.0.join("local.json"),
+            database: directory.0.join("state.db"),
+        };
+        let mut storage = Storage::open(&paths.database).unwrap();
+        let identity = create_or_resolve(&mut storage, "Prompt Reader", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let server = ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
+            server_id: "123e4567-e89b-42d3-a456-426614174000".into(),
+            socket_path: "/tmp/test.sock".into(),
+            server_pid: 10,
+            server_start_time: "server".into(),
+        };
+        let mut pane = PaneObservation {
+            agent_name: None,
+            id: "%1".into(),
+            target: None,
+            cwd: None,
+            command: "claude".into(),
+            pane_pid: 11,
+            pane_incarnation: Some("pane".into()),
+            suggested_name: None,
+            marker: None,
+            location: None,
+        };
+        let mode = RuntimeMode::new("embedded").unwrap();
+        let mut preferences = SessionPreferences::default();
+        preferences.remember(harness.clone(), mode, session.clone());
+        let binding = storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                let binding = records.insert_binding(&identity, &server, &pane)?;
+                let mut state = binding.session.clone();
+                state.state = tmt_core::binding::session::RuntimeState::Running;
+                state.key = Some(tmt_core::binding::session::ObservedSessionKey {
+                    incarnation: process.clone(),
+                    provider_session: Some(session.clone()),
+                });
+                assert!(records.set_session_state(&binding.id, &binding.session, &state)?);
+                records.set_session_preferences(&identity.id, &preferences)?;
+                Ok(binding)
+            })
+            .unwrap();
+        storage.close().unwrap();
+
+        let stored = Storage::context_by_identity(&paths.database, &identity.id, 0)
+            .unwrap()
+            .unwrap();
+        pane.marker = Some(binding.marker(&stored.entry.identity));
+        let snapshot = EndpointSnapshot {
+            server,
+            panes: vec![pane],
+        };
+        let binding_id = binding.id;
+        let payload = br#"{"hook_event_name":"UserPromptSubmit","session_id":"11111111-1111-4111-8111-111111111111","prompt":"hi"}"#;
+        let result = observe_bound_main_event_with(
+            "claude",
+            &harness,
+            lifecycle,
+            &session,
+            None,
+            MainEvent::Prompt(payload),
+            BoundCaller {
+                host,
+                paths: paths.clone(),
+                stored,
+                snapshot,
+                process: process.clone(),
+            },
+            Run {
+                deadline: Instant::now() + Duration::from_secs(2),
+                learning: None,
+                event: SessionLearningEvent::UserPromptSubmit,
+            },
+            |_stored, cb_paths, _| {
+                if detach_in_callback {
+                    let mut storage = Storage::open(&cb_paths.database).unwrap();
+                    storage
+                        .with_binding_transaction::<_, StorageError>(|records| {
+                            records.detach_binding(&binding_id)
+                        })
+                        .unwrap();
+                    storage.close().unwrap();
+                }
+                "Extension ctxfix context.\n".into()
+            },
+        );
+
+        if detach_in_callback {
+            assert!(result.is_err());
+            let mut err = Vec::new();
+            write_unavailable_context_error(&mut err, false, false, false);
+            assert_eq!(String::from_utf8(err).unwrap(), format!("{ERROR_LINE}\n"));
+            assert!(
+                Storage::context_by_identity(&paths.database, &identity.id, 0)
+                    .unwrap()
+                    .unwrap()
+                    .entry
+                    .binding
+                    .is_none()
+            );
+        } else {
+            let observation = result.unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(&observation.context).unwrap();
+            assert_eq!(
+                parsed,
+                serde_json::json!({
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit",
+                        "additionalContext": "Extension ctxfix context.\n",
+                    }
+                })
+            );
+        }
+    }
+}

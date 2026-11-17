@@ -6,6 +6,8 @@ mod tests;
 mod worker;
 
 use super::{StorageError, StorageErrorCode, classify};
+#[cfg(test)]
+pub(super) use capture::first_busy;
 pub use capture::{CaptureEvent, CaptureFollowUp, CaptureLearning, CaptureResult};
 use nix::fcntl::Flock;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};

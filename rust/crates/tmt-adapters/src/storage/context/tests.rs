@@ -109,7 +109,7 @@ fn enrolled_binding_selection_needs_no_remembered_history_and_is_read_only() {
     let (_directory, path, id) = fixture();
     let before = fs::read(&path).unwrap();
     assert_eq!(
-        Storage::context_by_binding(&path, "binding", 10)
+        Storage::context_by_binding(&path, "binding", 10, ContextWait::Default)
             .unwrap()
             .unwrap()
             .entry
@@ -118,7 +118,7 @@ fn enrolled_binding_selection_needs_no_remembered_history_and_is_read_only() {
         id
     );
     assert!(
-        Storage::context_by_binding(&path, "absent", 10)
+        Storage::context_by_binding(&path, "absent", 10, ContextWait::Default)
             .unwrap()
             .is_none()
     );
@@ -128,7 +128,7 @@ fn enrolled_binding_selection_needs_no_remembered_history_and_is_read_only() {
         .execute("UPDATE identities SET retired_at_ms=1", [])
         .unwrap();
     assert!(
-        Storage::context_by_binding(&path, "binding", 10)
+        Storage::context_by_binding(&path, "binding", 10, ContextWait::Default)
             .unwrap()
             .is_none()
     );
@@ -532,4 +532,87 @@ fn many_unread_items_keep_exact_counts_and_independent_bulk_watermarks() {
     assert_eq!(snapshot.requests.originated, 5);
     assert_eq!(snapshot.requests.incoming, 7);
     assert_eq!(fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn digest_worker_context_read_waits_for_released_write_lock_while_hooks_keep_reserve() {
+    use crate::storage::{StorageErrorCode, hook_queue::first_busy};
+    let (_directory, path, id) = fixture();
+    let holder = Connection::open(&path).unwrap();
+    holder
+        .pragma_update(None, "locking_mode", "EXCLUSIVE")
+        .unwrap();
+    holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+
+    // Wait on a deterministic Busy barrier, then release the writer lock.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let (waiting_tx, waiting_rx) = std::sync::mpsc::sync_channel(1);
+    first_busy::arm(waiting_tx, deadline);
+    let snapshot = std::thread::scope(|scope| {
+        let reader = scope.spawn(|| {
+            Storage::context_by_pane_until(
+                &path,
+                tmt_core::host::HostKind::Tmux,
+                "%1",
+                "server",
+                10,
+                ContextWait::Worker(deadline),
+            )
+        });
+        waiting_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        holder.execute_batch("ROLLBACK").unwrap();
+        holder.close().unwrap();
+        reader.join().unwrap()
+    });
+    first_busy::disarm();
+    assert_eq!(snapshot.unwrap().unwrap().entry.identity.id, id);
+
+    // Spent or sub-reserve deadlines return Busy without borrowing from completion reserve.
+    let exhausted = Storage::context_by_pane_until(
+        &path,
+        tmt_core::host::HostKind::Tmux,
+        "%1",
+        "server",
+        10,
+        ContextWait::Worker(Instant::now()),
+    )
+    .unwrap_err();
+    assert_eq!(exhausted.code, StorageErrorCode::Busy);
+    assert!(exhausted.is_hook_allowance_spent());
+
+    let short = Instant::now() + Duration::from_millis(20);
+    assert_eq!(
+        Storage::open_hook(&path, short).err().unwrap().code,
+        StorageErrorCode::Busy
+    );
+    let mut once = Storage::open_hook_once(&path, short).unwrap();
+    once.close().unwrap();
+
+    let holder = Connection::open(&path).unwrap();
+    holder
+        .pragma_update(None, "locking_mode", "EXCLUSIVE")
+        .unwrap();
+    holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+    assert_eq!(
+        Storage::context_by_pane_until(
+            &path,
+            tmt_core::host::HostKind::Tmux,
+            "%1",
+            "server",
+            10,
+            ContextWait::Hook(Instant::now() + Duration::from_millis(20)),
+        )
+        .unwrap_err()
+        .code,
+        StorageErrorCode::Busy
+    );
+    assert_eq!(
+        Storage::open_hook_once(&path, Instant::now() + Duration::from_millis(20))
+            .err()
+            .unwrap()
+            .code,
+        StorageErrorCode::Busy
+    );
+    holder.execute_batch("ROLLBACK").unwrap();
+    holder.close().unwrap();
 }

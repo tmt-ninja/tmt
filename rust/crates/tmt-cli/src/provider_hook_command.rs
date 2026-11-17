@@ -18,7 +18,7 @@ use tmt_adapters::{
         lifecycle::{HostEvidence, RuntimeLifecycle, TurnEnd},
     },
     skill_installation::ProviderEnvironment,
-    storage::{IdentityContextSnapshot, Storage, StorageError, StorageErrorCode},
+    storage::{ContextWait, IdentityContextSnapshot, Storage, StorageError, StorageErrorCode},
 };
 use tmt_core::{
     binding::{
@@ -189,17 +189,31 @@ pub fn execute(
             } else if !empty_hook_output.is_empty() {
                 let _ = io::stdout().lock().write_all(empty_hook_output.as_bytes());
             }
-            if !turn_end {
-                if budget_spent && !worker && debug_budget() {
-                    let _ = writeln!(io::stderr().lock(), "{BUDGET_SPENT_LINE}");
-                }
-                let _ = writeln!(io::stderr().lock(), "{ERROR_LINE}");
-            }
+            write_unavailable_context_error(
+                &mut io::stderr().lock(),
+                turn_end,
+                budget_spent,
+                worker,
+            );
         }
     }
     // Only the internal worker reports failure to its group-owning supervisor.
     // The provider-facing hook always succeeds and never emits a veto.
     Ok(u8::from(worker && failed))
+}
+
+fn write_unavailable_context_error(
+    stderr: &mut impl Write,
+    turn_end: bool,
+    budget_spent: bool,
+    worker: bool,
+) {
+    if !turn_end {
+        if budget_spent && !worker && debug_budget() {
+            let _ = writeln!(stderr, "{BUDGET_SPENT_LINE}");
+        }
+        let _ = writeln!(stderr, "{ERROR_LINE}");
+    }
 }
 
 /// What a hook payload can do to its launch. Only a lifecycle event can bind it, by its name even
@@ -400,6 +414,11 @@ fn observe_turn(
             verified_binding: None,
             start: None,
             learning: run.learning,
+            context_wait: if mode == TurnMode::BeforeDigest {
+                ContextWait::Worker(deadline)
+            } else {
+                ContextWait::Hook(deadline)
+            },
         },
         deadline,
         SupervisedProbeRunner,
@@ -785,6 +804,7 @@ pub(super) fn verified_lifecycle_caller<R: CommandRunner + Clone>(
             verified_binding,
             start: None,
             learning: None,
+            context_wait: ContextWait::Hook(deadline),
         },
         deadline,
         runner,
@@ -799,6 +819,7 @@ struct CallerRequest<'a> {
     verified_binding: Option<&'a str>,
     start: Option<&'a dyn tmt_adapters::runtime::lifecycle::LifecycleObservation>,
     learning: Option<&'a Learning>,
+    context_wait: ContextWait,
 }
 
 fn verified_caller<R: CommandRunner + Clone>(
@@ -814,25 +835,29 @@ fn verified_caller<R: CommandRunner + Clone>(
         verified_binding,
         start,
         learning,
+        context_wait,
     } = request;
     let paths = ConfigPaths::discover().map_err(|_| CallerProbeFailure::Config)?;
     let now = tmt_adapters::request_runtime::wall_time_ms();
     let shared = host.shared();
     let (stored, snapshot, process) = if shared {
         let Some(stored) = match verified_binding {
-            Some(binding) => Storage::context_by_binding(&paths.database, binding, now),
-            None => Storage::context_by_provider_session(
+            Some(binding) => {
+                Storage::context_by_binding(&paths.database, binding, now, context_wait)
+            }
+            None => Storage::context_by_provider_session_until(
                 &paths.database,
                 provider,
                 session.as_str(),
                 now,
+                context_wait,
             ),
         }
         .map_err(|error| CallerProbeFailure::Storage(error.code))?
         else {
             if let Some(event) = start
                 && let Some(observed) =
-                    observed_hook_pane(&paths, deadline, runner.clone(), learning)?
+                    observed_hook_pane(&paths, deadline, context_wait, runner.clone(), learning)?
                 && let Some(stored) = observed.stored.as_ref()
             {
                 // An ambient pane variable cannot attribute a shared server:
@@ -890,7 +915,9 @@ fn verified_caller<R: CommandRunner + Clone>(
         };
         (stored, snapshot, process)
     } else {
-        let Some(observed) = observed_hook_pane(&paths, deadline, runner.clone(), learning)? else {
+        let Some(observed) =
+            observed_hook_pane(&paths, deadline, context_wait, runner.clone(), learning)?
+        else {
             return Ok(Caller::Unobserved);
         };
         let HookPane {
@@ -1022,6 +1049,7 @@ fn bind_remembered<R: CommandRunner + Clone>(
 fn observed_hook_pane<R: CommandRunner + Clone>(
     paths: &ConfigPaths,
     deadline: Instant,
+    context_wait: ContextWait,
     runner: R,
     learning: Option<&Learning>,
 ) -> Result<Option<HookPane<R>>, CallerProbeFailure> {
@@ -1072,12 +1100,13 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
     if let Some(learning) = stage_learning {
         let _ = learning.stage(Step::Storage, deadline);
     }
-    let stored = Storage::context_by_pane(
+    let stored = Storage::context_by_pane_until(
         &paths.database,
         snapshot.server.host,
         &pane,
         &snapshot.server.server_id,
         tmt_adapters::request_runtime::wall_time_ms(),
+        context_wait,
     )
     .map_err(|error| CallerProbeFailure::Storage(error.code))?;
     let pid = observed_pane.pane_pid;
@@ -1117,12 +1146,17 @@ pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
         .host_evidence()
         .map_err(|_| DigestStop::LaunchHost)?;
     let mut bound = caller_check(
-        verified_lifecycle_caller(
-            provider,
-            lifecycle,
-            host,
-            session,
-            None,
+        verified_caller(
+            CallerRequest {
+                provider,
+                lifecycle,
+                host,
+                session,
+                verified_binding: None,
+                start: None,
+                learning: None,
+                context_wait: ContextWait::Worker(deadline),
+            },
             deadline,
             runner.clone(),
         ),
@@ -1452,6 +1486,7 @@ fn observe_lifecycle_event(
             verified_binding: event.verified_binding(),
             start: event.starting().then_some(event.as_ref()),
             learning,
+            context_wait: ContextWait::Hook(deadline),
         },
         deadline,
         SupervisedProbeRunner,
@@ -2214,16 +2249,12 @@ fn observe_main_event(
     event: MainEvent<'_>,
     run: Run<'_>,
 ) -> Result<Observation, ()> {
-    let (payload, form) = match event {
-        MainEvent::Prompt(payload) => (Some(payload), None),
-        MainEvent::Activity(form) => (None, form),
-    };
     let deadline = run.deadline;
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
         return unsupported_host(run);
     }
-    let Caller::Bound(mut bound) = verified_caller(
+    let Caller::Bound(bound) = verified_caller(
         CallerRequest {
             provider,
             lifecycle,
@@ -2232,6 +2263,7 @@ fn observe_main_event(
             verified_binding: None,
             start: None,
             learning: run.learning,
+            context_wait: ContextWait::Hook(deadline),
         },
         deadline,
         SupervisedProbeRunner,
@@ -2241,6 +2273,37 @@ fn observe_main_event(
         run.stopped(Stop::UnboundSession);
         return Ok(Observation::default());
     };
+    observe_bound_main_event_with(
+        provider,
+        harness,
+        lifecycle,
+        session,
+        activity,
+        event,
+        *bound,
+        run,
+        crate::context_command::render_prompt,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn observe_bound_main_event_with(
+    provider: &str,
+    harness: &HarnessId,
+    lifecycle: &dyn RuntimeLifecycle,
+    session: &ProviderSessionId,
+    activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
+    event: MainEvent<'_>,
+    mut bound: BoundCaller,
+    run: Run<'_>,
+    render: impl FnOnce(&IdentityContextSnapshot, &ConfigPaths, Instant) -> String,
+) -> Result<Observation, ()> {
+    let (payload, form) = match event {
+        MainEvent::Prompt(payload) => (Some(payload), None),
+        MainEvent::Activity(form) => (None, form),
+    };
+    let deadline = run.deadline;
+    let host = bound.host;
     let adopted = if payload.is_some() {
         adopt_initial_session(&mut bound, harness, lifecycle, session, deadline)?
     } else {
@@ -2252,7 +2315,7 @@ fn observe_main_event(
         snapshot,
         process,
         ..
-    } = *bound;
+    } = bound;
     let binding = stored.entry.binding.as_ref().ok_or(())?;
     let Some(process) =
         lifecycle.activity_process(&binding.session, &process, session, host, deadline)
@@ -2332,12 +2395,13 @@ fn observe_main_event(
                 run.learning,
             )?;
             if activity.is_some()
-                && let Some(refreshed) = Storage::context_by_pane(
+                && let Some(refreshed) = Storage::context_by_pane_until(
                     &paths.database,
                     server.host,
                     &pane_id,
                     &server.server_id,
                     tmt_adapters::request_runtime::wall_time_ms(),
+                    ContextWait::Hook(deadline),
                 )
                 .map_err(|_| ())?
                 && refreshed.entry.binding.as_ref().is_some_and(|current| {
@@ -2380,7 +2444,7 @@ fn observe_main_event(
         return Ok(Observation::default());
     }
     let context = if payload.is_some() {
-        crate::context_command::render_prompt(
+        render(
             &stored,
             &paths,
             deadline
@@ -2394,12 +2458,13 @@ fn observe_main_event(
     // continue_awaiting_session) can change the binding or preferences; when none
     // ran, `commit_observation` still CAS-checks against `stored`.
     let refreshed = if payload.is_some() || adopted || mutating_continuation {
-        let refreshed = Storage::context_by_pane(
+        let refreshed = Storage::context_by_pane_until(
             &paths.database,
             snapshot.server.host,
             &binding.pane_id,
             &snapshot.server.server_id,
             tmt_adapters::request_runtime::wall_time_ms(),
+            ContextWait::Hook(deadline),
         )
         .map_err(|_| ())?
         .ok_or(())?;
