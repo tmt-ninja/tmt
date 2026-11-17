@@ -1474,7 +1474,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
         DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
-        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=4")
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE IF EXISTS work_observed; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=4")
         .unwrap();
     let stored_pages: Vec<(String, String)> = conn
         .prepare("SELECT page, epoch FROM pages ORDER BY page")
@@ -1578,7 +1578,7 @@ fn serve_rewrites_v1_object_envelopes_as_v2_under_the_same_hash() {
             .unwrap();
         }
     }
-    conn.execute_batch("DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=21").unwrap();
+    conn.execute_batch("DROP TABLE IF EXISTS work_observed; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=21").unwrap();
     drop(conn);
     failure(&pilot, &["ls", "--json"], "COLAB_STORE_OUTDATED");
     pilot.start();
@@ -6282,7 +6282,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_observed; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6403,7 +6403,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; DROP TABLE IF EXISTS work_observed; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=6",
         )
         .unwrap();
     assert_eq!(
@@ -13545,7 +13545,7 @@ fn migration_numbers_existing_pages_in_creation_order() {
         .unwrap()
         .to_owned();
     let db = rusqlite::Connection::open(pilot.root.join("selected/colab/space.db")).unwrap();
-    db.execute_batch("DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version=22;").unwrap();
+    db.execute_batch("DROP TABLE IF EXISTS work_observed; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version=22;").unwrap();
     drop(db);
     let started = pilot.start();
     assert!(started.get("error").is_none(), "serve failed: {started}");
@@ -13590,7 +13590,7 @@ fn migration_numbers_pages_even_when_a_log_row_cannot_be_read() {
         .unwrap()
         .unwrap();
     let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
-    db.execute_batch("UPDATE membership_log SET envelope=X'00' WHERE revision=(SELECT MIN(revision) FROM membership_log); DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version=22;").unwrap();
+    db.execute_batch("UPDATE membership_log SET envelope=X'00' WHERE revision=(SELECT MIN(revision) FROM membership_log); DROP TABLE IF EXISTS work_observed; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE work_numbers; DROP TABLE work_counters; DROP TABLE project_meta; PRAGMA user_version=22;").unwrap();
     drop(db);
     let store = tmt_colab::store::Store::open(&layout).unwrap();
     let numbers: Vec<_> = pages

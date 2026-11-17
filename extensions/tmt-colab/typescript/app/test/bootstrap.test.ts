@@ -742,3 +742,28 @@ it('an authenticated legacy page entry keeps the owner reading hint on the short
   await discover(mount);
   expect(replaceState).toHaveBeenCalledWith(null, '', `/p/10000000#read=${read}`);
 });
+it('accepts Work home list fields and refuses malformed ones', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const summary = { comments: 0, waiting: false, needsYou: 0 };
+  const todos = [
+    { id: 't1', text: 'Reply', checked: true, number: 'COLAB-3', assignee: 'gui-3', doneAtMs: 5 },
+    { id: 't2', text: '', checked: false },
+  ];
+  await response([
+    { ...metadata, state: 'todo', summary: { ...summary, doneAtMs: 1, blockedSinceMs: 2, todos } },
+  ]);
+  expect((await discover(mount)).pages[0].summary?.todos).toEqual(todos);
+  for (const patch of [
+    { doneAtMs: -1 },
+    { todos: [] },
+    { todos: [{ id: 't', text: 'x', checked: false, doneAtMs: 1 }] },
+    { todos: [{ id: 't', text: 'x', checked: false, extra: 1 }] },
+    { todosOmitted: true, todos },
+    { todosOmitted: false },
+  ]) {
+    await response([{ ...metadata, state: 'todo', summary: { ...summary, ...patch } }]);
+    await expect(discover(mount), JSON.stringify(patch)).rejects.toThrow();
+  }
+});

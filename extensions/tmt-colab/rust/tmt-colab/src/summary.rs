@@ -97,6 +97,19 @@ pub struct SummaryProjection {
     pub pr_links: Option<Vec<crate::work_facts::PullLink>>,
     /// Checked and total visible structured to-dos; absent for an HTML page.
     pub todo_counts: Option<(usize, usize)>,
+    /// The page's visible to-dos in page order, at most [`crate::limits::WORK_TODOS`], each a work
+    /// item for the Work home list (#6474). Empty for an HTML or read-only page.
+    pub todo_items: Vec<TodoItem>,
+}
+
+/// One to-do as a work item: display text only, never authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TodoItem {
+    pub id: String,
+    /// The to-do's text, cut at [`crate::limits::WORK_TODO_TEXT`] bytes on a character boundary.
+    pub text: String,
+    pub checked: bool,
+    pub assignee: Option<String>,
 }
 
 #[cfg(test)]
@@ -109,6 +122,7 @@ impl From<Summary> for SummaryProjection {
             latest: None,
             pr_links: None,
             todo_counts: None,
+            todo_items: Vec::new(),
         }
     }
 }
@@ -116,7 +130,7 @@ impl From<Summary> for SummaryProjection {
 pub enum CachedDetails {
     Pending,
     Unavailable,
-    Ready(SummaryProjection),
+    Ready(Box<SummaryProjection>),
 }
 
 /// Numeric callers use the same complete fold; there is no second reading-state owner.
@@ -131,6 +145,15 @@ pub fn summarize_details(source: &mut Source, page: &str) -> Result<SummaryProje
 
 /// [`summarize_details`] and the page's verified title, which the same fold already holds: `Some`
 /// only for an active page, since an archived or deleted one keeps no local title.
+/// `text` cut to at most `max` bytes on a character boundary.
+fn cut(text: &str, max: usize) -> String {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_owned()
+}
+
 fn fold_details(
     source: &mut Source,
     page: &str,
@@ -192,6 +215,29 @@ fn fold_details(
     } else {
         Vec::new()
     };
+    let todo_items = todos
+        .iter()
+        .filter_map(|id| {
+            let block = folded.blocks.as_ref()?.get(id)?;
+            if block.get("deleted").is_some() {
+                return None;
+            }
+            let text = block
+                .pointer("/text/s")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            Some(TodoItem {
+                id: id.clone(),
+                text: cut(text, crate::limits::WORK_TODO_TEXT),
+                checked: block["props"]["checked"] == true,
+                assignee: block["props"]["assignee"]
+                    .as_str()
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned),
+            })
+        })
+        .take(crate::limits::WORK_TODOS)
+        .collect();
     Ok((
         SummaryProjection {
             summary,
@@ -200,6 +246,7 @@ fn fold_details(
             latest: crate::summary_passages::latest(&conversations),
             pr_links,
             todo_counts,
+            todo_items,
         },
         title,
         todos,
@@ -274,6 +321,14 @@ impl SummaryCache {
                     .map(|projection| projection.summary.clone())
             })
     }
+    /// The page's to-do work items at this fingerprint, or `None` without a fresh projection.
+    pub fn todo_items(&self, page: &str, fingerprint: &str) -> Option<Vec<TodoItem>> {
+        self.lock()
+            .get(page)
+            .filter(|entry| entry.fingerprint == fingerprint)
+            .and_then(|entry| entry.projection.as_ref())
+            .map(|projection| projection.todo_items.clone())
+    }
     /// The page list's status from this fresh fold alone (`work_index::derived_state`), or `None`
     /// without a fresh projection.
     pub fn derived_state(
@@ -318,7 +373,7 @@ impl SummaryCache {
             None => CachedDetails::Pending,
             Some(entry) => match &entry.projection {
                 None => CachedDetails::Unavailable,
-                Some(projection) => CachedDetails::Ready(projection.clone()),
+                Some(projection) => CachedDetails::Ready(Box::new(projection.clone())),
             },
         }
     }

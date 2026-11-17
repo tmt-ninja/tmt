@@ -22,6 +22,7 @@ export const sections = [
   ['status-tile', 'Status tile'],
   ['card', 'Card and meter'],
   ['overview', 'Overview pieces'],
+  ['work', 'Work home'],
   ['menus', 'Menus'],
   ['tabs', 'Tabs'],
   ['list', 'List'],

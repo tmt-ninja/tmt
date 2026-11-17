@@ -21,6 +21,7 @@ import { NotificationsSection, OverlaysSection, ShellSection } from './frames.js
 import { ChartsSection } from './charts.js';
 import { UiLayerSection } from './ui-layer.js';
 import { ThemeBSection } from './theme-b.js';
+import { WorkSection } from './work.js';
 import { UiOverlaysSection } from './ui-overlays.js';
 import {
   AvatarSection,
@@ -54,6 +55,7 @@ export function GallerySections() {
       <StatusTileSection />
       <CardSection />
       <OverviewSection />
+      <WorkSection />
       <MenusSection />
       <TabsSection />
       <ListSection />

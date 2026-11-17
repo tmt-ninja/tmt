@@ -174,6 +174,21 @@ impl super::Store {
             tx.allocate_todo_numbers(page, blocks)
         })
     }
+    /// Every issued number by item, for one list read.
+    pub fn work_numbers(&self) -> StoreResult<std::collections::HashMap<String, String>> {
+        let mut query = self
+            .connection
+            .prepare("SELECT item,prefix,n FROM work_numbers")?;
+        let rows = query
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    format!("{}-{}", row.get::<_, String>(1)?, row.get::<_, i64>(2)?),
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
     /// An issued number, if this owner has allocated one for the item.
     pub fn work_number(&self, item: &str) -> StoreResult<Option<String>> {
         Ok(self
@@ -302,6 +317,79 @@ impl super::Store {
         self.owner_read(&key.space_id, &key.owner_public(), |tx| {
             tx.page_fingerprints()
         })
+    }
+
+    /// Records what the list read observes (#6474). Each `(item, kind, present, at)` seen
+    /// `present` keeps its first-seen time or gets `at` (the caller's earlier of now and the page's
+    /// last activity); one seen absent loses its row; `None` (not known now) changes nothing.
+    /// `complete` names pages whose to-dos the read listed in full: their `done` rows for to-dos no
+    /// longer listed are removed. One transaction, written only when something changes. Returns
+    /// every observed item's time.
+    pub fn observe_work(
+        &self,
+        observed: &[(String, &'static str, Option<bool>, u64)],
+        complete: &[(String, std::collections::HashSet<String>)],
+    ) -> StoreResult<std::collections::HashMap<(String, &'static str), u64>> {
+        let known: std::collections::HashMap<(String, String), u64> = {
+            let mut query = self
+                .connection
+                .prepare("SELECT item,kind,at_ms FROM work_observed")?;
+            query
+                .query_map([], |row| {
+                    Ok(((row.get(0)?, row.get(1)?), row.get::<_, i64>(2)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter_map(|(key, at)| Some((key, u64::try_from(at).ok()?)))
+                .collect()
+        };
+        let has = |item: &str, kind: &str| known.contains_key(&(item.to_owned(), kind.to_owned()));
+        let mut inserts = Vec::new();
+        let mut deletes = Vec::new();
+        let mut times = std::collections::HashMap::new();
+        for (item, kind, present, at) in observed {
+            match present {
+                Some(true) if !has(item, kind) => {
+                    inserts.push((item, *kind, i64::try_from(*at).map_err(|_| Fault::Invalid)?));
+                    times.insert((item.clone(), *kind), *at);
+                }
+                Some(false) if has(item, kind) => deletes.push((item.clone(), *kind)),
+                Some(false) => {}
+                _ => {
+                    if let Some(at) = known.get(&(item.clone(), (*kind).to_owned())) {
+                        times.insert((item.clone(), *kind), *at);
+                    }
+                }
+            }
+        }
+        for (page, listed) in complete {
+            let prefix = format!("{page}:");
+            for (item, kind) in known.keys() {
+                if kind == "done"
+                    && item.starts_with(&prefix)
+                    && !listed.contains(&item[prefix.len()..])
+                {
+                    deletes.push((item.clone(), "done"));
+                }
+            }
+        }
+        if !inserts.is_empty() || !deletes.is_empty() {
+            let tx = self.connection.unchecked_transaction()?;
+            for (item, kind, at) in inserts {
+                tx.execute(
+                    "INSERT OR IGNORE INTO work_observed(item,kind,at_ms) VALUES(?,?,?)",
+                    params![item, kind, at],
+                )?;
+            }
+            for (item, kind) in deletes {
+                tx.execute(
+                    "DELETE FROM work_observed WHERE item=? AND kind=?",
+                    params![item, kind],
+                )?;
+            }
+            tx.commit()?;
+        }
+        Ok(times)
     }
 
     /// Cached work display for CLI consumers; changed fingerprints and malformed data are unknown.
@@ -458,6 +546,76 @@ mod tests {
             .unwrap();
         assert_eq!(later["asOfMs"], 123);
         assert_eq!(later["state"], "waiting-ci");
+        store.close().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn work_is_done_from_its_first_observation_until_it_reopens() {
+        let root = std::env::temp_dir().join(format!("tmt-work-observed-{}", std::process::id()));
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let store = crate::store::Store::open(&layout).unwrap();
+        let key = |item: &str| (item.to_owned(), "done");
+        let seen = |present, at| vec![("p".to_owned(), "done", present, at)];
+        let none = Vec::new();
+        assert!(
+            store
+                .observe_work(&seen(Some(false), 10), &none)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            store.observe_work(&seen(Some(true), 20), &none).unwrap()[&key("p")],
+            20
+        );
+        // A later read keeps the first-seen time; a read that cannot decide changes nothing.
+        assert_eq!(
+            store.observe_work(&seen(Some(true), 30), &none).unwrap()[&key("p")],
+            20
+        );
+        assert_eq!(
+            store.observe_work(&seen(None, 40), &none).unwrap()[&key("p")],
+            20
+        );
+        // Reopening clears it; done again takes the new time.
+        assert!(
+            store
+                .observe_work(&seen(Some(false), 50), &none)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            store.observe_work(&seen(Some(true), 60), &none).unwrap()[&key("p")],
+            60
+        );
+        // A page listed in full drops the done rows of to-dos it no longer lists.
+        let todos = vec![
+            ("p:a".to_owned(), "done", Some(true), 70),
+            ("p:b".to_owned(), "done", Some(true), 70),
+        ];
+        store.observe_work(&todos, &none).unwrap();
+        let listed = vec![(
+            "p".to_owned(),
+            std::collections::HashSet::from(["a".to_owned()]),
+        )];
+        store.observe_work(&todos[..1], &listed).unwrap();
+        let after = store.observe_work(&todos, &none).unwrap();
+        assert_eq!(after[&key("p:a")], 70);
+        assert_eq!(
+            after[&key("p:b")],
+            70,
+            "b was seen again, so it starts again"
+        );
+        store.observe_work(&todos[..1], &listed).unwrap();
+        let rows: i64 = store
+            .connection
+            .query_row(
+                "SELECT count(*) FROM work_observed WHERE item='p:b'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 0);
         store.close().unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }

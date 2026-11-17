@@ -6663,6 +6663,22 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   activity. A page's sub-page progress (`work`) counts a child as done when its status is `done`,
   as in progress or to do by its other statuses, and by its manual state when it is `unknown`,
   `unchecked` or absent. Display only, never authority.
+- Work home data (#6474), all display only and owner-local:
+  - `doneAtMs` and `blockedSinceMs` are the page's last admitted activity (`lastUpdateAtMs`, never
+    later than the read) when an owner list read first saw its status `done` or a non-empty
+    `blocked` field, so work already done when the list first sees it keeps the time of its last
+    edit and needs no backfill. A read that sees the page reopened or unblocked clears the time;
+    a status it cannot decide (`unknown`, `unchecked`) changes nothing.
+  - `todos` lists the page's visible to-dos in page order as work items, at most 64:
+    `{id, text, checked, number?, assignee?, doneAtMs?}`. `text` is cut at 256 bytes on a
+    character boundary; `number` is the to-do's issued work number; `doneAtMs` is when a list read
+    first saw it checked (its page's last activity then, as above), cleared when it is unchecked
+    or no longer listed by a read that lists all of the page's to-dos. Deleting a page removes its
+    times and its to-dos' times. Omitted for a page without to-dos, an
+    HTML page and a read-only page.
+  - `todos` come last within `DISCOVERY_BYTES`: a page whose items do not fit carries
+    `todosOmitted: true` instead of some of them. The times live in the owner's store
+    (`work_observed`), so another device reads the same ones.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the
