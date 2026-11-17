@@ -28,6 +28,14 @@ pub(super) struct Run {
 }
 
 impl App {
+    pub(in crate::board) fn shell_running(&self) -> bool {
+        self.conversation
+            .borrow()
+            .sessions
+            .values()
+            .any(|session| session.shell_runs.iter().any(|run| run.result.is_none()))
+    }
+
     pub(in crate::board) fn shell_start(
         &mut self,
         key: &(String, String),

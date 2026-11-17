@@ -55,12 +55,14 @@ fn shell_submission_is_once_per_member_and_private_results_never_attach() {
     assert!(
         matches!(app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Shell { command, .. } if command == "pwd")
     );
+    assert!(app.shell_running());
     app.input.as_mut().unwrap().text = "! pwd".into();
     assert!(!matches!(
         app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
         Effect::Shell { .. }
     ));
     app.shell_finished(key.clone(), Ok(json!({"cwd":"/work","stdout":"private","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false})));
+    assert!(!app.shell_running());
     assert_eq!(app.shell_attachment(&key, false), None);
     assert!(matches!(
         app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
