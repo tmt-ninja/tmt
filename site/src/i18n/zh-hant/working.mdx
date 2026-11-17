@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/working.mdx
-sourceRevision: 68599fb098c6781fe6fd7cbb27998d804a3d35b9
+sourceRevision: 0c9db822e3e4f88a052a20bf5c57d289dff59557
 title: 啟動、傳送與取得回覆
 ---
 
@@ -46,6 +46,8 @@ tmt 只記住 driver 透過 agent hook 回報的資訊。`/clear` 或新的 sess
 <Mdx.h3 id="rename-retire-and-create-names">改名、停用與建立名稱</Mdx.h3>
 
 名稱全域通用，除非儲存，否則都是暫時的。`tmt mv` 會改名並保留所屬的一切：對話、role、notes、metadata、room 與歷史。改名前已傳送的請求仍會到達；新的請求必須使用新名稱。`tmt rm` 停用名稱，但讓窗格繼續執行。已儲存的名稱需要 `--force`，這也會移除 role 與 preamble；訊息往來記錄會保留。
+
+記錄的 agent 仍在執行、已暫停或無法觀察時，`tmt rm` 即使帶有 `--force` 也會以 `AGENT_RUNNING` 拒絕。請先執行 `tmt stop <name>`，或在它的窗格中結束 agent；若無法觀察 host，先恢復連線再試。手動綁定且沒有 agent 記錄的窗格仍按一般規則移除。
 
 <Cmd>{`
 $ tmt mv reviewer code-review
@@ -145,8 +147,7 @@ $ tmt x --identity coordinator
 - **`!` 變成 `！`。** ASCII 的 `!` 會以全形 `！` 傳送，避免訊息啟動 agent 的 shell 模式。因此 `if (!ready)` 等程式碼不會逐 byte 原樣送達；儲存的請求保留原文。
 - **不確定就先查看。** 文字可能已到達窗格但 tmt 無法判定時，`talk` 會以 `DELIVERY_UNCERTAIN` 失敗，不會自行重送。用 `tmt check` 看過再決定。逾時或窗格安靜，不能證明沒有執行任何工作。
 - **tmux 看不到核准提示。** 訊息已送達，不代表 agent 已準備好處理。若 host 回報 agent 正在等待使用者核准或回答，`talk` 會以 `DELIVERY_AWAITING_APPROVAL` 失敗：沒有送出任何內容，請求仍在佇列，tmt 不會繞過提示輸入。等 agent 繼續後再重試。
-- **沒有窗格就不貼上。** 已結束或未綁定的接收者會在 inbox 收到請求，不會貼進 shell。
-- **`--inbox` 只加入佇列。** 即使 agent 已就緒，tmt 也不會嘗試即時傳送；上線不會送出積存請求。接收者必須用 `tmt inbox` 取回。回傳輸出會說明並列出接收者要執行的命令；`--json` 還包含 `notification: "not_attempted"` 與 `waitingFor: "recipient_inbox_pull"`。要即時傳送，請用一般的 `talk`。
+- **沒有窗格就不貼上。** 已結束或未綁定的接收者會在 inbox 收到請求，不會貼進 shell。tmt 不嘗試即時傳送，上線也不會自動送出積存請求：接收者用 `tmt inbox` 取回。輸出會列出接收者的下一步命令；JSON 包含 `notification: "not_attempted"` 與 `waitingFor: "recipient_inbox_pull"`。對於有窗格的 agent，傳送者不能選擇只加入佇列：`talk` 沒有這種選項。
 - **等待 inbox 工作。** `tmt x listen --identity reviewer` 等待新的 inbox 工作，最久等到 `--timeout` 就結束，不會留下背景 listener。
 - **每次提示詞的提醒。** 安裝 agent hook 後（見 [`tmt setup`](#tmt-setup)），只要 inbox 還有待處理項目，agent 提交的提示詞就會多一行，例如 `Incoming X items: 2 unacknowledged; pull with tmt inbox --identity '4f3793b4-…' --json`。其中的 identity 是 agent 自己的 ID。沒有待處理項目就不會顯示，這不改變請求的傳送方式。
 
@@ -173,7 +174,7 @@ notes 需要已儲存的 identity；暫時 identity 會收到錯誤。筆記檔�
   <code>tmt setup</code>
 </Mdx.h3>
 
-只查看檔案系統來找出本機 agent，不會啟動它們。每個找到的 agent 都會取得 tmt skill。本機已安裝的 Claude Code 與 Codex 還會取得生命週期 hook，告訴 tmt 對話何時開始或結束。這讓 `tmt resume` 與徽章保持準確，也提供新 session 一段短摘要。它會規劃缺少的 agent 變更，並提供官方擴充套件及附帶 skill，再一次詢問。
+只查看檔案系統來找出本機 agent，不會啟動它們。每個找到的 agent 都會取得 tmt skill。本機已安裝的 Claude Code、Codex 與 agy 還會取得生命週期 hook，告訴 tmt 對話何時開始或結束。這讓 `tmt resume` 與徽章保持準確，也提供新 session 一段短摘要。它會規劃缺少的 agent 變更，並提供官方擴充套件及附帶 skill，再一次詢問。
 
 <Cmd>{`
 $ tmt setup              # find agents, show the plan, ask once
@@ -185,7 +186,7 @@ $ tmt setup codex --remove
 
 setup 保留正常的已安裝執行檔，並從已驗證的發行版本重試加入缺少的附帶 skill。它先安裝 Remote，再安裝 Colab。某個項目失敗時，已完成項目會保留，獨立項目可繼續；Remote 失敗會阻止 Colab 設定。結果會指出需要處理的項目，並說明如何重新執行 setup。安裝這些擴充套件不會配對瀏覽器，也不會核准部署。
 
-除了 tmt hook，既有設定會逐 byte 保持原樣，寫入前先備份，hook 失敗也不會阻擋 agent。備份放在設定檔旁的私有 `.tmt-setup-backups` 資料夾，舊備份保留原處。tmt 不會刪除或移動它們：超過 32 份時，setup 仍會套用變更，但會警告並顯示資料夾，讓你自行清理。`--usage` 加入選用的[用量計數](/drivers#usage-counters)。
+除了 tmt hook，既有設定會逐 byte 保持原樣，寫入前先備份，hook 失敗也不會阻擋 agent。備份放在設定檔旁的私有 `.tmt-setup-backups` 資料夾，舊備份保留原處。tmt 不會刪除或移動它們：超過 32 份時，setup 仍會套用變更，但會警告並顯示資料夾，讓你自行清理。`--no-usage` 關閉預設啟用的[用量計數](/drivers#usage-counters)。
 
 <Mdx.h3 id="tmt-uninstall">
   <code>tmt uninstall</code>

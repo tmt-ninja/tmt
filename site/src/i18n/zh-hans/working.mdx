@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/working.mdx
-sourceRevision: 68599fb098c6781fe6fd7cbb27998d804a3d35b9
+sourceRevision: 0c9db822e3e4f88a052a20bf5c57d289dff59557
 title: 启动、发送、获取 reply
 ---
 
@@ -42,6 +42,8 @@ tmt 只记住 driver 通过 agent 钩子报告的内容。`/clear` 或新会话�
 <Mdx.h3 id="rename-retire-and-create-names">重命名、停用和创建名称</Mdx.h3>
 
 名称全局通用，未保存时是临时的。`tmt mv` 重命名 identity，并保留它的会话、角色、笔记、元数据、房间和历史。重命名前发送的请求仍能到达，之后的新请求必须使用新名称。`tmt rm` 停用名称，窗格继续运行。已保存的名称需要 `--force`，同时移除角色和前导文本，保留消息往来记录。
+
+记录的 agent 仍在运行、已暂停或无法观察时，`tmt rm` 即使带有 `--force` 也会以 `AGENT_RUNNING` 拒绝。请先运行 `tmt stop <name>`，或在其窗格中退出 agent；如果无法观察 host，先恢复连接再试。手动绑定且没有 agent 记录的窗格仍按通常规则移除。
 
 <Cmd>{`
 $ tmt mv reviewer code-review
@@ -139,8 +141,7 @@ $ tmt x --identity coordinator
 - **`!` 变为 `！`。** ASCII `!` 发送时会变成全角 `！`，防止消息启动 agent 的 shell 模式。因此，`if (!ready)` 这样的代码不会逐字节原样投递；保存的请求仍保留原文。
 - **不确定就先查看。** 文本可能已到达窗格，但 tmt 无法确定时，`talk` 会以 `DELIVERY_UNCERTAIN` 失败，绝不会自行重发。先用 `tmt check` 查看，再作决定。超时或窗格没有动静，都不能证明任务没有执行。
 - **tmux 看不到批准提示。** 消息已投递不代表 agent 已准备好处理它。如果 host 能报告 agent 正在等待用户批准或回答，`talk` 会以 `DELIVERY_AWAITING_APPROVAL` 失败。此时没有发送任何内容，请求仍在队列中，tmt 绝不会绕过提示输入。agent 继续运行后再重试。
-- **没有窗格就不粘贴。** 已结束或未绑定的接收者会在收件箱收到请求，绝不会粘贴到 shell 中。
-- **`--inbox` 只加入队列。** 即使 agent 已就绪，tmt 也不会尝试实时投递。agent 上线时不会自动收到积压请求，接收者必须通过 `tmt inbox` 拉取。返回的输出会明确说明，并给出接收者应运行的命令。使用 `--json` 时，还包含 `notification: "not_attempted"` 和 `waitingFor: "recipient_inbox_pull"`。需要实时发送消息时，请用普通 `talk`。
+- **没有窗格就不粘贴。** 已结束或未绑定的接收者会在 inbox 收到请求，不会粘贴到 shell 中。tmt 不尝试实时投递，上线也不会自动投递积压请求：接收者通过 `tmt inbox` 拉取。输出会给出接收者的下一步命令；JSON 包含 `notification: "not_attempted"` 和 `waitingFor: "recipient_inbox_pull"`。对于有窗格的 agent，发送者不能选择仅入队：`talk` 没有这种选项。
 - **等待收件箱任务。** `tmt x listen --identity reviewer` 等待新的收件箱任务，最长等待到 `--timeout`，然后退出。没有后台监听程序。
 - **每次提示词提交时提醒。** 安装 agent 钩子后（见 [`tmt setup`](#tmt-setup)），只要收件箱还有待处理内容，agent 提交的提示词就会附加一行，例如 `Incoming X items: 2 unacknowledged; pull with tmt inbox --identity '4f3793b4-…' --json`。其中的 identity 是 agent 自己的 ID。没有待处理内容时，不显示这一行。它不改变请求的投递方式。
 
@@ -165,7 +166,7 @@ $ tmt preamble show reviewer
 
 <Mdx.h3 id="tmt-setup">`tmt setup`</Mdx.h3>
 
-只通过文件系统查找本机上的 agent，绝不启动它们。找到的每个 agent 都会安装 tmt 技能。本机已安装的 Claude Code 和 Codex 还会安装生命周期钩子，用来告诉 tmt 会话何时开始或结束。这让 `tmt resume` 和徽标保持准确，也为新会话提供简短摘要。它会规划缺少的 agent 变更，并提供官方扩展及附带技能，再统一询问一次。
+只通过文件系统查找本机上的 agent，绝不启动它们。找到的每个 agent 都会安装 tmt 技能。本机已安装的 Claude Code、Codex 和 agy 还会安装生命周期钩子，用来告诉 tmt 会话何时开始或结束。这让 `tmt resume` 和徽标保持准确，也为新会话提供简短摘要。它会规划缺少的 agent 变更，并提供官方扩展及附带技能，再统一询问一次。
 
 <Cmd>{`
 $ tmt setup              # find agents, show the plan, ask once
@@ -177,7 +178,7 @@ $ tmt setup codex --remove
 
 setup 保留正常的已安装二进制程序，并从已验证的发布版本重试添加缺少的附带技能。它先安装 Remote，再安装 Colab。某项失败时，已完成的项目会保留，独立项目可继续；Remote 失败会阻止 Colab 设置。结果会指出需要处理的项目，并说明如何重新运行 setup。安装这些扩展不会配对浏览器，也不会批准部署。
 
-除 tmt 钩子外，现有设置逐字节保持原样。写入前先备份，钩子失败也不会阻塞 agent。备份放在设置文件旁的私有 `.tmt-setup-backups` 文件夹中，旧备份留在原处。tmt 绝不删除或移动它们。超过 32 份后，setup 仍会应用变更，但会警告并显示文件夹，方便你清理。`--usage` 添加可选的[用量计数器](/drivers#usage-counters)。
+除 tmt 钩子外，现有设置逐字节保持原样。写入前先备份，钩子失败也不会阻塞 agent。备份放在设置文件旁的私有 `.tmt-setup-backups` 文件夹中，旧备份留在原处。tmt 绝不删除或移动它们。超过 32 份后，setup 仍会应用变更，但会警告并显示文件夹，方便你清理。`--no-usage` 关闭默认启用的[用量计数器](/drivers#usage-counters)。
 
 <Mdx.h3 id="tmt-uninstall">`tmt uninstall`</Mdx.h3>
 

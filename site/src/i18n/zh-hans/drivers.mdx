@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 1c1a224334dc8b99d5b58a2a1da3e26897a74ad9
+sourceRevision: 47a16e590dd17b2cccbab079da0ac5f31677f35d
 title: Driver
 ---
 
@@ -18,19 +18,23 @@ $ tmt run builder codex          # same for Codex
 $ tmt setup                      # optional: connect every agent found, after your OK
 `}</Cmd>
 
-不运行 setup，所有 agent 仍然可用：tmt 通过窗格与它们通信。`tmt setup` 补充的是只有 agent 自身才能告诉 tmt 的信息。它让 tmt 知道哪个会话属于哪个名称，从而让 `tmt resume` 重新打开正确的会话，并在启动时提供简短的“你是谁、有哪些待办”摘要。`tmt setup` 会准确列出将修改的设置，并先征求同意；`tmt setup claude` 或 `tmt setup codex` 为单个 agent 做同样的设置，`--remove` 则撤销这些设置。
+不运行 setup，所有 agent 仍然可用：tmt 通过窗格与它们通信。`tmt setup` 补充的是只有 agent 自身才能告诉 tmt 的信息。它让 tmt 知道哪个会话属于哪个名称，从而让 `tmt resume` 重新打开正确的会话，并在启动时提供简短的“你是谁、有哪些待办”摘要。`tmt setup` 会准确列出将修改的设置，并先征求同意；`tmt setup claude`、`tmt setup codex` 或 `tmt setup agy` 为单个 agent 做同样的设置，`--remove` 则撤销这些设置。
 
 | Driver      | 类型    | 无需 setup 即可使用                                           | 运行 `tmt setup` 后                                           |
 | ----------- | ------- | ------------------------------------------------------------- | ------------------------------------------------------------- |
 | tmux        | host    | 全部功能                                                      | 无需其他设置                                                  |
 | Claude Code | runtime | talk、reply、`tmt run`                                        | 准确恢复原会话、会话启动时的上下文、运行中/已结束状态         |
 | Codex       | runtime | talk、reply、`tmt run`；在共享服务器上会要求提供 `--identity` | 准确恢复原会话、共享服务器上的准确线程匹配、运行中/已结束状态 |
+| agy         | runtime | talk、reply、`tmt run`                                        | 准确恢复原会话、会话启动时的上下文、运行中/已结束状态         |
 
 <Mdx.h3 id="the-built-in-drivers">内置 driver</Mdx.h3>
 
 - [tmux](/drivers/tmux)：host driver。了解 agent 在哪里运行，以及如何向它们输入内容。
 - [Claude Code](/drivers/claude-code)：runtime driver，支持准确恢复原会话、会话启动时的上下文和可选的消息通道。
 - [Codex](/drivers/codex)：runtime driver，即使多个窗格共用一个 Codex 服务器，也能安全工作。
+- agy：Antigravity CLI 的内置 runtime driver，支持精确恢复会话和启动上下文。
+
+Pi 也有内置 runtime driver。`tmt run <name> pi` 在每次启动时提供集成，不会向 Pi 的全局设置文件安装生命周期钩子。
 
 <Mdx.h3 id="herdr-ships-with-tmt-approved-on-first-use">Herdr：随 tmt 提供，首次使用时批准</Mdx.h3>
 
@@ -46,12 +50,12 @@ tmt 升级后会保留批准。如果新版 driver 提出更多要求，下次�
 
 <Mdx.h3 id="usage-counters">用量计数器</Mdx.h3>
 
-用量记录需要主动开启。`tmt setup --usage`（或 `tmt setup claude --usage`、`tmt setup codex --usage`）还会添加一个钩子，在每轮结束时运行，记录 agent 的用量：
+新安装时，`tmt setup` 默认启用上下文与消耗量记录。使用 `--no-usage` 可禁用并保存此选择，使用 `--usage` 可启用。可以用 `tmt setup claude`、`tmt setup codex` 或 `tmt setup agy` 选择一个提供方。用量钩子在每轮结束时记录以下数值：
 
 - **上下文大小**，位于 `resume.usage`：`tokens` 是下一个请求会重新发送的 token 数，`windowTokens` 是提供方报告的上下文窗口大小（Codex 会报告，Claude Code 不会）。
 - **消耗量**，位于 `resume.consumption`：已完成请求使用的 token 数。`inputTokens` 包含缓存输入，`outputTokens` 是输出（包括推理），总量为输入加输出。
 
-两者都会显示在 `tmt ls --json` 和 `tmt identity show --json` 中，[Ops](/extensions/squad) 的一列也可以显示上下文大小。只存储 token 数量，不存储会话内容。该钩子还会在每轮结束时让 `session.activity` 回到空闲状态；没有它，tmt 绝不会仅凭沉默就猜测 agent 已空闲。`tmt setup --no-usage` 只移除这个钩子。
+两者都会显示在 `tmt ls --json` 和 `tmt identity show --json` 中，[Ops](/extensions/squad) 的一列也可以显示上下文大小。只存储 token 数量，不存储会话内容。该钩子还会在每轮结束时让 `session.activity` 回到空闲状态；没有它，tmt 绝不会仅凭沉默就猜测 agent 已空闲。
 
 这些数字表示 token 数，不是费用。它们描述已完成的请求，而不是实时流式输出，可能落后一轮。每个计数器从首次读数开始，不会计入之前的历史。缺少计数器意味着数据不可用，绝不表示零。计算速率的工具应在首次读数、`epoch` 变化、`gap` 为 true 或计数器下降时建立新的基线。
 
@@ -69,12 +73,6 @@ $ tmt driver rm screen
 
 首批计划支持：
 
-<Soon
-  items={[
-    ["Pi", "runtime"],
-    ["Cursor Agent", "runtime"],
-    ["agy", "runtime"],
-  ]}
-/>
+<Soon items={[["Cursor Agent", "runtime"]]} />
 
 编写 driver 的方法见[构建 driver](/develop/drivers)。
