@@ -16,6 +16,7 @@ import { opsHref, type OpsPlace } from './ops-menu.js';
 import { scheduleWords, timerList } from './ops-timers.js';
 import type { RemoteShell } from './remote-shell.js';
 import { channelStream, type ChannelPort } from './channel-stream.js';
+import type { OpsForms } from './ops-forms.js';
 
 type ChannelPlace = Exclude<OpsPlace, string>;
 type MemberWord = 'Working' | 'Idle' | 'Offline' | 'Unknown';
@@ -73,6 +74,17 @@ function avatar(name: string, size: 's' | 'm'): HTMLElement {
   return node;
 }
 
+/** A member waiting on provider forms (#6445): what the row and the DM header say. */
+function formChip(count: number): HTMLElement {
+  const node = el('span', `${c.chip} ops-form-chip`);
+  node.dataset.tone = 'waiting';
+  node.append(
+    mark('dot', 'waiting'),
+    el('span', c.chipLabel, count === 1 ? 'Form waiting' : `${count} forms waiting`),
+  );
+  return node;
+}
+
 function chip(text: string): HTMLElement {
   const node = el('span', `${c.chip} ops-channel-chip`);
   node.append(el('span', c.chipLabel, text));
@@ -85,6 +97,8 @@ export function channelView(
   port: ChannelPort | undefined = undefined,
   /** Reads the board again now, as after a stale-roster refusal. */
   rereadBoard: () => void = () => {},
+  /** Provider forms (#6445); without them the view draws none. */
+  forms?: OpsForms,
 ): {
   node: HTMLElement;
   history: HTMLElement;
@@ -92,6 +106,13 @@ export function channelView(
   update(board: OpsBoard, place: ChannelPlace): void;
 } {
   const page = el('div', 'ops-channel');
+  /** The channel summary's forms words: a count, or that they could not be read. */
+  const formsWord = (people: readonly OpsAgent[]): string[] => {
+    if (!forms) return [];
+    if (forms.unavailable()) return ['Forms unavailable'];
+    const count = people.reduce((sum, agent) => sum + forms.waiting(agent.id), 0);
+    return count ? [`${count} form${count === 1 ? '' : 's'} waiting`] : [];
+  };
   // Header: the channel or member, its chips and one line of facts.
   const head = el('header', 'ops-channel-head');
   const titleRow = el('div', 'ops-channel-titlebar');
@@ -185,7 +206,9 @@ export function channelView(
   // The stream with its message box: the channel's own, or the DM's (placed by the Ops page).
   const history = el('section', 'ops-channel-history');
   const stream = channelStream(shell, port, rereadBoard);
-  page.append(head, panel, history, stream.thread);
+  // A member's provider forms sit between its details and the conversation (#6445).
+  const formsHost = el('div', 'ops-forms-host');
+  page.append(head, panel, formsHost, history, stream.thread);
   setOpen(false);
   // Slack's frame: the view fills the window below the top bar and only the stream scrolls, so the
   // header and the message box stay in view while reading or typing.
@@ -221,7 +244,13 @@ export function channelView(
     if (agent.role === 'lead') who.append(el('span', 'ops-member-role', 'Lead'));
     const task = el('span', 'ops-member-task', agent.task || 'No task reported');
     if (!agent.task) task.dataset.empty = '';
-    row.append(who, task, el('span', 'ops-member-usage', usage(agent)), stateBadge(agent));
+    const state = stateBadge(agent);
+    const waiting = forms?.waiting(agent.id) ?? 0;
+    if (waiting) {
+      const flags = el('span', 'ops-member-flags');
+      flags.append(formChip(waiting), state);
+      row.append(who, task, el('span', 'ops-member-usage', usage(agent)), flags);
+    } else row.append(who, task, el('span', 'ops-member-usage', usage(agent)), state);
     return row;
   }
 
@@ -242,6 +271,7 @@ export function channelView(
         memberState(agent),
         agent.tokens1d,
         agent.checklistCount,
+        forms?.waiting(agent.id) ?? 0,
       ]);
       let row = memberRows.get(agent.id);
       if (!row || row.fingerprint !== seen) {
@@ -296,7 +326,15 @@ export function channelView(
       const squadJobs = board.schedules?.filter((job) => job.squad === place.squad) ?? null;
       const jobs: readonly OpsSchedule[] | null =
         squadJobs && member ? squadJobs.filter((job) => job.owner === member.name) : squadJobs;
-      const seen = JSON.stringify({ key, people, squad, jobs, known, truncated: board.truncated });
+      const seen = JSON.stringify({
+        key,
+        people,
+        squad,
+        jobs,
+        known,
+        truncated: board.truncated,
+        forms: forms?.fingerprint(),
+      });
       if (seen === fingerprint) return;
       fingerprint = seen;
       const moved = identity !== key;
@@ -310,6 +348,12 @@ export function channelView(
       }
       page.dataset.view = place.memberId ? 'dm' : 'channel';
       for (const part of [head, panel, history]) part.hidden = !known;
+      formsHost.hidden = !known || !member || !forms;
+      if (member && forms) {
+        const view = forms.view(member.id, member.name);
+        if (formsHost.firstChild !== view) formsHost.replaceChildren(view);
+        formsHost.hidden = view.hidden;
+      } else formsHost.replaceChildren();
       if (!known) {
         stream.select(undefined);
         missing.textContent = board.truncated
@@ -328,6 +372,8 @@ export function channelView(
       chips.replaceChildren();
       if (member) {
         face.replaceChildren(avatar(member.name, 'm'));
+        const waiting = forms?.waiting(member.id) ?? 0;
+        if (waiting) chips.append(formChip(waiting));
         title.textContent = member.name;
         const state = memberState(member);
         const facts = el('span', 'ops-channel-member-facts');
@@ -399,6 +445,7 @@ export function channelView(
                     : `${people.length} member${people.length === 1 ? '' : 's'}`,
                   `${working} working`,
                   `${idle} idle`,
+                  ...formsWord(people),
                 ].join(' · '),
               ),
             ]),

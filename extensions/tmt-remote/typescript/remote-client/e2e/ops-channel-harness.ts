@@ -20,6 +20,7 @@ import type {
 } from '../src/operations.js';
 import type { ChannelPort } from '../src/channel-stream.js';
 import type { RoomPage, RoomInput } from '../src/conversations.js';
+import type { FormAnswerInput, FormAnswerState, ProviderForm } from '../src/forms.js';
 
 declare global {
   interface Window {
@@ -49,9 +50,38 @@ declare global {
     channelRelease(): void;
     orchCalls: { kind: 'read' | 'write'; input: Record<string, unknown> }[];
     orchRefuseApply?: string;
+    /** Provider forms (#6445): what Core lists, its cursor, and how answers and checks end. */
+    formsList: ProviderForm[];
+    formsCursor: number;
+    formsFail: boolean;
+    formsLists: number;
+    formsAnswers: (FormAnswerInput & { storedFirst: string | null })[];
+    formsChecks: string[];
+    /** The next answer's or check's outcome; `lost` throws, `hold` waits for formsRelease. */
+    formsOutcome: 'accepted' | 'unsupported' | 'uncertain' | 'lost' | 'hold';
+    formsRelease(): void;
   }
 }
 window.channelReads = 0;
+window.formsList = [];
+window.formsCursor = 1;
+window.formsFail = false;
+window.formsLists = 0;
+window.formsAnswers = [];
+window.formsChecks = [];
+window.formsOutcome = 'uncertain';
+async function formOutcome(operationId: string, formId: string): Promise<FormAnswerState> {
+  const outcome = window.formsOutcome;
+  if (outcome === 'hold')
+    await new Promise<void>((resolve) => {
+      window.formsRelease = resolve;
+    });
+  if (outcome === 'lost') throw new Error('Lost on the way.');
+  if (outcome === 'accepted') return { operationId, formId, state: 'accepted', delivered: true };
+  if (outcome === 'unsupported')
+    return { operationId, formId, state: 'refused', reason: 'FORM_DELIVERY_UNSUPPORTED' };
+  return { operationId, formId, state: 'uncertain', reason: 'FORM_DELIVERY_UNCERTAIN' };
+}
 window.sendNowCalls = [];
 window.sendNowAnswer = null;
 window.channelHold = false;
@@ -648,4 +678,30 @@ opsPage(
   room,
   // This browser is "This laptop": messages from another device name it.
   async () => 'This laptop',
+  async () => ({
+    async cursor() {
+      if (window.formsFail) throw new Error('Core did not answer.');
+      return { cursor: window.formsCursor };
+    },
+    async list() {
+      window.formsLists++;
+      if (window.formsFail) throw new Error('Core did not answer.');
+      return { forms: structuredClone(window.formsList) };
+    },
+    async answer(input) {
+      window.formsAnswers.push({
+        ...structuredClone(input),
+        storedFirst: localStorage.getItem(`tmt-ops-form-answer:${input.formId}`),
+      });
+      return formOutcome(input.operationId, input.formId);
+    },
+    async operation(operationId) {
+      window.formsChecks.push(operationId);
+      const stored = Object.keys(localStorage)
+        .map((key) => localStorage.getItem(key) ?? '')
+        .find((value) => value.includes(operationId));
+      const formId = stored ? (JSON.parse(stored) as { formId: string }).formId : '';
+      return formOutcome(operationId, formId);
+    },
+  }),
 );

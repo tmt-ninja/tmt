@@ -1824,6 +1824,92 @@ body:not(:has(.tmt-ui-shell)) {
   overflow: hidden;
   padding-top: 0;
 }
+/* Provider forms (#6445): cards between a member's details and the conversation. The host
+ * scrolls on its own and never takes more than half the view, so the message box stays in reach;
+ * long plans and option text wrap or scroll inside the card, never widening the column. */
+.ops-forms-host {
+  flex: none;
+  max-height: 50%;
+  min-width: 0;
+  overflow-y: auto;
+  padding-block: var(--tmt-ui-space-m);
+  border-bottom: var(--tmt-ui-field-border-width, 1px) solid var(--tmt-ui-color-edge);
+}
+.ops-forms {
+  display: grid;
+  gap: var(--tmt-ui-space-m);
+  min-width: 0;
+}
+.ops-form {
+  max-width: 48rem;
+  min-width: 0;
+}
+.ops-form-head {
+  padding: 0;
+}
+.ops-form-time,
+.ops-form-header,
+.ops-form-option-description,
+.ops-form-summary {
+  color: var(--tmt-ui-color-secondary);
+}
+.ops-form-body,
+.ops-form-question {
+  display: grid;
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ops-form-question + .ops-form-question {
+  padding-top: var(--tmt-ui-space-m);
+}
+.ops-form-text {
+  margin: 0;
+  padding: 0;
+}
+.ops-form-header,
+.ops-form-summary,
+.ops-form-note {
+  margin: 0;
+}
+.ops-form-options {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ops-form-option {
+  align-items: flex-start;
+  min-width: 0;
+}
+.ops-form-option-words {
+  display: grid;
+  min-width: 0;
+}
+.ops-form-plan {
+  max-height: 16rem;
+  margin: 0;
+  overflow: auto;
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-command);
+  font-family: var(--tmt-ui-font-mono);
+  font-size: var(--tmt-ui-header-action-size);
+  white-space: pre-wrap;
+}
+.ops-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-s);
+}
+.ops-member-flags {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}
 .ops-channel-empty {
   display: grid;
   gap: var(--tmt-ui-space-xs);
