@@ -1031,6 +1031,20 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         crate::runtime::evidence::observe_main_in_pane(&runner, caller, pane, deadline, NAME)
     }
 
+    fn proves_live_supersession(
+        &self,
+        runner: &dyn crate::process::CommandRunner,
+        caller: u64,
+        pane: u64,
+        incoming: &ProcessIncarnation,
+        recorded: &ProcessIncarnation,
+        deadline: std::time::Instant,
+    ) -> bool {
+        crate::runtime::evidence::live_supersession(
+            &runner, caller, pane, incoming, recorded, deadline, NAME,
+        )
+    }
+
     fn movable_process(
         &self,
         runner: &dyn crate::process::CommandRunner,
@@ -1129,6 +1143,24 @@ impl crate::runtime::lifecycle::LifecycleObservation for CodexObservation {
         owned_resume: bool,
     ) -> Option<BindingSessionState> {
         self.propose_with_resume(current, process, previous, host.shared(), owned_resume)
+    }
+
+    fn propose_superseding(
+        &self,
+        current: &BindingSessionState,
+        process: &ProcessIncarnation,
+    ) -> Option<BindingSessionState> {
+        if !self.starting || current.key.as_ref()?.incarnation == *process {
+            return None;
+        }
+        current.admit(
+            ObservedSessionKey {
+                incarnation: process.clone(),
+                provider_session: Some(self.session.clone()),
+            },
+            self.transition,
+            RuntimeLiveness::Alive,
+        )
     }
 }
 
@@ -1637,6 +1669,19 @@ mod tests {
         let running = start("startup", "a")
             .propose(&empty, &process, RuntimeLiveness::Unknown, false)
             .unwrap();
+        let replacement = start("startup", "b");
+        assert!(
+            replacement
+                .propose(&running, &server, RuntimeLiveness::Alive, false)
+                .is_none()
+        );
+        let repaired = crate::runtime::lifecycle::LifecycleObservation::propose_superseding(
+            &replacement,
+            &running,
+            &server,
+        )
+        .unwrap();
+        assert_eq!(repaired.key.unwrap().incarnation, server);
         let compact = start("compact", "a")
             .propose(&running, &process, RuntimeLiveness::Alive, false)
             .unwrap();

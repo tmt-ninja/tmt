@@ -391,6 +391,7 @@ fn verified_observation(
             process: &process,
             previous,
             host,
+            superseding: false,
         },
         lifecycle,
         &harness,

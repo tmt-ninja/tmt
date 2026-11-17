@@ -104,6 +104,16 @@ pub trait LifecycleObservation {
         host: HostEvidence,
         owned_resume: bool,
     ) -> Option<BindingSessionState>;
+
+    /// A separately proven live non-main key may be superseded on a start.
+    /// Drivers that do not implement this path refuse it.
+    fn propose_superseding(
+        &self,
+        _current: &BindingSessionState,
+        _process: &ProcessIncarnation,
+    ) -> Option<BindingSessionState> {
+        None
+    }
 }
 
 /// A provider turn ended in a remembered session (#519). It is not a session
@@ -199,6 +209,11 @@ pub trait RuntimeLifecycle {
     }
 
     fn caller_refusal(&self, _name: Option<&str>) -> Option<RuntimeRefusal> {
+        None
+    }
+
+    /// Explanatory only after caller-pane proof failed; never attribution.
+    fn missing_caller_pane_hint(&self) -> Option<&'static str> {
         None
     }
 
@@ -576,6 +591,20 @@ pub trait RuntimeLifecycle {
         _deadline: Instant,
     ) -> Option<ProcessIncarnation> {
         None
+    }
+
+    /// Verify a live-key replacement on the same ancestry snapshot. A driver
+    /// without an independent main-provider proof never permits it.
+    fn proves_live_supersession(
+        &self,
+        _runner: &dyn crate::process::CommandRunner,
+        _caller_pid: u64,
+        _pane_pid: u64,
+        _incoming: &ProcessIncarnation,
+        _recorded: &ProcessIncarnation,
+        _deadline: Instant,
+    ) -> bool {
+        false
     }
 
     fn observe_replacement(

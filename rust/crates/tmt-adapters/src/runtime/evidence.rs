@@ -131,6 +131,42 @@ pub(crate) fn observe_main_in_pane(
     }
 }
 
+/// Prove both placements on one snapshot, then recheck both incarnations.
+/// Callers must have captured `recorded` before this snapshot.
+pub(crate) fn live_supersession(
+    runner: &impl CommandRunner,
+    caller: u64,
+    pane: u64,
+    incoming: &ProcessIncarnation,
+    recorded: &ProcessIncarnation,
+    deadline: Instant,
+    executable: &str,
+) -> bool {
+    if incoming == recorded {
+        return false;
+    }
+    let Ok(snapshot) = query_ps(
+        runner,
+        &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
+        deadline,
+        4 * 1024 * 1024,
+    ) else {
+        return false;
+    };
+    let Ok(text) = std::str::from_utf8(&snapshot.stdout) else {
+        return false;
+    };
+    if main_ancestor(text, caller, pane, executable) != Some(incoming.pid())
+        || classify_recorded(runner, text, recorded, pane, deadline)
+            != RecordedRuntime::ProvenNonMain
+    {
+        return false;
+    }
+    observe_runtime_process(runner, incoming.pid(), deadline)
+        .is_ok_and(|observed| observed.matches(incoming) == RuntimeLiveness::Alive)
+        && Instant::now() < deadline
+}
+
 fn main_ancestor(text: &str, caller: u64, pane: u64, executable: &str) -> Option<u64> {
     let process = ancestor(text, caller, pane, executable)?;
     // Starting above this provider must find no second provider on the same
@@ -621,6 +657,64 @@ mod tests {
             runner.push_output(output.as_bytes().to_vec(), Vec::new());
         }
         runner
+    }
+
+    #[test]
+    fn live_replacement_requires_one_snapshot_proving_both_incarnations() {
+        let tree = "1 0 init\n10 1 sh\n20 10 claude\n30 20 tmt\n40 1 claude\n50 40 tmt\n";
+        assert!(live_supersession(
+            &answers(&[tree, LIVE, LIVE]),
+            30,
+            10,
+            &recorded(20),
+            &recorded(40),
+            soon(),
+            "claude"
+        ));
+        for (snapshot, caller, old, old_live, new_live) in [
+            (tree, 30, 20, LIVE, LIVE), // the recorded key is the main provider
+            (
+                "1 0 init\n10 1 sh\n20 10 claude\n30 20 tmt\n40 10 claude\n",
+                30,
+                40,
+                LIVE,
+                LIVE,
+            ), // another main provider
+            (
+                "1 0 init\n10 1 sh\n20 10 claude\n30 20 tmt\n40 x claude\n",
+                30,
+                40,
+                LIVE,
+                LIVE,
+            ),
+            (
+                "1 0 init\n10 1 sh\n20 10 claude\n30 20 tmt\n40 41 claude\n",
+                30,
+                40,
+                LIVE,
+                LIVE,
+            ), // missing ancestor
+            (
+                "1 0 init\n10 1 sh\n20 10 claude\n30 20 tmt\n40 41 claude\n41 40 sh\n",
+                30,
+                40,
+                LIVE,
+                LIVE,
+            ), // loop
+            (tree, 50, 40, LIVE, LIVE), // a nested or forked caller is not main
+            (tree, 30, 40, "Sun Sep 27 10:00:01 2026 S+\n", LIVE), // reused recorded PID
+            (tree, 30, 40, LIVE, "Sun Sep 27 10:00:01 2026 S+\n"), // reused incoming PID
+        ] {
+            assert!(!live_supersession(
+                &answers(&[snapshot, old_live, new_live]),
+                caller,
+                10,
+                &recorded(20),
+                &recorded(old),
+                soon(),
+                "claude"
+            ));
+        }
     }
 
     #[test]

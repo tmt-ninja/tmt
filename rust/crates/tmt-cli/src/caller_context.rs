@@ -40,6 +40,16 @@ pub fn workspace_host(
     Host::for_workspace(environment, explicit_socket).map_err(selection_failed)
 }
 
+/// A driver's inherited marker may select an explanation after pane proof
+/// failed. It never selects a caller or changes a command's result.
+pub fn missing_caller_pane_hint() {
+    if let Some(hint) = Registry::builtin().missing_caller_pane_hint() {
+        let mut output = tmt_cli_style::stream::stderr();
+        let terminal = output.terminal();
+        let _ = tmt_cli_style::message::hint(&mut output, terminal, hint);
+    }
+}
+
 /// The failure for a host selection whose read could not clean up. Nothing
 /// ran, so running the command again is safe.
 pub fn selection_failed(error: HostError) -> Failure {

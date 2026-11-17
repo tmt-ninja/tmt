@@ -324,6 +324,12 @@ impl Registry {
             .filter_map(|driver| driver.runtime.as_ref())
             .find_map(|runtime| (runtime.lifecycle)().storage_refusal())
     }
+
+    pub fn missing_caller_pane_hint(&self) -> Option<&'static str> {
+        self.iter()
+            .filter_map(|driver| driver.runtime.as_ref())
+            .find_map(|runtime| (runtime.lifecycle)().missing_caller_pane_hint())
+    }
 }
 
 /// The first of the driver's executables on `PATH`.

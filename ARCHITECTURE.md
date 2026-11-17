@@ -112,6 +112,8 @@ service. An extension owns only its `<dataRoot>/<extension>` area and its dispos
 caches, reaches Core state through the public interfaces above, and never writes Core
 storage. A verified provider hook may admit a first session only through the existing
 binding and preferences fences; provider data alone does not create identity authority.
+A verified main provider may supersede a live recorded runtime proven non-main when
+its launch owner is absent or gone; supersession is not evidence of process death.
 User-owned configuration is changed only by the person or by a consented,
 compare-and-swap Core command, never by an agent directly. Delivery is uncertain once
 input may have reached a terminal, and uncertainty never authorizes replay.

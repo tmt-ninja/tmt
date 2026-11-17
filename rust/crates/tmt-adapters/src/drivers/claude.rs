@@ -396,6 +396,12 @@ impl tmt_core::driver::Driver for ClaudeRuntime {
 pub struct ClaudeLifecycle;
 
 impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
+    fn missing_caller_pane_hint(&self) -> Option<&'static str> {
+        std::env::var_os("CLAUDE_JOB_DIR").map(|_| {
+            "This command may run inside a Claude background session that cannot be tied to a pane. Stop it (`claude agents --json` lists its id and sessionId; then `claude stop <id>`) and resume it in that pane: `tmt run <name> claude --resume <sessionId>`."
+        })
+    }
+
     fn startup_input(&self, command: &crate::runtime::RuntimeCommand) -> bool {
         crate::runtime::launch_preset::empty_prompt(
             &command.args,
@@ -849,6 +855,20 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         crate::runtime::evidence::observe_main_in_pane(&runner, caller, pane, deadline, NAME)
     }
 
+    fn proves_live_supersession(
+        &self,
+        runner: &dyn crate::process::CommandRunner,
+        caller: u64,
+        pane: u64,
+        incoming: &ProcessIncarnation,
+        recorded: &ProcessIncarnation,
+        deadline: std::time::Instant,
+    ) -> bool {
+        crate::runtime::evidence::live_supersession(
+            &runner, caller, pane, incoming, recorded, deadline, NAME,
+        )
+    }
+
     fn movable_process(
         &self,
         runner: &dyn crate::process::CommandRunner,
@@ -917,6 +937,24 @@ impl crate::runtime::lifecycle::LifecycleObservation for ClaudeObservation {
         _: bool,
     ) -> Option<BindingSessionState> {
         ClaudeObservation::propose(self, current, process, previous)
+    }
+
+    fn propose_superseding(
+        &self,
+        current: &BindingSessionState,
+        process: &ProcessIncarnation,
+    ) -> Option<BindingSessionState> {
+        if !self.starting || current.key.as_ref()?.incarnation == *process {
+            return None;
+        }
+        current.admit(
+            ObservedSessionKey {
+                incarnation: process.clone(),
+                provider_session: Some(self.session.clone()),
+            },
+            self.transition,
+            RuntimeLiveness::Alive,
+        )
     }
 }
 

@@ -221,6 +221,7 @@ child.on('exit', (code, signal) => { if (signal) process.kill(process.pid, signa
                 process: &native,
                 previous: tmt_core::binding::session::RuntimeLiveness::Alive,
                 host,
+                superseding: false,
             },
             lifecycle,
             &driver,

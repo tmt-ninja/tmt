@@ -325,6 +325,167 @@ fn a_nested_worker_cannot_end_a_row_it_already_holds() {
     assert_drivers_ended(&fixture);
 }
 
+#[test]
+fn a_main_start_replaces_a_live_non_main_runtime_without_changing_the_binding() {
+    register();
+    let fixture = Fixture::delivering("replace-live-non-main");
+    bind(&fixture, fixture.approve());
+    let mut worker = SteppedProvider::start_nested(&fixture, "claude", "old-worker", &["claude"]);
+    let old = live_provider(&worker);
+    let database = fixture.state().join("tmt.db");
+    let db = rusqlite::Connection::open(&database).unwrap();
+    db.execute(
+        "UPDATE bindings SET runtime_state = 'running', last_transition = 'started', \
+         runtime_pid = ?1, runtime_start_identity = ?2, observed_provider_session_id = 'old' \
+         WHERE pane_id = 'fake-1'",
+        rusqlite::params![
+            old.incarnation.pid() as i64,
+            old.incarnation.start_identity()
+        ],
+    )
+    .unwrap();
+    drop(db);
+    let binding = || {
+        rusqlite::Connection::open(&database)
+            .unwrap()
+            .query_row(
+                "SELECT id, identity_id, pane_id, pane_pid FROM bindings WHERE pane_id = 'fake-1'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .unwrap()
+    };
+    let before = binding();
+    let marker = fs::read(fixture.root.join("driver/marker")).unwrap();
+    let rows = stored_rows(&fixture);
+    assert_refused(
+        &fixture,
+        &rows,
+        worker.hook_with_env(
+            start("fork"),
+            &[
+                ("CLAUDE_PID", &pid_of(&old)),
+                ("CLAUDE_JOB_DIR", b"/fixture/job"),
+            ],
+        ),
+        "fork before main start",
+    );
+    let mut main = SteppedProvider::start(&fixture, "claude", "new-main");
+    let process = live_provider(&main);
+    let output = main.hook_with_env(start("startup"), &[("CLAUDE_PID", &pid_of(&process))]);
+    assert_eq!(
+        output.2,
+        "",
+        "replacement refused; driver calls: {:?}",
+        fixture.calls()
+    );
+    assert_recorded(&fixture, &process, output, "main start");
+    assert_eq!(binding(), before);
+    assert_eq!(
+        fs::read(fixture.root.join("driver/marker")).unwrap(),
+        marker
+    );
+    assert_eq!(
+        old.seen(),
+        Seen::Live,
+        "replacement must not stop the old runtime"
+    );
+    assert_recorded(
+        &fixture,
+        &process,
+        main.hook_with_env(start("startup"), &[("CLAUDE_PID", &pid_of(&process))]),
+        "duplicate start",
+    );
+    let rows = stored_rows(&fixture);
+    assert_refused(
+        &fixture,
+        &rows,
+        worker.hook_with_env(
+            start("fork"),
+            &[
+                ("CLAUDE_PID", &pid_of(&old)),
+                ("CLAUDE_JOB_DIR", b"/fixture/job"),
+            ],
+        ),
+        "late fork after main start",
+    );
+    fs::write(fixture.root.join("driver/agent"), "ok").unwrap();
+    let sent = fixture.tmt_in(
+        Some("f1"),
+        &["talk", "worker", "after replacement", "--detach", "--json"],
+    );
+    assert!(sent.status.success(), "{sent:?}");
+    assert_eq!(fixture.requests("prompted").len(), 1);
+    assert_eq!(fixture.requests("prompted")[0]["paneId"], "fake-1");
+    drop(main);
+    drop(worker);
+    assert_drivers_ended(&fixture);
+}
+
+#[test]
+fn background_hint_only_follows_unverified_caller_evidence() {
+    register();
+    let fixture = Fixture::delivering("background-caller-hint");
+    bind(&fixture, fixture.approve());
+    fs::write(fixture.root.join("driver/agent"), "ok").unwrap();
+    let run = |pane: &str, args: &[&str], job: bool| {
+        let mut command = fixture.command_in(Some(pane), args);
+        if job {
+            command.env("CLAUDE_JOB_DIR", "/fixture/job");
+        } else {
+            command.env_remove("CLAUDE_JOB_DIR");
+        }
+        command.output().unwrap()
+    };
+    let absent = run("missing", &["whoami", "--json"], false);
+    let hinted = run("missing", &["whoami", "--json"], true);
+    assert_eq!(absent.status.code(), hinted.status.code());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&absent.stdout).unwrap(),
+        serde_json::from_slice::<Value>(&hinted.stdout).unwrap()
+    );
+    assert!(!String::from_utf8_lossy(&absent.stderr).contains("Claude background session"));
+    assert!(String::from_utf8_lossy(&hinted.stderr).contains("Claude background session"));
+    let verified = run("f1", &["whoami", "--json"], true);
+    assert!(verified.status.success(), "{verified:?}");
+    assert!(!String::from_utf8_lossy(&verified.stderr).contains("Claude background session"));
+    for (args, expected_hint) in [
+        (
+            vec!["talk", "worker", "anonymous", "--detach", "--json"],
+            true,
+        ),
+        (
+            vec![
+                "talk",
+                "worker",
+                "explicit",
+                "--identity",
+                "worker",
+                "--detach",
+                "--json",
+            ],
+            false,
+        ),
+        (vec!["check", "worker", "--json"], false),
+    ] {
+        let output = run("missing", &args, true);
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr).contains("Claude background session"),
+            expected_hint,
+            "{args:?}: {output:?}"
+        );
+    }
+    assert_drivers_ended(&fixture);
+}
+
 /// In an unbound pane (here `f2`, on a host where `f1` is bound), a nested
 /// start gets the fixed line, not the naming hint that the pane's main
 /// provider gets. Both run below `f2`'s own pane shell.
