@@ -92,7 +92,7 @@ pub fn execute(
         .map_err(|_| ())?;
         turn_end = lifecycle.decode_turn(input.as_bytes()).is_some();
         if let Some(learning) = &learning {
-            if turn_end || named_turn_end(input.as_bytes()) {
+            if turn_end || named_turn_end(lifecycle, input.as_bytes()) {
                 learning.defer_stop();
             } else {
                 let _ = learning.stage(Step::Input, deadline);
@@ -203,23 +203,24 @@ pub fn execute(
 /// What a hook payload can do to its launch. Only a lifecycle event can bind it, by its name even
 /// when no decoder accepts the payload (that refusal is the launch's own, #5016); a turn, prompt
 /// or activity event cannot, and neither can a payload of no known event.
-fn named_turn_end(input: &[u8]) -> bool {
-    serde_json::from_slice::<serde_json::Value>(input)
-        .is_ok_and(|v| matches!(v["hook_event_name"].as_str(), Some("Stop" | "Interrupt")))
+fn named_turn_end(lifecycle: &dyn RuntimeLifecycle, input: &[u8]) -> bool {
+    matches!(
+        lifecycle.hook_event_name(input).as_deref(),
+        Some("Stop" | "Interrupt")
+    )
 }
 
 fn hook_role(lifecycle: &dyn RuntimeLifecycle, input: &[u8]) -> Role {
-    let name = serde_json::from_slice::<serde_json::Value>(input)
-        .ok()
-        .and_then(|value| value["hook_event_name"].as_str().map(str::to_owned));
+    let name = lifecycle.hook_event_name(input);
     let event = SessionLearningEvent::from_hook_name(name.as_deref());
+    let starting_lifecycle = lifecycle.decode(input).is_some_and(|obs| obs.starting());
     let observer = event.decoder().is_some_and(|decoder| {
         decoder != tmt_core::binding::session::launch::SessionLearningDecoder::Lifecycle
     }) || name
         .as_deref()
         .is_some_and(|event| lifecycle.activity_events().contains(&event))
         || lifecycle.decode_turn(input).is_some()
-        || lifecycle.decode_prompt(input).is_some()
+        || (lifecycle.decode_prompt(input).is_some() && !starting_lifecycle)
         || lifecycle.decode_activity_session(input).is_some();
     let lifecycle_event = event.decoder()
         == Some(tmt_core::binding::session::launch::SessionLearningDecoder::Lifecycle)
@@ -1288,7 +1289,7 @@ fn observe(
     // shares the hook budget; failure leaves recovery to __flush and the event
     // proceeds. Mutation wrappers must never drain after this snapshot.
     if lifecycle.decode_turn(input.as_bytes()).is_none()
-        && !named_turn_end(input.as_bytes())
+        && !named_turn_end(lifecycle, input.as_bytes())
         && let Ok(paths) = ConfigPaths::discover()
         && tmt_adapters::storage::hook_queue::HookQueue::exists(&paths.database)
         && let Ok(mut storage) = Storage::open_hook(&paths.database, deadline)
@@ -1298,9 +1299,7 @@ fn observe(
     }
     // Notification observers receive non-permission notifications too. Declared
     // activity-only events that carry no admitted main event are quiet no-ops.
-    let event_name = serde_json::from_str::<serde_json::Value>(input)
-        .ok()
-        .and_then(|value| value["hook_event_name"].as_str().map(str::to_owned));
+    let event_name = lifecycle.hook_event_name(input.as_bytes());
     let activity_only_event = event_name
         .as_deref()
         .is_some_and(|event| lifecycle.activity_events().contains(&event));
@@ -2265,26 +2264,78 @@ fn observe_main_event(
             BindingEvidence::Active(_)
         )
     {
-        if let Some(bytes) = payload
-            && let Some(event) = lifecycle.decode(bytes)
-            && event.starting()
-            && stored
+        let unnamed_managed = binding.session.launch_owner.is_some()
+            && binding
+                .session
+                .key
+                .as_ref()
+                .is_some_and(|key| key.provider_session.is_none());
+        let matching_remembered =
+            stored
                 .preferences
                 .remembered
                 .as_ref()
                 .is_some_and(|remembered| {
                     &remembered.harness == harness && &remembered.provider_session == session
-                })
+                });
+        if let Some(bytes) = payload
+            && let Some(event) = lifecycle.decode(bytes)
+            && event.starting()
+            && (unnamed_managed || matching_remembered)
         {
-            return observe_lifecycle_event(
+            let observation = observe_lifecycle_event(
                 provider,
                 harness.clone(),
                 lifecycle,
                 bytes,
                 event,
                 deadline,
-                None,
-            );
+                run.learning,
+            )?;
+            if activity.is_some()
+                && let Some(refreshed) = Storage::context_by_pane(
+                    &paths.database,
+                    snapshot.server.host,
+                    &binding.pane_id,
+                    &snapshot.server.server_id,
+                    tmt_adapters::request_runtime::wall_time_ms(),
+                )
+                .map_err(|_| ())?
+                && refreshed.entry.binding.as_ref().is_some_and(|current| {
+                    current.id == binding.id
+                        && current.session.state
+                            == tmt_core::binding::session::RuntimeState::Running
+                        && current.session.key.as_ref().is_some_and(|key| {
+                            key.incarnation == process
+                                && key.provider_session.as_ref() == Some(session)
+                        })
+                })
+                && refreshed
+                    .preferences
+                    .remembered
+                    .as_ref()
+                    .is_some_and(|remembered| {
+                        &remembered.harness == harness && &remembered.provider_session == session
+                    })
+                && matches!(
+                    evaluate_binding(&refreshed.entry, &EndpointProbe::Live(snapshot)),
+                    BindingEvidence::Active(_)
+                )
+            {
+                commit_main_event_turn(PromptObservation {
+                    provider,
+                    lifecycle,
+                    paths: &paths,
+                    stored: &refreshed,
+                    session,
+                    process: &process,
+                    activity,
+                    form: None,
+                    payload: Some(bytes),
+                    deadline,
+                })?;
+            }
+            return Ok(observation);
         }
         run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
@@ -2321,6 +2372,56 @@ fn observe_main_event(
     {
         return Err(());
     }
+    commit_main_event_turn(PromptObservation {
+        provider,
+        lifecycle,
+        paths: &paths,
+        stored: &stored,
+        session,
+        process: &process,
+        activity,
+        form,
+        payload,
+        deadline,
+    })?;
+    let context = if context.is_empty() {
+        context
+    } else {
+        lifecycle.encode_prompt_context(&context).ok_or(())?
+    };
+    Ok(Observation {
+        context,
+        workspace: Some(binding.server.clone()),
+    })
+}
+
+struct PromptObservation<'a> {
+    provider: &'a str,
+    lifecycle: &'a dyn RuntimeLifecycle,
+    paths: &'a ConfigPaths,
+    stored: &'a IdentityContextSnapshot,
+    session: &'a ProviderSessionId,
+    process: &'a ProcessIncarnation,
+    activity: Option<&'a tmt_adapters::runtime::hook_protocol::ActivityObservation>,
+    form: Option<&'a tmt_adapters::runtime::provider_form::ProviderForm>,
+    payload: Option<&'a [u8]>,
+    deadline: Instant,
+}
+
+fn commit_main_event_turn(input: PromptObservation<'_>) -> Result<(), ()> {
+    let PromptObservation {
+        provider,
+        lifecycle,
+        paths,
+        stored,
+        session,
+        process,
+        activity,
+        form,
+        payload,
+        deadline,
+    } = input;
+    let binding = stored.entry.binding.as_ref().ok_or(())?;
     let previous = stored
         .preferences
         .remembered
@@ -2365,7 +2466,7 @@ fn observe_main_event(
         lifecycle.activity_state(
             event,
             session,
-            &process,
+            process,
             observed,
             tmt_adapters::request_runtime::wall_time_ms(),
         )
@@ -2414,8 +2515,8 @@ fn observe_main_event(
         );
     if (next.is_some() || reading.is_some())
         && !commit_observation(
-            &paths,
-            &stored,
+            paths,
+            stored,
             next,
             reading.map(|(_, reading)| reading),
             None,
@@ -2430,7 +2531,7 @@ fn observe_main_event(
         && Instant::now() + Duration::from_millis(100) < deadline
     {
         // A client answers only versions whose keys were captured.
-        let version = lifecycle.form_provider_version(&process);
+        let version = lifecycle.form_provider_version(process);
         if let Ok(mut storage) = Storage::open_hook(&paths.database, deadline) {
             let _ = storage.record_provider_form(
                 &binding.id,
@@ -2444,15 +2545,7 @@ fn observe_main_event(
             let _ = storage.close();
         }
     }
-    let context = if context.is_empty() {
-        context
-    } else {
-        lifecycle.encode_prompt_context(&context).ok_or(())?
-    };
-    Ok(Observation {
-        context,
-        workspace: Some(binding.server.clone()),
-    })
+    Ok(())
 }
 
 /// Shared publication boundary: a current binding/preferences snapshot and enough

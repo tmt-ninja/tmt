@@ -2210,6 +2210,28 @@ impl SteppedProvider {
 
     /// Own a real tmt run, with the same stepped fake provider below it.
     fn start_managed(fixture: &Fixture, provider: &'static str, name: &str, resume: bool) -> Self {
+        let bin = fixture.root.join("bin");
+        let executable = bin.join(provider);
+        let args = if resume {
+            vec!["resume", "--no-channel", "worker"]
+        } else {
+            vec![
+                "run",
+                "--no-channel",
+                "worker",
+                executable.to_str().unwrap(),
+            ]
+        };
+        Self::start_managed_with(fixture, provider, name, &args)
+    }
+
+    /// Own a real `tmt run` or `tmt resume` with explicit CLI arguments.
+    fn start_managed_with(
+        fixture: &Fixture,
+        provider: &'static str,
+        name: &str,
+        args: &[&str],
+    ) -> Self {
         use std::os::unix::process::CommandExt;
         let steps = fixture.root.join(name);
         fs::create_dir_all(&steps).unwrap();
@@ -2221,7 +2243,9 @@ impl SteppedProvider {
         let native = bin.join("native");
         fs::create_dir_all(&native).unwrap();
         let peer = native.join(provider);
-        std::os::unix::fs::symlink("/bin/sh", &peer).unwrap();
+        if !peer.exists() {
+            std::os::unix::fs::symlink("/bin/sh", &peer).unwrap();
+        }
         // Exec the same named native shell stand-in as start_below. A shebang
         // shell alone has no provider comm name for independent-hook ancestry.
         let script = format!(
@@ -2234,17 +2258,7 @@ impl SteppedProvider {
             quote(provider)
         );
         tmt_test_support::write_executable(&executable, script.as_bytes(), 0o700).unwrap();
-        let args = if resume {
-            vec!["resume", "--no-channel", "worker"]
-        } else {
-            vec![
-                "run",
-                "--no-channel",
-                "worker",
-                executable.to_str().unwrap(),
-            ]
-        };
-        let mut command = fixture.command_in(Some("f1"), &args);
+        let mut command = fixture.command_in(Some("f1"), args);
         command.env(
             "PATH",
             format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", bin.display()),
@@ -3470,5 +3484,375 @@ fn a_first_missing_recipient_refusal_uses_its_reconciled_lifetime() {
             assert!(fixture.requests("prompted").is_empty());
             assert!(!fixture.calls().iter().any(|call| call == "focus"));
         }
+    }
+}
+
+#[test]
+fn agy_first_prompt_admission_resume_turn_started_and_session_start_first() {
+    use tmt_core::binding::{
+        BindingRepository,
+        session::{HarnessId, ProviderSessionId, RuntimeMode},
+    };
+    register();
+    let conversation = "11111111-1111-4111-8111-111111111111";
+    let wait_admitted = |fixture: &Fixture, child_pid: u32, provider_pid: u64, agent: &str| {
+        support::with_launch_failure_packet(
+            &fixture.state().join("tmt.db"),
+            &[u64::from(child_pid), provider_pid],
+            || {
+                wait_until("the real launcher admits its exact child", || {
+                    let db = rusqlite::Connection::open_with_flags(
+                        fixture.state().join("tmt.db"),
+                        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                    )
+                    .unwrap();
+                    db.query_row(
+                        "SELECT runtime_state='running' AND runtime_pid=? AND launch_owner_pid=? FROM bindings WHERE identity_id=?",
+                        rusqlite::params![i64::try_from(provider_pid).unwrap(), child_pid, agent],
+                        |row| row.get::<_, bool>(0),
+                    )
+                    .unwrap()
+                })
+            },
+        );
+    };
+
+    // 1. PreInvocation(1) first on `tmt run --model ... agy --conversation=<id>` admits,
+    // associates the launch preset, settles learning, and records TurnStarted.
+    {
+        let fixture = Fixture::delivering("agy-preinvocation-admit");
+        bind(&fixture, fixture.approve());
+        let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let conversation_flag = format!("--conversation={conversation}");
+        let mut peer = SteppedProvider::start_managed_with(
+            &fixture,
+            "agy",
+            "preinvocation-admit",
+            &[
+                "run",
+                "--model",
+                "gemini-4-hydrogen-medium",
+                "--no-channel",
+                "worker",
+                "agy",
+                &conversation_flag,
+            ],
+        );
+        let pid = peer.provider_pid();
+        wait_admitted(&fixture, peer.child.id(), pid, &agent);
+        let list = fixture.json(&["ls", "--json"]);
+        let before = worker(&list);
+        assert_eq!(before["session"]["unbound"], true, "{before:#}");
+        assert_eq!(before["session"]["learning"]["step"], "input", "{before:#}");
+        assert_eq!(
+            before["session"]["activity"]["state"], "unknown",
+            "{before:#}"
+        );
+
+        let pre1 = peer.hook_command(
+            serde_json::json!({
+                "hookEventName": "PreInvocation",
+                "conversationId": conversation,
+                "invocationNum": 1,
+                "modelName": "auto",
+                "lastUserInput": "hello from conversation"
+            }),
+            &[],
+        );
+        assert!(pre1.2.is_empty(), "{pre1:?}");
+        assert_eq!(pre1.0, 0, "{pre1:?}");
+        let out: Value = serde_json::from_str(&pre1.1).unwrap();
+        assert!(
+            out["injectSteps"][0]["systemMessage"]["systemMessage"]
+                .as_str()
+                .is_some(),
+            "{out:#}"
+        );
+
+        let list = fixture.json(&["ls", "--json"]);
+        let after = worker(&list);
+        assert_eq!(after["session"]["unbound"], false, "{after:#}");
+        assert!(after["session"]["learning"].is_null(), "{after:#}");
+        assert_eq!(
+            after["session"]["activity"]["state"], "working",
+            "{after:#}"
+        );
+
+        let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
+        let session = tmt_core::binding::session::RememberedSession {
+            harness: HarnessId::new("agy").unwrap(),
+            mode: RuntimeMode::new("default").unwrap(),
+            provider_session: ProviderSessionId::new(conversation).unwrap(),
+            state: None,
+            stale_at_ms: None,
+            resume_pending_at_ms: None,
+        };
+        let preset =
+            tmt_adapters::runtime::launch_preset::read_for_session(&storage, &agent, &session)
+                .unwrap()
+                .expect("launch preset associated after PreInvocation(1) admission");
+        assert_eq!(preset.model.as_deref(), Some("gemini-4-hydrogen-medium"));
+        storage.close().unwrap();
+
+        let stop = peer.hook_command(
+            serde_json::json!({
+                "hookEventName": "Stop",
+                "conversationId": conversation,
+                "terminationReason": "NO_TOOL_CALL",
+                "executionNum": 1,
+                "fullyIdle": true,
+                "finalModelOutput": "Done"
+            }),
+            &[],
+        );
+        assert_eq!(stop.0, 0, "{stop:?}");
+        let list = fixture.json(&["ls", "--json"]);
+        let settled = worker(&list);
+        assert_eq!(
+            settled["session"]["activity"]["state"], "idle",
+            "{settled:#}"
+        );
+    }
+
+    // 2. `tmt resume` with a matching `remembered` records TurnStarted and the lastUserInput
+    // boundary (matching a passthrough prompt so Stop captures the answer).
+    {
+        let fixture = Fixture::delivering("agy-resume-turn");
+        bind(&fixture, fixture.approve());
+        let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        fixture.json(&["identity", "create", "ben", "--json"]);
+        fixture.json(&[
+            "identity",
+            "meta",
+            "set",
+            "user",
+            "true",
+            "--identity",
+            "ben",
+            "--json",
+        ]);
+        let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
+        storage
+            .with_binding_transaction::<_, tmt_adapters::storage::StorageError>(|rows| {
+                let mut preferences = rows.session_preferences(&agent)?;
+                let driver = HarnessId::new("agy").unwrap();
+                preferences.launched(&driver);
+                preferences.remember(
+                    driver,
+                    RuntimeMode::new("default").unwrap(),
+                    ProviderSessionId::new(conversation).unwrap(),
+                );
+                rows.set_session_preferences(&agent, &preferences)
+            })
+            .unwrap();
+        storage.close().unwrap();
+
+        let mut peer = SteppedProvider::start_managed(&fixture, "agy", "resume-steps", true);
+        let pid = peer.provider_pid();
+        wait_admitted(&fixture, peer.child.id(), pid, &agent);
+        assert_eq!(
+            worker(&fixture.json(&["ls", "--json"]))["session"]["activity"]["state"],
+            "unknown"
+        );
+
+        let sent = fixture.json(&[
+            "talk",
+            "worker",
+            "resume prompt",
+            "--passthrough",
+            "--identity",
+            "ben",
+            "--detach",
+            "--json",
+        ]);
+        let request = sent["requestId"].as_str().unwrap().to_owned();
+
+        let pre1 = peer.hook_command(
+            serde_json::json!({
+                "hookEventName": "PreInvocation",
+                "conversationId": conversation,
+                "invocationNum": 1,
+                "lastUserInput": "resume prompt"
+            }),
+            &[],
+        );
+        assert_eq!(pre1.0, 0, "{pre1:?}");
+        assert_eq!(
+            worker(&fixture.json(&["ls", "--json"]))["session"]["activity"]["state"],
+            "working"
+        );
+        let stop = peer.hook_command(
+            serde_json::json!({
+                "hookEventName": "Stop",
+                "conversationId": conversation,
+                "terminationReason": "NO_TOOL_CALL",
+                "executionNum": 1,
+                "fullyIdle": true,
+                "finalModelOutput": "Resume answer"
+            }),
+            &[],
+        );
+        assert_eq!(stop.0, 0, "{stop:?}");
+        wait_flushed(&fixture.state());
+        let shown = passthrough::api(
+            &fixture,
+            "ok",
+            "requests.show",
+            serde_json::json!({ "requestId": request }),
+        );
+        assert_eq!(shown["mode"], "passthrough", "{shown:#}");
+        assert!(
+            shown.to_string().contains("Resume answer"),
+            "Stop must capture the passthrough turn matched by lastUserInput: {shown:#}"
+        );
+    }
+
+    // 2b. `matching_remembered` without pre-admitted key (e.g. hand-started resume after Ended):
+    // PreInvocation(1) still admits via observe_lifecycle_event with learning AND records TurnStarted.
+    {
+        let fixture = Fixture::delivering("agy-hand-resume-remembered");
+        bind(&fixture, fixture.approve());
+        let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
+        storage
+            .with_binding_transaction::<_, tmt_adapters::storage::StorageError>(|rows| {
+                let mut preferences = rows.session_preferences(&agent)?;
+                let driver = HarnessId::new("agy").unwrap();
+                preferences.launched(&driver);
+                preferences.remember(
+                    driver,
+                    RuntimeMode::new("default").unwrap(),
+                    ProviderSessionId::new(conversation).unwrap(),
+                );
+                rows.set_session_preferences(&agent, &preferences)
+            })
+            .unwrap();
+        storage.close().unwrap();
+
+        let mut peer = SteppedProvider::start(&fixture, "agy", "hand-resume");
+        let pre1 = peer.hook_command(
+            serde_json::json!({
+                "hookEventName": "PreInvocation",
+                "conversationId": conversation,
+                "invocationNum": 1,
+                "lastUserInput": "hand resume prompt"
+            }),
+            &[],
+        );
+        assert_eq!(pre1.0, 0, "{pre1:?}");
+        let list = fixture.json(&["ls", "--json"]);
+        let state = worker(&list);
+        assert_eq!(state["session"]["unbound"], false, "{state:#}");
+        assert_eq!(
+            state["session"]["activity"]["state"], "working",
+            "{state:#}"
+        );
+    }
+
+    // 3. The SessionStart-first path is unchanged: startup stays Unknown on SessionStart
+    // (systemMessage), then PreInvocation(1) uses prompt context (ephemeralMessage) and Working.
+    {
+        let fixture = Fixture::delivering("agy-session-start-first");
+        bind(&fixture, fixture.approve());
+        let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let mut peer = SteppedProvider::start_managed(&fixture, "agy", "start-first", false);
+        let pid = peer.provider_pid();
+        wait_admitted(&fixture, peer.child.id(), pid, &agent);
+
+        let start = peer.hook_command(
+            serde_json::json!({
+                "hookEventName": "SessionStart",
+                "conversationId": conversation,
+                "modelName": "gemini-4-argon-low"
+            }),
+            &[],
+        );
+        assert_eq!(start.0, 0, "{start:?}");
+        let start_out: Value = serde_json::from_str(&start.1).unwrap();
+        assert!(
+            start_out["injectSteps"][0]["systemMessage"]["systemMessage"]
+                .as_str()
+                .is_some(),
+            "{start_out:#}"
+        );
+        let list = fixture.json(&["ls", "--json"]);
+        let after_start = worker(&list);
+        assert_eq!(after_start["session"]["unbound"], false, "{after_start:#}");
+        assert_eq!(
+            after_start["session"]["activity"]["state"], "unknown",
+            "{after_start:#}"
+        );
+
+        let person = fixture.json(&["identity", "create", "ben", "--json"])["identity"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        fixture.json(&[
+            "identity",
+            "meta",
+            "set",
+            "user",
+            "true",
+            "--identity",
+            "ben",
+            "--json",
+        ]);
+        fixture.json(&["identity", "create", "sender", "--json"]);
+        let policy = passthrough::api(
+            &fixture,
+            "ok",
+            "digest.policy.set",
+            serde_json::json!({
+                "identityId": agent,
+                "ownerIdentityId": person,
+                "setterIdentityId": person,
+                "expectedRevision": 0,
+                "untilMs": tmt_adapters::request_runtime::wall_time_ms() + 60_000
+            }),
+        );
+        assert_eq!(policy["active"], true, "{policy:#}");
+        let held = fixture.json(&[
+            "talk",
+            "worker",
+            "queued note",
+            "--identity",
+            "sender",
+            "--detach",
+            "--json",
+        ]);
+        assert_eq!(held["digest"], true, "{held:#}");
+        let pre1 = peer.hook_command(
+            serde_json::json!({
+                "hookEventName": "PreInvocation",
+                "conversationId": conversation,
+                "invocationNum": 1,
+                "lastUserInput": "after session start"
+            }),
+            &[],
+        );
+        assert_eq!(pre1.0, 0, "{pre1:?}");
+        let pre1_out: Value = serde_json::from_str(&pre1.1).unwrap();
+        assert!(
+            pre1_out["injectSteps"][0]["ephemeralMessage"]
+                .as_str()
+                .is_some(),
+            "{pre1_out:#}"
+        );
+        assert_eq!(
+            worker(&fixture.json(&["ls", "--json"]))["session"]["activity"]["state"],
+            "working"
+        );
     }
 }

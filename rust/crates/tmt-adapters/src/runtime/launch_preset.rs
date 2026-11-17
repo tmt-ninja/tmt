@@ -332,11 +332,13 @@ fn apply(
 }
 
 /// Exact allow-listed provider flags only, stopping at the positional boundary.
-/// Drivers select which syntax they recognize; no prompts or other argv survive.
+/// Drivers select which syntax and value-taking flags they recognize; no prompts or
+/// other argv survive.
 pub(crate) fn flags(
     args: &[OsString],
     model_flags: &[&str],
     effort_flags: &[&str],
+    value_flags: &[&str],
     codex_config: bool,
 ) -> LaunchSettings {
     let mut settings = LaunchSettings::default();
@@ -364,6 +366,10 @@ pub(crate) fn flags(
                 if super::driver_state::valid_model(value) {
                     settings.effort = Some(value.into());
                 }
+            }
+        } else if value_flags.contains(&flag) {
+            if inline.is_none() {
+                words.next();
             }
         } else {
             // Unknown valued options are ambiguous. Do not parse their values
@@ -660,5 +666,33 @@ mod tests {
             ));
             assert_eq!(command, before);
         }
+    }
+
+    #[test]
+    fn flags_skips_declared_value_options_and_stops_on_unknown_values() {
+        let to_args = |items: &[&str]| items.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(
+            flags(
+                &to_args(&["--conversation", "conv-1", "--model", "m1"]),
+                &["--model"],
+                &[],
+                &["--conversation"],
+                false,
+            )
+            .model
+            .as_deref(),
+            Some("m1")
+        );
+        assert_eq!(
+            flags(
+                &to_args(&["--unknown", "conv-1", "--model", "m1"]),
+                &["--model"],
+                &[],
+                &["--conversation"],
+                false,
+            )
+            .model,
+            None
+        );
     }
 }

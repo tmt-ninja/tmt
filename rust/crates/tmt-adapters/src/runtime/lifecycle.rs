@@ -338,6 +338,17 @@ pub trait RuntimeLifecycle {
         Some(observed.clone())
     }
 
+    /// The wire hook event name for diagnostics and role routing.
+    /// Defaults to `hook_event_name`; drivers with another wire spelling override it.
+    fn hook_event_name(&self, payload: &[u8]) -> Option<String> {
+        if payload.len() > super::hook_protocol::HOOK_INPUT_LIMIT {
+            return None;
+        }
+        serde_json::from_slice::<serde_json::Value>(payload)
+            .ok()
+            .and_then(|value| value["hook_event_name"].as_str().map(str::to_owned))
+    }
+
     /// Decode the exact session from a prompt. The verified hook owner may
     /// initially admit it, but never replaces an observed session.
     fn decode_prompt(&self, _payload: &[u8]) -> Option<ProviderSessionId> {
