@@ -54,6 +54,7 @@ impl StopReply {
 pub enum StopFault {
     /// The serving process did not accept the request.
     Unavailable,
+    Replacement,
     /// It accepted the request but is still running after the bounded wait.
     Slow,
     /// The serve exited but cleanup is unknown, or its private failure cannot be read.
@@ -62,7 +63,7 @@ pub enum StopFault {
 impl StopFault {
     pub fn code(&self) -> &'static str {
         match self {
-            Self::Unavailable => "COLAB_UNAVAILABLE",
+            Self::Unavailable | Self::Replacement => "COLAB_UNAVAILABLE",
             Self::Slow | Self::CleanupUnconfirmed(_) => "COLAB_OUTCOME_UNKNOWN",
         }
     }
@@ -77,6 +78,9 @@ impl std::fmt::Display for StopFault {
         }
         f.write_str(match self {
             Self::Unavailable => "The serving Colab did not accept the stop request.",
+            Self::Replacement => {
+                "A Colab serve replacement is in progress. Try stopping it again in a moment."
+            }
             Self::Slow => {
                 "Colab was asked to stop but is still running; check again before retrying."
             }
@@ -86,15 +90,42 @@ impl std::fmt::Display for StopFault {
 }
 impl std::error::Error for StopFault {}
 
-/// Ask the serving process of this data root to stop. One bounded request, never retried.
-pub fn request_stop(layout: &Layout) -> Result<StopReply> {
+/// Wait for a listener during a release handoff, then send one stop request.
+/// None means the previously held lock released before a listener became available.
+pub fn request_stop(layout: &Layout, deadline: std::time::Instant) -> Result<Option<StopReply>> {
+    use std::io::ErrorKind;
+    use std::time::{Duration, Instant};
+    let mut delay = Duration::from_millis(10);
+    let socket = loop {
+        match crate::ipc::connect(layout) {
+            Ok(socket) => break socket,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::NotFound | ErrorKind::ConnectionRefused
+                ) => {}
+            Err(_) => return Err(StopFault::Unavailable.into()),
+        }
+        if !layout.running()? {
+            return Ok(None);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(StopFault::Replacement.into());
+        }
+        std::thread::sleep(delay.min(remaining));
+        delay = (delay * 2).min(Duration::from_millis(100));
+    };
+    let socket =
+        crate::ipc::send_connected(socket, STOP_PATH, &[]).map_err(|_| StopFault::Unavailable)?;
     let (code, body) =
-        crate::ipc::exchange(layout, STOP_PATH, &[]).map_err(|_| StopFault::Unavailable)?;
+        crate::ipc::receive(socket, crate::limits::ACQUISITION + crate::limits::RESPONSE)
+            .map_err(|_| StopFault::Unavailable)?;
     let reply: StopReply = serde_json::from_slice(&body).map_err(|_| StopFault::Unavailable)?;
     if code != 200 || !reply.stopping || reply.door().is_none() {
         return Err(StopFault::Unavailable.into());
     }
-    Ok(reply)
+    Ok(Some(reply))
 }
 
 /// A released serve lock is not proof of owned Remote cleanup if a failure was recorded.

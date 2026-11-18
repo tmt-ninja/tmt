@@ -125,6 +125,27 @@ impl Layout {
             .lock("serve.lock")
             .map_err(|error| lock_error(error, StateFault::AlreadyServing))
     }
+    /// Descriptor zero carries the old serve's open file description across exec.
+    /// Verify its identity against the admitted private file before taking the lock.
+    pub fn adopt_serve_lock(&self) -> Result<Flock<File>> {
+        use std::os::{fd::AsFd, unix::fs::MetadataExt};
+        let inherited = File::from(std::io::stdin().as_fd().try_clone_to_owned()?);
+        let expected = self
+            .shared
+            .read_file("serve.lock")
+            .map_err(state_error)?
+            .metadata()?;
+        let actual = inherited.metadata()?;
+        if (actual.dev(), actual.ino()) != (expected.dev(), expected.ino()) {
+            return Err(StateFault::UnsafeFile.into());
+        }
+        let guard = Flock::lock(inherited, nix::fcntl::FlockArg::LockExclusiveNonblock)
+            .map_err(|(_, error)| error)?;
+        // The owned duplicate is close-on-exec. Remote and other children must
+        // never inherit a copy of the serve lock as their standard input.
+        nix::unistd::dup2_stdin(File::open("/dev/null")?)?;
+        Ok(guard)
+    }
     pub fn running(&self) -> Result<bool> {
         self.shared.running("serve.lock").map_err(state_error)
     }

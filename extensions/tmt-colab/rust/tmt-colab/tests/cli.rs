@@ -6367,6 +6367,70 @@ fn a_release_replacement_keeps_human_foreground_output_instead_of_printing_json(
 }
 
 #[test]
+fn one_stop_during_release_handoff_stops_the_replacement_and_its_door() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    let gate = pilot.root.join("replacement.go");
+    use nix::sys::stat::Mode;
+    nix::unistd::mkfifo(&gate, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
+    // Open before exec so the gate can be released even if the shell has
+    // just written its PID and has not opened the FIFO for reading yet.
+    let mut release = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&gate)
+        .unwrap();
+    let (mut serving, lib) = installed_service(&pilot, core, true);
+    select_replacement(&pilot, &lib, false, "read go < replacement.go || exit 1");
+    Serving::wait_for(&pilot.root.join("replacement.pid"), "\n");
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    assert!(layout.running().unwrap(), "the old flock survives exec");
+    assert!(!pilot.socket().exists());
+    // At this gate there is no listener to receive a request. A deadline reached in
+    // this exact state must never produce a successful stopped answer.
+    let fault = tmt_colab::control::request_stop(&layout, Instant::now()).unwrap_err();
+    assert_eq!(
+        fault
+            .downcast_ref::<tmt_colab::control::StopFault>()
+            .unwrap()
+            .code(),
+        "COLAB_UNAVAILABLE"
+    );
+    let child = pilot
+        .command()
+        .args(["stop", "--json"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    release.write_all(b"go\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(answer, json!({"state":"stopped","door":"started"}));
+    serving.exits();
+    assert_gone(pid_file(&pilot, "serve.pid"));
+    assert!(!pilot.socket().exists());
+    assert!(!layout.running().unwrap());
+}
+
+#[test]
+fn stop_reports_replacement_if_the_locked_listener_never_returns() {
+    let pilot = Pilot::new(None);
+    let layout = tmt_colab::keyring::Layout::open(&pilot.root.join("selected")).unwrap();
+    let _lock = layout.serve_lock().unwrap();
+    let deadline = Instant::now() + Duration::from_millis(2);
+    let error = tmt_colab::control::request_stop(&layout, deadline).unwrap_err();
+    let fault = error
+        .downcast_ref::<tmt_colab::control::StopFault>()
+        .unwrap();
+    assert_eq!(fault.code(), "COLAB_UNAVAILABLE");
+    assert!(fault.to_string().contains("replacement is in progress"));
+}
+
+#[test]
 fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() {
     let pilot = Pilot::new(None);
     seed_page(&pilot);

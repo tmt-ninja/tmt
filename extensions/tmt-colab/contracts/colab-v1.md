@@ -5776,7 +5776,16 @@ reserved `/.tmt/` subtree from a browser, so no new network surface exists. The 
 sees the flag, then shutdown is exactly SIGTERM's: close the socket and workers, then stop the
 door `serve` started (never an attached one). Pairings, grants and data are untouched.
 
-The command then waits up to 10 seconds for the serve lock to release. Output: when nothing
+If the serve lock is held but the private listener is absent or refuses the connection, stop
+polls for up to five seconds during replacement. During automatic replacement the old serve passes its exclusive flock across exec on stdin.
+The replacement verifies the descriptor against the private serve.lock, adopts it, and restores
+stdin to /dev/null before starting any children. Preflight verifies that the candidate accepts
+this handoff before the old serve drains. If the lock releases first, cleanup is checked
+and the result is `{state:"stopped",door:null}`. If the listener returns, stop sends its request
+once. If the deadline expires with the lock held, `COLAB_UNAVAILABLE` reports a serve replacement
+in progress. A transmitted stop request is never repeated.
+
+After a stop reply the command waits up to 10 seconds for the serve lock to release. Output: when nothing
 runs (including no state at all) it succeeds with `Colab is not running`, JSON
 `{state:"not-running",door:null}`; after a stop `Colab stopped` (`, and the Remote door it
 started` for a started door) and, for an attached door, `Remote is still running; stop it with tmt remote stop`; JSON `{state:"stopped",door}`. A refused or unanswered request is
