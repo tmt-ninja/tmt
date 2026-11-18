@@ -59,58 +59,53 @@ impl PullLink {
     }
 }
 
-/// Extract only admitted links, not guesses from titles, scripts or incidental markup.
-pub fn page_links(source: &str, blocks: Option<&Value>) -> Option<Vec<PullLink>> {
-    let mut candidates = crate::page_check::hrefs(source)?;
-    fn text_urls(text: &str, out: &mut Vec<String>) {
-        for tail in text.split("https://github.com/").skip(1) {
-            let path: String = tail
-                .chars()
-                .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
-                .take(320)
-                .collect();
-            out.push(format!("https://github.com/{}", path.trim_end_matches('.')));
-        }
+fn text_urls(text: &str, out: &mut Vec<String>) {
+    for tail in text.split("https://github.com/").skip(1) {
+        let path: String = tail
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
+            .take(320)
+            .collect();
+        out.push(format!("https://github.com/{}", path.trim_end_matches('.')));
     }
-    for text in crate::page_check::visible_text(source)? {
-        text_urls(&text, &mut candidates);
-    }
-    fn marks(value: &Value, out: &mut Vec<String>) {
-        match value {
-            Value::Object(map) => {
-                if map.get("mark").and_then(Value::as_str) == Some("link")
-                    && let Some(url) = map.get("value").and_then(Value::as_str)
-                {
-                    out.push(url.to_owned());
-                }
-                if let Some(text) = map.get("s").and_then(Value::as_str) {
-                    text_urls(text, out);
-                }
-                for child in map.values() {
-                    marks(child, out);
-                }
+}
+
+fn marks(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            if map.get("mark").and_then(Value::as_str) == Some("link")
+                && let Some(url) = map.get("value").and_then(Value::as_str)
+            {
+                out.push(url.to_owned());
             }
-            Value::Array(items) => {
-                for child in items {
-                    marks(child, out);
-                }
+            if let Some(text) = map.get("s").and_then(Value::as_str) {
+                text_urls(text, out);
             }
-            _ => {}
-        }
-    }
-    if let Some(Value::Object(items)) = blocks {
-        for block in items
-            .values()
-            .filter(|block| block.get("deleted").is_none())
-        {
-            if let Some(text) = block.get("text") {
-                marks(text, &mut candidates);
-            }
-            if let Some(cells) = block.get("cells") {
-                marks(cells, &mut candidates);
+            for child in map.values() {
+                marks(child, out);
             }
         }
+        Value::Array(items) => {
+            for child in items {
+                marks(child, out);
+            }
+        }
+        _ => {}
     }
+}
+
+/// The link candidates in one block's text and table cells.
+fn block_candidates(block: &Value, out: &mut Vec<String>) {
+    if let Some(text) = block.get("text") {
+        marks(text, out);
+    }
+    if let Some(cells) = block.get("cells") {
+        marks(cells, out);
+    }
+}
+
+/// The distinct pull request links among `candidates`, or `None` past the page's bound.
+fn pulls(candidates: Vec<String>) -> Option<Vec<PullLink>> {
     let mut found = Vec::new();
     for candidate in candidates {
         let canonical = candidate.split(['?', '#']).next()?.trim_end_matches('/');
@@ -124,6 +119,30 @@ pub fn page_links(source: &str, blocks: Option<&Value>) -> Option<Vec<PullLink>>
         }
     }
     Some(found)
+}
+
+/// Extract only admitted links, not guesses from titles, scripts or incidental markup.
+pub fn page_links(source: &str, blocks: Option<&Value>) -> Option<Vec<PullLink>> {
+    let mut candidates = crate::page_check::hrefs(source)?;
+    for text in crate::page_check::visible_text(source)? {
+        text_urls(&text, &mut candidates);
+    }
+    if let Some(Value::Object(items)) = blocks {
+        for block in items
+            .values()
+            .filter(|block| block.get("deleted").is_none())
+        {
+            block_candidates(block, &mut candidates);
+        }
+    }
+    pulls(candidates)
+}
+
+/// The pull requests one block links to, by the same rules as [`page_links`] (#6619).
+pub fn block_links(block: &Value) -> Vec<PullLink> {
+    let mut candidates = Vec::new();
+    block_candidates(block, &mut candidates);
+    pulls(candidates).unwrap_or_default()
 }
 
 #[derive(Clone, Debug)]

@@ -986,6 +986,8 @@ fn serve(
                     pr_links: Some(Vec::new()),
                     todo_counts: Some((0, 0)),
                     todo_items: Vec::new(),
+                    sections: Vec::new(),
+                    sections_omitted: false,
                 },
                 None => {
                     return Ok(
@@ -1006,6 +1008,7 @@ fn serve(
                 None => crate::work_index::OwnerActivity::Unknown,
             };
             let known = projection.pr_links.is_some();
+            let links = projection.pr_links.clone().unwrap_or_default();
             let mut pulls = Vec::new();
             let mut statuses = Vec::new();
             // A page may link many PRs; keep one refresh bounded even when every provider is slow.
@@ -1053,7 +1056,28 @@ fn serve(
                 as_of,
             );
             let activity = activity.map(|activity| serde_json::json!({"state":activity.state,"lastActivityMs":activity.last_activity_ms,"observedAtMs":activity.observed_at_ms}));
-            let result = serde_json::json!({"pageId":page,"known":known,"pulls":pulls,"state":state,"activity":activity,"lastActivityAtMs":last_activity_at_ms,"asOfMs":as_of});
+            // Each section reads the facts of the PRs it links to, read once above for the page
+            // (#6619).
+            let sections = crate::sections::summary(&projection.sections, |section| {
+                let facts: Option<Vec<_>> = known.then(|| {
+                    section
+                        .pulls
+                        .iter()
+                        .map(|link| {
+                            links
+                                .iter()
+                                .position(|candidate| candidate == link)
+                                .and_then(|at| statuses.get(at).copied())
+                                .unwrap_or(crate::work_index::PullRequestFact::Unknown)
+                        })
+                        .collect()
+                });
+                section.state(facts.as_deref(), as_of)
+            });
+            let mut result = serde_json::json!({"pageId":page,"known":known,"pulls":pulls,"state":state,"activity":activity,"lastActivityAtMs":last_activity_at_ms,"asOfMs":as_of,"sections":sections});
+            if projection.sections_omitted {
+                result["sectionsOmitted"] = serde_json::json!(true);
+            }
             let current = service
                 .lock()
                 .map_err(|_| registration::Code::Unavailable)?

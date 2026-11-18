@@ -3215,7 +3215,7 @@ back with it on `restore`.
 | Type          | Text  | Props (all optional unless noted)                                                                                                                            |
 | ------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `paragraph`   | rich  | `tone` `default\|muted`                                                                                                                                      |
-| `heading`     | rich  | `level` 2 or 3                                                                                                                                               |
+| `heading`     | rich  | `level` 2 or 3, `progress` `done\|off` (absent: its section counts automatically, #6619)                                                                     |
 | `list`        | rich  | `style` `bullet\|number`, `indent` 0-2                                                                                                                       |
 | `todo`        | rich  | `checked`, `assignee` (128 bytes), `due` (`YYYY-MM-DD`), `thread` (the comment thread whose Ask made it, #6474), `indent` 0-2                                |
 | `table`       | none  | `label`, `columns` (at most 32 of `{id, name, width?, hideNarrow?}`; column IDs are stable), `header`, `density` `roomy\|compact`                            |
@@ -6455,7 +6455,7 @@ work items are the pages with a fresh summary and the numbered to-dos that name 
 Colab's description claims Home with `homePage: "/work"`.
 
 The owner browser may POST `{pageId}` to `/api/work-facts` only while its owner sync connection
-for that page is open. The reply is `{pageId,known,pulls,state,activity,asOfMs}`: `pulls` holds
+for that page is open. The reply is `{pageId,known,pulls,state,activity,asOfMs,sections}`: `pulls` holds
 only admitted PR URLs and bounded derived facts, `activity` is a bounded local owner-agent observation
 or null, and `lastActivityAtMs` is the page's owner-local admitted activity time or null. A page
 with no retained receipts or checkpoints in any epoch has no links or to-dos and is discussing;
@@ -6706,6 +6706,19 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   - `todos` come last within `DISCOVERY_BYTES`: a page whose items do not fit carries
     `todosOmitted: true` instead of some of them. The times live in the owner's store
     (`work_observed`), so another device reads the same ones.
+  - `sections` (#6619) lists the page's counted sections in document order, after the to-dos within
+    the same bound: `{id, title, level, done, total, state, manual?}`. A section is a heading and
+    what follows it up to the next heading of the same or a higher level, so a heading nests under
+    the nearest heading of a lower level and its counts include its sub-sections'. It counts when it
+    holds a to-do, a pull request link or a question still waiting, unless the heading's `progress`
+    prop is `off`; `done` counts it as done by hand while `done`/`total` keep the real to-do count.
+    `state` uses the page status vocabulary in its order (done; blocked, from a callout with
+    `tone: blocked`; needs-you, from a waiting question; then what its pull requests say) and then
+    the to-dos: `working` when some are checked, `not-started` when none are. The list's state is
+    what the fold alone decides, else `unchecked`; the page's `/api/work-facts` reply carries the
+    same `sections` decided with the facts it read. At most 64 sections are summarised (titles cut
+    at 256 bytes); a page with more, or whose sections do not fit, carries `sectionsOmitted: true`.
+    Omitted for an HTML page and a read-only page. Display only: it never authorizes anything.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the

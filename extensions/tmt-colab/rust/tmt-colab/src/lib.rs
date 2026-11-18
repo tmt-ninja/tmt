@@ -43,6 +43,7 @@ mod rekeyer;
 pub mod repair;
 pub use object_channel::cloud_sync;
 pub use object_channel::documents as sealed_documents;
+pub mod sections;
 pub mod serve_release;
 pub mod settings;
 pub mod shell;

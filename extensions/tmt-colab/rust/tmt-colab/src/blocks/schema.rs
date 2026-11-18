@@ -66,7 +66,12 @@ const INDENT: Prop = Prop::Int(0, 2);
 fn schema(block_type: &str) -> &'static [(&'static str, Prop)] {
     match block_type {
         "paragraph" => &[("tone", Prop::Enum(&["default", "muted"]))],
-        "heading" => &[("level", Prop::Int(2, 3))],
+        // `progress` overrides whether the heading's section counts as progress (#6619): absent is
+        // automatic, `done` marks it done by hand, `off` keeps it out of the count.
+        "heading" => &[
+            ("level", Prop::Int(2, 3)),
+            ("progress", Prop::Enum(&["done", "off"])),
+        ],
         "list" => &[
             ("style", Prop::Enum(&["bullet", "number"])),
             ("indent", INDENT),

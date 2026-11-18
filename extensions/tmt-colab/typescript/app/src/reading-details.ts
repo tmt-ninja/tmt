@@ -2,6 +2,8 @@ import { exactKeys, requireValue } from '@tmt/colab-client';
 import {
   activity,
   pageProgress,
+  sectionSummaries,
+  type SectionSummary,
   type PageActivity,
   type PageProgress,
   type PageState,
@@ -43,6 +45,9 @@ export interface WorkFactView {
     lastActivityMs: number | null;
     observedAtMs: number;
   } | null;
+  /** The page's counted sections, decided with the facts this read used (#6619). */
+  sections?: SectionSummary[];
+  sectionsOmitted?: true;
 }
 /** Owner-only, bounded derived observations. No GitHub response or page markup is trusted. */
 export async function readWorkFacts(
@@ -70,7 +75,13 @@ export async function readWorkFacts(
     ...(value && typeof value === 'object' && 'lastActivityAtMs' in value
       ? ['lastActivityAtMs']
       : []),
+    ...(value && typeof value === 'object' && 'sections' in value ? ['sections'] : []),
+    ...(value && typeof value === 'object' && 'sectionsOmitted' in value
+      ? ['sectionsOmitted']
+      : []),
   ]);
+  if ('sections' in value) sectionSummaries(value.sections);
+  if ('sectionsOmitted' in value) requireValue(value.sectionsOmitted === true);
   if ('lastActivityAtMs' in value)
     requireValue(
       value.lastActivityAtMs === null ||

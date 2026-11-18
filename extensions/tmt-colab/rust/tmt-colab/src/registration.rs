@@ -510,6 +510,40 @@ impl Registration {
                 used += 24;
             }
         }
+        // Sections come after the to-dos within the same bound (#6619): the counted ones, with the
+        // status the fold alone decides.
+        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+            let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
+                continue;
+            };
+            if !page["summary"].is_object() {
+                continue;
+            }
+            let Some((sections, omitted)) = fingerprints
+                .get(&id)
+                .and_then(|fingerprint| self.summaries.sections(&id, fingerprint))
+            else {
+                continue;
+            };
+            let rows = crate::sections::summary(&sections, |section| section.folded_state(now));
+            if rows.as_array().is_none_or(Vec::is_empty) && !omitted {
+                continue;
+            }
+            let cost = serde_json::to_vec(&rows)
+                .map_err(|_| Code::Unavailable)?
+                .len()
+                + 40;
+            if used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
+                page["summary"]["sections"] = rows;
+                if omitted {
+                    page["summary"]["sectionsOmitted"] = serde_json::json!(true);
+                }
+                used += cost;
+            } else {
+                page["summary"]["sectionsOmitted"] = serde_json::json!(true);
+                used += 27;
+            }
+        }
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
     }
     /// Records and attaches what Work home needs from the list read (#6474): when each page was
@@ -2457,6 +2491,15 @@ mod describe_tests {
                     .map(Box::new),
             });
             projection.todo_items = vec![todo("t1", checked), todo("t2", false)];
+            // Its sections (#6619): a counted one carries its count and fold-decided state; a
+            // plain heading is left out of the list.
+            projection.sections = crate::sections::sections(Some(&json!({
+                "h1": {"type":"heading","parent":"root","pos":"a","props":{"level":2},"text":{"s":"Plan","marks":[]}},
+                "t1": {"type":"todo","parent":"root","pos":"b","props":{"checked":checked},"text":{"s":"","marks":[]}},
+                "t2": {"type":"todo","parent":"root","pos":"c","props":{"checked":false},"text":{"s":"","marks":[]}},
+                "h2": {"type":"heading","parent":"root","pos":"d","props":{"level":2},"text":{"s":"About","marks":[]}},
+            })))
+            .0;
             service
                 .summaries
                 .put(bare, &fingerprints[bare], Some(projection));
@@ -2470,6 +2513,11 @@ mod describe_tests {
             None => assert!(at <= now_ms().unwrap()),
         };
         stamped(since);
+        assert_eq!(
+            first[bare]["summary"]["sections"],
+            json!([{"id":"h1","title":"Plan","level":2,"done":1,"total":2,"state":"working"}])
+        );
+        assert!(first[bare]["summary"].get("sectionsOmitted").is_none());
         let todos = &first[bare]["summary"]["todos"];
         assert_eq!(todos[0]["text"], "Item t1");
         assert_eq!(todos[0]["assignee"], "gui-3");
