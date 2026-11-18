@@ -383,3 +383,9 @@
 .work-home-owner-link:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
+
+/* The details popover renders inside the row's status cell, which keeps one line; the popover wraps. */
+.work-home .work-status-details {
+  max-width: min(360px, calc(100vw - 32px));
+  white-space: normal;
+}

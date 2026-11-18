@@ -78,3 +78,18 @@
   background: var(--tmt-ui-surface-sheet);
   box-shadow: var(--tmt-ui-shadow-overlay);
 }
+/* On a phone the outline is a bar above the page, as in the page view, never over its text. */
+@media (max-width: 640px) {
+  .reader-outline {
+    top: var(--page-bar-size, 56px);
+    height: auto;
+    margin: 0 0 var(--tmt-ui-space-s);
+  }
+  .reader-outline .page-outline {
+    width: auto;
+    max-width: none;
+    border-radius: 0;
+    border-inline: 0;
+    box-shadow: none;
+  }
+}
