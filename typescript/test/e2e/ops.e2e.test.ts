@@ -2648,23 +2648,31 @@ child.stdout.pipe(process.stdout);
         for (const action of ['Open', 'Copy', 'Show full'])
           expect(popover, popover).toContain(action);
 
-        // Copy publishes the full address before the completion frame is painted.
-        // Reopen only after the visible viewport has closed and restored the same link cell.
+        // Copy publishes the address before the close repaint. Wait for both.
+        let lastBuffer = '';
+        let lastCapture = popover;
         fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'y']);
-        await fixture.waitFor(
-          () => {
-            if (buffer() !== link) return false;
-            const closed = screen();
-            if (closed.includes('┌ Link') || !closed.includes('Copied to ')) return false;
-            const painted = locateLink(closed);
-            return painted?.x === label!.x && painted.y === label!.y;
-          },
-          5_000,
-          'clipboard and closed link at its original click cell'
-        );
+        await fixture
+          .waitFor(
+            () => {
+              lastBuffer = buffer();
+              lastCapture = screen();
+              return lastBuffer === link && !lastCapture.includes('┌ Link');
+            },
+            5_000,
+            'the link in the clipboard and the popover closed'
+          )
+          .catch((cause: unknown) => {
+            throw new Error(
+              `Copy completion failed. Last tmux buffer: ${JSON.stringify(lastBuffer)}\nLast pane capture:\n${lastCapture}`,
+              { cause }
+            );
+          });
 
         // Show full lists every character of the address.
-        await open(label!);
+        const restored = locateLink(lastCapture);
+        expect(restored, lastCapture).toBeDefined();
+        await open(restored!);
         fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'f']);
         await fixture.waitForCapture((current) => current.includes('Full link'), shell.pane);
         const lines = screen()

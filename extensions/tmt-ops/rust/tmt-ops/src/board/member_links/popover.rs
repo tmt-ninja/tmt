@@ -854,10 +854,11 @@ mod tests {
         assert!(restored.contains("Copied to the clipboard."));
         assert!(restored.contains("Read the docs first."));
         assert!(!restored.contains("┌ Link"));
-        let (repainted, same_url) = url_hits(&app).remove(0);
-        assert_eq!(same_url, url);
-        click(&mut app, repainted);
-        let menu = app.menu.as_ref().expect("the repainted link reopens");
+        click(&mut app, area);
+        let menu = app
+            .menu
+            .as_ref()
+            .expect("the original click cell reopens the link");
         assert_eq!(menu.title, "Link");
         assert_eq!(menu.entries[2].choice, Choice::LinkCopy(url));
     }
