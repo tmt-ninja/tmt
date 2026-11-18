@@ -637,14 +637,20 @@ pub(super) fn reference_text(
     current: &crate::checklist::Current,
     item: &crate::checklist::ItemView,
 ) -> String {
-    let id = item
-        .item
-        .id
-        .short_in(current.items.iter().map(|view| &view.item.id));
+    let id = short_reference_id(current, item);
     format!(
         "#{} ({id})",
         super::notes::single_line(&item.item.content.title)
     )
+}
+
+pub(super) fn short_reference_id<'a>(
+    current: &crate::checklist::Current,
+    item: &'a crate::checklist::ItemView,
+) -> &'a str {
+    item.item
+        .id
+        .short_in(current.items.iter().map(|view| &view.item.id))
 }
 
 impl super::app::App {

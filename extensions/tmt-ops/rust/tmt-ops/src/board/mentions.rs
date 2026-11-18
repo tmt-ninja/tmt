@@ -342,6 +342,11 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
         .max()
         .unwrap_or(0)
         .min(24);
+    let checklist = app
+        .checklist_reference_key()
+        .filter(|_| app.mentions.checklist)
+        .and_then(|key| app.notes.preview(&key))
+        .map(|preview| &preview.current);
     let squad_cells = 20;
     for row in 0..height {
         let rect = Rect::new(x, y + row, width, 1);
@@ -398,7 +403,20 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                 at = matched.end;
             }
             spans.push(Span::styled(&candidate.label[at..], style));
-            if !app.mentions.checklist {
+            if app.mentions.checklist {
+                if let Some(current) = checklist
+                    && let Some(item) = current
+                        .items
+                        .iter()
+                        .find(|view| view.item.id.as_str() == candidate.id)
+                {
+                    let id = super::conversation_checklist::short_reference_id(current, item);
+                    spans.push(Span::styled(
+                        format!(" ({id})"),
+                        style.patch(look.role(Role::Muted)),
+                    ));
+                }
+            } else {
                 // The name column, then the agent's squad and its STATE cell, as in Agents.
                 let shown = unicode_width::UnicodeWidthStr::width(candidate.label.as_str());
                 spans.push(Span::styled(

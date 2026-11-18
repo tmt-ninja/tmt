@@ -11,7 +11,7 @@ pub(in crate::board) const FILE_SCENES: &[&str] = &[
     "file-sent",
 ];
 
-pub(in crate::board) fn capture_file_hits(app: &App) -> String {
+pub(in crate::board) fn capture_reference_hits(app: &App) -> String {
     format!("{:?}", app.member_links.borrow().hits)
 }
 

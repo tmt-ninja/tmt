@@ -1097,8 +1097,9 @@ fn link_file_frames(styles: &mut Styles) -> Vec<Value> {
         |_| grid(&[160, 100, 80, 60], &[36]),
         crate::board::member_links::tests::capture_file_case,
         |captured, app| {
-            captured["references"] =
-                json!(crate::board::member_links::tests::capture_file_hits(app));
+            captured["references"] = json!(
+                crate::board::member_links::tests::capture_reference_hits(app)
+            );
         },
     )
 }
@@ -1200,6 +1201,69 @@ fn checklist_overlay_frames(styles: &mut Styles) -> Vec<Value> {
         }
     }
     frames
+}
+
+/// Checklist references in the composer, transcript, and retained quote draft.
+fn checklist_reference_frames(styles: &mut Styles) -> Vec<Value> {
+    use crate::board::conversation_checklist::tests::overlay::{REFERENCE_SCENES, reference_case};
+
+    scene_group(
+        styles,
+        REFERENCE_SCENES,
+        |_| grid(&[160, 100], &[36]),
+        reference_case,
+        |captured, app| {
+            if captured["state"] == "notes-reference-menu" {
+                captured["references"] = json!(
+                    crate::board::member_links::tests::capture_reference_hits(app)
+                );
+            }
+        },
+    )
+}
+
+#[test]
+fn checklist_reference_scene_rows_show_the_actual_interactions() {
+    let frames = checklist_reference_frames(&mut Styles::default());
+    assert_eq!(frames.len(), 24);
+    for frame in frames {
+        let lines = frame["lines"].as_array().unwrap();
+        let has_line = |text: &str| {
+            lines
+                .iter()
+                .any(|line| line.as_str().unwrap().contains(text))
+        };
+        let expected: &[&str] = match frame["state"].as_str().unwrap() {
+            "notes-reference-completion" => &[
+                "#Check release notes (a72c)",
+                "#Verify package (d041)",
+                "Checklist · # ·",
+            ],
+            "notes-reference-menu" => &[
+                "Please review #Check release notes (a72c).",
+                "Open in checklist",
+            ],
+            "notes-reference-draft" if frame["look"] == "NO_COLOR" => &[
+                "Please take a look.",
+                "[Quote Checklist: #Check release notes (a72c) x]",
+            ],
+            "notes-reference-draft" => &[
+                "Please take a look.",
+                "Quote · Checklist: #Check release notes (a72c)",
+            ],
+            state => panic!("unexpected checklist reference scene {state}"),
+        };
+        for text in expected {
+            assert!(
+                has_line(text),
+                "missing {text:?} in {} {}x{} {}: {lines:?}",
+                frame["state"],
+                frame["width"],
+                frame["height"],
+                frame["look"]
+            );
+        }
+    }
 }
 
 /// One turn that answered three sends, painted under the last of them: additive scenes.
@@ -1586,6 +1650,7 @@ macro_rules! oracle_groups {
         $group!(7, 24, checklist_chip_frames($styles));
         $group!(7, 80, add_note_frames($styles));
         $group!(7, 48, checklist_overlay_frames($styles));
+        $group!(7, 24, checklist_reference_frames($styles));
         $group!(7, 40, one_turn_frames($styles));
         $group!(7, 24, versions_frames($styles));
         $group!(6, 696, new_member_frames($styles));

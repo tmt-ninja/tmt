@@ -51,6 +51,60 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
     (app, key)
 }
 
+pub(in crate::board) const REFERENCE_SCENES: &[&str] = &[
+    "notes-reference-completion",
+    "notes-reference-menu",
+    "notes-reference-draft",
+];
+
+pub(in crate::board) fn reference_case(
+    scene: &str,
+    look: crate::look::Look,
+    width: u16,
+    height: u16,
+) -> App {
+    let mut release = todo(1);
+    release.item.id = Id::parse("a72c3333-3333-4333-8333-333333333301").unwrap();
+    release.item.content.title = "Check release notes".into();
+    let mut package = todo(2);
+    package.item.id = Id::parse("d0413333-3333-4333-8333-333333333302").unwrap();
+    package.item.content.title = "Verify package".into();
+    let (mut app, key) = read_with(vec![release, package]);
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
+    match scene {
+        "notes-reference-completion" => {
+            press(&mut app, KeyCode::Enter);
+            press(&mut app, KeyCode::Char('#'));
+        }
+        "notes-reference-menu" => {
+            let current = &app.notes.preview(&key).unwrap().current;
+            let reference = super::super::reference_text(current, &current.items[0]);
+            app.view.as_mut().unwrap().replies = vec![serde_json::json!({
+                "recipientId": key.member().unwrap(),
+                "requestId": "checklist-reference",
+                "response": format!("Please review {reference}."),
+            })];
+            app.focus = 1;
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            press(&mut app, KeyCode::Right);
+            press(&mut app, KeyCode::Enter);
+        }
+        "notes-reference-draft" => {
+            press(&mut app, KeyCode::Enter);
+            type_text(&mut app, "Please take a look.");
+            press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
+            press(&mut app, KeyCode::Char('r'));
+        }
+        _ => panic!("unexpected checklist reference scene {scene}"),
+    }
+    app
+}
+
 #[test]
 fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
     let now = 1_791_600_000_000;
