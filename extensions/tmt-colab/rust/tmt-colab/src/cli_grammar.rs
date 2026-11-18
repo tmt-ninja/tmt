@@ -154,6 +154,7 @@ pub fn extend(root: Command) -> Command {
         .alias("list").arg(Arg::new("state").long("state").value_parser(["todo", "in-progress", "done"]).help("Only pages in this manual state"))
         .arg(Arg::new("archived").long("archived").action(ArgAction::SetTrue))
         .arg(Arg::new("expiring").long("expiring").action(ArgAction::SetTrue).help("Show pages that auto-archive within 7 days or are already due."))
+        .arg(Arg::new("work").long("work").requires("json").action(ArgAction::SetTrue).help("Include Work home summaries; folds pages when Colab is not serving."))
         .arg(Arg::new("project").long("project").value_name("NAME").help("Only the pages in this project")))
         .subcommand(cmd!("show", "Inspect one local page", "tmt colab show 10000000-0000-4000-8000-000000000001 --json", "Archived titles and discussions are unavailable. Expiry never deletes your local copy.").arg(page()))
         .subcommand(share)

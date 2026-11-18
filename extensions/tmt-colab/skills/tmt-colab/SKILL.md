@@ -73,7 +73,8 @@ If pairing is needed, ask the user to run `tmt remote pair`, open its link in th
 compare the four words and confirm there themselves; never answer for them.
 To send, pair with `--talk` or use the Remote settings toggle.
 
-Find pages: `tmt colab ls --json`. An HTML page takes UTF-8, `--html`
+Find pages: `tmt colab ls --json`. Add `--work` for Work home summaries; without a running
+serve, that option folds pages from the local store. An HTML page takes UTF-8, `--html`
 and `--layout column` (most), `full` or `canvas --reason TEXT`; `page layout PAGE KIND` changes it:
 
 ```sh

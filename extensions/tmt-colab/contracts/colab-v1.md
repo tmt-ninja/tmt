@@ -6686,7 +6686,7 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   as in progress or to do by its other statuses, and by its manual state when it is `unknown`,
   `unchecked` or absent. Display only, never authority.
 - Work home data (#6474), all display only and owner-local:
-  - `tmt colab ls --json` carries the same `summary`: a running serve uses its owner-list
+  - `tmt colab ls --json --work` opts into the same `summary`: a running serve uses its owner-list
     read, including retained activity and observation stamps, while an offline read folds the
     local store, uses fold-only status, and reports retained times without stamping them.
   - `doneAtMs` and `blockedSinceMs` are the page's last admitted activity (`lastUpdateAtMs`, never

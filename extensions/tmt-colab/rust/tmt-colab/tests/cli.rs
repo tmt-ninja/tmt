@@ -925,13 +925,8 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     let show = pilot.call(&["show", PAGE, "--json"]);
     assert_eq!(list["pages"][0]["title"], "Encrypted π [31m");
     assert_eq!(show["page"]["title"], "Encrypted π\u{1b}[31m");
-    // ls carries the list-only Work home summary. The remaining verified metadata is the same
-    // after accounting for the display title and fields that show supplies separately.
+    // Plain ls and show expose the same metadata after accounting for display differences.
     let mut listed = list["pages"][0].clone();
-    assert_eq!(
-        listed.as_object_mut().unwrap().remove("summary"),
-        Some(json!({"comments":0,"waiting":false,"needsYou":0,"status":"discussing"}))
-    );
     for key in ["path", "link", "shortLink"] {
         listed.as_object_mut().unwrap().remove(key);
     }
@@ -13568,13 +13563,16 @@ fn work_home_cli_and_browser_share_the_owner_list_summary() {
             .unwrap()["summary"]
             .clone()
     };
-    let offline = list_summary(pilot.call(&["ls", "--json"]));
+    let plain = || pilot.call(&["ls", "--json"]);
+    assert!(list_summary(plain()).is_null());
+    let offline = list_summary(pilot.call(&["ls", "--json", "--work"]));
     assert_eq!(offline["status"], "blocked");
     assert!(offline.get("blockedSinceMs").is_none());
     pilot.start();
+    assert!(list_summary(pilot.call(&["ls", "--json"])).is_null());
     let deadline = Instant::now() + Duration::from_secs(15);
     let local = loop {
-        let summary = list_summary(pilot.call(&["ls", "--json"]));
+        let summary = list_summary(pilot.call(&["ls", "--json", "--work"]));
         if summary.is_object() {
             break summary;
         }
@@ -13598,7 +13596,7 @@ fn work_home_cli_and_browser_share_the_owner_list_summary() {
     assert_eq!(local["todos"][0]["number"], "COLAB-2");
     assert_eq!(local["todos"][0]["assignee"], "Fixture agent");
     pilot.stop();
-    assert_eq!(list_summary(pilot.call(&["ls", "--json"])), local);
+    assert_eq!(list_summary(pilot.call(&["ls", "--json", "--work"])), local);
 }
 
 #[test]

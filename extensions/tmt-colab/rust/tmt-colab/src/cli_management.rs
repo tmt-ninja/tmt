@@ -630,6 +630,9 @@ fn ipc_post(layout: &Layout, route: &str, body: &[u8], response_limit: usize) ->
     }
     Ok(exchange[offset..].to_vec())
 }
+const WORK_HOME_IPC_RESPONSE_BYTES: usize =
+    tmt_colab::limits::DISCOVERY_BYTES + crate::IPC_RESPONSE_BYTES;
+
 fn work_home_summaries(root: &Path, layout: &Layout, catalog: &mut Value) -> Result<()> {
     let bytes = match layout.serve_lock() {
         Ok(_lock) => {
@@ -645,7 +648,7 @@ fn work_home_summaries(root: &Path, layout: &Layout, catalog: &mut Value) -> Res
                 layout,
                 tmt_colab::registration::ipc::PAGE_LIST_PATH,
                 &[],
-                tmt_colab::limits::DISCOVERY_BYTES + crate::IPC_RESPONSE_BYTES,
+                WORK_HOME_IPC_RESPONSE_BYTES,
             )?
         }
         Err(error) => return Err(error),
@@ -1110,6 +1113,27 @@ fn attach_migration_warning(graph: &tmt_colab::work_links::Graph<'_>, page: &mut
 }
 
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
+    let include_work = command == "ls" && json_output && args.get_flag("work");
+    let result = run_once(command, args, root, json_output, include_work);
+    if include_work
+        && result.as_ref().err().is_some_and(|error| {
+            error
+                .downcast_ref::<ManagementFault>()
+                .is_some_and(|fault| fault.code == "COLAB_STALE_HEAD")
+        })
+    {
+        return run_once(command, args, root, json_output, include_work);
+    }
+    result
+}
+
+fn run_once(
+    command: &str,
+    args: &ArgMatches,
+    root: &Path,
+    json_output: bool,
+    include_work: bool,
+) -> Result<()> {
     let layout = Layout::existing(root)?;
     let Some(layout) = layout else {
         if command == "ls" {
@@ -1290,7 +1314,9 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
         let listed = catalog["pages"].as_array().is_some_and(|p| !p.is_empty());
         if json_output {
-            work_home_summaries(root, &layout, &mut catalog)?;
+            if include_work {
+                work_home_summaries(root, &layout, &mut catalog)?;
+            }
             let mut facts = json!({});
             reach.annotate(&mut facts, "");
             catalog["paired"] = facts["paired"].take();
