@@ -88,7 +88,11 @@ pub(super) fn scan(text: &str) -> Vec<Reference> {
 
 /// A reference inside or crossing a code/link/literal container stays inert.
 /// Inline syntax wholly inside a path belongs to its literal filename instead.
-pub(super) fn retain_prose(references: &mut Vec<Reference>, events: &[(Event<'_>, Range<usize>)]) {
+pub(super) fn retain_prose<T>(
+    references: &mut Vec<T>,
+    range_of: impl Fn(&T) -> &Range<usize>,
+    events: &[(Event<'_>, Range<usize>)],
+) {
     let mut blocked: Vec<_> = events
         .iter()
         .filter_map(|(event, range)| {
@@ -114,11 +118,12 @@ pub(super) fn retain_prose(references: &mut Vec<Reference>, events: &[(Event<'_>
     blocked.sort_by_key(|range| range.start);
     let (mut at, mut end) = (0, 0);
     references.retain(|reference| {
-        let mut admitted = reference.range.start >= end;
-        while at < blocked.len() && blocked[at].start < reference.range.end {
+        let reference = range_of(reference);
+        let mut admitted = reference.start >= end;
+        while at < blocked.len() && blocked[at].start < reference.end {
             let range = &blocked[at];
-            if range.end > reference.range.start
-                && (range.start <= reference.range.start || range.end > reference.range.end)
+            if range.end > reference.start
+                && (range.start <= reference.start || range.end > reference.end)
             {
                 admitted = false;
             }

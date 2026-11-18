@@ -51,6 +51,60 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
     (app, key)
 }
 
+pub(in crate::board) const REFERENCE_SCENES: &[&str] = &[
+    "notes-reference-completion",
+    "notes-reference-menu",
+    "notes-reference-draft",
+];
+
+pub(in crate::board) fn reference_case(
+    scene: &str,
+    look: crate::look::Look,
+    width: u16,
+    height: u16,
+) -> App {
+    let mut release = todo(1);
+    release.item.id = Id::parse("a72c3333-3333-4333-8333-333333333301").unwrap();
+    release.item.content.title = "Check release notes".into();
+    let mut package = todo(2);
+    package.item.id = Id::parse("d0413333-3333-4333-8333-333333333302").unwrap();
+    package.item.content.title = "Verify package".into();
+    let (mut app, key) = read_with(vec![release, package]);
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
+    match scene {
+        "notes-reference-completion" => {
+            press(&mut app, KeyCode::Enter);
+            press(&mut app, KeyCode::Char('#'));
+        }
+        "notes-reference-menu" => {
+            let current = &app.notes.preview(&key).unwrap().current;
+            let reference = super::super::reference_text(current, &current.items[0]);
+            app.view.as_mut().unwrap().replies = vec![serde_json::json!({
+                "recipientId": key.member().unwrap(),
+                "requestId": "checklist-reference",
+                "response": format!("Please review {reference}."),
+            })];
+            app.focus = 1;
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            press(&mut app, KeyCode::Right);
+            press(&mut app, KeyCode::Enter);
+        }
+        "notes-reference-draft" => {
+            press(&mut app, KeyCode::Enter);
+            type_text(&mut app, "Please take a look.");
+            press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
+            press(&mut app, KeyCode::Char('r'));
+        }
+        _ => panic!("unexpected checklist reference scene {scene}"),
+    }
+    app
+}
+
 #[test]
 fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
     let now = 1_791_600_000_000;
@@ -1863,4 +1917,90 @@ fn reopen_keeps_the_focused_field_when_the_discard_line_appears() {
         Effect::None,
         "Enter saves; it never discards"
     );
+}
+
+#[test]
+fn talk_completes_a_member_item_and_checklist_r_quotes_it() {
+    let item = todo(1);
+    let reference = format!("#item 1 ({})", item.item.id.short_in([&item.item.id]));
+    let (mut app, _) = read_with(vec![item]);
+    press(&mut app, KeyCode::Enter);
+    type_text(&mut app, "#item");
+    assert_eq!(app.mentions.completion.matches.len(), 1);
+    press(&mut app, KeyCode::Tab);
+    let editor = &app.input.as_ref().unwrap().text;
+    assert_eq!(editor.as_str(), format!("{reference} "));
+    assert!(!editor.folds()[0].expanded);
+    press(&mut app, KeyCode::Backspace);
+    press(&mut app, KeyCode::Backspace);
+    assert!(app.input.as_ref().unwrap().text.is_empty());
+    type_text(&mut app, "draft");
+    press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
+    press(&mut app, KeyCode::Char('r'));
+    assert!(app.notes_overlay.is_none());
+    let text = app.input.as_ref().unwrap().text.as_str();
+    assert!(
+        text.contains("draft") && text.contains(&reference),
+        "{text:?}"
+    );
+}
+
+#[test]
+fn transcript_reference_only_offers_to_open_its_item() {
+    let second = todo(2);
+    let reference = format!(
+        "#item 2 ({})",
+        second.item.id.short_in([&todo(1).item.id, &second.item.id])
+    );
+    let (mut app, _) = read_with(vec![todo(1), second]);
+    app.focus = 1;
+    let leading = "#tracking then ";
+    let source = format!("{leading}{reference}, #missing (deadbeef), and `{reference}`");
+    let mapped =
+        crate::board::markdown::render_conversation_with_members(&source, 100, app.look(), None);
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|frame| {
+            app.member_links.borrow_mut().begin_frame(frame.area());
+            crate::board::member_links::paint_hits(
+                frame,
+                &app,
+                frame.area(),
+                0,
+                mapped.lines.len(),
+                &mapped.mentions,
+                crate::board::member_links::Paint {
+                    reader: true,
+                    role: tmt_cli_style::Role::Text,
+                },
+            );
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    let underlined = |column| {
+        buffer[(column, 0)]
+            .modifier
+            .contains(ratatui::style::Modifier::UNDERLINED)
+    };
+    assert!(!underlined(0), "the earlier hashtag is ordinary text");
+    assert!(
+        underlined(leading.len() as u16),
+        "the item caption is a link"
+    );
+
+    assert!(
+        app.member_link_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
+            .is_some()
+    );
+    assert!(
+        app.member_link_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            .is_some()
+    );
+    let entries = &app.menu.as_ref().expect("reference menu").entries;
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].label, "Open in checklist");
+    press(&mut app, KeyCode::Enter);
+    let controller = app.notes_overlay.as_ref().expect("Checklist page");
+    assert_eq!(controller.reveal.borrow().as_ref(), Some(&todo(2).item.id));
 }

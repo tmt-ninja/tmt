@@ -966,6 +966,13 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                 .into_iter()
                 .map(|(key, label)| (key.into(), label.into())),
             );
+            if app
+                .notes_overlay
+                .as_ref()
+                .is_some_and(|controller| controller.selected_can_reference(app))
+            {
+                hints.push(("r".into(), "reference".into()));
+            }
             hints
         };
         let hints = fit_hints(

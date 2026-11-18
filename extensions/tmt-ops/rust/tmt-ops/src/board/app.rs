@@ -395,6 +395,10 @@ pub enum Choice {
     WorkspaceTarget(super::workspace::OpsTarget),
     /// A click on the Checklist chip of a member's header: opens the list.
     MemberNotes,
+    OpenChecklistItem {
+        key: super::conversation_checklist::Key,
+        id: crate::checklist::model::Id,
+    },
     AddToNotes(super::conversation_checklist::Seed),
     WorkspaceBegin(super::workspace::manage::Kind),
     WorkspaceRoom {
@@ -3520,6 +3524,7 @@ impl App {
             Choice::Checklist => self.open_checklist(),
             Choice::RoomChecklist(room) => self.open_room_checklist(room),
             Choice::MemberNotes => self.open_notes(),
+            Choice::OpenChecklistItem { key, id } => self.open_checklist_item(&key, id),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
@@ -4103,7 +4108,8 @@ impl App {
                 super::member_links::Target::Url(url) => self.link_popover(&url, anchor),
                 super::member_links::Target::File(path) => self.file_popover(&path, anchor),
                 super::member_links::Target::Command(shown) => self.command_popover(&shown, anchor),
-                super::member_links::Target::Member(_) => Effect::None,
+                super::member_links::Target::Member(_)
+                | super::member_links::Target::Checklist(_) => Effect::None,
             };
         }
         let Some(menu) = &mut self.menu else {

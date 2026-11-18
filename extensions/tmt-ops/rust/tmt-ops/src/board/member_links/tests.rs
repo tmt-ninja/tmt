@@ -11,7 +11,7 @@ pub(in crate::board) const FILE_SCENES: &[&str] = &[
     "file-sent",
 ];
 
-pub(in crate::board) fn capture_file_hits(app: &App) -> String {
+pub(in crate::board) fn capture_reference_hits(app: &App) -> String {
     format!("{:?}", app.member_links.borrow().hits)
 }
 
@@ -725,6 +725,7 @@ mod frozen_membership_tests {
             surface: Rect::default(),
             area: Rect::new(4, 10, 6, 1),
             target: Target::Member(MEMBER.into()),
+            checklist: None,
             reader: true,
             occurrence: 0,
         });
@@ -805,6 +806,7 @@ mod named_surface_tests {
             area: Rect::new(5, 5, 7, 1),
             surface: Rect::new(0, 5, 100, 1),
             target: Target::Member(MEMBER.into()),
+            checklist: None,
             reader: false,
             occurrence: 0,
         });
@@ -1253,7 +1255,7 @@ mod named_surface_tests {
                             .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                             .collect();
                         let cells:Vec<_> = buffer.content.iter().map(|cell| serde_json::json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect();
-                        let hits:Vec<_> = app.member_links.borrow().hits.iter().map(|hit|serde_json::json!({"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height,"identity":match &hit.target { Target::Member(id) | Target::Url(id) | Target::File(id) => id, Target::Command(command) => &command.shown },"reader":hit.reader})).collect();
+                        let hits:Vec<_> = app.member_links.borrow().hits.iter().map(|hit|serde_json::json!({"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height,"identity":match &hit.target { Target::Member(id) | Target::Checklist(id) | Target::Url(id) | Target::File(id) => id, Target::Command(command) => &command.shown },"reader":hit.reader})).collect();
                         frames.push(serde_json::json!({"scene":scene,"width":width,"height":36,"base":base,"depth":format!("{depth:?}"),"lines":lines,"cells":cells,"memberHits":hits}));
                     }
                 }

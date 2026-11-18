@@ -311,7 +311,14 @@ fn composer_caption<'a>(
     {
         crate::board::input_field::Caption::Note { to }
     } else {
-        crate::board::input_field::Caption::Message(projection.recipient)
+        crate::board::input_field::Caption::Message {
+            to: projection.recipient,
+            checklist: if projection.focused {
+                app.checklist_reference_key().is_some()
+            } else {
+                app.conversation_checklist_key().is_some()
+            },
+        }
     }
 }
 

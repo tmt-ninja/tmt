@@ -631,3 +631,53 @@ pub(in crate::board) fn chip(summary: Option<&Summary>) -> String {
 
 #[cfg(test)]
 pub(in crate::board) mod tests;
+
+/// The reference sent in chat and quoted from the Checklist page.
+pub(super) fn reference_text(
+    current: &crate::checklist::Current,
+    item: &crate::checklist::ItemView,
+) -> String {
+    let id = short_reference_id(current, item);
+    format!(
+        "#{} ({id})",
+        super::notes::single_line(&item.item.content.title)
+    )
+}
+
+pub(super) fn short_reference_id<'a>(
+    current: &crate::checklist::Current,
+    item: &'a crate::checklist::ItemView,
+) -> &'a str {
+    item.item
+        .id
+        .short_in(current.items.iter().map(|view| &view.item.id))
+}
+
+impl super::app::App {
+    pub(super) fn checklist_item_reference(
+        &self,
+        prefix: &str,
+    ) -> Option<(Key, &crate::checklist::ItemView)> {
+        let key = self.conversation_checklist_key()?;
+        let mut matches = self
+            .notes
+            .preview(&key)?
+            .current
+            .items
+            .iter()
+            .filter(|view| view.item.id.as_str().starts_with(prefix));
+        let item = matches.next()?;
+        (!item.item.archived && matches.next().is_none()).then_some((key, item))
+    }
+
+    /// A retained editor can outlive the selected row. Never borrow another member's list.
+    pub(super) fn checklist_reference_key(&self) -> Option<Key> {
+        let input = self.input.as_ref()?;
+        if !matches!(input.compose, super::app::Compose::Talk { .. })
+            || input.target() != self.conversation_target().as_ref()
+        {
+            return None;
+        }
+        self.conversation_checklist_key()
+    }
+}

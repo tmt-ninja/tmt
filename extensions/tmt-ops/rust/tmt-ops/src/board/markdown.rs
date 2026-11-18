@@ -86,6 +86,13 @@ impl Part {
     }
 }
 
+#[derive(Clone)]
+struct SourceReference {
+    range: std::ops::Range<usize>,
+    target: super::member_links::Target,
+    label: String,
+}
+
 struct Renderer<'a> {
     preserve_breaks: bool,
     inventory: Option<&'a super::inventory::Inventory>,
@@ -111,8 +118,8 @@ struct Renderer<'a> {
     skip_until: usize,
     /// The table whose rows are being read.
     table: Option<tables::Build>,
-    files: Vec<files::Reference>,
-    next_file: usize,
+    references: Vec<SourceReference>,
+    next_reference: usize,
     commands: Vec<super::member_links::commands::Reference>,
     next_command: usize,
 }
@@ -182,23 +189,27 @@ impl Renderer<'_> {
         }
     }
 
-    fn push_file(&mut self, file: files::Reference) {
+    fn push_reference(&mut self, reference: SourceReference) {
         if self.current.is_none() {
             let indent = self.lists.len() * 2;
             self.start(" ".repeat(indent), indent);
         }
-        let mut part = Part::new(
-            file.label(),
+        let style = if matches!(reference.target, super::member_links::Target::File(_)) {
             self.style()
                 .patch(self.look.role(Role::Code))
-                .patch(self.look.role(Role::Track)),
+                .patch(self.look.role(Role::Track))
+        } else {
+            self.style()
+        };
+        let mut part = Part::new(
+            reference.label,
+            style,
             self.source_line,
-            Some((
-                super::member_links::Target::File(file.path),
-                self.next_mention,
-            )),
+            Some((reference.target, self.next_mention)),
         );
-        part.source_range = Some(file.range);
+        if part.is_atomic() {
+            part.source_range = Some(reference.range);
+        }
         self.next_mention += 1;
         self.current
             .as_mut()
@@ -208,33 +219,34 @@ impl Renderer<'_> {
     }
 
     fn text(&mut self, text: &str, range: std::ops::Range<usize>) {
-        while self.next_file < self.files.len()
-            && self.files[self.next_file].range.end <= range.start
+        while self.next_reference < self.references.len()
+            && self.references[self.next_reference].range.end <= range.start
         {
-            self.next_file += 1;
+            self.next_reference += 1;
         }
-        if self.next_file == self.files.len() || self.files[self.next_file].range.start >= range.end
+        if self.next_reference == self.references.len()
+            || self.references[self.next_reference].range.start >= range.end
         {
             self.prose(text);
             return;
         }
         let mut at = range.start;
-        while self.next_file < self.files.len()
-            && self.files[self.next_file].range.start < range.end
+        while self.next_reference < self.references.len()
+            && self.references[self.next_reference].range.start < range.end
         {
-            let start = self.files[self.next_file].range.start;
-            let end = self.files[self.next_file].range.end;
+            let start = self.references[self.next_reference].range.start;
+            let end = self.references[self.next_reference].range.end;
             if at < start {
                 self.prose(&self.source[at..start]);
             }
             if start >= range.start {
-                self.push_file(self.files[self.next_file].clone());
+                self.push_reference(self.references[self.next_reference].clone());
             }
             at = at.max(end);
             if end > range.end {
                 break;
             }
-            self.next_file += 1;
+            self.next_reference += 1;
         }
         if at < range.end {
             self.prose(&self.source[at..range.end]);
@@ -356,9 +368,9 @@ impl Renderer<'_> {
             .saturating_sub(1);
         if files::inline(&event) {
             let index = self
-                .files
-                .partition_point(|file| file.range.start <= range.start);
-            if index > 0 && range.end <= self.files[index - 1].range.end {
+                .references
+                .partition_point(|reference| reference.range.start <= range.start);
+            if index > 0 && range.end <= self.references[index - 1].range.end {
                 return;
             }
         }
@@ -610,6 +622,51 @@ pub(super) fn render_plain_with_members<'a>(
     project(text, width, look, Some(inventory), Format::Plain, false)
 }
 
+/// Discover captions in source order, without reading a list during Markdown layout.
+fn checklist_references(text: &str) -> Vec<SourceReference> {
+    let mut references = Vec::new();
+    let mut base = 0;
+    for line in text.split_inclusive('\n') {
+        let mut title_start = 0;
+        let mut chunk_start = 0;
+        for chunk in line.split_inclusive(')') {
+            let end = chunk_start + chunk.len();
+            if let Some((title, id)) = chunk
+                .strip_suffix(')')
+                .and_then(|part| part.rsplit_once(" ("))
+                && (4..=36).contains(&id.len())
+                && id.bytes().enumerate().all(|(index, byte)| {
+                    if matches!(index, 8 | 13 | 18 | 23) {
+                        byte == b'-'
+                    } else {
+                        byte.is_ascii_hexdigit()
+                    }
+                })
+            {
+                let title_end = chunk_start + title.len();
+                let words = &line[title_start..title_end];
+                // A separate hashtag earlier in the same sentence is not part of the caption.
+                if let Some((start, _)) = words.rmatch_indices('#').find(|&(index, _)| {
+                    words[..index].chars().next_back().is_none_or(|ch| {
+                        ch.is_whitespace() || matches!(ch, '(' | '[' | '{' | '\'' | '"')
+                    }) && words[index + 1..].starts_with(|ch: char| !ch.is_whitespace())
+                }) {
+                    let start = title_start + start;
+                    references.push(SourceReference {
+                        range: base + start..base + end,
+                        label: line[start..end].to_owned(),
+                        target: super::member_links::Target::Checklist(id.to_ascii_lowercase()),
+                    });
+                }
+                title_start = end;
+            }
+            chunk_start = end;
+        }
+        base += line.len();
+    }
+    references
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Format {
     Markdown,
@@ -626,16 +683,36 @@ fn project<'a>(
     commands_unchanged: bool,
 ) -> Mapped {
     let options = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES;
-    let mut files = if format == Format::Message {
-        files::scan(text)
-    } else {
-        Vec::new()
-    };
-    // Source offsets protect a filename even when inline syntax fragments its text.
-    let events: Option<Vec<_>> =
-        (!files.is_empty()).then(|| Parser::new_ext(text, options).into_offset_iter().collect());
+    let mut references = Vec::new();
+    if format == Format::Message {
+        references.extend(files::scan(text).into_iter().map(|file| SourceReference {
+            label: file.label(),
+            range: file.range,
+            target: super::member_links::Target::File(file.path),
+        }));
+        references.extend(checklist_references(text));
+        // Earlier references own overlapping bytes. At an equal start keep the
+        // longer reference, which includes the complete checklist caption.
+        references.sort_by_key(|reference| {
+            (
+                reference.range.start,
+                std::cmp::Reverse(reference.range.end),
+            )
+        });
+        let mut end = 0;
+        references.retain(|reference| {
+            if reference.range.start < end {
+                return false;
+            }
+            end = reference.range.end;
+            true
+        });
+    }
+    // Source offsets protect an inline reference even when Markdown fragments its text.
+    let events: Option<Vec<_>> = (!references.is_empty())
+        .then(|| Parser::new_ext(text, options).into_offset_iter().collect());
     if let Some(events) = &events {
-        files::retain_prose(&mut files, events);
+        files::retain_prose(&mut references, |reference| &reference.range, events);
     }
     let starts = std::iter::once(0)
         .chain(text.match_indices('\n').map(|(at, _)| at + 1))
@@ -660,8 +737,8 @@ fn project<'a>(
         lists: Vec::new(),
         skip_until: 0,
         table: None,
-        files,
-        next_file: 0,
+        references,
+        next_reference: 0,
         commands: if commands_unchanged {
             super::member_links::commands::scan(text)
         } else {

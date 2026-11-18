@@ -66,6 +66,9 @@ pub(super) fn bare_urls(text: &str) -> Vec<Range<usize>> {
     found
 }
 
+/// The transcript still recognizes this explicit member syntax in authored text.
+pub(super) const LEGACY_TRIGGER: &str = "#tmt:";
+
 fn word_char(ch: char) -> bool {
     ch.is_alphanumeric() || matches!(ch, '-' | '_')
 }
@@ -99,11 +102,11 @@ pub(super) fn resolve(text: &str, inventory: &Inventory) -> Vec<Resolved> {
             });
             continue;
         }
-        let legacy = text[start..].starts_with("#tmt:");
+        let legacy = text[start..].starts_with(LEGACY_TRIGGER);
         // `tmt/<name>` is the mention the composer writes; `@name` stays for older text.
         let mention = text[start..].starts_with(super::mentions::TRIGGER);
         let prefix = if legacy {
-            5
+            LEGACY_TRIGGER.len()
         } else if mention {
             super::mentions::TRIGGER.len()
         } else {
@@ -166,6 +169,7 @@ pub(super) fn resolve(text: &str, inventory: &Inventory) -> Vec<Resolved> {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Target {
     Member(String),
+    Checklist(String),
     Url(String),
     File(String),
     Command(commands::Command),
@@ -205,6 +209,10 @@ struct Hit {
     area: Rect,
     surface: Rect,
     target: Target,
+    checklist: Option<(
+        super::conversation_checklist::Key,
+        crate::checklist::model::Id,
+    )>,
     reader: bool,
     occurrence: usize,
 }
@@ -372,6 +380,17 @@ pub(super) fn paint_hits(
         .take(shown.min(usize::from(area.height)))
     {
         for link in links {
+            let checklist = if let Target::Checklist(prefix) = &link.target {
+                if !presentation.reader {
+                    continue;
+                }
+                let Some((key, item)) = app.checklist_item_reference(prefix) else {
+                    continue;
+                };
+                Some((key, item.item.id.clone()))
+            } else {
+                None
+            };
             if link.column >= usize::from(area.width) {
                 continue;
             }
@@ -388,6 +407,7 @@ pub(super) fn paint_hits(
                     1,
                 ),
                 target: link.target.clone(),
+                checklist,
                 reader: presentation.reader,
                 occurrence: link.occurrence,
             };
@@ -638,6 +658,31 @@ impl App {
         }
         if let Target::File(path) = &hit.target {
             return self.file_popover(path, hit.area);
+        }
+        if let Some((key, id)) = hit.checklist {
+            let Some((_, item)) = self
+                .checklist_item_reference(id.as_str())
+                .filter(|(current, _)| *current == key)
+            else {
+                return self.say("This checklist item is unavailable.");
+            };
+            let title = super::notes::single_line(&item.item.content.title);
+            self.menu = Some(Menu {
+                link: None,
+                prefill: String::new(),
+                title,
+                entries: vec![MenuEntry {
+                    chip: None,
+                    separator: false,
+                    key: String::new(),
+                    label: "Open in checklist".into(),
+                    choice: Choice::OpenChecklistItem { key, id },
+                }],
+                selected: 0,
+                anchor: Some(hit.area),
+                surface: RefCell::new(None),
+            });
+            return Effect::None;
         }
         let Target::Member(identity) = &hit.target else {
             return self.open_url_link(&hit);

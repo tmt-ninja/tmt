@@ -9,7 +9,7 @@ use ratatui::{
 };
 use std::cell::RefCell;
 use tmt_cli_style::Role;
-use tmt_tui::components::{Completion, Editor, strip};
+use tmt_tui::components::{Candidate, Completion, Editor, strip};
 
 /// Chosen mentions use this prefix: `@name` reads as a file reference to Claude Code.
 pub(super) const TRIGGER: &str = "tmt/";
@@ -27,6 +27,7 @@ pub(super) fn mentioned(fold: &tmt_tui::components::Fold) -> Option<&str> {
 #[derive(Default)]
 pub(super) struct State {
     pub completion: Completion,
+    pub(super) checklist: bool,
     hits: RefCell<Vec<(Rect, usize)>>,
 }
 
@@ -68,9 +69,27 @@ impl App {
         } else {
             super::app::INPUT_LIMIT
         };
+        let checklist = self.mentions.checklist;
         let accepted = completion.chosen().is_some_and(|(range, candidate)| {
-            self.reference_editor_mut()
-                .is_some_and(|editor| insert_mention(editor, range, &candidate, limit))
+            if checklist {
+                let Some((key, item)) = self.checklist_item_reference(&candidate.id) else {
+                    return false;
+                };
+                if self.checklist_reference_key().as_ref() != Some(&key) {
+                    return false;
+                }
+                let current = &self
+                    .notes
+                    .preview(&key)
+                    .expect("item came from this preview")
+                    .current;
+                let text = super::conversation_checklist::reference_text(current, item);
+                self.reference_editor_mut()
+                    .is_some_and(|editor| insert_checklist_reference(editor, range, text, limit))
+            } else {
+                self.reference_editor_mut()
+                    .is_some_and(|editor| insert_mention(editor, range, &candidate, limit))
+            }
         });
         if accepted {
             completion.close();
@@ -98,19 +117,43 @@ impl App {
             return;
         }
         let mut completion = std::mem::take(&mut self.mentions.completion);
+        let mut checklist = false;
         if let Some(editor) = self.reference_editor() {
-            // Select the trigger only; Completion owns token boundaries, folds and dismissal.
+            // Completion owns token boundaries, folds and dismissal.
             let token = editor.as_str()[..editor.cursor()]
                 .rsplit(char::is_whitespace)
                 .next()
                 .unwrap_or_default();
-            let trigger = if token.starts_with(PRIMARY_TRIGGER) {
-                PRIMARY_TRIGGER
+            if token.starts_with('#')
+                && !token.starts_with(super::member_links::LEGACY_TRIGGER)
+                && let Some(key) = self.checklist_reference_key()
+            {
+                checklist = true;
+                let candidates = self.notes.preview(&key).map_or_else(Vec::new, |preview| {
+                    let current = &preview.current;
+                    current
+                        .items
+                        .iter()
+                        .filter(|view| !view.item.archived)
+                        .map(|view| Candidate {
+                            id: view.item.id.as_str().into(),
+                            kind: "Checklist".into(),
+                            label: super::notes::single_line(&view.item.content.title),
+                            insertion: String::new(),
+                        })
+                        .collect()
+                });
+                completion.update(editor, &candidates, "#");
             } else {
-                TRIGGER
-            };
-            completion.update(editor, &self.references.candidates, trigger);
+                let trigger = if token.starts_with(PRIMARY_TRIGGER) {
+                    PRIMARY_TRIGGER
+                } else {
+                    TRIGGER
+                };
+                completion.update(editor, &self.references.candidates, trigger);
+            }
         }
+        self.mentions.checklist = checklist;
         self.mentions.completion = completion;
         self.mentions.hits.borrow_mut().clear();
     }
@@ -218,6 +261,24 @@ impl App {
     }
 }
 
+/// Insert the source and its identical collapsed caption as a single edit.
+fn insert_checklist_reference(
+    editor: &mut Editor,
+    range: std::ops::Range<usize>,
+    text: String,
+    limit: usize,
+) -> bool {
+    let mut next = editor.clone();
+    if !next.replace_range(range, "", limit)
+        || !next.insert_folded(&text, text.clone(), limit)
+        || !next.insert(" ", limit)
+    {
+        return false;
+    }
+    *editor = next;
+    true
+}
+
 /// Replace the typed token with the candidate's `tmt/<name>` as a mention fold, then a
 /// space, all or nothing.
 fn insert_mention(
@@ -282,10 +343,20 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
         .max()
         .unwrap_or(0)
         .min(24);
+    let checklist = app
+        .checklist_reference_key()
+        .filter(|_| app.mentions.checklist)
+        .and_then(|key| app.notes.preview(&key))
+        .map(|preview| &preview.current);
     let squad_cells = 20;
     for row in 0..height {
         let rect = Rect::new(x, y + row, width, 1);
-        let line = if row == height - 1 {
+        let line = if row == height - 1 && app.mentions.checklist {
+            Line::styled(
+                "Checklist · # · ↑↓ choose · Tab insert",
+                look.role(Role::Muted),
+            )
+        } else if row == height - 1 {
             let recipient = app.input.as_ref().and_then(|input| match &input.compose {
                 Compose::Talk { to }
                 | Compose::AskLead { to, .. }
@@ -316,7 +387,11 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                 .borrow_mut()
                 .push((rect, start + usize::from(row)));
             let mut spans = vec![Span::styled(
-                format!("{} {TRIGGER}", if selected { "›" } else { " " }),
+                format!(
+                    "{} {}",
+                    if selected { "›" } else { " " },
+                    if app.mentions.checklist { "#" } else { TRIGGER }
+                ),
                 style,
             )];
             let mut at = 0;
@@ -329,34 +404,51 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                 at = matched.end;
             }
             spans.push(Span::styled(&candidate.label[at..], style));
-            // The name column, then the agent's squad and its STATE cell, as in Agents.
-            let shown = unicode_width::UnicodeWidthStr::width(candidate.label.as_str());
-            spans.push(Span::styled(
-                " ".repeat(name_cells.saturating_sub(shown) + 2),
-                style,
-            ));
-            let (squad, state) = app.mention_detail(&candidate.id);
-            spans.push(Span::styled(
-                format!("{squad:<squad_cells$}  "),
-                style.patch(look.role(Role::Dim)),
-            ));
-            if let Some(label) = state {
-                let mut mark = crate::board::state_cell::mark(Some(label.state), look);
-                mark.style = style.patch(mark.style);
-                spans.push(mark);
+            if app.mentions.checklist {
+                if let Some(current) = checklist
+                    && let Some(item) = current
+                        .items
+                        .iter()
+                        .find(|view| view.item.id.as_str() == candidate.id)
+                {
+                    let id = super::conversation_checklist::short_reference_id(current, item);
+                    spans.push(Span::styled(
+                        format!(" ({id})"),
+                        style.patch(look.role(Role::Muted)),
+                    ));
+                }
+            } else {
+                // The name column, then the agent's squad and its STATE cell, as in Agents.
+                let shown = unicode_width::UnicodeWidthStr::width(candidate.label.as_str());
                 spans.push(Span::styled(
-                    format!(
-                        " {}{}",
-                        label.state,
-                        label.age.map(|age| format!(" {age}")).unwrap_or_default()
-                    ),
-                    style.patch(look.role(Role::Muted)),
+                    " ".repeat(name_cells.saturating_sub(shown) + 2),
+                    style,
                 ));
+                let (squad, state) = app.mention_detail(&candidate.id);
+                spans.push(Span::styled(
+                    format!("{squad:<squad_cells$}  "),
+                    style.patch(look.role(Role::Dim)),
+                ));
+                if let Some(label) = state {
+                    let mut mark = crate::board::state_cell::mark(Some(label.state), look);
+                    mark.style = style.patch(mark.style);
+                    spans.push(mark);
+                    spans.push(Span::styled(
+                        format!(
+                            " {}{}",
+                            label.state,
+                            label.age.map(|age| format!(" {age}")).unwrap_or_default()
+                        ),
+                        style.patch(look.role(Role::Muted)),
+                    ));
+                }
             }
             Line::from(spans)
         } else {
             Line::styled(
-                if app.references.error.is_some() {
+                if app.mentions.checklist {
+                    "No matching checklist item"
+                } else if app.references.error.is_some() {
                     "Agent inventory unavailable"
                 } else {
                     "No matching agent"
