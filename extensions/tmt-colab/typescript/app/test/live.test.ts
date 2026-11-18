@@ -3190,22 +3190,15 @@ it('a burst of admitted page observations coalesces details reads and rejects th
   const pageId = '10000000-0000-4000-8000-000000000001';
   const pending: ((response: Response) => void)[] = [];
   const fetch = vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve)));
-  vi.stubGlobal('fetch', (input: URL | RequestInfo) =>
-    String(input).includes('/api/work-facts')
-      ? Promise.resolve(
-          new Response(
-            JSON.stringify({
-              pageId,
-              known: false,
-              pulls: [],
-              state: 'unknown',
-              activity: null,
-              asOfMs: 0,
-            }),
-          ),
-        )
-      : fetch(),
-  );
+  let facts = { known: false, state: 'unknown' };
+  let factReads = 0;
+  vi.stubGlobal('fetch', (input: URL | RequestInfo) => {
+    if (!String(input).includes('/api/work-facts')) return fetch();
+    factReads++;
+    return Promise.resolve(
+      new Response(JSON.stringify({ pageId, ...facts, pulls: [], activity: null, asOfMs: 0 })),
+    );
+  });
   const live = new Live(
     new URL('https://example.test/colab/'),
     {
@@ -3252,6 +3245,23 @@ it('a burst of admitted page observations coalesces details reads and rejects th
     await vi.waitFor(() => expect(published.at(-1)!.progress?.done).toBe(1));
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(published.at(-1)!.source).toBe('view 99');
+    // A recompute in flight answers known: false; the last computed status stays shown until a
+    // known answer replaces it (#6636).
+    const view = (source: string) =>
+      connections.at(-1)!.publish({ source, title: 'Page', state: 'done', pageState: 'done' });
+    facts = { known: true, state: 'discussing' };
+    view('known');
+    await vi.waitFor(() => expect(published.at(-1)!.workFacts?.state).toBe('discussing'));
+    facts = { known: false, state: 'unknown' };
+    const before = factReads;
+    view('recomputing');
+    await vi.waitFor(() => expect(published.at(-1)!.source).toBe('recomputing'));
+    await vi.waitFor(() => expect(factReads).toBeGreaterThan(before));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(published.at(-1)!.workFacts?.state).toBe('discussing');
+    facts = { known: true, state: 'working' };
+    view('settled');
+    await vi.waitFor(() => expect(published.at(-1)!.workFacts?.state).toBe('working'));
   } finally {
     unsubscribe();
     live.close();

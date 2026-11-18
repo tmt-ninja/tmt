@@ -157,6 +157,9 @@ export class Live implements PageBinding {
   #workFactsRequest?: AbortController;
   #workFactsTimer?: ReturnType<typeof setTimeout>;
   #workFactsDirty = false;
+  /** The last read answered `known: false` (the page is being recomputed) while an earlier one was
+   * known: that earlier status stays shown, and the next ready detail reads again (#6636). */
+  #workFactsPending = false;
   #threadProjection?: { connection: Connection; admission: Admission; view: PageView };
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #verifiedAsks = new VerifiedAsks();
@@ -175,7 +178,8 @@ export class Live implements PageBinding {
       (signal) => readReadingDetails(this.mount, this.page.pageId, signal),
       (detail) => {
         if (this.#closed || this.#error) return;
-        if (detail?.state === 'ready' && !this.#workFacts?.known) this.#refreshWorkFacts();
+        if (detail?.state === 'ready' && (!this.#workFacts?.known || this.#workFactsPending))
+          this.#refreshWorkFacts();
         const progress =
           detail?.state === 'ready' && detail.pageState === this.#admitted.state
             ? (detail.progress ?? null)
@@ -455,6 +459,8 @@ export class Live implements PageBinding {
     void readWorkFacts(this.mount, this.page.pageId, request.signal)
       .then((facts) => {
         if (this.#closed || request.signal.aborted) return;
+        this.#workFactsPending = !facts.known && this.#workFacts?.known === true;
+        if (this.#workFactsPending) return;
         this.#workFacts = facts;
         this.#publish();
       })
@@ -1185,7 +1191,15 @@ export class Live implements PageBinding {
         askedComment(threads, ask.thread, ask.messageIds ?? []),
       );
       if (!todo || this.#todosInserting.has(todo.block)) continue;
-      const ops = todoInsertOps(value.blocks, todo, ask.agentName, ask.thread);
+      // The block the Ask's comment is anchored to, so the to-do lands in its section (#6636).
+      const anchor = threads.find((view) => view.threadId === ask.thread)?.anchor;
+      const ops = todoInsertOps(
+        value.blocks,
+        todo,
+        ask.agentName,
+        ask.thread,
+        anchor && 'block' in anchor ? anchor.block : undefined,
+      );
       if (!ops.length) continue;
       this.#todosInserting.add(todo.block);
       void this.blocks(ops).then(

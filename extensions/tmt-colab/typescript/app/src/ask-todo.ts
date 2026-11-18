@@ -81,28 +81,44 @@ export async function askTodoFrom(
 const ROOT_PARENT = 'root';
 
 /**
- * The ops that add an Ask's to-do: after the page's last top-level to-do, or as the page's last
- * block when it has none; nothing else is written into the person's page. Nothing when the block
- * exists, even deleted: a to-do the person removed is never put back.
+ * The ops that add an Ask's to-do. An Ask anchored to a block puts it right after that block, after
+ * any to-dos earlier Asks on it already added, so it belongs to that block's section (#6636). An Ask
+ * with no live block anchor (page Chat) puts it after the page's last top-level to-do, or as the
+ * page's last block when it has none. Nothing else is written into the person's page. Nothing when
+ * the block exists, even deleted: a to-do the person removed is never put back.
  */
 export function todoInsertOps(
   blocks: Readonly<Record<string, import('./blocks.js').BlockEntry>>,
   todo: AskTodo,
   assignee: string,
   thread: string,
+  anchor?: string,
 ): import('./block-model.js').BlockOp[] {
   if (Object.hasOwn(blocks, todo.block)) return [];
-  const top = Object.entries(blocks)
-    .filter(([, block]) => block.parent === ROOT_PARENT && block.deleted === undefined)
-    .sort(([a, x], [b, y]) => (x.pos < y.pos ? -1 : x.pos > y.pos ? 1 : a < b ? -1 : 1));
-  const after =
-    top.filter(([, block]) => block.type === 'todo').at(-1)?.[0] ?? top.at(-1)?.[0] ?? null;
+  const siblings = (parent: string) =>
+    Object.entries(blocks)
+      .filter(([, block]) => block.parent === parent && block.deleted === undefined)
+      .sort(([a, x], [b, y]) => (x.pos < y.pos ? -1 : x.pos > y.pos ? 1 : a < b ? -1 : 1));
+  const anchored = anchor === undefined ? undefined : blocks[anchor];
+  let parent = ROOT_PARENT;
+  let after: string | null;
+  if (anchored && anchored.deleted === undefined) {
+    parent = anchored.parent;
+    const row = siblings(parent);
+    let at = row.findIndex(([id]) => id === anchor);
+    while (row[at + 1]?.[1].type === 'todo' && typeof row[at + 1]![1].props.thread === 'string')
+      at++;
+    after = row[at]![0];
+  } else {
+    const top = siblings(ROOT_PARENT);
+    after = top.filter(([, block]) => block.type === 'todo').at(-1)?.[0] ?? top.at(-1)?.[0] ?? null;
+  }
   return [
     {
       op: 'insert',
       id: todo.block,
       type: 'todo',
-      parent: ROOT_PARENT,
+      parent,
       after,
       props: { checked: false, assignee: assignee.slice(0, 128), thread },
       text: todo.text,

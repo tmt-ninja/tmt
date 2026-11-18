@@ -168,6 +168,50 @@ test('a comment on a structured block survives reopening', async () => {
     await page.goto(new URL(created.path, `${door.address}/`).href);
     const block = page.locator(`[data-block-id="${paragraph}"]`);
     await expect(block).toContainText('Review this release before launch.');
+    // A person selects with the pointer (#6636): a drag across words of a block at rest selects
+    // that text, not the block, and offers Annotate quoting exactly the dragged words.
+    const dragAcross = async (phrase: string) => {
+      const words = await block.evaluate((node, phrase) => {
+        const text = [...node.querySelectorAll('*')]
+          .flatMap((element) => [...element.childNodes])
+          .find(
+            (child) => child.nodeType === Node.TEXT_NODE && child.textContent?.includes(phrase),
+          )!;
+        const range = document.createRange();
+        const start = text.textContent!.indexOf(phrase);
+        range.setStart(text, start);
+        range.setEnd(text, start + phrase.length);
+        const rects = range.getClientRects();
+        const first = rects[0]!;
+        const last = rects[rects.length - 1]!;
+        return {
+          x1: first.left + 1,
+          y1: first.top + first.height / 2,
+          x2: last.right - 1,
+          y2: last.top + last.height / 2,
+        };
+      }, phrase);
+      await page.mouse.move(words.x1, words.y1);
+      await page.mouse.down();
+      await page.mouse.move(words.x2, words.y2, { steps: 12 });
+      await page.mouse.up();
+    };
+    await dragAcross('this release');
+    await expect(block).not.toHaveAttribute('data-selected');
+    await expect(page.locator('[contenteditable="true"]')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Annotate', exact: true }).click();
+    const dragged = page.locator('.annotation-popover');
+    await expect(dragged.getByText('Annotate the selection', { exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(() =>
+        [...(CSS.highlights.get('colab-annotating') ?? [])].map((range) => range.toString()),
+      ),
+    ).toEqual(['this release']);
+    await page.keyboard.press('Escape');
+    await expect(dragged).toHaveCount(0);
+    // The control leaves with its window instead of staying where the selection was (#6636).
+    await expect(page.getByRole('button', { name: 'Annotate', exact: true })).toHaveCount(0);
+    // The keyboard path selects the same way.
     await block.getByText('Review this release before launch.').click();
     await page.keyboard.press('End');
     for (const _ of 'launch.') await page.keyboard.press('Shift+ArrowLeft');
@@ -196,6 +240,18 @@ test('a comment on a structured block survives reopening', async () => {
     await expect(page.getByText('Please check this block.', { exact: true })).toBeVisible();
     await commentsClose(page, 'discussion').click();
     await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+    // In Selection mode the same drag quotes the dragged text at a phone width too (#6636).
+    await page.setViewportSize({ width: 390, height: 844 });
+    await dragAcross('release before');
+    const narrow = page.locator('.annotation-popover');
+    await expect(narrow.getByText('Annotate the selection', { exact: true })).toBeVisible();
+    await expect(narrow.locator('.annotation-quote')).toHaveText('release before');
+    await page.keyboard.press('Escape');
+    await expect(narrow).toHaveCount(0);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // Escape also left Selection mode; the mockup below is annotated in it.
+    const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+    if ((await mode.getAttribute('aria-pressed')) !== 'true') await mode.click();
     const preview = page.locator(`[data-block-id="${mockup}"]`);
     await preview.locator('.tmt-block-mockup-viewport').click();
     const mockupComment = page.locator('.annotation-popover');
@@ -1111,6 +1167,12 @@ test('a comment that asks an agent becomes a to-do the agent checks', async () =
         ]),
       ) as { blockIds: string[] }
     ).blockIds[0]!;
+    // A later section with its own to-do: the Ask's to-do belongs beside the asked block (#6636).
+    for (const [type, text] of [
+      ['heading', 'Build'],
+      ['todo', 'Write the data layer'],
+    ])
+      run(world, colab, ['block', 'insert', created.pageId, '--type', type!, '--text', text!]);
     const page = await browser.context.newPage();
     await page.goto(new URL(created.path, `${door.address}/`).href);
     const block = page.locator(`[data-block-id="${paragraph}"]`);
@@ -1146,6 +1208,12 @@ test('a comment that asks an agent becomes a to-do the agent checks', async () =
       type: 'todo',
       props: { assignee: 'todo-agent', checked: false },
     });
+    const order = (
+      JSON.parse(run(world, colab, ['block', 'ls', created.pageId, '--json'])) as {
+        blocks: { id: string }[];
+      }
+    ).blocks.map((entry) => entry.id);
+    expect(order.indexOf(todoId)).toBe(order.indexOf(paragraph) + 1);
     const line = page.locator('.ask-todo-line');
     if (!(await line.isVisible()))
       await block.getByRole('button', { name: 'Open comment 1' }).click();
@@ -1169,7 +1237,7 @@ test('a comment that asks an agent becomes a to-do the agent checks', async () =
         blocks: { type: string; deleted?: boolean }[];
       }
     ).blocks.filter((entry) => entry.type === 'todo' && !entry.deleted);
-    expect(todos).toHaveLength(1);
+    expect(todos).toHaveLength(2);
     expect(agent.received()).toHaveLength(1);
   });
 });

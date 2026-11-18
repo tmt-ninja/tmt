@@ -1,4 +1,5 @@
 import { useNeedsYouVersions } from './use-needs-you-versions.js';
+import { previewTransport } from './local-pages.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
@@ -1311,8 +1312,11 @@ function Shell() {
               <Outlet />
             </OpeningFrame.Provider>
           </main>
-          {!isPage && (
-            <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
+          {/* The sample notice belongs to the local preview's sample pages only, never to a
+              paired owner's real list (#6636). */}
+          {!isPage && location.pathname.startsWith('/r/') && <footer>{text.mountedNote}</footer>}
+          {!isPage && !location.pathname.startsWith('/r/') && transport === previewTransport && (
+            <footer>{text.adapter}</footer>
           )}
         </ColabShell>
       </QuickSwitcherHost>
@@ -2181,6 +2185,18 @@ function OpenPage({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onSelection only sets state
   }, [blockPage, canSelect, selectionMode, annotationRef]);
+  // A block page's window closing (sent, or dismissed) leaves no text selected: the Annotate control
+  // leaves with it instead of staying over the page where the selection was (#6636).
+  const annotating = !!annotation;
+  useEffect(() => {
+    if (!blockPage || annotating || !currentSelector.current) return;
+    const selection = document.getSelection();
+    const anchor = selection?.anchorNode;
+    if (selection && !selection.isCollapsed && anchor && structuredStage.current?.contains(anchor))
+      return;
+    onSelection(null, null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onSelection only sets state
+  }, [blockPage, annotating]);
   // The composer takes focus from the editor, which drops the selection; a decoration keeps the
   // quoted text marked while its window is open, as an HTML page's frame keeps its selection.
   const quoting = !!annotation && !annotation.thread && blockPage;

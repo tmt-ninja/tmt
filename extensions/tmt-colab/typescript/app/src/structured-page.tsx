@@ -562,6 +562,19 @@ function Blocks({
           rest.onAnnotateBlock?.(text || undefined, event.currentTarget, !selected);
           return;
         }
+        // A pointer drag across the text ends in this click (#6636): the dragged text stays the
+        // selection, offered for Annotate, instead of the block opening its editor over it.
+        const dragged = window.getSelection();
+        if (
+          dragged &&
+          !dragged.isCollapsed &&
+          dragged.anchorNode &&
+          dragged.focusNode &&
+          event.currentTarget.contains(dragged.anchorNode) &&
+          event.currentTarget.contains(dragged.focusNode) &&
+          !(event.target as HTMLElement).closest('[contenteditable="true"]')
+        )
+          return;
         if (!rest.readonly && TEXT_TYPES.has(block.type)) rest.onFocus?.(block.id);
       }}
     >
