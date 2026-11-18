@@ -200,20 +200,6 @@ function ComputedStatus({
         : ['needs-you', 'waiting-ci', 'waiting-release', 'possibly-stalled'].includes(state)
           ? 'waiting'
           : 'muted';
-  // The PR that decides the status: an open one, or a merged one not yet in a release.
-  const prNumber = (wanted: 'open' | 'merged') =>
-    facts?.pulls
-      .find(({ fact }) => fact?.state === wanted && (wanted === 'open' || fact.released === false))
-      ?.url.split('/')
-      .at(-1);
-  const reason =
-    state === 'blocked'
-      ? t.statusReason.blocked(blocked)
-      : state === 'waiting-ci'
-        ? t.statusReason['waiting-ci'](prNumber('open'))
-        : state === 'waiting-release'
-          ? t.statusReason['waiting-release'](prNumber('merged'))
-          : t.statusReason[state];
   return (
     <UiTheme theme={theme}>
       <Popover>
@@ -241,24 +227,7 @@ function ComputedStatus({
             restoredOnEscape.current = false;
           }}
         >
-          <strong>{label}</strong>
-          <p>{reason}</p>
-          {facts?.activity && (
-            <p>
-              {t.activityState[facts.activity.state]} ·{' '}
-              {t.factAge(relativeTime(facts.activity.observedAtMs, facts.asOfMs))}
-            </p>
-          )}
-          {facts?.pulls.map(({ url, fact }) => (
-            <p key={url}>
-              PR #{url.split('/').at(-1)} ·{' '}
-              {fact?.tag ? t.releasedIn(fact.tag) : fact ? t.pullState[fact.state] : t.unknown}
-              {fact?.checks && <> · {t.checks[fact.checks]}</>}
-              {fact?.state === 'open' && !fact.checks && <> · {t.checksUnavailable}</>}
-              {fact && <> · {t.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>}
-            </p>
-          ))}
-          {!facts && <p>{t.statusUnavailable}</p>}
+          <StatusDetailsBody state={state} facts={facts} blocked={blocked} />
         </PopoverContent>
       </Popover>
     </UiTheme>
@@ -391,5 +360,55 @@ export function PageStateMenu({
       {busy && <span role="status">{t.savingState}</span>}
       {error && <span role="alert">{error}</span>}
     </div>
+  );
+}
+
+/** The status popover's body (#6474): one reason sentence, the owner's activity and each PR's
+ * facts. The page's status chip and a Work home row show the same details. */
+export function StatusDetailsBody({
+  state,
+  facts,
+  blocked,
+}: {
+  state: import('./reading-details.js').WorkFactView['state'];
+  facts?: import('./reading-details.js').WorkFactView;
+  blocked?: string;
+}) {
+  const label = t.computedState[state];
+  // The PR that decides the status: an open one, or a merged one not yet in a release.
+  const prNumber = (wanted: 'open' | 'merged') =>
+    facts?.pulls
+      .find(({ fact }) => fact?.state === wanted && (wanted === 'open' || fact.released === false))
+      ?.url.split('/')
+      .at(-1);
+  const reason =
+    state === 'blocked'
+      ? t.statusReason.blocked(blocked)
+      : state === 'waiting-ci'
+        ? t.statusReason['waiting-ci'](prNumber('open'))
+        : state === 'waiting-release'
+          ? t.statusReason['waiting-release'](prNumber('merged'))
+          : t.statusReason[state];
+  return (
+    <>
+      <strong>{label}</strong>
+      <p>{reason}</p>
+      {facts?.activity && (
+        <p>
+          {t.activityState[facts.activity.state]} ·{' '}
+          {t.factAge(relativeTime(facts.activity.observedAtMs, facts.asOfMs))}
+        </p>
+      )}
+      {facts?.pulls.map(({ url, fact }) => (
+        <p key={url}>
+          PR #{url.split('/').at(-1)} ·{' '}
+          {fact?.tag ? t.releasedIn(fact.tag) : fact ? t.pullState[fact.state] : t.unknown}
+          {fact?.checks && <> · {t.checks[fact.checks]}</>}
+          {fact?.state === 'open' && !fact.checks && <> · {t.checksUnavailable}</>}
+          {fact && <> · {t.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>}
+        </p>
+      ))}
+      {!facts && <p>{t.statusUnavailable}</p>}
+    </>
   );
 }

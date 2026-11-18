@@ -214,6 +214,11 @@ export interface PageTransport {
     owners: readonly string[],
     signal: AbortSignal,
   ): Promise<Record<string, import('./reading-details.js').OwnerActivityView>>;
+  /** Owner-only (#6474): one page's work facts, read when a Work home row's details open. */
+  workFacts?(
+    pageId: string,
+    signal: AbortSignal,
+  ): Promise<import('./reading-details.js').WorkFactView>;
   /** Optional, owner-only cached reading metadata. No page subscription, fold or publication. */
   readingDetails?(id: string, signal: AbortSignal): Promise<ReadingDetails>;
   /** A verified title only: no editor, discussion or live subscription. */

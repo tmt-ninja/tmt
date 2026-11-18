@@ -59,3 +59,22 @@
   font-size: 0.6875rem;
   line-height: 1.6;
 }
+
+/* The shared reader's outline (#6470): the page view's compact outline, a toggle at the canvas's
+   top-left whose list opens over the page. */
+.reader-outline {
+  position: sticky;
+  top: calc(var(--page-bar-size, 56px) + var(--tmt-ui-space-s));
+  z-index: 3;
+  height: 0;
+  margin-inline-start: var(--tmt-ui-space-m);
+}
+.reader-outline .page-outline {
+  width: max-content;
+  max-width: 220px;
+  padding: var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius-l);
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}

@@ -15,7 +15,8 @@ import type { ReaderMetadata } from './link-metadata.js';
 import { ReaderSource, type ReaderEdit } from './reader-source.js';
 import { NoticeCard } from './notice-card.js';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { mountRenderer, type RenderState } from './renderer.js';
+import { mountRenderer, type OutlineSnapshot, type RenderState } from './renderer.js';
+import { PageOutline } from './page-outline.js';
 import { text } from './strings.js';
 import { toolbarInset } from './toolbar-inset.js';
 import type { PageView } from './transport.js';
@@ -65,6 +66,8 @@ export function ReaderApp({
   const title = state.kind === 'ready' ? state.view.title : '';
   const layout = state.kind === 'ready' ? state.view.layout : undefined;
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
+  // The rendered page's headings (#6470): the shared reader shows the same outline as the page view.
+  const [outline, setOutline] = useState<OutlineSnapshot>();
   const host = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLElement>(null);
   const noteBox = useRef<HTMLElement>(null);
@@ -152,6 +155,7 @@ export function ReaderApp({
     if (source === null) return;
     const controller = new AbortController();
     setRender('loading');
+    setOutline(undefined);
     resetPageLinks();
     void mountRenderer(host.current!, source, {
       signal: controller.signal,
@@ -160,6 +164,7 @@ export function ReaderApp({
         if (next !== 'ready') resetPageLinks();
         setRender(next);
       },
+      onOutline: setOutline,
       onLink: requestPageLink,
       onAttachmentDownload: (id) => downloadRequest.current(id),
       onImageDownload: (image) => imageRequest.current(image),
@@ -327,6 +332,28 @@ export function ReaderApp({
                 </MobileWorkTitle>
               )}
               <div className="canvas">
+                {(outline?.entries.length ?? 0) >= 3 && (
+                  <div className="reader-outline">
+                    <PageOutline
+                      headings={outline!.entries.map((entry, index) => ({
+                        id: String(index),
+                        title: entry.text,
+                        level: entry.level,
+                      }))}
+                      locate={(id) => {
+                        const index = Number(id);
+                        const entry = outline?.entries[index];
+                        const frame = host.current?.querySelector('iframe');
+                        if (!entry || !frame || !outline) return undefined;
+                        return {
+                          top: () => frame.getBoundingClientRect().top + entry.top,
+                          scrollTo: () => renderer.current?.scrollOutline(outline.snapshot, index),
+                        };
+                      }}
+                      compact
+                    />
+                  </div>
+                )}
                 <div className="frame-host" ref={host} />
                 {editLockLayer.layer}
                 {(render === 'navigation' || render === 'failed') && (

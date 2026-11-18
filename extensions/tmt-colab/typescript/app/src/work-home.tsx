@@ -1,13 +1,17 @@
 import '@tmt/browser-ui/work.css';
 import './work-home.css';
 import { BrowserAvatar } from '@tmt/browser-ui/react';
+import { Popover, PopoverContent, PopoverTrigger, UiTheme } from '@tmt/browser-ui/ui';
+import { getTheme, subscribeTheme } from './theme.js';
 import { getRouteApi, Link, useRouter } from '@tanstack/react-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppHeader } from './app-header.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import { NewPageDialog } from './new-page-dialog.js';
 import { text } from './strings.js';
 import type { PageTransport } from './transport.js';
+import type { WorkFactView } from './reading-details.js';
+import { StatusDetailsBody } from './work-band-live.js';
 import {
   activityOwners,
   doneChart,
@@ -147,19 +151,84 @@ function Ratio({ counts }: { counts: Partial<Record<OverviewStatus, number>> }) 
   );
 }
 
-function WorkRow({ item, now }: { item: WorkItem; now: number }) {
+/** The list status as the page's computed state: "not checked yet" reads as unknown there. */
+const factState = (status: WorkItem['status']): WorkFactView['state'] =>
+  status === 'unchecked' ? 'unknown' : status;
+
+/**
+ * A row's status dot opens its details (spec 工作頁細節 › 操作): a page's work facts, read once when
+ * opened by its owner; a to-do's details are its list status only.
+ */
+function RowStatus({ item, transport }: { item: WorkItem; transport: PageTransport }) {
+  const [facts, setFacts] = useState<WorkFactView | 'reading' | 'failed'>();
+  const reading = useRef<AbortController>(undefined);
+  useEffect(() => () => reading.current?.abort(), []);
+  const open = (next: boolean) => {
+    if (!next || item.blockId || !transport.workFacts || facts === 'reading') return;
+    reading.current?.abort();
+    const controller = new AbortController();
+    reading.current = controller;
+    setFacts('reading');
+    transport.workFacts(item.pageId, controller.signal).then(setFacts, () => {
+      if (!controller.signal.aborted) setFacts('failed');
+    });
+  };
+  const view = typeof facts === 'object' ? facts : undefined;
+  const state = view?.state ?? factState(item.status);
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   return (
-    <Link
-      className="tmt-ui-work-row"
-      to="/pages/$pageId"
-      params={{ pageId: item.pageId }}
-      {...(item.blockId ? { hash: item.blockId } : {})}
-    >
-      <Dot status={item.status} />
+    <UiTheme theme={theme}>
+      <Popover onOpenChange={open}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="work-home-row-status"
+            aria-label={t.statusDetails(item.number ?? item.title)}
+          >
+            <Dot status={item.status} />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="work-status-details">
+          {facts === 'reading' ? (
+            <p>{t.statusReading}</p>
+          ) : (
+            <StatusDetailsBody
+              state={state}
+              {...(view ? { facts: view } : {})}
+              {...(item.status === 'blocked' && item.next ? { blocked: item.next } : {})}
+            />
+          )}
+        </PopoverContent>
+      </Popover>
+    </UiTheme>
+  );
+}
+
+function WorkRow({
+  item,
+  now,
+  transport,
+}: {
+  item: WorkItem;
+  now: number;
+  transport: PageTransport;
+}) {
+  // The title's link covers the row (work-home.css), so the status and owner controls sit beside
+  // it rather than inside a link.
+  return (
+    <div className="tmt-ui-work-row work-home-row">
+      <RowStatus item={item} transport={transport} />
       <span className="tmt-ui-work-number">{item.number ?? ''}</span>
       <span className="tmt-ui-work-title">
         {item.high ? <span className="tmt-ui-work-priority">High</span> : null}
-        {item.title}
+        <Link
+          className="work-home-row-link"
+          to="/pages/$pageId"
+          params={{ pageId: item.pageId }}
+          {...(item.blockId ? { hash: item.blockId } : {})}
+        >
+          {item.title}
+        </Link>
       </span>
       <span className="tmt-ui-work-next">
         {item.status === 'blocked' && item.next ? `Blocked: ${item.next}` : (item.next ?? '')}
@@ -171,7 +240,7 @@ function WorkRow({ item, now }: { item: WorkItem; now: number }) {
         </span>
       ) : null}
       <span className="tmt-ui-work-time">{age(item.lastMs, now)}</span>
-    </Link>
+    </div>
   );
 }
 
@@ -446,7 +515,7 @@ export function WorkHome() {
               <Ratio counts={section.counts} />
               <div className="work-home-rows">
                 {shown.map((item) => (
-                  <WorkRow key={item.key} item={item} now={now} />
+                  <WorkRow key={item.key} item={item} now={now} transport={transport} />
                 ))}
               </div>
               {rows.length > SHOWN ? (

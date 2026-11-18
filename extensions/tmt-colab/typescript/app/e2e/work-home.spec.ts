@@ -59,3 +59,24 @@ test('Work home reads owner activity once per event, never in a loop', async ({ 
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await expect.poll(counts).toEqual({ activity: 2, list: 2 });
 });
+
+// A row's status dot opens its details (spec 工作頁細節 › 操作); the title still opens the page.
+test('a Work home row shows status details from its dot and opens its page from its title', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
+  await page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    await (await import(path)).mountPageList('work-home', '/work');
+  });
+  const home = page.locator('#list-fixture');
+  await home.getByRole('button', { name: 'COLAB-143, show status details' }).click();
+  const details = page.locator('.work-status-details');
+  await expect(details).toContainText('In progress');
+  await expect(details).toContainText('PR #6470');
+  await page.keyboard.press('Escape');
+  await expect(details).toHaveCount(0);
+  await home.getByRole('link', { name: 'Mockup toolbar has no spacing' }).click();
+  await expect(page).toHaveURL(/#\/pages\/|\/pages\//);
+});

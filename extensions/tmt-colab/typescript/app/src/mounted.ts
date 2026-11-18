@@ -1,4 +1,4 @@
-import { readReadingDetails, readWorkActivity } from './reading-details.js';
+import { readReadingDetails, readWorkActivity, readWorkFacts } from './reading-details.js';
 import { RemotePresence } from './remote-presence.js';
 import { createRemoteClient, type RemoteClient } from './ask-remote.js';
 import {
@@ -449,6 +449,11 @@ export async function mountedTransport(
       workActivity(owners, signal) {
         return owned(() =>
           readWorkActivity(mount, owners, AbortSignal.any([signal, lifetime.signal])),
+        );
+      },
+      workFacts(pageId, signal) {
+        return owned(() =>
+          readWorkFacts(mount, pageId, AbortSignal.any([signal, lifetime.signal])),
         );
       },
       readingDetails(id, signal) {

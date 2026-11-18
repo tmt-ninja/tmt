@@ -64,3 +64,31 @@ for (const width of [390, 1440]) {
     }
   });
 }
+
+// The shared reader shows the page view's outline for a page with three or more headings (#6470).
+for (const width of [390, 1440])
+  test(`reader shows the page outline and jumps to a heading at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 600 });
+    await page.goto('/');
+    await page.evaluate(
+      async (fixture) =>
+        (await import(fixture)).mount('viewer', [
+          'Scope',
+          'Plan',
+          'Risks',
+          ...Array.from({ length: 12 }, (_, n) => `Note ${n + 1}`),
+        ]),
+      fixture,
+    );
+    const outline = page.locator('#reader-metadata-fixture').getByRole('navigation', {
+      name: 'Page outline',
+    });
+    await expect(outline).toBeVisible();
+    await outline.locator('.page-outline-toggle').click();
+    await outline.getByRole('button', { name: 'Note 12' }).click();
+    await expect(
+      page
+        .frameLocator('#reader-metadata-fixture iframe')
+        .getByRole('heading', { name: 'Note 12' }),
+    ).toBeInViewport();
+  });

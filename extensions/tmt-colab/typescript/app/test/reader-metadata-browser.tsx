@@ -114,7 +114,11 @@ async function answer(
     (writer) => writer === id(2),
   );
 }
-export async function mount(nextRole: typeof role = 'editor') {
+export async function mount(
+  nextRole: typeof role = 'editor',
+  /** Sections the page carries after its title (#6470: three or more give the reader an outline). */
+  sections: readonly string[] = [],
+) {
   controller?.end();
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
@@ -134,7 +138,7 @@ export async function mount(nextRole: typeof role = 'editor') {
   saves.length = 0;
   view = {
     title: 'Editor metadata',
-    source: `<h1>Editor metadata</h1><tmt-questions data-id="${id(20)}"><p data-title>Questions</p><tmt-question data-id="${id(3)}" data-kind="short"><p data-question>First question</p></tmt-question></tmt-questions>`,
+    source: `<h1>Editor metadata</h1><tmt-questions data-id="${id(20)}"><p data-title>Questions</p><tmt-question data-id="${id(3)}" data-kind="short"><p data-question>First question</p></tmt-question></tmt-questions>${sections.map((name) => `<h2>${name}</h2><p>${name} text.</p>`).join('')}`,
     creator: {
       agent: { id: id(9), name: 'Current creator' },
       attribution: { writerId: id(2), timeMs: 1 },

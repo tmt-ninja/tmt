@@ -324,3 +324,48 @@
     display: none;
   }
 }
+
+/* A row's title link covers the whole row; the status button stays above it (#6474). */
+.work-home-row {
+  position: relative;
+}
+.work-home-row:has(.work-home-row-link:hover) {
+  background: var(--tmt-ui-surface-hover);
+}
+.work-home-row-link {
+  color: inherit;
+  text-decoration: none;
+}
+.work-home-row-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.work-home-row-link:focus-visible {
+  outline: none;
+}
+.work-home-row:has(.work-home-row-link:focus-visible) {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.work-home-row-status {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-area: dot;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -8px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+.work-home-row-status:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.work-home-row-status:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
