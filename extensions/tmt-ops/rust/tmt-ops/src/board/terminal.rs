@@ -17,6 +17,13 @@ use ratatui::crossterm::{
         supports_keyboard_enhancement,
     },
 };
+use ratatui::{
+    Frame, Terminal,
+    backend::ClearType,
+    buffer::{Cell, CellDiffOption},
+    layout::Size,
+    style::Modifier,
+};
 use std::{
     io,
     sync::{
@@ -179,6 +186,10 @@ pub struct Backend<W: io::Write> {
     /// The web links this frame paints, wrapped in OSC 8 when the terminal
     /// supports them; off, every byte is the plain backend's.
     links: super::hyperlinks::Links,
+    /// Pin Ratatui's autoresize check to the dimensions sampled for this draw.
+    frame_size: Option<Size>,
+    /// Fullscreen resize needs internal bookkeeping but its erase would flash.
+    resizing: bool,
 }
 
 /// One output, two writers: ratatui's backend keeps its writer private.
@@ -214,6 +225,8 @@ impl<W: io::Write> Backend<W> {
             caret: false,
             resume: false,
             links,
+            frame_size: None,
+            resizing: false,
         }
     }
 }
@@ -284,12 +297,18 @@ impl<W: io::Write> ratatui::backend::Backend for Backend<W> {
         self.inner.clear()
     }
 
-    fn clear_region(&mut self, clear_type: ratatui::backend::ClearType) -> io::Result<()> {
+    fn clear_region(&mut self, clear_type: ClearType) -> io::Result<()> {
+        if self.resizing && clear_type == ClearType::All {
+            return Ok(());
+        }
         self.inner.clear_region(clear_type)
     }
 
-    fn size(&self) -> io::Result<ratatui::layout::Size> {
-        self.inner.size()
+    fn size(&self) -> io::Result<Size> {
+        match self.frame_size {
+            Some(size) => Ok(size),
+            None => self.inner.size(),
+        }
     }
 
     fn window_size(&mut self) -> io::Result<ratatui::backend::WindowSize> {
@@ -302,6 +321,44 @@ impl<W: io::Write> ratatui::backend::Backend for Backend<W> {
         }
         ratatui::backend::Backend::flush(&mut self.inner)
     }
+}
+
+/// Present a fullscreen board frame. A resume invalidates the physical display
+/// even if its dimensions are unchanged.
+pub(super) fn present<W: io::Write>(
+    terminal: &mut Terminal<Backend<W>>,
+    resumed: bool,
+    paint: impl FnOnce(&mut Frame<'_>),
+) -> io::Result<()> {
+    present_at(terminal, terminal.size()?, resumed, paint)
+}
+
+fn present_at<W: io::Write>(
+    terminal: &mut Terminal<Backend<W>>,
+    size: Size,
+    resumed: bool,
+    paint: impl FnOnce(&mut Frame<'_>),
+) -> io::Result<()> {
+    if resumed || terminal.current_buffer_mut().area.as_size() != size {
+        terminal.backend_mut().resizing = true;
+        let resized = terminal.resize(size.into());
+        terminal.backend_mut().resizing = false;
+        resized?;
+
+        // Diff metadata forces real blanks to be written. Keep the sentinel
+        // symbol blank so Ratatui won't emit an extra space over a VS16
+        // continuation cell, which can wrap or scroll at the bottom edge.
+        let mut sentinel = Cell::EMPTY;
+        sentinel.modifier = Modifier::SLOW_BLINK;
+        sentinel.set_diff_option(CellDiffOption::Skip);
+        terminal.current_buffer_mut().content.fill(sentinel);
+        terminal.swap_buffers();
+    }
+
+    terminal.backend_mut().frame_size = Some(size);
+    let drawn = terminal.draw(paint).map(|_| ());
+    terminal.backend_mut().frame_size = None;
+    drawn
 }
 
 /// Restores the screen exactly once: on `restore`, or when dropped, which
@@ -497,6 +554,77 @@ mod tests {
         }
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
+        }
+    }
+
+    #[test]
+    fn resize_and_resume_repaint_without_erasing_the_display() {
+        use ratatui::{backend::Backend as _, style::Style};
+        use tmt_tui::components::terminal::Screen as Display;
+
+        let sink = Sink::default();
+        let mut backend = Backend::new(sink.clone());
+        backend.frame_size = Some(Size::new(8, 3));
+        let mut terminal = Terminal::new(backend).unwrap();
+        for (width, height, resumed) in [(6, 3, false), (6, 2, false), (8, 3, false), (8, 3, true)]
+        {
+            let size = Size::new(width, height);
+            let paint = |frame: &mut Frame<'_>| {
+                assert_eq!(frame.area().as_size(), size);
+                let buffer = frame.buffer_mut();
+                buffer.set_string(0, 0, "Ops", Style::default());
+                buffer.set_string(width - 2, 0, "界", Style::default());
+                buffer.set_string(width - 2, 1, "⚡️", Style::default());
+                buffer[(0, height - 1)].set_style(Style::new().add_modifier(Modifier::UNDERLINED));
+                frame.set_cursor_position((2, 0));
+            };
+            sink.0.borrow_mut().clear();
+            present_at(&mut terminal, size, resumed, paint).unwrap();
+            let bytes = sink.0.borrow().clone();
+            assert!(
+                !bytes.windows(4).any(|sequence| sequence == b"\x1b[2J"),
+                "resize to {width}x{height} erased the display: {bytes:?}"
+            );
+            assert!(
+                !bytes.windows(4).any(|sequence| sequence == b"\x1b[5m"),
+                "comparison cell leaked: {bytes:?}"
+            );
+
+            let mut stale = Display::new(width, height);
+            for row in 1..=height {
+                stale.feed(format!("\x1b[{row};1H{}", "x".repeat(width.into())).as_bytes());
+            }
+            stale.feed(&bytes);
+            let mut clean = Display::new(width, height);
+            clean.feed(format!("Ops{}界", " ".repeat(usize::from(width - 5))).as_bytes());
+            for row in 2..=height {
+                clean.feed(format!("\x1b[{row};1H").as_bytes());
+                if row == height {
+                    clean.feed(b"\x1b[4m \x1b[24m");
+                } else {
+                    clean.feed(b" ");
+                }
+                let blanks = if row == 2 { width - 3 } else { width - 1 };
+                clean.feed(" ".repeat(blanks.into()).as_bytes());
+                if row == 2 {
+                    clean.feed("⚡️".as_bytes());
+                }
+            }
+            clean.feed(b"\x1b[1;3H");
+            assert_eq!(stale.frame(), clean.frame(), "{width}x{height}");
+
+            sink.0.borrow_mut().clear();
+            present_at(&mut terminal, size, false, paint).unwrap();
+            // The final cursor placement is the only move in an unchanged frame.
+            let bytes = sink.0.borrow();
+            assert!(bytes.ends_with(b"\x1b[1;3H"));
+            assert_eq!(bytes.iter().filter(|&&byte| byte == b'H').count(), 1);
+            drop(bytes);
+
+            // Clear handling is normal again on every later draw.
+            sink.0.borrow_mut().clear();
+            terminal.backend_mut().clear_region(ClearType::All).unwrap();
+            assert_eq!(&*sink.0.borrow(), b"\x1b[2J");
         }
     }
 

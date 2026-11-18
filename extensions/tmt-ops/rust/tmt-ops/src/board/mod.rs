@@ -2131,21 +2131,14 @@ pub fn run(
         || terminal::reassert_mouse(&mut io::stdout()),
         view_state.as_mut(),
         |app| {
-            if resumed.replace(false) {
-                // Fullscreen resize resets the diff buffer without clear()'s
-                // cursor-position query competing with the active input reader.
-                screen.resize(screen.size()?.into())?;
-            }
-            screen
-                .draw(|frame| {
-                    // The vertical board bands, including its body, occupy the full width.
-                    view::prepare(app, frame.area());
-                    view::render(frame, app);
-                    if links.enabled() {
-                        links.set(app.member_links.borrow().web_spans());
-                    }
-                })
-                .map(|_| ())?;
+            terminal::present(&mut screen, resumed.replace(false), |frame| {
+                // The vertical board bands, including its body, occupy the full width.
+                view::prepare(app, frame.area());
+                view::render(frame, app);
+                if links.enabled() {
+                    links.set(app.member_links.borrow().web_spans());
+                }
+            })?;
             app.park_hidden_caret(&mut screen)
         },
         |job| worker.history(job),
