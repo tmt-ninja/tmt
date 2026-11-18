@@ -86,14 +86,14 @@ function effects() {
     },
   };
 }
-function apiFor(completed: WatchRun[], active: WatchRun[] = [], etags = false) {
+function apiFor(completed: WatchRun[], active: WatchRun[] = [], etags = false, jobRows = jobs) {
   const calls: { endpoint: string; etag?: string }[] = [];
   const api: WatchApi = {
     get(endpoint, etag) {
       calls.push({ endpoint, etag });
       if (etag && etags) return { status: 304, body: null };
       if (endpoint.includes('/jobs?'))
-        return { status: 200, body: { total_count: jobs.length, jobs } };
+        return { status: 200, body: { total_count: jobRows.length, jobs: jobRows } };
       if (/\/runs\/[0-9]+$/.test(endpoint))
         return {
           status: 200,
@@ -132,6 +132,41 @@ describe('finished-run coverage and ETag observations', () => {
     expect(f.calls.filter((c) => c.etag === '"fixture"')).toHaveLength(3);
     expect(Object.values(second.state.alerts)[0].count).toBe(1);
   });
+  it.each([
+    { conclusion: 'failure', notifies: true },
+    { conclusion: 'timed_out', notifies: true },
+    { conclusion: 'skipped', notifies: false },
+  ])(
+    'reads a cancelled attempt once and alerts only on failed jobs ($conclusion)',
+    ({ conclusion, notifies }) => {
+      const cancelled = run({ conclusion: 'cancelled', event: 'push', head_branch: 'main' });
+      const f = apiFor([cancelled], [], true, [
+        { ...jobs[0], conclusion },
+        { id: 2, name: 'Colab browser', conclusion: 'cancelled' },
+      ]);
+      const state = newWatchState(now);
+      state.cursor = iso(now - 60_000);
+      const params = { repo: 'pj-tmt/tmt', api: f.api, routing, now };
+      const first = collectWatchCycle({ ...params, state });
+      const out = effects();
+      deliverWatchAlerts(first.state, out, now);
+      const talks = out.calls.filter((call) => call.startsWith('talk:'));
+      expect(talks).toHaveLength(notifies ? 1 : 0);
+      if (notifies) {
+        expect(talks[0]).toContain('Native Rust workspace partition 2, Colab browser (cancelled)');
+        expect(Object.keys(first.state.alerts)).toEqual([
+          'df066e2e70f9cdbd3c81b3435c203d42724873d99d8d3f5e9e0f42226ece49dd',
+        ]);
+      }
+      expect(first.state.seen[Object.keys(first.state.seen)[0]]).toBe(
+        Date.parse(cancelled.updated_at)
+      );
+      expect(first.state.green).toEqual({});
+      expect(collectWatchCycle({ ...params, state: first.state }).examined).toEqual([]);
+      expect(f.calls.filter((call) => call.endpoint.includes('/jobs?'))).toHaveLength(1);
+    }
+  );
+
   it('keeps only permitted events, main pushes and an inclusive cursor boundary', () => {
     const state = newWatchState(now);
     state.cursor = iso(now - 1000);
