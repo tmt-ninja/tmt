@@ -117,8 +117,10 @@ export interface PageActivity {
   /** The page this one is a sub-page of, and its position in that page's list; omitted when it
    * has no parent. */
   parent?: { page: string; index: number };
-  /** The computed status the owner retained for this page's current state; omitted until the
-   * page has been opened since it last changed. */
+  /** The page's list status: the computed status an owner page view retained for its current
+   * state, else what the background fold decides without GitHub or activity reads (`blocked`,
+   * `needs-you`, `done`, `discussing`), else `unchecked` until a page view computes it (contract:
+   * Owner page summaries). */
   status?: ListStatus;
   /** When the owner list first saw this page done; cleared when it reopens (#6474). */
   doneAtMs?: number;
