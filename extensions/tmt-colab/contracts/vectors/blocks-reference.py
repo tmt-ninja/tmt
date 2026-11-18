@@ -68,7 +68,7 @@ ok("every type with its smallest value", {
 ok("props at their edges", {
     bid(1): block("heading", props={"level": 3}, text=rich("h")),
     bid(2): block("list", pos="W", props={"style": "number", "indent": 2}, text=rich("x")),
-    bid(3): block("todo", pos="X", props={"checked": True, "assignee": "a" * 128, "due": "2026-12-31", "indent": 0}, text=rich("t")),
+    bid(3): block("todo", pos="X", props={"checked": True, "assignee": "a" * 128, "due": "2026-12-31", "thread": bid(9), "indent": 0}, text=rich("t")),
     bid(4): block("card", pos="Y", props={"variant": "section", "title": "t" * 256, "meta": "m" * 128, "collapsible": True, "collapsed": False}),
     bid(5): block("question", pos="Z", props={"kind": "multiple", "agent": "gui-4", "choices": ["a"] * 20, "other": True, "otherMax": 2000, "state": "answered", "answer": "yes"}, text=rich("?")),
     bid(6): block("callout", pos="a", props={"tone": "blocked", "label": "L", "heading": "H"}, text=rich("c")),
@@ -146,6 +146,7 @@ bad("an integer prop that is a float", {bid(1): block("heading", props={"level":
 bad("an indent of three", {bid(1): block("list", props={"indent": 3}, text=rich(""))})
 bad("a boolean prop that is a string", {bid(1): block("todo", props={"checked": "yes"}, text=rich(""))})
 bad("a date that is not a date", {bid(1): block("todo", props={"due": "2026-13-01"}, text=rich(""))})
+bad("a to-do thread that is not an ID", {bid(1): block("todo", props={"thread": "thread-1"}, text=rich(""))})
 bad("a text prop over its limit", {bid(1): block("card", props={"title": "t" * 257})})
 bad("a text prop with a control character", {bid(1): block("card", props={"title": "a\nb"})})
 bad("a mockup without markup", {bid(1): block("mockup")})

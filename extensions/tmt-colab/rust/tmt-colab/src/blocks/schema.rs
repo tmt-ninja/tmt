@@ -75,6 +75,8 @@ fn schema(block_type: &str) -> &'static [(&'static str, Prop)] {
             ("checked", Prop::Bool),
             ("assignee", Prop::Text(128)),
             ("due", Prop::Date),
+            // The comment thread whose Ask made this to-do (#6474); the only link to the request.
+            ("thread", Prop::Id),
             ("indent", INDENT),
         ],
         "table" => &[

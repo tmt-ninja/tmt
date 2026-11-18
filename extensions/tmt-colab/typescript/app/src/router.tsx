@@ -5,6 +5,7 @@ import { ShellPage } from './shell-page.js';
 import { PageStateMenu, PageWorkBand } from './work-band-live.js';
 import { MobileWorkTitle, WorkPullChips } from './work-band.js';
 import { PageOutline } from './page-outline.js';
+import { AskTodoContext, askTodoProgress } from './ask-todo-line.js';
 import { usePageWorkflow } from './use-page-workflow.js';
 import { AddSubpageDialog } from './work-add-dialog.js';
 import { pageLocation, parentRefusal } from './work-tree.js';
@@ -2319,6 +2320,11 @@ function OpenPage({
     [frameOutline],
   );
   const hasHtmlOutline = htmlHeadings.length >= 3;
+  // Each comment thread's to-do (#6474): the line under an Ask's comment.
+  const askTodos = useMemo(
+    () => askTodoProgress(view.blocks, view.todoNumbers, view.asks ?? []),
+    [view.blocks, view.todoNumbers, view.asks],
+  );
   const htmlOutline = useRef<HTMLDivElement>(null);
   const [htmlOutlineHeight, setHtmlOutlineHeight] = useState(0);
   useEffect(() => {
@@ -3440,57 +3446,59 @@ function OpenPage({
           {!discussionPending && (
             <>
               {agentResolutionNotice && <p role="status">{agentResolutionNotice}</p>}
-              <ThreadPanel
-                connectionPresentation={connectionPresentation}
-                archived={archived}
-                creationRecipient={creatorTarget(view)}
-                hideHeader
-                numbers={numbers}
-                key={`discussion:${snapshot.id}:${draftsReady}`}
-                threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
-                resolved={resolved}
-                anchorsChecked={anchorsChecked}
-                selection={anchorQuote(selector) ?? null}
-                binding={
-                  liveError?.message === managementChanged
-                    ? undefined
-                    : snapshot.binding?.discussion
-                }
-                ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
-                title={view.title || snapshot.title}
-                asks={view.asks ?? []}
-                active={activeThread}
-                close={closeComments}
-                headerSlot={resolveSlot}
-                batchStatus={
-                  batchStatus?.generation === batchGeneration ? batchStatus.content : null
-                }
-                showInPage={(ref) => {
-                  // The panel stays: it is beside or over the page, not a modal that hides it.
-                  const thread = view.threads?.find(
-                    (item) => item.ref.writer === ref.writer && item.ref.id === ref.id,
-                  );
-                  const block = thread?.anchor && locateBlockAnchor(thread.anchor);
-                  if (block)
-                    structuredStage.current
-                      ?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(block)}"]`)
-                      ?.scrollIntoView({ block: 'start' });
-                  else renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
-                }}
-                presentations={view.threadPresentations}
-                onStatusChange={
-                  statusCoordinator
-                    ? (thread, resolved) => statusCoordinator.change(thread, resolved)
-                    : undefined
-                }
-                onBusy={(busy) => {
-                  statusBusy.current = busy;
-                  setChangingStatus(busy);
-                }}
-                draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
-                onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
-                blocked={discussionBlocked}
-              />
+              <AskTodoContext.Provider value={askTodos}>
+                <ThreadPanel
+                  connectionPresentation={connectionPresentation}
+                  archived={archived}
+                  creationRecipient={creatorTarget(view)}
+                  hideHeader
+                  numbers={numbers}
+                  key={`discussion:${snapshot.id}:${draftsReady}`}
+                  threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
+                  resolved={resolved}
+                  anchorsChecked={anchorsChecked}
+                  selection={anchorQuote(selector) ?? null}
+                  binding={
+                    liveError?.message === managementChanged
+                      ? undefined
+                      : snapshot.binding?.discussion
+                  }
+                  ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
+                  title={view.title || snapshot.title}
+                  asks={view.asks ?? []}
+                  active={activeThread}
+                  close={closeComments}
+                  headerSlot={resolveSlot}
+                  batchStatus={
+                    batchStatus?.generation === batchGeneration ? batchStatus.content : null
+                  }
+                  showInPage={(ref) => {
+                    // The panel stays: it is beside or over the page, not a modal that hides it.
+                    const thread = view.threads?.find(
+                      (item) => item.ref.writer === ref.writer && item.ref.id === ref.id,
+                    );
+                    const block = thread?.anchor && locateBlockAnchor(thread.anchor);
+                    if (block)
+                      structuredStage.current
+                        ?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(block)}"]`)
+                        ?.scrollIntoView({ block: 'start' });
+                    else renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
+                  }}
+                  presentations={view.threadPresentations}
+                  onStatusChange={
+                    statusCoordinator
+                      ? (thread, resolved) => statusCoordinator.change(thread, resolved)
+                      : undefined
+                  }
+                  onBusy={(busy) => {
+                    statusBusy.current = busy;
+                    setChangingStatus(busy);
+                  }}
+                  draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
+                  onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
+                  blocked={discussionBlocked}
+                />
+              </AskTodoContext.Provider>
               <ResolveAllThreads
                 headerSlot={resolveAllSlot}
                 threads={(view.threads ?? []).filter(isOpenThread)}

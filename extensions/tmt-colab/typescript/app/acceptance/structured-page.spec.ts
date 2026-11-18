@@ -960,3 +960,111 @@ test('the agent picked in the question editor receives the answer, and the creat
     await page.close();
   });
 });
+
+// #6474 (spec 隨口交辦): a comment that asks an agent on a page of blocks becomes a to-do on that
+// page once Remote accepts the send; the request names the block to check, the thread shows the
+// to-do's progress, and checking the to-do through the CLI is what makes it done.
+test('a comment that asks an agent becomes a to-do the agent checks', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('todo-agent');
+    const browser = await pairBrowser(world, 'todo-asker', { talk: true });
+    world.linkExtensions();
+    const colab = world.binaries.colab;
+    const created = JSON.parse(
+      run(
+        world,
+        colab,
+        [
+          'page',
+          'create',
+          '--title',
+          'Toolbar',
+          '--html',
+          '--layout',
+          'column',
+          '--file',
+          '-',
+          '--json',
+          '--no-open',
+        ],
+        '<p>Draft.</p>',
+      ),
+    ) as { pageId: string; path: string };
+    run(world, colab, ['page', 'convert', created.pageId, '--yes', '--json']);
+    const paragraph = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          created.pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'The mockup sits against the switcher.',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+    const page = await browser.context.newPage();
+    await page.goto(new URL(created.path, `${door.address}/`).href);
+    const block = page.locator(`[data-block-id="${paragraph}"]`);
+    await expect(block).toContainText('The mockup sits against the switcher.');
+    await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+    await block.click();
+    const annotation = page.locator('.annotation-popover');
+    const input = annotation.getByRole('combobox', { name: 'Message' });
+    await input.fill('@');
+    await page
+      .getByRole('option', { name: /todo-agent/ })
+      .first()
+      .click();
+    await input.pressSequentially(' add a gap above the switcher');
+    await input.press('Enter');
+    await until(() => agent.received().length === 1, 'one delivery to the agent');
+    const message = String(agent.received()[0]!.message);
+    const check = /tmt colab block props ([0-9a-f-]{36}) ([0-9a-f-]{36}) --set checked=true/.exec(
+      message,
+    );
+    expect(check?.[1]).toBe(created.pageId);
+    const todoId = check![2]!;
+    expect(message).toContain('To-do: @todo-agent add a gap above the switcher\n');
+    // The to-do appears on the page after the accepted send, with the agent and the thread.
+    const listed = () =>
+      (
+        JSON.parse(run(world, colab, ['block', 'ls', created.pageId, '--json'])) as {
+          blocks: { id: string; type: string; props?: Record<string, unknown>; text?: string }[];
+        }
+      ).blocks.find((entry) => entry.id === todoId);
+    await until(() => listed() !== undefined, 'the to-do block on the page', 60_000);
+    expect(listed()).toMatchObject({
+      type: 'todo',
+      props: { assignee: 'todo-agent', checked: false },
+    });
+    const line = page.locator('.ask-todo-line');
+    if (!(await line.isVisible()))
+      await block.getByRole('button', { name: 'Open comment 1' }).click();
+    await expect(line).toContainText('Added as a to-do · todo-agent');
+    // The agent checks it the way the request says; the thread then says done.
+    run(world, colab, [
+      'block',
+      'props',
+      created.pageId,
+      todoId,
+      '--set',
+      'checked=true',
+      '--json',
+    ]);
+    await expect(line).toContainText('Done', { timeout: 60_000 });
+    // One to-do, however often the page reads the accepted Ask.
+    await page.reload();
+    await expect(page.locator(`[data-block-id="${todoId}"]`)).toBeVisible();
+    const todos = (
+      JSON.parse(run(world, colab, ['block', 'ls', created.pageId, '--json'])) as {
+        blocks: { type: string; deleted?: boolean }[];
+      }
+    ).blocks.filter((entry) => entry.type === 'todo' && !entry.deleted);
+    expect(todos).toHaveLength(1);
+    expect(agent.received()).toHaveLength(1);
+  });
+});

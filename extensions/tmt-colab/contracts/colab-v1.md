@@ -3217,7 +3217,7 @@ back with it on `restore`.
 | `paragraph`   | rich  | `tone` `default\|muted`                                                                                                                                      |
 | `heading`     | rich  | `level` 2 or 3                                                                                                                                               |
 | `list`        | rich  | `style` `bullet\|number`, `indent` 0-2                                                                                                                       |
-| `todo`        | rich  | `checked`, `assignee` (128 bytes), `due` (`YYYY-MM-DD`), `indent` 0-2                                                                                        |
+| `todo`        | rich  | `checked`, `assignee` (128 bytes), `due` (`YYYY-MM-DD`), `thread` (the comment thread whose Ask made it, #6474), `indent` 0-2                                |
 | `table`       | none  | `label`, `columns` (at most 32 of `{id, name, width?, hideNarrow?}`; column IDs are stable), `header`, `density` `roomy\|compact`                            |
 | `card`        | none  | `variant` `card\|section`, `title`, `meta`, `collapsible`, `collapsed`                                                                                       |
 | `question`    | plain | `kind` `single\|multiple\|short`, `agent`, `choices` (at most 20), `other`, `otherMax`, `state` `waiting\|answered\|dismissed`, `answer`                     |

@@ -1,3 +1,4 @@
+import { AskTodoLine } from './ask-todo-line.js';
 import { threadNeedsYou } from './comments-listing.js';
 import { compactRelativeTime } from './display-time.js';
 import type { ComposerConnectionPresentation } from './router.js';
@@ -865,6 +866,7 @@ export function ThreadWindow({
         {echoes.map((echo) => (
           <MessageEchoTurn key={echo.local} echo={echo} writer={binding?.deviceId} />
         ))}
+        {thread && <AskTodoLine thread={thread.threadId} />}
         {/* A thread just created here is not attached until the page has checked its anchors: the
             row waits for that, rather than flashing in for a frame and moving the window. */}
         {!archived &&

@@ -157,3 +157,13 @@
 .annotation-send-mark {
   color: var(--c-blocked);
 }
+
+/* The to-do an Ask's comment became (#6474, spec 隨口交辦): one muted line under the thread. */
+.ask-todo-line {
+  margin: var(--tmt-ui-space-xs) 0 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12.5px;
+}
+.ask-todo-line[data-state='done'] {
+  color: var(--tmt-ui-color-text);
+}

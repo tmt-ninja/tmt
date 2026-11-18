@@ -20,6 +20,9 @@ import { statusNotificationForAsk } from './thread-status-notification.js';
 import { projectThreadPresentations } from './thread-status-presentation.js';
 import { VerifiedAsks } from './ask-records.js';
 import { ThreadStatusSeen } from './thread-status-view.js';
+import { askedTodo, todoInsertOps } from './ask-todo.js';
+import type { PageAsk } from './ask-panel.js';
+import type { BlockEntry } from './blocks.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
 import { attachment, digest, encodeBinary, requireValue, text as bytesOf } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
@@ -269,6 +272,7 @@ export class Live implements PageBinding {
           key: registration.keys.sign,
           publicKey: registration.keys.signPublic,
           own: () => this.#admitted.own ?? {},
+          todos: () => this.#admitted.pageType === 'blocks',
           commentContext: async (context) => {
             const connection = this.#connection;
             if (!connection) throw new Error('Discussion connection unavailable');
@@ -698,6 +702,7 @@ export class Live implements PageBinding {
           this.#threadProjection = { connection, admission, view: this.#projection };
           this.#discussionVerified = true;
           this.#publish();
+          this.#askTodos(asks, value);
           this.#observe();
         } catch (error) {
           if (this.#owns(open))
@@ -1158,6 +1163,32 @@ export class Live implements PageBinding {
   }
   /** A block batch, settled as `work` is: a lost reply by exactly one status request, never sent
    * again; it resolves once the page shows the commit. */
+  /** Block IDs whose Ask to-do this tab is inserting; the page's blocks are the durable answer. */
+  #todosInserting = new Set<string>();
+  /**
+   * A block page's own settled Asks become to-dos (#6474): an Ask this device sent that Remote
+   * accepted, and whose to-do block the page does not have yet, even deleted. A held, uncertain or
+   * refused Ask inserts nothing; the thread-derived block ID keeps a retry from adding a second.
+   */
+  #askTodos(
+    asks: readonly PageAsk[],
+    value: { pageType?: string; blocks?: Record<string, BlockEntry>; archived?: boolean },
+  ) {
+    if (value.pageType !== 'blocks' || !value.blocks || value.archived) return;
+    for (const ask of asks) {
+      if (ask.state !== 'accepted' || !ask.canTrack || !ask.thread) continue;
+      const todo = askedTodo(this.page.pageId, ask.message);
+      if (!todo || this.#todosInserting.has(todo.block)) continue;
+      const ops = todoInsertOps(value.blocks, todo, ask.agentName, ask.thread, crypto.randomUUID());
+      if (!ops.length) continue;
+      this.#todosInserting.add(todo.block);
+      void this.blocks(ops).then(
+        () => this.#todosInserting.delete(todo.block),
+        // A refused or lost save is tried again on the next verified view.
+        () => this.#todosInserting.delete(todo.block),
+      );
+    }
+  }
   async blocks(
     ops: readonly BlockOp[],
     attachments?: attachment.DocumentChange,
