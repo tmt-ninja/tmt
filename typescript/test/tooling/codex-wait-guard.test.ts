@@ -395,6 +395,8 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(received[0].body.system).toContain(
       'Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait'
     );
+    // Writing a patch whose text holds wait words is editing, not waiting (#6532).
+    expect(received[0].body.system).toContain('judge what the call runs, not what it writes');
     // A copy outside the worktree is read for its loop, and only its path and primitive are
     // sent. A single status read after the waker holds no wait primitive.
     expect(sent(0)).toMatchObject({ unsent: [{ path: copy, holds: expect.any(String) }] });
