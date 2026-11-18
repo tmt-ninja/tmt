@@ -157,7 +157,7 @@ impl MessagePermit {
             } else {
                 "dispatching"
             }
-        } else if input.operation == "forms.answer" {
+        } else if matches!(input.operation, "forms.answer" | "terminal.command.run") {
             "uncertain"
         } else {
             "observed"
@@ -268,6 +268,8 @@ pub(crate) enum RemoteOperation {
     OrchestrationWrite,
     FormsList,
     FormsAnswer,
+    TerminalCommandTargets,
+    TerminalCommandRun,
     ChangesCursor,
     Result,
     Final,
@@ -315,6 +317,8 @@ impl RemoteOperation {
         ("orchestration.write", Self::OrchestrationWrite),
         ("forms.list", Self::FormsList),
         ("forms.answer", Self::FormsAnswer),
+        ("terminal.command.targets", Self::TerminalCommandTargets),
+        ("terminal.command.run", Self::TerminalCommandRun),
         ("changes.cursor", Self::ChangesCursor),
         ("result", Self::Result),
         ("final", Self::Final),
@@ -362,7 +366,10 @@ impl RemoteOperation {
             Self::RequestsSendNow => OperationClass::Effect,
             Self::OrchestrationRead => OperationClass::Read,
             Self::OrchestrationWrite | Self::FormsAnswer => OperationClass::Effect,
-            Self::FormsList | Self::ChangesCursor => OperationClass::Read,
+            Self::FormsList | Self::ChangesCursor | Self::TerminalCommandTargets => {
+                OperationClass::Read
+            }
+            Self::TerminalCommandRun => OperationClass::Effect,
             Self::Result => OperationClass::Read,
             Self::Final => OperationClass::Effect,
             Self::SquadsSummary => OperationClass::Effect,
@@ -404,6 +411,9 @@ impl RemoteOperation {
             Self::OrchestrationRead => Some("agents.read"),
             Self::OrchestrationWrite | Self::FormsAnswer => Some("talk"),
             Self::FormsList | Self::ChangesCursor => Some("agents.read"),
+            Self::TerminalCommandTargets | Self::TerminalCommandRun => {
+                Some(crate::store::TERMINAL_COMMAND_SCOPE)
+            }
             Self::Result => Some("results.read"),
             Self::Final => Some("results.read"),
             Self::SquadsSummary => Some("agents.read"),

@@ -449,7 +449,8 @@ cold default; interactive sort changes only the current layer.
 read-focus cursor. It reuses the existing action menu surface within an adjacent
 clipped rectangle; no separate popup/widget family or source authority is added.
 Command mentions use the same targets and source-byte occurrence map: `commands` is the
-single explicit-marker recognizer, and `command_popover` uses the link menu's 40-cell full-text
+board recognizer, verified against the same grammar and byte-range fixtures as web Ops.
+`command_popover` uses the link menu's 40-cell full-text
 chunks and 48-wide placement. Run choices exist only when the entire single-line command fits
 at once; resizing requires reopening. Display normalization cannot silently rewrite runnable
 command bytes. Confirmation queues the existing `member_terminals` lane, which calls Core's

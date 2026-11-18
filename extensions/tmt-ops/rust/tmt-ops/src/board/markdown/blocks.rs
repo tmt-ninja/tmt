@@ -22,10 +22,37 @@ impl Renderer<'_> {
                 .enumerate()
             {
                 let text = crate::board::view::fit(line, self.width);
+                let line_start = self.starts[first + offset];
+                let mut part = Part::new(text, style, first + offset, None);
+                let mut padding = String::new();
+                if let Some(reference) = self.commands.get(self.next_command)
+                    && reference.console
+                    && reference.content.start == line_start
+                    && reference.content.end <= range.end
+                {
+                    // The literal row fills the pane, but only the visible prompt is a link.
+                    padding = part.text.split_off(part.text.trim_end_matches(' ').len());
+                    part.style = part.style.add_modifier(Modifier::UNDERLINED);
+                    part.member = Some((
+                        super::super::member_links::Target::Command(reference.command.clone()),
+                        self.next_mention,
+                    ));
+                    if reference.command.shown.starts_with(&part.text) {
+                        part.source_range = Some(
+                            reference.content.start..reference.content.start + part.text.len(),
+                        );
+                    }
+                    self.next_mention += 1;
+                    self.next_command += 1;
+                }
+                let mut spans = vec![part];
+                if !padding.is_empty() {
+                    spans.push(Part::new(padding, style, first + offset, None));
+                }
                 self.blocks.push(Block {
                     prefix: String::new(),
                     indent: 0,
-                    spans: vec![Part::new(text, style, first + offset, None)],
+                    spans,
                     source_line: first + offset,
                     literal: true,
                     style,

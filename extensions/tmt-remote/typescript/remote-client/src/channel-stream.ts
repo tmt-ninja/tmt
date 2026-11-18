@@ -5,6 +5,7 @@
  * refreshes. Room refreshes carry Core's last observed position; unknown change coverage still
  * uses the returned newest page, without inventing an unread count. */
 import { avatarInitials, browserUiClasses as c } from '@tmt/browser-ui/static';
+import { commandRun } from './command-run.js';
 import { el } from './ops-parts.js';
 import { opsHref } from './ops-menu.js';
 import { composerSlot } from './ops-composer-slot.js';
@@ -105,6 +106,7 @@ export function channelStream(
   empty.append(emptyTitle, emptyText);
   empty.setAttribute('role', 'status');
   const stream = talkList('Channel messages');
+  const run = commandRun(shell);
   const compose = el('section', 'ops-channel-compose');
   compose.setAttribute('aria-label', 'Message');
   const composerHost = el('div', 'ops-composer-host');
@@ -346,6 +348,10 @@ export function channelStream(
           ...(side.at ? { at: side.at } : {}),
           text: side.words ?? 'Reading the reply…',
           quiet: !side.read,
+          ...(run && side.read ? { commandRun: run } : {}),
+          ...(side.read && names().has(side.item.recipientId)
+            ? { commandAuthor: side.item.recipientId }
+            : {}),
         }),
       );
     }

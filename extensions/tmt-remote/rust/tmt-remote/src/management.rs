@@ -292,11 +292,19 @@ pub(crate) fn designate_in(c: &Connection, client: &str, origin: &str, now: u64)
     if grant.kind != "browser" || grant.origin != origin || !grant.live_at(now) {
         return Err(invalid());
     }
+    if let Some(previous) = designation_in(c)?
+        && previous.client_id != grant.client_id
+    {
+        crate::store::terminal_command_grant_in(c, previous, false)?;
+    }
     c.execute("INSERT INTO settings_designation SELECT 1,machine_id,?1,?2 FROM machine WHERE singleton=1 ON CONFLICT(singleton) DO UPDATE SET machine_id=excluded.machine_id,client_id=excluded.client_id,public_key=excluded.public_key",params![client,grant.public_key.as_slice()]).map_err(database)?;
     crate::members::sync_designation(c)?;
     Ok(grant)
 }
 pub(crate) fn undesignate_in(c: &Connection) -> Result<usize> {
+    if let Some(previous) = designation_in(c)? {
+        crate::store::terminal_command_grant_in(c, previous, false)?;
+    }
     let removed = c
         .execute("DELETE FROM settings_designation", [])
         .map_err(database)?;

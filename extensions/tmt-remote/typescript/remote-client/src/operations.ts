@@ -624,13 +624,14 @@ async function attempt<T>(
   }
 }
 
-export function parseCapabilities(value: unknown): void {
+export function parseCapabilities(value: unknown): readonly string[] {
   const reply = record(value);
   valid(reply.version === 1 && reply.profile === 'local-v1' && reply.binding === 'loopback-http');
   valid(
     Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === 'string'),
   );
   record(reply.limits);
+  return reply.operations as string[];
 }
 
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */

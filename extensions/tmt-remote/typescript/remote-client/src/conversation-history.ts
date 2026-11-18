@@ -2,6 +2,8 @@
  * day separators, each message's delivery under it and the member's reply as its own row, and
  * the message box under it that sends through Talk (contracts/remote-channel-v1.md). One bounded
  * read at a time; positions and seen state never leave their owners. */
+import { commandRun } from './command-run.js';
+import { commandMentions } from './command-mentions.js';
 import { el } from './ops-parts.js';
 import {
   exchangeRows,
@@ -125,6 +127,7 @@ export function conversationHistory(
   const status = el('p', 'ops-dm-status', 'Choose a member to read the retained conversation.');
   status.setAttribute('role', 'status');
   const stream = talkList('Conversation');
+  const run = commandRun(shell);
   const list = stream.list;
   const compose = el('section', 'ops-channel-compose');
   compose.setAttribute('aria-label', 'Message');
@@ -188,6 +191,7 @@ export function conversationHistory(
           fullReplies.get(item.requestId),
           fullPosts.get(item.requestId),
           item.direction === 'toMember' ? now.control([item]) : undefined,
+          run,
         ),
       [memberName, fullReplies.size, fullPosts.size, now.version()],
       unlisted && pendingRow(unlisted, memberName),
@@ -216,11 +220,26 @@ export function conversationHistory(
    * at a time; a failed read keeps the shortened preview and is not asked again until the
    * conversation opens again. */
   async function readFullReplies(selected: string, ticket: number) {
+    const commandReply = (item: ConversationItem) =>
+      run &&
+      item.direction === 'toMember' &&
+      item.final.status === 'retained' &&
+      item.responsePreview &&
+      commandMentions(item.responsePreview).length > 0;
+    const commandPost = (item: ConversationItem) =>
+      run &&
+      item.direction === 'fromMember' &&
+      item.sender.kind === 'verified' &&
+      item.preview &&
+      commandMentions(item.preview).length > 0;
     const wanted = [...items.values()]
       .filter(
         (item) =>
           !asked.has(item.requestId) &&
-          (shortenedReply(item) || (item.previewTruncated && item.direction === 'toMember')),
+          (shortenedReply(item) ||
+            commandReply(item) ||
+            commandPost(item) ||
+            (item.previewTruncated && item.direction === 'toMember')),
       )
       .sort((a, b) => b.preparedAtMs - a.preparedAtMs)
       .slice(0, Math.max(0, FULL_REPLIES - asked.size));
@@ -229,9 +248,12 @@ export function conversationHistory(
       try {
         const value = await talk.result(item.requestId);
         if (shell.signal.aborted || ticket !== generation || memberId !== selected) return;
-        if (value.state === 'replied' && shortenedReply(item))
+        if (value.state === 'replied' && (shortenedReply(item) || commandReply(item)))
           fullReplies.set(item.requestId, value.message);
-        if (typeof value.requestMessage === 'string' && item.previewTruncated)
+        if (
+          typeof value.requestMessage === 'string' &&
+          (item.previewTruncated || commandPost(item))
+        )
           fullPosts.set(item.requestId, value.requestMessage);
         draw();
       } catch {

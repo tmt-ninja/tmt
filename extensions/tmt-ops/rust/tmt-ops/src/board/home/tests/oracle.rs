@@ -1073,7 +1073,12 @@ fn link_popover_frames(styles: &mut Styles) -> Vec<Value> {
         crate::board::member_links::popover::SCENES,
         |_| grid(&[160, 100, 60], &[36]),
         crate::board::member_links::popover::capture_case,
-        |_, _| {},
+        |frame, app| {
+            if frame["state"] == "command-forms" {
+                frame["commandHits"] =
+                    crate::board::member_links::popover::capture_command_hits(app);
+            }
+        },
     )
 }
 
@@ -1545,7 +1550,7 @@ macro_rules! oracle_groups {
         $group!(8, 228, paste_frames($styles));
         $group!(7, 60, file_chip_frames($styles));
         $group!(7, 144, quote_frames($styles));
-        $group!(7, 48, link_popover_frames($styles));
+        $group!(7, 60, link_popover_frames($styles));
         $group!(7, 80, link_file_frames($styles));
         $group!(7, 60, talk_screen_frames($styles));
         $group!(7, 96, conversation_refresh_frames($styles));

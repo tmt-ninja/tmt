@@ -16,13 +16,17 @@ pub(crate) struct AuditMetadata<'a> {
     pub code: &'a str,
 }
 pub(crate) fn append(tx: &Transaction<'_>, event: AuditMetadata<'_>) -> Result<(), RemoteError> {
+    let terminal_effect = matches!(event.operation, "terminal.open" | "terminal.run");
     if !canonical::is_core_id(event.client)
         || !canonical::is_core_id(event.request)
         || event
             .operation_id
             .is_some_and(|id| !canonical::is_core_id(id))
         || event.resources.len() > 256
-        || event.resources.iter().any(|id| !canonical::is_core_id(id))
+        || event
+            .resources
+            .iter()
+            .any(|id| !(canonical::is_core_id(id) || terminal_effect && canonical::terminal_id(id)))
         || event.digest.len() != 32
         || (event.revision == 0
             && !(event.decision == "refused"
@@ -54,12 +58,14 @@ pub(crate) fn append(tx: &Transaction<'_>, event: AuditMetadata<'_>) -> Result<(
     )
     .map_err(database)?;
     tx.execute("DELETE FROM audit WHERE position IN (SELECT position FROM audit ORDER BY position DESC LIMIT -1 OFFSET ?1)",[RECORDS-1]).map_err(database)?;
-    let operation =
-        if admission::scope(event.operation).is_some() || event.operation == "remote.pair" {
-            event.operation
-        } else {
-            "unsupported"
-        };
+    let operation = if admission::scope(event.operation).is_some()
+        || event.operation == "remote.pair"
+        || terminal_effect
+    {
+        event.operation
+    } else {
+        "unsupported"
+    };
     let code = if event.code.len() <= 64
         && event
             .code

@@ -59,10 +59,11 @@ impl OwnerDoor {
     fn with_limits(scopes: Vec<String>, mode: &str, agents: String, expiry: Option<u64>) -> Self {
         Self::with_device(scopes, mode, agents, expiry, "cli")
     }
-    /// The owner's own paired browser on this door, with every scope and a direct policy.
+    /// The owner's own paired browser has only scopes issued at pairing.
     fn owner_browser(mode: &str) -> Self {
         let scopes = SUPPORTED_SCOPES
             .iter()
+            .filter(|scope| **scope != "terminal.command")
             .map(|scope| (*scope).into())
             .collect();
         Self::with_device(scopes, mode, "all".into(), None, "browser")

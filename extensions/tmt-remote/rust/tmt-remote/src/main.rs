@@ -1510,6 +1510,13 @@ mod tests {
                 "--json",
             ],
             vec!["tmt-remote", "members", "designate", "client-id", "--json"],
+            vec![
+                "tmt-remote",
+                "members",
+                "terminal-command",
+                "client-id",
+                "on",
+            ],
             vec!["tmt-remote", "members", "undesignate", "--json"],
         ] {
             assert!(grammar().try_get_matches_from(words).is_ok());

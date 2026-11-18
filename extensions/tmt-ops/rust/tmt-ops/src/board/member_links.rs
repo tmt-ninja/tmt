@@ -168,7 +168,7 @@ pub(super) enum Target {
     Member(String),
     Url(String),
     File(String),
-    Command(String),
+    Command(commands::Command),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

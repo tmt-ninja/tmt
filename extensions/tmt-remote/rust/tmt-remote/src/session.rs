@@ -617,6 +617,16 @@ impl DoorSessions {
         now: u64,
         action: impl FnOnce(&mut Store) -> Result<T, RemoteError>,
     ) -> Result<(T, u64), RemoteError> {
+        self.with_live_store(expected, message, now, |store, _| action(store))
+    }
+
+    pub(crate) fn with_live_store<T>(
+        &self,
+        expected: &Grant,
+        message: &SignedMessage,
+        now: u64,
+        action: impl FnOnce(&mut Store, &dyn Fn() -> bool) -> Result<T, RemoteError>,
+    ) -> Result<(T, u64), RemoteError> {
         let live = self.live.lock().map_err(|_| {
             RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote session unavailable.")
         })?;
@@ -671,7 +681,11 @@ impl DoorSessions {
                 "Device authority changed or ended.",
             ));
         }
-        Ok((action(&mut store)?, live.generation))
+        let session = &live.by_session[message.envelope().session_id];
+        Ok((
+            action(&mut store, &|| !self.expired(session))?,
+            live.generation,
+        ))
     }
     pub(crate) fn with_operation_store<T>(
         &self,

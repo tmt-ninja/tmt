@@ -6,7 +6,7 @@ use crate::{
     canonical::{self, Enrollment},
     crypto,
     error::RemoteError,
-    store::{DEFAULT_SCOPES, Grant, SUPPORTED_SCOPES, Store, uuid_v4},
+    store::{DEFAULT_SCOPES, Grant, Store, uuid_v4},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -659,14 +659,11 @@ impl Pairing {
                 || "all".into(),
                 |ids| serde_json::to_string(ids).expect("UUID list"),
             ),
-            scopes: if policy.talk {
-                SUPPORTED_SCOPES.as_slice()
-            } else {
-                DEFAULT_SCOPES.as_slice()
-            }
-            .iter()
-            .map(|scope| (*scope).to_owned())
-            .collect(),
+            scopes: DEFAULT_SCOPES
+                .into_iter()
+                .chain(policy.talk.then_some("talk"))
+                .map(str::to_owned)
+                .collect(),
             mode: if policy.hold { "hold" } else { "direct" }.into(),
             issued_at_ms,
             expires_at_ms: policy.expires_at_ms,

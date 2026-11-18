@@ -1,4 +1,5 @@
 /** Test-owned source; real Ops route, shared shell and read lifecycle. No native/Core transport. */
+import { commandMenu } from '../src/command-menu.js';
 import { mountShell, shellRail } from '@tmt/browser-ui/shell';
 import { applyStoredTheme } from '@tmt/browser-ui/theme';
 import { setRouteTitle, type RemoteShell } from '../src/remote-shell.js';
@@ -26,6 +27,8 @@ import { RefusalError } from '../src/operations.js';
 declare global {
   interface Window {
     dmEnabled?: boolean;
+    fixtureCommandMenu(text: string): void;
+    commandSelections: string[];
     dmNewest: ConversationPage;
     dmOlder: ConversationPage;
     dmChanges: ConversationChanges;
@@ -66,6 +69,18 @@ declare global {
     formsRelease(): void;
   }
 }
+window.commandSelections = [];
+window.fixtureCommandMenu = (text) => {
+  document.body.append(
+    commandMenu('! ' + text, text, 'private-fixture', 'sample-1', {
+      options: async () => [{ key: 'new', label: 'Run in a new terminal' }],
+      async submit(identity, command, key) {
+        window.commandSelections.push([identity, command, key].join('|'));
+        return 'unconfirmed';
+      },
+    }),
+  );
+};
 window.channelReads = 0;
 window.formsList = [];
 window.formsCursor = 1;

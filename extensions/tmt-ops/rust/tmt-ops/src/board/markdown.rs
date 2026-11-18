@@ -371,9 +371,14 @@ impl Renderer<'_> {
             self.next_command += 1;
         }
         if self.next_command < self.commands.len()
+            && !self.commands[self.next_command].console
             && self.commands[self.next_command].range.start == range.start
         {
             let reference = self.commands[self.next_command].clone();
+            let fenced = matches!(event, Event::Start(Tag::CodeBlock(_)));
+            if fenced {
+                self.separate();
+            }
             let occurrence = self.next_mention;
             self.next_mention += 1;
             let first = self
@@ -381,7 +386,7 @@ impl Renderer<'_> {
                 .partition_point(|start| *start <= reference.content.start)
                 .saturating_sub(1);
             let mut content_start = reference.content.start;
-            for (offset, text) in reference.shown.split('\n').enumerate() {
+            for (offset, text) in reference.command.shown.split('\n').enumerate() {
                 if offset > 0 {
                     self.finish();
                 }
@@ -396,7 +401,7 @@ impl Renderer<'_> {
                         .add_modifier(Modifier::UNDERLINED),
                     first + offset,
                     Some((
-                        super::member_links::Target::Command(reference.shown.clone()),
+                        super::member_links::Target::Command(reference.command.clone()),
                         occurrence,
                     )),
                 );
@@ -407,6 +412,9 @@ impl Renderer<'_> {
                     .expect("a command block is open")
                     .spans
                     .push(part);
+            }
+            if fenced {
+                self.finish();
             }
             self.skip_until = reference.range.end;
             self.next_command += 1;
