@@ -3,7 +3,15 @@ import { capturePath } from './captures.js';
 
 async function mount(
   page: Page,
-  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' | 'full' | 'shells' = 'few',
+  size:
+    | 'few'
+    | 'bulk'
+    | 'none'
+    | 'unmanaged'
+    | 'long'
+    | 'full'
+    | 'shells'
+    | 'owner-activity' = 'few',
   hash = '/',
   remembered?: string,
 ) {
@@ -92,6 +100,13 @@ const showAll = (page: Page) =>
   app(page)
     .getByRole('tab', { name: /^All, \d+\+?$/ })
     .click();
+
+test('opening the page list shows owner activity for a page without a PR', async ({ page }) => {
+  await mount(page, 'owner-activity');
+  const row = rows(page).filter({ hasText: 'Owner activity page' });
+  await expect(row.getByText('In progress', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.__activityReads)).toBe(1);
+});
 
 test("a writer's project group opens the picker while search retains project filtering", async ({
   page,

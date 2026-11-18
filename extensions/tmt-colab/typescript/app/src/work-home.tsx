@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger, UiTheme } from '@tmt/browser-u
 import { getTheme, subscribeTheme } from './theme.js';
 import { getRouteApi, Link, useLocation, useRouter } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useOwnerActivity } from './use-owner-activity.js';
 import { AppHeader } from './app-header.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import { NewPageDialog } from './new-page-dialog.js';
@@ -21,7 +22,6 @@ import {
   stuckSection,
 } from './section-view.js';
 import {
-  activityOwners,
   doneChart,
   HIDDEN_WHEN_ZERO,
   inProject,
@@ -82,54 +82,6 @@ function storeProject(project: string | undefined) {
   } catch {
     // A browser without storage keeps the choice in the URL only.
   }
-}
-
-/**
- * The owners' activity (decision on #6474, option a): one bounded batch on events that already
- * happen (opening, the tab becoming visible, a list re-read), never a timer. The list answer
- * never waits for it: when what it observed changed, the list is read again and its rows show it.
- */
-function useOwnerActivity(
-  transport: PageTransport,
-  items: readonly WorkItem[],
-  listed: unknown,
-  reread: () => void,
-) {
-  const owners = activityOwners(items).join('\n');
-  const seen = useRef<string>(undefined);
-  // The list re-read this hook asks for must not ask again: only opening, the tab becoming visible
-  // and a list re-read from elsewhere read activity (#6578 review).
-  const own = useRef(false);
-  useEffect(() => {
-    const read = transport.workActivity;
-    if (!read || !owners) return;
-    const controller = new AbortController();
-    const run = () =>
-      void read(owners.split('\n'), controller.signal).then(
-        (answer) => {
-          // Only a changed state can change a list status; a working agent's newer activity time
-          // alone is no reason to read the list again.
-          const observed = JSON.stringify(
-            Object.entries(answer)
-              .map(([owner, row]) => [owner, row.state])
-              .sort(),
-          );
-          if (observed === seen.current) return;
-          seen.current = observed;
-          own.current = true;
-          reread();
-        },
-        () => undefined,
-      );
-    if (own.current) own.current = false;
-    else run();
-    document.addEventListener(
-      'visibilitychange',
-      () => document.visibilityState === 'visible' && run(),
-      { signal: controller.signal },
-    );
-    return () => controller.abort();
-  }, [transport, owners, listed, reread]);
 }
 
 /** The part's state for an overview status: waiting for CI and for release share one tone. */

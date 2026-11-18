@@ -6449,15 +6449,14 @@ viewer, `archived` and `includeArchived` for archive filters, `sort` for orderin
 `shortcut` for the saved shortcut. Applying a filter adds a history entry. A remembered
 Work home project fills an unspecified choice by replacing the current entry.
 
-Work home (`/work`, #6474) may POST `{owners}` to `/api/work-activity`: at most 256 owner ids,
-on its own events only (opening, the tab becoming visible, a list re-read it did not ask for), never
-on a timer. The
-serve answers only for ids some page with a fresh fold names as its owner, after one
+Work home (`/work`, #6474) and the page list may POST `{owners}` to `/api/work-activity`: at most 256 owner ids,
+when the view opens, the tab becomes visible, or another caller re-reads the list. Neither view polls.
+The serve answers only for ids some page with a fresh fold names as its owner, after one
 `changes.cursor` read and one `identities.status` read for the owners whose cursor changed:
 `{owners:{<id>:{state,lastActivityMs,observedAtMs}}}`. An owner the read cannot report keeps its
-earlier observation; the list answer never waits for this read, and Work home reads the list again
-when an owner's activity state changed (a newer activity time alone does not). Display only. Its
-work items are the pages with a fresh summary and the numbered to-dos that name an assignee. When Remote's describe request names the `home` feature,
+earlier observation; the list answer never waits for this read, and the calling view reads the list again
+when an owner's activity state changed (a newer activity time alone does not). The activity read serves display only and fetches no GitHub facts.
+Work home's work items are the pages with a fresh summary and the numbered to-dos that name an assignee. When Remote's describe request names the `home` feature,
 Colab's description claims Home with `homePage: "/work"`.
 
 The owner browser may POST `{pageId}` to `/api/work-facts` only while its owner sync connection
