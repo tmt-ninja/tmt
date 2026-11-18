@@ -262,7 +262,7 @@ impl App {
             self.tok_range()
         };
         (self.shell.tab == OpsTab::Digest
-            || self.tok_range() != crate::config::TokRange::Hour
+            || self.tok_range().live_window().is_none()
             || (self.shell.tab == OpsTab::Agents
                 && (self.tok_money() || self.right_tab == super::super::shell::RightTab::Measure)))
             .then(|| {

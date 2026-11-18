@@ -935,7 +935,7 @@ fn session(
         }
         dirty |= app.meter.as_mut().is_some_and(|meter| meter.tick(now));
         dirty |= app.home_counters.borrow_mut().tick(now);
-        dirty |= app.agents_live.tick_rates(now);
+        dirty |= app.agents_live.expire_burn(now);
         dirty |= app.agents_live.tick_flashes(now);
         let next_spinner = view::spinner_frame(app, now);
         let next_marks = view::time_marks(app, crate::status::now_ms());
@@ -1046,7 +1046,7 @@ fn session(
         if let Some(motion) = app.agents_live.flash_wait() {
             wait = wait.min(motion);
         }
-        if let Some(motion) = app.agents_live.rate_wait(Instant::now()) {
+        if let Some(motion) = app.agents_live.burn_wait(Instant::now()) {
             wait = wait.min(motion);
         }
         if let Some(motion) = app.home_counters.borrow().wait(Instant::now()) {
@@ -3627,7 +3627,7 @@ print(json.dumps(out))
     }
 
     #[test]
-    fn home_usage_receipt_paints_the_new_member_rate_on_the_next_draw() {
+    fn home_usage_receipt_paints_the_new_member_total_on_the_next_draw() {
         fn input(tokens: u64) -> rate::Input {
             let mut input = rate::tests::input(tokens);
             let member = app::workspace::tests::MEMBER.to_owned();
@@ -3692,14 +3692,14 @@ print(json.dumps(out))
                         .find(|cells| {
                             cells.windows(7).any(|part| {
                                 part.iter().map(|cell| cell.symbol()).collect::<String>()
-                                    == "TOK/min"
+                                    == " TOK 1h"
                             })
                         })
-                        .expect("visible per-minute heading");
+                        .expect("visible token heading");
                     let start = header
                         .windows(7)
                         .position(|part| {
-                            part.iter().map(|cell| cell.symbol()).collect::<String>() == "TOK/min"
+                            part.iter().map(|cell| cell.symbol()).collect::<String>() == " TOK 1h"
                         })
                         .unwrap();
                     let row = rows

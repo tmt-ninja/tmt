@@ -73,7 +73,11 @@ fn the_window_word_is_a_hit_beside_the_tok_word_in_both_lists() {
             assert!(before.ends_with("TOK "), "{name} {range:?}: {line}");
             // The window hit is its own control: the unit word is the TokUnit hit before the
             // space, and the mark cell is not a sort hit.
-            assert_eq!(area.width, 2, "{name} {range:?}");
+            assert_eq!(
+                usize::from(area.width),
+                range.argument().len(),
+                "{name} {range:?}"
+            );
             let unit = Rect::new(area.x - 4, area.y, 3, 1);
             let mark = Rect::new(area.x - 5, area.y, 1, 1);
             assert_eq!(painted(&app, unit), "TOK", "{name} {range:?}");
@@ -138,23 +142,23 @@ fn a_click_on_the_window_word_requests_only_the_next_range() {
 #[test]
 fn the_ranges_cycle_in_the_documented_order() {
     let order = TokRange::ALL.map(TokRange::argument);
-    assert_eq!(order, ["1h", "3h", "6h", "1d", "7d"]);
+    assert_eq!(order, ["5m", "10m", "1h", "3h", "6h", "1d", "7d"]);
     let mut range = TokRange::Hour;
     let mut seen = vec![range.argument()];
-    for _ in 0..5 {
+    for _ in 0..7 {
         range = range.next();
         seen.push(range.argument());
     }
-    assert_eq!(seen, ["1h", "3h", "6h", "1d", "7d", "1h"]);
+    assert_eq!(seen, ["1h", "3h", "6h", "1d", "7d", "5m", "10m", "1h"]);
 }
 
 #[test]
 fn the_agents_range_and_the_digest_window_are_separate_settings() {
     let mut app = board();
-    hold(&mut app, TokRange::SixHours);
+    hold(&mut app, TokRange::TenMinutes);
     app.shell.tab = OpsTab::Agents;
     let agents = paint(&app, 160, 40).join("\n");
-    assert!(agents.contains("TOK 6h"), "{agents}");
+    assert!(agents.contains("TOK 10m"), "{agents}");
     assert!(chip(&app).is_some());
     app.shell.tab = OpsTab::Digest;
     let digest = paint(&app, 160, 40).join("\n");
@@ -170,7 +174,7 @@ fn the_agents_range_and_the_digest_window_are_separate_settings() {
         app.choose(Choice::DigestWindow(crate::config::DigestWindow::Week)),
         Effect::None
     );
-    assert_eq!(app.tok_range(), TokRange::SixHours);
+    assert_eq!(app.tok_range(), TokRange::TenMinutes);
     assert_eq!(app.digest_range(), TokRange::Week);
 }
 

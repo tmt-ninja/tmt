@@ -18,11 +18,14 @@ impl Default for Selection {
 impl Selection {
     pub const EACH: [u32; 8] = [5, 15, 30, 60, 120, 360, 720, 1_440];
     pub const MAX_BARS: u32 = 720;
-    pub const RANGE: [u32; 5] = [60, 360, 1_440, 10_080, 43_200];
+    pub const RANGE: [u32; 7] = [5, 10, 60, 360, 1_440, 10_080, 43_200];
 
     pub fn each_choices(range_minutes: u32) -> &'static [u32] {
         if !Self::RANGE.contains(&range_minutes) {
             return &[];
+        }
+        if range_minutes < 60 {
+            return &[1];
         }
         &Self::EACH[..Self::EACH.partition_point(|each| *each <= range_minutes)]
     }
@@ -238,7 +241,7 @@ mod tests {
                 assert!(Series::new(selection, buckets(selection)).is_ok());
             }
         }
-        assert_eq!(valid, 30);
+        assert_eq!(valid, 32);
         assert_eq!(Selection::default().bars(), Ok(12));
         let mut current = Selection::default();
         assert_eq!(
@@ -278,6 +281,8 @@ mod tests {
             range_minutes: 60,
         };
         assert_eq!(hourly.with_range(360).unwrap().each_minutes, 60);
+        assert_eq!(hourly.with_range(5).unwrap().bars(), Ok(5));
+        assert_eq!(hourly.with_range(10).unwrap().bars(), Ok(10));
         assert!(hourly.with_range(15).is_err());
     }
 

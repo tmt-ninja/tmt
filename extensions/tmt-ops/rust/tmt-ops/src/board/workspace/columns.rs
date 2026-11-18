@@ -88,7 +88,6 @@ pub enum AgentsField {
     State,
     Session,
     Activity,
-    PerMinute,
     Tokens,
     Cron,
 }
@@ -100,7 +99,6 @@ impl AgentsField {
             Self::State => "STATE",
             Self::Session => "HOST",
             Self::Activity => "ACTIVITY 1h",
-            Self::PerMinute => "TOK/min",
             Self::Tokens => crate::config::TokRange::Hour.caption(),
             Self::Cron => match glyphs {
                 crate::board::overview::cron_counts::GlyphSet::Unicode => "◷",
@@ -114,7 +112,6 @@ impl AgentsField {
             Self::State => 15,
             Self::Session => 20,
             Self::Activity => 12,
-            Self::PerMinute => 7,
             Self::Tokens => 7,
             Self::Cron => 3,
         }
@@ -201,7 +198,6 @@ impl AgentsLayout {
                 AgentsField::State,
                 AgentsField::Session,
                 AgentsField::Activity,
-                AgentsField::PerMinute,
                 AgentsField::Tokens,
                 AgentsField::Cron,
             ];
@@ -213,12 +209,11 @@ impl AgentsLayout {
                         .map(|f| f.gap())
                         .sum::<u16>()
             };
-            for optional in [
-                AgentsField::Session,
-                AgentsField::Activity,
-                AgentsField::PerMinute,
-            ] {
-                if demand(&fields) <= width {
+            // Preserve the optional-column breakpoints while giving the reclaimed
+            // space to the flexible Agent track.
+            const OPTIONAL_AGENT_ROOM: u16 = 8;
+            for optional in [AgentsField::Session, AgentsField::Activity] {
+                if demand(&fields) + OPTIONAL_AGENT_ROOM <= width {
                     break;
                 }
                 fields.retain(|f| *f != optional);
@@ -230,6 +225,8 @@ impl AgentsLayout {
             const NAME_FIRST_TARGET: u16 = 21;
             const STATE_TARGET: u16 = 20;
             const NAME_FINAL_TARGET: u16 = 24;
+            let name_extra = spare.min(OPTIONAL_AGENT_ROOM);
+            spare -= name_extra;
             let name_first = spare
                 .min((NAME_FIRST_TARGET + if labels { 4 } else { 0 }).saturating_sub(name_width));
             name_width += name_first;
@@ -239,7 +236,7 @@ impl AgentsLayout {
             spare -= state_extra;
             let name_last = spare
                 .min((NAME_FINAL_TARGET + if labels { 4 } else { 0 }).saturating_sub(name_width));
-            name_width += name_last;
+            name_width += name_last + name_extra;
             let tracks: Vec<_> = fields
                 .iter()
                 .copied()
@@ -368,7 +365,7 @@ pub fn paint_agents_header(
         } else {
             word.to_owned()
         };
-        let align = if matches!(*field, AgentsField::Tokens | AgentsField::PerMinute) {
+        let align = if *field == AgentsField::Tokens {
             tmt_cli_style::grid::Align::Right
         } else if *field == AgentsField::Cron {
             tmt_cli_style::grid::Align::Center
@@ -893,23 +890,15 @@ mod tests {
                     "STATE",
                     "HOST",
                     "ACTIVITY 1h",
-                    "TOK/min",
                     "TOK 1h",
                     "◷",
                 ],
             ),
             (
                 67,
-                vec![
-                    "SQUAD / AGENT",
-                    "STATE",
-                    "ACTIVITY 1h",
-                    "TOK/min",
-                    "TOK 1h",
-                    "◷",
-                ],
+                vec!["SQUAD / AGENT", "STATE", "ACTIVITY 1h", "TOK 1h", "◷"],
             ),
-            (54, vec!["SQUAD / AGENT", "STATE", "TOK/min", "TOK 1h", "◷"]),
+            (66, vec!["SQUAD / AGENT", "STATE", "TOK 1h", "◷"]),
             (46, vec!["SQUAD / AGENT", "STATE", "TOK 1h", "◷"]),
         ] {
             let slots = layout.slots(Rect::new(0, 0, width, 1));
@@ -933,10 +922,9 @@ mod tests {
                 .map(|(field, slot)| (*field, slot.x, slot.width))
                 .collect::<Vec<_>>(),
             vec![
-                (AgentsField::Agent, 0, 21),
-                (AgentsField::State, 22, 20),
-                (AgentsField::Activity, 43, 12),
-                (AgentsField::PerMinute, 56, 7),
+                (AgentsField::Agent, 0, 29),
+                (AgentsField::State, 30, 20),
+                (AgentsField::Activity, 51, 12),
                 (AgentsField::Tokens, 64, 7),
                 (AgentsField::Cron, 72, 3),
             ]
@@ -949,7 +937,7 @@ mod tests {
                 .unwrap()
                 .1
                 .width,
-            25
+            33
         );
         assert_eq!(
             labelled
@@ -969,7 +957,7 @@ mod tests {
                 .unwrap()
                 .1
                 .width,
-            28
+            36
         );
         assert_eq!(
             stacked
@@ -993,11 +981,7 @@ mod tests {
                     .windows(2)
                     .all(|pair| pair[0].1.right() <= pair[1].1.x)
             );
-            for (field, threshold) in [
-                (AgentsField::Session, 88),
-                (AgentsField::Activity, 67),
-                (AgentsField::PerMinute, 54),
-            ] {
+            for (field, threshold) in [(AgentsField::Session, 88), (AgentsField::Activity, 67)] {
                 let slot = slots.iter().find(|(held, _)| *held == field);
                 assert_eq!(slot.is_some(), width >= threshold, "{field:?} at {width}");
                 if let Some((_, slot)) = slot {
@@ -1237,14 +1221,14 @@ mod tests {
 mod live_width_review {
     use super::*;
     #[test]
-    fn spare_cells_first_widen_the_name_then_state_then_name_again() {
+    fn reclaimed_space_widens_the_name_and_preserves_state_widths() {
         let mut layout = AgentsLayout::default();
         for (width, name, state) in [
-            (67, 18, 15),
-            (70, 21, 15),
-            (75, 21, 20),
-            (78, 24, 20),
-            (100, 24, 20),
+            (67, 26, 15),
+            (70, 29, 15),
+            (75, 29, 20),
+            (78, 32, 20),
+            (100, 32, 20),
         ] {
             let slots = layout.slots(Rect::new(0, 0, width, 1));
             let get = |field| slots.iter().find(|(f, _)| *f == field).unwrap().1;

@@ -518,19 +518,20 @@ to retry. A newer answer revision stays unread until that answer is seen. Existi
 local read cutoffs migrate once; the cutoff compares answeredAtMs, conservatively
 keeping a capture settled after the cutoff unread.
 
-The Agents tree shows SQUAD / AGENT, STATE, HOST, ACTIVITY, TOK/min,
+The Agents tree shows SQUAD / AGENT, STATE, HOST, ACTIVITY,
 TOK for the selected range, and ◷ when space permits. A Muted `*` before a name
 marks a lead. `b` or a click on the ACTIVITY header cycles 1m, 5m, 10m and 1h;
 the header names the saved window and the twelve grey cells run oldest to newest.
-TOK/min is a smoothed token rate, including in cost mode; the TOK range column
-switches between tokens and cost. Workspace settings can turn motion off.
+The TOK column switches between tokens and cost. Its Range cycles through 5m,
+10m, 1h, 3h, 6h, 1d and 7d. A recent increase in observed tokens bolds the figure
+in every look. Workspace settings can turn motion off while keeping this cue.
 A member waiting on a reported provider form has a `◆ form` mark and a read-only
 form in its Talk pane. The pane shows the reported question and choices, plan or
 permission, and marks truncated content. Use the existing jump action to answer
 in the member's terminal; the board does not answer provider forms. If the form
 read fails, a retained form is marked unavailable until a fresh read succeeds.
 Missing evidence is `—`, while an observed zero is `0`; partial totals are marked `~`.
-Narrow tables drop HOST, ACTIVITY and TOK/min in that order. ◷ is the total **timers owned** by that member in the row's
+Narrow tables drop HOST, then ACTIVITY. ◷ is the total **timers owned** by that member in the row's
 room, paused included: known zero is `0`, unavailable is `—`. Digest/runtime
 appear in selection-driven focus. Working has a green mark and bright text; idle
 rows are dim. Unread, idle-alert and blocked marks retain their colours. Selected

@@ -1,7 +1,7 @@
 //! Acquired-data cases shared by frozen-oracle candidates and visual evidence.
 use super::*;
 
-pub(in crate::board) const NAMES: [&str; 8] = [
+pub(in crate::board) const NAMES: [&str; 9] = [
     "usage-dropdowns",
     "usage-each-menu",
     "usage-auto",
@@ -10,6 +10,7 @@ pub(in crate::board) const NAMES: [&str; 8] = [
     "usage-hover",
     "usage-pinned",
     "usage-disabled-each",
+    "usage-short-range",
 ];
 
 pub(in crate::board) fn board_case(name: &str, look: crate::look::Look, width: u16) -> App {
@@ -30,14 +31,14 @@ pub(in crate::board) fn board_case(name: &str, look: crate::look::Look, width: u
         app.look().role(tmt_cli_style::Role::Text),
         look.role(tmt_cli_style::Role::Text)
     );
-    let range = if name == "usage-disabled-each" {
-        43_200
-    } else {
-        10_080
+    let range = match name {
+        "usage-disabled-each" => 43_200,
+        "usage-short-range" => 5,
+        _ => 10_080,
     };
     app.usage_chart.borrow_mut().restore_chart_controls(
         range,
-        if name == "usage-auto" {
+        if matches!(name, "usage-auto" | "usage-short-range") {
             Each::Auto
         } else {
             Each::Fixed(60)
@@ -45,8 +46,10 @@ pub(in crate::board) fn board_case(name: &str, look: crate::look::Look, width: u
     );
     paint(&mut app, width, 51); // resolve Auto before acquiring its exact grid
     let selection = app.usage_chart.borrow().selection;
-    let read = fixtures::retained(&app, selection);
-    assert!(app.apply_history(read, std::time::Instant::now()));
+    if range > 60 {
+        let read = fixtures::retained(&app, selection);
+        assert!(app.apply_history(read, std::time::Instant::now()));
+    }
     paint(&mut app, width, 51);
     if name == "usage-middle" {
         app.usage_chart

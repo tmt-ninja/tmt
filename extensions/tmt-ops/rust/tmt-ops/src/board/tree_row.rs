@@ -13,40 +13,6 @@ use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::{components::strip, style::TextFlow};
 use unicode_width::UnicodeWidthStr;
 
-fn minute_style(rate: Option<u128>, look: Look) -> Style {
-    if look.depth == tmt_cli_style::Depth::None {
-        return look.role(Role::Text);
-    }
-    let Some(rate) = rate else {
-        return look.role(Role::Dim);
-    };
-    use tmt_tui::components::design_system::HeatLevel;
-    let level = match rate {
-        0 => HeatLevel::Zero,
-        1..500 => HeatLevel::One,
-        500..2_000 => HeatLevel::Two,
-        2_000..5_000 => HeatLevel::Three,
-        5_000..10_000 => HeatLevel::Four,
-        _ => HeatLevel::Five,
-    };
-    let old_role = match rate {
-        0 => Role::Dim,
-        1..1_000 => Role::Muted,
-        _ => Role::Text,
-    };
-    let base = look.role(old_role);
-    // The first ramp fills are too close to terminal backgrounds as text.
-    // Use the existing Dim ink for those steps, preserving flash modifiers.
-    if matches!(level, HeatLevel::Zero | HeatLevel::One | HeatLevel::Two) {
-        return base.fg(look
-            .role(Role::Dim)
-            .fg
-            .unwrap_or(ratatui::style::Color::Reset));
-    }
-    let ramp = tmt_cli_style::theme::screen::neutral_ramp(&look.theme, look.depth, level.into());
-    ramp.bg.map_or(base, |color| base.fg(color))
-}
-
 /// Where the agent's name sits among the spans of its cell: pin, branch, lead mark, name.
 const NAME_SPAN: usize = 5;
 
@@ -98,9 +64,6 @@ pub(in crate::board) struct Row<'a> {
     pub state_attention: Vec<bool>,
     pub tokens: String,
     pub tokens_bold: bool,
-    pub minute: String,
-    pub minute_bold: bool,
-    pub minute_rate: Option<u128>,
     pub session: String,
     pub timers: Option<u32>,
     pub selected: bool,
@@ -375,10 +338,6 @@ pub(in crate::board) fn paint(
                 Line::styled(fit(&row.session, Align::Left), look.role(Role::Muted))
             }
             AgentsField::Activity => Line::styled("", look.role(Role::Muted)),
-            AgentsField::PerMinute => Line::styled(
-                fit(&row.minute, Align::Right),
-                minute_style(row.minute_rate, look),
-            ),
             AgentsField::Tokens => {
                 painted.tokens = Some(cell);
                 Line::styled(
@@ -403,12 +362,7 @@ pub(in crate::board) fn paint(
                 )
             }
         };
-        line.style = style(
-            look,
-            row,
-            line.style,
-            matches!(field, AgentsField::PerMinute),
-        );
+        line.style = style(look, row, line.style, false);
         for (index, span) in line.spans.iter_mut().enumerate() {
             let attention = matches!(field, AgentsField::State)
                 && row.state_attention.get(index).copied().unwrap_or(false);
@@ -420,11 +374,7 @@ pub(in crate::board) fn paint(
         {
             span.style = label_chip(label, look).style;
         }
-        if (matches!(field, AgentsField::PerMinute)
-            && look.depth != tmt_cli_style::Depth::None
-            && (row.minute_bold || row.minute_rate.is_some_and(|rate| rate >= 10_000)))
-            || (matches!(field, AgentsField::Tokens) && row.tokens_bold)
-        {
+        if matches!(field, AgentsField::Tokens) && row.tokens_bold {
             line.style = line.style.add_modifier(Modifier::BOLD);
             for span in &mut line.spans {
                 span.style = span.style.add_modifier(Modifier::BOLD);
@@ -466,67 +416,6 @@ pub(in crate::board) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn minute_heat_uses_six_neutral_ramp_steps_and_plain_no_color() {
-        for base in [
-            tmt_cli_style::Base::Tmt,
-            tmt_cli_style::Base::TmtLight,
-            tmt_cli_style::Base::Terminal,
-        ] {
-            for depth in [
-                tmt_cli_style::Depth::TrueColor,
-                tmt_cli_style::Depth::Ansi16,
-            ] {
-                let look = Look {
-                    theme: tmt_cli_style::Theme::new(base),
-                    depth,
-                };
-                for (value, step) in [
-                    (0, 0),
-                    (1, 1),
-                    (499, 1),
-                    (500, 2),
-                    (1_999, 2),
-                    (2_000, 3),
-                    (4_999, 3),
-                    (5_000, 4),
-                    (9_999, 4),
-                    (10_000, 5),
-                ] {
-                    let expected = if step <= 2 {
-                        Some(
-                            look.role(Role::Dim)
-                                .fg
-                                .unwrap_or(ratatui::style::Color::Reset),
-                        )
-                    } else {
-                        tmt_cli_style::theme::screen::neutral_ramp(&look.theme, depth, step).bg
-                    };
-                    assert_eq!(
-                        minute_style(Some(value), look).fg,
-                        expected,
-                        "{base:?} {depth:?} {value}"
-                    );
-                }
-            }
-        }
-        let plain = Look {
-            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
-            depth: tmt_cli_style::Depth::None,
-        };
-        for value in [
-            None,
-            Some(0),
-            Some(499),
-            Some(500),
-            Some(2_000),
-            Some(5_000),
-            Some(10_000),
-        ] {
-            assert_eq!(minute_style(value, plain), plain.role(Role::Text));
-        }
-    }
 
     #[test]
     fn idle_rows_preserve_attention_and_selected_styles() {
@@ -585,9 +474,6 @@ mod tests {
                     ],
                     tokens: "1".into(),
                     tokens_bold: false,
-                    minute: "—".into(),
-                    minute_bold: false,
-                    minute_rate: None,
                     session: String::new(),
 
                     timers: None,
@@ -688,9 +574,6 @@ mod tests {
                 state_attention: Vec::new(),
                 tokens: "—".into(),
                 tokens_bold: false,
-                minute: "—".into(),
-                minute_bold: false,
-                minute_rate: None,
                 session: String::new(),
 
                 timers: None,
@@ -730,9 +613,6 @@ mod tests {
             state_attention: Vec::new(),
             tokens: String::new(),
             tokens_bold: false,
-            minute: String::new(),
-            minute_bold: false,
-            minute_rate: None,
             session: String::new(),
             timers: None,
             selected: false,
@@ -827,9 +707,6 @@ mod tests {
                 state_attention: vec![true, false],
                 tokens: "12.3K".into(),
                 tokens_bold: false,
-                minute: "—".into(),
-                minute_bold: false,
-                minute_rate: None,
                 session: String::new(),
 
                 timers: Some(0),
@@ -901,9 +778,6 @@ mod tests {
                         state_attention: vec![true, false],
                         tokens: "—".into(),
                         tokens_bold: false,
-                        minute: "—".into(),
-                        minute_bold: false,
-                        minute_rate: None,
                         session: String::new(),
 
                         timers: None,

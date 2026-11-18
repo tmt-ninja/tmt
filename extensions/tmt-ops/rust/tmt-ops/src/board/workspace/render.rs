@@ -888,43 +888,24 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
             } else {
                 (tokens, false)
             };
-            let minute_reading = match &row.target {
-                OpsTarget::Member { identity_id, .. } => app
-                    .agents_live
-                    .member(app, identity_id)
-                    .and_then(|usage| usage.minute),
-                OpsTarget::Squad(room) => app.agents_live.squad_minute(app, room),
-                _ => None,
-            }
-            .filter(|_| !plain);
-            let (minute, mut minute_bold) = if let Some((_, slot)) =
-                slots.iter().find(|(field, _)| *field == Field::PerMinute)
-            {
-                let cell = Rect::new(slot.x, stripe.y, slot.width, 1).intersection(stripe);
-                live_cell(
-                    app,
-                    cell,
-                    format!("agents:{:?}:minute", row.target),
-                    LiveCell::Tokens(minute_reading),
-                    "—".into(),
-                    reduced,
-                    now,
-                )
-            } else {
-                ("—".into(), false)
-            };
-            if !reduced {
-                let sample_flash = match &row.target {
+            let burning = tokens != "—"
+                && match &row.target {
                     OpsTarget::Member { identity_id, .. } => {
-                        app.agents_live.rate_flash(identity_id, now)
+                        app.agents_live.burning(identity_id, now)
                     }
-                    OpsTarget::Squad(room) => app.agents_live.squad_rate_flash(app, room, now),
-                    _ => None,
+                    OpsTarget::Squad(room) => snapshot
+                        .roster
+                        .squads
+                        .iter()
+                        .find(|squad| &squad.room_id == room)
+                        .is_some_and(|squad| {
+                            squad
+                                .members
+                                .iter()
+                                .any(|id| app.agents_live.burning(id, now))
+                        }),
+                    _ => false,
                 };
-                if let Some(flash) = sample_flash {
-                    minute_bold = flash;
-                }
-            }
             let painted = crate::board::tree_row::paint(
                 frame.buffer_mut(),
                 stripe,
@@ -955,10 +936,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                     state_primary_width,
                     state_attention,
                     tokens,
-                    tokens_bold,
-                    minute,
-                    minute_bold,
-                    minute_rate: minute_reading.map(|reading| reading.tokens),
+                    tokens_bold: tokens_bold || burning,
                     session: match &row.target {
                         OpsTarget::Member { identity_id, .. } => {
                             safe(&app.member_session_evidence(identity_id).compact())

@@ -511,7 +511,8 @@ Sent-message feedback shares that acquired activity; the [conversation owner](bo
 
 One identity-total series uses the existing Rate owner. Its header reads
 `Usage · last <range> · <total> tok`, with independent right-aligned Range and Each
-dropdowns. Range offers 1h, 6h, 1d, 7d and 30d; Each offers Auto, 5m, 15m, 30m,
+dropdowns. Range offers 5m, 10m, 1h, 6h, 1d, 7d and 30d. The two short ranges use 1m bars.
+For longer ranges Each offers Auto, 5m, 15m, 30m,
 1h, 2h, 6h, 12h and 1d, omitting intervals longer than the range. Choices exceeding
 720 buckets remain visible but disabled, with their minimum interval in the menu
 footer. Auto selects the finest interval fitting both the plot width and 720;
@@ -583,10 +584,11 @@ Shared completion counts treat references as attributes, including linked open i
 a known positive count; the state and unread words keep their width first. If the full
 `N todo` suffix does not fit, the suffix is omitted.
 The shared track solver keeps header, row and hit geometry aligned. The Agents tree
-shows twelve grey activity cells for the saved 1m, 5m, 10m or 1h window and a
-smoothed token-per-minute column alongside the selected TOK range. `b` and the
-header hit cycle the window; the workspace preference saves it through CAS. Narrow
-layouts drop HOST, activity, then TOK/min. TOK/min remains token-based in cost mode.
+shows twelve grey activity cells for the saved 1m, 5m, 10m or 1h window. `b` and the
+header hit cycle the activity window; the workspace preference saves it through CAS.
+Narrow layouts drop HOST, then ACTIVITY. The single TOK column reads 5m, 10m and
+1h totals from the retained meter. A positive accepted counter delta gives the
+existing figure bold weight for 30 seconds, with one deadline for visible figures.
 A pinned ten-minute five-second history seed replaces overlapping hour slices; missing fine evidence cannot invent short-cell values. Visible working rows, count-ups,
 attention flashes and squad marks admit bounded frame clocks. The workspace motion
 preference suppresses these effects, and inactive motion has no animation deadline. Pending/unavailable counts stay
