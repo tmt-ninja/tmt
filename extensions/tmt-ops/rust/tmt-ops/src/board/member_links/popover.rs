@@ -783,6 +783,30 @@ mod tests {
     }
 
     #[test]
+    fn copy_completion_paints_a_link_that_can_be_reopened() {
+        let mut app = reader("Read [the docs](https://example.com/a?b=1) first.");
+        let (area, url) = url_hits(&app).remove(0);
+        click(&mut app, area);
+        assert_eq!(app.menu.as_ref().unwrap().title, "Link");
+        assert!(screen(&app).contains("┌ Link"));
+        assert!(matches!(
+            app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            Effect::Act(Request::Copy { text, .. }) if text == url
+        ));
+        app.finished(Ok("Copied to the clipboard.".into()));
+        let restored = screen(&app);
+        assert!(restored.contains("Copied to the clipboard."));
+        assert!(restored.contains("Read the docs first."));
+        assert!(!restored.contains("┌ Link"));
+        let (repainted, same_url) = url_hits(&app).remove(0);
+        assert_eq!(same_url, url);
+        click(&mut app, repainted);
+        let menu = app.menu.as_ref().expect("the repainted link reopens");
+        assert_eq!(menu.title, "Link");
+        assert_eq!(menu.entries[2].choice, Choice::LinkCopy(url));
+    }
+
+    #[test]
     fn a_link_reopens_after_full_view_and_two_escapes() {
         let mut app = reader("Read [the docs](https://example.com/a?b=1) first.");
         let (area, url) = url_hits(&app).remove(0);
