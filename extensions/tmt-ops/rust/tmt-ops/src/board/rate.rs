@@ -75,7 +75,8 @@ pub(super) struct Counter {
     cached: u64,
     sequence: u64,
     observed: u64,
-    usable: bool,
+    complete: bool,
+    gap: bool,
 }
 
 fn nonempty(value: &Value) -> Option<String> {
@@ -119,14 +120,12 @@ impl Counter {
             cached: number("cachedInputTokens")?,
             sequence: number("sequence").filter(|n| *n > 0)?,
             observed: number("observedAtMs").filter(|n| *n > 0)?,
-            usable: value["complete"].as_bool()? && !value["gap"].as_bool()?,
+            complete: value["complete"].as_bool()?,
+            gap: value["gap"].as_bool()?,
         };
-        // Both flags are required, even when complete is false (no short circuit).
-        let gap = value["gap"].as_bool()?;
-        let complete = value["complete"].as_bool()?;
         (counter.cached <= counter.input
             && counter.input + counter.output <= SAFE
-            && !(complete && gap))
+            && !(counter.complete && counter.gap))
             .then_some(counter)
     }
 }
@@ -579,7 +578,7 @@ impl Rate {
             }
             let latest = Counter::read(&seed.latest);
             let linked =
-                latest.as_ref().is_some_and(|counter| counter.usable) && seed.sampled.is_some();
+                latest.as_ref().is_some_and(|counter| counter.complete) && seed.sampled.is_some();
             let providers = state.history_providers(&seed.buckets, latest.as_ref(), linked);
             for (slice, attribution) in seed.buckets.iter().zip(providers) {
                 let first = slice.from_ms / SLOT_MS;
@@ -612,10 +611,7 @@ impl Rate {
                 }
             }
             state.previous = Counter::read(&seed.latest);
-            state.blocked = state
-                .previous
-                .as_ref()
-                .is_none_or(|counter| !counter.usable);
+            state.blocked = state.previous.as_ref().is_none_or(|counter| counter.gap);
             state.sampled = seed.sampled;
         }
     }
@@ -637,7 +633,7 @@ impl Rate {
             let latest = Counter::read(&seed.latest);
             let linked = latest
                 .as_ref()
-                .is_some_and(|latest| latest.usable && state.previous.as_ref() == Some(latest))
+                .is_some_and(|latest| latest.complete && state.previous.as_ref() == Some(latest))
                 && seed.sampled.is_some()
                 && state.source_bridge(seed.through, seed.fine_through);
             let providers = state.history_providers(&seed.buckets, latest.as_ref(), linked);
@@ -725,7 +721,7 @@ impl Rate {
                 continue;
             }
             quota::observe(state, resume, &next, now);
-            if !next.usable {
+            if next.gap {
                 state.previous = Some(next);
                 state.blocked = true;
                 state.interval(
@@ -741,16 +737,17 @@ impl Rate {
             }
             let continuous = state.previous.as_ref().filter(|previous| {
                 !state.blocked
-                    && previous.usable
+                    && !previous.gap
                     && previous.key == next.key
                     && next.input >= previous.input
                     && next.output >= previous.output
                     && next.cached >= previous.cached
+                    && next.cached - previous.cached <= next.input - previous.input
             });
             let (evidence, gap, tokens) = match continuous {
                 Some(previous) => (
-                    true,
-                    false,
+                    previous.complete && next.complete,
+                    !previous.complete || !next.complete,
                     u128::from(next.input - previous.input)
                         + u128::from(next.output - previous.output),
                 ),
@@ -760,7 +757,9 @@ impl Rate {
                     0,
                 ),
             };
-            burn(id, evidence.then_some(tokens > 0));
+            // A gap-free pair can prove completed tokens even when some
+            // source coverage is missing. Only complete pairs prove a zero.
+            burn(id, continuous.map(|_| tokens > 0));
             state.began.get_or_insert(now);
             let provider = state.driver(&next.key.0);
             state.previous = Some(next);
@@ -869,7 +868,7 @@ impl Rate {
                 && member
                     .previous
                     .as_ref()
-                    .is_some_and(|counter| counter.usable)
+                    .is_some_and(|counter| counter.complete)
                 && member.began.is_some_and(|began| began <= from)
                 && member.sampled.is_some()
                 && !member.buckets.iter().any(|bucket| {

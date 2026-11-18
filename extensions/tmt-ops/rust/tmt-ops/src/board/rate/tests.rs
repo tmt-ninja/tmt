@@ -47,6 +47,40 @@ fn no_data_warmup_and_measured_zero_are_distinct() {
 }
 
 #[test]
+fn gap_free_partial_provider_receipts_count_live_tokens_without_claiming_coverage() {
+    for driver in ["claude", "codex"] {
+        let sample = |tokens, complete| {
+            let mut sample = input(tokens);
+            let resume = sample.resumes.get_mut("a").unwrap();
+            resume["driver"] = json!(driver);
+            resume["consumption"]["complete"] = json!(complete);
+            sample
+        };
+        let mut rate = Rate::default();
+        rate.sample(&sample(100, false), 60_000);
+        rate.sample(&sample(100, false), 65_000);
+        assert_eq!(rate.member("a", 65_000, TokenWindow::HOUR), None);
+
+        let mut burn = None;
+        rate.sample_with_burn(&sample(200, false), 70_000, |_, value| burn = value);
+        assert_eq!(burn, Some(true), "{driver}");
+        let reading = rate.member("a", 70_000, TokenWindow::HOUR).unwrap();
+        assert_eq!(reading.tokens, 150, "{driver}");
+        assert!(reading.partial, "{driver}");
+        assert_eq!(
+            rate.observation("a", 70_000, TokenWindow::HOUR).unwrap().1,
+            0
+        );
+
+        rate.sample(&sample(200, false), 75_000);
+        rate.sample(&sample(300, true), 80_000);
+        let reading = rate.member("a", 80_000, TokenWindow::HOUR).unwrap();
+        assert_eq!(reading.tokens, 300, "{driver}");
+        assert!(reading.partial, "{driver}");
+    }
+}
+
+#[test]
 fn windows_count_cached_input_once_without_dividing_by_covered_span() {
     let mut rate = Rate::default();
     rate.sample(&input(100), 0);
@@ -126,8 +160,8 @@ fn resets_invalid_order_and_gap_recovery_never_invent_tokens() {
         "epoch",
         "decrease",
         "gap",
-        "incomplete",
         "invalid",
+        "cache skew",
         "old",
         "equal",
     ] {
@@ -146,8 +180,8 @@ fn resets_invalid_order_and_gap_recovery_never_invent_tokens() {
                 value["consumption"]["gap"] = json!(true);
                 value["consumption"]["complete"] = json!(false);
             }
-            "incomplete" => value["consumption"]["complete"] = json!(false),
             "invalid" => value["consumption"]["cachedInputTokens"] = json!(999),
+            "cache skew" => value["consumption"]["cachedInputTokens"] = json!(151),
             "old" => value["consumption"]["observedAtMs"] = json!(1),
             "equal" => value["consumption"]["sequence"] = json!(201),
             _ => unreachable!(),
@@ -172,7 +206,7 @@ fn resets_invalid_order_and_gap_recovery_never_invent_tokens() {
             value["consumption"]["epoch"] = changed.resumes["a"]["consumption"]["epoch"].clone();
         }
         rate.sample(&recovery, 20_000);
-        if matches!(kind, "gap" | "incomplete" | "invalid" | "old" | "equal") {
+        if matches!(kind, "gap" | "invalid" | "old" | "equal") {
             assert_eq!(
                 rate.members["a"]
                     .buckets

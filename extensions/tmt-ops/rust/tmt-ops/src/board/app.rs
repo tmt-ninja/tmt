@@ -1749,8 +1749,18 @@ impl App {
         read: super::refresh::HistoryRead,
         now: Instant,
     ) -> bool {
-        if read.retained.as_ref().map(|(request, _)| *request) != self.retained_history_request()
-            || read.quota.is_some() != self.quota_history_visible()
+        let chart_demand = self.retained_history_request();
+        let quota_visible = self.quota_history_visible();
+        let chart_matches = read.retained.as_ref().map(|(request, _)| *request) == chart_demand;
+        let quota_matches = read.quota.is_some() == quota_visible;
+        let retained = read.retained.as_ref().filter(|_| chart_matches);
+        let quota = read.quota.as_ref().filter(|_| quota_matches);
+        // The first frame can add chart or quota demand while the recent seed
+        // is in flight. Neither auxiliary request owns that seed.
+        if !read.reseed_recent
+            && retained.is_none()
+            && quota.is_none()
+            && !(chart_matches && quota_matches)
         {
             return false;
         }
@@ -1766,6 +1776,7 @@ impl App {
         };
         let home = view.home.is_some();
         let mut changed = false;
+        let mut burn = BTreeMap::<String, Option<bool>>::new();
         for (name, (settings, input)) in read.targets {
             let current = if home {
                 view.home_rate.get(&name)
@@ -1793,19 +1804,29 @@ impl App {
             if read.reseed_recent {
                 meter.seed(&current.input, &read.seeds, now, false);
             }
-            if let Some((_, seeds)) = &read.retained {
+            if let Some((_, seeds)) = retained {
                 meter.seed_retained(&current.input, seeds, now);
             }
-            meter.seed_quota(&current.input, read.quota.as_ref(), now);
+            if quota_matches {
+                meter.seed_quota(&current.input, quota, now);
+            }
             let observed = read
                 .observed
                 .as_ref()
                 .map(|rows| current.input.joined(rows));
-            meter.sample(observed.as_ref().map_err(|_| ()), now);
+            meter.sample_with_burn(observed.as_ref().map_err(|_| ()), now, |id, value| {
+                if home {
+                    let held = burn.entry(id.to_owned()).or_default();
+                    *held = (*held).max(value);
+                }
+            });
             changed = true;
         }
         if changed {
             view.history_pending = false;
+            if home {
+                self.agents_live.observe_burn(burn, now);
+            }
             self.project_usage(now);
         }
         changed
@@ -6583,6 +6604,81 @@ mod token_window_tests {
             .observation("a", TokenWindow::MINUTE, soon)
             .map(|(reading, _)| reading);
         assert_eq!(current.unwrap().tokens, 450);
+    }
+
+    #[test]
+    fn startup_recent_seed_survives_new_quota_demand_without_burning() {
+        use super::super::rate::history::{Seed, Slice};
+        let clock = 3_600_000;
+        crate::status::with_now_ms(clock, || {
+            let now = Instant::now();
+            let mut app = home(now);
+            app.shell.tab = super::super::shell::OpsTab::Agents;
+            assert!(app.quota_history_visible(), "the first frame demands quota");
+            let rate = &app.view.as_ref().unwrap().home_rate["product"];
+            let latest = rate.input.resumes["a"].clone();
+            let seed = Seed {
+                from: clock - 30_000,
+                through: clock,
+                available: Some(clock - 30_000),
+                sampled: Some(clock - 1),
+                latest,
+                reporting: true,
+                buckets: vec![Slice {
+                    from_ms: clock - 5_000,
+                    to_ms: clock,
+                    input_tokens: 120,
+                    output_tokens: 30,
+                    cached_input_tokens: 0,
+                    covered_ms: 2_500,
+                    complete: false,
+                    gap: false,
+                    discontinuous: false,
+                    by_driver: vec![("claude".into(), 150)],
+                }],
+            };
+            let read = super::super::refresh::HistoryRead {
+                owner: super::super::ALL.into(),
+                targets: [("product".into(), (rate.settings, rate.input.clone()))].into(),
+                seeds: [("a".into(), Some(seed))].into(),
+                reseed_recent: true,
+                observed: Ok(rate.input.resumes.clone()),
+                retained: None,
+                quota: None,
+            };
+            assert!(app.apply_history(read, now));
+            for range in [
+                crate::config::TokRange::FiveMinutes,
+                crate::config::TokRange::TenMinutes,
+                crate::config::TokRange::Hour,
+            ] {
+                let (_, reading) = app
+                    .member_usage_observation("a", range.live_window().unwrap(), now)
+                    .unwrap();
+                assert_eq!(reading.tokens, 150, "{range:?}");
+                assert!(reading.partial, "{range:?}");
+            }
+            assert!(!app.agents_live.burning("a", now));
+        });
+    }
+
+    #[test]
+    fn a_fresh_home_observation_on_the_history_lane_can_burn() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let rate = &app.view.as_ref().unwrap().home_rate["product"];
+        let read = super::super::refresh::HistoryRead {
+            owner: super::super::ALL.into(),
+            targets: [("product".into(), (rate.settings, rate.input.clone()))].into(),
+            seeds: BTreeMap::new(),
+            reseed_recent: false,
+            observed: Ok(super::super::rate::tests::input(200).resumes),
+            retained: None,
+            quota: app.quota_history_visible().then(Default::default),
+        };
+        let at = now + Duration::from_secs(5);
+        assert!(app.apply_history(read, at));
+        assert!(app.agents_live.burning("a", at));
     }
 
     #[test]

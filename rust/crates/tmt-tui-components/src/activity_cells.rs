@@ -1,4 +1,4 @@
-use super::{CellGrid, Component, Constraints, HeatLevel, HitId, Rect, Size};
+use super::{CellGrid, Component, Constraints, HitId, Rect, Size};
 use serde::{Deserialize, Serialize};
 use tmt_cli_style::theme::Role;
 
@@ -8,8 +8,8 @@ pub struct ActivityCellsProps {
     pub selected: bool,
 }
 
-/// Hourly observations: `· ▁▄█` (missing, zero and six neutral levels).
-/// Cells past the available width are omitted; selected missing/zero cells retain selection.
+/// Activity observations: a dim gap or zero and six foreground glyph levels.
+/// Visible cells share the selection underlay when selected.
 pub struct ActivityCells;
 
 impl Component for ActivityCells {
@@ -26,6 +26,12 @@ impl Component for ActivityCells {
             return vec![];
         }
         let maximum = props.values.iter().flatten().copied().max().unwrap_or(0);
+        // The selection surface needs the higher-contrast secondary foreground.
+        let quiet = if props.selected {
+            Role::Muted
+        } else {
+            Role::Dim
+        };
         for (index, value) in props
             .values
             .iter()
@@ -39,41 +45,23 @@ impl Component for ActivityCells {
                 width: 1,
                 height: area.height.min(1),
             };
-            match value {
-                None | Some(0) => {
-                    grid.text(
-                        rect,
-                        if value.is_none() { "·" } else { " " },
-                        if props.selected {
-                            Role::Text
-                        } else {
-                            Role::Dim
-                        },
-                        None,
-                    );
-                    if props.selected
-                        && let Some(mut cell) = grid.get(x, area.y).cloned()
-                    {
-                        cell.underlay = Some(Role::Selection);
-                        grid.set(x, area.y, cell);
-                    }
-                }
+            let (glyph, role) = match value {
+                None => ("·", quiet),
+                Some(0) => ("▁", quiet),
                 Some(count) => {
                     let level = ((u128::from(*count) * 6)
-                        .div_ceil(u128::from(maximum.max(*count)))
+                        .div_ceil(u128::from(maximum))
                         .clamp(1, 6)
-                        - 1) as u8;
-                    grid.text(
-                        rect,
-                        ["▁", "▂", "▃", "▄", "▆", "█"][usize::from(level)],
-                        Role::Text,
-                        None,
-                    );
-                    if let Some(mut cell) = grid.get(x, area.y).cloned() {
-                        cell.heat_level = HeatLevel::try_from(level).ok();
-                        grid.set(x, area.y, cell);
-                    }
+                        - 1) as usize;
+                    (["▁", "▂", "▃", "▄", "▆", "█"][level], Role::Text)
                 }
+            };
+            grid.text(rect, glyph, role, None);
+            if props.selected
+                && let Some(mut cell) = grid.get(x, area.y).cloned()
+            {
+                cell.underlay = Some(Role::Selection);
+                grid.set(x, area.y, cell);
             }
         }
         vec![]

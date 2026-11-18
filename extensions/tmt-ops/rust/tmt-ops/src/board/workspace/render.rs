@@ -1003,62 +1003,56 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         OpsTarget::Squad(room) => app.agents_live.squad_activity(app, room),
                         _ => [None; 12],
                     };
-                    let has_known = values
-                        .iter()
-                        .flatten()
-                        .any(|value| value.is_finite() && *value >= 0.0);
-                    let empty_cells = values.map(|value| value == Some(0.0));
-                    let values = values
+                    let values: Vec<_> = values
                         .into_iter()
-                        .map(|value| match value {
-                            Some(value) if value.is_finite() && value > 0.0 => {
-                                Some((value.round() as u64).max(1))
-                            }
-                            Some(0.0) => Some(1), // Known empty uses the lowest grey level.
-                            _ if !has_known => Some(0), // A wholly unknown row stays blank.
-                            _ => None,            // Partial coverage retains the unknown dot.
+                        .map(|value| {
+                            value
+                                .filter(|value| value.is_finite() && *value >= 0.0)
+                                .map(|value| {
+                                    if value == 0.0 {
+                                        0
+                                    } else {
+                                        (value.round() as u64).max(1)
+                                    }
+                                })
                         })
                         .collect();
-                    let mut grid = ds::CellGrid::new(ds::Size {
-                        width: cell.width,
-                        height: 1,
-                    });
-                    ds::ActivityCells::render(
-                        &ds::ActivityCellsProps { values, selected },
-                        ds::Rect {
-                            x: 0,
-                            y: 0,
+                    if values.iter().any(Option::is_some) {
+                        let mut grid = ds::CellGrid::new(ds::Size {
                             width: cell.width,
                             height: 1,
-                        },
-                        &mut grid,
-                    );
-                    for (x, empty) in empty_cells
-                        .into_iter()
-                        .enumerate()
-                        .take(usize::from(cell.width))
-                    {
-                        if empty && let Some(mut value) = grid.get(x as u16, 0).cloned() {
-                            value.glyph = "▁".into();
-                            value.heat_level = Some(ds::HeatLevel::Zero);
-                            grid.set(x as u16, 0, value);
+                        });
+                        ds::ActivityCells::render(
+                            &ds::ActivityCellsProps { values, selected },
+                            ds::Rect {
+                                x: 0,
+                                y: 0,
+                                width: cell.width,
+                                height: 1,
+                            },
+                            &mut grid,
+                        );
+                        let buffer = frame.buffer_mut();
+                        // Activity is painted over the uniform row stripe. Keep
+                        // its background and NO_COLOR selection as already painted.
+                        let row = &buffer[(cell.x, cell.y)];
+                        let bg = row.bg;
+                        let reversed = row.modifier.contains(ratatui::style::Modifier::REVERSED);
+                        tmt_tui::components::design_system_ratatui::paint(
+                            &grid,
+                            cell,
+                            buffer,
+                            &look.theme,
+                            look.depth,
+                        );
+                        for x in cell.x..cell.right() {
+                            let target = &mut buffer[(x, cell.y)];
+                            target.bg = bg;
+                            target
+                                .modifier
+                                .set(ratatui::style::Modifier::REVERSED, reversed);
                         }
                     }
-                    if selected && look.depth == tmt_cli_style::Depth::None {
-                        for x in 0..cell.width {
-                            if let Some(mut value) = grid.get(x, 0).cloned() {
-                                value.underlay = Some(tmt_cli_style::Role::Selection);
-                                grid.set(x, 0, value);
-                            }
-                        }
-                    }
-                    tmt_tui::components::design_system_ratatui::paint(
-                        &grid,
-                        cell,
-                        frame.buffer_mut(),
-                        &look.theme,
-                        look.depth,
-                    );
                 }
             }
             if let Some(hit) = checklist_hit {
@@ -2140,6 +2134,73 @@ mod usage_tests {
         },
         config::TokenWindow,
     };
+
+    #[test]
+    fn agents_activity_uses_the_painted_selection_across_the_row() {
+        use crate::board::{
+            app::workspace::tests::{MEMBER, ROOM},
+            home::tests::oracle::metered,
+        };
+        use ratatui::{Terminal, backend::TestBackend, style::Modifier};
+        use tmt_cli_style::{Depth, Theme, theme::Base};
+
+        crate::status::with_now_ms(1_791_600_000_000, || {
+            for (base, depth) in [
+                (Base::Tmt, Depth::TrueColor),
+                (Base::TmtLight, Depth::TrueColor),
+                (Base::Terminal, Depth::Ansi16),
+                (Base::Tmt, Depth::None),
+            ] {
+                let mut app = metered(crate::look::Look {
+                    theme: Theme::new(base),
+                    depth,
+                });
+                let target = OpsTarget::Member {
+                    room_id: Some(ROOM.into()),
+                    identity_id: MEMBER.into(),
+                };
+                app.workspace.expanded.insert(ROOM.into());
+                app.workspace.selected = Some(target.clone());
+                let index = app
+                    .workspace_rows()
+                    .iter()
+                    .position(|row| row.target == target)
+                    .unwrap();
+                let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render(frame, &app))
+                    .unwrap();
+                let hits = app.hits.borrow();
+                let row = hits
+                    .iter()
+                    .find(|hit| hit.target == HitTarget::Row(index))
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                let leading = &buffer[(row.x, row.y)];
+                let mut gap = false;
+                let mut level = false;
+                for x in row.x..row.x + row.width {
+                    let cell = &buffer[(x, row.y)];
+                    match cell.symbol() {
+                        "·" => gap = true,
+                        "▁" | "▂" | "▃" | "▄" | "▆" | "█" => level = true,
+                        _ => continue,
+                    }
+                    assert_eq!(cell.bg, leading.bg, "{base:?} {depth:?}");
+                    assert_eq!(
+                        cell.modifier.contains(Modifier::REVERSED),
+                        leading.modifier.contains(Modifier::REVERSED),
+                        "{base:?} {depth:?}"
+                    );
+                }
+                assert!(
+                    gap && level,
+                    "the selected row needs both kinds of activity"
+                );
+            }
+        });
+    }
+
     #[test]
     fn missing_zero_partial_and_supplied_share_keep_distinct_meanings() {
         let usage = HomeUsage {

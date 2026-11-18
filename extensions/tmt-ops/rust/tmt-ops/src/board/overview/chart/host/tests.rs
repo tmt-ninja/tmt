@@ -222,12 +222,16 @@ fn long_ranges_render_exact_buckets_and_reject_old_or_inactive_demand() {
                     .change(selection)
                     .unwrap();
                 let request = app.retained_history_request().unwrap();
-                let stale = fixtures::retained(
+                let mut stale = fixtures::retained(
                     &app,
                     selection
                         .with_range(if range_minutes == 360 { 1_440 } else { 360 })
                         .unwrap(),
                 );
+                // This receipt is for the old chart alone. Recent evidence
+                // and the independently visible quota do not depend on it.
+                stale.reseed_recent = false;
+                stale.quota = None;
                 assert!(!app.apply_history(stale, std::time::Instant::now()));
                 let read = fixtures::retained(&app, selection);
                 assert!(app.apply_history(read, std::time::Instant::now()));

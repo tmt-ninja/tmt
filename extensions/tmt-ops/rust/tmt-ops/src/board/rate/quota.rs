@@ -25,7 +25,7 @@ impl Rate {
             let latest = Counter::read(&seed.latest);
             let linked = latest
                 .as_ref()
-                .is_some_and(|latest| latest.usable && state.previous.as_ref() == Some(latest))
+                .is_some_and(|latest| latest.complete && state.previous.as_ref() == Some(latest))
                 && seed.sampled.is_some()
                 && state.source_bridge(seed.through, seed.fine_through);
             let providers = state.history_providers(&seed.buckets, latest.as_ref(), linked);
