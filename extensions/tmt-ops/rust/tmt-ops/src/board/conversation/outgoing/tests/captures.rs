@@ -216,9 +216,23 @@ fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
             "chat-no-answer" => "no_answer",
             _ => "answered",
         };
+        let message_state = match scene {
+            "chat-bound" => {
+                json!({"state":"working","reason":{"text":"the agent has started on it"}})
+            }
+            "chat-unbound" => json!({"state":"delivered","reason":{"text":UNBOUND_REASON}}),
+            "chat-answered" => json!({"state":"answered","reason":{
+                "code":"answered_by_turn","text":"answered, the agent's turn ended with this reply"
+            }}),
+            "chat-no-answer" => json!({"state":"unconfirmed","reason":{
+                "code":"turn_ended_without_answer",
+                "text":"no answer captured: the agent's turn ended without a final message"
+            }}),
+            _ => json!({"state":"delivered","reason":{"text":"delivered"}}),
+        };
         app.apply_sent(crate::board::home_leads::SentKey { sender, agent: MEMBER.into() }, Ok(vec![json!({
             "requestId":REQUEST,"preparedAtMs":at,"text":QUESTION,"truncated":false,"mode":"passthrough",
-            "messageState":{"state":if scene=="chat-bound" {"working"} else {"delivered"},"reason":{"text":if scene=="chat-bound" {"the agent has started on it"} else if scene=="chat-unbound" {UNBOUND_REASON} else {"delivered"}}},
+            "messageState":message_state,
             "passthrough":{"state":state,"boundAtMs":at+1,"settledAtMs":if state=="answered" {json!(now_ms-500)} else {serde_json::Value::Null},"answer":{"text":REPLY,"truncated":scene=="chat-truncated","provider":"codex","endedMs":now_ms-1000}}
         })]));
     }
@@ -345,6 +359,13 @@ fn every_feedback_state_has_approved_exchange_colours_at_mock_widths() {
                                 && !text.contains("finished without replying"),
                             "Core capture, not provider feedback: {text}"
                         );
+                        match scene {
+                            "chat-answered" => assert!(text.contains("↩ answered,"), "{text}"),
+                            "chat-no-answer" => {
+                                assert!(text.contains("? no answer captured:"), "{text}");
+                            }
+                            _ => {}
+                        }
                         if scene == "chat-answered" || scene == "chat-truncated" {
                             assert!(text.contains(REPLY));
                         }
