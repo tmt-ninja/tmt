@@ -437,7 +437,7 @@ impl Registration {
             titles,
             revisions,
             progress,
-        } = self.page_catalog_fingerprinted()?;
+        } = self.page_catalog_fingerprinted(serving)?;
         let fresh: std::collections::BTreeMap<String, crate::summary::Summary> = catalog["pages"]
             .as_array()
             .into_iter()
@@ -973,16 +973,22 @@ impl Registration {
     }
     /// The browser's catalog read: the page list, each page's fingerprint and the local titles still
     /// valid for their page, all in one store transaction.
-    fn page_catalog_fingerprinted(&self) -> std::result::Result<CatalogRead, Code> {
+    fn page_catalog_fingerprinted(
+        &self,
+        include_revisions: bool,
+    ) -> std::result::Result<CatalogRead, Code> {
         self.store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
                 let catalog = tx.page_list()?;
                 let mut revisions = std::collections::BTreeMap::new();
-                for page in catalog["pages"].as_array().into_iter().flatten() {
-                    if let Some(id) = page["pageId"].as_str()
-                        && let Some(revision) = crate::page::listed_token(tx, &self.keyring, id)?
-                    {
-                        revisions.insert(id.to_owned(), revision);
+                if include_revisions {
+                    for page in catalog["pages"].as_array().into_iter().flatten() {
+                        if let Some(id) = page["pageId"].as_str()
+                            && let Some(revision) =
+                                crate::page::listed_token(tx, &self.keyring, id)?
+                        {
+                            revisions.insert(id.to_owned(), revision);
+                        }
                     }
                 }
                 Ok(CatalogRead {

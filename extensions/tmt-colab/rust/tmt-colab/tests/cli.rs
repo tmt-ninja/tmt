@@ -925,8 +925,13 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     let show = pilot.call(&["show", PAGE, "--json"]);
     assert_eq!(list["pages"][0]["title"], "Encrypted π [31m");
     assert_eq!(show["page"]["title"], "Encrypted π\u{1b}[31m");
-    // ls uses display titles and omits layout. The remaining verified metadata is the same.
+    // ls carries the list-only Work home summary. The remaining verified metadata is the same
+    // after accounting for the display title and fields that show supplies separately.
     let mut listed = list["pages"][0].clone();
+    assert_eq!(
+        listed.as_object_mut().unwrap().remove("summary"),
+        Some(json!({"comments":0,"waiting":false,"needsYou":0,"status":"discussing"}))
+    );
     for key in ["path", "link", "shortLink"] {
         listed.as_object_mut().unwrap().remove(key);
     }
@@ -10881,7 +10886,10 @@ fn a_large_cached_list_reads_metadata_without_opening_page_content() {
         child
             .wait_until(started + Duration::from_secs(30))
             .unwrap()
-            .success()
+            .success(),
+        "stdout: {}; stderr: {}",
+        fs::read_to_string(&stdout).unwrap(),
+        fs::read_to_string(&stderr).unwrap(),
     );
     let elapsed = started.elapsed();
     assert!(fs::read(stderr).unwrap().is_empty());
