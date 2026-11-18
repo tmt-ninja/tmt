@@ -39,8 +39,13 @@
     padding-inline: var(--tmt-ui-space-xs);
   }
 }
-/* Narrower still, the number and title keep the room: the status leaves the bar, the page's own
-   title row still shows it. */
+/* Narrower, the title keeps about 96px of text: the work number leaves next, then the dot. The
+   page's own title row still shows both. Leaving order: labels, chip to dot, number, dot. */
+@container tmt-ui-topbar-title (width < 160px) {
+  .tmt-ui-topbar-title-current .colab-work-number {
+    display: none;
+  }
+}
 @container tmt-ui-topbar-title (width < 120px) {
   .page-bar-summary {
     display: none;
