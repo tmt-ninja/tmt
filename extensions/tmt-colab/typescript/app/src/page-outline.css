@@ -91,3 +91,37 @@
 .page-outline-list[data-more] {
   mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
 }
+/* The phone bar: these follow the base rules above, so they win at the same specificity. */
+@media (max-width: 640px) {
+  .page-outline {
+    top: var(--page-bar-size);
+    padding: 0 var(--tmt-ui-header-padding-inline);
+    border-block: 1px solid var(--tmt-ui-surface-rule);
+    background: var(--tmt-ui-surface-sheet);
+  }
+  .page-outline-toggle {
+    min-height: 40px;
+  }
+  .page-outline-icon {
+    display: block;
+  }
+  .page-outline-desktop {
+    display: none;
+  }
+  .page-outline-phone,
+  .page-outline-count {
+    display: inline;
+  }
+  .page-outline-phone {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .page-outline-count {
+    color: var(--tmt-ui-color-secondary);
+    white-space: nowrap;
+  }
+  .page-outline-list {
+    margin-block: 0 var(--tmt-ui-space-s);
+  }
+}

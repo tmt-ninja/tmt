@@ -533,37 +533,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   .structured-layout[data-outline] .structured-page-stage {
     margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
   }
-  .page-outline {
-    top: var(--page-bar-size);
-    padding: 0 var(--tmt-ui-header-padding-inline);
-    border-block: 1px solid var(--tmt-ui-surface-rule);
-    background: var(--tmt-ui-surface-sheet);
-  }
-  .page-outline-toggle {
-    min-height: 40px;
-  }
-  .page-outline-icon {
-    display: block;
-  }
-  .page-outline-desktop {
-    display: none;
-  }
-  .page-outline-phone,
-  .page-outline-count {
-    display: inline;
-  }
-  .page-outline-phone {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .page-outline-count {
-    color: var(--tmt-ui-color-secondary);
-    white-space: nowrap;
-  }
-  .page-outline-list {
-    margin-block: 0 var(--tmt-ui-space-s);
-  }
 }
 .structured-page-stage .tmt-block-doc-body {
   --tmt-block-gutter: var(--colab-block-inset);
