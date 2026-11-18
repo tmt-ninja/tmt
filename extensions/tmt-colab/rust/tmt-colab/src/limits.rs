@@ -290,3 +290,6 @@ mod tests {
         assert_eq!(ACQUISITION + PUBLISH_COMBINE, PUBLISH_REPLY - RESPONSE);
     }
 }
+
+/// Maximum ranked work items held for one owner project.
+pub const PROJECT_ORDER_ITEMS: usize = 256;

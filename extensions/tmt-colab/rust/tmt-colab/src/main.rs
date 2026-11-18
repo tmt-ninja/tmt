@@ -387,6 +387,7 @@ fn grammar() -> Command {
             .subcommand(cli_attachments::command())
             .subcommand(cli_storage::command())
             .subcommand(cli_projects::command())
+            .subcommand(cli_work::order_command())
             .subcommand(cli_design::command())
             .subcommands(cli_pins::commands())
             .subcommand(cli_dashboard::command())
@@ -532,6 +533,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "design" {
         return cli_design::run(&root, args);
+    }
+    if command == "work" {
+        return cli_work::run_order(&root, args);
     }
     if command == "project" {
         return cli_projects::run(&root, args);

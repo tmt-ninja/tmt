@@ -270,6 +270,7 @@ pub struct Registration {
     readers: crate::readers::Sessions,
     reader_clock: std::sync::Arc<dyn Fn() -> std::result::Result<u64, Code> + Send + Sync>,
     save_source: Option<crate::page::save::SourceOpener>,
+    order_source: Option<crate::page::save::SourceOpener>,
     /// The owner list's display-only page summaries; filled in the background, never signed.
     summaries: std::sync::Arc<crate::summary::SummaryCache>,
     /// How the background refresh opens its own read-only source; without it no summary is made.
@@ -301,6 +302,7 @@ impl Registration {
             readers: Default::default(),
             reader_clock: std::sync::Arc::new(now_ms),
             save_source: None,
+            order_source: None,
             summaries: Default::default(),
             summary_source: None,
             work_facts: None,
@@ -431,6 +433,150 @@ impl Registration {
     }
 
     fn project_pages(&self, serving: bool) -> std::result::Result<Vec<u8>, Code> {
+        let mut catalog = self.work_catalog(true, serving)?;
+        let orders = self.visible_project_orders(&catalog)?;
+        // The mandatory omitted-name list has already been budgeted. Moving a name from
+        // that array into the map pays for the name itself; allow for the colon and comma.
+        let mut used = serde_json::to_vec(&catalog)
+            .map_err(|_| Code::Unavailable)?
+            .len();
+        let mut included = serde_json::Map::new();
+        let mut omitted = Vec::new();
+        for (name, order) in orders {
+            let value = serde_json::to_value(order).map_err(|_| Code::Unavailable)?;
+            let cost = serde_json::to_vec(&value)
+                .map_err(|_| Code::Unavailable)?
+                .len()
+                + 2;
+            if used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
+                included.insert(name, value);
+                used += cost;
+            } else {
+                omitted.push(name);
+            }
+        }
+        catalog["projectOrders"] = included.into();
+        catalog["projectOrdersOmitted"] = omitted.into();
+        let bytes = serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)?;
+        if bytes.len() > crate::limits::DISCOVERY_BYTES {
+            return Err(Code::Capacity);
+        }
+        Ok(bytes)
+    }
+
+    /// A root-local offline invocation folds just the pages referenced by this order.
+    pub fn with_order_source(mut self, open: crate::page::save::SourceOpener) -> Self {
+        self.order_source = Some(open);
+        self
+    }
+
+    fn prepare_order(&self, name: &str, extra: &[&str]) -> Result<()> {
+        let Some(open) = self.order_source.as_ref().or(self.summary_source.as_ref()) else {
+            return Ok(());
+        };
+        let orders = self.store.project_orders()?;
+        let order = orders.get(name).ok_or(crate::store::Fault::Invalid)?;
+        let ids: std::collections::BTreeSet<_> = order
+            .items
+            .iter()
+            .map(String::as_str)
+            .chain(extra.iter().copied())
+            .map(|id| id.split_once(':').map_or(id, |(page, _)| page))
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let fingerprints =
+            self.store
+                .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                    tx.page_fingerprints()
+                })?;
+        let mut source = None;
+        for page in ids {
+            let Some(fingerprint) = fingerprints.get(page) else {
+                continue;
+            };
+            if self.summaries.get(page, fingerprint).is_some() {
+                continue;
+            }
+            let read = match &mut source {
+                Some(source) => source,
+                slot @ None => slot.insert(open()?),
+            };
+            let projection = crate::summary::summarize_details(read, page)?;
+            let after = read.store.owner_read(
+                &read.keyring.space_id,
+                &read.keyring.owner_public(),
+                |tx| tx.page_fingerprint(page),
+            )?;
+            if after.as_ref() != Some(fingerprint) {
+                return Err(crate::store::Fault::Conflict.into());
+            }
+            self.summaries.put(page, fingerprint, Some(projection));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn show_work_order(
+        &self,
+        name: &str,
+    ) -> Result<crate::store::project_orders::ProjectOrder> {
+        self.prepare_order(name, &[])?;
+        let catalog = self
+            .work_catalog(false, self.order_source.is_none())
+            .map_err(|code| std::io::Error::other(code.text()))?;
+        self.visible_project_orders(&catalog)
+            .map_err(|code| std::io::Error::other(code.text()))?
+            .remove(name)
+            .ok_or_else(|| crate::store::Fault::Invalid.into())
+    }
+
+    pub(crate) fn change_work_order(
+        &mut self,
+        project: &str,
+        revision: i64,
+        item: &str,
+        position: &crate::store::project_orders::Position,
+    ) -> Result<crate::store::project_orders::MoveOutcome> {
+        let mut extra = vec![item];
+        if let crate::store::project_orders::Position::Before(anchor) = position {
+            extra.push(anchor);
+        }
+        self.prepare_order(project, &extra)?;
+        let catalog = self
+            .work_catalog(false, self.order_source.is_none())
+            .map_err(|code| std::io::Error::other(code.text()))?;
+        let membership = crate::store::project_orders::WorkMembership::from_catalog(&catalog);
+        self.store
+            .project_transaction(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                tx.move_project_item(project, revision, item, position, |id| {
+                    membership.classify(project, id)
+                })
+            })
+    }
+
+    fn visible_project_orders(
+        &self,
+        catalog: &serde_json::Value,
+    ) -> std::result::Result<
+        std::collections::BTreeMap<String, crate::store::project_orders::ProjectOrder>,
+        Code,
+    > {
+        let membership = crate::store::project_orders::WorkMembership::from_catalog(catalog);
+        let orders = self
+            .store
+            .project_orders()
+            .map_err(|error| map_error(error.into()))?;
+        Ok(orders
+            .into_iter()
+            .map(|(project, order)| {
+                let shown = order.visible(&|item| membership.classify(&project, item));
+                (project, shown)
+            })
+            .collect())
+    }
+
+    fn work_catalog(&self, bounded: bool, serving: bool) -> std::result::Result<serde_json::Value, Code> {
         let CatalogRead {
             mut catalog,
             fingerprints,
@@ -505,6 +651,15 @@ impl Registration {
         crate::page_titles::attach_to_catalog(&mut catalog, &titles);
         // Work fields are optional display data. Keep the complete catalog within the existing
         // discovery bound even when every page has the longest allowed notes.
+        if bounded {
+            catalog["projectPrefixes"] = serde_json::json!(
+                self.store
+                    .project_prefixes()
+                    .map_err(|e| map_error(e.into()))?
+            );
+            catalog["projectOrders"] = serde_json::json!({});
+            catalog["projectOrdersOmitted"] = catalog["projects"].clone();
+        }
         let mut used = serde_json::to_vec(&catalog)
             .map_err(|_| Code::Unavailable)?
             .len();
@@ -522,7 +677,7 @@ impl Registration {
                 .map_err(|_| Code::Unavailable)?
                 .len()
                 + 16;
-            if used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
+            if !bounded || used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
                 page["summary"]["fields"] = fields.clone();
                 used += cost;
             }
@@ -538,7 +693,7 @@ impl Registration {
                 .map_err(|_| Code::Unavailable)?
                 .len()
                 + 16;
-            if used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
+            if !bounded || used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
                 page["summary"]["todos"] = items;
                 used += cost;
             } else {
@@ -580,7 +735,7 @@ impl Registration {
                 used += 27;
             }
         }
-        serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
+        Ok(catalog)
     }
     /// Records and attaches what Work home needs from the list read (#6474): when each page was
     /// first seen done (`summary.doneAtMs`) or blocked (`summary.blockedSinceMs`), and each page's

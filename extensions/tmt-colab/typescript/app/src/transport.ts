@@ -188,6 +188,9 @@ export interface SpaceHome {
   readonly projects?: readonly string[];
   /** The owner's side-menu projects; absent where a source has none (the menu then lists every project). */
   readonly projectPins?: ProjectPins;
+  readonly projectPrefixes?: import('./bootstrap.js').Bootstrap['projectPrefixes'];
+  readonly projectOrdersOmitted?: readonly string[];
+  readonly projectOrders?: import('./bootstrap.js').Bootstrap['projectOrders'];
   readonly pages: readonly PageSummary[];
   readonly pageIds?: readonly PageId[];
 }

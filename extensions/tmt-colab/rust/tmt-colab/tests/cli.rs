@@ -13728,6 +13728,58 @@ fn migration_numbers_pages_even_when_a_log_row_cannot_be_read() {
 }
 
 #[test]
+fn work_order_moves_a_number_then_reads_the_same_order_offline() {
+    let pilot = Pilot::new(None);
+    let made = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Plan",
+        "--project",
+        "Alpha",
+        "--no-open",
+        "--json",
+    ]);
+    let id = made["pageId"].as_str().unwrap();
+    let saved = pilot.call(&[
+        "work",
+        "order",
+        "move",
+        "Alpha",
+        "ALPHA-1",
+        "--last",
+        "--revision",
+        "0",
+        "--json",
+    ]);
+    assert_eq!(saved, json!({"revision":1,"items":[id]}));
+    assert_eq!(
+        pilot.call(&["work", "order", "show", "Alpha", "--json"]),
+        saved
+    );
+    let stale = pilot
+        .command()
+        .args([
+            "work",
+            "order",
+            "move",
+            "Alpha",
+            "ALPHA-1",
+            "--unrank",
+            "--revision",
+            "0",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!stale.status.success());
+    assert_eq!(
+        pilot.call(&["work", "order", "show", "Alpha", "--json"]),
+        saved
+    );
+}
+
+#[test]
 fn project_work_numbers_survive_rename_delete_recreation_and_prefix_collisions() {
     let pilot = Pilot::new(None);
     let create = |title: &str, project: &str| {

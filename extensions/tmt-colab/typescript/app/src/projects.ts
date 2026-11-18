@@ -31,6 +31,7 @@ export interface ProjectChange {
 /** One change to the space's projects, independent of any page (`project.manage`). */
 export type ProjectManage =
   | { action: 'create' | 'delete'; name: string }
+  | { action: 'prefix' | 'create-with-prefix'; name: string; prefix: string }
   | { action: 'rename'; name: string; to: string }
   /** The owner's whole pinned-project list, in order (an empty list is a choice too). */
   | { action: 'pins'; names: readonly string[] };

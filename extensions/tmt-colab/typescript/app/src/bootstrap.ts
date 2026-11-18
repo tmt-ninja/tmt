@@ -271,7 +271,33 @@ export interface ProjectPins {
   readonly names: readonly string[];
   readonly automatic: boolean;
 }
+export interface ProjectOrder {
+  readonly revision: number;
+  readonly items: readonly string[];
+}
+export function validateProjectOrder(value: unknown): asserts value is ProjectOrder {
+  exactKeys(value, ['revision', 'items']);
+  requireValue(
+    typeof value.revision === 'number' &&
+      Number.isSafeInteger(value.revision) &&
+      value.revision >= 0,
+  );
+  requireValue(
+    Array.isArray(value.items) &&
+      value.items.length <= 256 &&
+      new Set(value.items).size === value.items.length,
+  );
+  for (const key of value.items) {
+    requireValue(typeof key === 'string');
+    const ids = key.split(':');
+    requireValue(ids.length <= 2);
+    ids.forEach(generatedId);
+  }
+}
 export interface Bootstrap {
+  projectPrefixes?: Readonly<Record<string, { prefix: string; issued: boolean }>>;
+  projectOrders?: Readonly<Record<string, ProjectOrder>>;
+  projectOrdersOmitted?: readonly string[];
   space: string;
   owner: Uint8Array;
   revision: string;
@@ -415,6 +441,15 @@ export async function discover(
     'revision',
     'projects',
     'projectPins',
+    ...(value !== null && typeof value === 'object' && 'projectPrefixes' in value
+      ? ['projectPrefixes']
+      : []),
+    ...(value !== null && typeof value === 'object' && 'projectOrdersOmitted' in value
+      ? ['projectOrdersOmitted']
+      : []),
+    ...(value !== null && typeof value === 'object' && 'projectOrders' in value
+      ? ['projectOrders']
+      : []),
     'pages',
     'pageIds',
     // The live list's token (contract: Live page list); read by `listRevisions`, not here.
@@ -434,6 +469,43 @@ export async function discover(
       projectNames(value.projects),
   );
   const known = new Set<unknown>(value.projects);
+  if ('projectPrefixes' in value) {
+    requireValue(
+      value.projectPrefixes !== null &&
+        typeof value.projectPrefixes === 'object' &&
+        !Array.isArray(value.projectPrefixes),
+    );
+    for (const [name, meta] of Object.entries(value.projectPrefixes)) {
+      exactKeys(meta, ['prefix', 'issued']);
+      requireValue(
+        known.has(name) &&
+          typeof meta.prefix === 'string' &&
+          /^[A-Z]{1,6}$/.test(meta.prefix) &&
+          typeof meta.issued === 'boolean',
+      );
+    }
+  }
+  if ('projectOrders' in value) {
+    requireValue(
+      value.projectOrders !== null &&
+        typeof value.projectOrders === 'object' &&
+        !Array.isArray(value.projectOrders),
+    );
+    for (const [name, order] of Object.entries(value.projectOrders)) {
+      requireValue(known.has(name));
+      validateProjectOrder(order);
+    }
+  }
+  if ('projectOrdersOmitted' in value) {
+    requireValue(
+      Array.isArray(value.projectOrdersOmitted) && projectNames(value.projectOrdersOmitted),
+    );
+    requireValue(
+      value.projectOrdersOmitted.every(
+        (name: string) => known.has(name) && !Object.hasOwn(value.projectOrders ?? {}, name),
+      ),
+    );
+  }
   exactKeys(value.projectPins, ['names', 'automatic']);
   requireValue(
     typeof value.projectPins.automatic === 'boolean' &&
@@ -614,6 +686,9 @@ export async function discover(
     revision: value.revision,
     projects: value.projects as unknown as readonly string[],
     projectPins: value.projectPins as unknown as ProjectPins,
+    projectPrefixes: value.projectPrefixes as Bootstrap['projectPrefixes'],
+    projectOrders: value.projectOrders as Bootstrap['projectOrders'],
+    projectOrdersOmitted: value.projectOrdersOmitted as Bootstrap['projectOrdersOmitted'],
     pages: value.pages as unknown as PageInfo[],
     pageIds: value.pageIds as unknown as PageId[],
   };

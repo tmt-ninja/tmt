@@ -26,3 +26,11 @@ before Dashboards (shell pages) and Colab settings. The first time a managing li
 shortcuts once, in their order; automatic recent projects do not, and owner pins stay unchanged.
 All projects… and New project… are in the ⋯ beside the list's project filter. Manage can create, rename, edit, delete and reorder
 shortcuts, with a matching-page preview. Failed storage writes keep the draft and report the error.
+
+## Work order
+
+Ben and leads reorder project work. Read the owner's current order with
+`tmt colab work order show PROJECT --json`. Use its revision with
+`tmt colab work order move PROJECT ITEM --last --revision REV --json`.
+Use `--before ITEM` to insert before another ranked item or `--unrank` to remove the
+position. A stale revision returns the current order for review. Moving an item sends no message.

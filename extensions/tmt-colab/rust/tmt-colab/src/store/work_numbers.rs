@@ -82,6 +82,14 @@ pub(super) fn set_prefix(connection: &Connection, name: &str, prefix: &str) -> S
     {
         return Err(Fault::Invalid);
     }
+    let locked: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM project_meta p JOIN work_numbers n ON n.prefix=p.prefix WHERE p.name=? AND p.prefix<>?)",
+        params![name, prefix],
+        |row| row.get(0),
+    )?;
+    if locked {
+        return Err(Fault::PrefixIssued);
+    }
     let owner: Option<String> = connection
         .query_row(
             "SELECT name FROM project_meta WHERE prefix=?",
@@ -214,6 +222,14 @@ impl super::Store {
             |row| row.get(0),
         ).optional()?)
     }
+    pub fn project_prefixes(
+        &self,
+    ) -> StoreResult<std::collections::BTreeMap<String, serde_json::Value>> {
+        let mut query = self.connection.prepare("SELECT p.name,p.prefix,EXISTS(SELECT 1 FROM work_numbers n WHERE n.prefix=p.prefix) FROM project_meta p WHERE p.name<>''")?;
+        let rows = query.query_map([], |row| Ok((row.get(0)?,serde_json::json!({"prefix":row.get::<_,String>(1)?,"issued":row.get::<_,bool>(2)?}))))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     pub fn release_tag_prefixes(&self) -> StoreResult<std::collections::BTreeMap<String, String>> {
         let mut query = self.connection.prepare(
             "SELECT name,release_tag_prefix FROM project_meta WHERE release_tag_prefix IS NOT NULL ORDER BY name",
@@ -645,28 +661,28 @@ mod tests {
     }
 
     #[test]
-    fn issued_numbers_survive_prefix_changes_and_are_never_reused() {
+    fn prefix_is_editable_until_a_number_is_issued_and_numbers_are_never_reused() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE project_meta(name TEXT PRIMARY KEY,prefix TEXT NOT NULL UNIQUE); CREATE TABLE work_counters(prefix TEXT PRIMARY KEY,next INTEGER NOT NULL); CREATE TABLE work_numbers(item TEXT PRIMARY KEY,prefix TEXT NOT NULL,n INTEGER NOT NULL,UNIQUE(prefix,n));").unwrap();
         ensure_project(&connection, SPACE).unwrap();
         ensure_project(&connection, "Alpha").unwrap();
-        assert_eq!(
-            allocate(&connection, "first", Some("Alpha")).unwrap(),
-            "ALPHA-1"
-        );
         set_prefix(&connection, "Alpha", "OTHER").unwrap();
         assert_eq!(
             allocate(&connection, "first", Some("Alpha")).unwrap(),
-            "ALPHA-1"
+            "OTHER-1"
+        );
+        assert!(matches!(
+            set_prefix(&connection, "Alpha", "ALPHA"),
+            Err(Fault::PrefixIssued)
+        ));
+        set_prefix(&connection, "Alpha", "OTHER").unwrap();
+        assert_eq!(
+            allocate(&connection, "first", Some("Alpha")).unwrap(),
+            "OTHER-1"
         );
         assert_eq!(
             allocate(&connection, "second", Some("Alpha")).unwrap(),
-            "OTHER-1"
-        );
-        set_prefix(&connection, "Alpha", "ALPHA").unwrap();
-        assert_eq!(
-            allocate(&connection, "third", Some("Alpha")).unwrap(),
-            "ALPHA-2"
+            "OTHER-2"
         );
         assert_eq!(allocate(&connection, "unassigned", None).unwrap(), "W-1");
         assert_eq!(

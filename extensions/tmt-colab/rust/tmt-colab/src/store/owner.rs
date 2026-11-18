@@ -538,6 +538,19 @@ impl OwnerTransaction<'_> {
         )?;
         Ok(())
     }
+    pub fn move_project_item(
+        &mut self,
+        project: &str,
+        revision: i64,
+        item: &str,
+        position: &super::project_orders::Position,
+        membership: impl Fn(&str) -> super::project_orders::Membership,
+    ) -> Result<super::project_orders::MoveOutcome> {
+        Ok(super::project_orders::move_item(
+            self.tx, project, revision, item, position, membership,
+        )?)
+    }
+
     /// Create, rename or delete one project in the transaction, or replace the pinned-project list.
     /// Create is idempotent; renaming onto an existing name merges the two (a pin moves with the
     /// name, a merge keeping the earlier place); deleting removes the grouping and its pin and never
@@ -559,6 +572,14 @@ impl OwnerTransaction<'_> {
                 if self.add_project(name)? {
                     self.check_project_names()?;
                 }
+            }
+            Change::CreateWithPrefix { name, prefix } => {
+                if !valid(name) || exists(name)? {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                self.add_project(name)?;
+                self.check_project_names()?;
+                super::work_numbers::set_prefix(self.tx, name, prefix)?;
             }
             Change::Rename { from, to } => {
                 if !valid(to) || from == to || !exists(from)? {

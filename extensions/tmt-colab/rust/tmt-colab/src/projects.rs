@@ -16,6 +16,10 @@ pub enum Refusal {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Change {
     Create(String),
+    CreateWithPrefix {
+        name: String,
+        prefix: String,
+    },
     /// Onto an existing name it merges: a page in both keeps one entry.
     Rename {
         from: String,

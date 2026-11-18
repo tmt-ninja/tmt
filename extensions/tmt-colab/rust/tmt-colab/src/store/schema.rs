@@ -209,6 +209,12 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE work_observed(item TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('done','blocked')),
         at_ms INTEGER NOT NULL CHECK(at_ms>=0), PRIMARY KEY(item,kind)) WITHOUT ROWID;
     "#,
+    // Schema 26: one revision and bounded ordered list of stable work-item keys per project.
+    // Storing it with the project metadata preserves it on rename and removes it on deletion.
+    r#"
+    ALTER TABLE project_meta ADD COLUMN order_revision INTEGER NOT NULL DEFAULT 0 CHECK(order_revision >= 0);
+    ALTER TABLE project_meta ADD COLUMN order_items TEXT NOT NULL DEFAULT '[]';
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// The schema whose step rewrites stored object envelopes as binary v2 (#5876).
