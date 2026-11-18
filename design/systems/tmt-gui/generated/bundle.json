@@ -2945,6 +2945,9 @@
     },
     "label": {
      "type": "string"
+    },
+    "words": {
+     "type": "string"
     }
    },
    "slots": [
@@ -2956,7 +2959,7 @@
    "examples": [
     {
      "title": "Work row",
-     "markup": "<tmt-ui-work-row state=\"working\" number=\"COLAB-143\" label=\"Review the toolbar\" owner=\"gui-3\" time=\"3 min\"></tmt-ui-work-row>"
+     "markup": "<tmt-ui-work-row words=\"High\" state=\"working\" number=\"COLAB-143\" label=\"Review the toolbar\" owner=\"gui-3\" time=\"3 min\"></tmt-ui-work-row>"
     }
    ],
    "css": "",
@@ -2966,6 +2969,9 @@
    "tag": "tmt-ui-work-overview",
    "props": {
     "counts": {
+     "type": "string"
+    },
+    "words": {
      "type": "string"
     }
    },
@@ -2978,7 +2984,7 @@
    "examples": [
     {
      "title": "Status overview",
-     "markup": "<tmt-ui-work-overview counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-overview>"
+     "markup": "<tmt-ui-work-overview words=\"Open work by status\" counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-overview>"
     }
    ],
    "css": "",
@@ -2988,6 +2994,9 @@
    "tag": "tmt-ui-work-ratio",
    "props": {
     "counts": {
+     "type": "string"
+    },
+    "words": {
      "type": "string"
     }
    },
@@ -3000,7 +3009,7 @@
    "examples": [
     {
      "title": "Status ratio bar",
-     "markup": "<tmt-ui-work-ratio counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-ratio>"
+     "markup": "<tmt-ui-work-ratio words=\"Work by status\" counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-ratio>"
     }
    ],
    "css": "",
@@ -3019,6 +3028,9 @@
     },
     "cells": {
      "type": "string"
+    },
+    "words": {
+     "type": "string"
     }
    },
    "slots": [
@@ -3030,7 +3042,7 @@
    "examples": [
     {
      "title": "Done-count chart",
-     "markup": "<tmt-ui-work-done-chart period=\"week\" cells=\"[{&quot;label&quot;:&quot;Mon&quot;,&quot;count&quot;:2},{&quot;label&quot;:&quot;Tue&quot;,&quot;count&quot;:3}]\"></tmt-ui-work-done-chart>"
+     "markup": "<tmt-ui-work-done-chart words=\"Completed work,done\" period=\"week\" cells=\"[{&quot;label&quot;:&quot;Mon&quot;,&quot;count&quot;:2},{&quot;label&quot;:&quot;Tue&quot;,&quot;count&quot;:3}]\"></tmt-ui-work-done-chart>"
     }
    ],
    "css": "",
@@ -3081,6 +3093,9 @@
       "unchecked"
      ],
      "default": "discussing"
+    },
+    "words": {
+     "type": "string"
     }
    },
    "slots": [
@@ -3092,7 +3107,7 @@
    "examples": [
     {
      "title": "Work field chips",
-     "markup": "<tmt-ui-work-field-chips owner=\"gui-3\" priority=\"high\" state=\"working\" status-label=\"Working\" pull=\"#6457 merged\" parent=\"Colab stability\" next=\"Review the toolbar\"></tmt-ui-work-field-chips>"
+     "markup": "<tmt-ui-work-field-chips words=\"Priority,High,Next,Blocked,PR,Parent,Subpages\" owner=\"gui-3\" priority=\"high\" state=\"working\" status-label=\"Working\" pull=\"#6457 merged\" parent=\"Colab stability\" next=\"Review the toolbar\"></tmt-ui-work-field-chips>"
     }
    ],
    "css": "",
@@ -3102,6 +3117,9 @@
    "tag": "tmt-ui-work-next-line",
    "props": {
     "titles": {
+     "type": "string"
+    },
+    "words": {
      "type": "string"
     }
    },
@@ -3114,7 +3132,7 @@
    "examples": [
     {
      "title": "Next line",
-     "markup": "<tmt-ui-work-next-line titles=\"[&quot;Review the toolbar&quot;,&quot;Check the chart&quot;,&quot;Publish&quot;]\"></tmt-ui-work-next-line>"
+     "markup": "<tmt-ui-work-next-line words=\"Next,No ranked items\" titles=\"[&quot;Review the toolbar&quot;,&quot;Check the chart&quot;,&quot;Publish&quot;]\"></tmt-ui-work-next-line>"
     }
    ],
    "css": "",
@@ -3179,5 +3197,5 @@
    "code": "return ({ React, ui }) => function StatusLine({ items = '[]' }) {\n  let parsed;\n  try { parsed = JSON.parse(items); } catch { parsed = []; }\n  const safe = Array.isArray(parsed) ? parsed.filter((item) => item && ['working', 'waiting', 'review', 'blocked'].includes(item.tone) && typeof item.label === 'string').slice(0, 20) : [];\n  return React.createElement(ui.BrowserStatusLine, { items: safe });\n};\n"
   }
  ],
- "hash": "sha256-4533db9e37f65fb1fb033124fe8f04f1e77b7101e8ad34b6a67b8fba1b2067c8"
+ "hash": "sha256-0670d3894b1a219cc42800c3a0b98a33d6c561419a5fdcbb850367e2da7c9d42"
 }

@@ -46,6 +46,9 @@
         "unchecked"
       ],
       "default": "discussing"
+    },
+    "words": {
+      "type": "string"
     }
   },
   "slots": [
@@ -58,7 +61,7 @@
   "examples": [
     {
       "title": "Work field chips",
-      "markup": "<tmt-ui-work-field-chips owner=\"gui-3\" priority=\"high\" state=\"working\" status-label=\"Working\" pull=\"#6457 merged\" parent=\"Colab stability\" next=\"Review the toolbar\"></tmt-ui-work-field-chips>",
+      "markup": "<tmt-ui-work-field-chips words=\"Priority,High,Next,Blocked,PR,Parent,Subpages\" owner=\"gui-3\" priority=\"high\" state=\"working\" status-label=\"Working\" pull=\"#6457 merged\" parent=\"Colab stability\" next=\"Review the toolbar\"></tmt-ui-work-field-chips>",
       "widths": [
         1440,
         390

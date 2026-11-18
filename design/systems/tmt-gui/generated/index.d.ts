@@ -630,18 +630,21 @@ export interface WorkRowProps {
   time?: string;
   priority?: "normal" | "high";
   label?: string;
+  words?: string;
   children?: ReactNode;
 }
 
 /** <tmt-ui-work-overview>: props from its schema, slots as nodes. */
 export interface WorkOverviewProps {
   counts?: string;
+  words?: string;
   children?: ReactNode;
 }
 
 /** <tmt-ui-work-ratio>: props from its schema, slots as nodes. */
 export interface WorkRatioProps {
   counts?: string;
+  words?: string;
   children?: ReactNode;
 }
 
@@ -649,6 +652,7 @@ export interface WorkRatioProps {
 export interface WorkDoneChartProps {
   period?: "today" | "week" | "month";
   cells?: string;
+  words?: string;
   children?: ReactNode;
 }
 
@@ -663,12 +667,14 @@ export interface WorkFieldChipsProps {
   parent?: string;
   subpages?: string;
   state?: "working" | "waiting-ci" | "waiting-release" | "blocked" | "needs-you" | "possibly-stalled" | "discussing" | "done" | "unknown" | "unchecked";
+  words?: string;
   children?: ReactNode;
 }
 
 /** <tmt-ui-work-next-line>: props from its schema, slots as nodes. */
 export interface WorkNextLineProps {
   titles?: string;
+  words?: string;
   children?: ReactNode;
 }
 

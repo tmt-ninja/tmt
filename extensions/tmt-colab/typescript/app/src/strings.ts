@@ -1099,6 +1099,7 @@ export const text = {
     },
   },
   workHome: {
+    highPriorityBadge: 'High',
     /** An open to-do whose Ask was answered and handled: its next step reads this. */
     answered: 'Answered',
     statusDetails: (item: string) => `${item}, show status details`,

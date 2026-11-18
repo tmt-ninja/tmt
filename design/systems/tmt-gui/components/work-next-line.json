@@ -6,6 +6,9 @@
   "props": {
     "titles": {
       "type": "string"
+    },
+    "words": {
+      "type": "string"
     }
   },
   "slots": [
@@ -18,7 +21,7 @@
   "examples": [
     {
       "title": "Next line",
-      "markup": "<tmt-ui-work-next-line titles=\"[&quot;Review the toolbar&quot;,&quot;Check the chart&quot;,&quot;Publish&quot;]\"></tmt-ui-work-next-line>",
+      "markup": "<tmt-ui-work-next-line words=\"Next,No ranked items\" titles=\"[&quot;Review the toolbar&quot;,&quot;Check the chart&quot;,&quot;Publish&quot;]\"></tmt-ui-work-next-line>",
       "widths": [
         1440,
         390

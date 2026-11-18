@@ -4224,6 +4224,9 @@
     },
     "label": {
      "type": "string"
+    },
+    "words": {
+     "type": "string"
     }
    },
    "slots": [
@@ -4235,7 +4238,7 @@
    "examples": [
     {
      "title": "Work row",
-     "markup": "<tmt-ui-work-row state=\"working\" number=\"COLAB-143\" label=\"Review the toolbar\" owner=\"gui-3\" time=\"3 min\"></tmt-ui-work-row>",
+     "markup": "<tmt-ui-work-row words=\"High\" state=\"working\" number=\"COLAB-143\" label=\"Review the toolbar\" owner=\"gui-3\" time=\"3 min\"></tmt-ui-work-row>",
      "widths": [
       1440,
       390
@@ -4252,6 +4255,9 @@
    "props": {
     "counts": {
      "type": "string"
+    },
+    "words": {
+     "type": "string"
     }
    },
    "slots": [
@@ -4263,7 +4269,7 @@
    "examples": [
     {
      "title": "Status overview",
-     "markup": "<tmt-ui-work-overview counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-overview>",
+     "markup": "<tmt-ui-work-overview words=\"Open work by status\" counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-overview>",
      "widths": [
       1440,
       390
@@ -4280,6 +4286,9 @@
    "props": {
     "counts": {
      "type": "string"
+    },
+    "words": {
+     "type": "string"
     }
    },
    "slots": [
@@ -4291,7 +4300,7 @@
    "examples": [
     {
      "title": "Status ratio bar",
-     "markup": "<tmt-ui-work-ratio counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-ratio>",
+     "markup": "<tmt-ui-work-ratio words=\"Work by status\" counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-ratio>",
      "widths": [
       1440,
       390
@@ -4316,6 +4325,9 @@
     },
     "cells": {
      "type": "string"
+    },
+    "words": {
+     "type": "string"
     }
    },
    "slots": [
@@ -4327,7 +4339,7 @@
    "examples": [
     {
      "title": "Done-count chart",
-     "markup": "<tmt-ui-work-done-chart period=\"week\" cells=\"[{&quot;label&quot;:&quot;Mon&quot;,&quot;count&quot;:2},{&quot;label&quot;:&quot;Tue&quot;,&quot;count&quot;:3}]\"></tmt-ui-work-done-chart>",
+     "markup": "<tmt-ui-work-done-chart words=\"Completed work,done\" period=\"week\" cells=\"[{&quot;label&quot;:&quot;Mon&quot;,&quot;count&quot;:2},{&quot;label&quot;:&quot;Tue&quot;,&quot;count&quot;:3}]\"></tmt-ui-work-done-chart>",
      "widths": [
       1440,
       390
@@ -4384,6 +4396,9 @@
       "unchecked"
      ],
      "default": "discussing"
+    },
+    "words": {
+     "type": "string"
     }
    },
    "slots": [
@@ -4395,7 +4410,7 @@
    "examples": [
     {
      "title": "Work field chips",
-     "markup": "<tmt-ui-work-field-chips owner=\"gui-3\" priority=\"high\" state=\"working\" status-label=\"Working\" pull=\"#6457 merged\" parent=\"Colab stability\" next=\"Review the toolbar\"></tmt-ui-work-field-chips>",
+     "markup": "<tmt-ui-work-field-chips words=\"Priority,High,Next,Blocked,PR,Parent,Subpages\" owner=\"gui-3\" priority=\"high\" state=\"working\" status-label=\"Working\" pull=\"#6457 merged\" parent=\"Colab stability\" next=\"Review the toolbar\"></tmt-ui-work-field-chips>",
      "widths": [
       1440,
       390
@@ -4412,6 +4427,9 @@
    "props": {
     "titles": {
      "type": "string"
+    },
+    "words": {
+     "type": "string"
     }
    },
    "slots": [
@@ -4423,7 +4441,7 @@
    "examples": [
     {
      "title": "Next line",
-     "markup": "<tmt-ui-work-next-line titles=\"[&quot;Review the toolbar&quot;,&quot;Check the chart&quot;,&quot;Publish&quot;]\"></tmt-ui-work-next-line>",
+     "markup": "<tmt-ui-work-next-line words=\"Next,No ranked items\" titles=\"[&quot;Review the toolbar&quot;,&quot;Check the chart&quot;,&quot;Publish&quot;]\"></tmt-ui-work-next-line>",
      "widths": [
       1440,
       390

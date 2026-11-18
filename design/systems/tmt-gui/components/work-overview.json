@@ -6,6 +6,9 @@
   "props": {
     "counts": {
       "type": "string"
+    },
+    "words": {
+      "type": "string"
     }
   },
   "slots": [
@@ -18,7 +21,7 @@
   "examples": [
     {
       "title": "Status overview",
-      "markup": "<tmt-ui-work-overview counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-overview>",
+      "markup": "<tmt-ui-work-overview words=\"Open work by status\" counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-overview>",
       "widths": [
         1440,
         390

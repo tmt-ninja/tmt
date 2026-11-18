@@ -1,4 +1,9 @@
-import { WorkRow as WorkRowPart, WorkRatio } from '@tmt/browser-ui/work-display';
+import {
+  WorkRow as WorkRowPart,
+  WorkRatio,
+  WorkCountContent,
+  WorkDoneCellContent,
+} from '@tmt/browser-ui/work-display';
 import '@tmt/browser-ui/work.css';
 import './work-home.css';
 import { BrowserAvatar, BrowserSegments } from '@tmt/browser-ui/react';
@@ -249,6 +254,7 @@ function WorkRow({
   // it rather than inside a link.
   return (
     <WorkRowPart
+      words={t.highPriorityBadge}
       className="work-home-row"
       state={item.status}
       number={item.number}
@@ -429,11 +435,11 @@ export function WorkHome() {
                     data-zero={now7.counts[status] === 0 ? '' : undefined}
                     onClick={() => go({ status: only === status ? undefined : status })}
                   >
-                    <span className="tmt-ui-work-count-number">{now7.counts[status]}</span>
-                    <span className="tmt-ui-work-count-label">
-                      <Dot status={partState(status)} />
-                      {t.status[status]}
-                    </span>
+                    <WorkCountContent
+                      count={now7.counts[status]}
+                      state={partState(status)}
+                      label={t.status[status]}
+                    />
                   </button>
                 </li>
               ))}
@@ -509,18 +515,15 @@ export function WorkHome() {
                     data-current={entry.current ? '' : undefined}
                     onClick={() => go({ day: cell === index ? undefined : entry.from })}
                   >
-                    <span className="tmt-ui-work-done-track">
-                      <span aria-hidden="true">{entry.count || ''}</span>
-                      <span
-                        className="tmt-ui-work-done-bar"
-                        style={{ height: `${(entry.count / busiest) * 80}%` }}
-                      />
-                    </span>
-                    <span aria-hidden="true">
-                      {period === 'week' || entry.current || index % 6 === 0
-                        ? cellLabel(index)
-                        : ''}
-                    </span>
+                    <WorkDoneCellContent
+                      count={entry.count}
+                      max={busiest}
+                      label={
+                        period === 'week' || entry.current || index % 6 === 0
+                          ? cellLabel(index)
+                          : ''
+                      }
+                    />
                   </button>
                 </li>
               ))}

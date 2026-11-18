@@ -40,6 +40,9 @@
     },
     "label": {
       "type": "string"
+    },
+    "words": {
+      "type": "string"
     }
   },
   "slots": [
@@ -52,7 +55,7 @@
   "examples": [
     {
       "title": "Work row",
-      "markup": "<tmt-ui-work-row state=\"working\" number=\"COLAB-143\" label=\"Review the toolbar\" owner=\"gui-3\" time=\"3 min\"></tmt-ui-work-row>",
+      "markup": "<tmt-ui-work-row words=\"High\" state=\"working\" number=\"COLAB-143\" label=\"Review the toolbar\" owner=\"gui-3\" time=\"3 min\"></tmt-ui-work-row>",
       "widths": [
         1440,
         390

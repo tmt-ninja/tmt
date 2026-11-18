@@ -14,6 +14,9 @@
     },
     "cells": {
       "type": "string"
+    },
+    "words": {
+      "type": "string"
     }
   },
   "slots": [
@@ -26,7 +29,7 @@
   "examples": [
     {
       "title": "Done-count chart",
-      "markup": "<tmt-ui-work-done-chart period=\"week\" cells=\"[{&quot;label&quot;:&quot;Mon&quot;,&quot;count&quot;:2},{&quot;label&quot;:&quot;Tue&quot;,&quot;count&quot;:3}]\"></tmt-ui-work-done-chart>",
+      "markup": "<tmt-ui-work-done-chart words=\"Completed work,done\" period=\"week\" cells=\"[{&quot;label&quot;:&quot;Mon&quot;,&quot;count&quot;:2},{&quot;label&quot;:&quot;Tue&quot;,&quot;count&quot;:3}]\"></tmt-ui-work-done-chart>",
       "widths": [
         1440,
         390

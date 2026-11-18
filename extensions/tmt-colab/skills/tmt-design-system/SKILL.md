@@ -59,6 +59,12 @@ the person that publishing is their step in the Design tab.
 
    | Tag | Prop | Words, in order |
    | --- | --- | --- |
+   | `tmt-ui-work-row` | `words` | High |
+   | `tmt-ui-work-overview` | `words` | Open work by status |
+   | `tmt-ui-work-ratio` | `words` | accessible description (defaults to the counts and their labels) |
+   | `tmt-ui-work-done-chart` | `words` | Completed work, done |
+   | `tmt-ui-work-field-chips` | `words` | Priority, High, Next, Blocked, PR, Parent, Subpages |
+   | `tmt-ui-work-next-line` | `words` | Next, No ranked items |
    | `tmt-ui-block-menu` | `hint-labels` | choose, insert, close |
    | `tmt-ui-mockup-block` | `toolbar-labels` | Custom, Light, Dark, Viewer |
 

@@ -11,10 +11,15 @@ export interface DoneCell {
   count: number;
   current?: boolean;
 }
+function readWords(words: string | undefined, defaults: string[]) {
+  const given = words?.split(',').map((word) => word.trim());
+  return given?.length === defaults.length && given.every(Boolean) ? given : defaults;
+}
 function Dot({ state }: { state: string }) {
   return <span className="tmt-ui-work-dot" data-state={state} aria-hidden="true" />;
 }
 export function WorkRow({
+  words,
   className,
   statusControl,
   ownerControl,
@@ -27,6 +32,7 @@ export function WorkRow({
   time,
   priority,
 }: {
+  words?: string;
   className?: string;
   statusControl?: ReactNode;
   ownerControl?: ReactNode;
@@ -44,7 +50,9 @@ export function WorkRow({
       {statusControl ?? <Dot state={state} />}
       <span className="tmt-ui-work-number">{number}</span>
       <span className="tmt-ui-work-title">
-        {priority === 'high' && <span className="tmt-ui-work-priority">High</span>}
+        {priority === 'high' && (
+          <span className="tmt-ui-work-priority">{readWords(words, ['High'])[0]}</span>
+        )}
         {title}
       </span>
       <span className="tmt-ui-work-next">{next}</span>
@@ -63,29 +71,46 @@ export function WorkRow({
     </div>
   );
 }
-export function WorkOverview({ counts }: { counts: readonly WorkCount[] }) {
+export function WorkCountContent({ state, count, label }: WorkCount) {
   return (
-    <ul className="tmt-ui-work-overview" aria-label="Open work by status">
+    <>
+      <span className="tmt-ui-work-count-number">{count}</span>
+      <span className="tmt-ui-work-count-label">
+        <Dot state={state} />
+        {label}
+      </span>
+    </>
+  );
+}
+export function WorkOverview({ words, counts }: { words?: string; counts: readonly WorkCount[] }) {
+  return (
+    <ul className="tmt-ui-work-overview" aria-label={readWords(words, ['Open work by status'])[0]}>
       {counts.map(({ state, count, label }) => (
         <li key={state}>
           <span className="tmt-ui-work-count" data-zero={count === 0 ? '' : undefined}>
-            <span className="tmt-ui-work-count-number">{count}</span>
-            <span className="tmt-ui-work-count-label">
-              <Dot state={state} />
-              {label}
-            </span>
+            <WorkCountContent state={state} count={count} label={label} />
           </span>
         </li>
       ))}
     </ul>
   );
 }
-export function WorkRatio({ counts, label }: { counts: readonly WorkCount[]; label?: string }) {
+export function WorkRatio({
+  counts,
+  label,
+  words,
+}: {
+  words?: string;
+  counts: readonly WorkCount[];
+  label?: string;
+}) {
   return (
     <div
       className="tmt-ui-work-ratio"
       role="img"
-      aria-label={label ?? counts.map((c) => c.count + ' ' + c.label).join(', ')}
+      aria-label={
+        label ?? readWords(words, [counts.map((c) => c.count + ' ' + c.label).join(', ')])[0]
+      }
     >
       {counts
         .filter((c) => c.count > 0)
@@ -95,39 +120,57 @@ export function WorkRatio({ counts, label }: { counts: readonly WorkCount[]; lab
     </div>
   );
 }
+export function WorkDoneCellContent({ count, max, label }: DoneCell & { max: number }) {
+  return (
+    <>
+      <span className="tmt-ui-work-done-track">
+        <span aria-hidden="true">{count || ''}</span>
+        <span className="tmt-ui-work-done-bar" style={{ height: (count / max) * 80 + '%' }} />
+      </span>
+      <span aria-hidden="true">{label}</span>
+    </>
+  );
+}
 export function WorkDoneChart({
   cells,
+  words,
   period = 'week',
 }: {
+  words?: string;
   cells: readonly DoneCell[];
   period?: 'today' | 'week' | 'month';
 }) {
+  const [chart, done] = readWords(words, ['Completed work', 'done']);
   const max = Math.max(1, ...cells.map((c) => c.count));
   return (
-    <ul className="tmt-ui-work-done" aria-label="Completed work" data-period={period}>
+    <ul className="tmt-ui-work-done" aria-label={chart} data-period={period}>
       {cells.map((c, index) => (
         <li key={index}>
           <span
             className="tmt-ui-work-done-cell"
             data-current={c.current ? '' : undefined}
-            aria-label={c.label + ': ' + c.count + ' done'}
+            aria-label={c.label + ': ' + c.count + ' ' + done}
           >
-            <span className="tmt-ui-work-done-track">
-              <span>{c.count || ''}</span>
-              <span
-                className="tmt-ui-work-done-bar"
-                style={{ height: (c.count / max) * 80 + '%' }}
-              />
-            </span>
-            <span>{c.label}</span>
+            <WorkDoneCellContent count={c.count} max={max} label={c.label} />
           </span>
         </li>
       ))}
     </ul>
   );
 }
+export function WorkChipOwner({ name, labelClass }: { name: string; labelClass?: string }) {
+  return (
+    <>
+      <BrowserAvatar name={name} kind="agent" size="s" decorative />
+      <span className={labelClass} title={name}>
+        {name}
+      </span>
+    </>
+  );
+}
 export function WorkFieldChips({
   state,
+  words,
   statusLabel,
   pull,
   parent,
@@ -138,6 +181,7 @@ export function WorkFieldChips({
   blocked,
 }: {
   state?: string;
+  words?: string;
   statusLabel?: string;
   pull?: string;
   parent?: string;
@@ -147,6 +191,10 @@ export function WorkFieldChips({
   next?: string;
   blocked?: string;
 }) {
+  const [priorityWord, high, nextWord, blockedWord, pr, parentWord, subpagesWord] = readWords(
+    words,
+    ['Priority', 'High', 'Next', 'Blocked', 'PR', 'Parent', 'Subpages'],
+  );
   return (
     <div className="tmt-ui-field-chips">
       {statusLabel && (
@@ -157,21 +205,20 @@ export function WorkFieldChips({
       )}
       {owner && (
         <span className="tmt-ui-field-chip">
-          <BrowserAvatar name={owner} kind="agent" size="s" decorative />
-          {owner}
+          <WorkChipOwner name={owner} />
         </span>
       )}
-      {Object.entries({
-        Priority: priority === 'high' ? 'High' : undefined,
-        Next: next,
-        Blocked: blocked,
-        PR: pull,
-        Parent: parent,
-        Subpages: subpages,
-      }).map(
-        ([key, value]) =>
+      {[
+        [priorityWord, priority === 'high' ? high : undefined],
+        [nextWord, next],
+        [blockedWord, blocked],
+        [pr, pull],
+        [parentWord, parent],
+        [subpagesWord, subpages],
+      ].map(
+        ([key, value], index) =>
           value && (
-            <span className="tmt-ui-field-chip" key={key}>
+            <span className="tmt-ui-field-chip" key={index}>
               <span className="tmt-ui-field-chip-key">{key}</span>
               {value}
             </span>
@@ -180,10 +227,11 @@ export function WorkFieldChips({
     </div>
   );
 }
-export function WorkNextLine({ titles }: { titles: readonly string[] }) {
+export function WorkNextLine({ titles, words }: { titles: readonly string[]; words?: string }) {
+  const [next, empty] = readWords(words, ['Next', 'No ranked items']);
   return (
     <p className="tmt-ui-work-next-line">
-      <strong>Next</strong> <span>{titles.length ? titles.join(' → ') : 'No ranked items'}</span>
+      <strong>{next}</strong> <span>{titles.length ? titles.join(' → ') : empty}</span>
     </p>
   );
 }
