@@ -666,7 +666,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             Ok(_) => Some(" m move"),
             Err(_) => None,
         });
-        let action = format!("{}{open_action}", move_label.unwrap_or_default());
+        let separator = if move_label.is_some() && !can_open {
+            " ·"
+        } else {
+            ""
+        };
+        let action = format!("{}{separator}{open_action}", move_label.unwrap_or_default());
         let action = if unicode_width::UnicodeWidthStr::width(action.as_str()) > width {
             open_action.to_owned()
         } else {

@@ -306,9 +306,9 @@ impl State {
             }
             order::Outcome::Conflict(order) => {
                 let message = if order.is_some() {
-                    "Order changed elsewhere; showing the current order"
+                    "↻ Order changed elsewhere; showing the current order"
                 } else {
-                    "Order changed elsewhere; refresh to see the current order"
+                    "↻ Order changed elsewhere; refresh to see the current order"
                 };
                 (order, Some(message.into()))
             }

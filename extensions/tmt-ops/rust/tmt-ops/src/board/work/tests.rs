@@ -172,6 +172,9 @@ fn colab_work_renders_now_and_next_in_the_owner_order() {
     app.work.project = Some("Core".into());
     app.work
         .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    key(&mut app, KeyCode::Home);
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Down);
     let mut terminal = Terminal::new(TestBackend::new(100, 36)).unwrap();
     terminal
         .draw(|frame| crate::board::view::render(frame, &app))
@@ -194,6 +197,7 @@ fn colab_work_renders_now_and_next_in_the_owner_order() {
     assert!(row("CORE-88") < row("COLAB-143"));
     assert!(row("── No preference") > row("COLAB-143"));
     assert!(row("── No preference") < row("W-91"));
+    assert_eq!(row("m move · No link · check Colab serve and pairing"), 34);
 }
 
 fn ordered_list(now: u64) -> Value {
@@ -246,7 +250,7 @@ fn colab_work_move_confirm_uses_the_visible_neighbor_and_one_revision() {
     assert_eq!(app.work.selected, selected);
     assert_eq!(
         app.work.order_notice.as_ref().unwrap().1,
-        "Order changed elsewhere; showing the current order"
+        "↻ Order changed elsewhere; showing the current order"
     );
     app.work.apply(
         Instant::now(),
