@@ -304,6 +304,9 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                         if slot.width != *width {
                             continue;
                         }
+                        if selected && matches!(field, Field::Activity) {
+                            app.selection_ink_regions.borrow_mut().push(slot);
+                        }
                         if matches!(field, Field::State)
                             && let Some(label) = app.activity_label(row)
                         {

@@ -794,7 +794,7 @@ fn a_task_the_state_track_cannot_show_whole_is_dropped_whatever_the_projected_to
                         "{row_text}"
                     );
                     let state_area = app
-                        .workspace_state_cells
+                        .selection_ink_regions
                         .borrow()
                         .iter()
                         .find(|area| area.y == hit.y)

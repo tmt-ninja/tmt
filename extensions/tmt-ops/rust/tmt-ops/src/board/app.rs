@@ -892,7 +892,7 @@ pub struct App {
     pub(in crate::board) digest_allowance: super::digest_dashboard::AllowanceScroll,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
     pub(in crate::board) workspace_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,
-    pub(in crate::board) workspace_state_cells: RefCell<Vec<ratatui::layout::Rect>>,
+    pub(in crate::board) selection_ink_regions: RefCell<Vec<ratatui::layout::Rect>>,
     pub(in crate::board) workspace_action_hits:
         RefCell<Vec<(ratatui::layout::Rect, super::workspace::OpsTarget, Choice)>>,
     pub(super) timing: Option<super::timing::Ui>,
@@ -4729,7 +4729,7 @@ impl App {
         self.workspace_action_hits.borrow_mut().clear();
         self.cron_scope_hits.borrow_mut().clear();
         self.workspace_strip_hits.borrow_mut().clear();
-        self.workspace_state_cells.borrow_mut().clear();
+        self.selection_ink_regions.borrow_mut().clear();
         self.unread_hits.borrow_mut().clear();
         if let Some(details) = &self.monitor_details {
             details.invalidate();

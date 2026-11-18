@@ -3617,7 +3617,7 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                                 }
                                 // The first state area on the row holds the activity words.
                                 let in_task = app
-                                    .workspace_state_cells
+                                    .selection_ink_regions
                                     .borrow()
                                     .iter()
                                     .find(|area| area.y == hit.y)
@@ -3758,7 +3758,7 @@ fn roster_preview_click_selects_the_exact_membership_and_invalidates_old_hits() 
     assert_eq!(app.workspace.selected, Some(member));
     assert_eq!(app.focused_pane(), Some(Pane::Rows));
     assert!(app.workspace_action_hits.borrow().is_empty());
-    assert!(app.workspace_state_cells.borrow().is_empty());
+    assert!(app.selection_ink_regions.borrow().is_empty());
 }
 
 #[test]
@@ -3821,7 +3821,7 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                     .copied()
                     .unwrap();
                 let state_area = app
-                    .workspace_state_cells
+                    .selection_ink_regions
                     .borrow()
                     .iter()
                     .find(|area| area.y == hit.y)
@@ -5482,7 +5482,7 @@ fn a_zero_width_state_cell_paints_nothing_and_records_no_area() {
     let (primary, task, todo) =
         crate::board::workspace::columns::activity_spans(&app, row, &label, 0, false);
     assert!(primary.is_empty() && task.is_none() && todo.is_none());
-    app.workspace_state_cells.borrow_mut().clear();
+    app.selection_ink_regions.borrow_mut().clear();
     let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 10, 1));
     let used = crate::board::workspace::columns::paint_activity(
         &mut buffer,
@@ -5493,7 +5493,7 @@ fn a_zero_width_state_cell_paints_nothing_and_records_no_area() {
         false,
     );
     assert_eq!(used, 0);
-    assert!(app.workspace_state_cells.borrow().is_empty());
+    assert!(app.selection_ink_regions.borrow().is_empty());
 }
 
 /// One board where core says working but the squad task says blocked, with
@@ -5704,10 +5704,10 @@ fn digest_state_text_keeps_native_styles_and_unread_geometry() {
                         if selected {
                             expected.set_style(area, app.look().selection());
                         }
-                        app.workspace_state_cells.borrow_mut().clear();
+                        app.selection_ink_regions.borrow_mut().clear();
                         app.unread_hits.borrow_mut().clear();
                         let used = paint_activity(&mut expected, &app, row, &label, area, selected);
-                        let states = app.workspace_state_cells.borrow().clone();
+                        let states = app.selection_ink_regions.borrow().clone();
                         let hits = format!("{:?}", app.unread_hits.borrow());
                         if unread {
                             assert!(
@@ -5774,10 +5774,10 @@ fn digest_state_text_keeps_native_styles_and_unread_geometry() {
                             &look.theme,
                             look.depth,
                         );
-                        app.workspace_state_cells.borrow_mut().clear();
+                        app.selection_ink_regions.borrow_mut().clear();
                         app.unread_hits.borrow_mut().clear();
                         record_activity_geometry(&app, row, area, primary, task);
-                        assert_eq!(*app.workspace_state_cells.borrow(), states);
+                        assert_eq!(*app.selection_ink_regions.borrow(), states);
                         assert_eq!(format!("{:?}", app.unread_hits.borrow()), hits);
                         for x in 0..width.min(used) {
                             assert_eq!(

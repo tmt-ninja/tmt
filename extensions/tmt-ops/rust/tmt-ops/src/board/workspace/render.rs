@@ -1018,6 +1018,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         })
                         .collect();
                     if values.iter().any(Option::is_some) {
+                        if selected {
+                            app.selection_ink_regions.borrow_mut().push(cell);
+                        }
                         let mut grid = ds::CellGrid::new(ds::Size {
                             width: cell.width,
                             height: 1,
@@ -1078,7 +1081,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
             if let Some(area) = painted.state {
                 app.push_unread_row_hit(area, &row.target);
             }
-            app.workspace_state_cells
+            app.selection_ink_regions
                 .borrow_mut()
                 .extend(painted.state.into_iter().chain(painted.task));
             if let Some(area) = painted.timers {
@@ -1648,7 +1651,7 @@ fn roster_preview(
                         }
                     };
                     let style = if *field == RosterField::State {
-                        app.workspace_state_cells.borrow_mut().push(cell);
+                        app.selection_ink_regions.borrow_mut().push(cell);
                         app.push_unread_row_hit(cell, &row.target);
                         columns::state_style(app, &row)
                     } else {
@@ -2182,7 +2185,12 @@ mod usage_tests {
                 for x in row.x..row.x + row.width {
                     let cell = &buffer[(x, row.y)];
                     match cell.symbol() {
-                        "·" => gap = true,
+                        "·" => {
+                            gap = true;
+                            if let Some(quiet) = app.look().role(Role::Muted).fg {
+                                assert_eq!(cell.fg, quiet, "{base:?} selected gap");
+                            }
+                        }
                         "▁" | "▂" | "▃" | "▄" | "▆" | "█" => level = true,
                         _ => continue,
                     }

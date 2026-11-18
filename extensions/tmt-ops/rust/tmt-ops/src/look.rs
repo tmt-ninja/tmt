@@ -202,14 +202,14 @@ impl Look {
     /// background, lets every surface follow the same rule. Bold, underline
     /// and the background stay. Without a selection background (reverse
     /// fallback), `row_span` has already decided.
-    /// Table state words keep their foreground under background-only selection: the frame owner
-    /// supplies only current, unobscured state-cell rectangles.
+    /// Table painters supply current, unobscured regions that own their own
+    /// selection ink, including state words and activity glyphs.
     /// `tinted` says the frame drew a row in conversation, whose tint follows the selection's word
     /// policy; a frame without one skips that background entirely.
     pub fn selected_words(
         &self,
         buffer: &mut Buffer,
-        states: &[ratatui::layout::Rect],
+        ink_regions: &[ratatui::layout::Rect],
         tinted: bool,
     ) {
         let Some(selection) = self.role(Role::Selection).bg else {
@@ -250,7 +250,7 @@ impl Look {
                 origin.y + (index / width) as u16,
             )
                 .into();
-            if states.iter().any(|area| area.contains(point)) {
+            if ink_regions.iter().any(|area| area.contains(point)) {
                 continue;
             }
             let fg = Some(cell.fg);
