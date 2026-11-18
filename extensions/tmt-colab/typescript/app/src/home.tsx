@@ -160,7 +160,10 @@ export function Home() {
   const space = homeRoute.useLoaderData();
   const { transport, space: spaceId } = rootRoute.useRouteContext();
   const shortcutRequest = useContext(ShortcutMenuRequestSlot);
-  const search = homeRoute.useSearch();
+  const routeSearch = homeRoute.useSearch();
+  const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
+  const projects = routeSearch.project?.filter((name) => projectNames.includes(name));
+  const search = { ...routeSearch, project: projects?.length ? projects : undefined };
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
   const { pages: homePages, hints: titleHints } = useHomeSpace(space);
@@ -191,12 +194,7 @@ export function Home() {
         ? (search.stage ?? DEFAULT_VIEW)
         : 'all';
   const sort: PageSort = search.sort ?? 'updated';
-  const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
-  const filter = pageListFilter({
-    ...search,
-    project: search.project?.filter((name) => projectNames.includes(name)),
-    ...(!port ? { stage: undefined } : {}),
-  });
+  const filter = pageListFilter({ ...search, ...(!port ? { stage: undefined } : {}) });
   const shown = homePages.filter((p) =>
     archived ? Boolean(p.archived) : search.includeArchived || !p.archived,
   );

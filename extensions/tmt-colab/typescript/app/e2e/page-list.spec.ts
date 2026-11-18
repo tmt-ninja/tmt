@@ -1288,12 +1288,10 @@ test('a picked project is not remembered; an older scope link or preference open
   await expect(titles(page)).toHaveText(['Delta ops']);
 });
 
-test('a link to a project the space no longer has shows its token and no pages', async ({
-  page,
-}) => {
+test('a link to a deleted project opens the default list', async ({ page }) => {
   await mount(page, 'few', '/?scope=gone');
-  await expect(scopeTrigger(page, 'gone')).toBeVisible();
-  await expect(titles(page)).toHaveCount(0);
+  await expect(scopeTrigger(page, 'gone')).toHaveCount(0);
+  await expect(titles(page)).toHaveCount(4);
 });
 
 test('a scoped project with no page says so, and the scope names it', async ({ page }) => {
