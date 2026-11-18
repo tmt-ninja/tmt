@@ -59,24 +59,24 @@ esac`
   identity)
     [ ! -f "$HOME/no-identity" ] || exit 3
     printf '%s\\n' "$*" >> "$HOME/identity.log"
-    if [ -f "$HOME/identity-json" ]; then
+    if [ -f "$HOME/pull-count" ] && [ -f "$HOME/identity-json" ]; then
       cat "$HOME/identity-json"
     else
       printf '%s\\n' '{"identity":{"id":"${UUID}","name":"core-ops","canonicalName":"core-ops","lifetime":"saved"},"resume":null}'
     fi ;;
   talk)
     printf '%s|pane=%s|tmux=%s\\n' "$*" "\${TMUX_PANE-unset}" "\${TMUX-unset}" >> "$HOME/talk.log"
+    case " $* " in
+      *' --expect-name '*) printf '%s\\n' '--expect-name needs --remote' >&2; exit 2 ;;
+    esac
     if [ "$2" = "${UUID}" ]; then
-      case "$*" in
-        *' --expect-name core-ops') ;;
-        *) printf '%s\\n' 'A UUID target needs --expect-name' >&2; exit 3 ;;
-      esac
-      if [ -f "$HOME/renamed" ]; then
-        printf '%s\\n' 'Identity changed: expected core-ops' 'second diagnostic line' >&2
-        exit 5
-      fi
+      printf '%s\\n' 'Local talk needs a name' >&2
+      exit 3
     fi
-    [ ! -f "$HOME/talk-fails" ] || exit 1 ;;
+    if [ -f "$HOME/talk-fails" ]; then
+      printf '%s\\n' 'fixture delivery failure' 'second diagnostic line' >&2
+      exit 1
+    fi ;;
 esac`
   );
   // A fake clock that only a nap advances, so the cap is reached by naps, never by how
@@ -269,11 +269,13 @@ describe('scripts/ci-wake.sh', () => {
   });
 
   it.each([
-    { identity: 'core-ops', renamed: false, status: 0, suffix: '' },
-    { identity: UUID, renamed: false, status: 0, suffix: ' --expect-name core-ops' },
-    { identity: UUID, renamed: true, status: 3, suffix: ' --expect-name core-ops' },
-  ])('delivers to $identity with the startup name (renamed=$renamed)', (test) => {
-    const c = newCase([`closed true ${HEAD}`], test.renamed ? { renamed: '' } : {});
+    { identity: 'core-ops', target: 'core-ops' },
+    { identity: UUID, target: 'core-ops' },
+    { identity: UUID, target: 'renamed-ops' },
+  ])('delivers $identity by the current local name $target without jq', ({ identity, target }) => {
+    const c = newCase([open, 'closed true ' + HEAD], {
+      'identity-json': JSON.stringify({ identity: { id: UUID, name: target } }),
+    });
     const posixBin = path.join(c.home, 'posix-bin');
     mkdirSync(posixBin);
     // The ambient system may ship jq, including under /usr/bin.
@@ -294,28 +296,24 @@ describe('scripts/ci-wake.sh', () => {
       if (!source) throw new Error(`Missing POSIX fixture tool: ${tool}`);
       symlinkSync(source, path.join(posixBin, tool));
     }
-    const result = c.run(['42', '--identity', test.identity, '--foreground', '--until', 'merged'], {
+    const result = c.run(['42', '--identity', identity, '--foreground', '--until', 'merged'], {
       PATH: `${bin}${path.delimiter}${posixBin}`,
     });
-    expect(result.status).toBe(test.status);
-    expect(c.lines('identity.log')).toEqual([`identity show ${test.identity} --json`]);
+    expect(result.status).toBe(0);
+    const lookup = 'identity show ' + identity + ' --json';
+    expect(c.lines('identity.log')).toEqual(identity === UUID ? [lookup, lookup] : [lookup]);
     expect(c.lines('talk.log')).toEqual([
-      `talk ${test.identity} ci-wake #42 aaaaaaaaaaaa: merged --detach --urgent --kind fyi${test.suffix}|pane=unset|tmux=unset`,
+      `talk ${target} ci-wake #42 aaaaaaaaaaaa: merged --detach --urgent --kind fyi|pane=unset|tmux=unset`,
     ]);
     const log = /; log (\S+)\n$/.exec(result.stdout)![1];
-    if (test.renamed) {
-      const evidence = readFileSync(log, 'utf8');
-      expect(evidence).toContain('wake delivery error: Identity changed: expected core-ops');
-      expect(evidence).toContain('not retried');
-      expect(evidence).not.toContain('second diagnostic line');
-    } else expect(existsSync(log)).toBe(false);
+    expect(existsSync(log)).toBe(false);
   });
 
   it.each([
     { id: '11111111-1111-4111-8111-111111111111', name: 'core-ops' },
     { id: UUID, name: 'name with spaces' },
-  ])('refuses UUID startup with mismatched or unsafe identity JSON ($name)', ({ id, name }) => {
-    const c = newCase([open], {
+  ])('refuses UUID delivery with mismatched or unsafe identity JSON ($name)', ({ id, name }) => {
+    const c = newCase(['closed true ' + HEAD], {
       'identity-json': JSON.stringify({
         identity: { id, name },
         resume: { id: UUID, name: 'core-ops' },
@@ -323,10 +321,9 @@ describe('scripts/ci-wake.sh', () => {
     });
     const result = c.run(['42', '--identity', UUID, '--foreground']);
     expect(result.status).toBe(3);
-    expect(result.stderr).toContain('did not return the requested UUID with a safe name');
-    expect(c.lines('gh.log')).toEqual([]);
+    const log = /; log (\S+)\n$/.exec(result.stdout)![1];
+    expect(readFileSync(log, 'utf8')).toContain('to a safe local name; not sent');
     expect(c.lines('talk.log')).toEqual([]);
-    expect(existsSync(path.join(c.home, 'ci-wake'))).toBe(false);
   });
 
   it('starts one detached wait with an owner-only log and returns at once', () => {
@@ -402,6 +399,8 @@ describe('scripts/ci-wake.sh', () => {
     const evidence = readFileSync(log, 'utf8');
     expect(evidence).toContain('requested foreground mode');
     expect(evidence).toContain('waiter started pid=');
+    expect(evidence).toContain('wake delivery error: fixture delivery failure');
+    expect(evidence).not.toContain('second diagnostic line');
     expect(evidence).toContain('waiter exit status=3 phase=notification reason=exit');
     expect(statSync(log).mode & 0o777).toBe(0o600);
   });
