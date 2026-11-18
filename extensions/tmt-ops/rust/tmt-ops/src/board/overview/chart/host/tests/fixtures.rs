@@ -93,6 +93,12 @@ fn seed(values: [u64; 12], resume: serde_json::Value) -> Seed {
 /// Three actual rate-ring inputs, including a missing watermark, supply review
 /// captures through the production projection. No display-only provider totals.
 pub(in crate::board) fn mixed(app: &mut App) {
+    mixed_with_recent_minutes(app, None);
+}
+
+pub(super) const SHORT_MINUTES: [u64; 5] = [10, 30, 0, 20, 45];
+
+pub(super) fn mixed_with_recent_minutes(app: &mut App, recent: Option<[u64; 5]>) {
     use crate::board::workspace::OpsTarget;
     use serde_json::json;
     populate(app);
@@ -107,7 +113,12 @@ pub(in crate::board) fn mixed(app: &mut App) {
     }]
         .clone();
     let rate = view.home_rate.get_mut("chart-fixture").unwrap();
-    let seed = seed(VALUES, rate.input.resumes[&first].clone());
+    let mut seed = seed(VALUES, rate.input.resumes[&first].clone());
+    if let Some(recent) = recent {
+        for (slices, tokens) in seed.buckets[110..].chunks_exact_mut(2).zip(recent) {
+            slices[0].input_tokens = tokens;
+        }
+    }
     rate.history = Some([(first.clone(), Some(seed.clone()))].into());
     for (id, name, driver) in [
         (

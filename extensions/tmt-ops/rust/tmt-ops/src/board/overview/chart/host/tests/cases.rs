@@ -15,7 +15,11 @@ pub(in crate::board) const NAMES: [&str; 9] = [
 
 pub(in crate::board) fn board_case(name: &str, look: crate::look::Look, width: u16) -> App {
     let mut app = board();
-    fixtures::mixed(&mut app);
+    if name == "usage-short-range" {
+        fixtures::mixed_with_recent_minutes(&mut app, Some(fixtures::SHORT_MINUTES));
+    } else {
+        fixtures::mixed(&mut app);
+    }
     app.view.as_mut().unwrap().look = look;
     app.view
         .as_mut()
@@ -90,6 +94,33 @@ pub(in crate::board) fn board_case(name: &str, look: crate::look::Look, width: u
         }
     }
     app
+}
+
+#[test]
+fn short_range_renders_distinct_observed_minute_buckets() {
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let app = board_case("usage-short-range", crate::look::Look::default(), 100);
+        let chart = app.usage_chart.borrow();
+        assert_eq!(chart.selection.each_minutes, 1);
+        let observed = chart.observed.as_ref().expect("projected short chart");
+        assert_eq!(
+            observed
+                .buckets
+                .iter()
+                .map(|bucket| bucket.tokens)
+                .collect::<Vec<_>>(),
+            [Some(30), Some(90), Some(0), Some(60), Some(135)]
+        );
+        let hit_buckets = chart
+            .hits
+            .iter()
+            .filter_map(|hit| match hit.target {
+                Target::Bar(index) => Some(index),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(hit_buckets, (0..5).collect());
+    });
 }
 
 #[test]
