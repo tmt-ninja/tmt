@@ -291,6 +291,67 @@ fn colab_work_pauses_for_missing_or_old_colab_until_explicit_refresh() {
 }
 
 #[test]
+fn colab_work_uses_opt_in_and_pauses_only_for_the_legacy_option_refusal() {
+    use crate::{
+        core::Core,
+        test_support::{Scratch, write_ready_executable},
+    };
+    use std::fs;
+
+    let scratch = Scratch::new("colab-work-option");
+    let executable = scratch.join("tmt");
+    let response = scratch.join("response");
+    write_ready_executable(
+        &executable,
+        r#"#!/bin/sh
+cd "$(dirname "$0")" || exit 2
+[ "$#" -eq 4 ] && [ "$1" = colab ] && [ "$2" = ls ] && [ "$3" = --work ] && [ "$4" = --json ] || exit 2
+cat response
+exit 1
+"#,
+    );
+    let core = Core::at(executable);
+    fs::write(
+        &response,
+        json!({"error":{
+            "code":"COLAB_INPUT_INVALID",
+            "message":"error: unexpected argument '--work' found\n\nUsage: tmt colab ls [OPTIONS]\n\nFor more information, try '--help'.\n"
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let now = Instant::now();
+    let mut state = State::default();
+    let legacy = read(&core);
+    assert!(matches!(&legacy, Err(ReadFailure::UpdateNeeded)));
+    assert!(state.request(now));
+    state.apply(now, legacy);
+    assert_eq!(
+        state.notice.as_deref(),
+        Some("Update Colab · Work requires the owner-summary list.")
+    );
+    let later = now + Duration::from_secs(600);
+    assert!(!state.request(later));
+    state.refresh();
+    assert!(state.request(later));
+
+    fs::write(
+        &response,
+        json!({"error":{"code":"COLAB_INPUT_INVALID","message":"Owner space is invalid."}})
+            .to_string(),
+    )
+    .unwrap();
+    let other = read(&core);
+    assert!(matches!(
+        &other,
+        Err(ReadFailure::Unavailable(message))
+            if message == "Colab Work unavailable · Owner space is invalid."
+    ));
+    state.apply(later, other);
+    assert!(state.request(later + Duration::from_secs(60)));
+}
+
+#[test]
 fn colab_work_reads_once_across_workspace_snapshot_applies() {
     use crate::board::{BoardEvent, app::tests::snapshot, session};
     use std::{

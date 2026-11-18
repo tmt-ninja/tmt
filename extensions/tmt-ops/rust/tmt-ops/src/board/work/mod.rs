@@ -134,7 +134,7 @@ impl From<&str> for ReadFailure {
 pub(super) fn read(core: &crate::core::Core) -> Result<List, ReadFailure> {
     let started = Instant::now();
     let output = core
-        .json_finished(&["colab", "ls"], WITHIN)
+        .json_finished(&["colab", "ls", "--work"], WITHIN)
         .map_err(|error| {
             format!(
                 "Colab Work unavailable · {}",
@@ -147,12 +147,18 @@ pub(super) fn read(core: &crate::core::Core) -> Result<List, ReadFailure> {
         } else {
             serde_json::Value::Null
         };
-        if error["error"]["code"] == "EXTENSION_NOT_INSTALLED" {
-            return Err(ReadFailure::NotInstalled);
+        let error = &error["error"];
+        let message = error["message"].as_str().unwrap_or("check the owner space");
+        match error["code"].as_str() {
+            Some("EXTENSION_NOT_INSTALLED") => return Err(ReadFailure::NotInstalled),
+            // Older Colab uses the general input error code for unknown options.
+            Some("COLAB_INPUT_INVALID")
+                if message.lines().next() == Some("error: unexpected argument '--work' found") =>
+            {
+                return Err(ReadFailure::UpdateNeeded);
+            }
+            _ => {}
         }
-        let message = error["error"]["message"]
-            .as_str()
-            .unwrap_or("check the owner space");
         return Err(format!(
             "Colab Work unavailable · {}",
             super::notes::single_line(message)
