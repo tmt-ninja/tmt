@@ -2610,11 +2610,11 @@ child.stdout.pipe(process.stdout);
         );
 
         const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
-        const where = (needle: string) => {
-          const rows = screen().split('\n');
-          const y = rows.findIndex((row) => row.includes(needle));
-          expect(y, `${needle} on screen:\n${screen()}`).toBeGreaterThanOrEqual(0);
-          return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
+        const locateLink = (viewport: string) => {
+          const rows = viewport.split('\n');
+          const y = rows.findIndex((row) => row.includes('Read the docs first.'));
+          if (y < 0) return;
+          return { x: [...rows[y]!.slice(0, rows[y]!.indexOf('the docs'))].length + 1, y };
         };
         const click = (x: number, y: number) => {
           for (const final of ['M', 'm'])
@@ -2633,25 +2633,38 @@ child.stdout.pipe(process.stdout);
             return '';
           }
         };
-        const open = async () => {
-          const label = where('the docs');
-          click(label.x + 1, label.y);
+        const open = async (label: { x: number; y: number }) => {
+          click(label.x, label.y);
           await fixture.waitForCapture((current) => current.includes('┌ Link'), shell.pane);
         };
 
         // The popover names where the link goes before it offers anything.
-        await open();
+        const initial = screen();
+        const label = locateLink(initial);
+        expect(label, initial).toBeDefined();
+        await open(label!);
         const popover = screen();
         expect(popover).toContain('https://example.com');
         for (const action of ['Open', 'Copy', 'Show full'])
           expect(popover, popover).toContain(action);
 
-        // Copy puts the whole address, not the label, on the clipboard.
+        // Copy publishes the full address before the completion frame is painted.
+        // Reopen only after the visible viewport has closed and restored the same link cell.
         fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'y']);
-        await fixture.waitFor(() => buffer() === link, 5_000, `Copy:\n${screen()}`);
+        await fixture.waitFor(
+          () => {
+            if (buffer() !== link) return false;
+            const closed = screen();
+            if (closed.includes('┌ Link') || !closed.includes('Copied to ')) return false;
+            const painted = locateLink(closed);
+            return painted?.x === label!.x && painted.y === label!.y;
+          },
+          5_000,
+          'clipboard and closed link at its original click cell'
+        );
 
         // Show full lists every character of the address.
-        await open();
+        await open(label!);
         fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'f']);
         await fixture.waitForCapture((current) => current.includes('Full link'), shell.pane);
         const lines = screen()
