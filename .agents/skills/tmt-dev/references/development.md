@@ -306,7 +306,10 @@ the detached default the same way. Ordinary and Claude shells keep the detached
 default.
 
 The [wait rule](../../../../AGENTS.md#delivery-lifecycle) has one owner; the script's
-header documents its final states, bounds, log and exit codes. Logs record launch,
+header documents its final states, bounds, log and exit codes. While work is
+pending, checks mode wakes after the same failure is seen in two consecutive
+polls and reports the pending check count. Once all work finishes, the waiter
+reports the result immediately. Logs record launch,
 waiter startup and exit status/phase, including caught HUP, INT and TERM signals.
 
 For Codex seats, the [wait guard](../../../../scripts/hooks/codex-wait-guard.mjs)
