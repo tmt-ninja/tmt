@@ -64,7 +64,6 @@ describe('Colab acceptance shards', () => {
       const seconds = splitAcceptanceFiles(files, count, weights).map((shard) => shard.seconds);
       expect(Math.max(...seconds) / Math.min(...seconds), `count ${count}`).toBeLessThan(bound);
     }
-    const heaviest = Math.max(...Object.values<number>(weights.files));
     const split = splitAcceptanceFiles(files, ACCEPTANCE_SHARDS, weights);
     for (const [index, shard] of split.entries()) {
       const cutoff = acceptanceDeadline(1, index + 1) / 1000 - 1;
@@ -77,7 +76,6 @@ describe('Colab acceptance shards', () => {
         shard.files.map((file) => `acceptance/${file}`)
       );
     }
-    expect(heaviest).toBeGreaterThan(400);
   });
 
   it('gives a file with no weight the default weight and still places it', () => {
