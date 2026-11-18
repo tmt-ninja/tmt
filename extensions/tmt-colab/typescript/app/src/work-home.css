@@ -594,3 +594,45 @@
   opacity: 1;
   pointer-events: auto;
 }
+
+.work-order-secondary {
+  display: contents;
+}
+@media (max-width: 640px) {
+  .work-order-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 4px;
+  }
+  .work-order-row .tmt-ui-work-grip {
+    display: none;
+  }
+  .work-order-row .work-home-row {
+    grid-column: 2;
+    min-width: 0;
+    padding-block: 0;
+  }
+  .work-order-row .tmt-ui-work-rank {
+    grid-column: 1;
+  }
+  .work-order-actions {
+    position: relative;
+    grid-column: 3;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0;
+  }
+  .work-order-actions .work-order-icon {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .work-order-actions .work-assign-menu {
+    z-index: 3;
+  }
+}

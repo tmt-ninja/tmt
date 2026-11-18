@@ -1122,7 +1122,8 @@ export const text = {
       send: 'Send',
       quote: (project: string) =>
         `The work order for ${project} has changed. Please arrange your work in the current order.`,
-      changed: (items: readonly string[]) => `Changed: ${items.join(', ')}`,
+      changed: (count: number) => `${count} ${count === 1 ? 'item' : 'items'} changed`,
+      more: (title: string) => `More actions for ${title}`,
       results: {
         accepted: 'Sent',
         held: 'Held for approval',

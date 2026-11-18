@@ -88,9 +88,10 @@ export function WorkOrderNotify({
               const changes = affected.get(agent.name);
               const result = results.get(agent.id);
               return (
-                <label key={agent.id}>
+                <label key={agent.id} title={changes?.join(', ')}>
                   <Checkbox
                     aria-label={agent.name}
+                    aria-description={changes?.join(', ')}
                     checked={selected.has(agent.id)}
                     disabled={busy || delivered(agent.id)}
                     onCheckedChange={(checked) =>
@@ -105,7 +106,7 @@ export function WorkOrderNotify({
                   <BrowserAvatar name={agent.name} kind="agent" size="s" decorative />
                   <span>
                     {agent.name}
-                    {changes?.length ? <small>{t.changed(changes)}</small> : null}
+                    {changes?.length ? <small>{t.changed(changes.length)}</small> : null}
                   </span>
                   {result && <small role="status">{t.results[result]}</small>}
                 </label>

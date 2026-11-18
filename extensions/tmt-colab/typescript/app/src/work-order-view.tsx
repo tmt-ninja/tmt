@@ -1,3 +1,5 @@
+import { ArrowDown, ArrowUp, Ellipsis } from 'lucide-react';
+import { useMedia } from './use-media.js';
 import { WorkOrderNotify } from './work-order-notify.js';
 import { text } from './strings.js';
 import { Toast, useToast } from './template-toast.js';
@@ -44,6 +46,8 @@ export function WorkOrderView({
   refresh: () => void;
   renderRow: (item: WorkItem) => ReactNode;
 }) {
+  const compact = useMedia('(max-width: 640px)');
+  const [more, setMore] = useState<string>();
   const [order, setOrder] = useState(listed);
   const [assigning, setAssigning] = useState<string>();
   const [directory, setDirectory] = useState<readonly import('./ask-remote.js').RemoteAgent[]>([]);
@@ -214,25 +218,6 @@ export function WorkOrderView({
               {renderRow(row)}
               {title !== text.workHome.now && order && (
                 <div className="work-order-actions" data-unranked={title === t.rest || undefined}>
-                  {transport.orderAgents && (
-                    <button
-                      aria-expanded={assigning === row.key}
-                      onClick={async () => {
-                        if (assigning === row.key) {
-                          setAssigning(undefined);
-                          return;
-                        }
-                        try {
-                          setDirectory(await transport.orderAgents!.listAgents());
-                          setAssigning(row.key);
-                        } catch {
-                          setMessage(t.agentsFailed);
-                        }
-                      }}
-                    >
-                      {row.owner ? t.reassign : t.assign}
-                    </button>
-                  )}
                   {assigning === row.key && (
                     <div
                       className="work-assign-menu"
@@ -265,27 +250,85 @@ export function WorkOrderView({
                   {title === t.next && (
                     <>
                       <button
+                        className={compact ? 'work-order-icon' : undefined}
+                        aria-label={t.up}
                         disabled={saving || i === 0}
                         onClick={() => void move(row.key, { before: next[i - 1]!.key })}
                       >
-                        {t.up}
+                        {compact ? <ArrowUp size={16} /> : t.up}
                       </button>
                       <button
+                        className={compact ? 'work-order-icon' : undefined}
+                        aria-label={t.down}
                         disabled={saving || i === next.length - 1}
                         onClick={() =>
                           void move(row.key, next[i + 2] ? { before: next[i + 2]!.key } : 'last')
                         }
                       >
-                        {t.down}
+                        {compact ? <ArrowDown size={16} /> : t.down}
                       </button>
                     </>
                   )}
-                  <button
-                    disabled={saving}
-                    onClick={() => void move(row.key, title === t.next ? 'unrank' : 'last')}
-                  >
-                    {title === t.next ? t.remove : t.add}
-                  </button>
+                  {compact && (
+                    <button
+                      className="work-order-icon"
+                      aria-label={t.more(row.title)}
+                      aria-expanded={more === row.key}
+                      onClick={() => {
+                        setAssigning(undefined);
+                        setMore(more === row.key ? undefined : row.key);
+                      }}
+                    >
+                      <Ellipsis size={16} />
+                    </button>
+                  )}
+                  {(!compact || more === row.key) && (
+                    <div
+                      className={compact ? 'work-assign-menu' : 'work-order-secondary'}
+                      onKeyDown={(event) => {
+                        if (compact && event.key === 'Escape') {
+                          setMore(undefined);
+                          region.current
+                            ?.querySelector<HTMLElement>(
+                              '[data-order-key="' +
+                                CSS.escape(row.key) +
+                                '"] .work-order-icon[aria-expanded]',
+                            )
+                            ?.focus();
+                        }
+                      }}
+                    >
+                      {transport.orderAgents && (
+                        <button
+                          aria-expanded={assigning === row.key}
+                          onClick={async () => {
+                            setMore(undefined);
+                            if (assigning === row.key) {
+                              setAssigning(undefined);
+                              return;
+                            }
+                            try {
+                              setDirectory(await transport.orderAgents!.listAgents());
+                              setAssigning(row.key);
+                            } catch {
+                              setMessage(t.agentsFailed);
+                            }
+                          }}
+                        >
+                          {row.owner ? t.reassign : t.assign}
+                        </button>
+                      )}
+                      <button
+                        disabled={saving}
+                        onClick={() => {
+                          setMore(undefined);
+                          void move(row.key, title === t.next ? 'unrank' : 'last');
+                        }}
+                      >
+                        {title === t.next ? t.remove : t.add}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
