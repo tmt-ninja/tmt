@@ -406,6 +406,18 @@ it('reuses a verified statement only for the same bytes, key and head, and skips
     await again.membership({ ...head(), statements: [] }, true);
     expect(verify).toHaveBeenCalledTimes(1);
     expect(writes).toBe(writesBefore);
+    // A caller that changes its result cannot change what a later hit returns.
+    const first = again.statements()[0]!;
+    const original = c.encodeBinary(first.head.hash);
+    first.head.hash.fill(0);
+    first.head.ownerMember.signingKey.fill(0);
+    (first.header as { revision: string }).revision = '9';
+    const later = admission();
+    await later.membership(head(), true);
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(c.encodeBinary(later.statements()[0]!.head.hash)).toBe(original);
+    expect(later.statements()[0]!.header.revision).toBe('1');
+    expect(later.head?.ownerMember.signingKey.some((byte) => byte !== 0)).toBe(true);
     expect(again.head?.revision).toBe(1n);
     // One changed signature byte, after a cached success of the original, is verified and refused.
     const wire = JSON.parse(c.decodeText(c.binary(raw, STATEMENT_ENVELOPE_BYTES)));
