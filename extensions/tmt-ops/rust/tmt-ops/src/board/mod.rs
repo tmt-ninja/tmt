@@ -106,6 +106,7 @@ mod usage_report;
 mod view;
 mod view_state;
 pub(crate) use view_state::Layer as ViewLayer;
+mod work;
 mod workspace;
 
 pub use tabs::{ALL, LEADS};
@@ -159,6 +160,11 @@ pub(in crate::board) enum BoardEvent {
         key: (String, String),
         result: Result<serde_json::Value, String>,
     },
+    WorkRead {
+        result: Result<work::List, String>,
+        cancellation: crate::runner::Cancellation,
+    },
+    WorkOpened(Result<(), String>),
     OrchestrationRead {
         read: orchestration::Read,
         observation: orchestration::Observation,
@@ -333,6 +339,8 @@ impl BoardEvent {
             Self::NewMember(_) => "NewMember",
             Self::SwitchTool(_) => "SwitchTool",
             Self::IdleAlert(_) => "IdleAlert",
+            Self::WorkRead { .. } => "WorkRead",
+            Self::WorkOpened(_) => "WorkOpened",
             Self::OrchestrationRead { .. } => "OrchestrationRead",
             Self::Orchestration(_) => "Orchestration",
             Self::InputClosed => "InputClosed",
@@ -793,6 +801,7 @@ fn session(
     mut state: Option<&mut view_state::Session>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
     history_read: impl Fn(refresh::HistoryJob),
+    work_read: impl Fn(),
 ) -> io::Result<Option<i32>> {
     // Nothing below may start a command: jobs go to the lane, reads to the worker.
     let _no_commands = crate::runner::forbid_commands();
@@ -996,6 +1005,13 @@ fn session(
         if !activity_changed {
             activity_window = next_activity_window;
         }
+        if (app.shell.tab == shell::OpsTab::Work
+            || app.shell.tab == shell::OpsTab::Agents && app.workspace_snapshot().is_some())
+            && !app.framed()
+            && app.work.request()
+        {
+            work_read();
+        }
         if dirty {
             observe_navigation(app, (), |_| Some("Paint"), |app, ()| draw(app))?;
             // The frame just recorded the screen's area: a zoom or resize asks for it now, not
@@ -1151,6 +1167,7 @@ fn session(
                                 app.selected_request = refresh::SelectedRequest::Ready(None);
                             }
                             app.apply(*snapshot);
+                            app.work.requested = false;
                             dirty = true;
                             Effect::None
                         } else {
@@ -1165,6 +1182,25 @@ fn session(
                         if !cancellation.cancelled() && app.apply_enriched(&squad, enrichment) {
                             dirty = true;
                         }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::WorkRead {
+                        result,
+                        cancellation,
+                    }) => {
+                        app.work.pending = false;
+                        if cancellation.cancelled() {
+                            app.work.requested = false;
+                        } else {
+                            app.work.apply(result);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::WorkOpened(result)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        app.finished(result.map(|()| "Opened Colab page.".into()));
+                        dirty = true;
                         Effect::None
                     }
                     Ok(BoardEvent::OrchestrationRead {
@@ -1676,6 +1712,7 @@ fn session(
                         app.in_flight += 1;
                         io(lane::Job::IdleAlert(task));
                     }
+                    Effect::OpenWorkPage(page) => submit(app, lane::Job::OpenWorkPage(page)),
                     Effect::Orchestration(task) => {
                         app.in_flight += 1;
                         io(lane::Job::Orchestration(task));
@@ -2149,6 +2186,7 @@ pub fn run(
             app.park_hidden_caret(&mut screen)
         },
         |job| worker.history(job),
+        || worker.colab_work(),
     );
     // Restore first, whatever happened; then report the session's outcome.
     let restored = guard.restore();
@@ -2275,6 +2313,7 @@ mod tests {
                 None,
                 draw,
                 history,
+                || {},
             );
             drop(complete);
             assert!(
@@ -3252,6 +3291,7 @@ print(json.dumps(out))
             None,
             |_| Ok(()),
             |_| {},
+            || {},
         )
         .unwrap();
         windows.into_inner()
@@ -3446,6 +3486,7 @@ print(json.dumps(out))
                 Ok(())
             },
             |_| {},
+            || {},
         )
         .unwrap();
         assert_eq!(pauses.get(), 1);
@@ -3747,6 +3788,7 @@ print(json.dumps(out))
                     Ok(())
                 },
                 |_| {},
+                || {},
             )
             .unwrap()
         });
@@ -3814,6 +3856,7 @@ print(json.dumps(out))
                     Ok(())
                 },
                 |_| {},
+                || {},
             )
             .unwrap()
         });
@@ -3873,6 +3916,7 @@ print(json.dumps(out))
                         Ok(())
                     },
                     |_| {},
+                    || {},
                 )
                 .unwrap()
             });
@@ -3921,6 +3965,7 @@ print(json.dumps(out))
                     Ok(())
                 },
                 |_| {},
+                || {},
             )
             .unwrap()
         });
@@ -4353,6 +4398,7 @@ print(json.dumps(out))
                         Ok(())
                     },
                     |_| {},
+                    || {},
                 )
                 .unwrap();
             });
@@ -4528,6 +4574,7 @@ print(json.dumps(out))
                 Ok(())
             },
             |_| {},
+            || {},
         )
         .unwrap();
         assert_eq!(

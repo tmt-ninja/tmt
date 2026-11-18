@@ -29,6 +29,7 @@ pub(super) enum Job {
         command: String,
     },
     Act(Request),
+    OpenWorkPage(String),
     Jump {
         member: String,
     },
@@ -83,6 +84,7 @@ impl Job {
     pub fn progress(&self) -> &'static str {
         match self {
             Self::Shell { .. } => "Running shell…",
+            Self::OpenWorkPage(_) => "Opening Colab page…",
             Self::Act(request) | Self::Send { request, .. } => request.progress(),
             Self::Jump { .. } => "Jumping…",
             Self::AcknowledgeAnswers(_) => "Acknowledging answers…",
@@ -113,6 +115,7 @@ impl Job {
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
         Job::Shell { .. } => unreachable!("shell has a dedicated worker"),
+        Job::OpenWorkPage(page) => BoardEvent::WorkOpened(super::work::open(core, &page)),
         Job::LocalUnread(task) => {
             let actor = task.actor().to_owned();
             BoardEvent::LocalUnreadPublished {

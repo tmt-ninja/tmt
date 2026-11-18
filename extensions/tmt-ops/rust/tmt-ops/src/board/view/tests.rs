@@ -918,7 +918,7 @@ fn startup_spinner_is_delayed_and_animated_without_squad_switch_state() {
     );
     let screen = draw(&app, 80, 8);
     let tab_y = usize::from(app.tab_hits.borrow()[0].y);
-    assert!(screen[tab_y].contains("1  Agents") && screen[tab_y].contains("2  Digest"));
+    assert!(screen[tab_y].contains("1  Agents") && screen[tab_y].contains("3  Digest"));
     assert!(screen.iter().any(|line| line.contains("Opening")));
     let settled = workspace_board();
     assert!(!settled.loading());
@@ -1178,7 +1178,7 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                             .collect::<String>();
                         let label = match tab {
                             OpsTab::Digest => "—",
-                            OpsTab::Agents | OpsTab::Orchestration => "—",
+                            OpsTab::Agents | OpsTab::Work | OpsTab::Orchestration => "—",
                         };
                         assert!(line.contains(label), "{tab:?}/{width}/{depth:?}: {line}");
                         if tab == OpsTab::Agents {

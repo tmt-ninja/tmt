@@ -72,6 +72,7 @@ pub(in crate::board) struct Row<'a> {
     pub in_conversation: bool,
     /// An effective open hint in the name cell; it yields to the existing name.
     pub open_hint: Option<Line<'static>>,
+    pub work_hint: Option<Line<'static>>,
     pub query: &'a str,
 }
 #[derive(Default)]
@@ -494,6 +495,7 @@ mod tests {
                     unread,
                     in_conversation: false,
                     open_hint: None,
+                    work_hint: None,
                     query: "",
                 };
                 let mut buffer = Buffer::empty(Rect::new(0, 0, 30, 1));
@@ -594,6 +596,7 @@ mod tests {
                 unread: false,
                 in_conversation: false,
                 open_hint: None,
+                work_hint: None,
                 query: "",
             },
             look,
@@ -632,6 +635,7 @@ mod tests {
             unread: false,
             in_conversation: false,
             open_hint: None,
+            work_hint: None,
             query: "",
         };
         for width in 1..=40 {
@@ -728,6 +732,7 @@ mod tests {
                 unread: false,
                 in_conversation: false,
                 open_hint: None,
+                work_hint: None,
                 query: "",
             },
             look,
@@ -799,6 +804,7 @@ mod tests {
                         unread: false,
                         in_conversation,
                         open_hint: None,
+                        work_hint: None,
                         query: "",
                     },
                     look,

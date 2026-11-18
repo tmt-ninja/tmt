@@ -312,7 +312,10 @@ Boards started before this behavior shipped need one manual restart.
 
 ## Board appearance
 
-The board opens one `OPS / UI` shell: `1 Agents`, `2 Digest`.
+The board opens one `OPS / UI` shell with `1 Agents`, `2 Work`, `3 Digest` and
+`4 Orchestration`. Work shows the Colab owner list. Use `p` for the project,
+`d` for the Done period, `c` for recent completions, and Enter to open the
+selected page when a link is available.
 Shortcut caps precede tab and filter labels and show effective configured keys;
 unbound actions have no cap. Selected tabs use a brighter neutral cap.
 Agents holds the whole workspace: a full-width Usage band (global usage and provider
@@ -893,7 +896,7 @@ migration notices and preserves authored TOML. `--tabs` is refused. Launch with
 `tmt ops ui --squad product --squad infra`, to show only those squads for this
 session, opening Agents on the first named squad. Scope overrides saved hides,
 excludes Common pool, and appears as a chip at the right end of the
-`1 Agents  2 Digest` tab strip: `Scope: product +1 ×`, or `Scope: 2 squads ×`
+`1 Agents  2 Work  3 Digest  4 Orchestration` tab strip: `Scope: product +1 ×`, or `Scope: 2 squads ×`
 when a whole name does not fit.
 Click × or press Escape outside an editor, search or overlay to clear it;
 explicit bindings win. Duplicate room IDs collapse and an unknown
@@ -1156,7 +1159,7 @@ ordinary deliveries; owner and urgent messages can still interrupt.
 
 ## Orchestration tab
 
-`3` opens **Orchestration**: Core's plans and every member's effective state and
+`4` opens **Orchestration**: Core's plans and every member's effective state and
 receiving policy at a selected time, read through the public `orchestration.read`
 views. One header line names the selected time and zone, whether it follows now and
 how many plans are in effect, with the range, **Plans** and (away from now) **Now**

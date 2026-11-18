@@ -212,6 +212,7 @@ impl Worker {
         };
         let thread = std::thread::spawn(move || {
             let mut checklist = super::checklist::load::Lane::default();
+            let mut work_reader = super::work::Reader::default();
             let initial = core.cancellable(read_generation.cancellation(0));
             let known = std::rc::Rc::new(std::cell::RefCell::new(Known::default()));
             let mut kept = Kept {
@@ -341,7 +342,21 @@ impl Worker {
                     }
                     let cancellation = read_generation.cancellation(generation);
                     let reader = background.cancellable(cancellation.clone());
+                    if let Deferred::ColabWork = job {
+                        let result = if cancellation.cancelled() {
+                            Err("Colab Work was superseded.".into())
+                        } else {
+                            work_reader.read(&reader)
+                        };
+                        return events
+                            .send(super::BoardEvent::WorkRead {
+                                result,
+                                cancellation,
+                            })
+                            .is_ok();
+                    }
                     let event = match job {
+                        Deferred::ColabWork => unreachable!("handled above"),
                         Deferred::Checklist(_) => unreachable!("handled above"),
                         Deferred::Enrich(job) => {
                             let (squad, enrichment) =
@@ -454,6 +469,11 @@ impl Worker {
             generation: self.generation.number.load(Ordering::Acquire),
         });
     }
+    pub fn colab_work(&self) {
+        let _ = self.requests.send(Work::ColabWork(
+            self.generation.number.load(Ordering::Acquire),
+        ));
+    }
     pub fn checklist(&self, task: super::checklist::load::Task) {
         let _ = self.requests.send(Work::Checklist(task));
     }
@@ -489,6 +509,7 @@ impl Drop for Worker {
 }
 
 enum Work {
+    ColabWork(u64),
     History { job: HistoryJob, generation: u64 },
     Checklist(super::checklist::load::Task),
     Reload(Reload),
@@ -753,6 +774,7 @@ fn capture_footer(reader: &Core, name: &str) -> Option<String> {
 
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
+    ColabWork,
     Checklist(super::checklist::load::Task),
     Enrich(EnrichJob),
     History(HistoryJob),
@@ -998,6 +1020,7 @@ fn serve(
         };
         let mut wanted = None;
         let mut checklist = Vec::new();
+        let mut colab_work = None;
         let mut requested_history: Option<(HistoryJob, u64)> = None;
         for work in std::iter::once(received).chain(pending.try_iter()) {
             match work {
@@ -1013,6 +1036,7 @@ fn serve(
                     }
                     requested_history = Some((job, generation));
                 }
+                Work::ColabWork(generation) => colab_work = Some(generation),
                 Work::Checklist(task) => checklist.push(task),
                 Work::Reload(reload) => wanted = Some(reload),
             }
@@ -1026,6 +1050,11 @@ fn serve(
             }
         }
         wanted = wanted.filter(|reload| generation.load(Ordering::Acquire) == reload.generation);
+        if let Some(expected) = colab_work
+            && !deferred(Deferred::ColabWork, expected)
+        {
+            return;
+        }
         let mut force_recent = false;
         if let Some((mut job, expected)) = requested_history
             && generation.load(Ordering::Acquire) == expected

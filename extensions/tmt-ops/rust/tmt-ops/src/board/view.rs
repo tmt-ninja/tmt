@@ -154,6 +154,7 @@ pub(in crate::board) fn render_frame(
     app.member_links.borrow_mut().begin_frame(frame.area());
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
+    app.work.hits.borrow_mut().clear();
     app.scrolls.begin_frame();
     if app.framed() {
         super::terminal_tab::paint::frame(frame, app);
@@ -194,7 +195,10 @@ pub(in crate::board) fn render_frame(
         let line = tabs::paint(app, summary);
         let used = line.width() as u16;
         strip::paint_left(frame.buffer_mut(), summary, line);
-        if app.shell.tab != super::shell::OpsTab::Orchestration {
+        if matches!(
+            app.shell.tab,
+            super::shell::OpsTab::Agents | super::shell::OpsTab::Digest
+        ) {
             scope_chip(frame, app, summary, used);
         }
     } else {

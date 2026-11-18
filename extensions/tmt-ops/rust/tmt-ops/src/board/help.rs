@@ -346,6 +346,23 @@ pub(super) fn model(app: &App) -> KeyHelp {
             ],
         ),
     ];
+    if app.shell.tab == super::shell::OpsTab::Work {
+        sections.push(section(
+            "work",
+            "Colab work",
+            &[
+                ("↑↓", "select a work item"),
+                (
+                    "Enter",
+                    "open the selected page or expand a project section",
+                ),
+                ("p", "cycle the project filter"),
+                ("d", "cycle the Done period through Today, 7d and 30d"),
+                ("c", "show or hide recent completions"),
+                ("r", "refresh the owner list"),
+            ],
+        ));
+    }
     if matches!(
         app.shell.tab,
         super::shell::OpsTab::Agents | super::shell::OpsTab::Digest

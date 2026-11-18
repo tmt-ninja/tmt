@@ -370,6 +370,26 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         OpsTarget::Member { .. } => {
             if let Some(row) = raw {
                 member::render(frame, app, metadata, &mut y, row, selected, squad);
+                if !app.work.stale
+                    && let OpsTarget::Member { identity_id, .. } = selected
+                    && let Some(list) = &app.work.list
+                    && let Some((item, count)) =
+                        list.bindings(&snapshot.roster).get(identity_id.as_str())
+                {
+                    let detail = item
+                        .next
+                        .as_ref()
+                        .map_or(String::new(), |text| format!(" · {text}"));
+                    line(
+                        frame,
+                        metadata,
+                        &mut y,
+                        neutral(
+                            format!(" Work · {}{detail}", super::work::chip(item, *count)),
+                            app.look(),
+                        ),
+                    );
+                }
             }
         }
         OpsTarget::Squad(_) => squad::render(frame, app, metadata, &mut y, squad, row),

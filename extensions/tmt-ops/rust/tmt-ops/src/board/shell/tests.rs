@@ -9,7 +9,7 @@ fn shell_digits_preserve_typing_and_switch_every_non_typing_owner() {
         OpsInputOwner::Search,
         OpsInputOwner::Completion,
     ] {
-        for digit in ['1', '2', '3'] {
+        for digit in ['1', '2', '3', '4'] {
             assert!(!shell.select_digit(digit, owner, &mut selected));
             assert_eq!(shell.tab, OpsTab::Agents);
         }
@@ -19,14 +19,19 @@ fn shell_digits_preserve_typing_and_switch_every_non_typing_owner() {
         OpsInputOwner::Reader,
         OpsInputOwner::Popup,
     ] {
-        for (digit, expected) in [('2', OpsTab::Digest), ('1', OpsTab::Agents)] {
+        for (digit, expected) in [
+            ('2', "Work"),
+            ('3', "Digest"),
+            ('4', "Orchestration"),
+            ('1', "Agents"),
+        ] {
             assert!(shell.select_digit(digit, owner, &mut selected));
-            assert_eq!(shell.tab, expected);
+            assert_eq!(shell.tab.label(), expected);
         }
     }
     assert!(!shell.select_digit('9', OpsInputOwner::List, &mut selected));
     assert_eq!(shell.tab, OpsTab::Agents);
-    assert!(shell.select_digit('2', OpsInputOwner::List, &mut selected));
+    assert!(shell.select_digit('3', OpsInputOwner::List, &mut selected));
     assert_eq!(shell.tab, OpsTab::Digest);
     assert!(shell.select_digit('1', OpsInputOwner::List, &mut selected));
 }
@@ -47,8 +52,8 @@ fn orchestration_digit_selects_a_destination_without_a_workspace_member_target()
         let mut shell = OpsShell::default();
         let mut selected = Some(super::super::workspace::OpsTarget::Pool);
         assert!(
-            shell.select_digit('3', owner, &mut selected),
-            "3 must select Orchestration"
+            shell.select_digit('4', owner, &mut selected),
+            "4 must select Orchestration"
         );
         assert_eq!(shell.tab.label(), "Orchestration");
         assert!(
@@ -63,13 +68,25 @@ fn orchestration_visits_preserve_each_existing_destinations_selection() {
     use super::super::workspace::OpsTarget;
     let mut shell = OpsShell::default();
     let mut selected = Some(OpsTarget::Pool);
-    assert!(shell.select_digit('2', OpsInputOwner::List, &mut selected));
-    assert_eq!(selected, Some(OpsTarget::DigestAll));
     assert!(shell.select_digit('3', OpsInputOwner::List, &mut selected));
+    assert_eq!(selected, Some(OpsTarget::DigestAll));
+    assert!(shell.select_digit('4', OpsInputOwner::List, &mut selected));
     assert!(selected.is_none());
     assert!(shell.select_digit('1', OpsInputOwner::List, &mut selected));
     assert_eq!(selected, Some(OpsTarget::Pool));
+    assert!(shell.select_digit('4', OpsInputOwner::List, &mut selected));
     assert!(shell.select_digit('3', OpsInputOwner::List, &mut selected));
-    assert!(shell.select_digit('2', OpsInputOwner::List, &mut selected));
     assert_eq!(selected, Some(OpsTarget::DigestAll));
+}
+
+#[test]
+fn work_slot_does_not_take_the_agents_selection() {
+    use super::super::workspace::OpsTarget;
+    let mut shell = OpsShell::default();
+    let mut selected = Some(OpsTarget::Pool);
+    assert!(shell.select_digit('2', OpsInputOwner::List, &mut selected));
+    assert_eq!(shell.tab.label(), "Work");
+    assert_eq!(selected, None);
+    assert!(shell.select_digit('1', OpsInputOwner::List, &mut selected));
+    assert_eq!(selected, Some(OpsTarget::Pool));
 }
