@@ -1,5 +1,5 @@
 /** Remote's routes inside the one TMT web app (design/browser-ui `shell-host.ts`). */
-import type { ShellAnswer, ShellMenu } from '@tmt/browser-ui/shell';
+import { claimedHome, type ShellAnswer, type ShellMenu } from '@tmt/browser-ui/shell';
 import type { ShellSlot } from '@tmt/browser-ui/shell-host';
 import type { Session } from './device.js';
 
@@ -8,7 +8,7 @@ export interface RemoteShell {
   /** The module menu this page shows; `select` takes over a plain click on one of its items. */
   setMenu(menu: ShellMenu | undefined, select?: Select): void;
   /** Go to another TMT URL without reloading; the same route only follows the new path. */
-  navigate(href: string): void;
+  navigate(href: string, options?: { replace?: boolean }): void;
   /** Route identity in the top bar and the shell-owned document title. */
   setTitle(
     title: string,
@@ -102,7 +102,7 @@ export function hostRemote(
   current = slot &&
     signal && {
       setMenu: (menu, select) => slot.setMenu(menu, select),
-      navigate: (href) => slot.navigate(href),
+      navigate: (href, options) => slot.navigate(href, options),
       setTitle: (title, ancestors, documentTitle, chips) =>
         setRouteTitle(slot, title, ancestors, documentTitle, chips),
       describe: (address) => slot.describe(address),
@@ -158,6 +158,10 @@ export function homePage(shell: RemoteShell, open: (href: string) => string): vo
     .then((response) => response.status === 200)
     .catch(() => false);
   shell.described(async (answer) => {
+    // One installed module claiming Home replaces this page (#6474); the pairing offer stays the
+    // shell's notification on every route.
+    const claimed = claimedHome(answer);
+    if (claimed) return shell.navigate(open(claimed), { replace: true });
     const rows: HTMLLIElement[] = [];
     for (const module of answer?.modules ?? [])
       if (module.needsYou)

@@ -124,6 +124,8 @@ export interface PageActivity {
   doneAtMs?: number;
   /** When the owner list first saw this page blocked; cleared when it is unblocked. */
   blockedSinceMs?: number;
+  /** The release tag a retained fact proved for one of the page's PRs. */
+  release?: string;
   /** The page's to-dos as work items, in page order; omitted for a page without any. */
   todos?: TodoWorkItem[];
   /** The to-dos did not fit in the list read; the page lists none rather than some. */
@@ -236,7 +238,9 @@ export function activity(value: unknown): asserts value is PageActivity {
     ...('work' in value ? ['work'] : []),
     ...('parent' in value ? ['parent'] : []),
     ...('status' in value ? ['status'] : []),
-    ...['doneAtMs', 'blockedSinceMs', 'todos', 'todosOmitted'].filter((key) => key in value),
+    ...['doneAtMs', 'blockedSinceMs', 'release', 'todos', 'todosOmitted'].filter(
+      (key) => key in value,
+    ),
   ]);
   requireValue(
     Number.isSafeInteger(value.comments) &&
@@ -259,6 +263,8 @@ export function activity(value: unknown): asserts value is PageActivity {
   if ('status' in value) requireValue(LIST_STATUSES.some((state) => state === value.status));
   if ('doneAtMs' in value) requireValue(time(value.doneAtMs));
   if ('blockedSinceMs' in value) requireValue(time(value.blockedSinceMs));
+  if ('release' in value)
+    requireValue(text(value.release, 128) && !/\p{Cc}/u.test(value.release as string));
   if ('todosOmitted' in value) requireValue(value.todosOmitted === true && !('todos' in value));
   if ('todos' in value) {
     requireValue(

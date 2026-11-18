@@ -46,10 +46,11 @@ a:not(
   ):hover {
   color: var(--c-accent);
 }
-/* DS block parts draw their own pressed state (the mockup toolbar's segments). */
+/* DS block parts draw their own pressed state (the mockup toolbar's segments), as Work home's
+   filters and parts do (#6474). */
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
     .needs-filter-button
-  ):not(.tmt-block-segments > button)[aria-pressed='true'] {
+  ):not(.tmt-block-segments > button):not(.work-home *)[aria-pressed='true'] {
   border-color: var(--tmt-ui-color-accent);
   background: var(--tmt-ui-surface-selection);
 }

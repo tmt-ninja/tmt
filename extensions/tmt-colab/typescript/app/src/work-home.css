@@ -1,0 +1,326 @@
+/* Work home (#6474): the page's layout around the browser-ui Work home parts, as the spec's Work
+   mockup lays it out. The parts own their own look. */
+.work-home-body {
+  box-sizing: border-box;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 36px 40px 64px;
+  color: var(--tmt-ui-color-text);
+}
+.work-home-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+.work-home-title {
+  margin: 0;
+  font: 650 28px / 1.2 var(--tmt-ui-font-display);
+  letter-spacing: -0.01em;
+}
+.work-home-summary {
+  margin: 6px 0 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
+.work-home-projects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.work-home-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-pill);
+  background: none;
+  color: var(--tmt-ui-color-text);
+  font: 13px var(--tmt-ui-font-body);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.work-home-project > span {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
+}
+.work-home-project[aria-pressed='true'] {
+  border-color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-color-text);
+  color: var(--tmt-ui-surface-sheet);
+  font-weight: 600;
+}
+.work-home-project[aria-pressed='true'] > span {
+  color: inherit;
+}
+.work-home-project:focus-visible,
+.work-home-periods button:focus-visible,
+.work-home-more:focus-visible,
+.work-home-clear:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
+}
+.work-home-cards {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 14px;
+  margin-top: 28px;
+}
+.work-home-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 20px 22px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-l);
+}
+.work-home-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.work-home-card-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.work-home-card-head > span:not(.work-home-periods),
+.work-home-total,
+.work-home-moving > span:first-child,
+.work-home-notes p > span:last-child,
+.work-home-none {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12.5px;
+}
+.work-home-periods {
+  display: inline-flex;
+  gap: 2px;
+}
+.work-home-periods button {
+  padding: 4px 10px;
+  border: var(--tmt-ui-rule-width) solid transparent;
+  border-radius: var(--tmt-ui-radius-s);
+  background: none;
+  color: var(--tmt-ui-color-secondary);
+  font: 12.5px var(--tmt-ui-font-body);
+  cursor: pointer;
+}
+.work-home-periods button[aria-pressed='true'] {
+  background: var(--tmt-ui-surface-hover);
+  color: var(--tmt-ui-color-text);
+  font-weight: 600;
+}
+.work-home-total {
+  margin: 0;
+}
+.work-home-total > span {
+  margin-right: 6px;
+  color: var(--tmt-ui-color-text);
+  font: 650 26px / 1 var(--tmt-ui-font-display);
+}
+.work-home-moving {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.work-home-avatars {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.work-home-notes {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+}
+.work-home-notes p {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 13px;
+}
+.work-home-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 36px 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.work-home-heading > span {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 400;
+}
+.work-home-clear,
+.work-home-more {
+  padding: 2px 6px;
+  border: var(--tmt-ui-rule-width) solid transparent;
+  border-radius: var(--tmt-ui-radius-s);
+  background: none;
+  color: var(--tmt-ui-color-secondary);
+  font: 12.5px var(--tmt-ui-font-body);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.work-home-more {
+  align-self: flex-start;
+}
+.work-home-project-section {
+  margin-bottom: 12px;
+}
+.work-home-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.work-home-section-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+.work-home-section-head h3 > span {
+  margin-left: 8px;
+  color: var(--tmt-ui-color-secondary);
+  font: 12px var(--tmt-ui-font-mono);
+}
+.work-home-section-counts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+}
+.work-home-section-counts > span:not(.work-home-avatars) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.work-home-rows > .tmt-ui-work-row:first-child {
+  border-top: 0;
+}
+.work-home-recent {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.work-home-recent a {
+  display: grid;
+  grid-template: 'mark number title owner release time' / 14px 104px minmax(
+      0,
+      1fr
+    ) 150px 110px 130px;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+  color: var(--tmt-ui-color-text);
+  font-size: 13.5px;
+  text-decoration: none;
+}
+.work-home-recent a:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.work-home-recent a:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.work-home-recent a > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.work-home-recent-mark {
+  grid-area: mark;
+}
+.work-home-recent-number {
+  grid-area: number;
+}
+.work-home-recent-title {
+  grid-area: title;
+}
+.work-home-recent-owner {
+  grid-area: owner;
+}
+.work-home-recent-release {
+  grid-area: release;
+}
+.work-home-recent-time {
+  grid-area: time;
+}
+.work-home-recent-number,
+.work-home-recent-release,
+.work-home-recent-time,
+.work-home-recent-mark {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12.5px;
+}
+.work-home-recent-number {
+  font-family: var(--tmt-ui-font-mono);
+}
+.work-home-recent-owner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.work-home-recent-time {
+  text-align: right;
+}
+.work-home-empty {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  max-width: 560px;
+  margin: 64px auto;
+  padding: 0 24px;
+  color: var(--tmt-ui-color-secondary);
+}
+@media (max-width: 760px) {
+  .work-home-body {
+    padding: 24px 16px 48px;
+  }
+  .work-home-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .work-home-projects {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .work-home-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .work-home-card {
+    padding: 16px 14px;
+  }
+  .work-home-recent a {
+    grid-template:
+      'mark title title title'
+      '. number owner release time' / 14px max-content max-content max-content minmax(0, 1fr);
+    gap: 2px 6px;
+  }
+  .work-home-recent-title {
+    font-weight: 550;
+  }
+  .work-home-recent-time {
+    text-align: start;
+  }
+  .work-home-recent-owner::before,
+  .work-home-recent-release:not(:empty)::before,
+  .work-home-recent-time::before {
+    content: '· ';
+    color: var(--tmt-ui-color-secondary);
+  }
+  .work-home-recent-owner > .tmt-ui-avatar {
+    display: none;
+  }
+}

@@ -1,4 +1,4 @@
-import { readReadingDetails } from './reading-details.js';
+import { readReadingDetails, readWorkActivity } from './reading-details.js';
 import { RemotePresence } from './remote-presence.js';
 import { createRemoteClient, type RemoteClient } from './ask-remote.js';
 import {
@@ -445,6 +445,11 @@ export async function mountedTransport(
             },
           );
         });
+      },
+      workActivity(owners, signal) {
+        return owned(() =>
+          readWorkActivity(mount, owners, AbortSignal.any([signal, lifetime.signal])),
+        );
       },
       readingDetails(id, signal) {
         // A new shell opening joins the previous aborted request before starting its read.

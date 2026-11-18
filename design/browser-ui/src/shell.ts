@@ -31,6 +31,27 @@ export interface ShellModule {
   settings: { id: string; label: string; path: string }[];
   needsYou?: number;
   home?: { id: string; title: string; path: string }[];
+  /** The page this module offers as Home (#6474), an absolute URL under its own mount. */
+  homePage?: string;
+}
+
+/**
+ * The page that replaces Remote's Home (#6474): the one module that claims it, when its claim is
+ * a URL under that module's own mount. No claim, an invalid one or two claims keep Remote's Home.
+ */
+export function claimedHome(answer: ShellAnswer | undefined): string | undefined {
+  const claims = (answer?.modules ?? []).filter((module) => module.homePage !== undefined);
+  const module = claims.length === 1 ? claims[0] : undefined;
+  if (!module) return undefined;
+  const home = module.homePage;
+  const mount = module.rail.path.replace(/\/?$/, '/');
+  return !module.module &&
+    typeof home === 'string' &&
+    home.startsWith(mount) &&
+    !/[?#]/.test(home) &&
+    !home.slice(mount.length).split('/').includes('..')
+    ? home
+    : undefined;
 }
 interface ShellAnswerCount {
   value: number;
@@ -303,14 +324,17 @@ export function shellRail(
     answer && counts.every((count) => count !== undefined)
       ? counts.reduce<number>((sum, count) => sum + count!, 0)
       : undefined;
+  // A claimed Home opens the claiming module's page and is current there, not the module.
+  const home = claimedHome(answer);
+  const atHome = home !== undefined && place.href.split(/[?#]/)[0] === home;
   const main: ShellItem[] = [
     {
       id: 'home',
       label: 'Home',
       icon: 'house',
-      href: `${place.origin}/`,
+      href: home ?? `${place.origin}/`,
       count: total ? shellCount(total) : undefined,
-      current: path === '/' && !active,
+      current: (path === '/' && !active) || atHome,
     },
     ...modules.map((module) => ({
       id: module.id,
@@ -318,7 +342,7 @@ export function shellRail(
       icon: module.icon,
       href: module.href,
       count: module.needsYou ? shellCount(module.needsYou) : undefined,
-      current: !settings && module.id === matched,
+      current: !settings && !atHome && module.id === matched,
       ...(module.available ? {} : { disabled: true, note: unavailable }),
     })),
   ];
@@ -972,7 +996,9 @@ export function mountShell(
       }
       const row = document.createElement('li');
       row.append(anchor);
-      if (item === current && pages) row.append(nested(pages, selected));
+      // A module's menu belongs to its module: a claimed Home (#6474) is current on a module's page
+      // and shows none of it.
+      if (item === current && pages && item.id !== 'home') row.append(nested(pages, selected));
       list.append(row);
     }
     return list;

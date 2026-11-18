@@ -146,6 +146,7 @@ import {
   type ThreadAnchor,
 } from './thread-records.js';
 import { Home, validateHomeSearch } from './home.js';
+import { WorkHome } from './work-home.js';
 import { HomeReadFailure, isOrdinaryListReadFailure } from './home-load-error.js';
 import { ColdPageList } from './home-cold.js';
 import { PageListError, PageListLoading } from '@tmt/browser-ui/data-table';
@@ -1121,6 +1122,17 @@ const home = createRoute({
   pendingMs: 150,
   pendingMinMs: 300,
 });
+// Work home (#6474): the same owner list read as the page list, drawn as the spec's Work page.
+const work = createRoute({
+  getParentRoute: () => root,
+  path: '/work',
+  // Ages and periods are measured from when this list was read, so a render stays pure.
+  loader: async (options) => ({ ...(await loadSpaceHome(options)), readAt: Date.now() }),
+  component: WorkHome,
+  pendingComponent: HomePending,
+  pendingMs: 150,
+  pendingMinMs: 300,
+});
 // The list was `/all` before it became the home; an old link or history entry still lands on it.
 const allPages = createRoute({
   getParentRoute: () => root,
@@ -1351,6 +1363,8 @@ function Shell() {
   });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
+  // Work home (#6474) names itself, as the list does.
+  const isWork = pathname === '/work';
   // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
   const hostSlot = useContext(ShellHostSlot);
   const ownShell = hostSlot === null;
@@ -1364,7 +1378,7 @@ function Shell() {
         space={space}
         pageId={isPage ? pathname.slice('/pages/'.length) : undefined}
         routeKey={pathname}
-        allowed={ownShell || isPage || isHome}
+        allowed={ownShell || isPage || isHome || isWork}
         shortcut={!sharedSearch}
         navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
         pageHref={(pageId) =>
@@ -1375,7 +1389,7 @@ function Shell() {
       >
         <ColabShell transport={transport} space={space}>
           {/* The list names its own scope; a page draws its own header. */}
-          {!isPage && !isHome && (
+          {!isPage && !isHome && !isWork && (
             <AppHeader
               title={
                 pathname.startsWith('/short/')
@@ -4119,6 +4133,7 @@ export function createAppRouter(
   const router = createRouter({
     routeTree: root.addChildren([
       home,
+      work,
       allPages,
       page,
       shortPage,

@@ -72,7 +72,27 @@ struct Context {
     grant_revision: u64,
 }
 pub(crate) const WORK_NUMBERS_PATH: &str = "/api/work-numbers";
+/// What the describing Remote admits (`tmt-describe-features`); an older Remote names none and
+/// gets the primary-only answer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DescribeFeatures {
+    pub modules: bool,
+    pub home: bool,
+}
+impl DescribeFeatures {
+    pub(crate) fn parse(header: Option<&str>) -> Self {
+        let has = |name: &str| {
+            header.is_some_and(|features| features.split(',').any(|token| token.trim() == name))
+        };
+        Self {
+            modules: has("modules"),
+            home: has("home"),
+        }
+    }
+}
 pub(crate) const WORK_FACTS_PATH: &str = "/api/work-facts";
+/// Work home's owner-activity batch (#6474).
+pub(crate) const WORK_ACTIVITY_PATH: &str = "/api/work-activity";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -252,6 +272,9 @@ pub struct Registration {
     /// The page list token at a store write generation: a held read's idle check reuses it while
     /// nothing was written, instead of digesting every page's fingerprint again.
     list_token: std::cell::RefCell<Option<(crate::store::WriteGeneration, String)>>,
+    /// The serve's owner-activity observations, shared with the socket's reads; the list only
+    /// reads what is retained (#6474).
+    work_facts: Option<std::sync::Arc<crate::work_facts::Facts>>,
 }
 impl Registration {
     pub fn new(
@@ -275,6 +298,7 @@ impl Registration {
             save_source: None,
             summaries: Default::default(),
             summary_source: None,
+            work_facts: None,
             list_token: Default::default(),
         })
     }
@@ -396,7 +420,11 @@ impl Registration {
         let parents = graph.parents();
         let archived = crate::inspection::catalog_archived_ids(&catalog);
         let now = now_ms()?;
-        let statuses = self.list_statuses(fresh.keys(), &fingerprints, now);
+        let listed = self.list_statuses(fresh.keys(), &fingerprints, now);
+        let statuses: std::collections::BTreeMap<String, String> = listed
+            .iter()
+            .map(|(id, (state, _))| (id.clone(), state.clone()))
+            .collect();
         let status = |page: &str| statuses.get(page).cloned();
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
@@ -417,6 +445,9 @@ impl Registration {
             page["summary"] = summary.json();
             if let Some(state) = statuses.get(&id) {
                 page["summary"]["status"] = serde_json::json!(state);
+            }
+            if let Some((_, Some(release))) = listed.get(&id) {
+                page["summary"]["release"] = serde_json::json!(release);
             }
             if let Some(work) = graph.row(&id, &archived, &status) {
                 page["summary"]["work"] = work;
@@ -610,7 +641,7 @@ impl Registration {
         pages: impl Iterator<Item = &'a String>,
         fingerprints: &std::collections::BTreeMap<String, String>,
         now: u64,
-    ) -> std::collections::BTreeMap<String, String> {
+    ) -> std::collections::BTreeMap<String, (String, Option<String>)> {
         pages
             .filter_map(|id| {
                 let retained = self
@@ -622,14 +653,31 @@ impl Registration {
                         Some(fingerprints),
                     )
                     .ok()
-                    .flatten()
-                    .and_then(|status| status["state"].as_str().map(str::to_owned));
+                    .flatten();
+                // The release a retained fact proved for one of the page's PRs (#6474 Work home).
+                let release = retained.as_ref().and_then(|status| {
+                    status["pulls"].as_array()?.iter().rev().find_map(|pull| {
+                        let fact = &pull["fact"];
+                        (fact["released"] == true)
+                            .then(|| fact["tag"].as_str().map(str::to_owned))
+                            .flatten()
+                    })
+                });
+                let retained =
+                    retained.and_then(|status| status["state"].as_str().map(str::to_owned));
                 let state = retained.or_else(|| {
                     self.summaries
-                        .derived_state(id, fingerprints.get(id)?, now)
+                        .derived_state(id, fingerprints.get(id)?, now, &|owner| {
+                            Some(
+                                self.work_facts
+                                    .as_ref()?
+                                    .retained_activity(owner)?
+                                    .activity(),
+                            )
+                        })
                         .map(str::to_owned)
                 })?;
-                Some((id.clone(), state))
+                Some((id.clone(), (state, release)))
             })
             .collect()
     }
@@ -691,6 +739,39 @@ impl Registration {
     }
 
     /// The owner page's admitted PR links, never a URL supplied by the browser.
+    /// The owners a Work home activity read may ask about (#6474): the requested ids, at most
+    /// [`crate::limits::WORK_ACTIVITY_OWNERS`], that some page with a fresh fold names as its
+    /// owner, so the read never reports an identity no page shows.
+    pub(crate) fn work_activity_owners(
+        &mut self,
+        context: Option<&str>,
+        body: &[u8],
+    ) -> std::result::Result<Vec<String>, Code> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Request {
+            owners: Vec<String>,
+        }
+        let request: Request = serde_json::from_slice(body).map_err(|_| Code::Invalid)?;
+        if request.owners.len() > crate::limits::WORK_ACTIVITY_OWNERS
+            || request
+                .owners
+                .iter()
+                .any(|owner| owner.is_empty() || owner.len() > 128)
+        {
+            return Err(Code::Invalid);
+        }
+        self.active_device(context, now_ms()?)?;
+        let named = self.summaries.owners();
+        let mut owners: Vec<String> = request
+            .owners
+            .into_iter()
+            .filter(|owner| named.contains(owner))
+            .collect();
+        owners.sort();
+        owners.dedup();
+        Ok(owners)
+    }
     pub(crate) fn work_facts_input(
         &mut self,
         context: Option<&str>,
@@ -771,7 +852,7 @@ impl Registration {
                 let state = current.then(|| graph.page_state(page)).flatten();
                 // The work panel counts sub-pages as the list row does (#6474).
                 let statuses = self.list_statuses(found.keys(), &fingerprints, now_ms()?);
-                let status = |child: &str| statuses.get(child).cloned();
+                let status = |child: &str| statuses.get(child).map(|(state, _)| state.clone());
                 let progress = current
                     .then(|| graph.progress_by(page, &archived, &status))
                     .flatten();
@@ -853,7 +934,9 @@ impl Registration {
     /// Static display-only navigation remains available while catalog work holds the service lock.
     /// With `modules` (the caller admits extra modules, #5811), Design rides along as Colab's
     /// one extra rail module (#5819, #5866), inside Colab's own mount, loaded by the same module script.
-    pub(crate) fn navigation_description(modules: bool) -> serde_json::Value {
+    /// With `home` (the caller admits a module home, #6474), Colab claims Home with Work home.
+    pub(crate) fn navigation_description(features: DescribeFeatures) -> serde_json::Value {
+        let DescribeFeatures { modules, home } = features;
         let mut answer = serde_json::json!({
             "version":1,
             "rail":{"label":"Colab","icon":"file-text","path":"/","order":100},
@@ -861,6 +944,9 @@ impl Registration {
             "settings":[],
             "entry":"/assets/colab-module.js"
         });
+        if home {
+            answer["homePage"] = serde_json::json!("/work");
+        }
         if modules {
             answer["modules"] = serde_json::json!([{
                 "id":"design",
@@ -874,7 +960,10 @@ impl Registration {
         answer
     }
     /// Display-only owner-socket callback. Unlike pages(), this never schedules a refresh.
-    pub(crate) fn describe(&self, modules: bool) -> std::result::Result<Vec<u8>, Code> {
+    pub(crate) fn describe(
+        &self,
+        features: DescribeFeatures,
+    ) -> std::result::Result<Vec<u8>, Code> {
         let (catalog, fingerprints) = self.owner_catalog_fingerprinted()?;
         let pages: Vec<_> = catalog["pages"]
             .as_array()
@@ -893,7 +982,7 @@ impl Registration {
             let summary = self.summaries.get(id, fingerprint)?;
             Some(count + usize::from(summary.waiting))
         });
-        let mut answer = Self::navigation_description(modules);
+        let mut answer = Self::navigation_description(features);
         answer["menu"][0]["count"] = serde_json::json!({"value":pages.len(),"kind":"plain"});
         if let Some(needs_you) = needs_you {
             answer["needsYou"] = serde_json::json!(needs_you);
@@ -1210,6 +1299,10 @@ impl Registration {
         if let Some(open) = &self.summary_source {
             crate::summary::drain(&self.summaries, open);
         }
+    }
+    pub fn with_work_facts(mut self, facts: std::sync::Arc<crate::work_facts::Facts>) -> Self {
+        self.work_facts = Some(facts);
+        self
     }
     pub fn with_save_source(mut self, open: crate::page::save::SourceOpener) -> Self {
         self.save_source = Some(open);
@@ -2109,8 +2202,11 @@ mod describe_tests {
 
     #[test]
     fn design_extra_declares_its_root_family_without_changing_the_primary() {
-        let primary = Registration::navigation_description(false);
-        let mut described = Registration::navigation_description(true);
+        let primary = Registration::navigation_description(DescribeFeatures::default());
+        let mut described = Registration::navigation_description(DescribeFeatures {
+            modules: true,
+            home: false,
+        });
         let modules = described
             .as_object_mut()
             .unwrap()
@@ -2120,6 +2216,22 @@ mod describe_tests {
         assert_eq!(modules[0]["id"], "design");
         assert_eq!(modules[0]["rootAppFamily"], "/design");
         assert_eq!(modules[0]["entry"], "/assets/colab-module.js");
+    }
+
+    #[test]
+    fn colab_claims_home_only_for_a_remote_that_admits_it() {
+        let primary = Registration::navigation_description(DescribeFeatures::default());
+        assert!(primary.get("homePage").is_none());
+        let mut claimed =
+            Registration::navigation_description(DescribeFeatures::parse(Some("modules, home")));
+        assert_eq!(claimed["homePage"], "/work");
+        claimed.as_object_mut().unwrap().remove("homePage");
+        claimed.as_object_mut().unwrap().remove("modules");
+        assert_eq!(claimed, primary);
+        assert_eq!(
+            DescribeFeatures::parse(Some("homepage")),
+            DescribeFeatures::default()
+        );
     }
 
     #[test]
@@ -2317,6 +2429,7 @@ mod describe_tests {
         assert!(list[top]["summary"].get("parent").is_none());
         assert!(list[unread].get("summary").is_none());
         assert_eq!(list[bare]["summary"]["status"], "waiting-ci");
+        assert!(list[bare]["summary"].get("release").is_none());
         // Without a retained status for its fingerprint, the list derives one from the fold
         // alone; this fixture's fold extracted no PR links, so its facts are unavailable.
         assert_eq!(list[top]["summary"]["status"], "unknown");
@@ -2375,6 +2488,20 @@ mod describe_tests {
                 .get("blockedSinceMs")
                 .is_none()
         );
+
+        // A retained fact that proved a release names it on the row (#6474 Work home).
+        service
+            .store
+            .remember_work_status(
+                bare,
+                &fingerprints[bare],
+                &json!({"pageId":bare,"state":"done","pulls":[
+                    {"url":"https://github.com/o/r/pull/1","fact":{"released":false,"tag":null}},
+                    {"url":"https://github.com/o/r/pull/2","fact":{"released":true,"tag":"v1.2.0"}}
+                ]}),
+            )
+            .unwrap();
+        assert_eq!(rows(&service)[bare]["summary"]["release"], "v1.2.0");
 
         // The sub-page goes stale: its state is unknown, so it no longer counts as done.
         put(leaf, "stale fingerprint", Some(&leaf_work));
@@ -2494,11 +2621,13 @@ mod describe_tests {
             .unwrap();
         let (_, fingerprints) = service.owner_catalog_fingerprinted().unwrap();
         let home = |service: &Registration| -> serde_json::Value {
-            serde_json::from_slice::<serde_json::Value>(&service.describe(false).unwrap())
-                .unwrap()
-                .get("home")
-                .cloned()
-                .unwrap_or_default()
+            serde_json::from_slice::<serde_json::Value>(
+                &service.describe(DescribeFeatures::default()).unwrap(),
+            )
+            .unwrap()
+            .get("home")
+            .cloned()
+            .unwrap_or_default()
         };
         // No projected title yet: no card and no placeholder.
         assert_eq!(home(&service), serde_json::Value::Null);
@@ -2606,7 +2735,7 @@ mod describe_tests {
         put(archived, "stale fingerprint", 2);
         let answer: serde_json::Value = serde_json::from_slice(
             &service
-                .describe(false)
+                .describe(DescribeFeatures::default())
                 .expect("archived stale summaries are irrelevant"),
         )
         .unwrap();
@@ -2617,7 +2746,8 @@ mod describe_tests {
         );
         put(archived, &fingerprints[archived], 2);
         let answer: serde_json::Value =
-            serde_json::from_slice(&service.describe(false).unwrap()).unwrap();
+            serde_json::from_slice(&service.describe(DescribeFeatures::default()).unwrap())
+                .unwrap();
         assert_eq!(answer["menu"][0]["count"]["value"], 1);
         assert_eq!(
             answer["needsYou"], 1,
@@ -2626,7 +2756,8 @@ mod describe_tests {
         for fingerprint in [fingerprints[active].as_str(), "old fingerprint"] {
             service.summaries.put(active, fingerprint, None);
             let answer: serde_json::Value =
-                serde_json::from_slice(&service.describe(false).unwrap()).unwrap();
+                serde_json::from_slice(&service.describe(DescribeFeatures::default()).unwrap())
+                    .unwrap();
             assert_eq!(answer["rail"]["label"], "Colab");
             assert!(answer.get("needsYou").is_none());
             assert_eq!(
@@ -2643,14 +2774,15 @@ mod describe_tests {
         }
         put(active, &fingerprints[active], 0);
         let answer: serde_json::Value =
-            serde_json::from_slice(&service.describe(false).unwrap()).unwrap();
+            serde_json::from_slice(&service.describe(DescribeFeatures::default()).unwrap())
+                .unwrap();
         assert_eq!(answer["needsYou"], 0, "known zero remains a number");
         let oracle = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
         oracle
             .execute("UPDATE membership_log SET envelope=x'00'", [])
             .unwrap();
         assert_eq!(
-            service.describe(false),
+            service.describe(DescribeFeatures::default()),
             Err(Code::Unavailable),
             "a broken catalog still refuses"
         );

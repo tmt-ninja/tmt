@@ -1454,7 +1454,7 @@ fn shell_callback_is_private_bounded_and_browser_markers_never_forward() {
     assert_eq!(seen.len(), 1);
     assert!(seen[0].contains("\r\ntmt-describe: 1\r\n"));
     assert!(
-        seen[0].contains("\r\ntmt-describe-features: modules\r\n"),
+        seen[0].contains("\r\ntmt-describe-features: modules, home\r\n"),
         "new Remote remains compatible with the old primary-only producer"
     );
     assert!(seen[0].contains(&format!("\r\ntmt-mount: {}/x/colab/\r\n", door.prefix)));
@@ -1473,7 +1473,7 @@ fn shell_callback_is_private_bounded_and_browser_markers_never_forward() {
     assert_eq!(
         door.status(&door.get(
             &door.at("/x/colab/"),
-            "tmt-describe: 1\r\ntmt-describe-features: modules\r\n"
+            "tmt-describe: 1\r\ntmt-describe-features: modules, home\r\n"
         )),
         200
     );
@@ -1492,7 +1492,7 @@ fn shell_new_producer_omits_modules_for_old_remote_and_enables_them_only_with_ca
         seen.push(head);
         let mut body: serde_json::Value = serde_json::from_str(&legacy).unwrap();
         // Colab-shaped producer fixture: only the requested feature adds the optional field.
-        if text.contains("\r\ntmt-describe-features: modules\r\n") {
+        if text.contains("\r\ntmt-describe-features: modules, home\r\n") {
             body["modules"] = serde_json::json!([{"id":"design","rootAppFamily":"/design","rail":{"label":"Design","icon":"palette","path":"/design/","order":100},"menu":[],"settings":[]}]);
         }
         let body = body.to_string();

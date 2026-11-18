@@ -188,6 +188,11 @@ impl MountSocket {
             cloud: None,
         })
     }
+    /// Share the serve's owner-activity observations with the owner list (#6474).
+    pub fn with_work_facts(mut self, facts: Arc<crate::work_facts::Facts>) -> Self {
+        self.browser.work_facts = facts;
+        self
+    }
     /// Record how the Remote door is held (one of `control::DOORS`) for a stop request to report.
     pub fn with_door(mut self, door: &'static str) -> Self {
         self.browser.control.door = door;
@@ -502,17 +507,15 @@ fn serve(
                 return Err(registration::Code::Invalid);
             }
             // An older Remote sends no features and gets the exact primary-only answer.
-            let modules = request
-                .describe_features
-                .as_deref()
-                .is_some_and(|features| features.split(',').any(|token| token.trim() == "modules"));
+            let features =
+                registration::DescribeFeatures::parse(request.describe_features.as_deref());
             match registration
                 .ok_or(registration::Code::Unavailable)?
                 .try_lock()
             {
-                Ok(service) => service.describe(modules),
+                Ok(service) => service.describe(features),
                 Err(TryLockError::WouldBlock) => {
-                    serde_json::to_vec(&Registration::navigation_description(modules))
+                    serde_json::to_vec(&Registration::navigation_description(features))
                         .map_err(|_| registration::Code::Unavailable)
                 }
                 Err(TryLockError::Poisoned(_)) => Err(registration::Code::Unavailable),
@@ -906,6 +909,47 @@ fn serve(
         let _ = response_as(&mut socket, status, &body, "application/json");
         return;
     }
+    if request.method == "POST"
+        && !request.upgrade
+        && request.path == registration::WORK_ACTIVITY_PATH
+    {
+        // Work home (#6474): one bounded batch on the browser's own events; the list answer never
+        // waits for it and shows these observations on its next read.
+        let result = (|| {
+            let owners = registration
+                .ok_or(registration::Code::Unavailable)?
+                .lock()
+                .map_err(|_| registration::Code::Unavailable)?
+                .work_activity_owners(request.context.as_deref(), &request.body)?;
+            let observed = browser
+                .work_facts
+                .activities(&owners, &std::sync::atomic::AtomicBool::new(false));
+            let rows: serde_json::Map<String, serde_json::Value> = observed
+                .into_iter()
+                .map(|(owner, activity)| {
+                    (
+                        owner,
+                        serde_json::json!({
+                            "state": activity.state,
+                            "lastActivityMs": activity.last_activity_ms,
+                            "observedAtMs": activity.observed_at_ms,
+                        }),
+                    )
+                })
+                .collect();
+            serde_json::to_vec(&serde_json::json!({ "owners": rows }))
+                .map_err(|_| registration::Code::Unavailable)
+        })();
+        let (status, body) = match result {
+            Ok(bytes) => (200, bytes),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({"code":code.text()})).expect("error JSON"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
+        return;
+    }
     if request.method == "POST" && !request.upgrade && request.path == registration::WORK_FACTS_PATH
     {
         let result = (|| {
@@ -956,19 +1000,10 @@ fn serve(
             let activity_read = owner.map(|owner| browser.work_facts.activity(owner, &stop));
             let mut busy_unknown = activity_read.as_ref().is_some_and(|read| read.busy_unknown);
             let activity = activity_read.and_then(|read| read.observation);
-            let owner_activity = match activity.as_ref().map(|activity| activity.state.as_str()) {
-                Some("working") => crate::work_index::OwnerActivity::Working {
-                    last_activity_ms: activity
-                        .as_ref()
-                        .and_then(|activity| activity.last_activity_ms),
-                    observed_at_ms: activity
-                        .as_ref()
-                        .map_or(0, |activity| activity.observed_at_ms),
-                },
-                Some("waiting") => crate::work_index::OwnerActivity::Waiting,
-                Some("idle" | "ended") => crate::work_index::OwnerActivity::Other,
+            let owner_activity = match activity.as_ref() {
+                Some(activity) => activity.activity(),
                 None if owner.is_none() => crate::work_index::OwnerActivity::Other,
-                _ => crate::work_index::OwnerActivity::Unknown,
+                None => crate::work_index::OwnerActivity::Unknown,
             };
             let known = projection.pr_links.is_some();
             let mut pulls = Vec::new();
@@ -2099,6 +2134,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | "/api/pages"
             | registration::WORK_NUMBERS_PATH
             | registration::WORK_FACTS_PATH
+            | registration::WORK_ACTIVITY_PATH
             | TEMPLATES
             | management::PATH
             | management::LOCAL_PATH

@@ -6433,6 +6433,17 @@ successful comparison is retained per PR, merge and candidate tag; a positive re
 retained and never polled again for that filter. The reader requests only the checks rollup state.
 No GitHub output is added to page HTML, and share readers receive none of these observations.
 
+Work home (`/work`, #6474) may POST `{owners}` to `/api/work-activity`: at most 256 owner ids,
+on its own events only (opening, the tab becoming visible, a list re-read it did not ask for), never
+on a timer. The
+serve answers only for ids some page with a fresh fold names as its owner, after one
+`changes.cursor` read and one `identities.status` read for the owners whose cursor changed:
+`{owners:{<id>:{state,lastActivityMs,observedAtMs}}}`. An owner the read cannot report keeps its
+earlier observation; the list answer never waits for this read, and Work home reads the list again
+when an owner's activity state changed (a newer activity time alone does not). Display only. Its
+work items are the pages with a fresh summary and the numbered to-dos that name an assignee. When Remote's describe request names the `home` feature,
+Colab's description claims Home with `homePage: "/work"`.
+
 The owner browser may POST `{pageId}` to `/api/work-facts` only while its owner sync connection
 for that page is open. The reply is `{pageId,known,pulls,state,activity,asOfMs}`: `pulls` holds
 only admitted PR URLs and bounded derived facts, `activity` is a bounded local owner-agent observation
@@ -6659,7 +6670,9 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   PR link or the owner's activity could change the answer, it is `unchecked` (shown as "Not
   checked yet") until an owner page view computes the status. Values: `done`, `blocked`,
   `needs-you`, `waiting-ci`, `waiting-release`, `working`, `possibly-stalled`, `discussing`,
-  `unknown` (the facts were unavailable) or `unchecked`. A list read never reads GitHub or Core
+  `unknown` (the facts were unavailable) or `unchecked`. An owner's activity the serve already
+  observed (by a page view or a Work home read) counts as a known fact for the owner rules. A list
+  read never reads GitHub or Core
   activity. A page's sub-page progress (`work`) counts a child as done when its status is `done`,
   as in progress or to do by its other statuses, and by its manual state when it is `unknown`,
   `unchecked` or absent. Display only, never authority.
@@ -6669,7 +6682,9 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     `blocked` field, so work already done when the list first sees it keeps the time of its last
     edit and needs no backfill. A read that sees the page reopened or unblocked clears the time;
     a status it cannot decide (`unknown`, `unchecked`) changes nothing.
-  - `todos` lists the page's visible to-dos in page order as work items, at most 64:
+  - `release` is the release tag a retained owner fact proved for one of the page's PRs (the last
+    such PR); absent when none is retained. The list read never reads GitHub for it.
+  - `todos` lists the page's visible to-dos in page order, at most 64:
     `{id, text, checked, number?, assignee?, doneAtMs?}`. `text` is cut at 256 bytes on a
     character boundary; `number` is the to-do's issued work number; `doneAtMs` is when a list read
     first saw it checked (its page's last activity then, as above), cleared when it is unchecked

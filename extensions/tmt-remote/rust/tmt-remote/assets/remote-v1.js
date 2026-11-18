@@ -3056,201 +3056,10 @@ function remoteTabAccess(item, role) {
 	};
 }
 //#endregion
-//#region src/remote-shell.ts
-/** Routes supply plain title segments; the shared leaf owns layout and phone truncation. */
-function setRouteTitle(slot, title, ancestors = [], documentTitle = title, chips = []) {
-	if (!slot.topBarReady()) return;
-	slot.setTitle(documentTitle);
-	const target = slot.setTopBar().title;
-	const label = [...ancestors, title].join(" / ");
-	if (target.querySelector("h1")?.getAttribute("aria-label") === label && (target.querySelector(".tmt-ui-topbar-title-chips")?.textContent ?? "") === chips.join("")) return;
-	if (target.querySelector("h1")?.getAttribute("aria-label") !== label) {
-		const heading = document.createElement("h1");
-		heading.setAttribute("aria-label", label);
-		heading.tabIndex = -1;
-		if (ancestors.length) {
-			const prefix = document.createElement("span");
-			prefix.className = "tmt-ui-topbar-title-prefix";
-			prefix.textContent = `${ancestors.join(" / ")} / `;
-			heading.append(prefix);
-		}
-		const current = document.createElement("span");
-		current.className = "tmt-ui-topbar-title-current";
-		current.textContent = title;
-		heading.append(current);
-		target.replaceChildren(heading);
-	}
-	const group = document.createElement("span");
-	group.className = "tmt-ui-topbar-title-chips";
-	for (const text of chips) {
-		const chip = document.createElement("span");
-		chip.className = "tmt-ui-chip";
-		const label = document.createElement("span");
-		label.className = "tmt-ui-chip-label";
-		label.textContent = text;
-		chip.append(label);
-		group.append(chip);
-	}
-	target.querySelector(".tmt-ui-topbar-title-chips")?.remove();
-	if (chips.length) target.append(group);
-}
-var current;
-/** The mounted route's part of the one shell, or undefined outside the app (unit tests). */
-function remoteShell() {
-	return current;
-}
-/** Give Remote's page code the mounted route's slot and lifetime; `undefined` when it unmounts. */
-function hostRemote(slot, signal, observedSession, holdNavigation, connection) {
-	current = slot && signal && {
-		setMenu: (menu, select) => slot.setMenu(menu, select),
-		navigate: (href) => slot.navigate(href),
-		setTitle: (title, ancestors, documentTitle, chips) => setRouteTitle(slot, title, ancestors, documentTitle, chips),
-		describe: (address) => slot.describe(address),
-		described: (listener) => slot.described(listener),
-		observedSession: (session) => {
-			if (!signal.aborted) observedSession?.(session);
-		},
-		session: connection ? () => connection.get(signal) : void 0,
-		forgetSession: connection ? (session) => connection.forget(session) : void 0,
-		holdNavigation: (reason) => {
-			if (!signal.aborted) holdNavigation?.(reason);
-		},
-		signal
-	};
-}
-/** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */
-function row$1(href, mark, title, detail) {
-	const item = document.createElement("li");
-	item.className = "tmt-ui-list-row";
-	item.dataset.leading = "";
-	const sign = document.createElement("div");
-	sign.className = "tmt-ui-list-leading";
-	sign.setAttribute("aria-hidden", "true");
-	sign.textContent = mark;
-	if (mark === "◆") sign.dataset.tone = "waiting";
-	const name = document.createElement("div");
-	name.className = "tmt-ui-list-title";
-	const link = document.createElement("a");
-	link.href = href;
-	link.textContent = title;
-	name.append(link);
-	const meta = document.createElement("div");
-	meta.className = "tmt-ui-list-meta";
-	const more = document.createElement("div");
-	more.className = "tmt-ui-list-updated";
-	more.textContent = detail;
-	meta.append(more);
-	item.append(sign, name, meta);
-	return item;
-}
-/** One Needs-you row per module with a count and a waiting pairing offer; no per-item list until
-* modules publish items. Recent pages are the modules' described home cards. `open` turns a
-* module's described path into where this app opens it. */
-function homePage(shell, open) {
-	const needs = document.getElementById("home-needs");
-	const note = document.getElementById("home-needs-note");
-	const recent = document.getElementById("home-recent");
-	const recentBlock = document.getElementById("home-recent-block");
-	if (!needs || !note || !recent || !recentBlock) return;
-	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
-	shell.described(async (answer) => {
-		const rows = [];
-		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$1(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
-		if (await offer) rows.push(row$1(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
-		needs.replaceChildren(...rows);
-		if (answer) note.textContent = rows.length ? "" : "Nothing needs you.";
-		else {
-			const pair = Object.assign(document.createElement("a"), {
-				href: "/remote/",
-				textContent: "Pair this browser"
-			});
-			note.replaceChildren(pair, " in Remote to see what needs you.");
-		}
-		note.hidden = !note.textContent;
-		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$1(open(card.path), "▤", card.title, module.rail.label)));
-		recent.replaceChildren(...cards);
-		recentBlock.hidden = cards.length === 0;
-	});
-}
-//#endregion
-//#region src/remote-menu.ts
-function remoteMenu(actions, shell = remoteShell()) {
-	if (!shell) return () => {};
-	const href = (view) => new URL(remotePath(view), location.href).href;
-	let projection;
-	function paint() {
-		const view = projection?.current.connection;
-		const showing = remoteItem(location.pathname)?.id;
-		const item = (id) => {
-			return {
-				id,
-				label: REMOTE_ITEMS.find((candidate) => candidate.id === id).label,
-				href: href(id),
-				current: showing === id
-			};
-		};
-		const recovery = view?.action;
-		shell.setMenu({
-			title: "Remote",
-			groups: [{ items: [{
-				...item("remotes"),
-				current: [
-					"remotes",
-					"create",
-					"join"
-				].includes(showing ?? ""),
-				total: projection?.rows.length
-			}] }, {
-				label: "This machine",
-				items: [item("members"), item("my-devices")],
-				action: recovery ? {
-					icon: "link",
-					label: recovery,
-					onActivate: () => actions.recover(recovery)
-				} : void 0
-			}],
-			settings: {
-				...item("settings"),
-				label: "Remote settings",
-				current: showing === "settings" || showing === "service"
-			}
-		});
-	}
-	paint();
-	window.addEventListener("popstate", paint, { signal: shell.signal });
-	const refresh = () => {
-		paint();
-		actions.refresh();
-	};
-	const entered = (event) => {
-		const menu = event.target?.closest?.(".tmt-ui-module-menu, .tmt-ui-rail-sub");
-		if (menu && !menu.contains(event.relatedTarget)) refresh();
-	};
-	document.addEventListener("pointerover", entered, { signal: shell.signal });
-	document.addEventListener("focusin", entered, { signal: shell.signal });
-	return (next) => {
-		projection = next;
-		if (next.current.connection.word === "connected" && next.address) shell.describe(next.address);
-		paint();
-	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/overlay.ts
-/** Modified, repeated and composing keys cannot dismiss an actionable layer. */
-function admitsOverlayEscape(event) {
-	return event.isTrusted && !event.repeat && !(event.nativeEvent?.isComposing ?? event.isComposing) && event.keyCode !== 229 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
-}
-function restoreOverlayFocus(origin, fallback) {
-	const usable = (node) => node instanceof HTMLElement && node.isConnected && node.getClientRects().length > 0 && !node.closest("[inert]") && !node.matches(":disabled");
-	if (usable(origin)) origin.focus({ preventScroll: true });
-	else {
-		const node = fallback?.() ?? null;
-		if (usable(node)) node.focus({ preventScroll: true });
-	}
-}
-function outsideOverlay(node, x, y) {
-	const box = node.getBoundingClientRect();
-	return x < box.left || x >= box.right || y < box.top || y >= box.bottom;
+//#region ../../../../design/browser-ui/src/brand-mark-svg.ts
+var inner = "<rect class=\"tmt-brand-mark-tile\" width=\"96\" height=\"96\" rx=\"25.6\" fill=\"#0a0a0a\"/><svg x=\"11.5\" y=\"11.5\" viewBox=\"0 0 720 760\" width=\"73\" height=\"73\"><path fill=\"#f2efe9\" fill-rule=\"evenodd\" d=\"M 10 351 C 33 245 82 143 160 89 C 213 52 275 12 319 11 C 403 9 536 78 622 207 L 459 144 C 518 217 548 282 558 325 C 578 410 504 440 396 476 C 301 507 189 543 119 573 C 217 570 317 531 414 497 C 505 465 616 425 716 416 L 639 552 C 550 550 468 574 414 612 C 518 585 646 631 711 746 C 611 694 506 680 404 690 C 300 701 198 713 117 697 C 35 682 0 638 20 576 C 27 549 38 529 60 506 C 17 478 -1 445 5 407 C 6 389 8 370 10 351 Z M 100 345 C 100 273 186 234 290 234 C 394 234 480 273 480 345 C 480 417 394 456 290 456 C 186 456 100 417 100 345 Z\"/><path d=\"M 219 312 L 283 353 L 219 394 M 314 392 H 382\" fill=\"none\" stroke=\"#f2efe9\" stroke-width=\"27\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
+function brandMarkSvg({ size = 24, className = "tmt-brand-mark" } = {}) {
+	return `<svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 96 96" aria-hidden="true" width="${size}" height="${size}">${inner}</svg>`;
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/icon-action-tooltip.ts
@@ -3456,6 +3265,662 @@ function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 			button.removeEventListener("blur", blur);
 		}
 	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/shell-icons.ts
+/**
+* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
+* same icons without a React or Lucide runtime. The module icon allow-list below is the subset
+* of Remote's describe contract; an unknown name falls back to `box`.
+*/
+var shellIconNodes = {
+	list: [["path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }]],
+	bookmark: [["path", { d: "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" }]],
+	"layout-dashboard": [
+		["rect", {
+			width: "7",
+			height: "9",
+			x: "3",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "5",
+			x: "14",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "9",
+			x: "14",
+			y: "12",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "5",
+			x: "3",
+			y: "16",
+			rx: "1"
+		}]
+	],
+	plus: [["path", { d: "M12 5v14M5 12h14" }]],
+	"grip-vertical": [
+		["circle", {
+			cx: "9",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "9",
+			cy: "5",
+			r: "1"
+		}],
+		["circle", {
+			cx: "9",
+			cy: "19",
+			r: "1"
+		}],
+		["circle", {
+			cx: "15",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "15",
+			cy: "5",
+			r: "1"
+		}],
+		["circle", {
+			cx: "15",
+			cy: "19",
+			r: "1"
+		}]
+	],
+	pencil: [["path", { d: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" }], ["path", { d: "m15 5 4 4" }]],
+	"trash-2": [
+		["path", { d: "M10 11v6" }],
+		["path", { d: "M14 11v6" }],
+		["path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" }],
+		["path", { d: "M3 6h18" }],
+		["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" }]
+	],
+	link: [["path", { d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" }], ["path", { d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" }]],
+	info: [
+		["circle", {
+			cx: "12",
+			cy: "12",
+			r: "10"
+		}],
+		["path", { d: "M12 16v-4" }],
+		["path", { d: "M12 8h.01" }]
+	],
+	sun: [["circle", {
+		cx: "12",
+		cy: "12",
+		r: "4"
+	}], ["path", { d: "M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" }]],
+	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
+	"file-text": [
+		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
+		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
+		["path", { d: "M10 9H8" }],
+		["path", { d: "M16 13H8" }],
+		["path", { d: "M16 17H8" }]
+	],
+	"monitor-smartphone": [
+		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
+		["path", { d: "M10 19v-3.96 3.15" }],
+		["path", { d: "M7 19h5" }],
+		["rect", {
+			width: "6",
+			height: "10",
+			x: "16",
+			y: "12",
+			rx: "2"
+		}]
+	],
+	user: [["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" }], ["circle", {
+		cx: "12",
+		cy: "7",
+		r: "4"
+	}]],
+	users: [
+		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
+		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
+		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
+		["circle", {
+			cx: "9",
+			cy: "7",
+			r: "4"
+		}]
+	],
+	"chart-column": [
+		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
+		["path", { d: "M18 17V9" }],
+		["path", { d: "M13 17V5" }],
+		["path", { d: "M8 17v-3" }]
+	],
+	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
+		cx: "11",
+		cy: "11",
+		r: "8"
+	}]],
+	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
+		cx: "12",
+		cy: "12",
+		r: "3"
+	}]],
+	box: [
+		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
+		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
+		["path", { d: "M12 22V12" }]
+	],
+	menu: [
+		["path", { d: "M4 5h16" }],
+		["path", { d: "M4 12h16" }],
+		["path", { d: "M4 19h16" }]
+	],
+	"chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
+	"chevron-right": [["path", { d: "m9 18 6-6-6-6" }]],
+	"triangle-alert": [
+		["path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" }],
+		["path", { d: "M12 9v4" }],
+		["path", { d: "M12 17h.01" }]
+	],
+	lock: [["rect", {
+		width: "18",
+		height: "11",
+		x: "3",
+		y: "11",
+		rx: "2",
+		ry: "2"
+	}], ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4" }]],
+	clock: [["circle", {
+		cx: "12",
+		cy: "12",
+		r: "10"
+	}], ["path", { d: "M12 6v6l4 2" }]],
+	terminal: [["path", { d: "M12 19h8" }], ["path", { d: "m4 17 6-6-6-6" }]],
+	ellipsis: [
+		["circle", {
+			cx: "12",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "19",
+			cy: "12",
+			r: "1"
+		}],
+		["circle", {
+			cx: "5",
+			cy: "12",
+			r: "1"
+		}]
+	],
+	copy: [["rect", {
+		width: "14",
+		height: "14",
+		x: "8",
+		y: "8",
+		rx: "2",
+		ry: "2"
+	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
+	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
+	palette: [
+		["path", { d: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" }],
+		["circle", {
+			cx: "13.5",
+			cy: "6.5",
+			r: ".5",
+			fill: "currentColor"
+		}],
+		["circle", {
+			cx: "17.5",
+			cy: "10.5",
+			r: ".5",
+			fill: "currentColor"
+		}],
+		["circle", {
+			cx: "6.5",
+			cy: "12.5",
+			r: ".5",
+			fill: "currentColor"
+		}],
+		["circle", {
+			cx: "8.5",
+			cy: "7.5",
+			r: ".5",
+			fill: "currentColor"
+		}]
+	]
+};
+var moduleIcons = [
+	"house",
+	"file-text",
+	"monitor-smartphone",
+	"users",
+	"chart-column",
+	"search",
+	"settings",
+	"box",
+	"palette"
+];
+var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
+//#endregion
+//#region ../../../../design/browser-ui/src/shell-menu-interactions.ts
+/** One group's transient controls. The host's latest model is the only order and command owner. */
+function createShellMenuInteractions(current, drawIcon, activate, announce) {
+	const lifetime = new AbortController();
+	const listen = { signal: lifetime.signal };
+	let source;
+	let target;
+	let fromId;
+	const cancel = () => {
+		if (source) delete source.dataset.dragging;
+		if (target) delete target.dataset.dropEdge;
+		source = target = void 0;
+		fromId = void 0;
+	};
+	const requestMove = (from, to) => {
+		const group = current();
+		if (!group?.reorder || from === to) return;
+		const fromIndex = group.items.findIndex((item) => item.id === from);
+		const toIndex = group.items.findIndex((item) => item.id === to);
+		if (fromIndex < 0 || toIndex < 0) return;
+		const label = group.items[fromIndex].label;
+		group.reorder(from, to);
+		announce(`Move requested: ${label}, position ${toIndex + 1} of ${group.items.length}.`);
+	};
+	return {
+		decorate(row, anchor, item) {
+			const doc = row.ownerDocument;
+			row.classList.add("tmt-ui-rail-menu-row");
+			row.dataset.menuItem = item.id;
+			anchor.dataset.railPart = "link";
+			const button = (label, name, part) => {
+				const control = doc.createElement("button");
+				control.type = "button";
+				control.className = "tmt-ui-rail-group-action tmt-ui-rail-row-action";
+				control.title = label;
+				control.setAttribute("aria-label", label);
+				control.dataset.railPart = part;
+				control.append(drawIcon(name));
+				return control;
+			};
+			const actions = item.actions?.slice(0, 2) ?? [];
+			if (actions.length) {
+				row.dataset.actions = String(actions.length);
+				const commands = doc.createElement("div");
+				commands.className = "tmt-ui-rail-row-actions";
+				for (const [index, action] of actions.entries()) {
+					const control = button(action.label, action.icon, `action-${index}`);
+					control.addEventListener("click", (event) => {
+						event.stopPropagation();
+						const latest = current()?.items.find((entry) => entry.id === item.id)?.actions?.[index];
+						if (latest) activate(latest);
+					}, listen);
+					commands.append(control);
+				}
+				row.append(commands);
+			}
+			if (current()?.reorder) {
+				row.dataset.reorderable = "";
+				anchor.draggable = false;
+				anchor.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+				const handle = button(`Reorder ${item.label}`, "grip-vertical", "drag");
+				handle.classList.add("tmt-ui-rail-drag");
+				handle.draggable = true;
+				handle.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+				handle.addEventListener("click", (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+				}, listen);
+				handle.addEventListener("dragstart", (event) => {
+					const group = current();
+					if (!group?.reorder || !group.items.some((entry) => entry.id === item.id)) {
+						event.preventDefault();
+						return;
+					}
+					cancel();
+					source = row;
+					fromId = item.id;
+					row.dataset.dragging = "";
+					if (event.dataTransfer) {
+						event.dataTransfer.effectAllowed = "move";
+						event.dataTransfer.setData("application/x-tmt-shell-row", "move");
+					}
+				}, listen);
+				handle.addEventListener("dragend", cancel, listen);
+				const slot = doc.createElement("span");
+				slot.className = "tmt-ui-swap";
+				const leading = anchor.querySelector(":scope > svg.tmt-ui-shell-icon");
+				const rest = leading ?? doc.createElement("span");
+				if (leading) {
+					const placeholder = doc.createElement("span");
+					placeholder.className = "tmt-ui-shell-icon";
+					placeholder.setAttribute("aria-hidden", "true");
+					anchor.replaceChild(placeholder, leading);
+				}
+				rest.setAttribute("data-swap", "rest");
+				rest.setAttribute("aria-hidden", "true");
+				handle.setAttribute("data-swap", "reveal");
+				slot.append(rest, handle);
+				row.append(slot);
+			}
+			row.addEventListener("keydown", (event) => {
+				if (event.key === "Escape" && fromId !== void 0) {
+					cancel();
+					event.stopPropagation();
+					return;
+				}
+				if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+				const group = current();
+				if (!group?.reorder) return;
+				const index = group.items.findIndex((entry) => entry.id === item.id);
+				if (index < 0) return;
+				event.preventDefault();
+				event.stopPropagation();
+				const next = group.items[index + (event.key === "ArrowUp" ? -1 : 1)];
+				if (next) requestMove(item.id, next.id);
+				else announce(`${item.label} is already ${event.key === "ArrowUp" ? "first" : "last"}.`);
+			}, listen);
+			row.addEventListener("dragover", (event) => {
+				const group = current();
+				const from = group?.items.findIndex((entry) => entry.id === fromId) ?? -1;
+				const to = group?.items.findIndex((entry) => entry.id === item.id) ?? -1;
+				if (!group?.reorder || from < 0 || to < 0 || from === to) return;
+				event.preventDefault();
+				if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+				if (target) delete target.dataset.dropEdge;
+				target = row;
+				row.dataset.dropEdge = from < to ? "after" : "before";
+			}, listen);
+			row.addEventListener("dragleave", (event) => {
+				if (!row.contains(event.relatedTarget)) delete row.dataset.dropEdge;
+			}, listen);
+			row.addEventListener("drop", (event) => {
+				if (fromId === void 0) return;
+				event.preventDefault();
+				event.stopPropagation();
+				const from = fromId;
+				cancel();
+				requestMove(from, item.id);
+			}, listen);
+		},
+		dispose() {
+			lifetime.abort();
+			cancel();
+		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/static.ts
+var browserUiClasses = Object.freeze({
+	chips: "tmt-ui-chips",
+	chip: "tmt-ui-chip",
+	chipLabel: "tmt-ui-chip-label",
+	chipsAdd: "tmt-ui-chips-add",
+	chipsStatus: "tmt-ui-chips-status",
+	chipsSurface: "tmt-ui-chips-surface",
+	chipsSearch: "tmt-ui-chips-search",
+	chipsOption: "tmt-ui-chips-option",
+	countChip: "tmt-ui-count-chip",
+	count: "tmt-ui-count",
+	avatar: "tmt-ui-avatar",
+	radio: "tmt-ui-radio",
+	choices: "tmt-ui-choices",
+	choicesLegend: "tmt-ui-choices-legend",
+	choice: "tmt-ui-choice",
+	choiceText: "tmt-ui-choice-text",
+	choiceDescription: "tmt-ui-choice-description",
+	choiceHint: "tmt-ui-choice-hint",
+	pager: "tmt-ui-pager",
+	pagerPosition: "tmt-ui-pager-position",
+	statusTiles: "tmt-ui-status-tiles",
+	statusTile: "tmt-ui-status-tile",
+	statusTileLabel: "tmt-ui-status-tile-label",
+	statusTileValue: "tmt-ui-status-tile-value",
+	statusTileDot: "tmt-ui-status-tile-dot",
+	stateMark: "tmt-ui-state-mark",
+	card: "tmt-ui-card",
+	cardHead: "tmt-ui-card-head",
+	cardTitle: "tmt-ui-card-title",
+	cardMeta: "tmt-ui-card-meta",
+	meter: "tmt-ui-meter",
+	meterFill: "tmt-ui-meter-fill",
+	glyph: "tmt-ui-glyph",
+	page: "tmt-ui-page",
+	pageHead: "tmt-ui-page-head",
+	pageTitle: "tmt-ui-page-title",
+	topBarTitlePrefix: "tmt-ui-topbar-title-prefix",
+	topBarTitleCurrent: "tmt-ui-topbar-title-current",
+	topBarTitleChips: "tmt-ui-topbar-title-chips",
+	pageSubtitle: "tmt-ui-page-subtitle",
+	stats: "tmt-ui-stats",
+	stat: "tmt-ui-stat",
+	statValue: "tmt-ui-stat-value",
+	statNumber: "tmt-ui-stat-number",
+	statCaption: "tmt-ui-stat-caption",
+	banner: "tmt-ui-banner",
+	bannerHead: "tmt-ui-banner-head",
+	bannerRow: "tmt-ui-banner-row",
+	facts: "tmt-ui-facts",
+	tableScroll: "tmt-ui-table-scroll",
+	tableGroup: "tmt-ui-table-group",
+	tableGroupToggle: "tmt-ui-table-group-toggle",
+	tableGroupCount: "tmt-ui-table-group-count",
+	tableSelect: "tmt-ui-table-select",
+	tableCompactMeta: "tmt-ui-table-compact-meta",
+	tableMono: "tmt-ui-table-mono",
+	tableQuiet: "tmt-ui-table-quiet",
+	avatarStack: "tmt-ui-avatar-stack",
+	glyphTile: "tmt-ui-glyph-tile",
+	notifications: "tmt-ui-notifications",
+	notification: "tmt-ui-notification",
+	notificationStatus: "tmt-ui-notification-status",
+	notificationHeading: "tmt-ui-notification-heading",
+	notificationTag: "tmt-ui-notification-tag",
+	notificationLine: "tmt-ui-notification-line",
+	notificationQuote: "tmt-ui-notification-quote",
+	notificationWaiting: "tmt-ui-notification-waiting",
+	drawer: "tmt-ui-drawer",
+	drawerHeader: "tmt-ui-drawer-header",
+	drawerBody: "tmt-ui-drawer-body",
+	dialog: "tmt-ui-dialog",
+	dialogHeader: "tmt-ui-dialog-header",
+	dialogBody: "tmt-ui-dialog-body",
+	dialogActions: "tmt-ui-dialog-actions",
+	menu: "tmt-ui-menu",
+	menuSurface: "tmt-ui-menu-surface",
+	menuItem: "tmt-ui-menu-item",
+	command: "tmt-ui-command",
+	commandText: "tmt-ui-command-text",
+	commandCopy: "tmt-ui-command-copy",
+	commandFeedback: "tmt-ui-command-feedback",
+	code: "tmt-ui-code",
+	header: "tmt-ui-header",
+	brand: "tmt-ui-brand",
+	mark: "tmt-ui-mark",
+	wordmark: "tmt-ui-wordmark",
+	heading: "tmt-ui-heading",
+	headingSuffix: "tmt-ui-heading-suffix",
+	title: "tmt-ui-title",
+	caption: "tmt-ui-caption",
+	status: "tmt-ui-status",
+	actions: "tmt-ui-actions",
+	icon: "tmt-ui-icon",
+	notice: "tmt-ui-notice",
+	noticeMark: "tmt-ui-notice-mark",
+	noticeEyebrow: "tmt-ui-notice-eyebrow",
+	noticeHeading: "tmt-ui-notice-heading",
+	noticeBody: "tmt-ui-notice-body",
+	noticeActions: "tmt-ui-notice-actions",
+	field: "tmt-ui-field",
+	fieldLabel: "tmt-ui-field-label",
+	fieldControl: "tmt-ui-field-control",
+	searchField: "tmt-ui-search-field",
+	fieldDescription: "tmt-ui-field-description",
+	fieldError: "tmt-ui-field-error",
+	action: "tmt-ui-action",
+	actionLabel: "tmt-ui-action-label",
+	actionMark: "tmt-ui-action-mark",
+	busyMark: "tmt-ui-busy-mark",
+	busyDot: "tmt-ui-busy-dot",
+	checkbox: "tmt-ui-checkbox",
+	checkboxLabel: "tmt-ui-checkbox-label",
+	iconAction: "tmt-ui-icon-action",
+	iconActionControl: "tmt-ui-icon-action-control",
+	iconActionIcon: "tmt-ui-icon-action-icon",
+	iconActionTooltip: "tmt-ui-icon-action-tooltip",
+	iconActionTooltipLabel: "tmt-ui-icon-action-tooltip-label",
+	toggle: "tmt-ui-toggle",
+	toggleIndicator: "tmt-ui-toggle-indicator",
+	list: "tmt-ui-list",
+	listRow: "tmt-ui-list-row",
+	listLeading: "tmt-ui-list-leading",
+	listTitle: "tmt-ui-list-title",
+	listMeta: "tmt-ui-list-meta",
+	listLabel: "tmt-ui-list-label",
+	listDescription: "tmt-ui-list-description",
+	listUpdated: "tmt-ui-list-updated",
+	listState: "tmt-ui-list-state",
+	listActions: "tmt-ui-list-actions",
+	tabs: "tmt-ui-tabs",
+	tabsHeader: "tmt-ui-tabs-header",
+	tabList: "tmt-ui-tab-list",
+	tab: "tmt-ui-tab",
+	tabMark: "tmt-ui-tab-mark",
+	tabLabel: "tmt-ui-tab-label",
+	tabCount: "tmt-ui-tab-count",
+	tabsStatus: "tmt-ui-tabs-status",
+	tabPanel: "tmt-ui-tab-panel",
+	section: "tmt-ui-section",
+	sectionHeading: "tmt-ui-section-heading",
+	table: "tmt-ui-table",
+	disclosure: "tmt-ui-disclosure",
+	visuallyHidden: "tmt-ui-visually-hidden"
+});
+/** A count as drawn in a chip or the rail: counts above 99 read `99+`. */
+function countText(value) {
+	return value > 99 ? "99+" : String(value);
+}
+/** The initials an avatar draws: the first letters of up to two words of a name or handle. */
+function avatarInitials(name) {
+	return name.split(/[\s\-_.@]+/u).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join("").toLocaleUpperCase();
+}
+/**
+* The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
+* left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
+*/
+var busyDots = [
+	[5, 3],
+	[11, 3],
+	[11, 8],
+	[11, 13],
+	[5, 13],
+	[5, 8]
+];
+/** The radius of each busy-mark dot on the 16x16 viewBox. */
+var busyDotRadius = 1.6;
+var SVG$3 = "http://www.w3.org/2000/svg";
+/** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
+function busySvg(doc) {
+	const svg = doc.createElementNS(SVG$3, "svg");
+	svg.setAttribute("viewBox", "0 0 16 16");
+	for (const [cx, cy] of busyDots) {
+		const dot = doc.createElementNS(SVG$3, "circle");
+		dot.setAttribute("class", browserUiClasses.busyDot);
+		dot.setAttribute("cx", String(cx));
+		dot.setAttribute("cy", String(cy));
+		dot.setAttribute("r", String(busyDotRadius));
+		svg.append(dot);
+	}
+	return svg;
+}
+/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
+function createBusyMark(doc = document) {
+	const busy = doc.createElement("span");
+	busy.className = browserUiClasses.busyMark;
+	busy.append(busySvg(doc));
+	return busy;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/trusted-activation.ts
+/** A Radix keyboard selection produces a synthetic click in the same key event. */
+function trustedActivation(click, key) {
+	return click.isTrusted || key?.isTrusted === true;
+}
+/**
+* A one-shot trusted key turn: the Enter or Space that will be followed by a click on the same
+* element. The caller records the key events it accepts; a click is admitted when it is trusted
+* itself or lands inside the element that took the recorded key. The turn expires on its own:
+* - `microtask` suits a React handler, where the synthetic click follows in the same key event.
+* - `task` suits plain DOM listeners: the browser runs a microtask checkpoint between native
+*   listeners of one key, so the turn must last until the next task.
+*/
+function keyTurn(expiry) {
+	let current;
+	return {
+		record(event) {
+			if (event.defaultPrevented || !event.isTrusted) return;
+			current = event;
+			const expire = () => {
+				if (current === event) current = void 0;
+			};
+			if (expiry === "task") setTimeout(expire, 0);
+			else queueMicrotask(expire);
+		},
+		/** Whether a click is a person's: trusted, or inside the element that took the key turn. A
+		* click that is admitted uses the turn up. */
+		admit(click) {
+			const origin = current?.target;
+			const target = click.target;
+			const admitted = trustedActivation(click, current && !current.defaultPrevented && origin instanceof Node && target instanceof Node && origin.contains(target) ? current : void 0);
+			if (admitted) current = void 0;
+			return admitted;
+		},
+		clear() {
+			current = void 0;
+		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/glyph.ts
+var SVG$2 = "http://www.w3.org/2000/svg";
+/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
+function createIcon(name, doc = document) {
+	const svg = doc.createElementNS(SVG$2, "svg");
+	svg.setAttribute("class", browserUiClasses.glyph);
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attributes] of shellIconNodes[name]) {
+		const node = doc.createElementNS(SVG$2, tag);
+		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+		svg.append(node);
+	}
+	return svg;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/overlay.ts
+/** Modified, repeated and composing keys cannot dismiss an actionable layer. */
+function admitsOverlayEscape(event) {
+	return event.isTrusted && !event.repeat && !(event.nativeEvent?.isComposing ?? event.isComposing) && event.keyCode !== 229 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+}
+function restoreOverlayFocus(origin, fallback) {
+	const usable = (node) => node instanceof HTMLElement && node.isConnected && node.getClientRects().length > 0 && !node.closest("[inert]") && !node.matches(":disabled");
+	if (usable(origin)) origin.focus({ preventScroll: true });
+	else {
+		const node = fallback?.() ?? null;
+		if (usable(node)) node.focus({ preventScroll: true });
+	}
+}
+function outsideOverlay(node, x, y) {
+	const box = node.getBoundingClientRect();
+	return x < box.left || x >= box.right || y < box.top || y >= box.bottom;
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/menu-position.ts
@@ -3783,457 +4248,6 @@ function createMenuController(options) {
 	};
 }
 //#endregion
-//#region ../../../../design/browser-ui/src/shell-icons.ts
-/**
-* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
-* same icons without a React or Lucide runtime. The module icon allow-list below is the subset
-* of Remote's describe contract; an unknown name falls back to `box`.
-*/
-var shellIconNodes = {
-	list: [["path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }]],
-	bookmark: [["path", { d: "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" }]],
-	"layout-dashboard": [
-		["rect", {
-			width: "7",
-			height: "9",
-			x: "3",
-			y: "3",
-			rx: "1"
-		}],
-		["rect", {
-			width: "7",
-			height: "5",
-			x: "14",
-			y: "3",
-			rx: "1"
-		}],
-		["rect", {
-			width: "7",
-			height: "9",
-			x: "14",
-			y: "12",
-			rx: "1"
-		}],
-		["rect", {
-			width: "7",
-			height: "5",
-			x: "3",
-			y: "16",
-			rx: "1"
-		}]
-	],
-	plus: [["path", { d: "M12 5v14M5 12h14" }]],
-	"grip-vertical": [
-		["circle", {
-			cx: "9",
-			cy: "12",
-			r: "1"
-		}],
-		["circle", {
-			cx: "9",
-			cy: "5",
-			r: "1"
-		}],
-		["circle", {
-			cx: "9",
-			cy: "19",
-			r: "1"
-		}],
-		["circle", {
-			cx: "15",
-			cy: "12",
-			r: "1"
-		}],
-		["circle", {
-			cx: "15",
-			cy: "5",
-			r: "1"
-		}],
-		["circle", {
-			cx: "15",
-			cy: "19",
-			r: "1"
-		}]
-	],
-	pencil: [["path", { d: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" }], ["path", { d: "m15 5 4 4" }]],
-	"trash-2": [
-		["path", { d: "M10 11v6" }],
-		["path", { d: "M14 11v6" }],
-		["path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" }],
-		["path", { d: "M3 6h18" }],
-		["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" }]
-	],
-	link: [["path", { d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" }], ["path", { d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" }]],
-	info: [
-		["circle", {
-			cx: "12",
-			cy: "12",
-			r: "10"
-		}],
-		["path", { d: "M12 16v-4" }],
-		["path", { d: "M12 8h.01" }]
-	],
-	sun: [["circle", {
-		cx: "12",
-		cy: "12",
-		r: "4"
-	}], ["path", { d: "M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" }]],
-	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
-	"file-text": [
-		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
-		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
-		["path", { d: "M10 9H8" }],
-		["path", { d: "M16 13H8" }],
-		["path", { d: "M16 17H8" }]
-	],
-	"monitor-smartphone": [
-		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
-		["path", { d: "M10 19v-3.96 3.15" }],
-		["path", { d: "M7 19h5" }],
-		["rect", {
-			width: "6",
-			height: "10",
-			x: "16",
-			y: "12",
-			rx: "2"
-		}]
-	],
-	user: [["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" }], ["circle", {
-		cx: "12",
-		cy: "7",
-		r: "4"
-	}]],
-	users: [
-		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
-		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
-		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
-		["circle", {
-			cx: "9",
-			cy: "7",
-			r: "4"
-		}]
-	],
-	"chart-column": [
-		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
-		["path", { d: "M18 17V9" }],
-		["path", { d: "M13 17V5" }],
-		["path", { d: "M8 17v-3" }]
-	],
-	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
-		cx: "11",
-		cy: "11",
-		r: "8"
-	}]],
-	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
-		cx: "12",
-		cy: "12",
-		r: "3"
-	}]],
-	box: [
-		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
-		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
-		["path", { d: "M12 22V12" }]
-	],
-	menu: [
-		["path", { d: "M4 5h16" }],
-		["path", { d: "M4 12h16" }],
-		["path", { d: "M4 19h16" }]
-	],
-	"chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
-	"chevron-right": [["path", { d: "m9 18 6-6-6-6" }]],
-	"triangle-alert": [
-		["path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" }],
-		["path", { d: "M12 9v4" }],
-		["path", { d: "M12 17h.01" }]
-	],
-	lock: [["rect", {
-		width: "18",
-		height: "11",
-		x: "3",
-		y: "11",
-		rx: "2",
-		ry: "2"
-	}], ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4" }]],
-	clock: [["circle", {
-		cx: "12",
-		cy: "12",
-		r: "10"
-	}], ["path", { d: "M12 6v6l4 2" }]],
-	terminal: [["path", { d: "M12 19h8" }], ["path", { d: "m4 17 6-6-6-6" }]],
-	ellipsis: [
-		["circle", {
-			cx: "12",
-			cy: "12",
-			r: "1"
-		}],
-		["circle", {
-			cx: "19",
-			cy: "12",
-			r: "1"
-		}],
-		["circle", {
-			cx: "5",
-			cy: "12",
-			r: "1"
-		}]
-	],
-	copy: [["rect", {
-		width: "14",
-		height: "14",
-		x: "8",
-		y: "8",
-		rx: "2",
-		ry: "2"
-	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
-	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
-	palette: [
-		["path", { d: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" }],
-		["circle", {
-			cx: "13.5",
-			cy: "6.5",
-			r: ".5",
-			fill: "currentColor"
-		}],
-		["circle", {
-			cx: "17.5",
-			cy: "10.5",
-			r: ".5",
-			fill: "currentColor"
-		}],
-		["circle", {
-			cx: "6.5",
-			cy: "12.5",
-			r: ".5",
-			fill: "currentColor"
-		}],
-		["circle", {
-			cx: "8.5",
-			cy: "7.5",
-			r: ".5",
-			fill: "currentColor"
-		}]
-	]
-};
-var moduleIcons = [
-	"house",
-	"file-text",
-	"monitor-smartphone",
-	"users",
-	"chart-column",
-	"search",
-	"settings",
-	"box",
-	"palette"
-];
-var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
-//#endregion
-//#region ../../../../design/browser-ui/src/static.ts
-var browserUiClasses = Object.freeze({
-	chips: "tmt-ui-chips",
-	chip: "tmt-ui-chip",
-	chipLabel: "tmt-ui-chip-label",
-	chipsAdd: "tmt-ui-chips-add",
-	chipsStatus: "tmt-ui-chips-status",
-	chipsSurface: "tmt-ui-chips-surface",
-	chipsSearch: "tmt-ui-chips-search",
-	chipsOption: "tmt-ui-chips-option",
-	countChip: "tmt-ui-count-chip",
-	count: "tmt-ui-count",
-	avatar: "tmt-ui-avatar",
-	radio: "tmt-ui-radio",
-	choices: "tmt-ui-choices",
-	choicesLegend: "tmt-ui-choices-legend",
-	choice: "tmt-ui-choice",
-	choiceText: "tmt-ui-choice-text",
-	choiceDescription: "tmt-ui-choice-description",
-	choiceHint: "tmt-ui-choice-hint",
-	pager: "tmt-ui-pager",
-	pagerPosition: "tmt-ui-pager-position",
-	statusTiles: "tmt-ui-status-tiles",
-	statusTile: "tmt-ui-status-tile",
-	statusTileLabel: "tmt-ui-status-tile-label",
-	statusTileValue: "tmt-ui-status-tile-value",
-	statusTileDot: "tmt-ui-status-tile-dot",
-	stateMark: "tmt-ui-state-mark",
-	card: "tmt-ui-card",
-	cardHead: "tmt-ui-card-head",
-	cardTitle: "tmt-ui-card-title",
-	cardMeta: "tmt-ui-card-meta",
-	meter: "tmt-ui-meter",
-	meterFill: "tmt-ui-meter-fill",
-	glyph: "tmt-ui-glyph",
-	page: "tmt-ui-page",
-	pageHead: "tmt-ui-page-head",
-	pageTitle: "tmt-ui-page-title",
-	topBarTitlePrefix: "tmt-ui-topbar-title-prefix",
-	topBarTitleCurrent: "tmt-ui-topbar-title-current",
-	topBarTitleChips: "tmt-ui-topbar-title-chips",
-	pageSubtitle: "tmt-ui-page-subtitle",
-	stats: "tmt-ui-stats",
-	stat: "tmt-ui-stat",
-	statValue: "tmt-ui-stat-value",
-	statNumber: "tmt-ui-stat-number",
-	statCaption: "tmt-ui-stat-caption",
-	banner: "tmt-ui-banner",
-	bannerHead: "tmt-ui-banner-head",
-	bannerRow: "tmt-ui-banner-row",
-	facts: "tmt-ui-facts",
-	tableScroll: "tmt-ui-table-scroll",
-	tableGroup: "tmt-ui-table-group",
-	tableGroupToggle: "tmt-ui-table-group-toggle",
-	tableGroupCount: "tmt-ui-table-group-count",
-	tableSelect: "tmt-ui-table-select",
-	tableCompactMeta: "tmt-ui-table-compact-meta",
-	tableMono: "tmt-ui-table-mono",
-	tableQuiet: "tmt-ui-table-quiet",
-	avatarStack: "tmt-ui-avatar-stack",
-	glyphTile: "tmt-ui-glyph-tile",
-	notifications: "tmt-ui-notifications",
-	notification: "tmt-ui-notification",
-	notificationStatus: "tmt-ui-notification-status",
-	notificationHeading: "tmt-ui-notification-heading",
-	notificationTag: "tmt-ui-notification-tag",
-	notificationLine: "tmt-ui-notification-line",
-	notificationQuote: "tmt-ui-notification-quote",
-	notificationWaiting: "tmt-ui-notification-waiting",
-	drawer: "tmt-ui-drawer",
-	drawerHeader: "tmt-ui-drawer-header",
-	drawerBody: "tmt-ui-drawer-body",
-	dialog: "tmt-ui-dialog",
-	dialogHeader: "tmt-ui-dialog-header",
-	dialogBody: "tmt-ui-dialog-body",
-	dialogActions: "tmt-ui-dialog-actions",
-	menu: "tmt-ui-menu",
-	menuSurface: "tmt-ui-menu-surface",
-	menuItem: "tmt-ui-menu-item",
-	command: "tmt-ui-command",
-	commandText: "tmt-ui-command-text",
-	commandCopy: "tmt-ui-command-copy",
-	commandFeedback: "tmt-ui-command-feedback",
-	code: "tmt-ui-code",
-	header: "tmt-ui-header",
-	brand: "tmt-ui-brand",
-	mark: "tmt-ui-mark",
-	wordmark: "tmt-ui-wordmark",
-	heading: "tmt-ui-heading",
-	headingSuffix: "tmt-ui-heading-suffix",
-	title: "tmt-ui-title",
-	caption: "tmt-ui-caption",
-	status: "tmt-ui-status",
-	actions: "tmt-ui-actions",
-	icon: "tmt-ui-icon",
-	notice: "tmt-ui-notice",
-	noticeMark: "tmt-ui-notice-mark",
-	noticeEyebrow: "tmt-ui-notice-eyebrow",
-	noticeHeading: "tmt-ui-notice-heading",
-	noticeBody: "tmt-ui-notice-body",
-	noticeActions: "tmt-ui-notice-actions",
-	field: "tmt-ui-field",
-	fieldLabel: "tmt-ui-field-label",
-	fieldControl: "tmt-ui-field-control",
-	searchField: "tmt-ui-search-field",
-	fieldDescription: "tmt-ui-field-description",
-	fieldError: "tmt-ui-field-error",
-	action: "tmt-ui-action",
-	actionLabel: "tmt-ui-action-label",
-	actionMark: "tmt-ui-action-mark",
-	busyMark: "tmt-ui-busy-mark",
-	busyDot: "tmt-ui-busy-dot",
-	checkbox: "tmt-ui-checkbox",
-	checkboxLabel: "tmt-ui-checkbox-label",
-	iconAction: "tmt-ui-icon-action",
-	iconActionControl: "tmt-ui-icon-action-control",
-	iconActionIcon: "tmt-ui-icon-action-icon",
-	iconActionTooltip: "tmt-ui-icon-action-tooltip",
-	iconActionTooltipLabel: "tmt-ui-icon-action-tooltip-label",
-	toggle: "tmt-ui-toggle",
-	toggleIndicator: "tmt-ui-toggle-indicator",
-	list: "tmt-ui-list",
-	listRow: "tmt-ui-list-row",
-	listLeading: "tmt-ui-list-leading",
-	listTitle: "tmt-ui-list-title",
-	listMeta: "tmt-ui-list-meta",
-	listLabel: "tmt-ui-list-label",
-	listDescription: "tmt-ui-list-description",
-	listUpdated: "tmt-ui-list-updated",
-	listState: "tmt-ui-list-state",
-	listActions: "tmt-ui-list-actions",
-	tabs: "tmt-ui-tabs",
-	tabsHeader: "tmt-ui-tabs-header",
-	tabList: "tmt-ui-tab-list",
-	tab: "tmt-ui-tab",
-	tabMark: "tmt-ui-tab-mark",
-	tabLabel: "tmt-ui-tab-label",
-	tabCount: "tmt-ui-tab-count",
-	tabsStatus: "tmt-ui-tabs-status",
-	tabPanel: "tmt-ui-tab-panel",
-	section: "tmt-ui-section",
-	sectionHeading: "tmt-ui-section-heading",
-	table: "tmt-ui-table",
-	disclosure: "tmt-ui-disclosure",
-	visuallyHidden: "tmt-ui-visually-hidden"
-});
-/** A count as drawn in a chip or the rail: counts above 99 read `99+`. */
-function countText(value) {
-	return value > 99 ? "99+" : String(value);
-}
-/** The initials an avatar draws: the first letters of up to two words of a name or handle. */
-function avatarInitials(name) {
-	return name.split(/[\s\-_.@]+/u).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join("").toLocaleUpperCase();
-}
-/**
-* The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
-* left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
-*/
-var busyDots = [
-	[5, 3],
-	[11, 3],
-	[11, 8],
-	[11, 13],
-	[5, 13],
-	[5, 8]
-];
-/** The radius of each busy-mark dot on the 16x16 viewBox. */
-var busyDotRadius = 1.6;
-var SVG$3 = "http://www.w3.org/2000/svg";
-/** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
-function busySvg(doc) {
-	const svg = doc.createElementNS(SVG$3, "svg");
-	svg.setAttribute("viewBox", "0 0 16 16");
-	for (const [cx, cy] of busyDots) {
-		const dot = doc.createElementNS(SVG$3, "circle");
-		dot.setAttribute("class", browserUiClasses.busyDot);
-		dot.setAttribute("cx", String(cx));
-		dot.setAttribute("cy", String(cy));
-		dot.setAttribute("r", String(busyDotRadius));
-		svg.append(dot);
-	}
-	return svg;
-}
-/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
-function createBusyMark(doc = document) {
-	const busy = doc.createElement("span");
-	busy.className = browserUiClasses.busyMark;
-	busy.append(busySvg(doc));
-	return busy;
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/glyph.ts
-var SVG$2 = "http://www.w3.org/2000/svg";
-/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
-function createIcon(name, doc = document) {
-	const svg = doc.createElementNS(SVG$2, "svg");
-	svg.setAttribute("class", browserUiClasses.glyph);
-	svg.setAttribute("viewBox", "0 0 24 24");
-	svg.setAttribute("aria-hidden", "true");
-	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = doc.createElementNS(SVG$2, tag);
-		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
-		svg.append(node);
-	}
-	return svg;
-}
-//#endregion
 //#region ../../../../design/browser-ui/src/menu-host.ts
 /** Mount the existing menu presentation without a framework; hosts retain values and commands. */
 function mountBrowserMenu(container, initial) {
@@ -4488,6 +4502,1406 @@ function mountBrowserMenu(container, initial) {
 			root.remove();
 			rows.clear();
 		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/theme.ts
+/**
+* The per-browser colour theme (#3937). The tokens answer to `data-theme` on the root: `light` and
+* `dark` pin a theme, and no attribute follows the device (`prefers-color-scheme`). The choice is
+* stored in this browser only; storage that is blocked or full never breaks the page, which then
+* follows the device.
+*/
+var THEMES = [
+	"system",
+	"light",
+	"dark"
+];
+var themeStorageKey = "tmt-ui-theme";
+function browserStore() {
+	try {
+		return globalThis.localStorage;
+	} catch {
+		return;
+	}
+}
+/** The stored choice; `system` when none is stored, storage is blocked or the value is unknown. */
+function storedTheme(store = browserStore()) {
+	try {
+		const value = store?.getItem(themeStorageKey);
+		return THEMES.find((theme) => theme === value) ?? "system";
+	} catch {
+		return "system";
+	}
+}
+/** Set the root's theme for a choice: `system` leaves the tokens to the device. */
+function applyTheme(choice, root = document.documentElement) {
+	if (choice === "system") root.removeAttribute("data-theme");
+	else root.setAttribute("data-theme", choice);
+}
+/** Apply the stored choice; call once when the app starts, before the first paint of a page. */
+function applyStoredTheme(root, store) {
+	applyTheme(storedTheme(store), root);
+}
+/** Store a choice for this browser and apply it now. `system` clears the stored choice. */
+function setStoredTheme(choice, root, store = browserStore()) {
+	try {
+		if (choice === "system") store?.removeItem(themeStorageKey);
+		else store?.setItem(themeStorageKey, choice);
+	} catch {}
+	applyTheme(choice, root);
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/scoped-modal.ts
+var states = /* @__PURE__ */ new WeakMap();
+function apply(scope, state) {
+	for (const [node, inert] of state.originalInert) if (inert === null) node.removeAttribute("inert");
+	else node.setAttribute("inert", inert);
+	state.originalInert.clear();
+	const dialog = state.stack.at(-1);
+	if (!dialog) return;
+	for (let child = dialog; child && child !== scope;) {
+		const parent = child.parentElement;
+		if (!parent) break;
+		for (const sibling of parent.children) {
+			if (sibling === child) continue;
+			if (sibling === child.previousElementSibling && (sibling.matches("[data-tmt-ds-scrim]") || sibling.querySelector("[data-tmt-ds-scrim]"))) continue;
+			if (!state.originalInert.has(sibling)) state.originalInert.set(sibling, sibling.getAttribute("inert"));
+			sibling.setAttribute("inert", "");
+		}
+		child = parent;
+	}
+}
+/** The returned cleanup restores the prior state and can safely be called more than once. */
+function enterScopedModal(scope, dialog) {
+	if (!scope.contains(dialog)) throw new Error("Scoped modal must belong to its scope");
+	let state = states.get(scope);
+	if (!state) {
+		state = {
+			stack: [],
+			originalInert: /* @__PURE__ */ new Map(),
+			overflow: scope.style.getPropertyValue("overflow"),
+			overflowPriority: scope.style.getPropertyPriority("overflow")
+		};
+		states.set(scope, state);
+		scope.style.setProperty("overflow", "hidden");
+	}
+	const owner = state;
+	owner.stack.push(dialog);
+	apply(scope, owner);
+	let active = true;
+	return () => {
+		if (!active) return;
+		active = false;
+		const index = owner.stack.lastIndexOf(dialog);
+		if (index >= 0) owner.stack.splice(index, 1);
+		apply(scope, owner);
+		if (!owner.stack.length) {
+			if (owner.overflow) scope.style.setProperty("overflow", owner.overflow, owner.overflowPriority);
+			else scope.style.removeProperty("overflow");
+			states.delete(scope);
+		}
+	};
+}
+/** Keep Tab inside the active modal only while keyboard focus is already in its scope. */
+function trapScopedTab(event, dialog) {
+	if (event.key !== "Tab" || event.defaultPrevented) return;
+	const scope = dialog.closest("[data-tmt-ds-scope]");
+	if (scope && states.get(scope)?.stack.at(-1) !== dialog) return;
+	const nodes = [...dialog.querySelectorAll("a[href], button, input, select, textarea, [tabindex]:not([tabindex=\"-1\"])")].filter((node) => node.tabIndex >= 0 && !node.matches(":disabled") && !node.closest("[inert]") && node.getClientRects().length > 0 && node.ownerDocument.defaultView?.getComputedStyle(node).visibility !== "hidden");
+	if (!nodes.length) {
+		event.preventDefault();
+		dialog.focus();
+		return;
+	}
+	const active = dialog.ownerDocument.activeElement;
+	const first = nodes[0];
+	const last = nodes[nodes.length - 1];
+	const index = nodes.findIndex((node) => node === active);
+	if (event.shiftKey && index <= 0) {
+		event.preventDefault();
+		last.focus();
+	} else if (!event.shiftKey && (index < 0 || index === nodes.length - 1)) {
+		event.preventDefault();
+		first.focus();
+	}
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/topbar.ts
+/** Internal renderer shared by native and React shells. */
+function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
+	const document = root.ownerDocument;
+	const view = document.defaultView;
+	let options;
+	let disposed = false;
+	let active;
+	const validate = (next) => {
+		const remote = next.remote;
+		if (remote.kind === "confirmed" && (!Number.isSafeInteger(remote.liveSessions) || remote.liveSessions < 0)) throw new Error("Remote live-session count must be a non-negative integer");
+	};
+	const clear = () => {
+		active?.dispose();
+		active = void 0;
+	};
+	function mount() {
+		const header = document.createElement("header");
+		header.className = "tmt-ui-topbar";
+		header.setAttribute("aria-label", "TMT");
+		const left = document.createElement("div");
+		left.className = "tmt-ui-topbar-navigation";
+		left.append(navigation);
+		const title = document.createElement("div");
+		title.className = "tmt-ui-topbar-title";
+		const right = document.createElement("div");
+		right.className = "tmt-ui-topbar-controls";
+		const statusSlot = document.createElement("div");
+		statusSlot.className = "tmt-ui-topbar-status";
+		const actions = document.createElement("div");
+		actions.className = "tmt-ui-topbar-actions";
+		const common = document.createElement("div");
+		common.className = "tmt-ui-topbar-common";
+		common.setAttribute("role", "group");
+		common.setAttribute("aria-label", "TMT controls");
+		const theme = document.createElement("span");
+		const search = document.createElement("button");
+		search.type = "button";
+		search.className = `${browserUiClasses.action} ${browserUiClasses.iconActionControl} tmt-ui-topbar-search`;
+		search.dataset.variant = "text";
+		search.setAttribute("aria-label", "Search TMT");
+		search.setAttribute("aria-haspopup", "dialog");
+		const command = /Mac|iPhone|iPad|iPod/.test(view.navigator.platform);
+		search.setAttribute("aria-keyshortcuts", command ? "Meta+K" : "Control+K");
+		const searchMark = document.createElement("span");
+		searchMark.className = browserUiClasses.iconActionIcon;
+		searchMark.setAttribute("aria-hidden", "true");
+		const hint = document.createElement("kbd");
+		hint.textContent = command ? "⌘K" : "Ctrl K";
+		searchMark.append(createIcon("search", document), hint);
+		search.append(searchMark);
+		const sidebarSearch = document.createElement("button");
+		sidebarSearch.type = "button";
+		sidebarSearch.className = "tmt-ui-rail-search";
+		sidebarSearch.setAttribute("aria-label", "Search TMT");
+		sidebarSearch.setAttribute("aria-haspopup", "dialog");
+		sidebarSearch.setAttribute("aria-keyshortcuts", command ? "Meta+K" : "Control+K");
+		const sidebarLabel = document.createElement("span");
+		sidebarLabel.className = "tmt-ui-rail-label";
+		sidebarLabel.textContent = "Search";
+		const sidebarHint = document.createElement("kbd");
+		sidebarHint.textContent = hint.textContent;
+		sidebarSearch.append(createIcon("search", document), sidebarLabel, sidebarHint);
+		railSearch?.replaceChildren(sidebarSearch);
+		const remote = document.createElement("button");
+		remote.type = "button";
+		remote.setAttribute("aria-haspopup", "dialog");
+		remote.className = `${browserUiClasses.action} ${browserUiClasses.iconActionControl} tmt-ui-topbar-remote`;
+		remote.dataset.variant = "text";
+		const remoteMark = document.createElement("span");
+		remoteMark.className = browserUiClasses.iconActionIcon;
+		remoteMark.setAttribute("aria-hidden", "true");
+		remoteMark.append(createIcon("monitor-smartphone", document));
+		const badge = document.createElement("span");
+		badge.className = browserUiClasses.count;
+		badge.setAttribute("aria-hidden", "true");
+		remote.append(remoteMark, badge);
+		const help = (control, label) => {
+			const wrapper = document.createElement("span");
+			wrapper.className = browserUiClasses.iconAction;
+			const tooltip = document.createElement("span");
+			tooltip.className = browserUiClasses.iconActionTooltip;
+			tooltip.setAttribute("popover", "manual");
+			tooltip.setAttribute("aria-hidden", "true");
+			const text = document.createElement("span");
+			text.className = browserUiClasses.iconActionTooltipLabel;
+			text.textContent = label;
+			tooltip.append(text);
+			wrapper.append(control, tooltip);
+			return {
+				wrapper,
+				text,
+				binding: bindIconActionTooltip(wrapper, control, tooltip)
+			};
+		};
+		const searchHelp = help(search, "Search TMT");
+		const remoteHelp = help(remote, "Remote: session count unconfirmed");
+		left.append(searchHelp.wrapper, title);
+		common.append(theme, remoteHelp.wrapper);
+		right.append(statusSlot, common, actions);
+		header.append(left, right);
+		const scope = layerHost?.root;
+		const themeRoot = scope ?? document.documentElement;
+		const choice = () => {
+			const explicit = themeRoot.getAttribute("data-theme");
+			return explicit === "light" || explicit === "dark" ? explicit : "system";
+		};
+		const themeOptions = () => ({
+			label: `Theme: ${choice()}`,
+			icon: createIcon("sun", document),
+			items: THEMES.map((key) => ({
+				key,
+				label: key === "system" ? "System" : key === "light" ? "Light" : "Dark",
+				checked: choice() === key
+			})),
+			onSelect: (key) => scope ? applyTheme(key, scope) : setStoredTheme(key, document.documentElement)
+		});
+		const themeMenu = mountBrowserMenu(theme, themeOptions());
+		const observeTheme = new MutationObserver(() => themeMenu.update(themeOptions()));
+		observeTheme.observe(themeRoot, {
+			attributes: true,
+			attributeFilter: ["data-theme"]
+		});
+		const dialog = document.createElement("dialog");
+		dialog.className = browserUiClasses.dialog;
+		dialog.setAttribute("aria-label", "Remote");
+		const dialogHeader = document.createElement("header");
+		dialogHeader.className = browserUiClasses.dialogHeader;
+		const heading = document.createElement("h2");
+		heading.textContent = "Remote";
+		dialogHeader.append(heading);
+		const body = document.createElement("div");
+		body.className = browserUiClasses.dialogBody;
+		const connection = document.createElement("p");
+		const settings = document.createElement("a");
+		settings.textContent = "Remote settings";
+		body.append(connection, settings);
+		const footer = document.createElement("footer");
+		footer.className = browserUiClasses.dialogActions;
+		const close = document.createElement("button");
+		close.type = "button";
+		close.className = browserUiClasses.action;
+		close.dataset.variant = "secondary";
+		close.textContent = "Close";
+		footer.append(close);
+		dialog.append(dialogHeader, body, footer);
+		let origin = null;
+		let releaseScope;
+		let scrim;
+		const dismiss = () => {
+			if (!dialog.open) return;
+			dialog.close();
+			releaseScope?.();
+			releaseScope = void 0;
+			scrim?.remove();
+			scrim = void 0;
+			dialog.remove();
+			restoreOverlayFocus(origin, () => remote);
+		};
+		remote.onclick = (event) => {
+			if (!event.isTrusted || dialog.open) return;
+			themeMenu.close();
+			remoteHelp.binding.dismiss();
+			origin = document.activeElement;
+			if (scope) {
+				scrim = document.createElement("div");
+				scrim.className = "tmt-ui-scope-scrim";
+				scrim.setAttribute("data-tmt-ds-scrim", "");
+				scrim.addEventListener("click", (event) => {
+					if (event.isTrusted) dismiss();
+				});
+				layerHost.portal.append(scrim, dialog);
+				releaseScope = enterScopedModal(scope, dialog);
+				try {
+					dialog.show();
+				} catch (error) {
+					releaseScope();
+					releaseScope = void 0;
+					scrim.remove();
+					scrim = void 0;
+					dialog.remove();
+					throw error;
+				}
+			} else {
+				header.append(dialog);
+				dialog.showModal();
+			}
+			close.focus();
+		};
+		close.onclick = (event) => {
+			if (event.isTrusted) dismiss();
+		};
+		dialog.oncancel = (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.isTrusted) dismiss();
+		};
+		dialog.onkeydown = (event) => {
+			if (scope) trapScopedTab(event, dialog);
+			if (event.key !== "Escape" || event.defaultPrevented) return;
+			event.preventDefault();
+			event.stopPropagation();
+			if (admitsOverlayEscape(event)) dismiss();
+		};
+		dialog.onpointerdown = (event) => {
+			if (event.target === dialog && outsideOverlay(dialog, event.clientX, event.clientY)) event.preventDefault();
+		};
+		dialog.onclick = (event) => {
+			if (event.target !== dialog || !outsideOverlay(dialog, event.clientX, event.clientY)) return;
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.isTrusted) dismiss();
+		};
+		let searchRound = 0;
+		const searchExpanded = (open) => {
+			for (const button of [search, sidebarSearch]) if (open === void 0) button.removeAttribute("aria-expanded");
+			else button.setAttribute("aria-expanded", String(open));
+		};
+		const openSearch = (opener) => {
+			themeMenu.close();
+			searchHelp.binding.dismiss();
+			const closed = options.openSearch(opener);
+			if (!closed) return;
+			const round = ++searchRound;
+			searchExpanded(true);
+			const settle = () => {
+				if (round === searchRound) searchExpanded(false);
+			};
+			closed.then(settle, settle);
+		};
+		search.onclick = (event) => {
+			if (event.isTrusted) openSearch(search);
+		};
+		sidebarSearch.onclick = (event) => {
+			if (event.isTrusted) openSearch(sidebarSearch);
+		};
+		const shortcut = (event) => {
+			if (!event.isTrusted || scope && (!(event.target instanceof Node) || !scope.contains(event.target)) || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 || event.key.toLowerCase() !== "k" || event.altKey || event.shiftKey || (command ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey)) return;
+			if (event.composedPath().some((node) => node instanceof view.HTMLElement && (node.isContentEditable || node.closest("input,textarea,select,[role=\"textbox\"],[role=\"combobox\"]")))) return;
+			event.preventDefault();
+			openSearch(view.matchMedia("(max-width: 900px)").matches ? search : sidebarSearch);
+		};
+		document.addEventListener("keydown", shortcut);
+		root.dataset.topbar = "";
+		bar.replaceChildren(header);
+		const update = () => {
+			const status = options.remote;
+			const label = status.kind === "unconfirmed" ? "Remote: session count unconfirmed" : status.liveSessions === 0 ? "Remote: no live sessions" : `Remote: ${status.liveSessions} live ${status.liveSessions === 1 ? "session" : "sessions"}`;
+			settings.href = status.href;
+			if (settings.pathname === "/remote" || settings.pathname === "/remote/") settings.pathname = "/remote/settings";
+			connection.textContent = label;
+			remote.setAttribute("aria-label", label);
+			remoteHelp.text.textContent = label;
+			badge.hidden = status.kind !== "confirmed" || status.liveSessions === 0;
+			badge.textContent = status.kind === "confirmed" ? countText(status.liveSessions) : "";
+		};
+		update();
+		return {
+			slot: {
+				title,
+				actions,
+				status: statusSlot
+			},
+			update,
+			dispose() {
+				searchRound += 1;
+				searchExpanded(void 0);
+				document.removeEventListener("keydown", shortcut);
+				observeTheme.disconnect();
+				themeMenu.dispose();
+				searchHelp.binding.dispose();
+				remoteHelp.binding.dispose();
+				if (dialog.open) dialog.close();
+				releaseScope?.();
+				releaseScope = void 0;
+				scrim?.remove();
+				scrim = void 0;
+				dialog.remove();
+				railSearch?.replaceChildren();
+				root.prepend(navigation);
+				delete root.dataset.topbar;
+				header.remove();
+			}
+		};
+	}
+	return {
+		setCommonControls(next) {
+			if (disposed) return;
+			if (next) validate(next);
+			options = next;
+			if (!next) clear();
+			else active?.update();
+		},
+		topBarReady: () => !disposed && options !== void 0,
+		setTopBar() {
+			if (disposed) throw new Error("The shell has been disposed");
+			if (!options) throw new Error("The root must install common controls before adopting the top bar");
+			active ??= mount();
+			return active.slot;
+		},
+		clear,
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			clear();
+			options = void 0;
+		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/shell.ts
+/**
+* The page that replaces Remote's Home (#6474): the one module that claims it, when its claim is
+* a URL under that module's own mount. No claim, an invalid one or two claims keep Remote's Home.
+*/
+function claimedHome(answer) {
+	const claims = (answer?.modules ?? []).filter((module) => module.homePage !== void 0);
+	const module = claims.length === 1 ? claims[0] : void 0;
+	if (!module) return void 0;
+	const home = module.homePage;
+	const mount = module.rail.path.replace(/\/?$/, "/");
+	return !module.module && typeof home === "string" && home.startsWith(mount) && !/[?#]/.test(home) && !home.slice(mount.length).split("/").includes("..") ? home : void 0;
+}
+/** Bounded count values, omitting zero and unknown. The renderer draws attention as a dot
+* before the plain total and retains its count in the accessible description. */
+function entryCounts(item) {
+	return [...item.total && item.total > 0 ? [shellCount(item.total, "plain")] : [], ...item.count && item.count.text !== "0" ? [item.count] : []];
+}
+/** Count text is bounded at `99+`; the renderer uses attention as a dot and spoken count. */
+function shellCount(value, kind = "needs-you") {
+	return {
+		text: countText(value),
+		needsYou: kind === "needs-you"
+	};
+}
+/** The answer this browser read last, shared by every page so each paints the same rail first. */
+var ANSWER_KEY = "tmt-shell-answer-v1";
+function rememberedShellAnswer() {
+	try {
+		const stored = JSON.parse(sessionStorage.getItem(ANSWER_KEY) ?? "null");
+		return stored?.version === 1 && Array.isArray(stored.modules) ? stored : void 0;
+	} catch {
+		return;
+	}
+}
+/** The door's mount of one module: `/r/<prefix>/x/<module>/`, the prefix being the machine's 16
+* lowercase base32 letters. The one definition of that shape for every product. */
+/** A module mount, `/r/<prefix>/x/<module>/`, at the start of a path. */
+var MODULE_MOUNT = /^(\/r\/[a-z2-7]{16})\/x\/([a-z0-9][a-z0-9-]{0,31})\//;
+/** The module a mount path names, or undefined when `pathname` is not exactly a module mount. */
+function moduleMount(pathname) {
+	const mount = MODULE_MOUNT.exec(pathname);
+	return mount?.[0] === pathname ? mount[2] : void 0;
+}
+/** The module whose mount `pathname` lies under, and the rest of the path below that mount. */
+function underModuleMount(pathname) {
+	const mount = MODULE_MOUNT.exec(pathname);
+	return mount ? {
+		module: mount[2],
+		rest: pathname.slice(mount[0].length)
+	} : void 0;
+}
+/**
+* Where this page reads the composed shell: the `/r/<prefix>` mount it sits under, else the door's
+* answer for its path (`POST /sdk/mount`). Undefined when neither answers.
+*/
+async function shellAddress() {
+	const mounted = MODULE_MOUNT.exec(location.pathname);
+	if (mounted) return `${location.origin}${mounted[1]}`;
+	try {
+		const response = await fetch("/sdk/mount", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ path: location.pathname })
+		});
+		if (response.status !== 200) return void 0;
+		const { address } = await response.json();
+		return typeof address === "string" ? address : void 0;
+	} catch {
+		return;
+	}
+}
+/** Fetch the owner's composed shell once per page; any failure leaves the remembered answer. */
+async function loadShellAnswer(address) {
+	try {
+		const response = await fetch(`${address}/x/-/shell`, {
+			credentials: "same-origin",
+			cache: "no-store"
+		});
+		if (!response.ok) return void 0;
+		const answer = await response.json();
+		if (answer?.version !== 1 || !Array.isArray(answer.modules)) return void 0;
+		try {
+			sessionStorage.setItem(ANSWER_KEY, JSON.stringify(answer));
+		} catch {}
+		return answer;
+	} catch {
+		return;
+	}
+}
+/**
+* The one rail (spec c5ccd17a): the same items in the same order on every page, whatever module
+* hosts it. A module the composed answer does not describe stays, dimmed, with the reason.
+*/
+var RAIL = [
+	{
+		id: "colab",
+		label: "Colab",
+		icon: "file-text",
+		path: "/colab/"
+	},
+	{
+		id: "design",
+		label: "Design",
+		icon: "palette",
+		path: "/colab/design/"
+	},
+	{
+		id: "remote",
+		label: "Remote",
+		icon: "monitor-smartphone",
+		path: "/remote/"
+	},
+	{
+		id: "ops",
+		label: "Ops",
+		icon: "users",
+		path: "/ops/"
+	},
+	{
+		id: "digest",
+		label: "Digest",
+		icon: "chart-column",
+		path: "/digest/"
+	}
+];
+/**
+* A described module's key (#5819): the extension for its primary, `<extension>:<module>` for an
+* extra, so an extra sits beside its primary. Rail item ids use the same key, except Colab's
+* Design extra, which is the fixed `design` item.
+*/
+var shellModuleKey = (module) => module.module ? `${module.extension}:${module.module}` : module.extension;
+/** Served by the TMT host itself, so always reachable from the rail. */
+var HOST_SERVED = /* @__PURE__ */ new Set([
+	"remote",
+	"ops",
+	"digest"
+]);
+/**
+* Home, the fixed modules (Colab, Design, Remote, Ops, Digest), any other described module in Remote's
+* order, then TMT settings at the bottom. Colab is available
+* when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
+* The current item is the host's module, else the longest matching path.
+*/
+function shellRail(answer, place, host) {
+	const active = host?.extension;
+	const keyOf = shellModuleKey;
+	const owner = (id) => id === "design" ? "colab" : id.split(":")[0];
+	const described = new Map((answer?.modules ?? []).map((module) => [keyOf(module), module]));
+	const primaries = (answer?.modules ?? []).filter((module) => !module.module);
+	const hosted = (id) => host?.extension === id;
+	const path = place.href.slice(place.origin.length);
+	const settings = path === "/settings" || path.startsWith("/settings/");
+	const unavailable = answer ? "Not installed on this machine" : "Pair this browser with Remote to open it";
+	const modules = [...RAIL.map((fixed) => {
+		if (fixed.id === "design") {
+			const module = described.get("colab:design");
+			return {
+				id: fixed.id,
+				label: module?.rail.label ?? fixed.label,
+				icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
+				href: module?.rail.path ?? `${place.origin}${fixed.path}`,
+				needsYou: void 0,
+				available: described.has("colab") || hosted("colab")
+			};
+		}
+		const module = described.get(fixed.id);
+		return {
+			id: fixed.id,
+			label: module?.rail.label ?? fixed.label,
+			icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
+			href: module?.rail.path ?? (hosted(fixed.id) ? host.rail.path : `${place.origin}${fixed.path}`),
+			needsYou: module?.needsYou,
+			available: Boolean(module) || hosted(fixed.id) || HOST_SERVED.has(fixed.id)
+		};
+	}), ...[...described.values(), ...host && !described.has(keyOf(host)) ? [host] : []].filter((module) => module.module ? keyOf(module) !== "colab:design" : !RAIL.some((fixed) => fixed.id === module.extension)).sort((a, b) => a.rail.order - b.rail.order).map((module) => ({
+		id: keyOf(module),
+		label: module.rail.label,
+		icon: moduleIcon(module.rail.icon),
+		href: module.rail.path,
+		needsYou: module.module ? void 0 : module.needsYou,
+		available: true
+	}))];
+	const longest = modules.filter((module) => module.available && place.href.startsWith(module.href)).sort((a, b) => b.href.length - a.href.length)[0]?.id;
+	const matched = longest && owner(longest) === active ? longest : active ?? longest;
+	const counts = primaries.map((module) => module.needsYou);
+	const total = answer && counts.every((count) => count !== void 0) ? counts.reduce((sum, count) => sum + count, 0) : void 0;
+	const home = claimedHome(answer);
+	const atHome = home !== void 0 && place.href.split(/[?#]/)[0] === home;
+	return {
+		main: [{
+			id: "home",
+			label: "Home",
+			icon: "house",
+			href: home ?? `${place.origin}/`,
+			count: total ? shellCount(total) : void 0,
+			current: path === "/" && !active || atHome
+		}, ...modules.map((module) => ({
+			id: module.id,
+			label: module.label,
+			icon: module.icon,
+			href: module.href,
+			count: module.needsYou ? shellCount(module.needsYou) : void 0,
+			current: !settings && !atHome && module.id === matched,
+			...module.available ? {} : {
+				disabled: true,
+				note: unavailable
+			}
+		}))],
+		bottom: [{
+			id: "settings",
+			label: "TMT settings",
+			icon: "settings",
+			href: `${place.origin}/settings/`,
+			current: settings
+		}]
+	};
+}
+var SVG$1 = "http://www.w3.org/2000/svg";
+function icon(document, name) {
+	const svg = document.createElementNS(SVG$1, "svg");
+	svg.setAttribute("class", "tmt-ui-shell-icon");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attributes] of shellIconNodes[name]) {
+		const node = document.createElementNS(SVG$1, tag);
+		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+		svg.append(node);
+	}
+	return svg;
+}
+function count(document, text) {
+	const badge = document.createElement("span");
+	badge.className = "tmt-ui-shell-count";
+	badge.textContent = text;
+	badge.setAttribute("aria-hidden", "true");
+	return badge;
+}
+function attention(document) {
+	const dot = document.createElement("span");
+	dot.className = "tmt-ui-attention-dot";
+	dot.setAttribute("aria-hidden", "true");
+	return dot;
+}
+/**
+* The one selected row a menu shows: the first current entry, where a current child selects
+* itself while its parent is expanded and selects its parent while collapsed.
+*/
+function visibleCurrent(menu) {
+	if (!menu) return void 0;
+	for (const item of [...menu.groups.flatMap((group) => group.items), ...menu.settings ? [menu.settings] : []]) {
+		const child = item.children?.find((entry) => entry.current);
+		if (child) return item.expanded ? child : item;
+		if (item.current) return item;
+	}
+}
+var branchIds = 0;
+/**
+* Render the rail and module menu into `root`, the `.tmt-ui-shell` element that holds
+* `.tmt-ui-shell-content` with the host's `.tmt-ui-shell-bar` (its one header) and
+* `.tmt-ui-shell-main`. On wide screens the TMT mark and the bar form one header row
+* (TMT, then the host's `<module> / <page>`), over the rail, the module menu column and the main
+* area; phones show the same nested tree inside the navigation drawer. `select` may take over a plain click
+* on an item (an SPA route or Colab's search); it returns true when it handled the click.
+*/
+function mountShell(root, view, select, layerHost) {
+	const document = root.ownerDocument;
+	root.classList.add("tmt-ui-shell");
+	const open = document.createElement("button");
+	open.type = "button";
+	open.className = "tmt-ui-shell-open";
+	open.setAttribute("aria-label", "Open navigation");
+	open.setAttribute("aria-expanded", "false");
+	open.append(icon(document, "menu"));
+	const brand = document.createElement("div");
+	brand.className = "tmt-ui-shell-brand";
+	brand.innerHTML = brandMarkSvg({ size: 32 });
+	const text = document.createElement("span");
+	text.className = "tmt-ui-shell-brand-text";
+	const word = document.createElement("span");
+	word.className = "tmt-ui-shell-brand-word";
+	word.textContent = "tmt";
+	const sub = document.createElement("span");
+	sub.className = "tmt-ui-shell-brand-sub";
+	sub.textContent = "terminal team";
+	text.append(word, sub);
+	brand.append(text);
+	const rail = document.createElement("nav");
+	rail.className = "tmt-ui-rail";
+	rail.setAttribute("aria-label", "TMT");
+	const syncRailScroll = () => rail.toggleAttribute("data-scrolled", rail.scrollTop > 0);
+	rail.addEventListener("scroll", syncRailScroll, { passive: true });
+	const menu = document.createElement("nav");
+	menu.className = "tmt-ui-module-menu";
+	root.prepend(open, rail);
+	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
+	const railSearch = document.createElement("div");
+	railSearch.className = "tmt-ui-rail-search-section";
+	const topBar = createShellTopBar(root, bar, open, railSearch, layerHost);
+	bar.after(menu);
+	const slotOf = (parent, name) => {
+		const existing = parent.querySelector(`:scope > .tmt-ui-shell-tools-${name}`);
+		if (existing) return existing;
+		const created = document.createElement("div");
+		created.className = `tmt-ui-shell-tools-${name}`;
+		parent.append(created);
+		return created;
+	};
+	const drawn = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-tools");
+	const toolsRoot = drawn ?? document.createElement("div");
+	if (!drawn) {
+		toolsRoot.className = "tmt-ui-shell-tools";
+		bar.after(toolsRoot);
+	}
+	const tools = {
+		search: slotOf(toolsRoot, "search"),
+		chip: slotOf(toolsRoot, "chip")
+	};
+	const reserve = () => {
+		const width = toolsRoot.offsetWidth;
+		if (width > 0) root.style.setProperty("--tmt-ui-shell-tools-width", `${width}px`);
+		else root.style.removeProperty("--tmt-ui-shell-tools-width");
+	};
+	const watchTools = typeof ResizeObserver === "function" ? new ResizeObserver(reserve) : void 0;
+	watchTools?.observe(toolsRoot);
+	reserve();
+	const setDrawer = (shown) => {
+		root.dataset.drawer = shown ? "open" : "closed";
+		open.setAttribute("aria-expanded", String(shown));
+	};
+	const tip = document.createElement("div");
+	tip.className = "tmt-ui-rail-tip";
+	tip.setAttribute("role", "tooltip");
+	tip.popover = "manual";
+	(layerHost?.portal ?? root).append(tip);
+	let release = () => {};
+	let tipAnchor;
+	let pressed;
+	const hideTip = () => {
+		release();
+		tipAnchor = void 0;
+		if (tip.matches(":popover-open")) tip.hidePopover();
+		if (tip.hasAttribute("data-tmt-ds-open")) {
+			tip.hidden = true;
+			tip.removeAttribute("data-tmt-ds-open");
+		}
+	};
+	const showTip = (anchor) => {
+		const text = anchor.dataset.note;
+		if (!text || root.dataset.drawer === "open") return hideTip();
+		release();
+		const scope = layerHost?.root;
+		release = claimIconActionTooltip(scope ?? document, hideTip);
+		tipAnchor = anchor;
+		tip.textContent = text;
+		if (scope) {
+			tip.removeAttribute("popover");
+			tip.hidden = false;
+			tip.setAttribute("data-tmt-ds-open", "");
+		} else {
+			if (!tip.hasAttribute("popover")) {
+				tip.hidden = false;
+				tip.popover = "manual";
+			}
+			if (!tip.matches(":popover-open")) tip.showPopover();
+		}
+		const box = anchor.getBoundingClientRect();
+		const bounds = scope?.getBoundingClientRect();
+		const origin = scope ? tip.offsetParent?.getBoundingClientRect() ?? bounds : void 0;
+		const left = bounds ? Math.max(bounds.left, Math.min(box.right, bounds.right - tip.offsetWidth)) : box.right;
+		const top = bounds ? Math.max(bounds.top, Math.min(box.top + (box.height - tip.offsetHeight) / 2, bounds.bottom - tip.offsetHeight)) : box.top + (box.height - tip.offsetHeight) / 2;
+		tip.style.left = `${left - (origin?.left ?? 0)}px`;
+		tip.style.top = `${top - (origin?.top ?? 0)}px`;
+	};
+	const noted = (target) => target instanceof Element ? target.closest("[data-note]") : null;
+	rail.addEventListener("pointerover", (event) => {
+		const anchor = noted(event.target);
+		if (anchor && anchor !== tipAnchor && anchor !== pressed) showTip(anchor);
+	});
+	rail.addEventListener("pointerout", (event) => {
+		const from = noted(event.target);
+		if (from && from === noted(event.relatedTarget)) return;
+		if (from === pressed) pressed = void 0;
+		if (from && from === tipAnchor) hideTip();
+	});
+	rail.addEventListener("pointerdown", (event) => {
+		pressed = noted(event.target) ?? void 0;
+		hideTip();
+	});
+	rail.addEventListener("focusin", (event) => {
+		const anchor = noted(event.target);
+		if (anchor && anchor === event.target && anchor.matches(":focus-visible")) showTip(anchor);
+	});
+	rail.addEventListener("focusout", (event) => {
+		if (noted(event.target) === tipAnchor) hideTip();
+	});
+	const tipFor = (anchor, text) => {
+		anchor.dataset.note = text;
+	};
+	open.onclick = (event) => {
+		const shown = root.dataset.drawer !== "open";
+		setDrawer(shown);
+		if (shown) (rail.querySelector("[aria-current=\"page\"]") ?? rail.querySelector("a[href]"))?.focus({ focusVisible: event.detail === 0 });
+	};
+	const close = (event) => {
+		if (layerHost && (!(event.target instanceof Node) || !layerHost.root.contains(event.target))) return;
+		if (event.key === "Escape" && root.dataset.drawer === "open") {
+			setDrawer(false);
+			open.focus();
+		}
+	};
+	document.addEventListener("keydown", close);
+	const outside = (event) => {
+		const target = event.target;
+		if (layerHost && !layerHost.root.contains(target)) return;
+		if (root.dataset.drawer === "open" && !rail.contains(target) && !open.contains(target)) setDrawer(false);
+	};
+	document.addEventListener("pointerdown", outside);
+	const link = (className, item, selected) => {
+		const anchor = document.createElement("a");
+		anchor.className = className;
+		anchor.href = item.href;
+		anchor.dataset.id = item.id;
+		if (selected) anchor.setAttribute("aria-current", "page");
+		if ("disabled" in item && item.disabled) anchor.setAttribute("aria-disabled", "true");
+		anchor.onclick = (event) => {
+			if (anchor.getAttribute("aria-disabled") === "true") return event.preventDefault();
+			if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+			setDrawer(false);
+			if (select?.(anchor.dataset.id, anchor.getAttribute("href"))) event.preventDefault();
+		};
+		return anchor;
+	};
+	const menuEntry = (className, item, selected, fallbackIcon) => {
+		const anchor = link(className, item, item === selected);
+		if (item.note) anchor.title = item.note;
+		const label = document.createElement("span");
+		label.className = "tmt-ui-module-menu-label";
+		label.textContent = item.label;
+		if (!item.note) label.title = item.label;
+		const mark = item.icon ?? fallbackIcon;
+		if (item.leading) {
+			const slot = document.createElement("span");
+			slot.className = "tmt-ui-shell-icon";
+			slot.style.display = "inline-grid";
+			slot.style.placeItems = "center";
+			slot.setAttribute("aria-hidden", "true");
+			slot.append(item.leading.node.cloneNode(true));
+			anchor.append(slot);
+		} else if (mark) anchor.append(icon(document, mark));
+		anchor.append(label);
+		if (item.emphasis === "unread") {
+			anchor.dataset.emphasis = "unread";
+			const spoken = document.createElement("span");
+			spoken.className = "tmt-ui-visually-hidden";
+			spoken.textContent = " unread";
+			anchor.append(spoken);
+		}
+		const badges = item.badges?.slice(0, 2).map((badge) => Array.from(badge).slice(0, 24).join("")) ?? [];
+		const shown = badges.length ? [] : entryCounts(item);
+		const total = shown.find((value) => !value.needsYou);
+		const waiting = shown.find((value) => value.needsYou);
+		if (badges.length || shown.length || item.actions?.length) {
+			const counts = document.createElement("span");
+			counts.className = "tmt-ui-shell-counts";
+			for (const badge of badges) counts.append(count(document, badge));
+			if (waiting) counts.append(attention(document));
+			if (total) counts.append(count(document, total.text));
+			anchor.append(counts);
+		}
+		if (item.leading || badges.length || shown.length) {
+			const summary = badges.length ? badges.join(", ") : [total && `${item.total ?? total.text} total`, waiting && `${waiting.text} need you`].filter(Boolean).join(", ");
+			const details = [
+				item.leading?.label,
+				summary,
+				item.note
+			].filter(Boolean).join(" · ");
+			anchor.setAttribute("aria-label", `${item.label}${item.emphasis === "unread" ? " unread" : ""} · ${details}`);
+			anchor.title = details;
+			tipFor(anchor, `${item.label} · ${anchor.title}`);
+		}
+		return anchor;
+	};
+	const command = (className, action, activate, mark) => {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = className;
+		button.title = action.disabledReason ?? action.label;
+		button.disabled = action.disabledReason !== void 0;
+		if (mark) {
+			button.setAttribute("aria-label", action.label);
+			button.append(icon(document, mark));
+			tipFor(button, action.label);
+		} else button.textContent = action.label;
+		const turn = keyTurn("task");
+		const recordKey = (event) => {
+			if (event.key === "Enter" && event.type === "keydown" || event.key === " " && event.type === "keyup") turn.record(event);
+		};
+		button.addEventListener("keydown", recordKey);
+		button.addEventListener("keyup", recordKey);
+		button.onclick = (event) => {
+			const admitted = turn.admit(event);
+			if (event.defaultPrevented || !admitted || button.disabled) return;
+			setDrawer(false);
+			activate();
+		};
+		return button;
+	};
+	const announcement = document.createElement("div");
+	announcement.className = "tmt-ui-visually-hidden";
+	announcement.setAttribute("role", "status");
+	announcement.setAttribute("aria-live", "polite");
+	announcement.setAttribute("aria-atomic", "true");
+	let menuInteractions = [];
+	const interactions = (current) => {
+		const controls = createShellMenuInteractions(current, (name) => icon(document, name), (action) => {
+			setDrawer(false);
+			action.onActivate();
+		}, (message) => {
+			announcement.textContent = message;
+		});
+		menuInteractions.push(controls);
+		return controls;
+	};
+	const disclose = (row, anchor, item, index, selected) => {
+		const live = () => latest.menu?.groups[index]?.items.find((entry) => entry.id === item.id);
+		const expanded = item.expanded === true;
+		row.classList.add("tmt-ui-rail-menu-row");
+		row.dataset.menuItem = item.id;
+		row.dataset.disclosure = expanded ? "open" : "closed";
+		anchor.dataset.railPart = "link";
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "tmt-ui-rail-group-action tmt-ui-rail-disclosure";
+		button.dataset.railPart = "disclosure";
+		button.setAttribute("aria-expanded", String(expanded));
+		button.setAttribute("aria-label", `${expanded ? "Hide" : "Show"} ${item.label}`);
+		button.append(icon(document, "chevron-right"));
+		button.onclick = () => live()?.toggle?.();
+		row.append(button);
+		if (!expanded) return;
+		const children = document.createElement("ul");
+		children.className = "tmt-ui-rail-sub-children";
+		children.id = `tmt-ui-rail-children-${++branchIds}`;
+		children.setAttribute("aria-label", item.label);
+		button.setAttribute("aria-controls", children.id);
+		for (const child of item.children) {
+			const childRow = document.createElement("li");
+			const link = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", child, selected);
+			childRow.classList.add("tmt-ui-rail-menu-row");
+			childRow.dataset.menuItem = child.id;
+			childRow.dataset.menuGroup = String(index);
+			link.dataset.railPart = "link";
+			childRow.append(link);
+			if (child.actions?.length) interactions(() => {
+				const branch = live()?.children;
+				return branch ? { items: [...branch] } : void 0;
+			}).decorate(childRow, link, child);
+			children.append(childRow);
+		}
+		row.append(children);
+	};
+	const walk = (list) => list.addEventListener("keydown", (event) => {
+		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+		const row = event.target.closest("li");
+		const link = row?.querySelector(":scope > a");
+		if (!row || !link) return;
+		const disclosure = row.querySelector(":scope > .tmt-ui-rail-disclosure");
+		const open = disclosure?.getAttribute("aria-expanded") === "true";
+		const branch = row.parentElement?.classList.contains("tmt-ui-rail-sub-children") ? row.parentElement.parentElement?.querySelector(":scope > a") : void 0;
+		let next;
+		if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+			const links = [...list.querySelectorAll("a.tmt-ui-rail-sub-item")];
+			next = links[links.indexOf(link) + (event.key === "ArrowUp" ? -1 : 1)];
+			event.preventDefault();
+		} else if (event.key === "ArrowRight" && disclosure) {
+			event.preventDefault();
+			if (open) next = row.querySelector(":scope > ul a");
+			else disclosure.click();
+		} else if (event.key === "ArrowLeft" && (open || branch)) {
+			event.preventDefault();
+			if (open) disclosure.click();
+			else next = branch;
+		}
+		next?.focus();
+	});
+	const nested = (menuView, selected) => {
+		const list = document.createElement("ul");
+		list.className = "tmt-ui-rail-sub";
+		list.setAttribute("aria-label", menuView.title);
+		walk(list);
+		menuView.groups.forEach((group, index) => {
+			const controls = group.reorder || group.items.some((item) => item.actions?.length) ? interactions(() => latest.menu?.groups[index]) : void 0;
+			let entries = list;
+			if (group.label || group.action) {
+				const section = document.createElement("li");
+				const heading = document.createElement("div");
+				heading.className = "tmt-ui-rail-sub-group";
+				const label = document.createElement("span");
+				label.textContent = group.label ?? "";
+				label.title = group.label ?? "";
+				heading.append(label);
+				if (group.action) heading.append(command(`tmt-ui-rail-group-action${group.action.icon ? "" : " tmt-ui-rail-group-text-action"}`, group.action, () => latest.menu?.groups[index]?.action?.onActivate(), group.action.icon));
+				entries = document.createElement("ul");
+				entries.className = "tmt-ui-rail-sub-items";
+				if (group.label) entries.setAttribute("aria-label", group.label);
+				section.append(heading, entries);
+				list.append(section);
+			}
+			if (group.alert) {
+				const row = document.createElement("li");
+				row.className = "tmt-ui-rail-alert";
+				row.setAttribute("role", "alert");
+				const message = document.createElement("span");
+				message.textContent = group.alert.message;
+				row.append(message, command("tmt-ui-rail-group-action", group.alert.retry, () => latest.menu?.groups[index]?.alert?.retry.onActivate()));
+				entries.append(row);
+			}
+			for (const item of group.items) {
+				const row = document.createElement("li");
+				const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected, group.fallbackIcon);
+				row.dataset.menuGroup = String(index);
+				row.append(anchor);
+				if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);
+				if (item.children?.length) disclose(row, anchor, item, index, selected);
+				entries.append(row);
+			}
+			if (group.add) {
+				const row = document.createElement("li");
+				const add = command("tmt-ui-rail-sub-item tmt-ui-rail-add", group.add, () => latest.menu?.groups[index]?.add?.onActivate());
+				add.prepend(icon(document, "plus"));
+				row.append(add);
+				entries.append(row);
+			}
+		});
+		if (menuView.settings) {
+			const row = document.createElement("li");
+			row.className = "tmt-ui-rail-settings";
+			const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", menuView.settings, selected);
+			row.dataset.menuGroup = "settings";
+			row.append(anchor);
+			if (menuView.settings.actions?.length) interactions(() => latest.menu?.settings ? { items: [latest.menu.settings] } : void 0).decorate(row, anchor, menuView.settings);
+			list.append(row);
+		}
+		return list;
+	};
+	const railList = (items, current, selected, extra, pages) => {
+		const list = document.createElement("ul");
+		list.className = extra ? `tmt-ui-rail-items ${extra}` : "tmt-ui-rail-items";
+		for (const item of items) {
+			const anchor = link("tmt-ui-rail-item", item, item === current && !selected);
+			if (item === current) anchor.dataset.moduleCurrent = "";
+			const badge = item.count?.needsYou && item.count.text !== "0" ? item.count : void 0;
+			if (badge) anchor.setAttribute("aria-label", `${item.label}, ${badge.text}${badge.text === "1" ? " needs you" : " need you"}`);
+			anchor.title = item.note ?? item.label;
+			if (item.note && !badge) tipFor(anchor, `${item.label}: ${item.note}`);
+			const label = document.createElement("span");
+			label.className = "tmt-ui-rail-label";
+			label.textContent = item.label;
+			anchor.append(icon(document, item.icon), label);
+			if (badge) {
+				anchor.append(attention(document));
+				tipFor(anchor, `${item.label}, ${badge.text} need you${item.note ? `: ${item.note}` : ""}`);
+			}
+			const row = document.createElement("li");
+			row.append(anchor);
+			if (item === current && pages && item.id !== "home") row.append(nested(pages, selected));
+			list.append(row);
+		}
+		return list;
+	};
+	let shown = "";
+	let latest = view;
+	const render = (next) => {
+		latest = next;
+		const key = JSON.stringify([next, next.menu?.groups.map((group) => Boolean(group.reorder))], (_key, value) => value instanceof Element ? value.outerHTML : value instanceof Node ? value.textContent : value);
+		if (key === shown) return;
+		shown = key;
+		const focused = rail.contains(document.activeElement) ? document.activeElement : void 0;
+		const owner = focused?.closest("[data-menu-item]");
+		const focus = owner ? {
+			id: owner.dataset.menuItem,
+			group: owner.dataset.menuGroup,
+			part: focused?.dataset.railPart
+		} : void 0;
+		const previous = menuInteractions;
+		menuInteractions = [];
+		const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
+		const selected = current ? visibleCurrent(next.menu) : void 0;
+		const lists = [railList(next.rail.main, current, selected, void 0, next.menu), railList(next.rail.bottom, current, selected, "tmt-ui-rail-bottom", next.menu)];
+		const live = [...rail.children].slice(2);
+		const pairs = lists.flatMap((list, index) => {
+			const shown = live[index];
+			return shown ? [[shown, list]] : [];
+		});
+		if (live.length === lists.length && pairs.length === lists.length && pairs.every(([shown, list]) => sameShape(shown, list))) {
+			for (const [shown, list] of pairs) patchShape(shown, list);
+			for (const controls of menuInteractions) controls.dispose();
+			menuInteractions = previous;
+			root.dataset.menu = next.menu ? "shown" : "none";
+			if (tipAnchor?.isConnected) showTip(tipAnchor);
+			return;
+		}
+		for (const controls of previous) controls.dispose();
+		hideTip();
+		const railTop = rail.scrollTop;
+		rail.replaceChildren(brand, railSearch, ...lists);
+		rail.scrollTop = railTop;
+		syncRailScroll();
+		root.dataset.menu = next.menu ? "shown" : "none";
+		menu.replaceChildren();
+		if (next.menu?.groups.some((group) => group.reorder)) {
+			if (!announcement.isConnected) root.append(announcement);
+		} else announcement.remove();
+		if (focus) {
+			const restored = [...rail.querySelectorAll("[data-rail-part]")].find((element) => {
+				const row = element.closest("[data-menu-item]");
+				return row !== null && row.dataset.menuItem === focus.id && row.dataset.menuGroup === focus.group && element.dataset.railPart === focus.part;
+			});
+			if (restored && restored.getClientRects().length) {
+				restored.focus({ preventScroll: true });
+				restored.scrollIntoView({ block: "nearest" });
+			}
+		}
+	};
+	setDrawer(false);
+	render(view);
+	return {
+		tools,
+		setCommonControls: topBar.setCommonControls,
+		topBarReady: topBar.topBarReady,
+		setTopBar: topBar.setTopBar,
+		clearTopBar: topBar.clear,
+		update: render,
+		dispose() {
+			for (const controls of menuInteractions) controls.dispose();
+			menuInteractions = [];
+			announcement.remove();
+			topBar.dispose();
+			watchTools?.disconnect();
+			root.style.removeProperty("--tmt-ui-shell-tools-width");
+			if (!drawn) toolsRoot.remove();
+			document.removeEventListener("keydown", close);
+			document.removeEventListener("pointerdown", outside);
+			hideTip();
+			open.remove();
+			tip.remove();
+			rail.removeEventListener("scroll", syncRailScroll);
+			rail.remove();
+			menu.remove();
+		}
+	};
+}
+/** What an update may change on a kept rail node; anything else is a different rail. */
+var PATCHED = /* @__PURE__ */ new Set([
+	"aria-current",
+	"aria-label",
+	"aria-disabled",
+	"data-module-current",
+	"data-note",
+	"data-emphasis",
+	"href",
+	"title"
+]);
+/** Build-local names: a kept node keeps its own, which its partner already points at. */
+var LOCAL = /* @__PURE__ */ new Set(["id", "aria-controls"]);
+var ownAttributes = (element) => element.getAttributeNames().filter((name) => !PATCHED.has(name) && !LOCAL.has(name)).map((name) => `${name}=${element.getAttribute(name)}`).join("\n");
+/** Whether `next` has the live node's elements, in order, with the same fixed attributes. */
+function sameShape(live, next) {
+	if (live.nodeType !== next.nodeType || live.childNodes.length !== next.childNodes.length) return false;
+	if (live instanceof Element && next instanceof Element) {
+		if (live.localName !== next.localName || ownAttributes(live) !== ownAttributes(next)) return false;
+	}
+	return [...live.childNodes].every((child, index) => sameShape(child, next.childNodes[index]));
+}
+/** Brings a same-shape live node to `next`: its changeable attributes and its text. */
+function patchShape(live, next) {
+	if (live instanceof Element && next instanceof Element) for (const name of PATCHED) {
+		const value = next.getAttribute(name);
+		if (value === null) live.removeAttribute(name);
+		else if (live.getAttribute(name) !== value) live.setAttribute(name, value);
+	}
+	else if (live.nodeValue !== next.nodeValue) live.nodeValue = next.nodeValue;
+	live.childNodes.forEach((child, index) => patchShape(child, next.childNodes[index]));
+}
+//#endregion
+//#region src/remote-shell.ts
+/** Remote's routes inside the one TMT web app (design/browser-ui `shell-host.ts`). */
+/** Routes supply plain title segments; the shared leaf owns layout and phone truncation. */
+function setRouteTitle(slot, title, ancestors = [], documentTitle = title, chips = []) {
+	if (!slot.topBarReady()) return;
+	slot.setTitle(documentTitle);
+	const target = slot.setTopBar().title;
+	const label = [...ancestors, title].join(" / ");
+	if (target.querySelector("h1")?.getAttribute("aria-label") === label && (target.querySelector(".tmt-ui-topbar-title-chips")?.textContent ?? "") === chips.join("")) return;
+	if (target.querySelector("h1")?.getAttribute("aria-label") !== label) {
+		const heading = document.createElement("h1");
+		heading.setAttribute("aria-label", label);
+		heading.tabIndex = -1;
+		if (ancestors.length) {
+			const prefix = document.createElement("span");
+			prefix.className = "tmt-ui-topbar-title-prefix";
+			prefix.textContent = `${ancestors.join(" / ")} / `;
+			heading.append(prefix);
+		}
+		const current = document.createElement("span");
+		current.className = "tmt-ui-topbar-title-current";
+		current.textContent = title;
+		heading.append(current);
+		target.replaceChildren(heading);
+	}
+	const group = document.createElement("span");
+	group.className = "tmt-ui-topbar-title-chips";
+	for (const text of chips) {
+		const chip = document.createElement("span");
+		chip.className = "tmt-ui-chip";
+		const label = document.createElement("span");
+		label.className = "tmt-ui-chip-label";
+		label.textContent = text;
+		chip.append(label);
+		group.append(chip);
+	}
+	target.querySelector(".tmt-ui-topbar-title-chips")?.remove();
+	if (chips.length) target.append(group);
+}
+var current;
+/** The mounted route's part of the one shell, or undefined outside the app (unit tests). */
+function remoteShell() {
+	return current;
+}
+/** Give Remote's page code the mounted route's slot and lifetime; `undefined` when it unmounts. */
+function hostRemote(slot, signal, observedSession, holdNavigation, connection) {
+	current = slot && signal && {
+		setMenu: (menu, select) => slot.setMenu(menu, select),
+		navigate: (href, options) => slot.navigate(href, options),
+		setTitle: (title, ancestors, documentTitle, chips) => setRouteTitle(slot, title, ancestors, documentTitle, chips),
+		describe: (address) => slot.describe(address),
+		described: (listener) => slot.described(listener),
+		observedSession: (session) => {
+			if (!signal.aborted) observedSession?.(session);
+		},
+		session: connection ? () => connection.get(signal) : void 0,
+		forgetSession: connection ? (session) => connection.forget(session) : void 0,
+		holdNavigation: (reason) => {
+			if (!signal.aborted) holdNavigation?.(reason);
+		},
+		signal
+	};
+}
+/** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */
+function row$1(href, mark, title, detail) {
+	const item = document.createElement("li");
+	item.className = "tmt-ui-list-row";
+	item.dataset.leading = "";
+	const sign = document.createElement("div");
+	sign.className = "tmt-ui-list-leading";
+	sign.setAttribute("aria-hidden", "true");
+	sign.textContent = mark;
+	if (mark === "◆") sign.dataset.tone = "waiting";
+	const name = document.createElement("div");
+	name.className = "tmt-ui-list-title";
+	const link = document.createElement("a");
+	link.href = href;
+	link.textContent = title;
+	name.append(link);
+	const meta = document.createElement("div");
+	meta.className = "tmt-ui-list-meta";
+	const more = document.createElement("div");
+	more.className = "tmt-ui-list-updated";
+	more.textContent = detail;
+	meta.append(more);
+	item.append(sign, name, meta);
+	return item;
+}
+/** One Needs-you row per module with a count and a waiting pairing offer; no per-item list until
+* modules publish items. Recent pages are the modules' described home cards. `open` turns a
+* module's described path into where this app opens it. */
+function homePage(shell, open) {
+	const needs = document.getElementById("home-needs");
+	const note = document.getElementById("home-needs-note");
+	const recent = document.getElementById("home-recent");
+	const recentBlock = document.getElementById("home-recent-block");
+	if (!needs || !note || !recent || !recentBlock) return;
+	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
+	shell.described(async (answer) => {
+		const claimed = claimedHome(answer);
+		if (claimed) return shell.navigate(open(claimed), { replace: true });
+		const rows = [];
+		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$1(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
+		if (await offer) rows.push(row$1(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
+		needs.replaceChildren(...rows);
+		if (answer) note.textContent = rows.length ? "" : "Nothing needs you.";
+		else {
+			const pair = Object.assign(document.createElement("a"), {
+				href: "/remote/",
+				textContent: "Pair this browser"
+			});
+			note.replaceChildren(pair, " in Remote to see what needs you.");
+		}
+		note.hidden = !note.textContent;
+		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$1(open(card.path), "▤", card.title, module.rail.label)));
+		recent.replaceChildren(...cards);
+		recentBlock.hidden = cards.length === 0;
+	});
+}
+//#endregion
+//#region src/remote-menu.ts
+function remoteMenu(actions, shell = remoteShell()) {
+	if (!shell) return () => {};
+	const href = (view) => new URL(remotePath(view), location.href).href;
+	let projection;
+	function paint() {
+		const view = projection?.current.connection;
+		const showing = remoteItem(location.pathname)?.id;
+		const item = (id) => {
+			return {
+				id,
+				label: REMOTE_ITEMS.find((candidate) => candidate.id === id).label,
+				href: href(id),
+				current: showing === id
+			};
+		};
+		const recovery = view?.action;
+		shell.setMenu({
+			title: "Remote",
+			groups: [{ items: [{
+				...item("remotes"),
+				current: [
+					"remotes",
+					"create",
+					"join"
+				].includes(showing ?? ""),
+				total: projection?.rows.length
+			}] }, {
+				label: "This machine",
+				items: [item("members"), item("my-devices")],
+				action: recovery ? {
+					icon: "link",
+					label: recovery,
+					onActivate: () => actions.recover(recovery)
+				} : void 0
+			}],
+			settings: {
+				...item("settings"),
+				label: "Remote settings",
+				current: showing === "settings" || showing === "service"
+			}
+		});
+	}
+	paint();
+	window.addEventListener("popstate", paint, { signal: shell.signal });
+	const refresh = () => {
+		paint();
+		actions.refresh();
+	};
+	const entered = (event) => {
+		const menu = event.target?.closest?.(".tmt-ui-module-menu, .tmt-ui-rail-sub");
+		if (menu && !menu.contains(event.relatedTarget)) refresh();
+	};
+	document.addEventListener("pointerover", entered, { signal: shell.signal });
+	document.addEventListener("focusin", entered, { signal: shell.signal });
+	return (next) => {
+		projection = next;
+		if (next.current.connection.word === "connected" && next.address) shell.describe(next.address);
+		paint();
 	};
 }
 //#endregion
@@ -5378,1403 +6792,6 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 		}
 	});
 }
-//#endregion
-//#region ../../../../design/browser-ui/src/brand-mark-svg.ts
-var inner = "<rect class=\"tmt-brand-mark-tile\" width=\"96\" height=\"96\" rx=\"25.6\" fill=\"#0a0a0a\"/><svg x=\"11.5\" y=\"11.5\" viewBox=\"0 0 720 760\" width=\"73\" height=\"73\"><path fill=\"#f2efe9\" fill-rule=\"evenodd\" d=\"M 10 351 C 33 245 82 143 160 89 C 213 52 275 12 319 11 C 403 9 536 78 622 207 L 459 144 C 518 217 548 282 558 325 C 578 410 504 440 396 476 C 301 507 189 543 119 573 C 217 570 317 531 414 497 C 505 465 616 425 716 416 L 639 552 C 550 550 468 574 414 612 C 518 585 646 631 711 746 C 611 694 506 680 404 690 C 300 701 198 713 117 697 C 35 682 0 638 20 576 C 27 549 38 529 60 506 C 17 478 -1 445 5 407 C 6 389 8 370 10 351 Z M 100 345 C 100 273 186 234 290 234 C 394 234 480 273 480 345 C 480 417 394 456 290 456 C 186 456 100 417 100 345 Z\"/><path d=\"M 219 312 L 283 353 L 219 394 M 314 392 H 382\" fill=\"none\" stroke=\"#f2efe9\" stroke-width=\"27\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
-function brandMarkSvg({ size = 24, className = "tmt-brand-mark" } = {}) {
-	return `<svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 96 96" aria-hidden="true" width="${size}" height="${size}">${inner}</svg>`;
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/shell-menu-interactions.ts
-/** One group's transient controls. The host's latest model is the only order and command owner. */
-function createShellMenuInteractions(current, drawIcon, activate, announce) {
-	const lifetime = new AbortController();
-	const listen = { signal: lifetime.signal };
-	let source;
-	let target;
-	let fromId;
-	const cancel = () => {
-		if (source) delete source.dataset.dragging;
-		if (target) delete target.dataset.dropEdge;
-		source = target = void 0;
-		fromId = void 0;
-	};
-	const requestMove = (from, to) => {
-		const group = current();
-		if (!group?.reorder || from === to) return;
-		const fromIndex = group.items.findIndex((item) => item.id === from);
-		const toIndex = group.items.findIndex((item) => item.id === to);
-		if (fromIndex < 0 || toIndex < 0) return;
-		const label = group.items[fromIndex].label;
-		group.reorder(from, to);
-		announce(`Move requested: ${label}, position ${toIndex + 1} of ${group.items.length}.`);
-	};
-	return {
-		decorate(row, anchor, item) {
-			const doc = row.ownerDocument;
-			row.classList.add("tmt-ui-rail-menu-row");
-			row.dataset.menuItem = item.id;
-			anchor.dataset.railPart = "link";
-			const button = (label, name, part) => {
-				const control = doc.createElement("button");
-				control.type = "button";
-				control.className = "tmt-ui-rail-group-action tmt-ui-rail-row-action";
-				control.title = label;
-				control.setAttribute("aria-label", label);
-				control.dataset.railPart = part;
-				control.append(drawIcon(name));
-				return control;
-			};
-			const actions = item.actions?.slice(0, 2) ?? [];
-			if (actions.length) {
-				row.dataset.actions = String(actions.length);
-				const commands = doc.createElement("div");
-				commands.className = "tmt-ui-rail-row-actions";
-				for (const [index, action] of actions.entries()) {
-					const control = button(action.label, action.icon, `action-${index}`);
-					control.addEventListener("click", (event) => {
-						event.stopPropagation();
-						const latest = current()?.items.find((entry) => entry.id === item.id)?.actions?.[index];
-						if (latest) activate(latest);
-					}, listen);
-					commands.append(control);
-				}
-				row.append(commands);
-			}
-			if (current()?.reorder) {
-				row.dataset.reorderable = "";
-				anchor.draggable = false;
-				anchor.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
-				const handle = button(`Reorder ${item.label}`, "grip-vertical", "drag");
-				handle.classList.add("tmt-ui-rail-drag");
-				handle.draggable = true;
-				handle.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
-				handle.addEventListener("click", (event) => {
-					event.preventDefault();
-					event.stopPropagation();
-				}, listen);
-				handle.addEventListener("dragstart", (event) => {
-					const group = current();
-					if (!group?.reorder || !group.items.some((entry) => entry.id === item.id)) {
-						event.preventDefault();
-						return;
-					}
-					cancel();
-					source = row;
-					fromId = item.id;
-					row.dataset.dragging = "";
-					if (event.dataTransfer) {
-						event.dataTransfer.effectAllowed = "move";
-						event.dataTransfer.setData("application/x-tmt-shell-row", "move");
-					}
-				}, listen);
-				handle.addEventListener("dragend", cancel, listen);
-				const slot = doc.createElement("span");
-				slot.className = "tmt-ui-swap";
-				const leading = anchor.querySelector(":scope > svg.tmt-ui-shell-icon");
-				const rest = leading ?? doc.createElement("span");
-				if (leading) {
-					const placeholder = doc.createElement("span");
-					placeholder.className = "tmt-ui-shell-icon";
-					placeholder.setAttribute("aria-hidden", "true");
-					anchor.replaceChild(placeholder, leading);
-				}
-				rest.setAttribute("data-swap", "rest");
-				rest.setAttribute("aria-hidden", "true");
-				handle.setAttribute("data-swap", "reveal");
-				slot.append(rest, handle);
-				row.append(slot);
-			}
-			row.addEventListener("keydown", (event) => {
-				if (event.key === "Escape" && fromId !== void 0) {
-					cancel();
-					event.stopPropagation();
-					return;
-				}
-				if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
-				const group = current();
-				if (!group?.reorder) return;
-				const index = group.items.findIndex((entry) => entry.id === item.id);
-				if (index < 0) return;
-				event.preventDefault();
-				event.stopPropagation();
-				const next = group.items[index + (event.key === "ArrowUp" ? -1 : 1)];
-				if (next) requestMove(item.id, next.id);
-				else announce(`${item.label} is already ${event.key === "ArrowUp" ? "first" : "last"}.`);
-			}, listen);
-			row.addEventListener("dragover", (event) => {
-				const group = current();
-				const from = group?.items.findIndex((entry) => entry.id === fromId) ?? -1;
-				const to = group?.items.findIndex((entry) => entry.id === item.id) ?? -1;
-				if (!group?.reorder || from < 0 || to < 0 || from === to) return;
-				event.preventDefault();
-				if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-				if (target) delete target.dataset.dropEdge;
-				target = row;
-				row.dataset.dropEdge = from < to ? "after" : "before";
-			}, listen);
-			row.addEventListener("dragleave", (event) => {
-				if (!row.contains(event.relatedTarget)) delete row.dataset.dropEdge;
-			}, listen);
-			row.addEventListener("drop", (event) => {
-				if (fromId === void 0) return;
-				event.preventDefault();
-				event.stopPropagation();
-				const from = fromId;
-				cancel();
-				requestMove(from, item.id);
-			}, listen);
-		},
-		dispose() {
-			lifetime.abort();
-			cancel();
-		}
-	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/trusted-activation.ts
-/** A Radix keyboard selection produces a synthetic click in the same key event. */
-function trustedActivation(click, key) {
-	return click.isTrusted || key?.isTrusted === true;
-}
-/**
-* A one-shot trusted key turn: the Enter or Space that will be followed by a click on the same
-* element. The caller records the key events it accepts; a click is admitted when it is trusted
-* itself or lands inside the element that took the recorded key. The turn expires on its own:
-* - `microtask` suits a React handler, where the synthetic click follows in the same key event.
-* - `task` suits plain DOM listeners: the browser runs a microtask checkpoint between native
-*   listeners of one key, so the turn must last until the next task.
-*/
-function keyTurn(expiry) {
-	let current;
-	return {
-		record(event) {
-			if (event.defaultPrevented || !event.isTrusted) return;
-			current = event;
-			const expire = () => {
-				if (current === event) current = void 0;
-			};
-			if (expiry === "task") setTimeout(expire, 0);
-			else queueMicrotask(expire);
-		},
-		/** Whether a click is a person's: trusted, or inside the element that took the key turn. A
-		* click that is admitted uses the turn up. */
-		admit(click) {
-			const origin = current?.target;
-			const target = click.target;
-			const admitted = trustedActivation(click, current && !current.defaultPrevented && origin instanceof Node && target instanceof Node && origin.contains(target) ? current : void 0);
-			if (admitted) current = void 0;
-			return admitted;
-		},
-		clear() {
-			current = void 0;
-		}
-	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/theme.ts
-/**
-* The per-browser colour theme (#3937). The tokens answer to `data-theme` on the root: `light` and
-* `dark` pin a theme, and no attribute follows the device (`prefers-color-scheme`). The choice is
-* stored in this browser only; storage that is blocked or full never breaks the page, which then
-* follows the device.
-*/
-var THEMES = [
-	"system",
-	"light",
-	"dark"
-];
-var themeStorageKey = "tmt-ui-theme";
-function browserStore() {
-	try {
-		return globalThis.localStorage;
-	} catch {
-		return;
-	}
-}
-/** The stored choice; `system` when none is stored, storage is blocked or the value is unknown. */
-function storedTheme(store = browserStore()) {
-	try {
-		const value = store?.getItem(themeStorageKey);
-		return THEMES.find((theme) => theme === value) ?? "system";
-	} catch {
-		return "system";
-	}
-}
-/** Set the root's theme for a choice: `system` leaves the tokens to the device. */
-function applyTheme(choice, root = document.documentElement) {
-	if (choice === "system") root.removeAttribute("data-theme");
-	else root.setAttribute("data-theme", choice);
-}
-/** Apply the stored choice; call once when the app starts, before the first paint of a page. */
-function applyStoredTheme(root, store) {
-	applyTheme(storedTheme(store), root);
-}
-/** Store a choice for this browser and apply it now. `system` clears the stored choice. */
-function setStoredTheme(choice, root, store = browserStore()) {
-	try {
-		if (choice === "system") store?.removeItem(themeStorageKey);
-		else store?.setItem(themeStorageKey, choice);
-	} catch {}
-	applyTheme(choice, root);
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/scoped-modal.ts
-var states = /* @__PURE__ */ new WeakMap();
-function apply(scope, state) {
-	for (const [node, inert] of state.originalInert) if (inert === null) node.removeAttribute("inert");
-	else node.setAttribute("inert", inert);
-	state.originalInert.clear();
-	const dialog = state.stack.at(-1);
-	if (!dialog) return;
-	for (let child = dialog; child && child !== scope;) {
-		const parent = child.parentElement;
-		if (!parent) break;
-		for (const sibling of parent.children) {
-			if (sibling === child) continue;
-			if (sibling === child.previousElementSibling && (sibling.matches("[data-tmt-ds-scrim]") || sibling.querySelector("[data-tmt-ds-scrim]"))) continue;
-			if (!state.originalInert.has(sibling)) state.originalInert.set(sibling, sibling.getAttribute("inert"));
-			sibling.setAttribute("inert", "");
-		}
-		child = parent;
-	}
-}
-/** The returned cleanup restores the prior state and can safely be called more than once. */
-function enterScopedModal(scope, dialog) {
-	if (!scope.contains(dialog)) throw new Error("Scoped modal must belong to its scope");
-	let state = states.get(scope);
-	if (!state) {
-		state = {
-			stack: [],
-			originalInert: /* @__PURE__ */ new Map(),
-			overflow: scope.style.getPropertyValue("overflow"),
-			overflowPriority: scope.style.getPropertyPriority("overflow")
-		};
-		states.set(scope, state);
-		scope.style.setProperty("overflow", "hidden");
-	}
-	const owner = state;
-	owner.stack.push(dialog);
-	apply(scope, owner);
-	let active = true;
-	return () => {
-		if (!active) return;
-		active = false;
-		const index = owner.stack.lastIndexOf(dialog);
-		if (index >= 0) owner.stack.splice(index, 1);
-		apply(scope, owner);
-		if (!owner.stack.length) {
-			if (owner.overflow) scope.style.setProperty("overflow", owner.overflow, owner.overflowPriority);
-			else scope.style.removeProperty("overflow");
-			states.delete(scope);
-		}
-	};
-}
-/** Keep Tab inside the active modal only while keyboard focus is already in its scope. */
-function trapScopedTab(event, dialog) {
-	if (event.key !== "Tab" || event.defaultPrevented) return;
-	const scope = dialog.closest("[data-tmt-ds-scope]");
-	if (scope && states.get(scope)?.stack.at(-1) !== dialog) return;
-	const nodes = [...dialog.querySelectorAll("a[href], button, input, select, textarea, [tabindex]:not([tabindex=\"-1\"])")].filter((node) => node.tabIndex >= 0 && !node.matches(":disabled") && !node.closest("[inert]") && node.getClientRects().length > 0 && node.ownerDocument.defaultView?.getComputedStyle(node).visibility !== "hidden");
-	if (!nodes.length) {
-		event.preventDefault();
-		dialog.focus();
-		return;
-	}
-	const active = dialog.ownerDocument.activeElement;
-	const first = nodes[0];
-	const last = nodes[nodes.length - 1];
-	const index = nodes.findIndex((node) => node === active);
-	if (event.shiftKey && index <= 0) {
-		event.preventDefault();
-		last.focus();
-	} else if (!event.shiftKey && (index < 0 || index === nodes.length - 1)) {
-		event.preventDefault();
-		first.focus();
-	}
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/topbar.ts
-/** Internal renderer shared by native and React shells. */
-function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
-	const document = root.ownerDocument;
-	const view = document.defaultView;
-	let options;
-	let disposed = false;
-	let active;
-	const validate = (next) => {
-		const remote = next.remote;
-		if (remote.kind === "confirmed" && (!Number.isSafeInteger(remote.liveSessions) || remote.liveSessions < 0)) throw new Error("Remote live-session count must be a non-negative integer");
-	};
-	const clear = () => {
-		active?.dispose();
-		active = void 0;
-	};
-	function mount() {
-		const header = document.createElement("header");
-		header.className = "tmt-ui-topbar";
-		header.setAttribute("aria-label", "TMT");
-		const left = document.createElement("div");
-		left.className = "tmt-ui-topbar-navigation";
-		left.append(navigation);
-		const title = document.createElement("div");
-		title.className = "tmt-ui-topbar-title";
-		const right = document.createElement("div");
-		right.className = "tmt-ui-topbar-controls";
-		const statusSlot = document.createElement("div");
-		statusSlot.className = "tmt-ui-topbar-status";
-		const actions = document.createElement("div");
-		actions.className = "tmt-ui-topbar-actions";
-		const common = document.createElement("div");
-		common.className = "tmt-ui-topbar-common";
-		common.setAttribute("role", "group");
-		common.setAttribute("aria-label", "TMT controls");
-		const theme = document.createElement("span");
-		const search = document.createElement("button");
-		search.type = "button";
-		search.className = `${browserUiClasses.action} ${browserUiClasses.iconActionControl} tmt-ui-topbar-search`;
-		search.dataset.variant = "text";
-		search.setAttribute("aria-label", "Search TMT");
-		search.setAttribute("aria-haspopup", "dialog");
-		const command = /Mac|iPhone|iPad|iPod/.test(view.navigator.platform);
-		search.setAttribute("aria-keyshortcuts", command ? "Meta+K" : "Control+K");
-		const searchMark = document.createElement("span");
-		searchMark.className = browserUiClasses.iconActionIcon;
-		searchMark.setAttribute("aria-hidden", "true");
-		const hint = document.createElement("kbd");
-		hint.textContent = command ? "⌘K" : "Ctrl K";
-		searchMark.append(createIcon("search", document), hint);
-		search.append(searchMark);
-		const sidebarSearch = document.createElement("button");
-		sidebarSearch.type = "button";
-		sidebarSearch.className = "tmt-ui-rail-search";
-		sidebarSearch.setAttribute("aria-label", "Search TMT");
-		sidebarSearch.setAttribute("aria-haspopup", "dialog");
-		sidebarSearch.setAttribute("aria-keyshortcuts", command ? "Meta+K" : "Control+K");
-		const sidebarLabel = document.createElement("span");
-		sidebarLabel.className = "tmt-ui-rail-label";
-		sidebarLabel.textContent = "Search";
-		const sidebarHint = document.createElement("kbd");
-		sidebarHint.textContent = hint.textContent;
-		sidebarSearch.append(createIcon("search", document), sidebarLabel, sidebarHint);
-		railSearch?.replaceChildren(sidebarSearch);
-		const remote = document.createElement("button");
-		remote.type = "button";
-		remote.setAttribute("aria-haspopup", "dialog");
-		remote.className = `${browserUiClasses.action} ${browserUiClasses.iconActionControl} tmt-ui-topbar-remote`;
-		remote.dataset.variant = "text";
-		const remoteMark = document.createElement("span");
-		remoteMark.className = browserUiClasses.iconActionIcon;
-		remoteMark.setAttribute("aria-hidden", "true");
-		remoteMark.append(createIcon("monitor-smartphone", document));
-		const badge = document.createElement("span");
-		badge.className = browserUiClasses.count;
-		badge.setAttribute("aria-hidden", "true");
-		remote.append(remoteMark, badge);
-		const help = (control, label) => {
-			const wrapper = document.createElement("span");
-			wrapper.className = browserUiClasses.iconAction;
-			const tooltip = document.createElement("span");
-			tooltip.className = browserUiClasses.iconActionTooltip;
-			tooltip.setAttribute("popover", "manual");
-			tooltip.setAttribute("aria-hidden", "true");
-			const text = document.createElement("span");
-			text.className = browserUiClasses.iconActionTooltipLabel;
-			text.textContent = label;
-			tooltip.append(text);
-			wrapper.append(control, tooltip);
-			return {
-				wrapper,
-				text,
-				binding: bindIconActionTooltip(wrapper, control, tooltip)
-			};
-		};
-		const searchHelp = help(search, "Search TMT");
-		const remoteHelp = help(remote, "Remote: session count unconfirmed");
-		left.append(searchHelp.wrapper, title);
-		common.append(theme, remoteHelp.wrapper);
-		right.append(statusSlot, common, actions);
-		header.append(left, right);
-		const scope = layerHost?.root;
-		const themeRoot = scope ?? document.documentElement;
-		const choice = () => {
-			const explicit = themeRoot.getAttribute("data-theme");
-			return explicit === "light" || explicit === "dark" ? explicit : "system";
-		};
-		const themeOptions = () => ({
-			label: `Theme: ${choice()}`,
-			icon: createIcon("sun", document),
-			items: THEMES.map((key) => ({
-				key,
-				label: key === "system" ? "System" : key === "light" ? "Light" : "Dark",
-				checked: choice() === key
-			})),
-			onSelect: (key) => scope ? applyTheme(key, scope) : setStoredTheme(key, document.documentElement)
-		});
-		const themeMenu = mountBrowserMenu(theme, themeOptions());
-		const observeTheme = new MutationObserver(() => themeMenu.update(themeOptions()));
-		observeTheme.observe(themeRoot, {
-			attributes: true,
-			attributeFilter: ["data-theme"]
-		});
-		const dialog = document.createElement("dialog");
-		dialog.className = browserUiClasses.dialog;
-		dialog.setAttribute("aria-label", "Remote");
-		const dialogHeader = document.createElement("header");
-		dialogHeader.className = browserUiClasses.dialogHeader;
-		const heading = document.createElement("h2");
-		heading.textContent = "Remote";
-		dialogHeader.append(heading);
-		const body = document.createElement("div");
-		body.className = browserUiClasses.dialogBody;
-		const connection = document.createElement("p");
-		const settings = document.createElement("a");
-		settings.textContent = "Remote settings";
-		body.append(connection, settings);
-		const footer = document.createElement("footer");
-		footer.className = browserUiClasses.dialogActions;
-		const close = document.createElement("button");
-		close.type = "button";
-		close.className = browserUiClasses.action;
-		close.dataset.variant = "secondary";
-		close.textContent = "Close";
-		footer.append(close);
-		dialog.append(dialogHeader, body, footer);
-		let origin = null;
-		let releaseScope;
-		let scrim;
-		const dismiss = () => {
-			if (!dialog.open) return;
-			dialog.close();
-			releaseScope?.();
-			releaseScope = void 0;
-			scrim?.remove();
-			scrim = void 0;
-			dialog.remove();
-			restoreOverlayFocus(origin, () => remote);
-		};
-		remote.onclick = (event) => {
-			if (!event.isTrusted || dialog.open) return;
-			themeMenu.close();
-			remoteHelp.binding.dismiss();
-			origin = document.activeElement;
-			if (scope) {
-				scrim = document.createElement("div");
-				scrim.className = "tmt-ui-scope-scrim";
-				scrim.setAttribute("data-tmt-ds-scrim", "");
-				scrim.addEventListener("click", (event) => {
-					if (event.isTrusted) dismiss();
-				});
-				layerHost.portal.append(scrim, dialog);
-				releaseScope = enterScopedModal(scope, dialog);
-				try {
-					dialog.show();
-				} catch (error) {
-					releaseScope();
-					releaseScope = void 0;
-					scrim.remove();
-					scrim = void 0;
-					dialog.remove();
-					throw error;
-				}
-			} else {
-				header.append(dialog);
-				dialog.showModal();
-			}
-			close.focus();
-		};
-		close.onclick = (event) => {
-			if (event.isTrusted) dismiss();
-		};
-		dialog.oncancel = (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			if (event.isTrusted) dismiss();
-		};
-		dialog.onkeydown = (event) => {
-			if (scope) trapScopedTab(event, dialog);
-			if (event.key !== "Escape" || event.defaultPrevented) return;
-			event.preventDefault();
-			event.stopPropagation();
-			if (admitsOverlayEscape(event)) dismiss();
-		};
-		dialog.onpointerdown = (event) => {
-			if (event.target === dialog && outsideOverlay(dialog, event.clientX, event.clientY)) event.preventDefault();
-		};
-		dialog.onclick = (event) => {
-			if (event.target !== dialog || !outsideOverlay(dialog, event.clientX, event.clientY)) return;
-			event.preventDefault();
-			event.stopPropagation();
-			if (event.isTrusted) dismiss();
-		};
-		let searchRound = 0;
-		const searchExpanded = (open) => {
-			for (const button of [search, sidebarSearch]) if (open === void 0) button.removeAttribute("aria-expanded");
-			else button.setAttribute("aria-expanded", String(open));
-		};
-		const openSearch = (opener) => {
-			themeMenu.close();
-			searchHelp.binding.dismiss();
-			const closed = options.openSearch(opener);
-			if (!closed) return;
-			const round = ++searchRound;
-			searchExpanded(true);
-			const settle = () => {
-				if (round === searchRound) searchExpanded(false);
-			};
-			closed.then(settle, settle);
-		};
-		search.onclick = (event) => {
-			if (event.isTrusted) openSearch(search);
-		};
-		sidebarSearch.onclick = (event) => {
-			if (event.isTrusted) openSearch(sidebarSearch);
-		};
-		const shortcut = (event) => {
-			if (!event.isTrusted || scope && (!(event.target instanceof Node) || !scope.contains(event.target)) || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 || event.key.toLowerCase() !== "k" || event.altKey || event.shiftKey || (command ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey)) return;
-			if (event.composedPath().some((node) => node instanceof view.HTMLElement && (node.isContentEditable || node.closest("input,textarea,select,[role=\"textbox\"],[role=\"combobox\"]")))) return;
-			event.preventDefault();
-			openSearch(view.matchMedia("(max-width: 900px)").matches ? search : sidebarSearch);
-		};
-		document.addEventListener("keydown", shortcut);
-		root.dataset.topbar = "";
-		bar.replaceChildren(header);
-		const update = () => {
-			const status = options.remote;
-			const label = status.kind === "unconfirmed" ? "Remote: session count unconfirmed" : status.liveSessions === 0 ? "Remote: no live sessions" : `Remote: ${status.liveSessions} live ${status.liveSessions === 1 ? "session" : "sessions"}`;
-			settings.href = status.href;
-			if (settings.pathname === "/remote" || settings.pathname === "/remote/") settings.pathname = "/remote/settings";
-			connection.textContent = label;
-			remote.setAttribute("aria-label", label);
-			remoteHelp.text.textContent = label;
-			badge.hidden = status.kind !== "confirmed" || status.liveSessions === 0;
-			badge.textContent = status.kind === "confirmed" ? countText(status.liveSessions) : "";
-		};
-		update();
-		return {
-			slot: {
-				title,
-				actions,
-				status: statusSlot
-			},
-			update,
-			dispose() {
-				searchRound += 1;
-				searchExpanded(void 0);
-				document.removeEventListener("keydown", shortcut);
-				observeTheme.disconnect();
-				themeMenu.dispose();
-				searchHelp.binding.dispose();
-				remoteHelp.binding.dispose();
-				if (dialog.open) dialog.close();
-				releaseScope?.();
-				releaseScope = void 0;
-				scrim?.remove();
-				scrim = void 0;
-				dialog.remove();
-				railSearch?.replaceChildren();
-				root.prepend(navigation);
-				delete root.dataset.topbar;
-				header.remove();
-			}
-		};
-	}
-	return {
-		setCommonControls(next) {
-			if (disposed) return;
-			if (next) validate(next);
-			options = next;
-			if (!next) clear();
-			else active?.update();
-		},
-		topBarReady: () => !disposed && options !== void 0,
-		setTopBar() {
-			if (disposed) throw new Error("The shell has been disposed");
-			if (!options) throw new Error("The root must install common controls before adopting the top bar");
-			active ??= mount();
-			return active.slot;
-		},
-		clear,
-		dispose() {
-			if (disposed) return;
-			disposed = true;
-			clear();
-			options = void 0;
-		}
-	};
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/shell.ts
-/** Bounded count values, omitting zero and unknown. The renderer draws attention as a dot
-* before the plain total and retains its count in the accessible description. */
-function entryCounts(item) {
-	return [...item.total && item.total > 0 ? [shellCount(item.total, "plain")] : [], ...item.count && item.count.text !== "0" ? [item.count] : []];
-}
-/** Count text is bounded at `99+`; the renderer uses attention as a dot and spoken count. */
-function shellCount(value, kind = "needs-you") {
-	return {
-		text: countText(value),
-		needsYou: kind === "needs-you"
-	};
-}
-/** The answer this browser read last, shared by every page so each paints the same rail first. */
-var ANSWER_KEY = "tmt-shell-answer-v1";
-function rememberedShellAnswer() {
-	try {
-		const stored = JSON.parse(sessionStorage.getItem(ANSWER_KEY) ?? "null");
-		return stored?.version === 1 && Array.isArray(stored.modules) ? stored : void 0;
-	} catch {
-		return;
-	}
-}
-/** The door's mount of one module: `/r/<prefix>/x/<module>/`, the prefix being the machine's 16
-* lowercase base32 letters. The one definition of that shape for every product. */
-/** A module mount, `/r/<prefix>/x/<module>/`, at the start of a path. */
-var MODULE_MOUNT = /^(\/r\/[a-z2-7]{16})\/x\/([a-z0-9][a-z0-9-]{0,31})\//;
-/** The module a mount path names, or undefined when `pathname` is not exactly a module mount. */
-function moduleMount(pathname) {
-	const mount = MODULE_MOUNT.exec(pathname);
-	return mount?.[0] === pathname ? mount[2] : void 0;
-}
-/** The module whose mount `pathname` lies under, and the rest of the path below that mount. */
-function underModuleMount(pathname) {
-	const mount = MODULE_MOUNT.exec(pathname);
-	return mount ? {
-		module: mount[2],
-		rest: pathname.slice(mount[0].length)
-	} : void 0;
-}
-/**
-* Where this page reads the composed shell: the `/r/<prefix>` mount it sits under, else the door's
-* answer for its path (`POST /sdk/mount`). Undefined when neither answers.
-*/
-async function shellAddress() {
-	const mounted = MODULE_MOUNT.exec(location.pathname);
-	if (mounted) return `${location.origin}${mounted[1]}`;
-	try {
-		const response = await fetch("/sdk/mount", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ path: location.pathname })
-		});
-		if (response.status !== 200) return void 0;
-		const { address } = await response.json();
-		return typeof address === "string" ? address : void 0;
-	} catch {
-		return;
-	}
-}
-/** Fetch the owner's composed shell once per page; any failure leaves the remembered answer. */
-async function loadShellAnswer(address) {
-	try {
-		const response = await fetch(`${address}/x/-/shell`, {
-			credentials: "same-origin",
-			cache: "no-store"
-		});
-		if (!response.ok) return void 0;
-		const answer = await response.json();
-		if (answer?.version !== 1 || !Array.isArray(answer.modules)) return void 0;
-		try {
-			sessionStorage.setItem(ANSWER_KEY, JSON.stringify(answer));
-		} catch {}
-		return answer;
-	} catch {
-		return;
-	}
-}
-/**
-* The one rail (spec c5ccd17a): the same items in the same order on every page, whatever module
-* hosts it. A module the composed answer does not describe stays, dimmed, with the reason.
-*/
-var RAIL = [
-	{
-		id: "colab",
-		label: "Colab",
-		icon: "file-text",
-		path: "/colab/"
-	},
-	{
-		id: "design",
-		label: "Design",
-		icon: "palette",
-		path: "/colab/design/"
-	},
-	{
-		id: "remote",
-		label: "Remote",
-		icon: "monitor-smartphone",
-		path: "/remote/"
-	},
-	{
-		id: "ops",
-		label: "Ops",
-		icon: "users",
-		path: "/ops/"
-	},
-	{
-		id: "digest",
-		label: "Digest",
-		icon: "chart-column",
-		path: "/digest/"
-	}
-];
-/**
-* A described module's key (#5819): the extension for its primary, `<extension>:<module>` for an
-* extra, so an extra sits beside its primary. Rail item ids use the same key, except Colab's
-* Design extra, which is the fixed `design` item.
-*/
-var shellModuleKey = (module) => module.module ? `${module.extension}:${module.module}` : module.extension;
-/** Served by the TMT host itself, so always reachable from the rail. */
-var HOST_SERVED = /* @__PURE__ */ new Set([
-	"remote",
-	"ops",
-	"digest"
-]);
-/**
-* Home, the fixed modules (Colab, Design, Remote, Ops, Digest), any other described module in Remote's
-* order, then TMT settings at the bottom. Colab is available
-* when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
-* The current item is the host's module, else the longest matching path.
-*/
-function shellRail(answer, place, host) {
-	const active = host?.extension;
-	const keyOf = shellModuleKey;
-	const owner = (id) => id === "design" ? "colab" : id.split(":")[0];
-	const described = new Map((answer?.modules ?? []).map((module) => [keyOf(module), module]));
-	const primaries = (answer?.modules ?? []).filter((module) => !module.module);
-	const hosted = (id) => host?.extension === id;
-	const path = place.href.slice(place.origin.length);
-	const settings = path === "/settings" || path.startsWith("/settings/");
-	const unavailable = answer ? "Not installed on this machine" : "Pair this browser with Remote to open it";
-	const modules = [...RAIL.map((fixed) => {
-		if (fixed.id === "design") {
-			const module = described.get("colab:design");
-			return {
-				id: fixed.id,
-				label: module?.rail.label ?? fixed.label,
-				icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
-				href: module?.rail.path ?? `${place.origin}${fixed.path}`,
-				needsYou: void 0,
-				available: described.has("colab") || hosted("colab")
-			};
-		}
-		const module = described.get(fixed.id);
-		return {
-			id: fixed.id,
-			label: module?.rail.label ?? fixed.label,
-			icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
-			href: module?.rail.path ?? (hosted(fixed.id) ? host.rail.path : `${place.origin}${fixed.path}`),
-			needsYou: module?.needsYou,
-			available: Boolean(module) || hosted(fixed.id) || HOST_SERVED.has(fixed.id)
-		};
-	}), ...[...described.values(), ...host && !described.has(keyOf(host)) ? [host] : []].filter((module) => module.module ? keyOf(module) !== "colab:design" : !RAIL.some((fixed) => fixed.id === module.extension)).sort((a, b) => a.rail.order - b.rail.order).map((module) => ({
-		id: keyOf(module),
-		label: module.rail.label,
-		icon: moduleIcon(module.rail.icon),
-		href: module.rail.path,
-		needsYou: module.module ? void 0 : module.needsYou,
-		available: true
-	}))];
-	const longest = modules.filter((module) => module.available && place.href.startsWith(module.href)).sort((a, b) => b.href.length - a.href.length)[0]?.id;
-	const matched = longest && owner(longest) === active ? longest : active ?? longest;
-	const counts = primaries.map((module) => module.needsYou);
-	const total = answer && counts.every((count) => count !== void 0) ? counts.reduce((sum, count) => sum + count, 0) : void 0;
-	return {
-		main: [{
-			id: "home",
-			label: "Home",
-			icon: "house",
-			href: `${place.origin}/`,
-			count: total ? shellCount(total) : void 0,
-			current: path === "/" && !active
-		}, ...modules.map((module) => ({
-			id: module.id,
-			label: module.label,
-			icon: module.icon,
-			href: module.href,
-			count: module.needsYou ? shellCount(module.needsYou) : void 0,
-			current: !settings && module.id === matched,
-			...module.available ? {} : {
-				disabled: true,
-				note: unavailable
-			}
-		}))],
-		bottom: [{
-			id: "settings",
-			label: "TMT settings",
-			icon: "settings",
-			href: `${place.origin}/settings/`,
-			current: settings
-		}]
-	};
-}
-var SVG$1 = "http://www.w3.org/2000/svg";
-function icon(document, name) {
-	const svg = document.createElementNS(SVG$1, "svg");
-	svg.setAttribute("class", "tmt-ui-shell-icon");
-	svg.setAttribute("viewBox", "0 0 24 24");
-	svg.setAttribute("aria-hidden", "true");
-	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = document.createElementNS(SVG$1, tag);
-		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
-		svg.append(node);
-	}
-	return svg;
-}
-function count(document, text) {
-	const badge = document.createElement("span");
-	badge.className = "tmt-ui-shell-count";
-	badge.textContent = text;
-	badge.setAttribute("aria-hidden", "true");
-	return badge;
-}
-function attention(document) {
-	const dot = document.createElement("span");
-	dot.className = "tmt-ui-attention-dot";
-	dot.setAttribute("aria-hidden", "true");
-	return dot;
-}
-/**
-* The one selected row a menu shows: the first current entry, where a current child selects
-* itself while its parent is expanded and selects its parent while collapsed.
-*/
-function visibleCurrent(menu) {
-	if (!menu) return void 0;
-	for (const item of [...menu.groups.flatMap((group) => group.items), ...menu.settings ? [menu.settings] : []]) {
-		const child = item.children?.find((entry) => entry.current);
-		if (child) return item.expanded ? child : item;
-		if (item.current) return item;
-	}
-}
-var branchIds = 0;
-/**
-* Render the rail and module menu into `root`, the `.tmt-ui-shell` element that holds
-* `.tmt-ui-shell-content` with the host's `.tmt-ui-shell-bar` (its one header) and
-* `.tmt-ui-shell-main`. On wide screens the TMT mark and the bar form one header row
-* (TMT, then the host's `<module> / <page>`), over the rail, the module menu column and the main
-* area; phones show the same nested tree inside the navigation drawer. `select` may take over a plain click
-* on an item (an SPA route or Colab's search); it returns true when it handled the click.
-*/
-function mountShell(root, view, select, layerHost) {
-	const document = root.ownerDocument;
-	root.classList.add("tmt-ui-shell");
-	const open = document.createElement("button");
-	open.type = "button";
-	open.className = "tmt-ui-shell-open";
-	open.setAttribute("aria-label", "Open navigation");
-	open.setAttribute("aria-expanded", "false");
-	open.append(icon(document, "menu"));
-	const brand = document.createElement("div");
-	brand.className = "tmt-ui-shell-brand";
-	brand.innerHTML = brandMarkSvg({ size: 32 });
-	const text = document.createElement("span");
-	text.className = "tmt-ui-shell-brand-text";
-	const word = document.createElement("span");
-	word.className = "tmt-ui-shell-brand-word";
-	word.textContent = "tmt";
-	const sub = document.createElement("span");
-	sub.className = "tmt-ui-shell-brand-sub";
-	sub.textContent = "terminal team";
-	text.append(word, sub);
-	brand.append(text);
-	const rail = document.createElement("nav");
-	rail.className = "tmt-ui-rail";
-	rail.setAttribute("aria-label", "TMT");
-	const syncRailScroll = () => rail.toggleAttribute("data-scrolled", rail.scrollTop > 0);
-	rail.addEventListener("scroll", syncRailScroll, { passive: true });
-	const menu = document.createElement("nav");
-	menu.className = "tmt-ui-module-menu";
-	root.prepend(open, rail);
-	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
-	const railSearch = document.createElement("div");
-	railSearch.className = "tmt-ui-rail-search-section";
-	const topBar = createShellTopBar(root, bar, open, railSearch, layerHost);
-	bar.after(menu);
-	const slotOf = (parent, name) => {
-		const existing = parent.querySelector(`:scope > .tmt-ui-shell-tools-${name}`);
-		if (existing) return existing;
-		const created = document.createElement("div");
-		created.className = `tmt-ui-shell-tools-${name}`;
-		parent.append(created);
-		return created;
-	};
-	const drawn = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-tools");
-	const toolsRoot = drawn ?? document.createElement("div");
-	if (!drawn) {
-		toolsRoot.className = "tmt-ui-shell-tools";
-		bar.after(toolsRoot);
-	}
-	const tools = {
-		search: slotOf(toolsRoot, "search"),
-		chip: slotOf(toolsRoot, "chip")
-	};
-	const reserve = () => {
-		const width = toolsRoot.offsetWidth;
-		if (width > 0) root.style.setProperty("--tmt-ui-shell-tools-width", `${width}px`);
-		else root.style.removeProperty("--tmt-ui-shell-tools-width");
-	};
-	const watchTools = typeof ResizeObserver === "function" ? new ResizeObserver(reserve) : void 0;
-	watchTools?.observe(toolsRoot);
-	reserve();
-	const setDrawer = (shown) => {
-		root.dataset.drawer = shown ? "open" : "closed";
-		open.setAttribute("aria-expanded", String(shown));
-	};
-	const tip = document.createElement("div");
-	tip.className = "tmt-ui-rail-tip";
-	tip.setAttribute("role", "tooltip");
-	tip.popover = "manual";
-	(layerHost?.portal ?? root).append(tip);
-	let release = () => {};
-	let tipAnchor;
-	let pressed;
-	const hideTip = () => {
-		release();
-		tipAnchor = void 0;
-		if (tip.matches(":popover-open")) tip.hidePopover();
-		if (tip.hasAttribute("data-tmt-ds-open")) {
-			tip.hidden = true;
-			tip.removeAttribute("data-tmt-ds-open");
-		}
-	};
-	const showTip = (anchor) => {
-		const text = anchor.dataset.note;
-		if (!text || root.dataset.drawer === "open") return hideTip();
-		release();
-		const scope = layerHost?.root;
-		release = claimIconActionTooltip(scope ?? document, hideTip);
-		tipAnchor = anchor;
-		tip.textContent = text;
-		if (scope) {
-			tip.removeAttribute("popover");
-			tip.hidden = false;
-			tip.setAttribute("data-tmt-ds-open", "");
-		} else {
-			if (!tip.hasAttribute("popover")) {
-				tip.hidden = false;
-				tip.popover = "manual";
-			}
-			if (!tip.matches(":popover-open")) tip.showPopover();
-		}
-		const box = anchor.getBoundingClientRect();
-		const bounds = scope?.getBoundingClientRect();
-		const origin = scope ? tip.offsetParent?.getBoundingClientRect() ?? bounds : void 0;
-		const left = bounds ? Math.max(bounds.left, Math.min(box.right, bounds.right - tip.offsetWidth)) : box.right;
-		const top = bounds ? Math.max(bounds.top, Math.min(box.top + (box.height - tip.offsetHeight) / 2, bounds.bottom - tip.offsetHeight)) : box.top + (box.height - tip.offsetHeight) / 2;
-		tip.style.left = `${left - (origin?.left ?? 0)}px`;
-		tip.style.top = `${top - (origin?.top ?? 0)}px`;
-	};
-	const noted = (target) => target instanceof Element ? target.closest("[data-note]") : null;
-	rail.addEventListener("pointerover", (event) => {
-		const anchor = noted(event.target);
-		if (anchor && anchor !== tipAnchor && anchor !== pressed) showTip(anchor);
-	});
-	rail.addEventListener("pointerout", (event) => {
-		const from = noted(event.target);
-		if (from && from === noted(event.relatedTarget)) return;
-		if (from === pressed) pressed = void 0;
-		if (from && from === tipAnchor) hideTip();
-	});
-	rail.addEventListener("pointerdown", (event) => {
-		pressed = noted(event.target) ?? void 0;
-		hideTip();
-	});
-	rail.addEventListener("focusin", (event) => {
-		const anchor = noted(event.target);
-		if (anchor && anchor === event.target && anchor.matches(":focus-visible")) showTip(anchor);
-	});
-	rail.addEventListener("focusout", (event) => {
-		if (noted(event.target) === tipAnchor) hideTip();
-	});
-	const tipFor = (anchor, text) => {
-		anchor.dataset.note = text;
-	};
-	open.onclick = (event) => {
-		const shown = root.dataset.drawer !== "open";
-		setDrawer(shown);
-		if (shown) (rail.querySelector("[aria-current=\"page\"]") ?? rail.querySelector("a[href]"))?.focus({ focusVisible: event.detail === 0 });
-	};
-	const close = (event) => {
-		if (layerHost && (!(event.target instanceof Node) || !layerHost.root.contains(event.target))) return;
-		if (event.key === "Escape" && root.dataset.drawer === "open") {
-			setDrawer(false);
-			open.focus();
-		}
-	};
-	document.addEventListener("keydown", close);
-	const outside = (event) => {
-		const target = event.target;
-		if (layerHost && !layerHost.root.contains(target)) return;
-		if (root.dataset.drawer === "open" && !rail.contains(target) && !open.contains(target)) setDrawer(false);
-	};
-	document.addEventListener("pointerdown", outside);
-	const link = (className, item, selected) => {
-		const anchor = document.createElement("a");
-		anchor.className = className;
-		anchor.href = item.href;
-		anchor.dataset.id = item.id;
-		if (selected) anchor.setAttribute("aria-current", "page");
-		if ("disabled" in item && item.disabled) anchor.setAttribute("aria-disabled", "true");
-		anchor.onclick = (event) => {
-			if (anchor.getAttribute("aria-disabled") === "true") return event.preventDefault();
-			if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-			setDrawer(false);
-			if (select?.(anchor.dataset.id, anchor.getAttribute("href"))) event.preventDefault();
-		};
-		return anchor;
-	};
-	const menuEntry = (className, item, selected, fallbackIcon) => {
-		const anchor = link(className, item, item === selected);
-		if (item.note) anchor.title = item.note;
-		const label = document.createElement("span");
-		label.className = "tmt-ui-module-menu-label";
-		label.textContent = item.label;
-		if (!item.note) label.title = item.label;
-		const mark = item.icon ?? fallbackIcon;
-		if (item.leading) {
-			const slot = document.createElement("span");
-			slot.className = "tmt-ui-shell-icon";
-			slot.style.display = "inline-grid";
-			slot.style.placeItems = "center";
-			slot.setAttribute("aria-hidden", "true");
-			slot.append(item.leading.node.cloneNode(true));
-			anchor.append(slot);
-		} else if (mark) anchor.append(icon(document, mark));
-		anchor.append(label);
-		if (item.emphasis === "unread") {
-			anchor.dataset.emphasis = "unread";
-			const spoken = document.createElement("span");
-			spoken.className = "tmt-ui-visually-hidden";
-			spoken.textContent = " unread";
-			anchor.append(spoken);
-		}
-		const badges = item.badges?.slice(0, 2).map((badge) => Array.from(badge).slice(0, 24).join("")) ?? [];
-		const shown = badges.length ? [] : entryCounts(item);
-		const total = shown.find((value) => !value.needsYou);
-		const waiting = shown.find((value) => value.needsYou);
-		if (badges.length || shown.length || item.actions?.length) {
-			const counts = document.createElement("span");
-			counts.className = "tmt-ui-shell-counts";
-			for (const badge of badges) counts.append(count(document, badge));
-			if (waiting) counts.append(attention(document));
-			if (total) counts.append(count(document, total.text));
-			anchor.append(counts);
-		}
-		if (item.leading || badges.length || shown.length) {
-			const summary = badges.length ? badges.join(", ") : [total && `${item.total ?? total.text} total`, waiting && `${waiting.text} need you`].filter(Boolean).join(", ");
-			const details = [
-				item.leading?.label,
-				summary,
-				item.note
-			].filter(Boolean).join(" · ");
-			anchor.setAttribute("aria-label", `${item.label}${item.emphasis === "unread" ? " unread" : ""} · ${details}`);
-			anchor.title = details;
-			tipFor(anchor, `${item.label} · ${anchor.title}`);
-		}
-		return anchor;
-	};
-	const command = (className, action, activate, mark) => {
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = className;
-		button.title = action.disabledReason ?? action.label;
-		button.disabled = action.disabledReason !== void 0;
-		if (mark) {
-			button.setAttribute("aria-label", action.label);
-			button.append(icon(document, mark));
-			tipFor(button, action.label);
-		} else button.textContent = action.label;
-		const turn = keyTurn("task");
-		const recordKey = (event) => {
-			if (event.key === "Enter" && event.type === "keydown" || event.key === " " && event.type === "keyup") turn.record(event);
-		};
-		button.addEventListener("keydown", recordKey);
-		button.addEventListener("keyup", recordKey);
-		button.onclick = (event) => {
-			const admitted = turn.admit(event);
-			if (event.defaultPrevented || !admitted || button.disabled) return;
-			setDrawer(false);
-			activate();
-		};
-		return button;
-	};
-	const announcement = document.createElement("div");
-	announcement.className = "tmt-ui-visually-hidden";
-	announcement.setAttribute("role", "status");
-	announcement.setAttribute("aria-live", "polite");
-	announcement.setAttribute("aria-atomic", "true");
-	let menuInteractions = [];
-	const interactions = (current) => {
-		const controls = createShellMenuInteractions(current, (name) => icon(document, name), (action) => {
-			setDrawer(false);
-			action.onActivate();
-		}, (message) => {
-			announcement.textContent = message;
-		});
-		menuInteractions.push(controls);
-		return controls;
-	};
-	const disclose = (row, anchor, item, index, selected) => {
-		const live = () => latest.menu?.groups[index]?.items.find((entry) => entry.id === item.id);
-		const expanded = item.expanded === true;
-		row.classList.add("tmt-ui-rail-menu-row");
-		row.dataset.menuItem = item.id;
-		row.dataset.disclosure = expanded ? "open" : "closed";
-		anchor.dataset.railPart = "link";
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = "tmt-ui-rail-group-action tmt-ui-rail-disclosure";
-		button.dataset.railPart = "disclosure";
-		button.setAttribute("aria-expanded", String(expanded));
-		button.setAttribute("aria-label", `${expanded ? "Hide" : "Show"} ${item.label}`);
-		button.append(icon(document, "chevron-right"));
-		button.onclick = () => live()?.toggle?.();
-		row.append(button);
-		if (!expanded) return;
-		const children = document.createElement("ul");
-		children.className = "tmt-ui-rail-sub-children";
-		children.id = `tmt-ui-rail-children-${++branchIds}`;
-		children.setAttribute("aria-label", item.label);
-		button.setAttribute("aria-controls", children.id);
-		for (const child of item.children) {
-			const childRow = document.createElement("li");
-			const link = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", child, selected);
-			childRow.classList.add("tmt-ui-rail-menu-row");
-			childRow.dataset.menuItem = child.id;
-			childRow.dataset.menuGroup = String(index);
-			link.dataset.railPart = "link";
-			childRow.append(link);
-			if (child.actions?.length) interactions(() => {
-				const branch = live()?.children;
-				return branch ? { items: [...branch] } : void 0;
-			}).decorate(childRow, link, child);
-			children.append(childRow);
-		}
-		row.append(children);
-	};
-	const walk = (list) => list.addEventListener("keydown", (event) => {
-		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-		const row = event.target.closest("li");
-		const link = row?.querySelector(":scope > a");
-		if (!row || !link) return;
-		const disclosure = row.querySelector(":scope > .tmt-ui-rail-disclosure");
-		const open = disclosure?.getAttribute("aria-expanded") === "true";
-		const branch = row.parentElement?.classList.contains("tmt-ui-rail-sub-children") ? row.parentElement.parentElement?.querySelector(":scope > a") : void 0;
-		let next;
-		if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-			const links = [...list.querySelectorAll("a.tmt-ui-rail-sub-item")];
-			next = links[links.indexOf(link) + (event.key === "ArrowUp" ? -1 : 1)];
-			event.preventDefault();
-		} else if (event.key === "ArrowRight" && disclosure) {
-			event.preventDefault();
-			if (open) next = row.querySelector(":scope > ul a");
-			else disclosure.click();
-		} else if (event.key === "ArrowLeft" && (open || branch)) {
-			event.preventDefault();
-			if (open) disclosure.click();
-			else next = branch;
-		}
-		next?.focus();
-	});
-	const nested = (menuView, selected) => {
-		const list = document.createElement("ul");
-		list.className = "tmt-ui-rail-sub";
-		list.setAttribute("aria-label", menuView.title);
-		walk(list);
-		menuView.groups.forEach((group, index) => {
-			const controls = group.reorder || group.items.some((item) => item.actions?.length) ? interactions(() => latest.menu?.groups[index]) : void 0;
-			let entries = list;
-			if (group.label || group.action) {
-				const section = document.createElement("li");
-				const heading = document.createElement("div");
-				heading.className = "tmt-ui-rail-sub-group";
-				const label = document.createElement("span");
-				label.textContent = group.label ?? "";
-				label.title = group.label ?? "";
-				heading.append(label);
-				if (group.action) heading.append(command(`tmt-ui-rail-group-action${group.action.icon ? "" : " tmt-ui-rail-group-text-action"}`, group.action, () => latest.menu?.groups[index]?.action?.onActivate(), group.action.icon));
-				entries = document.createElement("ul");
-				entries.className = "tmt-ui-rail-sub-items";
-				if (group.label) entries.setAttribute("aria-label", group.label);
-				section.append(heading, entries);
-				list.append(section);
-			}
-			if (group.alert) {
-				const row = document.createElement("li");
-				row.className = "tmt-ui-rail-alert";
-				row.setAttribute("role", "alert");
-				const message = document.createElement("span");
-				message.textContent = group.alert.message;
-				row.append(message, command("tmt-ui-rail-group-action", group.alert.retry, () => latest.menu?.groups[index]?.alert?.retry.onActivate()));
-				entries.append(row);
-			}
-			for (const item of group.items) {
-				const row = document.createElement("li");
-				const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected, group.fallbackIcon);
-				row.dataset.menuGroup = String(index);
-				row.append(anchor);
-				if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);
-				if (item.children?.length) disclose(row, anchor, item, index, selected);
-				entries.append(row);
-			}
-			if (group.add) {
-				const row = document.createElement("li");
-				const add = command("tmt-ui-rail-sub-item tmt-ui-rail-add", group.add, () => latest.menu?.groups[index]?.add?.onActivate());
-				add.prepend(icon(document, "plus"));
-				row.append(add);
-				entries.append(row);
-			}
-		});
-		if (menuView.settings) {
-			const row = document.createElement("li");
-			row.className = "tmt-ui-rail-settings";
-			const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", menuView.settings, selected);
-			row.dataset.menuGroup = "settings";
-			row.append(anchor);
-			if (menuView.settings.actions?.length) interactions(() => latest.menu?.settings ? { items: [latest.menu.settings] } : void 0).decorate(row, anchor, menuView.settings);
-			list.append(row);
-		}
-		return list;
-	};
-	const railList = (items, current, selected, extra, pages) => {
-		const list = document.createElement("ul");
-		list.className = extra ? `tmt-ui-rail-items ${extra}` : "tmt-ui-rail-items";
-		for (const item of items) {
-			const anchor = link("tmt-ui-rail-item", item, item === current && !selected);
-			if (item === current) anchor.dataset.moduleCurrent = "";
-			const badge = item.count?.needsYou && item.count.text !== "0" ? item.count : void 0;
-			if (badge) anchor.setAttribute("aria-label", `${item.label}, ${badge.text}${badge.text === "1" ? " needs you" : " need you"}`);
-			anchor.title = item.note ?? item.label;
-			if (item.note && !badge) tipFor(anchor, `${item.label}: ${item.note}`);
-			const label = document.createElement("span");
-			label.className = "tmt-ui-rail-label";
-			label.textContent = item.label;
-			anchor.append(icon(document, item.icon), label);
-			if (badge) {
-				anchor.append(attention(document));
-				tipFor(anchor, `${item.label}, ${badge.text} need you${item.note ? `: ${item.note}` : ""}`);
-			}
-			const row = document.createElement("li");
-			row.append(anchor);
-			if (item === current && pages) row.append(nested(pages, selected));
-			list.append(row);
-		}
-		return list;
-	};
-	let shown = "";
-	let latest = view;
-	const render = (next) => {
-		latest = next;
-		const key = JSON.stringify([next, next.menu?.groups.map((group) => Boolean(group.reorder))], (_key, value) => value instanceof Element ? value.outerHTML : value instanceof Node ? value.textContent : value);
-		if (key === shown) return;
-		shown = key;
-		const focused = rail.contains(document.activeElement) ? document.activeElement : void 0;
-		const owner = focused?.closest("[data-menu-item]");
-		const focus = owner ? {
-			id: owner.dataset.menuItem,
-			group: owner.dataset.menuGroup,
-			part: focused?.dataset.railPart
-		} : void 0;
-		const previous = menuInteractions;
-		menuInteractions = [];
-		const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
-		const selected = current ? visibleCurrent(next.menu) : void 0;
-		const lists = [railList(next.rail.main, current, selected, void 0, next.menu), railList(next.rail.bottom, current, selected, "tmt-ui-rail-bottom", next.menu)];
-		const live = [...rail.children].slice(2);
-		const pairs = lists.flatMap((list, index) => {
-			const shown = live[index];
-			return shown ? [[shown, list]] : [];
-		});
-		if (live.length === lists.length && pairs.length === lists.length && pairs.every(([shown, list]) => sameShape(shown, list))) {
-			for (const [shown, list] of pairs) patchShape(shown, list);
-			for (const controls of menuInteractions) controls.dispose();
-			menuInteractions = previous;
-			root.dataset.menu = next.menu ? "shown" : "none";
-			if (tipAnchor?.isConnected) showTip(tipAnchor);
-			return;
-		}
-		for (const controls of previous) controls.dispose();
-		hideTip();
-		const railTop = rail.scrollTop;
-		rail.replaceChildren(brand, railSearch, ...lists);
-		rail.scrollTop = railTop;
-		syncRailScroll();
-		root.dataset.menu = next.menu ? "shown" : "none";
-		menu.replaceChildren();
-		if (next.menu?.groups.some((group) => group.reorder)) {
-			if (!announcement.isConnected) root.append(announcement);
-		} else announcement.remove();
-		if (focus) {
-			const restored = [...rail.querySelectorAll("[data-rail-part]")].find((element) => {
-				const row = element.closest("[data-menu-item]");
-				return row !== null && row.dataset.menuItem === focus.id && row.dataset.menuGroup === focus.group && element.dataset.railPart === focus.part;
-			});
-			if (restored && restored.getClientRects().length) {
-				restored.focus({ preventScroll: true });
-				restored.scrollIntoView({ block: "nearest" });
-			}
-		}
-	};
-	setDrawer(false);
-	render(view);
-	return {
-		tools,
-		setCommonControls: topBar.setCommonControls,
-		topBarReady: topBar.topBarReady,
-		setTopBar: topBar.setTopBar,
-		clearTopBar: topBar.clear,
-		update: render,
-		dispose() {
-			for (const controls of menuInteractions) controls.dispose();
-			menuInteractions = [];
-			announcement.remove();
-			topBar.dispose();
-			watchTools?.disconnect();
-			root.style.removeProperty("--tmt-ui-shell-tools-width");
-			if (!drawn) toolsRoot.remove();
-			document.removeEventListener("keydown", close);
-			document.removeEventListener("pointerdown", outside);
-			hideTip();
-			open.remove();
-			tip.remove();
-			rail.removeEventListener("scroll", syncRailScroll);
-			rail.remove();
-			menu.remove();
-		}
-	};
-}
-/** What an update may change on a kept rail node; anything else is a different rail. */
-var PATCHED = /* @__PURE__ */ new Set([
-	"aria-current",
-	"aria-label",
-	"aria-disabled",
-	"data-module-current",
-	"data-note",
-	"data-emphasis",
-	"href",
-	"title"
-]);
-/** Build-local names: a kept node keeps its own, which its partner already points at. */
-var LOCAL = /* @__PURE__ */ new Set(["id", "aria-controls"]);
-var ownAttributes = (element) => element.getAttributeNames().filter((name) => !PATCHED.has(name) && !LOCAL.has(name)).map((name) => `${name}=${element.getAttribute(name)}`).join("\n");
-/** Whether `next` has the live node's elements, in order, with the same fixed attributes. */
-function sameShape(live, next) {
-	if (live.nodeType !== next.nodeType || live.childNodes.length !== next.childNodes.length) return false;
-	if (live instanceof Element && next instanceof Element) {
-		if (live.localName !== next.localName || ownAttributes(live) !== ownAttributes(next)) return false;
-	}
-	return [...live.childNodes].every((child, index) => sameShape(child, next.childNodes[index]));
-}
-/** Brings a same-shape live node to `next`: its changeable attributes and its text. */
-function patchShape(live, next) {
-	if (live instanceof Element && next instanceof Element) for (const name of PATCHED) {
-		const value = next.getAttribute(name);
-		if (value === null) live.removeAttribute(name);
-		else if (live.getAttribute(name) !== value) live.setAttribute(name, value);
-	}
-	else if (live.nodeValue !== next.nodeValue) live.nodeValue = next.nodeValue;
-	live.childNodes.forEach((child, index) => patchShape(child, next.childNodes[index]));
-}
 var KEPT_FOR = 6e5;
 function matchRoute(routes, pathname) {
 	let best;
@@ -6799,7 +6816,13 @@ function appRail(answer, routes, place, route) {
 		menu: [],
 		settings: []
 	} : void 0);
+	const home = claimedHome(answer);
 	for (const item of [...rail.main, ...rail.bottom]) if (item.id !== "home") item.href = appHref(routes, item.href, item.id);
+	else if (home) item.href = appHref(routes, home);
+	if (home) {
+		const here = place.href.split(/[?#]/)[0];
+		if (rail.main.find((item) => item.id === "home").href === here) for (const item of rail.main) item.current = item.id === "home";
+	}
 	return rail;
 }
 /** `href` as a link in this document resolves it: origin, path, query and fragment, as on a click. */
