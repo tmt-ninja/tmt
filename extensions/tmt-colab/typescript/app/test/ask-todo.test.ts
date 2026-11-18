@@ -18,6 +18,9 @@ it('takes the comment first line as the to-do text, cut on a character boundary'
   expect(todoText('\n  @gui-3 fix the toolbar gap  \nmore detail')).toBe(
     '@gui-3 fix the toolbar gap',
   );
+  expect(todoText('@gui-3  fix the gap', 'gui-3')).toBe('fix the gap');
+  expect(todoText('@gui-30 fix the gap', 'gui-3')).toBe('@gui-30 fix the gap');
+  expect(todoText('@gui-3\nfix the gap', 'gui-3')).toBe('fix the gap');
   expect(new TextEncoder().encode(todoText('界'.repeat(200))).length).toBeLessThanOrEqual(256);
   expect(todoText('界'.repeat(200))).toBe('界'.repeat(85));
 });

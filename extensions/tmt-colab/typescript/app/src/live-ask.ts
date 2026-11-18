@@ -230,7 +230,7 @@ export class LiveAsk implements AskBinding {
         this.options.todos?.() && captured.context && !captured.batch && !notificationOrigin
           ? {
               block: await todoBlockId(this.options.page, thread),
-              text: todoText(origin?.comment ?? captured.comment),
+              text: todoText(origin?.comment ?? captured.comment, captured.destination.agentName),
             }
           : undefined;
       this.#selection = {

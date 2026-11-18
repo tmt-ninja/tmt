@@ -1028,7 +1028,7 @@ test('a comment that asks an agent becomes a to-do the agent checks', async () =
     );
     expect(check?.[1]).toBe(created.pageId);
     const todoId = check![2]!;
-    expect(message).toContain('To-do: @todo-agent add a gap above the switcher\n');
+    expect(message).toContain('To-do: add a gap above the switcher\n');
     // The to-do appears on the page after the accepted send, with the agent and the thread.
     const listed = () =>
       (

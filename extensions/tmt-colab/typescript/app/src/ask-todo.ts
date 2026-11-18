@@ -24,12 +24,19 @@ export async function todoBlockId(page: string, thread: string): Promise<string>
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** The to-do's text: the comment's first non-empty line, spaces collapsed, cut on a character
- * boundary. */
-export function todoText(comment: string): string {
+/** The to-do's text: the comment's first non-empty line without the leading mention of the asked
+ * agent, spaces collapsed, cut on a character boundary. */
+export function todoText(comment: string, agent?: string): string {
+  // The mention that asked the agent is who the to-do is for, not what it says.
+  const mention = agent ? `@${agent}` : undefined;
   const line = comment
     .split('\n')
     .map((value) => value.replace(/\s+/g, ' ').trim())
+    .map((value) =>
+      mention && value.startsWith(mention) && /^(\s|$)/.test(value.slice(mention.length))
+        ? value.slice(mention.length).trim()
+        : value,
+    )
     .find((value) => value.length > 0);
   let out = '';
   let bytes = 0;
