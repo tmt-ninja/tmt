@@ -52,6 +52,15 @@ fn core_id(value: &str) -> Result<()> {
 pub fn is_core_id(value: &str) -> bool {
     core_id(value).is_ok()
 }
+pub(crate) fn terminal_id(id: &str) -> bool {
+    id.strip_prefix("term_").is_some_and(|hex| {
+        hex.len() == 32
+            && hex
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
+}
+
 pub(crate) fn uuid(value: &str) -> Result<()> {
     core_id(value)?;
     require(

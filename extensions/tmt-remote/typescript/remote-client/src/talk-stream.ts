@@ -6,7 +6,8 @@
  * asks Core again), an unknown outcome only observed and never sent again, and a Talk-grant refusal answered with the setting, not a
  * retry. Untrusted words stay text. */
 import { avatarInitials, browserUiClasses as c } from '@tmt/browser-ui/static';
-import { mountBrowserMenu } from '@tmt/browser-ui/menu-host';
+import { commandMenu } from './command-menu.js';
+import type { CommandRun } from './command-run.js';
 import { commandMentions } from './command-mentions.js';
 import { el } from './ops-parts.js';
 import type { MessageState, ResultState, SendNowState, SendState } from './operations.js';
@@ -129,6 +130,8 @@ export function richText(
   words: string,
   mentions: readonly string[] = [],
   commandAuthor?: string,
+  run?: CommandRun,
+  member?: string,
 ): (Node | string)[] {
   const out: (Node | string)[] = [];
   const named = mentions.length
@@ -183,30 +186,7 @@ export function richText(
     const [start, end] = mention.range;
     ordinary(words.slice(from, start));
     const shown = words.slice(...mention.content);
-    const host = el('span', 'ops-dm-command');
-    const description = el('span', 'ops-dm-command-description');
-    description.append(el('strong', undefined, 'Command'), el('code', undefined, mention.command));
-    const status = el('span', 'ops-dm-command-status');
-    status.setAttribute('role', 'status');
-    mountBrowserMenu(host, {
-      label: `Command: ${shown}`,
-      triggerText: shown,
-      presentation: 'compact',
-      description,
-      items: [{ key: 'copy', label: 'Copy command' }],
-      onSelect() {
-        void (async () => {
-          try {
-            await navigator.clipboard.writeText(mention.command);
-            status.textContent = 'Command copied.';
-          } catch {
-            status.textContent = 'Could not copy the command.';
-          }
-        })();
-      },
-    });
-    host.append(status);
-    out.push(host);
+    out.push(commandMenu(shown, mention.command, commandAuthor!, member ?? commandAuthor!, run));
     from = end;
   }
   ordinary(words.slice(from));
@@ -229,6 +209,7 @@ export function messageRow(options: {
   shortened?: string;
   /** Canonical author of an agent message. Owner messages and notices leave it unset. */
   commandAuthor?: string;
+  commandRun?: CommandRun;
 }): HTMLElement {
   const row = el('li', 'ops-dm-message');
   if (options.self) row.dataset.self = '';
@@ -266,7 +247,13 @@ export function messageRow(options: {
   if (words === null || options.quiet) text.dataset.quiet = '';
   else {
     text.replaceChildren(
-      ...richText(words, options.mentions, device ? undefined : options.commandAuthor),
+      ...richText(
+        words,
+        options.mentions,
+        device ? undefined : options.commandAuthor,
+        options.shortened ? undefined : options.commandRun,
+        options.who,
+      ),
     );
     if (options.shortened) {
       text.append('…');
@@ -307,6 +294,7 @@ export function exchangeRows(
   fullReply?: string,
   fullPost?: string,
   now?: HTMLElement,
+  run?: CommandRun,
 ): HTMLElement[] {
   const { fromMe, them } = names;
   if (item.kind === 'announcement') return [noticeRow(item.preview, new Date(item.preparedAtMs))];
@@ -317,6 +305,7 @@ export function exchangeRows(
       self: fromMe,
       at: new Date(item.preparedAtMs),
       text: fullPost ?? item.preview,
+      ...(run && fullPost !== undefined ? { commandRun: run } : {}),
       ...(!fromMe && item.sender.kind === 'verified'
         ? { commandAuthor: item.sender.identityId }
         : {}),
@@ -336,6 +325,7 @@ export function exchangeRows(
         self: !fromMe,
         ...(item.final.status === 'retained' ? { at: new Date(item.final.submittedAtMs) } : {}),
         text: replyWords,
+        ...(run && fullReply !== undefined ? { commandRun: run } : {}),
         ...(fromMe && item.final.status === 'retained' ? { commandAuthor: item.recipientId } : {}),
         quiet: fullReply === undefined && item.responsePreview === null,
         ...(replyShortened ? { shortened: replyShortened } : {}),

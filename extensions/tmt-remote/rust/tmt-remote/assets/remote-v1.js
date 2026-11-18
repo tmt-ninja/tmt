@@ -398,7 +398,7 @@ var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var coreId = (value) => typeof value === "string" && UUID$4.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 var requestId = (value) => typeof value === "string" && value.startsWith("req_") && coreId(value.slice(4));
-var utf8$5 = new TextEncoder();
+var utf8$6 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
 function valid$9(condition) {
@@ -413,14 +413,14 @@ function record(value) {
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid$9(typeof value.reason === "string" && utf8$5.encode(value.reason).length <= 256);
+	valid$9(typeof value.reason === "string" && utf8$6.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 /** One plain line of at most 256 bytes, sent with a `reason`: Core's sentence for its code. */
 function reasonText(value) {
 	if (value.reasonText === void 0) return {};
 	const text = value.reasonText;
-	valid$9(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$5.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
+	valid$9(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$6.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
 	return { reasonText: text };
 }
 var MESSAGE_STATES = [
@@ -442,7 +442,7 @@ function messageState(value) {
 	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
 	valid$9(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
 	const why = record(state.reason);
-	valid$9(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$5.encode(why.text).length <= 256);
+	valid$9(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$6.encode(why.text).length <= 256);
 	return { messageState: {
 		state: state.state,
 		reason: {
@@ -460,7 +460,7 @@ var USER_NAME_REASONS = [
 	"USER_NAME_TAKEN"
 ];
 function text$2(value) {
-	return typeof value === "string" && value.length > 0 && utf8$5.encode(value).length <= 512;
+	return typeof value === "string" && value.length > 0 && utf8$6.encode(value).length <= 512;
 }
 /** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
 function identity$1(value) {
@@ -755,6 +755,7 @@ function parseCapabilities(value) {
 	valid$9(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
 	valid$9(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
 	record(reply.limits);
+	return reply.operations;
 }
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */
 async function synchronize(channel, timeoutMs) {
@@ -763,7 +764,7 @@ async function synchronize(channel, timeoutMs) {
 	const unavailable = () => new ClientError("sequence_unavailable", "Remote sequence recovery failed; reopen before observing the original operation.");
 	if (unresolved === "unavailable") throw unavailable();
 	const id = crypto.randomUUID();
-	const payload = utf8$5.encode("{}");
+	const payload = utf8$6.encode("{}");
 	try {
 		try {
 			await attempt(channel, timeoutMs, "capabilities", id, payload, channel.clientSequence, parseCapabilities);
@@ -804,7 +805,7 @@ function verifiedSessionRequest(session, options = {}) {
 	const timeoutMs = options.timeoutMs ?? 4e4;
 	input$1(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
 	return function call(operation, id, value, parse, mutationOutcome = false) {
-		const payload = utf8$5.encode(JSON.stringify(value));
+		const payload = utf8$6.encode(JSON.stringify(value));
 		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome));
 	};
 }
@@ -819,7 +820,7 @@ function operations(session, options = {}) {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
 			const roomSend = "room" in value;
-			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$5.encode(value.message)) === value.message && (roomSend ? !("agentId" in value) && value.room !== null && typeof value.room === "object" && Object.keys(value.room).sort().join() === "revision,roomId" && coreId(value.room.roomId) && Number.isSafeInteger(value.room.revision) && value.room.revision > 0 && Array.isArray(value.recipientIds) && value.recipientIds.length >= 1 && value.recipientIds.length <= 64 && value.recipientIds.every(coreId) && new Set(value.recipientIds).size === value.recipientIds.length && (value.kind === void 0 || ["request", "announcement"].includes(value.kind)) : !("recipientIds" in value) && coreId(value.agentId)));
+			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$6.encode(value.message)) === value.message && (roomSend ? !("agentId" in value) && value.room !== null && typeof value.room === "object" && Object.keys(value.room).sort().join() === "revision,roomId" && coreId(value.room.roomId) && Number.isSafeInteger(value.room.revision) && value.room.revision > 0 && Array.isArray(value.recipientIds) && value.recipientIds.length >= 1 && value.recipientIds.length <= 64 && value.recipientIds.every(coreId) && new Set(value.recipientIds).size === value.recipientIds.length && (value.kind === void 0 || ["request", "announcement"].includes(value.kind)) : !("recipientIds" in value) && coreId(value.agentId)));
 			const { operationId, message } = value;
 			const frozen = roomSend ? {
 				operationId,
@@ -900,9 +901,9 @@ var RESPONSE = 1048576;
 var ANSWER = 16384;
 var QUESTIONS = 4;
 var OPTIONS = 8;
-var utf8$4 = new TextEncoder();
+var utf8$5 = new TextEncoder();
 var integer$2 = (v) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
-var text$1 = (v, max) => typeof v === "string" && utf8$4.encode(v).length <= max;
+var text$1 = (v, max) => typeof v === "string" && utf8$5.encode(v).length <= max;
 function valid$8(v) {
 	if (!v) throw new TypeError("Invalid provider form document.");
 }
@@ -914,7 +915,7 @@ function keys$2(v, required, optional = []) {
 	valid$8(required.every((k) => Object.hasOwn(v, k)) && Object.keys(v).every((k) => required.includes(k) || optional.includes(k)));
 }
 function size(value, max) {
-	valid$8(utf8$4.encode(JSON.stringify(value)).length <= max);
+	valid$8(utf8$5.encode(JSON.stringify(value)).length <= max);
 }
 function parseForm(value) {
 	const f = object$6(value);
@@ -1089,7 +1090,7 @@ function hasControl(value) {
 		return point < 32 || point >= 127 && point <= 159;
 	});
 }
-var utf8$3 = new TextDecoder("utf-8", { fatal: true });
+var utf8$4 = new TextDecoder("utf-8", { fatal: true });
 /** Reads the native v2 carrier unchanged, with no network or authority inference. */
 function decodeDetails(token, now) {
 	valid$7(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
@@ -1097,7 +1098,7 @@ function decodeDetails(token, now) {
 	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
 	const raw = atob(encoded);
 	valid$7(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
-	const text = utf8$3.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+	const text = utf8$4.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
 	const value = JSON.parse(text);
 	valid$7(JSON.stringify(value) === text);
 	const invite = object$5(value, [
@@ -1134,8 +1135,8 @@ function decodeDetails(token, now) {
 		"owner_principal"
 	]);
 	valid$7(binding.backend === "firestore");
-	const project = utf8$3.decode(bytes(binding.reference));
-	const principal = utf8$3.decode(bytes(binding.owner_principal));
+	const project = utf8$4.decode(bytes(binding.reference));
+	const principal = utf8$4.decode(bytes(binding.owner_principal));
 	valid$7(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
 	const config = invite.publicConfig;
 	valid$7(config !== null && typeof config === "object" && !Array.isArray(config));
@@ -10585,6 +10586,102 @@ function timerList(jobs, truncated) {
 	return list;
 }
 //#endregion
+//#region src/command-run.ts
+var terminalId = (value) => typeof value === "string" && /^term_[0-9a-f]{32}$/.test(value);
+var utf8$3 = new TextEncoder();
+function singleCommand(text) {
+	const bytes = utf8$3.encode(text);
+	return !!text.trim() && bytes.length <= 4096 && new TextDecoder().decode(bytes) === text && !text.includes("͏") && !/[\p{Cc}\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/u.test(text);
+}
+function document$1(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid terminal response.");
+	return value;
+}
+function targets(identity, member, value) {
+	const reply = document$1(value);
+	if (reply.identityId !== identity || !Array.isArray(reply.terminals) || reply.terminals.length > 8) throw new Error("Invalid terminal targets.");
+	const seen = /* @__PURE__ */ new Set();
+	return reply.terminals.map((value, index) => {
+		const row = document$1(value);
+		if (!terminalId(row.terminalId) || seen.has(row.terminalId) || row.ordinal !== index + 1 || typeof row.busy !== "boolean") throw new Error("Invalid terminal target.");
+		seen.add(row.terminalId);
+		return {
+			key: row.terminalId,
+			label: `Run in Terminal ${index + 1} · ${member}`,
+			disabled: row.busy
+		};
+	});
+}
+function outcome(id, identity, choice, value) {
+	const reply = document$1(value);
+	const terminal = reply.terminalId;
+	if (reply.operationId !== id || terminal !== void 0 && (!terminalId(terminal) || choice !== "new" && terminal !== choice)) throw new Error("Invalid command receipt.");
+	if (reply.state === "submitted" && reply.identityId === identity && terminalId(terminal)) return "submitted";
+	if ((reply.state === "refused" || reply.state === "unconfirmed") && [
+		"admission",
+		"open",
+		"run",
+		"unknown"
+	].includes(String(reply.stage)) && (reply.state !== "refused" || typeof reply.code === "string")) return reply.state;
+	throw new Error("Invalid command outcome.");
+}
+/** Only a current signed operation inventory enables Run; the server rechecks both effects. */
+function commandRun(shell) {
+	const getSession = shell.session;
+	if (!getSession) return;
+	return {
+		async options(identity, member) {
+			if (!coreId(identity)) return [];
+			const session = await getSession();
+			shell.signal.throwIfAborted();
+			const call = verifiedSessionRequest(session);
+			const offered = await call("capabilities", crypto.randomUUID(), {}, parseCapabilities);
+			if (!offered.includes("terminal.command.targets") || !offered.includes("terminal.command.run")) return [];
+			shell.signal.throwIfAborted();
+			return [...await call("terminal.command.targets", crypto.randomUUID(), {
+				version: 1,
+				operation: "terminal.command.targets",
+				input: { identityId: identity }
+			}, (value) => targets(identity, member, value)), {
+				key: "new",
+				label: "Run in a new terminal"
+			}];
+		},
+		async submit(identity, command, choice) {
+			if (!coreId(identity) || !singleCommand(command) || choice !== "new" && !terminalId(choice)) return "refused";
+			const target = choice === "new" ? { kind: "new" } : {
+				kind: "existing",
+				terminalId: choice
+			};
+			const session = await getSession();
+			shell.signal.throwIfAborted();
+			const call = verifiedSessionRequest(session);
+			const id = crypto.randomUUID();
+			const parse = (value) => outcome(id, identity, choice, value);
+			try {
+				return await call("terminal.command.run", id, {
+					version: 1,
+					operation: "terminal.command.run",
+					input: {
+						operationId: id,
+						identityId: identity,
+						target,
+						command
+					}
+				}, parse, true);
+			} catch (error) {
+				if (error instanceof RefusalError) return "refused";
+				if (shell.signal.aborted) return "unconfirmed";
+				try {
+					return await call("operation.show", crypto.randomUUID(), { operationId: id }, parse);
+				} catch {
+					return "unconfirmed";
+				}
+			}
+		}
+	};
+}
+//#endregion
 //#region src/ops-composer-slot.ts
 /** The Ops message box slot (#5704): loads the composer island on first use and holds its place
 * with a still box of the same height until it arrives. */
@@ -10926,6 +11023,79 @@ function commandMentions(source) {
 	return mentions;
 }
 //#endregion
+//#region src/command-menu.ts
+function entireCaptionVisible(code) {
+	const surface = code.closest("dialog");
+	if (!surface) return false;
+	const caption = code.getBoundingClientRect();
+	const bounds = surface.getBoundingClientRect();
+	return caption.width > 0 && caption.height > 0 && code.scrollWidth <= code.clientWidth && caption.top >= Math.max(0, bounds.top) && caption.left >= Math.max(0, bounds.left) && caption.bottom <= Math.min(window.innerHeight, bounds.bottom) && caption.right <= Math.min(window.innerWidth, bounds.right);
+}
+function commandMenu(shown, command, author, member, run) {
+	const host = el("span", "ops-dm-command");
+	const description = el("span", "ops-dm-command-description");
+	const code = el("code", void 0, command);
+	description.append(el("strong", void 0, "Command"), code);
+	const status = el("span", "ops-dm-command-status");
+	status.setAttribute("role", "status");
+	const copy = {
+		key: "copy",
+		label: "Copy command"
+	};
+	let cycle = 0;
+	let held = false;
+	let verifiedSelection = false;
+	const options = {
+		label: `Command: ${shown}`,
+		triggerText: shown,
+		presentation: "compact",
+		description,
+		items: [copy],
+		onOpenChange(open) {
+			const version = ++cycle;
+			if (!open) return;
+			menu.update(options);
+			if (!run || held || !singleCommand(command)) return;
+			run.options(author, member).then((items) => {
+				if (version !== cycle || !host.isConnected || !entireCaptionVisible(code)) return;
+				menu.update({
+					...options,
+					items: [...items, copy]
+				});
+				if (!entireCaptionVisible(code)) menu.update(options);
+			}).catch(() => {});
+		},
+		onSelect(key) {
+			if (key === "copy") {
+				(async () => {
+					try {
+						await navigator.clipboard.writeText(command);
+						status.textContent = "Command copied.";
+					} catch {
+						status.textContent = "Could not copy the command.";
+					}
+				})();
+				return;
+			}
+			if (!run || !verifiedSelection || held) return;
+			held = true;
+			status.textContent = "Submitting command…";
+			run.submit(author, command, key).then((state) => {
+				held = state === "unconfirmed";
+				status.textContent = state === "submitted" ? "Command submitted." : state === "refused" ? "Command refused." : "Command submission unconfirmed.";
+			}, () => {
+				status.textContent = "Command submission unconfirmed.";
+			});
+		}
+	};
+	const menu = mountBrowserMenu(host, options);
+	host.addEventListener("click", () => {
+		verifiedSelection = entireCaptionVisible(code);
+	}, { capture: true });
+	host.append(status);
+	return host;
+}
+//#endregion
 //#region src/talk-stream.ts
 /** The talk stream shared by the Ops DM and channel (#5704, spec 8d17ce7c screens 1-3): messages
 * anchored at the bottom with day separators, each message's delivery under it and replies as their
@@ -11019,7 +11189,7 @@ var escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 * become inline code (kept literal); an @mention of a known name is marked. Nothing else is read as
 * markup.
 */
-function richText(words, mentions = [], commandAuthor) {
+function richText(words, mentions = [], commandAuthor, run, member) {
 	const out = [];
 	const named = mentions.length ? new RegExp(`(@(?:${[...mentions].sort((a, b) => b.length - a.length).map(escape).join("|")}))(?![\\w-])`) : void 0;
 	const plain = (text) => {
@@ -11065,33 +11235,7 @@ function richText(words, mentions = [], commandAuthor) {
 		const [start, end] = mention.range;
 		ordinary(words.slice(from, start));
 		const shown = words.slice(...mention.content);
-		const host = el("span", "ops-dm-command");
-		const description = el("span", "ops-dm-command-description");
-		description.append(el("strong", void 0, "Command"), el("code", void 0, mention.command));
-		const status = el("span", "ops-dm-command-status");
-		status.setAttribute("role", "status");
-		mountBrowserMenu(host, {
-			label: `Command: ${shown}`,
-			triggerText: shown,
-			presentation: "compact",
-			description,
-			items: [{
-				key: "copy",
-				label: "Copy command"
-			}],
-			onSelect() {
-				(async () => {
-					try {
-						await navigator.clipboard.writeText(mention.command);
-						status.textContent = "Command copied.";
-					} catch {
-						status.textContent = "Could not copy the command.";
-					}
-				})();
-			}
-		});
-		host.append(status);
-		out.push(host);
+		out.push(commandMenu(shown, mention.command, commandAuthor, member ?? commandAuthor, run));
 		from = end;
 	}
 	ordinary(words.slice(from));
@@ -11135,7 +11279,7 @@ function messageRow(options) {
 	const text = el("p", "ops-dm-message-text", words ?? "Message preview unavailable");
 	if (words === null || options.quiet) text.dataset.quiet = "";
 	else {
-		text.replaceChildren(...richText(words, options.mentions, device ? void 0 : options.commandAuthor));
+		text.replaceChildren(...richText(words, options.mentions, device ? void 0 : options.commandAuthor, options.shortened ? void 0 : options.commandRun, options.who));
 		if (options.shortened) {
 			text.append("…");
 			text.title = options.shortened;
@@ -11161,7 +11305,7 @@ function shortenedReply(item) {
 }
 /** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one; each
 * shows its full text once read (`fullPost`, `fullReply`), else its preview. */
-function exchangeRows(item, names, fullReply, fullPost, now) {
+function exchangeRows(item, names, fullReply, fullPost, now, run) {
 	const { fromMe, them } = names;
 	if (item.kind === "announcement") return [noticeRow(item.preview, new Date(item.preparedAtMs))];
 	const out = [messageRow({
@@ -11170,6 +11314,7 @@ function exchangeRows(item, names, fullReply, fullPost, now) {
 		self: fromMe,
 		at: new Date(item.preparedAtMs),
 		text: fullPost ?? item.preview,
+		...run && fullPost !== void 0 ? { commandRun: run } : {},
 		...!fromMe && item.sender.kind === "verified" ? { commandAuthor: item.sender.identityId } : {},
 		...item.previewTruncated && fullPost === void 0 ? { shortened: SHORTENED_POST } : {},
 		...fromMe ? {
@@ -11186,6 +11331,7 @@ function exchangeRows(item, names, fullReply, fullPost, now) {
 		self: !fromMe,
 		...item.final.status === "retained" ? { at: new Date(item.final.submittedAtMs) } : {},
 		text: replyWords,
+		...run && fullReply !== void 0 ? { commandRun: run } : {},
 		...fromMe && item.final.status === "retained" ? { commandAuthor: item.recipientId } : {},
 		quiet: fullReply === void 0 && item.responsePreview === null,
 		...replyShortened ? { shortened: replyShortened } : {}
@@ -11688,6 +11834,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 	const status = el("p", "ops-dm-status", "Choose a member to read the retained conversation.");
 	status.setAttribute("role", "status");
 	const stream = talkList("Conversation");
+	const run = commandRun(shell);
 	const list = stream.list;
 	const compose = el("section", "ops-channel-compose");
 	compose.setAttribute("aria-label", "Message");
@@ -11735,7 +11882,7 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 			me: "You",
 			them: memberName,
 			fromMe: item.direction === "toMember"
-		}, fullReplies.get(item.requestId), fullPosts.get(item.requestId), item.direction === "toMember" ? now.control([item]) : void 0), [
+		}, fullReplies.get(item.requestId), fullPosts.get(item.requestId), item.direction === "toMember" ? now.control([item]) : void 0, run), [
 			memberName,
 			fullReplies.size,
 			fullPosts.size,
@@ -11769,14 +11916,16 @@ function conversationHistory(shell, observed, read = sessionRead(shell), talk = 
 	* at a time; a failed read keeps the shortened preview and is not asked again until the
 	* conversation opens again. */
 	async function readFullReplies(selected, ticket) {
-		const wanted = [...items.values()].filter((item) => !asked.has(item.requestId) && (shortenedReply(item) || item.previewTruncated && item.direction === "toMember")).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_REPLIES - asked.size));
+		const commandReply = (item) => run && item.direction === "toMember" && item.final.status === "retained" && item.responsePreview && commandMentions(item.responsePreview).length > 0;
+		const commandPost = (item) => run && item.direction === "fromMember" && item.sender.kind === "verified" && item.preview && commandMentions(item.preview).length > 0;
+		const wanted = [...items.values()].filter((item) => !asked.has(item.requestId) && (shortenedReply(item) || commandReply(item) || commandPost(item) || item.previewTruncated && item.direction === "toMember")).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_REPLIES - asked.size));
 		for (const item of wanted) {
 			asked.add(item.requestId);
 			try {
 				const value = await talk.result(item.requestId);
 				if (shell.signal.aborted || ticket !== generation || memberId !== selected) return;
-				if (value.state === "replied" && shortenedReply(item)) fullReplies.set(item.requestId, value.message);
-				if (typeof value.requestMessage === "string" && item.previewTruncated) fullPosts.set(item.requestId, value.requestMessage);
+				if (value.state === "replied" && (shortenedReply(item) || commandReply(item))) fullReplies.set(item.requestId, value.message);
+				if (typeof value.requestMessage === "string" && (item.previewTruncated || commandPost(item))) fullPosts.set(item.requestId, value.requestMessage);
 				draw();
 			} catch {}
 		}
@@ -11974,6 +12123,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 	empty.append(emptyTitle, emptyText);
 	empty.setAttribute("role", "status");
 	const stream = talkList("Channel messages");
+	const run = commandRun(shell);
 	const compose = el("section", "ops-channel-compose");
 	compose.setAttribute("aria-label", "Message");
 	const composerHost = el("div", "ops-composer-host");
@@ -12144,6 +12294,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 				...side.at ? { at: side.at } : {},
 				text: side.words ?? "Reading the reply…",
 				quiet: !side.read,
+				...run && side.read ? { commandRun: run } : {},
 				...side.read && names().has(side.item.recipientId) ? { commandAuthor: side.item.recipientId } : {}
 			}));
 		}

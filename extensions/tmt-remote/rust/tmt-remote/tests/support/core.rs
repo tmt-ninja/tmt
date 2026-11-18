@@ -96,6 +96,22 @@ elif wire['operation']=='dispatch.create':
     if (root/'lost').exists(): print('broken')
     else:
         receipt['wake']={'status':'uncertain','paneAttempted':True};print(json.dumps(receipt))
+elif wire['operation'] in ('terminal.list','terminal.open','terminal.run'):
+    op=wire['operation']
+    ident=wire['input']['identityId']
+    term='term_'+'1'*32
+    if op=='terminal.list':
+        assert set(wire['input'])=={'identityId'}
+        print(json.dumps({'identityId':ident,'terminals':[{'terminalId':term,'busy':False,'socket':'private-socket'}]}))
+    elif op=='terminal.open':
+        assert set(wire['input'])=={'identityId'}
+        if (root/'terminal-open-lost').exists():
+            print(json.dumps({'error':{'code':'TERMINAL_OPEN_UNCONFIRMED','message':'Terminal '+term+' was not confirmed'}}));sys.exit(1)
+        print(json.dumps({'identityId':ident,'terminalId':term,'directory':'private-directory'}))
+    else:
+        assert set(wire['input'])=={'identityId','terminalId','command'}
+        if (root/'terminal-lost').exists(): print('broken')
+        else: print(json.dumps({'identityId':ident,'terminalId':wire['input']['terminalId'],'submitted':True}))
 elif wire['operation']=='forms.list':
     forms=json.loads((root/'forms').read_text()) if (root/'forms').exists() else {'forms':[]}
     selected=wire.get('input',{}).get('identityId')

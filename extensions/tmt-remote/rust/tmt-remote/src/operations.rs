@@ -2,6 +2,7 @@
 mod conversation;
 mod forms;
 mod orchestration;
+mod terminal_command;
 use crate::{
     admission::MessagePermit,
     audit, canonical,
@@ -501,6 +502,9 @@ impl Operations {
             if permit.owner_browser() && every_agent && permit.grant.permits_scope("talk") {
                 supported.extend(["orchestration.write", "forms.answer"]);
             }
+            if terminal_command::admit(permit).is_ok() {
+                supported.extend(["terminal.command.targets", "terminal.command.run"]);
+            }
             if self.management.is_some() && permit.owner_browser() {
                 supported.extend([
                     "remote.settings.show",
@@ -529,6 +533,9 @@ impl Operations {
                     "callsPerDevicePerMinute":crate::budgets::CALLS,"newSendsPerDevicePerMinute":crate::budgets::SENDS,
                     "outstandingHeldPerDevice":crate::budgets::HELDS,"approvalsPerRecipientPerMinute":crate::budgets::APPROVALS}}));
         }
+        if operation == "terminal.command.targets" {
+            return self.terminal_command_targets(permit);
+        }
         if crate::admission::RemoteOperation::parse(operation).is_some_and(|operation| {
             matches!(
                 operation.class(),
@@ -537,6 +544,9 @@ impl Operations {
             )
         }) {
             return self.read(permit);
+        }
+        if operation == "terminal.command.run" {
+            return self.terminal_command_run(permit);
         }
         if operation == "forms.answer" {
             return self.forms_answer(permit);
@@ -787,6 +797,9 @@ impl Operations {
                 })?;
                 if value.operation == "forms.answer" && operation == "operation.show" {
                     forms::admit(permit)?;
+                } else if value.operation == "terminal.command.run" && operation == "operation.show"
+                {
+                    terminal_command::admit(permit)?;
                 } else if value.operation != "dispatch.create" {
                     return Err(invalid());
                 }
@@ -945,7 +958,10 @@ impl Operations {
                 }
                 "operation.show" => {
                     let owned = owned.as_ref().expect("owned operation");
-                    if owned.operation == "forms.answer" {
+                    if matches!(
+                        owned.operation.as_str(),
+                        "forms.answer" | "terminal.command.run"
+                    ) {
                         return Ok(owned.receipt.clone());
                     }
                     if matches!(
@@ -1294,39 +1310,58 @@ impl Store {
         clock: impl FnOnce() -> Result<u64, RemoteError>,
         action: impl FnOnce(&[u8]) -> T,
     ) -> Result<T, RemoteError> {
+        self.owned_effect(
+            grant,
+            id,
+            "dispatch.create",
+            clock,
+            |tx, now, frozen, digest| {
+                let intent = held_intent(grant, id, frozen)?;
+                audit::append(
+                    tx,
+                    audit::AuditMetadata {
+                        time: now,
+                        client: &grant.client_id,
+                        request: id,
+                        operation: "dispatch.create",
+                        operation_id: Some(id),
+                        resources: &intent.recipient_ids,
+                        digest,
+                        revision: grant.revision,
+                        decision: "dispatching",
+                        code: "",
+                    },
+                )?;
+                tx.execute(
+                    "UPDATE operations SET references_json=?2 WHERE id=?1",
+                    params![
+                        id,
+                        serde_json::to_string(&intent.recipient_ids).map_err(database)?
+                    ],
+                )
+                .map_err(database)?;
+                Ok(action(frozen))
+            },
+        )
+    }
+
+    fn owned_effect<T>(
+        &mut self,
+        grant: &Grant,
+        id: &str,
+        operation: &str,
+        clock: impl FnOnce() -> Result<u64, RemoteError>,
+        action: impl FnOnce(&rusqlite::Transaction<'_>, u64, &[u8], &[u8]) -> Result<T, RemoteError>,
+    ) -> Result<T, RemoteError> {
         let (tx, now) = self.authorized_at(grant, clock)?;
         crate::journal::require_operation_member(&tx, &grant.client_id, id)?;
         let (frozen,time,digest):(Vec<u8>,i64,Vec<u8>)=tx.query_row(
-            "SELECT frozen,updated_ms,digest FROM operations WHERE id=?1 AND client_id=?2 AND operation='dispatch.create'",
-            params![id,grant.client_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(database)?;
+            "SELECT frozen,updated_ms,digest FROM operations WHERE id=?1 AND client_id=?2 AND operation=?3",
+            params![id,grant.client_id,operation],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(database)?;
         if now.saturating_sub(time as u64) >= RECOVERY {
             return Err(database("recovery horizon"));
         }
-        let intent = held_intent(grant, id, &frozen)?;
-        audit::append(
-            &tx,
-            audit::AuditMetadata {
-                time: now,
-                client: &grant.client_id,
-                request: id,
-                operation: "dispatch.create",
-                operation_id: Some(id),
-                resources: &intent.recipient_ids,
-                digest: &digest,
-                revision: grant.revision,
-                decision: "dispatching",
-                code: "",
-            },
-        )?;
-        tx.execute(
-            "UPDATE operations SET references_json=?2 WHERE id=?1",
-            params![
-                id,
-                serde_json::to_string(&intent.recipient_ids).map_err(database)?
-            ],
-        )
-        .map_err(database)?;
-        let result = action(&frozen);
+        let result = action(&tx, now, &frozen, &digest)?;
         tx.commit().map_err(database)?;
         Ok(result)
     }

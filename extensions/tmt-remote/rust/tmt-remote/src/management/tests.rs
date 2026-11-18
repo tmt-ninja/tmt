@@ -1,6 +1,6 @@
 use super::*;
 use crate::state::{Layout, Serving};
-use crate::store::{SUPPORTED_SCOPES, uuid_v4};
+use crate::store::{DEFAULT_SCOPES, uuid_v4};
 use std::path::PathBuf;
 struct Fixture {
     store: Store,
@@ -21,7 +21,11 @@ impl Fixture {
             origin: "http://127.0.0.1:32100".into(),
             name: "Owner".into(),
             agents: "all".into(),
-            scopes: SUPPORTED_SCOPES.iter().map(|s| (*s).into()).collect(),
+            scopes: DEFAULT_SCOPES
+                .into_iter()
+                .chain(["talk"])
+                .map(str::to_owned)
+                .collect(),
             mode: "hold".into(),
             issued_at_ms: now_ms().unwrap(),
             expires_at_ms: None,

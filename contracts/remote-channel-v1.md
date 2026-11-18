@@ -1631,6 +1631,44 @@ applies its published public Core mapping after narrowing supported operations a
 | Core message reply/answer, X acknowledgment, core/provider config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                                          |
 | any other command, argv or shell                                                                | Never; there is no generic command endpoint.                                                                                                                                                                                                              |
 
+**Terminal commands from web Ops.** The signed operations use the existing
+`{version:1,operation,input}` envelope. They require a live Local Session for the
+current designated browser on its own door, with direct Talk for all agents and
+the `terminal.command` scope. CLI devices, add-ons, cloud/relay, mounted app
+content and shared pages have no such authority. The scope is never issued by
+pairing, invitations, membership roles or cloud receipts. The owner alone can
+toggle it locally with `tmt remote members terminal-command <client-id> on|off`.
+Re-pairing grants no command scope. Turning Talk off or replacing its designation
+removes the scope. A held, narrowed, expired or revoked grant has no command
+authority. Grant changes use the existing revision and session fences.
+
+- `terminal.command.targets` takes `{identityId}` for one canonical Core identity.
+  It calls `terminal.list` once between authority checks and returns
+  `{identityId,terminals:[{terminalId,ordinal,busy}]}`. Ordinals start at one
+  in Core's order. The response contains no socket, pane, shell, process, or
+  directory. A targets read grants no authority to run.
+- `terminal.command.run` takes `{operationId,identityId,target,command}`.
+  `operationId` is a UUIDv4 equal to the envelope ID. The target is
+  `{kind:"existing",terminalId}` or `{kind:"new"}`. A command meets the public
+  [Core terminal admission](extension-api.md#terminals-under-a-member). Only an
+  explicit user's selection with the entire single-line input visible can submit.
+  Preview-only, clipped, multiline and unknown-scope views offer Copy.
+- Adoption freezes the exact bytes and consumes the ID in the existing operation
+  journal. Each Core `terminal.open` or `terminal.run` call gets its own authorized
+  IMMEDIATE transaction and audit row, with the terminal ID when known, a payload
+  digest, and the decision. A new target runs only after a confirmed open, with that
+  exact terminal and a fresh authority check. A refusal or unconfirmed run leaves
+  the opened terminal in place. An unconfirmed open never runs.
+- Submitted is `{operationId,state:"submitted",identityId,terminalId}`, which
+  acknowledges queued input. A proven effect refusal is
+  `{operationId,state:"refused",stage,code,terminalId?}`; admission refusals use
+  the signed error envelope. Unknown outcomes use
+  `{operationId,state:"unconfirmed",stage,terminalId?}` with stage `open`, `run`
+  or `unknown`. Repeat IDs and `operation.show {operationId}` only observe the
+  retained outcome under the same browser fence and existing recovery horizon.
+  Losing a response never authorizes replay, opening another terminal, sending
+  raw input or choosing a replacement operation ID.
+
 **Owner-browser provider forms.** These signed operations use the existing
 `{version:1,operation,input}` envelope and [Core Provider forms](extension-api.md#provider-forms):
 

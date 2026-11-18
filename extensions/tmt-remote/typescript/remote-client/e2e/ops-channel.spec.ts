@@ -76,6 +76,30 @@ test('an agent command opens a Copy menu and copies the exact source', async ({ 
   await expect.poll(() => page.evaluate(() => window.dmSends.length)).toBe(0);
 });
 
+test('Run requires a visible single-line caption and one explicit selection', async ({ page }) => {
+  await open(page, 390);
+  await page.evaluate(() => {
+    window.fixtureCommandMenu('pwd');
+    window.fixtureCommandMenu('echo first\necho second');
+  });
+  const trigger = page.getByRole('button', { name: 'Command: ! pwd', exact: true });
+  await trigger.click();
+  await expect(page.getByRole('menuitem', { name: 'Run in a new terminal' })).toBeVisible();
+  expect(await page.evaluate(() => window.commandSelections)).toEqual([]);
+  await page.getByRole('menuitem', { name: 'Run in a new terminal' }).click();
+  await expect(page.getByText('Command submission unconfirmed.')).toBeVisible();
+  expect(await page.evaluate(() => window.commandSelections)).toEqual(['private-fixture|pwd|new']);
+  await trigger.click();
+  const firstMenu = page.getByRole('menu', { name: 'Command: ! pwd', exact: true });
+  await expect(firstMenu.getByRole('menuitem')).toHaveText('Copy command');
+  await page.keyboard.press('Escape');
+  await expect(firstMenu).toBeHidden();
+  await page.getByRole('button', { name: /^Command: ! echo first/ }).click();
+  const multiline = page.getByRole('menu', { name: /^Command: ! echo first/ });
+  await expect(multiline.getByRole('menuitem')).toHaveText('Copy command');
+  expect(await page.evaluate(() => window.commandSelections)).toHaveLength(1);
+});
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'])
     test(`local channel and UUID DM are read-only at ${width} ${theme}`, async ({ page }) => {

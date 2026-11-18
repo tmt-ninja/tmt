@@ -245,7 +245,7 @@ fn event<'a>(
         operation: message.envelope().operation,
         operation_id: matches!(
             message.envelope().operation,
-            "dispatch.create" | "forms.answer"
+            "dispatch.create" | "forms.answer" | "terminal.command.run"
         )
         .then_some(message.envelope().id),
         resources: &[],
@@ -372,7 +372,8 @@ impl Store {
             || admission::scope(input.operation).is_none()
             || admission::RemoteOperation::parse(input.operation)
                 .is_some_and(|operation| operation.class() != admission::OperationClass::Effect)
-            || (input.operation == "dispatch.create") != frozen.is_some()
+            || matches!(input.operation, "dispatch.create" | "terminal.command.run")
+                != frozen.is_some()
             || resources.len() > 256
             || resources.iter().any(|id| !canonical::is_core_id(id))
             || metadata.len() > crate::limits::METADATA_BYTES
@@ -454,7 +455,7 @@ impl Store {
             } else {
                 "dispatching"
             }
-        } else if input.operation == "forms.answer" {
+        } else if matches!(input.operation, "forms.answer" | "terminal.command.run") {
             // Durable before Core can see an answer. A crash or duplicate never sends again.
             "uncertain"
         } else {
@@ -462,6 +463,8 @@ impl Store {
         };
         let receipt = if input.operation == "forms.answer" {
             json!({"operationId":input.id,"formId":resources.first(),"state":"uncertain","reason":"REMOTE_CORE_UNCERTAIN"})
+        } else if input.operation == "terminal.command.run" {
+            json!({"operationId":input.id,"state":"unconfirmed","stage":"unknown"})
         } else {
             json!({"requestEnvelopeId":input.id,"operation":input.operation,"state":phase})
         };

@@ -3186,6 +3186,175 @@ fn orchestration_refuses_other_grants_kinds_and_actors_before_core() {
 #[path = "observation_fence.rs"]
 mod observation_fence;
 
+const TERMINAL: &str = "term_11111111111111111111111111111111";
+
+fn command_wire(
+    owner: &OwnerDoor,
+    session: &str,
+    seq: usize,
+    id: &str,
+    target: Value,
+    command: &str,
+) -> Value {
+    let operation = "terminal.command.run";
+    let input = json!({"version":1,"operation":operation,"input":{"operationId":id,"identityId":Core::PERSON,"target":target,"command":command}});
+    let mut wire = owner.wire(
+        session,
+        &seq.to_string(),
+        operation,
+        input.to_string().as_bytes(),
+    );
+    wire["id"] = json!(id);
+    owner.resign(&mut wire);
+    wire
+}
+
+#[test]
+fn signed_terminal_command_is_owner_only_and_same_id_never_reenters_core() {
+    let core = Core::new();
+    let ops = core.operations();
+    let command_browser = || {
+        OwnerDoor::with_device(
+            vec!["talk".into(), "terminal.command".into()],
+            "direct",
+            "all".into(),
+            None,
+            "browser",
+        )
+    };
+    for denied in [
+        OwnerDoor::new(),
+        command_browser(),
+        OwnerDoor::with_device(
+            vec!["talk".into(), "terminal.command".into()],
+            "direct",
+            "all".into(),
+            None,
+            "addon",
+        ),
+    ] {
+        let session = denied.open();
+        let list = orchestrate(
+            &denied,
+            &ops,
+            &session,
+            1,
+            "terminal.command.targets",
+            json!({"identityId":Core::PERSON}),
+        );
+        assert_eq!(list["error"]["code"], "REMOTE_SCOPE_DENIED", "{list}");
+        let response = append(
+            &denied,
+            Arc::clone(&ops),
+            &command_wire(
+                &denied,
+                &session,
+                2,
+                &uuid_v4().unwrap(),
+                json!({"kind":"new"}),
+                "pwd",
+            ),
+        );
+        assert_eq!(
+            response["error"]["code"], "REMOTE_SCOPE_DENIED",
+            "{response}"
+        );
+        assert!(core.calls().is_empty());
+    }
+
+    let owner = command_browser();
+    owner
+        .store
+        .lock()
+        .unwrap()
+        .designate(
+            &owner.grant.client_id,
+            &owner.grant.origin,
+            tmt_remote::pairing::now_ms().unwrap(),
+        )
+        .unwrap();
+    let session = owner.open();
+    let list = orchestrate(
+        &owner,
+        &ops,
+        &session,
+        1,
+        "terminal.command.targets",
+        json!({"identityId":Core::PERSON}),
+    );
+    assert_eq!(
+        list,
+        json!({"identityId":Core::PERSON,"terminals":[{"terminalId":TERMINAL,"ordinal":1,"busy":false}]})
+    );
+
+    let id = uuid_v4().unwrap();
+    let command = "printf '%s' '界  '";
+    let accepted = append(
+        &owner,
+        Arc::clone(&ops),
+        &command_wire(&owner, &session, 2, &id, json!({"kind":"new"}), command),
+    );
+    assert_eq!(
+        accepted,
+        json!({"operationId":id,"identityId":Core::PERSON,"terminalId":TERMINAL,"state":"submitted"})
+    );
+    assert_eq!(
+        append(
+            &owner,
+            Arc::clone(&ops),
+            &command_wire(&owner, &session, 3, &id, json!({"kind":"new"}), command)
+        ),
+        accepted
+    );
+    assert_eq!(
+        core.calls(),
+        [
+            json!({"version":1,"operation":"terminal.list","input":{"identityId":Core::PERSON}}),
+            json!({"version":1,"operation":"terminal.open","input":{"identityId":Core::PERSON}}),
+            json!({"version":1,"operation":"terminal.run","input":{"identityId":Core::PERSON,"terminalId":TERMINAL,"command":command}}),
+        ]
+    );
+    fs::write(core.root.join("terminal-lost"), "").unwrap();
+    let unknown_id = uuid_v4().unwrap();
+    let unknown = append(
+        &owner,
+        Arc::clone(&ops),
+        &command_wire(
+            &owner,
+            &session,
+            4,
+            &unknown_id,
+            json!({"kind":"existing","terminalId":TERMINAL}),
+            "pwd",
+        ),
+    );
+    assert_eq!(
+        unknown,
+        json!({"operationId":unknown_id,"state":"unconfirmed","stage":"run","terminalId":TERMINAL})
+    );
+    let lookup = owner.wire(
+        &session,
+        "5",
+        "operation.show",
+        json!({"operationId":unknown_id}).to_string().as_bytes(),
+    );
+    assert_eq!(append(&owner, Arc::clone(&ops), &lookup), unknown);
+    assert_eq!(core.calls().len(), 4);
+    fs::write(core.root.join("terminal-open-lost"), "").unwrap();
+    let open_id = uuid_v4().unwrap();
+    let unknown = append(
+        &owner,
+        Arc::clone(&ops),
+        &command_wire(&owner, &session, 6, &open_id, json!({"kind":"new"}), "pwd"),
+    );
+    assert_eq!(
+        unknown,
+        json!({"operationId":open_id,"state":"unconfirmed","stage":"open","terminalId":TERMINAL})
+    );
+    assert_eq!(core.calls().len(), 5);
+    assert_eq!(core.calls().last().unwrap()["operation"], "terminal.open");
+}
+
 fn provider_form(id: &str) -> Value {
     json!({"formId":id,"identityId":Core::PERSON,"openedMs":1,"kind":"question",
         "questions":[{"text":"Pick a synthetic option","choice":"single","options":[{"label":"One"}],"freeText":false}],
