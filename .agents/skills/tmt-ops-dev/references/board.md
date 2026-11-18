@@ -109,7 +109,7 @@ without the key (an older Core, or ambiguous locators) it keeps the first eligib
 Core or locks Config. New member observes a new bound UUID before joining the frozen
 room; a failed join reports/selects that Pool member with a repair command.
 
-The Agents `e` action opens a member or squad Edit through `new_member/edit` on the
+The Agents `r` (`rename`) action opens a member or squad Edit through `new_member/edit` on the
 same controller generation and ordered lane as New member. Shared `DialogState`
 and current `DialogHits` own field/button navigation and admission; the parent
 choice-list owner serves agent fields and After presets. Host and Session are
@@ -147,13 +147,7 @@ pane closure. Explicit authored switch-tool bindings retain their existing
 review; default member S is folded into Edit and squad S remains Show squad.
 
 Measure's Observed values control and named action reuse the existing full
-monitor projection and scroll reader; they add no metric acquisition. `e`
-always edits on Agents. `r` opens the same form with Name focused and its caret
-at the end. Enter on Name submits through the same writer only for a name-only
-plan; with other kept changes it focuses Save for explicit review. The hint says
-Enter rename or Enter next, and Esc keeps the draft. Opening with e restores the
-ordinary next-field behavior. Member session has no default key; it remains in
-Actions and Help, with authored bindings supported.
+monitor projection and scroll reader; they add no metric acquisition. `r` opens the Edit form with Name focused and its caret at the end. Enter on Name submits through the same writer only for a name-only plan; with other kept changes it focuses Save for explicit review. The hint says Enter rename or Enter next, and Esc keeps the draft. Member session has no default key; it remains in Actions and Help, with authored bindings supported.
 
 `board/member_session` owns the selected member's public host/session projection and
 Session dialog. It reuses the global identity inventory and typed activity. The target

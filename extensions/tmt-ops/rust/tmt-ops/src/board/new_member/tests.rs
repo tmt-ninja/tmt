@@ -762,13 +762,13 @@ fn edit_member_key_opens_the_agent_form_before_worker_io() {
     let selected = app.workspace.selected.clone();
     paint(&app, 160, 36);
     app.key(ratatui::crossterm::event::KeyEvent::new(
-        KeyCode::Char('e'),
+        KeyCode::Char('r'),
         KeyModifiers::NONE,
     ));
     let text = paint(&app, 160, 36);
     assert!(
         text.contains("Edit member"),
-        "e must open the agent edit form"
+        "r must open the agent edit form"
     );
     assert!(
         app.monitor_details.is_none(),
@@ -789,13 +789,13 @@ fn edit_squad_key_opens_the_squad_form_before_worker_io() {
     app.workspace_reconcile();
     paint(&app, 160, 36);
     app.key(ratatui::crossterm::event::KeyEvent::new(
-        KeyCode::Char('e'),
+        KeyCode::Char('r'),
         KeyModifiers::NONE,
     ));
     let text = paint(&app, 160, 36);
     assert!(
         text.contains("Edit squad"),
-        "e must open the selected squad edit form"
+        "r must open the selected squad edit form"
     );
     assert_eq!(app.workspace.selected, Some(OpsTarget::Squad(room.into())));
 }
