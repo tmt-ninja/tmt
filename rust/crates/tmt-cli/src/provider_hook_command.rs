@@ -574,6 +574,16 @@ fn observe_turn(
                     } else {
                         Ok(tmt_adapters::storage::TurnCaptureOutcome::NotApplicable)
                     };
+                    if matches!(
+                        outcome,
+                        Ok(tmt_adapters::storage::TurnCaptureOutcome::Committed)
+                    ) && !event.follow_up.usage
+                        && !event.interrupted()
+                        && let Some(stop_ms) = event.captured_at_ms()
+                    {
+                        let _ =
+                            storage.close_unmeasured_wake_turn(&stored.entry.identity.id, stop_ms);
+                    }
                     let closed = storage.close();
                     outcome.and_then(|value| closed.map(|()| value))
                 })();
@@ -634,17 +644,19 @@ pub(crate) fn flush_capture_follow_up(
     if !event.follow_up.usage || event.interrupted() {
         return;
     }
+    let closes_wake = matches!(
+        result,
+        tmt_adapters::storage::hook_queue::CaptureResult::Committed
+            | tmt_adapters::storage::hook_queue::CaptureResult::Duplicate
+    ) && event.admission()
+        == tmt_adapters::storage::hook_queue::CaptureResult::Committed;
+    let stop_boundary = closes_wake
+        .then(|| event.captured_at_ms())
+        .flatten()
+        .map(|started_at_most| tmt_adapters::storage::TurnBoundary::WakeEnded { started_at_most });
     let _ = (|| -> Result<(), ()> {
         let provider = event.provider().ok_or(())?;
-        if !tmt_adapters::drivers::Registry::builtin()
-            .find(provider)
-            .is_some_and(tmt_adapters::setup::usage_consented)
-        {
-            return Ok(());
-        }
         let harness = HarnessId::new(provider).map_err(|_| ())?;
-        let registry = RuntimeRegistry::first_party();
-        let lifecycle = registry.lifecycle(&harness).ok_or(())?;
         let refreshed = event
             .follow_up_context(&paths.database)
             .map_err(|_| ())?
@@ -655,6 +667,25 @@ pub(crate) fn flush_capture_follow_up(
         {
             return Ok(());
         }
+        if !tmt_adapters::drivers::Registry::builtin()
+            .find(provider)
+            .is_some_and(tmt_adapters::setup::usage_consented)
+        {
+            if let Some(boundary) = stop_boundary {
+                commit_observation(
+                    paths,
+                    &refreshed,
+                    None,
+                    None,
+                    None,
+                    Some(boundary),
+                    deadline,
+                )?;
+            }
+            return Ok(());
+        }
+        let registry = RuntimeRegistry::first_party();
+        let lifecycle = registry.lifecycle(&harness).ok_or(())?;
         let turn = TurnEnd {
             session: previous.provider_session.clone(),
             transcript: event.follow_up.transcript.clone(),
@@ -694,7 +725,7 @@ pub(crate) fn flush_capture_follow_up(
                 now_ms,
             }),
             None,
-            None,
+            stop_boundary,
             deadline,
         )?;
         Ok(())
@@ -2559,18 +2590,45 @@ fn commit_main_event_turn(input: PromptObservation<'_>) -> Result<(), ()> {
         .remembered
         .as_ref()
         .and_then(|r| r.state.as_ref());
+    // An admitted turn start carries the prompt the provider is about to run; a passthrough
+    // typed with that text is bound to this turn, and a pending handed-over request needs a
+    // fresh start baseline read for wake-turn cost accounting (#6582).
+    let prompt = activity
+        .filter(|activity| {
+            activity.event.kind == tmt_core::binding::session::activity::EventKind::TurnStarted
+        })
+        .and(payload)
+        .and_then(|bytes| lifecycle.decode_prompt_text(bytes));
+    let first_sample = previous
+        .and_then(|state| lifecycle.state_consumption(state))
+        .is_none();
+    let woken_turn_start = stored.requests.pending_wake && prompt.is_some();
     let reading = if payload.is_some()
         && binding.session.launch_owner.is_some()
-        && previous
-            .and_then(|state| lifecycle.state_consumption(state))
-            .is_none()
+        && (first_sample || woken_turn_start)
         && tmt_adapters::drivers::Registry::builtin()
             .find(provider)
             .is_some_and(tmt_adapters::setup::usage_consented)
     {
         ProviderEnvironment::capture().ok().and_then(|environment| {
             let environment = environment.with_data_root(&paths.global_dir);
-            let locator = lifecycle.consumption_locator(payload?, &environment);
+            let locator = lifecycle
+                .consumption_locator(payload?, &environment)
+                .or_else(|| {
+                    woken_turn_start
+                        .then(|| {
+                            Storage::read_consumption_locator(
+                                &paths.database,
+                                &stored.entry.identity.id,
+                                &binding.id,
+                                provider,
+                                session.as_str(),
+                            )
+                            .ok()
+                            .flatten()
+                        })
+                        .flatten()
+                });
             let turn =
                 lifecycle.sampling_turn(session, locator.as_deref(), &environment, deadline)?;
             let now = tmt_adapters::request_runtime::wall_time_ms();
@@ -2606,14 +2664,6 @@ fn commit_main_event_turn(input: PromptObservation<'_>) -> Result<(), ()> {
     let next = activity_next
         .clone()
         .or_else(|| reading.as_ref().and_then(|(state, _)| state.clone()));
-    // An admitted turn start carries the prompt the provider is about to run; a passthrough
-    // typed with that text is bound to this turn.
-    let prompt = activity
-        .filter(|activity| {
-            activity.event.kind == tmt_core::binding::session::activity::EventKind::TurnStarted
-        })
-        .and(payload)
-        .and_then(|bytes| lifecycle.decode_prompt_text(bytes));
     let boundary = activity
         .filter(|event| {
             event.event.kind == tmt_core::binding::session::activity::EventKind::TurnStarted

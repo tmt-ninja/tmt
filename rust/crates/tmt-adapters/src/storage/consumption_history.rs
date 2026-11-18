@@ -10,10 +10,13 @@ use crate::runtime::consumption::{
 mod details;
 pub mod wake_turns;
 use details::Details;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use std::time::Instant;
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 use tmt_core::{
     binding::{BindingRecords, session::SessionPreferences},
     limits::MAX_JS_SAFE_INTEGER,
@@ -119,6 +122,8 @@ pub enum TurnBoundary<'a> {
         /// The end of a continuation after a Stop hook blocked the stop (#4858).
         continuation: bool,
     },
+    /// Close an open wake turn after queued Stop follow-up completes its usage sample (#6582).
+    WakeEnded { started_at_most: u64 },
 }
 
 /// A coordinator already admitted this binding/session against live evidence.
@@ -432,22 +437,34 @@ impl Storage {
                 }
                 _ => None,
             };
+            enum WakeAction {
+                Open(u64),
+                Close {
+                    ended_ms: u64,
+                    started_at_most: Option<u64>,
+                },
+            }
             // A wake turn is measured from the buckets as this event's own read leaves them.
             let mut wake = None;
             let read = (observation.sampled && observation.consumption.is_some())
                 .then_some(observation.now_ms);
-            if let Some(boundary) = observation.boundary
-                && observation.preferences != &observation.expected.preferences
-            {
+            if let Some(boundary) = observation.boundary {
                 let now = crate::request_runtime::wall_time_ms();
                 let session = remembered.provider_session.as_str();
+                let transition = observation.preferences != &observation.expected.preferences;
                 match boundary {
-                    TurnBoundary::Started { turn, prompt } => {
+                    TurnBoundary::WakeEnded { started_at_most } => {
+                        wake = Some(WakeAction::Close {
+                            ended_ms: started_at_most,
+                            started_at_most: Some(started_at_most),
+                        });
+                    }
+                    TurnBoundary::Started { turn, prompt } if transition => {
                         super::requests::passthrough::bind(
                             connection, id, session, turn, prompt, now,
                         )?;
                         if super::requests::turns::open(connection, id, now)? > 0 {
-                            wake = Some((true, now));
+                            wake = Some(WakeAction::Open(now));
                         }
                         if binding.session.key.is_some() {
                             let batch = super::capture_batches::begin(
@@ -460,21 +477,24 @@ impl Storage {
                         // A new prompt means the continuation a Stop hook started is over.
                         super::requests::end_digest_continuation(connection, id, now)?;
                     }
-                    TurnBoundary::StartedWithoutPrompt { turn } => {
+                    TurnBoundary::StartedWithoutPrompt { turn } if transition => {
                         if binding.session.key.is_some() {
                             super::capture_batches::begin(
                                 connection, binding, remembered, turn, now,
                             )?;
                         }
                     }
-                    TurnBoundary::Ended { turn, continuation } => {
+                    TurnBoundary::Ended { turn, continuation } if transition => {
                         // Only the continuation's own Stop ends it; the Stop that was blocked
                         // is the event that started it.
                         if continuation {
                             super::requests::end_digest_continuation(connection, id, now)?;
                         }
                         super::requests::turns::close(connection, id, now)?;
-                        wake = Some((false, now));
+                        wake = Some(WakeAction::Close {
+                            ended_ms: now,
+                            started_at_most: None,
+                        });
                         super::requests::passthrough::settle_turn(
                             connection,
                             id,
@@ -491,6 +511,9 @@ impl Storage {
                             now,
                         )?;
                     }
+                    TurnBoundary::Started { .. }
+                    | TurnBoundary::StartedWithoutPrompt { .. }
+                    | TurnBoundary::Ended { .. } => {}
                 }
             }
             if observation.sampled {
@@ -507,8 +530,17 @@ impl Storage {
                 }
             }
             match wake {
-                Some((true, now)) => wake_turns::open(connection, id, now, read)?,
-                Some((false, now)) => wake_turns::close(connection, id, now, read)?,
+                Some(WakeAction::Open(now)) => wake_turns::open(connection, id, now, read)?,
+                Some(WakeAction::Close {
+                    ended_ms,
+                    started_at_most,
+                }) => wake_turns::close_started_before(
+                    connection,
+                    id,
+                    ended_ms,
+                    started_at_most,
+                    read,
+                )?,
                 None => {}
             }
             if Instant::now() >= observation.deadline {
@@ -525,7 +557,37 @@ impl Storage {
         driver: &str,
         session: &str,
     ) -> Result<Option<String>, StorageError> {
-        self.connection()?.query_row("SELECT locator FROM consumption_sources WHERE identity_id=? AND binding_id=? AND driver=? AND session=?",params![id,binding,driver,session],|row|row.get::<_,Option<String>>(0)).optional().map(Option::flatten).map_err(|e|classify(e,"Read consumption locator"))
+        query_consumption_locator(self.connection()?, id, binding, driver, session)
+    }
+
+    /// Read the remembered consumption locator read-only without opening a writer connection.
+    pub fn read_consumption_locator(
+        path: &Path,
+        id: &str,
+        binding: &str,
+        driver: &str,
+        session: &str,
+    ) -> Result<Option<String>, StorageError> {
+        let mut db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| classify(e, "Open consumption locator read-only"))?;
+        db.busy_timeout(Duration::ZERO)
+            .map_err(|e| classify(e, "Disable consumption locator writer wait"))?;
+        let tx = db
+            .transaction()
+            .map_err(|e| classify(e, "Read consumption locator snapshot"))?;
+        super::migrations::require_current(&tx)?;
+        query_consumption_locator(&tx, id, binding, driver, session)
+    }
+
+    /// Close an open wake turn unmeasured when the synchronous fallback Stop omits usage (#6582).
+    pub fn close_unmeasured_wake_turn(
+        &mut self,
+        identity: &str,
+        stop_ms: u64,
+    ) -> Result<(), StorageError> {
+        with_immediate_transaction(self, "close unmeasured wake turn", |connection| {
+            wake_turns::close_started_before(connection, identity, stop_ms, Some(stop_ms), None)
+        })
     }
 
     /// The account the newest sample named for `id`'s remembered session (#5274): sampled
@@ -1026,6 +1088,24 @@ fn prune(connection: &Connection, id: &str, now: u64) -> Result<(), StorageError
         .map_err(|e| classify(e, "Prune identity consumption rollup"))?;
     connection.execute("DELETE FROM consumption_tier5m WHERE (identity_id,from_ms) IN (SELECT identity_id,from_ms FROM consumption_tier5m WHERE from_ms<? ORDER BY from_ms LIMIT 256)",[rolled_cutoff as i64]).map_err(|e|classify(e,"Prune inactive consumption rollup"))?;
     Ok(())
+}
+
+fn query_consumption_locator(
+    connection: &Connection,
+    id: &str,
+    binding: &str,
+    driver: &str,
+    session: &str,
+) -> Result<Option<String>, StorageError> {
+    connection
+        .query_row(
+            "SELECT locator FROM consumption_sources WHERE identity_id=? AND binding_id=? AND driver=? AND session=?",
+            params![id, binding, driver, session],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map(Option::flatten)
+        .map_err(|e| classify(e, "Read consumption locator"))
 }
 
 #[cfg(test)]

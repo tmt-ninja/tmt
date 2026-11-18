@@ -754,6 +754,182 @@ fn the_first_turn_after_a_hand_over_is_recorded_at_its_start_and_closed_at_its_e
 }
 
 #[test]
+fn wake_ended_boundary_fences_newer_turns_and_closes_unreadable_or_unconsented_stops_unmeasured() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let sample = |input, output, sequence, model_input: Option<u64>| {
+        let mut consumption = super::tests::latest(input, output, sequence, now()).consumption;
+        consumption.delta_by_model = model_input.map(|input| {
+            vec![ModelUsage {
+                model_id: "fixture-model".into(),
+                input_tokens: input,
+                output_tokens: 80,
+                cached_input_tokens: 0,
+                cache_write_tokens: None,
+            }]
+        });
+        consumption
+    };
+    let wake_end = |storage: &mut Storage,
+                    started_at_most: u64,
+                    sampled: bool,
+                    reading: Option<Consumption>| {
+        let expected = Storage::context_by_identity(&path, &id, now())
+            .unwrap()
+            .unwrap();
+        let preferences = expected.preferences.clone();
+        storage
+            .commit_runtime_observation(RuntimeObservation {
+                expected: &expected,
+                preferences: &preferences,
+                remember_source: sampled,
+                locator: None,
+                sampled,
+                consumption: reading,
+                now_ms: now(),
+                deadline: Instant::now() + Duration::from_secs(2),
+                response: None,
+                boundary: Some(TurnBoundary::WakeEnded { started_at_most }),
+                family: None,
+            })
+            .unwrap()
+    };
+    let turns = |storage: &Storage| {
+        storage.wake_turns(&[], 0, now() + 10_000, 10).unwrap()["turns"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+
+    let latest_row = |storage: &Storage| -> (u64, Option<u64>, bool) {
+        storage
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT started_ms, ended_ms, measured FROM wake_turns WHERE identity_id=? ORDER BY started_ms DESC LIMIT 1",
+                [&id],
+                |row| {
+                    let started: i64 = row.get(0)?;
+                    let ended: Option<i64> = row.get(1)?;
+                    let measured: bool = row.get(2)?;
+                    Ok((started as u64, ended.map(|v| v as u64), measured))
+                },
+            )
+            .unwrap()
+    };
+
+    // Turn 1: initial consumption read.
+    handed_over(&storage, &id, "w1", 0);
+    let start1 = TurnBoundary::Started {
+        turn: None,
+        prompt: "first wake",
+    };
+    read_event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(start1),
+        None,
+        true,
+        Some(sample(1_000, 100, 1, None)),
+    );
+    ended(&mut storage, &path, &id);
+
+    // Turn 2: open wake turn; WakeEnded arrives with expected == preferences (after Stop capture).
+    handed_over(&storage, &id, "w2", 0);
+    read_event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(TurnBoundary::Started {
+            turn: None,
+            prompt: "second wake",
+        }),
+        None,
+        true,
+        Some(sample(1_000, 100, 2, None)),
+    );
+    let (w2_started, w2_ended, _) = latest_row(&storage);
+    assert!(w2_ended.is_none());
+
+    // A boundary timestamp strictly earlier than w2's start must not close w2 (Guard 2).
+    assert!(wake_end(&mut storage, w2_started - 1, false, None));
+    assert!(
+        latest_row(&storage).1.is_none(),
+        "older Stop boundary must not close newer wake turn"
+    );
+
+    // Matching Stop boundary closes w2 with measured=true even when preferences did not change.
+    assert!(wake_end(
+        &mut storage,
+        w2_started + 1,
+        true,
+        Some(sample(1_600, 180, 3, Some(600))),
+    ));
+    let list = turns(&storage);
+    let measured = list.last().unwrap();
+    assert_eq!(measured["requestIds"], serde_json::json!(["w2"]));
+    assert_eq!(measured["endedAtMs"], w2_started + 1);
+    assert_eq!(measured["measured"], true, "{measured}");
+    assert_eq!(
+        measured["tokens"],
+        serde_json::json!({"inputTokens": 600, "outputTokens": 80, "cachedInputTokens": 0})
+    );
+
+    // Turn 3: unreadable Stop (sampled=true, consumption=None) closes with measured=false (Guard 3).
+    handed_over(&storage, &id, "w3", 0);
+    read_event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(TurnBoundary::Started {
+            turn: None,
+            prompt: "third wake",
+        }),
+        None,
+        true,
+        Some(sample(1_600, 180, 4, None)),
+    );
+    let (w3_started, w3_ended, _) = latest_row(&storage);
+    assert!(w3_ended.is_none());
+    assert!(wake_end(&mut storage, w3_started + 2, true, None));
+    let list = turns(&storage);
+    let unreadable = list.last().unwrap();
+    assert_eq!(unreadable["requestIds"], serde_json::json!(["w3"]));
+    assert_eq!(unreadable["endedAtMs"], w3_started + 2);
+    assert_eq!(unreadable["measured"], false, "{unreadable}");
+
+    // Turn 4: unconsented follow-up (sampled=false, consumption=None) closes with measured=false (Guard 3).
+    handed_over(&storage, &id, "w4", 0);
+    read_event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(TurnBoundary::Started {
+            turn: None,
+            prompt: "fourth wake",
+        }),
+        None,
+        true,
+        Some(sample(1_600, 180, 5, None)),
+    );
+    let (w4_started, w4_ended, _) = latest_row(&storage);
+    assert!(w4_ended.is_none());
+    assert!(wake_end(&mut storage, w4_started + 3, false, None));
+    let list = turns(&storage);
+    let unconsented = list.last().unwrap();
+    assert_eq!(unconsented["requestIds"], serde_json::json!(["w4"]));
+    assert_eq!(unconsented["endedAtMs"], w4_started + 3);
+    assert_eq!(unconsented["measured"], false, "{unconsented}");
+
+    storage.close().unwrap();
+}
+
+#[test]
 fn a_message_that_arrived_during_a_turn_waits_for_the_next_one() {
     use tmt_core::request::delivery::HandoverTurn;
     let (_directory, path, id) = fixture();

@@ -44,6 +44,7 @@ const ROLE_LIMIT: usize = 500;
 pub struct ContextRequests {
     pub originated: u64,
     pub incoming: u64,
+    pub pending_wake: bool,
 }
 
 #[derive(Debug)]
@@ -426,9 +427,11 @@ fn requests(
          AND COALESCE((SELECT acknowledged_through FROM request_recipient_attention_identities
                        WHERE identity_id = ?1), 0) < a.recipient_attention_revision",
     )?;
+    let pending_wake = super::requests::turns::has_pending(connection, identity, now_ms)?;
     Ok(ContextRequests {
         originated,
         incoming,
+        pending_wake,
     })
 }
 
