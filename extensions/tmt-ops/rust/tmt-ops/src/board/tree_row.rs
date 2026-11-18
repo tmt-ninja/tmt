@@ -290,7 +290,7 @@ pub(in crate::board) fn paint(
                         .and_then(UnicodeWidthChar::width)
                         .unwrap_or(0);
                     let minimum = first + usize::from(name.width() > available);
-                    first > 0 && available >= minimum && name_width >= hint.width() + 1
+                    first > 0 && available >= minimum && name_width > hint.width()
                 });
                 let fitted_width =
                     name_width.saturating_sub(open_hint.map_or(0, |hint| hint.width() + 1));
