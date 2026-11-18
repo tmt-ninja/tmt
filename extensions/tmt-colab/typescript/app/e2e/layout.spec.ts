@@ -498,7 +498,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
   const header = bar.locator('.tmt-ui-topbar-title');
   const heading = page.locator('.page-mobile-title h1').filter({ hasText: title });
   await expect(heading).toBeVisible();
-  await expect(header.locator('.tmt-ui-caption')).toBeVisible();
+  await expect(header.locator('.page-bar-status')).toBeVisible();
   await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
   const iframe = page.locator('#layout-fixture iframe');
   await expect(

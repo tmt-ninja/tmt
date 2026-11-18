@@ -5,6 +5,7 @@ import { ShellPage } from './shell-page.js';
 import { PageStateMenu, PageWorkBand } from './work-band-live.js';
 import { htmlOutlineSections, sectionTotals } from './section-view.js';
 import { MobileWorkTitle, WorkPullChips } from './work-band.js';
+import { PageBarSummary } from './page-bar-summary.js';
 import { PageOutline } from './page-outline.js';
 import { AskTodoContext, askTodoProgress } from './ask-todo-line.js';
 import { usePageWorkflow } from './use-page-workflow.js';
@@ -1563,6 +1564,7 @@ function OpenPage({
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
   const [workBandSize, setWorkBandSize] = useState(0);
+  const [barLabels, setBarLabels] = useState<readonly string[]>([]);
   const [addingSubpage, setAddingSubpage] = useState(false);
   const [manualStateOpen, setManualStateOpen] = useState(false);
   const addSubpageDraft = useRef<import('./page-list-search.js').SearchEdit | undefined>(undefined);
@@ -2789,6 +2791,7 @@ function OpenPage({
       open={() => openProjects()}
       pinRequest={pinRequest}
       onPinState={setPin}
+      onProjects={setBarLabels}
     />
   );
   const content = (
@@ -2821,17 +2824,19 @@ function OpenPage({
                   {text.templates.templateChip}
                 </span>
               )}
+              {/* The page's number, title, status and labels stay in the bar while it scrolls
+                  (#6611); #6520 had left only the product and the author there. */}
+              <PageBarSummary facts={view.workFacts} labels={barLabels} />
             </>
           }
           crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
           barRef={toolbar}
           page
-          title={text.product}
-          accessibleTitle={view.title || snapshot.title || text.product}
+          title={view.title || snapshot.title || text.unknownPageTitle}
+          // The page's heading is its own title below; the bar repeats it without a second h1.
+          accessibleTitle={view.title || snapshot.title || text.unknownPageTitle}
+          workNumber={snapshot.workNumber}
           remote={{ deviceName: transport.backendName }}
-          caption={
-            view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)
-          }
           home={routing.home}
           status={
             <div className="page-header-meta">

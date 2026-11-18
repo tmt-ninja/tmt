@@ -180,6 +180,17 @@ export function PageWorkBand({
   );
 }
 
+/** The dot tone of a computed status, shared by the work band and the page bar. */
+export function computedTone(state: string): 'blocked' | 'working' | 'waiting' | 'muted' {
+  return state === 'blocked'
+    ? 'blocked'
+    : state === 'working'
+      ? 'working'
+      : ['needs-you', 'waiting-ci', 'waiting-release', 'possibly-stalled'].includes(state)
+        ? 'waiting'
+        : 'muted';
+}
+
 function ComputedStatus({
   facts,
   blocked,
@@ -192,14 +203,7 @@ function ComputedStatus({
   const restoredOnEscape = useRef(false);
   const state = facts?.state ?? 'unknown';
   const label = t.computedState[state];
-  const tone =
-    state === 'blocked'
-      ? 'blocked'
-      : state === 'working'
-        ? 'working'
-        : ['needs-you', 'waiting-ci', 'waiting-release', 'possibly-stalled'].includes(state)
-          ? 'waiting'
-          : 'muted';
+  const tone = computedTone(state);
   return (
     <UiTheme theme={theme}>
       <Popover>

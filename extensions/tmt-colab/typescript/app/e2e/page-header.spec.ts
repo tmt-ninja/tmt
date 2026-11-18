@@ -267,9 +267,11 @@ test.describe('the shell bar', () => {
     }) => {
       await look(page);
       await mountPage(page, { subpage: true });
-      // The page has one visible heading, in the bar on desktop and in the title block on phones.
+      // The bar repeats the page's title, then its status (#6611); the page keeps one heading, its
+      // own title block.
       const title = bar(page).locator('.tmt-ui-topbar-title');
-      await expect(title.locator('.tmt-ui-topbar-title-current')).toHaveText('Colab');
+      await expect(title.locator('.tmt-ui-topbar-title-current')).toContainText('Live shared page');
+      await expect(title.locator('.page-bar-status')).toBeVisible();
       await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
       const visibleTitle = page.locator('.page-mobile-title:visible h1');
       await expect(visibleTitle).toBeVisible();

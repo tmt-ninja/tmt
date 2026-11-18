@@ -1,0 +1,41 @@
+/* The opened page's summary in the top bar (#6611): number and title first, then the status chip and
+   the labels. The title truncates before either is pushed out. */
+.tmt-ui-topbar-title:has(.page-bar-summary) h1 {
+  flex: 0 1 auto;
+}
+.page-bar-summary,
+.page-bar-labels {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  min-width: 0;
+}
+.page-bar-status {
+  white-space: nowrap;
+}
+/* The shell hides a bar's chips under 900px; the page's status stays beside its title there, and
+   its labels go first. */
+@media (max-width: 900px) {
+  .tmt-ui-topbar-title-chips:has(.page-bar-summary) {
+    display: flex;
+  }
+  .tmt-ui-topbar-title-chips:has(.page-bar-summary) > :not(.page-bar-summary),
+  .page-bar-labels {
+    display: none;
+  }
+}
+/* Too narrow for the status word beside the title: only its dot stays, still named on hover. */
+@container tmt-ui-topbar-title (width < 300px) {
+  .page-bar-status-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .page-bar-status {
+    padding-inline: var(--tmt-ui-space-xs);
+  }
+}
