@@ -1,4 +1,5 @@
-import type { ListStatus } from './bootstrap.js';
+import type { ListStatus, TodoAsk } from './bootstrap.js';
+import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
 
 /**
@@ -99,10 +100,10 @@ export function workItems(pages: readonly PageSummary[]): WorkItem[] {
         blockId: todo.id,
         number: todo.number,
         title: todo.text || page.title,
-        // Its status is not computed yet: done when checked, else in discussion.
-        status: todo.checked ? 'done' : 'discussing',
+        // Done when checked; otherwise the state of the Ask it came from, else in discussion.
+        status: todo.checked ? 'done' : todoStatus(todo.ask),
         high: false,
-        next: page.title,
+        next: !todo.checked && todo.ask === 'answered' ? text.workHome.answered : page.title,
         ...(todo.assignee ? { owner: { name: todo.assignee } } : {}),
         ...(lastMs === undefined ? {} : { lastMs }),
         ...(todo.doneAtMs === undefined ? {} : { doneAtMs: todo.doneAtMs }),
@@ -111,6 +112,14 @@ export function workItems(pages: readonly PageSummary[]): WorkItem[] {
     }
   }
   return items;
+}
+
+/** An open to-do's status from its Ask (#6474 follow-up): a sent Ask is in progress, an answer
+ * waiting on the person needs them, and a handled answer stays in progress until the to-do is
+ * checked. A to-do no Ask made is in discussion. */
+function todoStatus(ask: TodoAsk | undefined): ListStatus {
+  if (ask === 'needs-you') return 'needs-you';
+  return ask ? 'working' : 'discussing';
 }
 
 export const inProject = (item: WorkItem, project: string | undefined) =>

@@ -1073,6 +1073,8 @@ export const text = {
     },
   },
   workHome: {
+    /** An open to-do whose Ask was answered and handled: its next step reads this. */
+    answered: 'Answered',
     statusDetails: (item: string) => `${item}, show status details`,
     statusReading: 'Reading the latest status…',
     talkTo: (name: string) => `Talk to ${name} in Ops`,

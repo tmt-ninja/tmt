@@ -141,7 +141,12 @@ export interface TodoWorkItem {
   number?: string;
   assignee?: string;
   doneAtMs?: number;
+  /** The state of the Ask the to-do came from (owner-local, display only): `sent`, `needs-you`
+   * (answered, its thread open) or `answered` (its thread resolved). Absent for other to-dos. */
+  ask?: TodoAsk;
 }
+export const TODO_ASKS = ['sent', 'needs-you', 'answered'] as const;
+export type TodoAsk = (typeof TODO_ASKS)[number];
 /** Matches `WORK_TODOS` and `WORK_TODO_TEXT` in the Rust limits. */
 const WORK_TODOS = 64;
 const WORK_TODO_TEXT = 256;
@@ -157,7 +162,7 @@ function todoWorkItem(value: unknown): void {
   const item = value as Record<string, unknown>;
   exactKeys(
     item,
-    ['id', 'text', 'checked', 'number', 'assignee', 'doneAtMs'].filter(
+    ['id', 'text', 'checked', 'number', 'assignee', 'doneAtMs', 'ask'].filter(
       (key) => key in item || ['id', 'text', 'checked'].includes(key),
     ),
   );
@@ -167,7 +172,8 @@ function todoWorkItem(value: unknown): void {
       typeof item.checked === 'boolean' &&
       (!('number' in item) || text(item.number, WORK_NUMBER_BYTES)) &&
       (!('assignee' in item) || text(item.assignee, ASSIGNEE_BYTES)) &&
-      (!('doneAtMs' in item) || (item.checked === true && time(item.doneAtMs))),
+      (!('doneAtMs' in item) || (item.checked === true && time(item.doneAtMs))) &&
+      (!('ask' in item) || TODO_ASKS.some((state) => state === item.ask)),
   );
 }
 export interface PageInfo extends ExpiryInfo {
