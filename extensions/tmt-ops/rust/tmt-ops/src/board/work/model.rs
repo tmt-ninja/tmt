@@ -53,19 +53,36 @@ impl Status {
         }
     }
 
+    pub fn mark(self) -> &'static str {
+        match self {
+            Self::Blocked => "✗",
+            Self::Stalled => "◷",
+            Self::NeedsYou => "◆",
+            Self::Working => "●",
+            Self::WaitingCi | Self::WaitingRelease => "○",
+            Self::Discussing => "◇",
+            Self::Unchecked | Self::Unknown => "·",
+            Self::Done => "✓",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
-            Self::Blocked => "✗ Blocked",
-            Self::Stalled => "◷ Possibly stalled",
-            Self::NeedsYou => "◆ Needs you",
-            Self::Working => "● Working",
-            Self::WaitingCi => "○ Waiting for CI",
-            Self::WaitingRelease => "○ Waiting for release",
-            Self::Discussing => "◇ Discussing",
-            Self::Unchecked => "· Not checked yet",
-            Self::Unknown => "· Unknown",
-            Self::Done => "✓ Done",
+            Self::Blocked => "Blocked",
+            Self::Stalled => "Possibly stalled",
+            Self::NeedsYou => "Needs you",
+            Self::Working => "In progress",
+            Self::WaitingCi => "Waiting for CI",
+            Self::WaitingRelease => "Waiting for release",
+            Self::Discussing => "Discussing",
+            Self::Unchecked => "Not checked yet",
+            Self::Unknown => "Status unknown",
+            Self::Done => "Done",
         }
+    }
+
+    pub fn marked_label(self) -> String {
+        format!("{} {}", self.mark(), self.label())
     }
 
     pub fn overview(self) -> Option<usize> {
@@ -91,6 +108,7 @@ pub(in crate::board) struct Item {
     pub status: Status,
     pub high: bool,
     pub next: Option<String>,
+    pub parent: Option<String>,
     pub owner: Option<String>,
     page_owner_id: Option<String>,
     todo: bool,
@@ -113,30 +131,12 @@ impl Item {
         )
     }
 
-    pub fn binding<'a>(&self, roster: &'a OpsRoster) -> Result<Option<&'a str>, &'static str> {
-        if self.owner.is_none() {
-            return Ok(None);
-        }
-        if !self.todo {
-            return self
-                .page_owner_id
-                .as_ref()
-                .and_then(|id| roster.members.get_key_value(id))
-                .map(|(id, _)| Some(id.as_str()))
-                .ok_or("unbound");
-        }
-        let name = self.binding_name.as_ref().ok_or("unbound")?;
-        let mut matches = roster
-            .members
-            .iter()
-            .filter(|(_, member)| member.name == *name);
-        let Some((id, _)) = matches.next() else {
-            return Err("unbound");
-        };
-        if matches.next().is_some() {
-            return Err("ambiguous");
-        }
-        Ok(Some(id))
+    pub fn owner_name<'a>(&'a self, roster: Option<&'a OpsRoster>) -> Option<&'a str> {
+        self.page_owner_id
+            .as_ref()
+            .and_then(|id| roster?.members.get(id))
+            .map(|member| member.name.as_str())
+            .or(self.owner.as_deref())
     }
 }
 
@@ -236,6 +236,7 @@ impl List {
                 }
             }
             let title = text(&page["title"], 4096).unwrap_or_else(|| "Untitled".into());
+            let number = text(&page["workNumber"], 64);
             let last = time(&page["lastUpdateAtMs"]);
             let can_open = ["link", "shortLink"].into_iter().any(|key| {
                 page[key]
@@ -245,7 +246,7 @@ impl List {
             list.items.push(Item {
                 key: id.into(),
                 page: id.into(),
-                number: text(&page["workNumber"], 64),
+                number: number.clone(),
                 title: title.clone(),
                 status,
                 high: fields["priority"] == "high",
@@ -253,6 +254,7 @@ impl List {
                     .then(|| text(&fields["blocked"], 4096))
                     .flatten()
                     .or_else(|| text(&fields["next"], 4096)),
+                parent: None,
                 owner: text(&fields["owner"]["name"], 128),
                 page_owner_id: fields["owner"]["id"]
                     .as_str()
@@ -273,6 +275,7 @@ impl List {
                 list.omitted += 1;
                 continue;
             }
+            let parent = number.as_deref().unwrap_or(&title);
             for todo in todos.into_iter().flatten() {
                 let (Some(block), Some(number), Some(owner), Some(checked)) = (
                     todo["id"]
@@ -300,11 +303,8 @@ impl List {
                     title: text(&todo["text"], 256).unwrap_or_else(|| title.clone()),
                     status,
                     high: false,
-                    next: Some(if !checked && todo["ask"] == "answered" {
-                        "Answered".into()
-                    } else {
-                        title.clone()
-                    }),
+                    next: (!checked && todo["ask"] == "answered").then(|| "Answered".into()),
+                    parent: Some(format!("in {parent}")),
                     binding_name: binding_name(&todo["assignee"], &owner),
                     owner: Some(owner),
                     page_owner_id: None,

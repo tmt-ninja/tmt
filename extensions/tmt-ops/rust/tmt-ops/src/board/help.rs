@@ -357,7 +357,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "open the selected page or expand a project section",
                 ),
                 ("p", "cycle the project filter"),
-                ("d", "cycle the Done period through Today, 7d and 30d"),
+                (
+                    "d",
+                    "cycle the Done period through Today, 7 days and 30 days",
+                ),
                 ("c", "show or hide recent completions"),
                 ("r", "refresh the owner list"),
             ],

@@ -151,10 +151,31 @@ pub(super) fn open(core: &crate::core::Core, page: &str) -> Result<(), String> {
 /// A whole chip uses the same status and attention order as Work home.
 pub(super) fn chip(item: &Item, count: usize) -> String {
     let number = item.number.as_deref().unwrap_or("—");
-    let status = item.status.label();
+    let status = item.status.marked_label();
     if count > 1 {
         format!("{number} · {status} +{}", count - 1)
     } else {
         format!("{number} · {status}")
+    }
+}
+
+pub(super) fn row_chip(item: &Item, count: usize) -> String {
+    let number = item.number.as_deref().unwrap_or("—");
+    let mark = item.status.mark();
+    if count > 1 {
+        format!("{mark} {number} +{}", count - 1)
+    } else {
+        format!("{mark} {number}")
+    }
+}
+
+impl State {
+    pub fn open_hit_visible(&self) -> bool {
+        !self.stale
+            && self
+                .hits
+                .borrow()
+                .iter()
+                .any(|(_, hit)| matches!(hit, surface::Hit::Open(_)))
     }
 }

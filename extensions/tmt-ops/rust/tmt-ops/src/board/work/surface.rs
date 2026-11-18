@@ -31,6 +31,14 @@ pub(in crate::board) enum Hit {
 const MAX_ROWS: usize = 5;
 const DAY: i64 = 86_400_000;
 const HOUR: i64 = 3_600_000;
+const GUTTER: usize = 3;
+const NUMBER: usize = 13;
+const STATUS: usize = 22;
+const OWNER: usize = 16;
+const AGE: usize = 5;
+const WIDE: usize = 145;
+const TABLE: usize = 69;
+const PERIODS: [&str; 3] = ["Today", "7 days", "30 days"];
 
 fn in_project(item: &Item, project: Option<&str>) -> bool {
     project.is_none_or(|name| item.projects.iter().any(|value| value == name))
@@ -78,13 +86,13 @@ fn counts(items: impl Iterator<Item = Status>, include_zeros: bool) -> String {
     let total: usize = counts.iter().sum();
     let mut words = vec![format!("{total} open")];
     for (index, name) in [
-        "working",
-        "waiting",
-        "needs you",
-        "blocked",
-        "possibly stalled",
-        "discussing",
-        "not checked yet",
+        "In progress",
+        "Waiting for CI or release",
+        "Needs you",
+        "Blocked",
+        "Possibly stalled",
+        "Discussing",
+        "Not checked yet",
     ]
     .into_iter()
     .enumerate()
@@ -170,35 +178,48 @@ fn rows<'a>(
     now: i64,
     zone: &jiff::tz::TimeZone,
     width: usize,
+    roster: Option<&crate::board::workspace::OpsRoster>,
 ) -> Vec<Row<'a>> {
     let filter = state.project.as_deref();
-    let mut rows = vec![Row::label(
-        counts(
-            list.items
-                .iter()
-                .filter(|item| in_project(item, filter))
-                .map(|item| item.status),
-            true,
-        ),
-        Role::Muted,
-    )];
+    let summary = counts(
+        list.items
+            .iter()
+            .filter(|item| in_project(item, filter))
+            .map(|item| item.status),
+        true,
+    );
+    let mut rows: Vec<_> = crate::board::notes::wrap(
+        &summary,
+        if width == 0 {
+            usize::MAX
+        } else {
+            width.saturating_sub(1).max(1)
+        },
+    )
+    .into_iter()
+    .map(|text| Row::label(text, Role::Muted))
+    .collect();
     if list.missing > 0 || list.omitted > 0 {
         let mut notes = Vec::new();
         if list.missing > 0 {
             notes.push(format!("{} summaries unavailable", list.missing));
         }
         if list.omitted > 0 {
-            notes.push(format!("to-dos omitted on {} pages", list.omitted));
+            notes.push(if list.omitted == 1 {
+                "To-dos omitted on 1 page".into()
+            } else {
+                format!("To-dos omitted on {} pages", list.omitted)
+            });
         }
         rows.push(Row::label(notes.join(" · "), Role::Waiting));
     }
     if list.items.is_empty() && list.missing == 0 {
-        rows.push(Row::label("No Colab work", Role::Muted));
+        rows.push(Row::label("No work yet.", Role::Muted));
     }
     let visible = || list.items.iter().filter(|item| in_project(item, filter));
     let moving: std::collections::BTreeSet<_> = visible()
         .filter(|item| item.status == Status::Working)
-        .filter_map(|item| item.owner.as_deref())
+        .filter_map(|item| item.owner_name(roster))
         .collect();
     let oldest = |status, timestamp: fn(&Item) -> Option<i64>| {
         visible()
@@ -215,7 +236,7 @@ fn rows<'a>(
         ));
     }
     if let Some(item) = oldest(Status::Blocked, |item| item.blocked_since.or(item.last)) {
-        overview.push(format!("Blocked longest · {item}"));
+        overview.push(format!("Stuck longest · {item}"));
     }
     if let Some(item) = oldest(Status::Stalled, |item| item.last) {
         overview.push(format!("Quietest · {item}"));
@@ -259,36 +280,18 @@ fn rows<'a>(
         rows.push(Row::label(
             format!(
                 "── {} · {} ──",
-                project.unwrap_or("Unprojected"),
+                project.unwrap_or("No project"),
                 counts(open.iter().map(|item| item.status), false)
             ),
             Role::Muted,
         ));
         if !headings && !open.is_empty() {
             headings = true;
-            rows.push(Row::label(
-                if width < 69 {
-                    "   NUMBER  STATUS  TITLE".to_owned()
-                } else {
-                    format!(
-                        "   {} {} {} {} {}{}",
-                        fit("NUMBER", 13),
-                        fit("STATUS", 22),
-                        fit(
-                            "TITLE",
-                            if width >= 145 {
-                                42
-                            } else {
-                                width.saturating_sub(63)
-                            }
-                        ),
-                        fit("OWNER", 16),
-                        fit("AGE", 5),
-                        if width >= 145 { " NEXT / REASON" } else { "" },
-                    )
-                },
-                Role::Dim,
-            ));
+            let heading = table_cells(
+                width,
+                ["NUMBER", "STATUS", "TITLE", "OWNER", "AGE", "NEXT / REASON"],
+            );
+            rows.push(Row::label(format!("  {heading}"), Role::Dim));
         }
         let expanded = state.expanded.contains(&project.map(str::to_owned));
         let count = open.len();
@@ -318,8 +321,12 @@ fn rows<'a>(
     );
     rows.push(Row {
         label: format!(
-            "── Done · today {today} · 7d {week} · 30d {month} ──   c {}",
-            if state.recent { "Hide" } else { "Recent" }
+            "── Done · Today {today} · 7 days {week} · 30 days {month} ──   c {}",
+            if state.recent {
+                "Hide recently done"
+            } else {
+                "Recently done"
+            }
         ),
         role: Role::Muted,
         item: None,
@@ -329,7 +336,7 @@ fn rows<'a>(
     rows.push(Row {
         label: format!(
             "d {}  {}",
-            ["Today", "7d", "30d"][state.period],
+            PERIODS[state.period],
             done_chart(list, state, now, zone)
         ),
         role: Role::Text,
@@ -357,13 +364,38 @@ fn rows<'a>(
     rows
 }
 
-fn row_text(item: &Item, width: usize, owned: &str, now: i64) -> String {
-    let number = item.number.as_deref().unwrap_or("—");
-    let status = item.status.label();
-    if width < 66 {
-        return format!("{number}  {status}  {}", item.title);
+fn title_width(width: usize) -> usize {
+    if width >= WIDE {
+        42
+    } else {
+        width.saturating_sub(GUTTER + NUMBER + STATUS + OWNER + AGE + 4)
     }
-    let wide = width >= 142;
+}
+
+fn table_cells(width: usize, [number, status, title, owner, age, detail]: [&str; 6]) -> String {
+    if width < TABLE {
+        return format!("{} {} {title}", fit(number, NUMBER), fit(status, STATUS));
+    }
+    let width_left = title_width(width);
+    let main = format!(
+        "{} {} {} {} {}",
+        fit(number, NUMBER),
+        fit(status, STATUS),
+        fit(title, width_left),
+        fit(owner, OWNER),
+        fit(age, AGE),
+    );
+    if width >= WIDE {
+        format!("{main} {detail}")
+    } else {
+        main
+    }
+}
+
+fn row_text(item: &Item, width: usize, owned: &str, now: i64) -> String {
+    use unicode_width::UnicodeWidthStr;
+    let number = item.number.as_deref().unwrap_or("—");
+    let status = item.status.marked_label();
     let age = item.last.filter(|at| *at <= now).map_or_else(
         || "—".into(),
         |at| {
@@ -375,24 +407,32 @@ fn row_text(item: &Item, width: usize, owned: &str, now: i64) -> String {
             }
         },
     );
-    let title_width = if wide { 42 } else { width - 60 };
+    let available = if width >= TABLE {
+        title_width(width)
+    } else {
+        width.saturating_sub(GUTTER + NUMBER + STATUS + 2)
+    };
+    let title = item.parent.as_ref().map_or_else(
+        || item.title.clone(),
+        |parent| {
+            let separator = " · ";
+            let context = parent.width() + separator.width();
+            if available <= context {
+                item.title.clone()
+            } else {
+                let shown = fit(&item.title, available - context);
+                format!("{}{separator}{parent}", shown.trim_end())
+            }
+        },
+    );
     let detail = if item.status == Status::Done {
         item.release.as_deref()
     } else {
         item.next.as_deref()
     };
-    format!(
-        "{} {} {} {} {}{}",
-        fit(number, 13),
-        fit(status, 22),
-        fit(&item.title, title_width),
-        fit(owned, 16),
-        fit(&age, 5),
-        if wide {
-            format!(" {}", detail.unwrap_or(""))
-        } else {
-            String::new()
-        },
+    table_cells(
+        width,
+        [number, &status, &title, owned, &age, detail.unwrap_or("")],
     )
 }
 
@@ -470,7 +510,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let now = crate::status::now_ms() as i64;
     let utc = jiff::tz::TimeZone::UTC;
     let zone = app.local_zone.as_ref().unwrap_or(&utc);
-    let rows = rows(list, state, now, zone, width);
+    let roster = app.workspace_snapshot().map(|snapshot| &snapshot.roster);
+    let rows = rows(list, state, now, zone, width, roster);
     let selected_row = state.selected.as_ref().and_then(|key| {
         rows.iter()
             .position(|row| row.selection.as_ref() == Some(key))
@@ -486,29 +527,32 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         let line = band(top + (index - offset) as u16);
         if let Some(item) = row.item {
             let active = selected == Some(index);
-            let binding = app
-                .workspace_snapshot()
-                .and_then(|snapshot| item.binding(&snapshot.roster).err());
-            let owner = item.owner.as_deref().unwrap_or("—");
-            let owned = binding.map_or_else(|| owner.to_owned(), |why| format!("{owner} ({why})"));
+            let owned = item
+                .owner_name(roster)
+                .map(crate::board::notes::single_line);
             let prefix = if active { " › " } else { "   " };
             let style = look.selected(active, look.role(Role::Text));
             let text = format!(
                 "{prefix}{}",
-                row_text(item, width.saturating_sub(3), &owned, now)
+                row_text(item, width, owned.as_deref().unwrap_or("—"), now)
             );
             strip::paint_left(
                 frame.buffer_mut(),
                 line,
                 Line::styled(fit(&text, width), style),
             );
-            if width >= 69 {
-                let area = Rect::new(line.x + 17, line.y, 22, 1);
+            if width >= TABLE {
+                let area = Rect::new(
+                    line.x + (GUTTER + NUMBER + 1) as u16,
+                    line.y,
+                    STATUS as u16,
+                    1,
+                );
                 let style = look.selected(active, look.role(role(item.status)));
                 strip::paint_left(
                     frame.buffer_mut(),
                     area,
-                    Line::styled(fit(item.status.label(), 22), style),
+                    Line::styled(fit(&item.status.marked_label(), STATUS), style),
                 );
             }
             if let Some(key) = &row.selection {
@@ -542,7 +586,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         };
         let action_cells = unicode_width::UnicodeWidthStr::width(action);
         let action_width = action_cells.min(width);
-        let detail = item.release.as_ref().or(item.next.as_ref());
+        let detail = item
+            .release
+            .as_ref()
+            .or(item.next.as_ref())
+            .or(item.parent.as_ref());
         let number = item.number.as_deref().unwrap_or(&item.title);
         strip::paint_left(
             frame.buffer_mut(),
@@ -610,7 +658,7 @@ impl App {
         };
         let utc = jiff::tz::TimeZone::UTC;
         let zone = self.local_zone.as_ref().unwrap_or(&utc);
-        let rows = rows(list, state, crate::status::now_ms() as i64, zone, 0);
+        let rows = rows(list, state, crate::status::now_ms() as i64, zone, 0, None);
         let items: Vec<_> = rows.iter().filter(|row| row.selection.is_some()).collect();
         let index = state
             .selected

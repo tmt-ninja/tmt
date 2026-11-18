@@ -982,7 +982,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         };
                         let (item, count) = work_bindings.as_ref()?.get(identity_id.as_str())?;
                         Some(Line::styled(
-                            crate::board::work::chip(item, *count),
+                            crate::board::work::row_chip(item, *count),
                             look.role(Role::Muted),
                         ))
                     })(),

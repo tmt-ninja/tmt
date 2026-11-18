@@ -739,12 +739,13 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                 ("Enter", "open page"),
                 ("p", "project"),
                 ("d", "period"),
-                ("c", "recent done"),
+                ("c", "Recently done"),
                 ("r", "refresh"),
                 ("?", "help"),
                 ("q", "quit"),
             ]
             .into_iter()
+            .filter(|(key, _)| *key != "Enter" || app.work.open_hit_visible())
             .map(|(key, label)| (key.into(), label.into()))
             .collect(),
             vec![],

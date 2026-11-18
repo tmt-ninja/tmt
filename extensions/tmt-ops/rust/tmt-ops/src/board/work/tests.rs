@@ -1,6 +1,6 @@
 use super::*;
 use crate::board::{
-    app::workspace::tests::{MEMBER, board, capture_case, disable_motion},
+    app::workspace::tests::{MEMBER, ROOM, board, capture_case, disable_motion},
     app::{App, Effect},
     shell::OpsTab,
 };
@@ -84,7 +84,9 @@ fn colab_work_preserves_published_status_sanitizes_and_ranks_items() {
     );
     assert_eq!(open[1].status, Status::NeedsYou);
     assert_eq!(open[2].status, Status::Working);
-    assert_eq!(open[4].status.label(), "· Not checked yet");
+    assert_eq!(open[4].status.label(), "Not checked yet");
+    assert_eq!(open[1].next, None);
+    assert_eq!(open[1].parent.as_deref(), Some("in COLAB-119"));
     assert_eq!(list.omitted, 1);
     assert_eq!(list.missing, 0);
     assert_eq!(open[1].page, PAGE);
@@ -109,12 +111,14 @@ fn colab_work_binds_page_uuid_and_only_unique_exact_todo_names() {
     roster.members.insert(DONE.into(), duplicate);
     let bound = list.bindings(&roster);
     assert_eq!(bound[MEMBER].1, 1, "only the page UUID still matches");
-    assert_eq!(list.items[1].binding(&roster), Err("ambiguous"));
     assert_eq!(
-        list.items[3].binding(&roster),
-        Err("unbound"),
-        "a page never falls back to name"
+        bound.len(),
+        1,
+        "an unmatched page cannot guess from an owner name"
     );
+    assert_eq!(list.items[0].owner_name(Some(&roster)), Some("worker"));
+    assert_eq!(list.items[0].owner_name(None), Some("worker-before-rename"));
+    assert_eq!(list.items[1].owner_name(Some(&roster)), Some("worker"));
 }
 
 #[test]
@@ -194,14 +198,37 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
     let mut app = capture_case("agents", look);
     disable_motion(&mut app);
     app.local_zone = Some(jiff::tz::TimeZone::UTC);
-    app.work
-        .apply(List::decode(&owner_list(crate::status::now_ms())));
+    let mut pages = owner_list(crate::status::now_ms());
     if scene == "agents-work" {
-        app.workspace.selected = Some(crate::board::workspace::OpsTarget::Member {
-            room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
+        use crate::board::workspace::OpsTarget;
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let mut member = snapshot.roster.members[MEMBER].clone();
+        member.id = OTHER.into();
+        member.name = "sam".into();
+        snapshot.roster.members.insert(OTHER.into(), member);
+        snapshot
+            .roster
+            .squads
+            .iter_mut()
+            .find(|squad| squad.room_id == ROOM)
+            .unwrap()
+            .members
+            .push(OTHER.into());
+        snapshot.rows.insert(
+            OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: OTHER.into(),
+            },
+            json!({"id": OTHER, "name": "sam", "state": "working", "presence": "active"}),
+        );
+        pages["pages"][1]["summary"]["fields"]["owner"]["name"] = json!("sam");
+        app.workspace.selected = Some(OpsTarget::Member {
+            room_id: Some(ROOM.into()),
             identity_id: MEMBER.into(),
         });
+        app.workspace_reconcile();
     } else {
+        app.work.apply(List::decode(&pages));
         key(&mut app, KeyCode::Char('2'));
         if scene == "work-done" {
             key(&mut app, KeyCode::Char('p'));
@@ -211,6 +238,9 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
         if scene == "work-stale" {
             app.work.apply(Err("Colab owner list unavailable.".into()));
         }
+    }
+    if scene == "agents-work" {
+        app.work.apply(List::decode(&pages));
     }
     app
 }
@@ -230,4 +260,51 @@ fn colab_work_coalesces_refreshes_into_one_trailing_read() {
     );
     state.apply(List::decode(&owner_list(1_800_000_000_000)));
     assert!(!state.request());
+}
+
+#[test]
+fn colab_work_captures_align_headings_and_show_bound_chips() {
+    let _guard = crate::runner::forbid_commands();
+    let look = crate::look::Look::default();
+    for width in [100, 160] {
+        let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+        let render = |terminal: &mut Terminal<TestBackend>, scene_name| {
+            let app = scene(scene_name, look);
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(usize::from(width))
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect::<Vec<_>>()
+        };
+        let lines = render(&mut terminal, "work-projects");
+        let heading = lines
+            .iter()
+            .find(|line| line.contains("NUMBER") && line.contains("STATUS"))
+            .unwrap();
+        let selected = lines
+            .iter()
+            .find(|line| line.contains("› COLAB-119"))
+            .unwrap();
+        assert_eq!(heading.find("NUMBER"), Some(3));
+        assert_eq!(heading.find("STATUS"), Some(17));
+        assert_eq!(
+            selected.find("✗ Blocked").map(|x| x - ("›".len() - 1)),
+            Some(17)
+        );
+        assert!(heading.contains("AGE ") && !heading.contains("AGE…"));
+        assert!(selected.contains("worker") && !selected.contains("before"));
+        assert!(lines.iter().any(|line| line.contains("in COLAB-119")));
+        let stale = render(&mut terminal, "work-stale");
+        assert!(stale.iter().all(|line| !line.contains("Enter open page")));
+        let agents = render(&mut terminal, "agents-work");
+        assert!(
+            agents.iter().any(|line| line.contains("sam ○ W-91")),
+            "{agents:?}"
+        );
+    }
 }
