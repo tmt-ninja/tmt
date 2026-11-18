@@ -69,6 +69,7 @@ export const covered = {
   BrowserPager: 'pager',
   BrowserStatusTile: 'status-tile',
   BrowserStatusTiles: 'status-tile',
+  BrowserSegments: 'status-tile',
   BrowserMenu: 'menus',
   BrowserTabs: 'tabs',
   BrowserList: 'list',

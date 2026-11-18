@@ -31,6 +31,7 @@ export const browserUiClasses = Object.freeze({
   cardMeta: 'tmt-ui-card-meta',
   meter: 'tmt-ui-meter',
   meterFill: 'tmt-ui-meter-fill',
+  segments: 'tmt-ui-segments',
   glyph: 'tmt-ui-glyph',
   page: 'tmt-ui-page',
   pageHead: 'tmt-ui-page-head',

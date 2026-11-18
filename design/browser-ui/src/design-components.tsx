@@ -48,6 +48,26 @@ export function BrowserCardMeter({
   );
 }
 
+export type BrowserSegmentState = 'done' | 'working' | 'waiting' | 'blocked' | 'todo';
+
+/** One segment per part in order, each drawn by its state; `label` names the whole, such as
+ * "4 of 9 sections done" (#6619). */
+export function BrowserSegments({
+  label,
+  states,
+}: {
+  label: string;
+  states: readonly BrowserSegmentState[];
+}) {
+  return (
+    <span className={c.segments} role="img" aria-label={label}>
+      {states.map((state, index) => (
+        <span key={index} data-state={state} />
+      ))}
+    </span>
+  );
+}
+
 /** A page overview heading followed by caller-owned facts. */
 export function BrowserOverview({
   heading,

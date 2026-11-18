@@ -80,6 +80,8 @@ export {
   BrowserEditorial,
   BrowserVisuallyHidden,
   BrowserCardMeter,
+  BrowserSegments,
+  type BrowserSegmentState,
   BrowserOverview,
   BrowserChart,
 } from './design-components.js';
