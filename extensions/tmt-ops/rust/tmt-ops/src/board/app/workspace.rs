@@ -158,7 +158,7 @@ impl App {
         &self,
         row: &OpsTreeRow,
     ) -> Option<crate::board::activity::Label> {
-        self.activity_label_in_frame(row, std::time::Instant::now(), crate::status::now_ms())
+        self.activity_label_in_frame(row, crate::status::now_instant(), crate::status::now_ms())
     }
     pub(in crate::board) fn activity_label_in_frame(
         &self,

@@ -192,7 +192,9 @@ fn accepted_burn_marks_the_token_figure_in_no_color_with_motion_off() {
     let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
     let mut bold = |app: &App| {
         terminal
-            .draw(|frame| crate::board::view::render(frame, app))
+            .draw(|frame| {
+                crate::status::with_now_instant(now, || crate::board::view::render(frame, app))
+            })
             .unwrap();
         let buffer = terminal.backend().buffer();
         let area = *figures(app).last().expect("member token figure");

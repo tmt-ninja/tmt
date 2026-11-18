@@ -53,6 +53,7 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
 
 #[test]
 fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
+    let now = 1_791_600_000_000;
     let (mut app, key) = read_with(vec![todo(1), done(2)]);
     press(&mut app, KeyCode::Enter);
     assert!(app.input.is_some(), "Talk opens the editor");
@@ -143,7 +144,7 @@ fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
         finals.clone(),
         Ok(vec![serde_json::json!({
             "requestId": "some-other-request", "recipientId": recipient,
-            "response": "done", "submittedAtMs": crate::status::now_ms() - 120_000,
+            "response": "done", "submittedAtMs": now - 120_000,
         })]),
     );
     assert!(paint(&app).contains("asked · waiting"));
@@ -161,10 +162,10 @@ fn ctrl_l_checklist_returns_to_the_same_draft_and_caret() {
         finals,
         Ok(vec![serde_json::json!({
             "requestId": "req_checklist", "recipientId": recipient,
-            "response": "completed one item", "submittedAtMs": crate::status::now_ms() - 120_000,
+            "response": "completed one item", "submittedAtMs": now - 120_000,
         })]),
     );
-    assert!(paint(&app).contains("updated 2m ago"));
+    assert!(crate::status::with_now_ms(now, || paint(&app)).contains("updated 2m ago"));
     let ask_hit = app
         .notes_overlay
         .as_ref()

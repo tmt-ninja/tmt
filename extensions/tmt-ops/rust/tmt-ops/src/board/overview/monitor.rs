@@ -80,7 +80,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         digest_window: app.digest_window(),
         savings_unit: snapshot.preferences.savings_unit,
         visibility: app.workspace.visibility.clone(),
-        activity_stale: app.activity_stale(std::time::Instant::now()),
+        activity_stale: app.activity_stale(crate::status::now_instant()),
     };
     let mut cache = app.overview_rows.borrow_mut();
     if let Some((old, scene)) = &cache.held

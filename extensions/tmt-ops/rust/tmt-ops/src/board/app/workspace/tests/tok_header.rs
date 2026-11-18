@@ -201,7 +201,6 @@ const LISTS: [&str; 1] = ["squads"];
 #[test]
 fn row_flash_tints_activity_background_and_preserves_its_glyphs() {
     use crate::board::{agents_live::AgentsLiveUsage, workspace::OpsTarget};
-    use std::time::Duration;
     let mut app = open(SavingsUnit::Tokens);
     app.view.as_mut().unwrap().look = crate::look::Look {
         theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
@@ -243,11 +242,11 @@ fn row_flash_tints_activity_background_and_preserves_its_glyphs() {
             identity_id: MEMBER.into()
         }
     );
-    let future = Instant::now() + Duration::from_secs(60);
+    let now = Instant::now();
     app.agents_live
-        .row_flash(key.clone(), false, false, 0, true, future);
-    app.agents_live.row_flash(key, true, false, 0, true, future);
-    let after = frame(&app, 160);
+        .row_flash(key.clone(), false, false, 0, true, now);
+    app.agents_live.row_flash(key, true, false, 0, true, now);
+    let after = crate::status::with_now_instant(now, || frame(&app, 160));
     let flash = app.look().selection().bg.unwrap();
     let text_ink = app.look().role(tmt_cli_style::Role::Text).fg.unwrap();
     let dim_ink = app.look().role(tmt_cli_style::Role::Dim).fg.unwrap();
@@ -736,11 +735,16 @@ fn consecutive_row_flash_stages_only_diff_the_flashing_row_background() {
         }
     );
     let now = Instant::now();
+    let wall = 1_791_600_000_000;
+    let draw = |at| {
+        crate::status::with_now_instant(at, || {
+            crate::status::with_now_ms(wall, || frame(&app, 160))
+        })
+    };
     app.agents_live
         .row_flash(key.clone(), false, false, 0, true, now);
-    app.agents_live
-        .row_flash(key.clone(), true, false, 0, true, now);
-    let first = frame(&app, 160);
+    app.agents_live.row_flash(key, true, false, 0, true, now);
+    let first = draw(now);
     let row = (0..first.area.height)
         .find(|y| {
             (0..first.area.width)
@@ -752,12 +756,7 @@ fn consecutive_row_flash_stages_only_diff_the_flashing_row_background() {
     let row_end = (0..first.area.width)
         .find(|x| first[(*x, row)].symbol() == "│")
         .expect("workspace divider");
-    let later_start = Instant::now() - Duration::from_millis(600);
-    app.agents_live
-        .row_flash(key.clone(), false, false, 0, true, later_start);
-    app.agents_live
-        .row_flash(key, true, false, 0, true, later_start);
-    let second = frame(&app, 160);
+    let second = draw(now + Duration::from_millis(600));
     let changes = first.diff(&second);
     assert!(
         !changes.is_empty(),

@@ -310,7 +310,7 @@ impl ClockSurface {
                 super::super::overview::quota::usage_clock_mark(app, now, *width)
             }
             Self::UsageChart => super::super::overview::chart::host::clock_mark(app, now),
-            Self::ActivityStale(deadline) => (std::time::Instant::now() > *deadline).to_string(),
+            Self::ActivityStale(deadline) => (crate::status::now_instant() > *deadline).to_string(),
             Self::ActivityAge(at) => crate::requests::age(now, *at),
             Self::SquadBreath => ((now / 600) % 2).to_string(),
             Self::WorkingTurn { at, motion } => format!(
@@ -510,7 +510,7 @@ pub(super) fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
     let digits = meter.digits();
     let readout_width = usize::from(area.width).saturating_sub(if layout.spark { 9 } else { 0 });
     let mut spans = if let Some(readout) =
-        selected_bar.and_then(|bar| meter.bar_readout(bar, std::time::Instant::now()))
+        selected_bar.and_then(|bar| meter.bar_readout(bar, crate::status::now_instant()))
     {
         vec![Span::raw(readout)]
     } else {
