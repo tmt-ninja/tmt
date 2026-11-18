@@ -532,13 +532,11 @@ the header names the saved window and the twelve grey cells run oldest to newest
 The TOK column switches between tokens and cost. Its Range cycles through 5m,
 10m, 1h, 3h, 6h, 1d and 7d. A recent increase in observed tokens bolds the figure
 in every look. Workspace settings can turn motion off while keeping this cue.
-A member waiting on a reported provider form has a `◆ form` mark. The Talk pane
-shows the question and choices, plan or permission, and labels truncated or
-stale content. When Core marks a complete form answerable, a person can press
-`f` in Talk or click Answer form, then choose Send answer, Approve plan, or
-Keep planning. Approve plan uses manual edits. Agents never answer a provider
-form. For a terminal-only form, use the jump action. If delivery is unconfirmed,
-check the terminal before taking further action. The board never resends the answer.
+Talk marks a waiting provider form with `◆ form`. For a complete form Core
+marks answerable, press `f` in Talk or click Answer form. Only the user can
+send. Agents never answer forms. Approve plan uses manual edits. Truncated,
+stale and terminal-only forms stay read-only. Jump to answer terminal-only forms.
+If delivery is unconfirmed, check the terminal. The board never resends.
 Missing evidence is `—`, while an observed zero is `0`; partial totals are marked `~`.
 Narrow tables drop HOST, then ACTIVITY. ◷ is the total **timers owned** by that member in the row's
 room, paused included: known zero is `0`, unavailable is `—`. Digest/runtime
