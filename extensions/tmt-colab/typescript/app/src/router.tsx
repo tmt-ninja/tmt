@@ -374,6 +374,7 @@ function PageFloatingActions({
             tooltipPlacement={tooltipPlacement}
             busy={selectPending}
             label={text.selectionMode}
+            tooltipLabel={enabled ? undefined : text.selectionModeTooltip}
             ariaKeyShortcuts={enabled ? 'c Escape' : 'c'}
             pressed={enabled}
             icon={
@@ -2116,6 +2117,60 @@ function OpenPage({
   useEffect(() => {
     renderer.current?.selectionMode(canSelect && selectionMode);
   }, [canSelect, selectionMode]);
+  /** Reports a block, or text in it, as the selection, placed at `rect` (#6449, #6611). */
+  const selectBlock = (value: string | undefined, block: HTMLElement, rect: DOMRect) => {
+    const surface = host.current?.parentElement;
+    const id = block.dataset.blockId;
+    const exact = [...(value ?? '').replace(/\s+/gu, ' ').trim()].slice(0, 512).join('');
+    if (!surface || !id) return false;
+    const bounds = surface.getBoundingClientRect();
+    onSelection(
+      { block: id, ...(exact ? { quote: { exact, prefix: '', suffix: '' } } : {}) },
+      {
+        x: rect.left - bounds.left,
+        y: rect.top - bounds.top,
+        width: rect.width,
+        height: rect.height,
+      },
+    );
+    return true;
+  };
+  const selectBlockRef = useRef(selectBlock);
+  selectBlockRef.current = selectBlock;
+  // A block page's text is its editor, in the parent document: a text selection in one block
+  // offers the same Annotate control an HTML page's selection does, without Selection mode (#6611).
+  const blockPage = view.pageType === 'blocks';
+  useEffect(() => {
+    if (!blockPage || !canSelect || selectionMode) return;
+    let reported = false;
+    const change = () => {
+      // An open window moves focus to its composer; that is not a new selection.
+      if (annotationRef.current) return;
+      const selection = document.getSelection();
+      const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+      const stage = structuredStage.current;
+      const start = range?.startContainer;
+      const element = start instanceof Element ? start : start?.parentElement;
+      const block = element?.closest<HTMLElement>('[data-block-id]');
+      // A selection across blocks anchors to its first block, its quote cut to that block.
+      const own = range && block ? range.cloneRange() : null;
+      if (own && block && !block.contains(own.endContainer))
+        own.setEnd(block, block.childNodes.length);
+      const value = own?.toString().trim();
+      if (own && !own.collapsed && value && block && stage?.contains(block)) {
+        reported = selectBlockRef.current(value, block, own.getBoundingClientRect());
+      } else if (reported) {
+        reported = false;
+        onSelection(null, null);
+      }
+    };
+    document.addEventListener('selectionchange', change);
+    return () => {
+      document.removeEventListener('selectionchange', change);
+      if (reported) onSelection(null, null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onSelection only sets state
+  }, [blockPage, canSelect, selectionMode, annotationRef]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       const target = event.target;
@@ -3264,27 +3319,7 @@ function OpenPage({
                       if (thread) openThread(thread.ref, { revealInPage: false });
                     }}
                     onAnnotateBlock={(value, block) => {
-                      const surface = host.current?.parentElement;
-                      const id = block.dataset.blockId;
-                      const exact = [...(value ?? '').replace(/\s+/gu, ' ').trim()]
-                        .slice(0, 512)
-                        .join('');
-                      if (!surface || !id) return;
-                      const bounds = surface.getBoundingClientRect();
-                      const rect = block.getBoundingClientRect();
-                      onSelection(
-                        {
-                          block: id,
-                          ...(exact ? { quote: { exact, prefix: '', suffix: '' } } : {}),
-                        },
-                        {
-                          x: rect.left - bounds.left,
-                          y: rect.top - bounds.top,
-                          width: rect.width,
-                          height: rect.height,
-                        },
-                      );
-                      annotate();
+                      if (selectBlock(value, block, block.getBoundingClientRect())) annotate();
                     }}
                     binding={liveError || archived ? undefined : snapshot.binding}
                     workSource={workSource}

@@ -477,10 +477,18 @@ function Blocks({
       }
       state={drag?.id === block.id ? 'dragging' : undefined}
       // A selected block takes keyboard focus, so Delete, the arrows and ⌘Z reach the page; focus
-      // already inside it (a table's menu or column name field) stays where it is.
+      // already inside it (a table's menu or column name field) stays where it is. Focus outside the
+      // page's blocks (the Chat composer, a comment reply) stays too: this runs on every redraw,
+      // and an agent's edit must never move a person's typing into the page (#6611).
       tabIndex={rest.selected?.includes(block.id) ? -1 : undefined}
       ref={(node: HTMLDivElement | null) => {
-        if (node && rest.selectionFocus === block.id && !node.contains(document.activeElement))
+        const active = document.activeElement;
+        if (
+          node &&
+          rest.selectionFocus === block.id &&
+          !node.contains(active) &&
+          (!active || active === document.body || !!active.closest('[data-block-id]'))
+        )
           node.focus();
       }}
       readonly={rest.readonly}
