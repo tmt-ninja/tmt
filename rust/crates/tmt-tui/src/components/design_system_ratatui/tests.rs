@@ -6,7 +6,7 @@ use tmt_cli_style::{Depth, Theme, theme::Base};
 
 #[test]
 fn activity_glyphs_keep_selection_across_all_levels_in_every_look() {
-    let glyphs = ["·", "▁", "▁", "▂", "▃", "▄", "▆", "█"];
+    let glyphs = ["·", "▁", "▂", "▃", "▄", "▅", "▆", "█"];
     let area = NativeRect::new(0, 0, glyphs.len() as u16, 1);
     for (base, depth) in [
         (Base::Tmt, Depth::TrueColor),

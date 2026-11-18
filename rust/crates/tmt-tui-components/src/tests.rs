@@ -212,7 +212,7 @@ fn activity_keeps_missing_zero_and_all_six_glyph_levels() {
             height: 1,
         });
         ActivityCells::render(&props, area(8, 1), &mut grid);
-        for (x, glyph) in ["·", "▁", "▁", "▂", "▃", "▄", "▆", "█"]
+        for (x, glyph) in ["·", "▁", "▂", "▃", "▄", "▅", "▆", "█"]
             .into_iter()
             .enumerate()
         {

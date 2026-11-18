@@ -53,7 +53,7 @@ impl Component for ActivityCells {
                         .div_ceil(u128::from(maximum))
                         .clamp(1, 6)
                         - 1) as usize;
-                    (["▁", "▂", "▃", "▄", "▆", "█"][level], Role::Text)
+                    (["▂", "▃", "▄", "▅", "▆", "█"][level], Role::Text)
                 }
             };
             grid.text(rect, glyph, role, None);

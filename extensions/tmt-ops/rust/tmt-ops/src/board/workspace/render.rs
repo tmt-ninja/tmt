@@ -2191,7 +2191,7 @@ mod usage_tests {
                                 assert_eq!(cell.fg, quiet, "{base:?} selected gap");
                             }
                         }
-                        "▁" | "▂" | "▃" | "▄" | "▆" | "█" => level = true,
+                        "▂" | "▃" | "▄" | "▅" | "▆" | "█" => level = true,
                         _ => continue,
                     }
                     assert_eq!(cell.bg, leading.bg, "{base:?} {depth:?}");
