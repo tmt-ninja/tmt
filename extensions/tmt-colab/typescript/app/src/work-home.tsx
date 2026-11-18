@@ -279,7 +279,7 @@ export function WorkHome() {
     const same = (Object.keys(patch) as (keyof WorkSearch)[]).every(
       (key) => JSON.stringify(patch[key]) === JSON.stringify(search[key]),
     );
-    if (same) return;
+    if (same && (!replace || entry)) return;
     void navigate({
       search: (previous) => ({ ...previous, ...patch }),
       state: (previous) => ({ ...previous, workView: true }) as typeof previous,
@@ -291,10 +291,10 @@ export function WorkHome() {
   // made: an entry reached by Back after choosing All stays All.
   const remembered = !entry && search.project === undefined ? storedProject() : undefined;
   useEffect(() => {
-    if (remembered !== undefined) go({ project: remembered }, true);
-    // `go` is rebuilt each render; the remembered name is the whole dependency.
+    if (!entry) go({ project: search.project ?? remembered }, true);
+    // Initialize the entry on mount. Leaving Work home also changes the location state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remembered]);
+  }, []);
   const project = search.project ?? remembered;
   const period: Period = search.period ?? 'week';
   const only = search.status;

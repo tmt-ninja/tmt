@@ -172,7 +172,7 @@ export function Home() {
   const currentShortcut = shortcuts.items.find((item) => item.id === search.shortcut);
   function savedShortcut(item: Shortcut) {
     setShortcutDialog(undefined);
-    void navigate({ search: { ...item.search, shortcut: item.id } });
+    void navigate({ search: { ...item.search, shortcut: item.id }, resetScroll: false });
   }
 
   // The owner folds summaries in the background: while an active page has none the list reads
@@ -191,14 +191,18 @@ export function Home() {
         ? (search.stage ?? DEFAULT_VIEW)
         : 'all';
   const sort: PageSort = search.sort ?? 'updated';
-  const filter = pageListFilter({ ...search, ...(!port ? { stage: undefined } : {}) });
+  const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
+  const filter = pageListFilter({
+    ...search,
+    project: search.project?.filter((name) => projectNames.includes(name)),
+    ...(!port ? { stage: undefined } : {}),
+  });
   const shown = homePages.filter((p) =>
     archived ? Boolean(p.archived) : search.includeArchived || !p.archived,
   );
   // The pages the tab holds: a stage tab keeps the pages at that stage, so one that has not
   // reported its sub-pages yet is in none of them.
   const staged = filter.stage ? shown.filter((p) => pageStage(p) === filter.stage) : shown;
-  const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
   // The projects are the base: filters, counts and the needs-you chip see only the pages in them.
   // One project names the list (title, crumb, empty text) as a scope did.
   const scope = filter.projects.length === 1 ? filter.projects[0] : undefined;
@@ -299,7 +303,7 @@ export function Home() {
   // Each applied change is a history entry, so Back and Forward restore the filters (#6612); the
   // search text applies on Enter, never per keystroke.
   function setSearch(patch: Partial<HomeSearch>) {
-    void navigate({ search: (previous) => ({ ...previous, ...patch }) });
+    void navigate({ search: (previous) => ({ ...previous, ...patch }), resetScroll: false });
   }
   /** The choice is the default the next visit opens on; All pages removes it. */
   // The side menu lists shortcuts, not projects: the owner's explicit pinned projects become

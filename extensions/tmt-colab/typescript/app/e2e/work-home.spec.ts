@@ -87,40 +87,43 @@ test('a Work home row shows status details from its dot and opens its page from 
 });
 
 // The view lives in the URL (#6612): a filter, a page opened from it and Back restore the filter.
-test('Work home keeps its filters in the URL, so Back from a page restores them', async ({
-  page,
-}) => {
-  await page.goto('/');
-  await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
-  await page.evaluate(async () => {
-    const path = '/test/page-list-browser.tsx';
-    await (await import(path)).mountPageList('work-home', '/work');
+for (const width of [390, 1440])
+  test(`Work home keeps its filters in the URL at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
+    await page.evaluate(async () => {
+      const path = '/test/page-list-browser.tsx';
+      await (await import(path)).mountPageList('work-home', '/colab/work');
+    });
+    const home = page.locator('#list-fixture');
+    const rows = home.locator('.tmt-ui-work-row');
+    await expect(rows).toHaveCount(8);
+    await home.getByRole('button', { name: '3 In progress' }).click();
+    await home.getByRole('button', { name: '30 days' }).click();
+    await expect(rows).toHaveCount(3);
+    await expect(page).toHaveURL(/status=working/);
+    await home.getByRole('link', { name: 'Mockup toolbar has no spacing' }).click();
+    await expect(page).toHaveURL(/\/pages\//);
+    await page.goBack();
+    await expect(rows).toHaveCount(3);
+    await expect(home.getByRole('button', { name: '3 In progress' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(home.getByRole('button', { name: '30 days' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    // Back again undoes one choice at a time.
+    await page.goBack();
+    await expect(home.getByRole('button', { name: '30 days' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    await page.goBack();
+    await expect(rows).toHaveCount(8);
+    await page.goForward();
+    await expect(rows).toHaveCount(3);
+    await expect(page).toHaveURL(/status=working/);
   });
-  const home = page.locator('#list-fixture');
-  const rows = home.locator('.tmt-ui-work-row');
-  await expect(rows).toHaveCount(8);
-  await home.getByRole('button', { name: '1 Blocked' }).click();
-  await home.getByRole('button', { name: '30 days' }).click();
-  await expect(rows).toHaveCount(1);
-  await expect(page).toHaveURL(/status=blocked/);
-  await rows.first().getByRole('link').click();
-  await expect(page).toHaveURL(/\/pages\//);
-  await page.goBack();
-  await expect(rows).toHaveCount(1);
-  await expect(home.getByRole('button', { name: '1 Blocked' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await expect(home.getByRole('button', { name: '30 days' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  // Back again undoes one choice at a time.
-  await page.goBack();
-  await expect(home.getByRole('button', { name: '30 days' })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  );
-  await page.goBack();
-  await expect(rows).toHaveCount(8);
-});

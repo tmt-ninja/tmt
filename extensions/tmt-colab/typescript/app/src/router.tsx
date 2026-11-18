@@ -4055,7 +4055,7 @@ export function createAppRouter(
     history,
     // Back and Forward return to where a list was scrolled (#6612). Each history entry has its own
     // place, so a new visit to the same address starts at the top as before.
-    scrollRestoration: true,
+    scrollRestoration: inShell(),
     getScrollRestorationKey: (location) => location.state.__TSR_key ?? location.href,
     // In the TMT app the router's paths sit under /colab/, or at the root when the shell mounted
     // this module for Design at /design/ (#5873), where its /design routes match as they are.

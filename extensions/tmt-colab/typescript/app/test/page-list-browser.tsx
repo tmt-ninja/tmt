@@ -1,6 +1,7 @@
 /** The page list with project writes recorded in the window: deterministic data, no real transport. */
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
+import { hostInShell } from '../src/entry.js';
 import { createAppRouter } from '../src/router.js';
 import type { PageWorkRow } from '../src/bootstrap.js';
 import {
@@ -661,7 +662,10 @@ export async function mountPageList(
     },
   };
   // Set before the router reads its history, so a redirect in the first load is not overwritten.
-  location.hash = hash;
+  if (hash.startsWith('/colab/')) {
+    hostInShell(null);
+    history.replaceState(history.state, '', hash);
+  } else location.hash = hash;
   let remainingFailure = failure;
   const router = createAppRouter({
     ...transport,
