@@ -15,6 +15,7 @@ import {
   encodeBinary,
 } from '@tmt/colab-client';
 import { deviceKeys, type DeviceKeys } from './keyring.js';
+import { verifyStatement } from './verified-statements.js';
 
 interface CertifiedKey {
   publicKey: string;
@@ -214,7 +215,7 @@ export async function register(
 /** Call only with the root bound to the selected space, before trusting registration. */
 export async function verifyRegistration(value: Registration, space: string, owner: Uint8Array) {
   requireValue((await deriveSpaceId(owner)) === space && value.issuer !== undefined);
-  const verified = await value.issuer.verifyNext(space, owner, null),
+  const verified = await verifyStatement(value.issuer.toJson(), value.issuer, space, owner, null),
     c = value.chain.certificate();
   requireValue(
     c.space === space &&

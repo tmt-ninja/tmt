@@ -15,6 +15,7 @@ import {
   wrap,
 } from '@tmt/colab-client';
 import { record } from './storage.js';
+import { verifyStatement } from './verified-statements.js';
 import { verifyRegistration, type Registration } from './registration.js';
 
 export const STATEMENT_ENVELOPE_BYTES = Math.floor(((payload.MAX_BYTES + 1024) * 4) / 3) + 2048;
@@ -233,7 +234,7 @@ export class Admission {
       hash = typeof raw === 'string' ? null : raw.hash.slice(),
       envelope = statement.Envelope.fromJson(bytes);
     if (hash) requireValue(equal(await envelope.hash(), hash));
-    const verified = await envelope.verifyNext(this.space, this.owner, head);
+    const verified = await verifyStatement(bytes, envelope, this.space, this.owner, head);
     return { verified, raw: encodeBinary(bytes) };
   }
   #budget(raw: string[]) {
@@ -287,7 +288,11 @@ export class Admission {
     );
     this.#budget(raw);
     pageLifecycle(log, this.page);
-    if (!this.reader)
+    // The durable log is written only when its bytes change: a catch-up that added no statement
+    // leaves exactly the log this admission restored or last stored, so the shared lock and the
+    // rewrite are skipped (#6456).
+    const changed = raw.length !== this.#raw.length || raw.some((v, i) => v !== this.#raw[i]);
+    if (!this.reader && changed)
       await navigator.locks.request(`colab-log:${this.space}`, async () => {
         const previous = await record<string[]>(`log:${this.space}`);
         // Another tab may have advanced. Never replace its higher/forked durable head.
