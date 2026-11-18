@@ -382,8 +382,9 @@ export function StatusDetailsBody({
       ?.url.split('/')
       .at(-1);
   const reason =
+    // A blocked item's own reason is the sentence under the heading, never prefixed again.
     state === 'blocked'
-      ? t.statusReason.blocked(blocked)
+      ? (blocked ?? t.statusReason.blocked(undefined))
       : state === 'waiting-ci'
         ? t.statusReason['waiting-ci'](prNumber('open'))
         : state === 'waiting-release'

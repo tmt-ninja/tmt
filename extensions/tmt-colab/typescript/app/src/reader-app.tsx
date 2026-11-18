@@ -189,6 +189,29 @@ export function ReaderApp({
       renderer.current = null;
     };
   }, [source, shell, layout, resetPageLinks, requestPageLink, editLockLayer.onEditLocks]);
+  // The rendered page's outline (#6470): on a phone a bar above the page; otherwise a compact menu
+  // button beside the title in the top bar, never over the page's own text.
+  const outlineNode =
+    state.kind === 'ready' && !shell && (outline?.entries.length ?? 0) >= 3 ? (
+      <PageOutline
+        headings={outline!.entries.map((entry, index) => ({
+          id: String(index),
+          title: entry.text,
+          level: entry.level,
+        }))}
+        locate={(id) => {
+          const index = Number(id);
+          const entry = outline?.entries[index];
+          const frame = host.current?.querySelector('iframe');
+          if (!entry || !frame || !outline) return undefined;
+          return {
+            top: () => frame.getBoundingClientRect().top + entry.top,
+            scrollTo: () => renderer.current?.scrollOutline(outline.snapshot, index),
+          };
+        }}
+        compact
+      />
+    ) : undefined;
   return (
     <>
       {pageLinkBar}
@@ -197,15 +220,20 @@ export function ReaderApp({
         reader
         headingSuffix={
           state.kind === 'ready' && !shell && !phone ? (
-            <WorkBand
-              onSize={setWorkBandSize}
-              owner={state.view.owner}
-              priority={state.view.priority}
-              subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
-              pageState={
-                state.view.state === undefined ? (state.view.pageState ?? 'todo') : state.view.state
-              }
-            />
+            <>
+              {outlineNode && <span className="reader-outline-bar">{outlineNode}</span>}
+              <WorkBand
+                onSize={setWorkBandSize}
+                owner={state.view.owner}
+                priority={state.view.priority}
+                subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
+                pageState={
+                  state.view.state === undefined
+                    ? (state.view.pageState ?? 'todo')
+                    : state.view.state
+                }
+              />
+            </>
           ) : undefined
         }
         brandOnly={state.kind !== 'ready'}
@@ -332,28 +360,7 @@ export function ReaderApp({
                 </MobileWorkTitle>
               )}
               <div className="canvas">
-                {(outline?.entries.length ?? 0) >= 3 && (
-                  <div className="reader-outline">
-                    <PageOutline
-                      headings={outline!.entries.map((entry, index) => ({
-                        id: String(index),
-                        title: entry.text,
-                        level: entry.level,
-                      }))}
-                      locate={(id) => {
-                        const index = Number(id);
-                        const entry = outline?.entries[index];
-                        const frame = host.current?.querySelector('iframe');
-                        if (!entry || !frame || !outline) return undefined;
-                        return {
-                          top: () => frame.getBoundingClientRect().top + entry.top,
-                          scrollTo: () => renderer.current?.scrollOutline(outline.snapshot, index),
-                        };
-                      }}
-                      compact
-                    />
-                  </div>
-                )}
+                {phone && outlineNode && <div className="reader-outline">{outlineNode}</div>}
                 <div className="frame-host" ref={host} />
                 {editLockLayer.layer}
                 {(render === 'navigation' || render === 'failed') && (

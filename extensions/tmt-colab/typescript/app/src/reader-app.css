@@ -93,3 +93,47 @@
     box-shadow: none;
   }
 }
+
+/* Desktop: the outline is a menu button beside the title in the top bar; its list opens under it. */
+.reader-outline-bar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-inline: var(--tmt-ui-space-s);
+  vertical-align: middle;
+}
+.reader-outline-bar .page-outline {
+  position: static;
+  max-height: none;
+  padding: 0;
+}
+.reader-outline-bar .page-outline-toggle {
+  width: 34px;
+  min-height: 34px;
+  justify-content: center;
+}
+.reader-outline-bar .page-outline-desktop,
+.reader-outline-bar .page-outline-phone,
+.reader-outline-bar .page-outline-count,
+.reader-outline-bar .page-outline-chevron {
+  display: none;
+}
+.reader-outline-bar .page-outline-icon {
+  display: block;
+}
+.reader-outline-bar .page-outline-list {
+  position: absolute;
+  top: calc(100% + var(--tmt-ui-space-xs));
+  left: 0;
+  z-index: 60;
+  width: 220px;
+  max-height: calc(100dvh - 2 * var(--page-bar-size, 56px));
+  box-sizing: border-box;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--tmt-ui-space-xs);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius-l);
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
