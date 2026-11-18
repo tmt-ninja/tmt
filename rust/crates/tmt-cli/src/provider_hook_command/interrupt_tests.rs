@@ -955,3 +955,130 @@ fn owner_liveness_reuses_learning_owner_only_on_exact_pid_and_start_match() {
     );
     assert_eq!(absent.probes.load(Ordering::Relaxed), 1);
 }
+
+#[test]
+fn starting_lifecycle_commits_turn_started_and_refuses_context_after_concurrent_rebind() {
+    let registry = RuntimeRegistry::first_party();
+    let harness = HarnessId::new("agy").unwrap();
+    let lifecycle = registry.lifecycle(&harness).unwrap();
+    let session = ProviderSessionId::new("11111111-1111-4111-8111-111111111111").unwrap();
+    let process = ProcessIncarnation::new(20, "runtime").unwrap();
+    let owner = ProcessIncarnation::new(15, "owner").unwrap();
+    let host = HostEvidence::Independent { runtime_pid: None };
+    let payload = br#"{"hookEventName":"PreInvocation","conversationId":"11111111-1111-4111-8111-111111111111","invocationNum":1,"lastUserInput":"hello"}"#;
+
+    for detach_in_callback in [false, true] {
+        let directory = Directory::new();
+        let paths = ConfigPaths {
+            global_dir: directory.0.clone(),
+            global_config: directory.0.join("config.json"),
+            local_config: directory.0.join("local.json"),
+            database: directory.0.join("state.db"),
+        };
+        let mut storage = Storage::open(&paths.database).unwrap();
+        let identity = create_or_resolve(&mut storage, "Agy Worker", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let server = ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
+            server_id: "123e4567-e89b-42d3-a456-426614174000".into(),
+            socket_path: "/tmp/test.sock".into(),
+            server_pid: 10,
+            server_start_time: "server".into(),
+        };
+        let mut pane = PaneObservation {
+            agent_name: None,
+            id: "fake-1".into(),
+            target: None,
+            cwd: None,
+            command: "agy".into(),
+            pane_pid: 11,
+            pane_incarnation: Some("pane".into()),
+            suggested_name: None,
+            marker: None,
+            location: None,
+        };
+        let preferences = SessionPreferences {
+            preferred_harness: Some(harness.clone()),
+            ..Default::default()
+        };
+        let binding = storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                let binding = records.insert_binding(&identity, &server, &pane)?;
+                let mut state = binding.session.clone();
+                state.state = tmt_core::binding::session::RuntimeState::Running;
+                state.launch_owner = Some(owner.clone());
+                state.key = Some(tmt_core::binding::session::ObservedSessionKey {
+                    incarnation: process.clone(),
+                    provider_session: None,
+                });
+                assert!(records.set_session_state(&binding.id, &binding.session, &state)?);
+                records.set_session_preferences(&identity.id, &preferences)?;
+                Ok(binding)
+            })
+            .unwrap();
+        storage.close().unwrap();
+
+        let stored = Storage::context_by_identity(&paths.database, &identity.id, 0)
+            .unwrap()
+            .unwrap();
+        pane.marker = Some(binding.marker(&stored.entry.identity));
+        let snapshot = EndpointSnapshot {
+            server,
+            panes: vec![pane],
+        };
+        let binding_id = binding.id;
+        let event = lifecycle.decode(payload).unwrap();
+        let activity = lifecycle.decode_activity(payload).unwrap();
+        let result = observe_bound_lifecycle_event_with(
+            "agy",
+            harness.clone(),
+            lifecycle,
+            payload,
+            event,
+            BoundCaller {
+                host,
+                paths: paths.clone(),
+                stored,
+                snapshot,
+                process: process.clone(),
+            },
+            Some((&session, &activity)),
+            Instant::now() + Duration::from_secs(2),
+            None,
+            |_stored, cb_paths, _, _| {
+                if detach_in_callback {
+                    let mut storage = Storage::open(&cb_paths.database).unwrap();
+                    storage
+                        .with_binding_transaction::<_, StorageError>(|records| {
+                            records.detach_binding(&binding_id)
+                        })
+                        .unwrap();
+                    storage.close().unwrap();
+                }
+                Ok("Extension lifecycle context.\n".into())
+            },
+        );
+
+        let after = Storage::context_by_identity(&paths.database, &identity.id, 0)
+            .unwrap()
+            .unwrap();
+        let state = after.preferences.remembered.unwrap().state.unwrap();
+        assert_eq!(
+            lifecycle.state_activity(&state).unwrap().phase,
+            ActivityPhase::Working,
+            "TurnStarted must commit inside the lifecycle transaction"
+        );
+        if detach_in_callback {
+            assert!(result.is_err());
+            assert!(after.entry.binding.is_none());
+        } else {
+            let observation = result.unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(&observation.context).unwrap();
+            assert_eq!(
+                parsed["injectSteps"][0]["systemMessage"]["systemMessage"],
+                "Extension lifecycle context.\n"
+            );
+        }
+    }
+}

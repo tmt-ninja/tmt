@@ -749,6 +749,15 @@ impl Storage {
         let placeholders = vec!["?"; ids.len()].join(",");
         workspace_projection(path, &format!("i.id IN ({placeholders})"), ids)
     }
+
+    /// Read a launch observation on this open handle without acquiring a write lock (#6529).
+    pub fn launch_observation(
+        &self,
+        binding_id: &str,
+        owner: &ProcessIncarnation,
+    ) -> Result<Option<tmt_core::binding::session::launch::LaunchObservation>, StorageError> {
+        super::launch_observations::read(self.connection()?, binding_id, owner)
+    }
 }
 
 fn workspace_projection(
