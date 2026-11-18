@@ -6086,6 +6086,11 @@ browser-ui parts running on the page runtime's React. A component declares its n
 or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
 does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
 as needing a newer TMT.
+The tmt GUI Work display tags render authored work rows, counts, ratios, completions, field chips
+and the Next line using the Work home stylesheet. They accept display values only. Counts, cells
+and ordered titles are JSON arrays in attributes. Their catalog entries give examples and list the
+enumerated values. They request no host data and create no navigation or order writes.
+
 The tmt GUI's block and structured-page tags (question, image, mockup, work bundle and page view
 among them) render their browser-ui part through `ui`; the `page` data and `PageListTable` slot
 capabilities above stay declared by the tags that need them, and a page view with authored `rows`

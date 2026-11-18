@@ -2907,6 +2907,238 @@
    "code": "return ({ React, ui }) => function WorkBand({ stage = 'In progress', done = '0', total = '0', pages = '[]' }) {\n  const parse = () => {\n    try { const value = JSON.parse(pages); return Array.isArray(value) ? value.filter((item) => item && typeof item.title === 'string' && typeof item.stage === 'string' && Number.isFinite(item.done) && Number.isFinite(item.total)).slice(0, 50) : []; } catch { return []; }\n  };\n  const [items, setItems] = React.useState(parse);\n  return React.createElement(ui.BrowserWorkBand, { stage, done: Number(done) || 0, total: Number(total) || 0, pages: items, onAdd: () => setItems((current) => [...current, {title: `New sub-page ${current.length + 1}`, stage: 'To do', done: 0, total: 0}]) });\n};\n"
   },
   {
+   "tag": "tmt-ui-work-row",
+   "props": {
+    "state": {
+     "enum": [
+      "working",
+      "waiting-ci",
+      "waiting-release",
+      "blocked",
+      "needs-you",
+      "possibly-stalled",
+      "discussing",
+      "done",
+      "unknown",
+      "unchecked"
+     ],
+     "default": "discussing"
+    },
+    "number": {
+     "type": "string"
+    },
+    "next": {
+     "type": "string"
+    },
+    "owner": {
+     "type": "string"
+    },
+    "time": {
+     "type": "string"
+    },
+    "priority": {
+     "enum": [
+      "normal",
+      "high"
+     ],
+     "default": "normal"
+    },
+    "label": {
+     "type": "string"
+    },
+    "words": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "WorkRow"
+   ],
+   "examples": [
+    {
+     "title": "Work row",
+     "markup": "<tmt-ui-work-row words=\"High\" state=\"working\" number=\"COLAB-143\" label=\"Review the toolbar\" owner=\"gui-3\" time=\"3 min\"></tmt-ui-work-row>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => function WorkRow({label, ...props}) {\n  return React.createElement(ui.WorkRow, {...props, title: label});\n};\n"
+  },
+  {
+   "tag": "tmt-ui-work-overview",
+   "props": {
+    "counts": {
+     "type": "string"
+    },
+    "words": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "WorkOverview"
+   ],
+   "examples": [
+    {
+     "title": "Status overview",
+     "markup": "<tmt-ui-work-overview words=\"Open work by status\" counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-overview>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => function WorkOverview({ counts = '[]', ...props }) {\n  let values;\n  try { values = JSON.parse(counts); } catch { values = null; }\n  if (!Array.isArray(values) || !values.every(value => value && ['working', 'waiting-ci', 'waiting-release', 'blocked', 'needs-you', 'possibly-stalled', 'discussing', 'done', 'unknown', 'unchecked'].includes(value.state) && typeof value.label === 'string' && Number.isSafeInteger(value.count) && value.count >= 0))\n    return React.createElement('span', { role: 'alert', 'data-tmt-ds-notice': '' }, 'Invalid counts for work-overview.');\n  return React.createElement(ui.WorkOverview, { ...props, counts: values });\n};\n"
+  },
+  {
+   "tag": "tmt-ui-work-ratio",
+   "props": {
+    "counts": {
+     "type": "string"
+    },
+    "words": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "WorkRatio"
+   ],
+   "examples": [
+    {
+     "title": "Status ratio bar",
+     "markup": "<tmt-ui-work-ratio words=\"Work by status\" counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-ratio>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => function WorkRatio({ counts = '[]', ...props }) {\n  let values;\n  try { values = JSON.parse(counts); } catch { values = null; }\n  if (!Array.isArray(values) || !values.every(value => value && ['working', 'waiting-ci', 'waiting-release', 'blocked', 'needs-you', 'possibly-stalled', 'discussing', 'done', 'unknown', 'unchecked'].includes(value.state) && typeof value.label === 'string' && Number.isSafeInteger(value.count) && value.count >= 0))\n    return React.createElement('span', { role: 'alert', 'data-tmt-ds-notice': '' }, 'Invalid counts for work-ratio.');\n  return React.createElement(ui.WorkRatio, { ...props, counts: values });\n};\n"
+  },
+  {
+   "tag": "tmt-ui-work-done-chart",
+   "props": {
+    "period": {
+     "enum": [
+      "today",
+      "week",
+      "month"
+     ],
+     "default": "week"
+    },
+    "cells": {
+     "type": "string"
+    },
+    "words": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "WorkDoneChart"
+   ],
+   "examples": [
+    {
+     "title": "Done-count chart",
+     "markup": "<tmt-ui-work-done-chart words=\"Completed work,done\" period=\"week\" cells=\"[{&quot;label&quot;:&quot;Mon&quot;,&quot;count&quot;:2},{&quot;label&quot;:&quot;Tue&quot;,&quot;count&quot;:3}]\"></tmt-ui-work-done-chart>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => function WorkDoneChart({ cells = '[]', ...props }) {\n  let values;\n  try { values = JSON.parse(cells); } catch { values = null; }\n  if (!Array.isArray(values) || !values.every(value => value && typeof value.label === 'string' && Number.isSafeInteger(value.count) && value.count >= 0 && (value.current === undefined || typeof value.current === 'boolean')))\n    return React.createElement('span', { role: 'alert', 'data-tmt-ds-notice': '' }, 'Invalid cells for work-done-chart.');\n  return React.createElement(ui.WorkDoneChart, { ...props, cells: values });\n};\n"
+  },
+  {
+   "tag": "tmt-ui-work-field-chips",
+   "props": {
+    "owner": {
+     "type": "string"
+    },
+    "priority": {
+     "enum": [
+      "normal",
+      "high"
+     ],
+     "default": "normal"
+    },
+    "next": {
+     "type": "string"
+    },
+    "blocked": {
+     "type": "string"
+    },
+    "status-label": {
+     "type": "string"
+    },
+    "pull": {
+     "type": "string"
+    },
+    "parent": {
+     "type": "string"
+    },
+    "subpages": {
+     "type": "string"
+    },
+    "state": {
+     "enum": [
+      "working",
+      "waiting-ci",
+      "waiting-release",
+      "blocked",
+      "needs-you",
+      "possibly-stalled",
+      "discussing",
+      "done",
+      "unknown",
+      "unchecked"
+     ],
+     "default": "discussing"
+    },
+    "words": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "WorkFieldChips"
+   ],
+   "examples": [
+    {
+     "title": "Work field chips",
+     "markup": "<tmt-ui-work-field-chips words=\"Priority,High,Next,Blocked,PR,Parent,Subpages\" owner=\"gui-3\" priority=\"high\" state=\"working\" status-label=\"Working\" pull=\"#6457 merged\" parent=\"Colab stability\" next=\"Review the toolbar\"></tmt-ui-work-field-chips>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => function WorkFieldChips({ 'status-label': statusLabel, ...props }) {\n  return React.createElement(ui.WorkFieldChips, { ...props, statusLabel });\n};\n"
+  },
+  {
+   "tag": "tmt-ui-work-next-line",
+   "props": {
+    "titles": {
+     "type": "string"
+    },
+    "words": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "WorkNextLine"
+   ],
+   "examples": [
+    {
+     "title": "Next line",
+     "markup": "<tmt-ui-work-next-line words=\"Next,No ranked items\" titles=\"[&quot;Review the toolbar&quot;,&quot;Check the chart&quot;,&quot;Publish&quot;]\"></tmt-ui-work-next-line>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => function WorkNextLine({ titles = '[]', ...props }) {\n  let values;\n  try { values = JSON.parse(titles); } catch { values = null; }\n  if (!Array.isArray(values) || !values.every(value => typeof value === 'string'))\n    return React.createElement('span', { role: 'alert', 'data-tmt-ds-notice': '' }, 'Invalid titles for work-next-line.');\n  return React.createElement(ui.WorkNextLine, { ...props, titles: values });\n};\n"
+  },
+  {
    "tag": "tmt-ui-message-row",
    "props": {
     "author": {
@@ -2965,5 +3197,5 @@
    "code": "return ({ React, ui }) => function StatusLine({ items = '[]' }) {\n  let parsed;\n  try { parsed = JSON.parse(items); } catch { parsed = []; }\n  const safe = Array.isArray(parsed) ? parsed.filter((item) => item && ['working', 'waiting', 'review', 'blocked'].includes(item.tone) && typeof item.label === 'string').slice(0, 20) : [];\n  return React.createElement(ui.BrowserStatusLine, { items: safe });\n};\n"
   }
  ],
- "hash": "sha256-ffcf61a9dec09b877b990937ba01c016d1e61396d64a3f7837097722be93e5d3"
+ "hash": "sha256-0670d3894b1a219cc42800c3a0b98a33d6c561419a5fdcbb850367e2da7c9d42"
 }

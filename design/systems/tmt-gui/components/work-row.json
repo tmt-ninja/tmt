@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "work-row",
+  "source": "work-row.js",
+  "props": {
+    "state": {
+      "enum": [
+        "working",
+        "waiting-ci",
+        "waiting-release",
+        "blocked",
+        "needs-you",
+        "possibly-stalled",
+        "discussing",
+        "done",
+        "unknown",
+        "unchecked"
+      ],
+      "default": "discussing"
+    },
+    "number": {
+      "type": "string"
+    },
+    "next": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "string"
+    },
+    "time": {
+      "type": "string"
+    },
+    "priority": {
+      "enum": [
+        "normal",
+        "high"
+      ],
+      "default": "normal"
+    },
+    "label": {
+      "type": "string"
+    },
+    "words": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "work.css",
+  "uiParts": [
+    "WorkRow"
+  ],
+  "examples": [
+    {
+      "title": "Work row",
+      "markup": "<tmt-ui-work-row words=\"High\" state=\"working\" number=\"COLAB-143\" label=\"Review the toolbar\" owner=\"gui-3\" time=\"3 min\"></tmt-ui-work-row>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

@@ -476,6 +476,12 @@
 .docs-status [data-tone='blocked'] {
   color: var(--tmt-ui-color-blocked);
 }
+
+
+
+
+
+
 .docs-status {
   display: flex;
   flex-wrap: wrap;

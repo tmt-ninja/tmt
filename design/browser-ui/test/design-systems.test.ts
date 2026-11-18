@@ -200,6 +200,12 @@ describe('buildBundle', () => {
       'tmt-ui-chart',
       'tmt-ui-page-row',
       'tmt-ui-work-band',
+      'tmt-ui-work-row',
+      'tmt-ui-work-overview',
+      'tmt-ui-work-ratio',
+      'tmt-ui-work-done-chart',
+      'tmt-ui-work-field-chips',
+      'tmt-ui-work-next-line',
       'tmt-ui-message-row',
       'tmt-ui-status-line',
     ]);

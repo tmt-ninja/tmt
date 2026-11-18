@@ -1168,3 +1168,58 @@ test('page search keeps its create action first and page rows square', async ({ 
   await expect(options.first()).toHaveText('Create a page called retro');
   await expect(options.nth(1)).toContainText('Weekly retro');
 });
+
+test('Work tags draw ranked work, status counts, completions and field chips without navigation', async ({
+  page,
+}) => {
+  const counts =
+    '[{"state":"working","label":"In progress","count":3},{"state":"blocked","label":"Blocked","count":1}]';
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-mockup-block><tmt-ui-work-overview counts='${counts}'></tmt-ui-work-overview>
+    <tmt-ui-work-ratio counts='${counts}'></tmt-ui-work-ratio>
+    <tmt-ui-work-done-chart cells='[{"label":"Today","count":4,"current":true}]'></tmt-ui-work-done-chart>
+    <tmt-ui-work-field-chips owner="gui-3" priority="high"></tmt-ui-work-field-chips>
+    <tmt-ui-work-row state="working" number="COLAB-143" label="Review the toolbar"></tmt-ui-work-row>
+    <tmt-ui-work-next-line titles='["Review the toolbar","Publish"]'></tmt-ui-work-next-line></tmt-ui-mockup-block>`,
+  );
+  await expect(frame.locator('.tmt-ui-work-title')).toHaveText('Review the toolbar');
+  await expect(frame.locator('.tmt-ui-work-count-number')).toHaveText(['3', '1']);
+  await expect(frame.locator('.tmt-ui-work-ratio > span').first()).toHaveCSS('flex-grow', '3');
+  await expect(frame.locator('.tmt-ui-work-done-cell[data-current]')).toHaveAccessibleName(
+    'Today: 4 done',
+  );
+  await expect(frame.locator('.tmt-ui-field-chips')).toContainText('High');
+  await expect(frame.locator('.tmt-ui-work-next-line')).toContainText(
+    'Review the toolbar → Publish',
+  );
+  await expect(frame.locator('tmt-ui-work-row a, tmt-ui-work-overview button')).toHaveCount(0);
+});
+
+test('Work tags translate visible and accessible words and reject incomplete word lists', async ({
+  page,
+}) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-work-row priority="high" words="高"></tmt-ui-work-row>
+    <tmt-ui-work-overview words="狀態"></tmt-ui-work-overview>
+    <tmt-ui-work-ratio words="比例"></tmt-ui-work-ratio>
+    <tmt-ui-work-done-chart words="完成,件" cells='[{"label":"週一","count":2}]'></tmt-ui-work-done-chart>
+    <tmt-ui-work-field-chips priority="high" pull="#1" words="優先,高,下一步,受阻,合併請求,上層,子頁"></tmt-ui-work-field-chips>
+    <tmt-ui-work-next-line words="下一步,尚無項目"></tmt-ui-work-next-line>
+    <tmt-ui-work-next-line words="下一步,"></tmt-ui-work-next-line>`,
+  );
+  await expect(frame.locator('.tmt-ui-work-priority')).toHaveText('高');
+  await expect(frame.getByRole('list', { name: '狀態' })).toHaveCount(1);
+  await expect(frame.getByRole('img', { name: '比例' })).toHaveCount(1);
+  await expect(
+    frame.getByRole('list', { name: '完成' }).locator('.tmt-ui-work-done-cell'),
+  ).toHaveAccessibleName('週一: 2 件');
+  await expect(frame.locator('.tmt-ui-field-chip')).toHaveText(['優先高', '合併請求#1']);
+  await expect(frame.locator('.tmt-ui-work-next-line')).toHaveText([
+    '下一步 尚無項目',
+    'Next No ranked items',
+  ]);
+});

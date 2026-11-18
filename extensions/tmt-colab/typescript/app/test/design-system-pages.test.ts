@@ -841,6 +841,12 @@ describe('template, publish and the renderer source', () => {
       'acme-visually-hidden',
       'acme-work-band',
       'acme-work-bundle',
+      'acme-work-done-chart',
+      'acme-work-field-chips',
+      'acme-work-next-line',
+      'acme-work-overview',
+      'acme-work-ratio',
+      'acme-work-row',
     ]);
     expect(await bundleHash(bundle!)).toBe(release!.bundle);
     // Publish from the Design header adds a version and moves the pins.

@@ -248,6 +248,24 @@
       "doc": "components/work-band.json"
     },
     {
+      "doc": "components/work-row.json"
+    },
+    {
+      "doc": "components/work-overview.json"
+    },
+    {
+      "doc": "components/work-ratio.json"
+    },
+    {
+      "doc": "components/work-done-chart.json"
+    },
+    {
+      "doc": "components/work-field-chips.json"
+    },
+    {
+      "doc": "components/work-next-line.json"
+    },
+    {
       "doc": "components/message-row.json"
     },
     {

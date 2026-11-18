@@ -699,6 +699,48 @@
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/work-band\"></tmt-ui-component-docs></div>",
     "path": "browser/work-band",
     "description": "A page stage and expandable list of sub-page progress."
+   },
+   {
+    "slug": "work-done-chart",
+    "title": "Work done-count chart",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/work-done-chart\"></tmt-ui-component-docs></div>",
+    "path": "browser/work-done-chart",
+    "description": "Completed items by period, scaled to the busiest cell."
+   },
+   {
+    "slug": "work-field-chips",
+    "title": "Work field chips",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/work-field-chips\"></tmt-ui-component-docs></div>",
+    "path": "browser/work-field-chips",
+    "description": "The owner, priority and next step of a page."
+   },
+   {
+    "slug": "work-next-line",
+    "title": "Work Next line",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/work-next-line\"></tmt-ui-component-docs></div>",
+    "path": "browser/work-next-line",
+    "description": "The first ranked items in project order."
+   },
+   {
+    "slug": "work-ratio",
+    "title": "Work ratio bar",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/work-ratio\"></tmt-ui-component-docs></div>",
+    "path": "browser/work-ratio",
+    "description": "Each status occupies a share proportional to its count."
+   },
+   {
+    "slug": "work-row",
+    "title": "Work row",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/work-row\"></tmt-ui-component-docs></div>",
+    "path": "browser/work-row",
+    "description": "Status, title, next step and owner for one work item."
+   },
+   {
+    "slug": "work-overview",
+    "title": "Work status overview",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/work-overview\"></tmt-ui-component-docs></div>",
+    "path": "browser/work-overview",
+    "description": "Open items counted by status."
    }
   ]
  },

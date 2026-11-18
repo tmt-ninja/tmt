@@ -1,6 +1,6 @@
+import { WorkChipOwner } from '@tmt/browser-ui/work-display';
 import { ChevronDown, ChevronRight, FileText, Plus } from 'lucide-react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { BrowserAvatar } from '@tmt/browser-ui/react';
 import {
   useEffect,
   useId,
@@ -240,10 +240,7 @@ export function WorkBand({
             aria-label={owner.name}
             title={owner.name}
           >
-            <BrowserAvatar name={owner.name} kind="agent" size="s" decorative />
-            <span className="work-owner-name" title={owner.name}>
-              {owner.name}
-            </span>
+            <WorkChipOwner name={owner.name} labelClass="work-owner-name" />
           </span>
         )}
         {beforeSubpages}

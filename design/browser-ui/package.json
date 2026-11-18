@@ -7,6 +7,7 @@
     "./static.css": "./generated/static.css",
     "./editorial.css": "./generated/editorial.css",
     "./work-order": "./src/work-order.tsx",
+    "./work-display": "./src/work-display.tsx",
     "./work.css": "./generated/work.css",
     "./static": "./src/static.ts",
     "./glyph": "./src/glyph.ts",

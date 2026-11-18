@@ -371,8 +371,32 @@
      "path": "browser/work-band"
     },
     {
+     "title": "Work done-count chart",
+     "path": "browser/work-done-chart"
+    },
+    {
+     "title": "Work field chips",
+     "path": "browser/work-field-chips"
+    },
+    {
      "title": "Work home",
      "path": "browser/work"
+    },
+    {
+     "title": "Work Next line",
+     "path": "browser/work-next-line"
+    },
+    {
+     "title": "Work ratio bar",
+     "path": "browser/work-ratio"
+    },
+    {
+     "title": "Work row",
+     "path": "browser/work-row"
+    },
+    {
+     "title": "Work status overview",
+     "path": "browser/work-overview"
     }
    ]
   },

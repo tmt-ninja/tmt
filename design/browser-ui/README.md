@@ -1115,8 +1115,9 @@ state, a React component.
   header or cell is dropped and a `tmt-ui-table-compact-meta` line under the row's main cell
   carries its facts, so the table never scrolls sideways. A state chip is a `tmt-ui-chip` with `data-tone` (`working`, `waiting`, `blocked`,
   `review`, or none for neutral): a mark and its word on the state's soft surface.
-- **Work home parts** (`work.css`, #6474): their own entry, `@tmt/browser-ui/work.css`, which
-  only Work home loads; static only, classes used as written. Every work
+- **Work home parts** (`work.css`, #6474): their stylesheet is `@tmt/browser-ui/work.css`. Work home and design-system frames
+  declaring a Work display part load the same rules. The React display parts are exported by
+  `@tmt/browser-ui/work-display`. Every work
   status has one tone through `data-state` on a `tmt-ui-work-dot` or a ratio segment: `working`
   and `done` green, `waiting-ci` and `waiting-release` review, `needs-you` waiting, `blocked`
   blocked, `possibly-stalled` the edge grey, others neutral.
