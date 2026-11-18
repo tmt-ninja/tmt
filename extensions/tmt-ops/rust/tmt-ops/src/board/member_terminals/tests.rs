@@ -832,13 +832,29 @@ mod board {
     }
 
     #[test]
-    fn a_terminal_row_shows_mock_8s_keys() {
+    fn a_terminal_row_offers_typing_only_after_the_screen_arrives() {
+        use crate::board::terminal_tab::stream::StreamEvent;
+        use std::sync::Arc;
+        use tmt_tui::components::terminal::Screen;
+
         let (mut app, member) = listed_board();
         select(&mut app, &member, 1);
+        let hints = crate::board::view::footer::agents_hints;
+        let connecting =
+            Some("t New terminal  z Full screen  x Close  ctrl-g Back to list  ? Help");
+        assert_eq!(hints(&app, 200).as_deref(), connecting);
+
+        assert!(app.terminal_sync());
+        assert_eq!(hints(&app, 200).as_deref(), connecting);
+        let screen = Screen::new(40, 6);
+        assert!(app.apply_terminal(1, StreamEvent::Screen(Arc::new(screen.frame()))));
         assert_eq!(
-            crate::board::view::footer::agents_hints(&app, 200).as_deref(),
+            hints(&app, 200).as_deref(),
             Some("t New terminal  ⏎ Type  z Full screen  x Close  ctrl-g Back to list  ? Help")
         );
+
+        assert!(app.apply_terminal(1, StreamEvent::Connecting { attempt: 2 }));
+        assert_eq!(hints(&app, 200).as_deref(), connecting);
     }
 }
 

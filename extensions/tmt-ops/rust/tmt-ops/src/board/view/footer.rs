@@ -342,6 +342,12 @@ fn agents_legend(app: &App) -> Option<Hints> {
     let find = |verb, preferred: &str| effective_key(app, &bindings, verb, preferred);
     if matches!(app.workspace.selected, Some(OpsTarget::Terminal { .. })) {
         // A terminal row: mock 8's keys, in its order.
+        let can_type = app.selected_terminal().is_some_and(|(_, row)| {
+            !row.ended
+                && app.terminal.view(&row.id).is_some_and(|view| {
+                    view.condition == crate::board::terminal_tab::tab::Condition::Live
+                })
+        });
         let keys = [
             (Ui::TerminalNew, "t", "New terminal"),
             (Ui::TerminalType, "enter", "Type"),
@@ -349,6 +355,7 @@ fn agents_legend(app: &App) -> Option<Hints> {
             (Ui::TerminalClose, "x", "Close"),
         ]
         .into_iter()
+        .filter(|(action, _, _)| *action != Ui::TerminalType || can_type)
         .filter_map(|(action, preferred, word)| {
             Some((
                 key_label(&find(Verb::Ui(action), preferred)?).to_owned(),
