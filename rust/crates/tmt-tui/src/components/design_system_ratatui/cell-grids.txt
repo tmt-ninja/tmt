@@ -1,10 +1,10 @@
 
 === tmt 40 ===
 [activity] hits=[]
-·                                        | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..2:White/Rgb(56, 56, 56)/Reset/NONE;3..3:White/Rgb(88, 88, 88)/Reset/NONE;4..4:Black/Rgb(120, 120, 120)/Reset/NONE;5..5:Black/Rgb(152, 152, 152)/Reset/NONE;6..6:Black/Rgb(184, 184, 184)/Reset/NONE;7..7:Black/Rgb(216, 216, 216)/Reset/NONE;8..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                 | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                          | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                        | 0..1:Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE;2..2:White/Rgb(56, 56, 56)/Reset/NONE;3..3:White/Rgb(88, 88, 88)/Reset/NONE;4..4:Black/Rgb(120, 120, 120)/Reset/NONE;5..5:Black/Rgb(152, 152, 152)/Reset/NONE;6..6:Black/Rgb(184, 184, 184)/Reset/NONE;7..7:Black/Rgb(216, 216, 216)/Reset/NONE;8..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                 | 0..1:Rgb(176, 176, 176)/Rgb(74, 74, 74)/Reset/NONE;2..7:Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE;8..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                          | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 40, height: 1 }, 7)]
      TOK    saved                        | 0..4:Rgb(216, 216, 216)/Reset/Reset/NONE;5..7:Rgb(176, 176, 176)/Reset/Reset/NONE;8..11:Rgb(216, 216, 216)/Reset/Reset/NONE;12..16:Rgb(176, 176, 176)/Reset/Reset/NONE;17..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
@@ -114,10 +114,10 @@ No aligned used/saved observations yet   | 0..37:Rgb(176, 176, 176)/Reset/Reset/
 
 === tmt 60 ===
 [activity] hits=[]
-·                                                            | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..2:White/Rgb(56, 56, 56)/Reset/NONE;3..3:White/Rgb(88, 88, 88)/Reset/NONE;4..4:Black/Rgb(120, 120, 120)/Reset/NONE;5..5:Black/Rgb(152, 152, 152)/Reset/NONE;6..6:Black/Rgb(184, 184, 184)/Reset/NONE;7..7:Black/Rgb(216, 216, 216)/Reset/NONE;8..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                     | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                            | 0..1:Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE;2..2:White/Rgb(56, 56, 56)/Reset/NONE;3..3:White/Rgb(88, 88, 88)/Reset/NONE;4..4:Black/Rgb(120, 120, 120)/Reset/NONE;5..5:Black/Rgb(152, 152, 152)/Reset/NONE;6..6:Black/Rgb(184, 184, 184)/Reset/NONE;7..7:Black/Rgb(216, 216, 216)/Reset/NONE;8..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                     | 0..1:Rgb(176, 176, 176)/Rgb(74, 74, 74)/Reset/NONE;2..7:Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE;8..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 60, height: 1 }, 7)]
      TOK    saved                                            | 0..4:Rgb(216, 216, 216)/Reset/Reset/NONE;5..7:Rgb(176, 176, 176)/Reset/Reset/NONE;8..11:Rgb(216, 216, 216)/Reset/Reset/NONE;12..16:Rgb(176, 176, 176)/Reset/Reset/NONE;17..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
@@ -227,10 +227,10 @@ No aligned used/saved observations yet                       | 0..37:Rgb(176, 17
 
 === tmt 80 ===
 [activity] hits=[]
-·                                                                                | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..2:White/Rgb(56, 56, 56)/Reset/NONE;3..3:White/Rgb(88, 88, 88)/Reset/NONE;4..4:Black/Rgb(120, 120, 120)/Reset/NONE;5..5:Black/Rgb(152, 152, 152)/Reset/NONE;6..6:Black/Rgb(184, 184, 184)/Reset/NONE;7..7:Black/Rgb(216, 216, 216)/Reset/NONE;8..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                         | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                                                | 0..1:Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE;2..2:White/Rgb(56, 56, 56)/Reset/NONE;3..3:White/Rgb(88, 88, 88)/Reset/NONE;4..4:Black/Rgb(120, 120, 120)/Reset/NONE;5..5:Black/Rgb(152, 152, 152)/Reset/NONE;6..6:Black/Rgb(184, 184, 184)/Reset/NONE;7..7:Black/Rgb(216, 216, 216)/Reset/NONE;8..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                         | 0..1:Rgb(176, 176, 176)/Rgb(74, 74, 74)/Reset/NONE;2..7:Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE;8..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 80, height: 1 }, 7)]
      TOK    saved                                                                | 0..4:Rgb(216, 216, 216)/Reset/Reset/NONE;5..7:Rgb(176, 176, 176)/Reset/Reset/NONE;8..11:Rgb(216, 216, 216)/Reset/Reset/NONE;12..16:Rgb(176, 176, 176)/Reset/Reset/NONE;17..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
@@ -340,10 +340,10 @@ No aligned used/saved observations yet                                          
 
 === tmt 120 ===
 [activity] hits=[]
-·                                                                                                                        | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..2:White/Rgb(56, 56, 56)/Reset/NONE;3..3:White/Rgb(88, 88, 88)/Reset/NONE;4..4:Black/Rgb(120, 120, 120)/Reset/NONE;5..5:Black/Rgb(152, 152, 152)/Reset/NONE;6..6:Black/Rgb(184, 184, 184)/Reset/NONE;7..7:Black/Rgb(216, 216, 216)/Reset/NONE;8..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                 | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                                                                                        | 0..1:Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE;2..2:White/Rgb(56, 56, 56)/Reset/NONE;3..3:White/Rgb(88, 88, 88)/Reset/NONE;4..4:Black/Rgb(120, 120, 120)/Reset/NONE;5..5:Black/Rgb(152, 152, 152)/Reset/NONE;6..6:Black/Rgb(184, 184, 184)/Reset/NONE;7..7:Black/Rgb(216, 216, 216)/Reset/NONE;8..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                 | 0..1:Rgb(176, 176, 176)/Rgb(74, 74, 74)/Reset/NONE;2..7:Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE;8..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 120, height: 1 }, 7)]
      TOK    saved                                                                                                        | 0..4:Rgb(216, 216, 216)/Reset/Reset/NONE;5..7:Rgb(176, 176, 176)/Reset/Reset/NONE;8..11:Rgb(216, 216, 216)/Reset/Reset/NONE;12..16:Rgb(176, 176, 176)/Reset/Reset/NONE;17..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
@@ -453,10 +453,10 @@ No aligned used/saved observations yet                                          
 
 === tmt 160 ===
 [activity] hits=[]
-·                                                                                                                                                                | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..2:White/Rgb(56, 56, 56)/Reset/NONE;3..3:White/Rgb(88, 88, 88)/Reset/NONE;4..4:Black/Rgb(120, 120, 120)/Reset/NONE;5..5:Black/Rgb(152, 152, 152)/Reset/NONE;6..6:Black/Rgb(184, 184, 184)/Reset/NONE;7..7:Black/Rgb(216, 216, 216)/Reset/NONE;8..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                                                         | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                                                                                                                                | 0..1:Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE;2..2:White/Rgb(56, 56, 56)/Reset/NONE;3..3:White/Rgb(88, 88, 88)/Reset/NONE;4..4:Black/Rgb(120, 120, 120)/Reset/NONE;5..5:Black/Rgb(152, 152, 152)/Reset/NONE;6..6:Black/Rgb(184, 184, 184)/Reset/NONE;7..7:Black/Rgb(216, 216, 216)/Reset/NONE;8..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                                                         | 0..1:Rgb(176, 176, 176)/Rgb(74, 74, 74)/Reset/NONE;2..7:Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE;8..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 160, height: 1 }, 7)]
      TOK    saved                                                                                                                                                | 0..4:Rgb(216, 216, 216)/Reset/Reset/NONE;5..7:Rgb(176, 176, 176)/Reset/Reset/NONE;8..11:Rgb(216, 216, 216)/Reset/Reset/NONE;12..16:Rgb(176, 176, 176)/Reset/Reset/NONE;17..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
@@ -566,10 +566,10 @@ No aligned used/saved observations yet                                          
 
 === tmt-light 40 ===
 [activity] hits=[]
-·                                        | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..2:Black/Rgb(224, 224, 224)/Reset/NONE;3..3:Black/Rgb(183, 183, 183)/Reset/NONE;4..4:Black/Rgb(143, 143, 143)/Reset/NONE;5..5:White/Rgb(103, 103, 103)/Reset/NONE;6..6:White/Rgb(63, 63, 63)/Reset/NONE;7..7:White/Rgb(23, 23, 23)/Reset/NONE;8..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                 | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                          | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                        | 0..1:Rgb(23, 23, 23)/Rgb(200, 200, 200)/Reset/NONE;2..2:Black/Rgb(224, 224, 224)/Reset/NONE;3..3:Black/Rgb(183, 183, 183)/Reset/NONE;4..4:Black/Rgb(143, 143, 143)/Reset/NONE;5..5:White/Rgb(103, 103, 103)/Reset/NONE;6..6:White/Rgb(63, 63, 63)/Reset/NONE;7..7:White/Rgb(23, 23, 23)/Reset/NONE;8..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                 | 0..1:Rgb(98, 98, 98)/Rgb(200, 200, 200)/Reset/NONE;2..7:Rgb(23, 23, 23)/Rgb(200, 200, 200)/Reset/NONE;8..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                          | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 40, height: 1 }, 7)]
      TOK    saved                        | 0..4:Rgb(23, 23, 23)/Reset/Reset/NONE;5..7:Rgb(98, 98, 98)/Reset/Reset/NONE;8..11:Rgb(23, 23, 23)/Reset/Reset/NONE;12..16:Rgb(98, 98, 98)/Reset/Reset/NONE;17..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
@@ -679,10 +679,10 @@ No aligned used/saved observations yet   | 0..37:Rgb(98, 98, 98)/Reset/Reset/NON
 
 === tmt-light 60 ===
 [activity] hits=[]
-·                                                            | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..2:Black/Rgb(224, 224, 224)/Reset/NONE;3..3:Black/Rgb(183, 183, 183)/Reset/NONE;4..4:Black/Rgb(143, 143, 143)/Reset/NONE;5..5:White/Rgb(103, 103, 103)/Reset/NONE;6..6:White/Rgb(63, 63, 63)/Reset/NONE;7..7:White/Rgb(23, 23, 23)/Reset/NONE;8..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                     | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                            | 0..1:Rgb(23, 23, 23)/Rgb(200, 200, 200)/Reset/NONE;2..2:Black/Rgb(224, 224, 224)/Reset/NONE;3..3:Black/Rgb(183, 183, 183)/Reset/NONE;4..4:Black/Rgb(143, 143, 143)/Reset/NONE;5..5:White/Rgb(103, 103, 103)/Reset/NONE;6..6:White/Rgb(63, 63, 63)/Reset/NONE;7..7:White/Rgb(23, 23, 23)/Reset/NONE;8..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                     | 0..1:Rgb(98, 98, 98)/Rgb(200, 200, 200)/Reset/NONE;2..7:Rgb(23, 23, 23)/Rgb(200, 200, 200)/Reset/NONE;8..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 60, height: 1 }, 7)]
      TOK    saved                                            | 0..4:Rgb(23, 23, 23)/Reset/Reset/NONE;5..7:Rgb(98, 98, 98)/Reset/Reset/NONE;8..11:Rgb(23, 23, 23)/Reset/Reset/NONE;12..16:Rgb(98, 98, 98)/Reset/Reset/NONE;17..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
@@ -792,10 +792,10 @@ No aligned used/saved observations yet                       | 0..37:Rgb(98, 98,
 
 === tmt-light 80 ===
 [activity] hits=[]
-·                                                                                | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..2:Black/Rgb(224, 224, 224)/Reset/NONE;3..3:Black/Rgb(183, 183, 183)/Reset/NONE;4..4:Black/Rgb(143, 143, 143)/Reset/NONE;5..5:White/Rgb(103, 103, 103)/Reset/NONE;6..6:White/Rgb(63, 63, 63)/Reset/NONE;7..7:White/Rgb(23, 23, 23)/Reset/NONE;8..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                         | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                                                | 0..1:Rgb(23, 23, 23)/Rgb(200, 200, 200)/Reset/NONE;2..2:Black/Rgb(224, 224, 224)/Reset/NONE;3..3:Black/Rgb(183, 183, 183)/Reset/NONE;4..4:Black/Rgb(143, 143, 143)/Reset/NONE;5..5:White/Rgb(103, 103, 103)/Reset/NONE;6..6:White/Rgb(63, 63, 63)/Reset/NONE;7..7:White/Rgb(23, 23, 23)/Reset/NONE;8..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                         | 0..1:Rgb(98, 98, 98)/Rgb(200, 200, 200)/Reset/NONE;2..7:Rgb(23, 23, 23)/Rgb(200, 200, 200)/Reset/NONE;8..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 80, height: 1 }, 7)]
      TOK    saved                                                                | 0..4:Rgb(23, 23, 23)/Reset/Reset/NONE;5..7:Rgb(98, 98, 98)/Reset/Reset/NONE;8..11:Rgb(23, 23, 23)/Reset/Reset/NONE;12..16:Rgb(98, 98, 98)/Reset/Reset/NONE;17..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
@@ -905,10 +905,10 @@ No aligned used/saved observations yet                                          
 
 === tmt-light 120 ===
 [activity] hits=[]
-·                                                                                                                        | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..2:Black/Rgb(224, 224, 224)/Reset/NONE;3..3:Black/Rgb(183, 183, 183)/Reset/NONE;4..4:Black/Rgb(143, 143, 143)/Reset/NONE;5..5:White/Rgb(103, 103, 103)/Reset/NONE;6..6:White/Rgb(63, 63, 63)/Reset/NONE;7..7:White/Rgb(23, 23, 23)/Reset/NONE;8..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                 | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                                                                                        | 0..1:Rgb(23, 23, 23)/Rgb(200, 200, 200)/Reset/NONE;2..2:Black/Rgb(224, 224, 224)/Reset/NONE;3..3:Black/Rgb(183, 183, 183)/Reset/NONE;4..4:Black/Rgb(143, 143, 143)/Reset/NONE;5..5:White/Rgb(103, 103, 103)/Reset/NONE;6..6:White/Rgb(63, 63, 63)/Reset/NONE;7..7:White/Rgb(23, 23, 23)/Reset/NONE;8..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                 | 0..1:Rgb(98, 98, 98)/Rgb(200, 200, 200)/Reset/NONE;2..7:Rgb(23, 23, 23)/Rgb(200, 200, 200)/Reset/NONE;8..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 120, height: 1 }, 7)]
      TOK    saved                                                                                                        | 0..4:Rgb(23, 23, 23)/Reset/Reset/NONE;5..7:Rgb(98, 98, 98)/Reset/Reset/NONE;8..11:Rgb(23, 23, 23)/Reset/Reset/NONE;12..16:Rgb(98, 98, 98)/Reset/Reset/NONE;17..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
@@ -1018,10 +1018,10 @@ No aligned used/saved observations yet                                          
 
 === tmt-light 160 ===
 [activity] hits=[]
-·                                                                                                                                                                | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..2:Black/Rgb(224, 224, 224)/Reset/NONE;3..3:Black/Rgb(183, 183, 183)/Reset/NONE;4..4:Black/Rgb(143, 143, 143)/Reset/NONE;5..5:White/Rgb(103, 103, 103)/Reset/NONE;6..6:White/Rgb(63, 63, 63)/Reset/NONE;7..7:White/Rgb(23, 23, 23)/Reset/NONE;8..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                                                         | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                                                                                                                                | 0..1:Rgb(23, 23, 23)/Rgb(200, 200, 200)/Reset/NONE;2..2:Black/Rgb(224, 224, 224)/Reset/NONE;3..3:Black/Rgb(183, 183, 183)/Reset/NONE;4..4:Black/Rgb(143, 143, 143)/Reset/NONE;5..5:White/Rgb(103, 103, 103)/Reset/NONE;6..6:White/Rgb(63, 63, 63)/Reset/NONE;7..7:White/Rgb(23, 23, 23)/Reset/NONE;8..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                                                         | 0..1:Rgb(98, 98, 98)/Rgb(200, 200, 200)/Reset/NONE;2..7:Rgb(23, 23, 23)/Rgb(200, 200, 200)/Reset/NONE;8..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 160, height: 1 }, 7)]
      TOK    saved                                                                                                                                                | 0..4:Rgb(23, 23, 23)/Reset/Reset/NONE;5..7:Rgb(98, 98, 98)/Reset/Reset/NONE;8..11:Rgb(23, 23, 23)/Reset/Reset/NONE;12..16:Rgb(98, 98, 98)/Reset/Reset/NONE;17..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
@@ -1131,10 +1131,10 @@ No aligned used/saved observations yet                                          
 
 === terminal 40 ===
 [activity] hits=[]
-·                                        | 0..1:Reset/Reset/Reset/DIM;2..2:White/Black/Reset/NONE;3..4:White/DarkGray/Reset/NONE;5..6:Black/Gray/Reset/NONE;7..7:Black/White/Reset/NONE;8..39:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                 | 0..1:Reset/Reset/Reset/DIM;2..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                        | 0..1:Reset/Reset/Reset/REVERSED;2..2:White/Black/Reset/NONE;3..4:White/DarkGray/Reset/NONE;5..6:Black/Gray/Reset/NONE;7..7:Black/White/Reset/NONE;8..39:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                 | 0..1:Gray/Reset/Reset/REVERSED;2..7:Reset/Reset/Reset/REVERSED;8..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 40, height: 1 }, 7)]
      TOK    saved                        | 0..4:Reset/Reset/Reset/NONE;5..7:Gray/Reset/Reset/NONE;8..11:Reset/Reset/Reset/NONE;12..16:Gray/Reset/Reset/NONE;17..39:Reset/Reset/Reset/NONE;
@@ -1244,10 +1244,10 @@ No aligned used/saved observations yet   | 0..37:Gray/Reset/Reset/NONE;38..39:Re
 
 === terminal 60 ===
 [activity] hits=[]
-·                                                            | 0..1:Reset/Reset/Reset/DIM;2..2:White/Black/Reset/NONE;3..4:White/DarkGray/Reset/NONE;5..6:Black/Gray/Reset/NONE;7..7:Black/White/Reset/NONE;8..59:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                     | 0..1:Reset/Reset/Reset/DIM;2..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                            | 0..1:Reset/Reset/Reset/REVERSED;2..2:White/Black/Reset/NONE;3..4:White/DarkGray/Reset/NONE;5..6:Black/Gray/Reset/NONE;7..7:Black/White/Reset/NONE;8..59:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                     | 0..1:Gray/Reset/Reset/REVERSED;2..7:Reset/Reset/Reset/REVERSED;8..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 60, height: 1 }, 7)]
      TOK    saved                                            | 0..4:Reset/Reset/Reset/NONE;5..7:Gray/Reset/Reset/NONE;8..11:Reset/Reset/Reset/NONE;12..16:Gray/Reset/Reset/NONE;17..59:Reset/Reset/Reset/NONE;
@@ -1357,10 +1357,10 @@ No aligned used/saved observations yet                       | 0..37:Gray/Reset/
 
 === terminal 80 ===
 [activity] hits=[]
-·                                                                                | 0..1:Reset/Reset/Reset/DIM;2..2:White/Black/Reset/NONE;3..4:White/DarkGray/Reset/NONE;5..6:Black/Gray/Reset/NONE;7..7:Black/White/Reset/NONE;8..79:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                         | 0..1:Reset/Reset/Reset/DIM;2..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                                                | 0..1:Reset/Reset/Reset/REVERSED;2..2:White/Black/Reset/NONE;3..4:White/DarkGray/Reset/NONE;5..6:Black/Gray/Reset/NONE;7..7:Black/White/Reset/NONE;8..79:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                         | 0..1:Gray/Reset/Reset/REVERSED;2..7:Reset/Reset/Reset/REVERSED;8..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 80, height: 1 }, 7)]
      TOK    saved                                                                | 0..4:Reset/Reset/Reset/NONE;5..7:Gray/Reset/Reset/NONE;8..11:Reset/Reset/Reset/NONE;12..16:Gray/Reset/Reset/NONE;17..79:Reset/Reset/Reset/NONE;
@@ -1470,10 +1470,10 @@ No aligned used/saved observations yet                                          
 
 === terminal 120 ===
 [activity] hits=[]
-·                                                                                                                        | 0..1:Reset/Reset/Reset/DIM;2..2:White/Black/Reset/NONE;3..4:White/DarkGray/Reset/NONE;5..6:Black/Gray/Reset/NONE;7..7:Black/White/Reset/NONE;8..119:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                 | 0..1:Reset/Reset/Reset/DIM;2..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                                                                                        | 0..1:Reset/Reset/Reset/REVERSED;2..2:White/Black/Reset/NONE;3..4:White/DarkGray/Reset/NONE;5..6:Black/Gray/Reset/NONE;7..7:Black/White/Reset/NONE;8..119:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                 | 0..1:Gray/Reset/Reset/REVERSED;2..7:Reset/Reset/Reset/REVERSED;8..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 120, height: 1 }, 7)]
      TOK    saved                                                                                                        | 0..4:Reset/Reset/Reset/NONE;5..7:Gray/Reset/Reset/NONE;8..11:Reset/Reset/Reset/NONE;12..16:Gray/Reset/Reset/NONE;17..119:Reset/Reset/Reset/NONE;
@@ -1583,10 +1583,10 @@ No aligned used/saved observations yet                                          
 
 === terminal 160 ===
 [activity] hits=[]
-·                                                                                                                                                                | 0..1:Reset/Reset/Reset/DIM;2..2:White/Black/Reset/NONE;3..4:White/DarkGray/Reset/NONE;5..6:Black/Gray/Reset/NONE;7..7:Black/White/Reset/NONE;8..159:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                                                         | 0..1:Reset/Reset/Reset/DIM;2..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [activity-selected] hits=[]
-·                                                                                                                                                                | 0..1:Reset/Reset/Reset/REVERSED;2..2:White/Black/Reset/NONE;3..4:White/DarkGray/Reset/NONE;5..6:Black/Gray/Reset/NONE;7..7:Black/White/Reset/NONE;8..159:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                                                         | 0..1:Gray/Reset/Reset/REVERSED;2..7:Reset/Reset/Reset/REVERSED;8..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 160, height: 1 }, 7)]
      TOK    saved                                                                                                                                                | 0..4:Reset/Reset/Reset/NONE;5..7:Gray/Reset/Reset/NONE;8..11:Reset/Reset/Reset/NONE;12..16:Gray/Reset/Reset/NONE;17..159:Reset/Reset/Reset/NONE;
@@ -1696,10 +1696,10 @@ No aligned used/saved observations yet                                          
 
 === no-color 40 ===
 [activity] hits=[]
-· ▁▂▃▄▆█                                 | 0..39:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                 | 0..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [activity-selected] hits=[]
-· ▁▂▃▄▆█                                 | 0..1:Reset/Reset/Reset/REVERSED;2..39:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                 | 0..7:Reset/Reset/Reset/REVERSED;8..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 40, height: 1 }, 7)]
      TOK    saved                        | 0..39:Reset/Reset/Reset/NONE;
@@ -1809,10 +1809,10 @@ No aligned used/saved observations yet   | 0..39:Reset/Reset/Reset/NONE;
 
 === no-color 60 ===
 [activity] hits=[]
-· ▁▂▃▄▆█                                                     | 0..59:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                     | 0..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [activity-selected] hits=[]
-· ▁▂▃▄▆█                                                     | 0..1:Reset/Reset/Reset/REVERSED;2..59:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                     | 0..7:Reset/Reset/Reset/REVERSED;8..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 60, height: 1 }, 7)]
      TOK    saved                                            | 0..59:Reset/Reset/Reset/NONE;
@@ -1922,10 +1922,10 @@ No aligned used/saved observations yet                       | 0..59:Reset/Reset
 
 === no-color 80 ===
 [activity] hits=[]
-· ▁▂▃▄▆█                                                                         | 0..79:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                         | 0..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [activity-selected] hits=[]
-· ▁▂▃▄▆█                                                                         | 0..1:Reset/Reset/Reset/REVERSED;2..79:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                         | 0..7:Reset/Reset/Reset/REVERSED;8..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 80, height: 1 }, 7)]
      TOK    saved                                                                | 0..79:Reset/Reset/Reset/NONE;
@@ -2035,10 +2035,10 @@ No aligned used/saved observations yet                                          
 
 === no-color 120 ===
 [activity] hits=[]
-· ▁▂▃▄▆█                                                                                                                 | 0..119:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                 | 0..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [activity-selected] hits=[]
-· ▁▂▃▄▆█                                                                                                                 | 0..1:Reset/Reset/Reset/REVERSED;2..119:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                 | 0..7:Reset/Reset/Reset/REVERSED;8..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 120, height: 1 }, 7)]
      TOK    saved                                                                                                        | 0..119:Reset/Reset/Reset/NONE;
@@ -2148,10 +2148,10 @@ No aligned used/saved observations yet                                          
 
 === no-color 160 ===
 [activity] hits=[]
-· ▁▂▃▄▆█                                                                                                                                                         | 0..159:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                                                         | 0..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [activity-selected] hits=[]
-· ▁▂▃▄▆█                                                                                                                                                         | 0..1:Reset/Reset/Reset/REVERSED;2..159:Reset/Reset/Reset/NONE;
+·▁▂▃▄▅▆█                                                                                                                                                         | 0..7:Reset/Reset/Reset/REVERSED;8..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [totals-table] hits=[(Rect { x: 0, y: 1, width: 160, height: 1 }, 7)]
      TOK    saved                                                                                                                                                | 0..159:Reset/Reset/Reset/NONE;
