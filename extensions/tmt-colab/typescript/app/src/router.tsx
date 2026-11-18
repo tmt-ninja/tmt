@@ -470,6 +470,24 @@ function PageOutline({
   });
   const expanded = preference ?? (!phone && !compact);
   const [current, setCurrent] = useState(0);
+  // A click leaves the toggle focused without a frame, until the keyboard is used on it.
+  const [pointer, setPointer] = useState(false);
+  // Whether more of a long list is below its visible part, which the bottom edge fades.
+  const list = useRef<HTMLOListElement>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    const node = list.current;
+    if (!node) return;
+    const measure = () => setMore(node.scrollTop + node.clientHeight < node.scrollHeight - 1);
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    node.addEventListener('scroll', measure, { passive: true });
+    measure();
+    return () => {
+      observer.disconnect();
+      node.removeEventListener('scroll', measure);
+    };
+  }, [expanded, headings]);
   useEffect(() => {
     if (headings.length < 3) return;
     const update = () => {
@@ -496,8 +514,14 @@ function PageOutline({
       <button
         type="button"
         className="page-outline-toggle"
-        aria-label={(compact || !expanded) && !phone ? text.outline : undefined}
+        aria-label={compact && !phone ? text.outline : undefined}
         aria-expanded={expanded}
+        data-pointer={pointer || undefined}
+        onPointerDown={() => setPointer(true)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') setPointer(false);
+        }}
+        onBlur={() => setPointer(false)}
         onClick={() => {
           const next = !expanded;
           setPreference(next);
@@ -517,7 +541,7 @@ function PageOutline({
         <ChevronDown className="page-outline-chevron" data-expanded={expanded} aria-hidden="true" />
       </button>
       {expanded && (
-        <ol className="page-outline-list">
+        <ol className="page-outline-list" ref={list} data-more={more || undefined}>
           {headings.map((heading, index) => (
             <li key={heading.id} data-level={heading.level}>
               <button

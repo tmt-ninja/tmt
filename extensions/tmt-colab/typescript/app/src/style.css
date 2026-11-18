@@ -429,12 +429,18 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .structured-page-stage [data-block-id] {
   scroll-margin-top: calc(var(--page-bar-size) + 24px);
 }
+/* The outline's resting top is its sticky top, so it never moves when the page starts to scroll,
+   and its height ends at the window's bottom edge: a long list scrolls inside it (#6470). */
 .page-outline {
   position: sticky;
-  top: calc(var(--page-bar-size) + var(--tmt-ui-space-l));
+  top: var(--page-bar-size);
   z-index: 2;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
   min-width: 0;
-  padding-block-start: var(--tmt-ui-space-l);
+  max-height: calc(100dvh - var(--page-bar-size) - var(--colab-outline-rest, 0px));
+  padding-block: var(--tmt-ui-space-l);
   color: var(--tmt-ui-color-text);
   font: var(--tmt-ui-command-size)/1.4 var(--tmt-ui-font-body);
 }
@@ -473,7 +479,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   display: none;
 }
 .page-outline-list {
-  max-height: calc(100dvh - var(--page-bar-size) - 6rem);
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
   margin: var(--tmt-ui-space-s) 0 0;
   padding: 0;
@@ -506,6 +513,15 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .page-outline :is(button):focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
+/* A click focuses the toggle without a frame; a key pressed after it (a shortcut, say) does not
+   bring one back. Keyboard use on the toggle clears the mark. */
+.page-outline-toggle[data-pointer]:focus-visible {
+  outline: none;
+}
+/* More headings below the visible part fade out at the bottom edge. */
+.page-outline-list[data-more] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
+}
 /* HTML owns the full frame width: the outline overlays the gutter or the page, never a grid column. */
 .html-outline {
   position: absolute;
@@ -514,7 +530,10 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   width: 188px;
   pointer-events: none;
 }
+/* An HTML page's outline rests below the title band, which it would cover in the gutter, so its
+   height leaves that band too. */
 .html-outline .page-outline {
+  --colab-outline-rest: var(--colab-work-band-size, 0px);
   pointer-events: auto;
   background: var(--tmt-ui-surface-sheet);
 }
@@ -525,37 +544,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   background: var(--tmt-ui-surface-sheet);
 }
 @media (min-width: 641px) {
-  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false']) {
-    display: block;
-  }
-  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false']) .page-outline {
-    position: sticky;
-    top: calc((var(--page-bar-size) - 34px) / 2);
-    z-index: 52;
-    width: 34px;
-    height: 0;
-    margin-inline-start: calc(-1 * var(--tmt-ui-header-padding-inline));
-    margin-block: calc(-1 * ((var(--page-bar-size) + 34px) / 2 + var(--colab-work-band-size, 0px)))
-      calc((var(--page-bar-size) + 34px) / 2 + var(--colab-work-band-size, 0px));
-    padding: 0;
-  }
-  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
-    .page-outline-toggle {
-    width: 34px;
-    min-height: 34px;
-    justify-content: center;
-    background: var(--tmt-ui-surface-sheet);
-  }
-  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
-    :is(.page-outline-desktop, .page-outline-chevron) {
-    display: none;
-  }
-  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false'])
-    .page-outline-icon {
-    display: block;
-  }
-  body:has(.tmt-ui-panel:not([hidden])) .structured-layout .page-outline {
-    z-index: 2;
+  /* A structured page keeps its outline column whether the list is open or closed, so a toggle
+     never moves the content or the toggle (#6470). The outline rises into the title band and
+     starts level with the title row, which reserves the same column. */
+  .structured-layout[data-outline] .page-outline {
+    margin-block-start: calc(-1 * var(--colab-work-band-size, 0px));
   }
   .html-outline {
     z-index: 52;

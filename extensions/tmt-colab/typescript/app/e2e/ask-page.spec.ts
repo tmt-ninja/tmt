@@ -796,19 +796,24 @@ for (const width of [1440, 390])
       await page.setViewportSize({ width: 1440, height: 900 });
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
       const stage = page.locator('.structured-page-stage');
-      const expandedWidth = (await stage.boundingBox())!.width;
+      const expanded = (await stage.boundingBox())!;
+      const control = (await toggle.boundingBox())!;
+      // The outline starts level with the page title row, not with the first block (#6470).
+      const title = (await page.locator('.page-mobile-title h1').boundingBox())!;
+      expect(Math.abs(control.y - title.y)).toBeLessThanOrEqual(4);
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-      expect((await stage.boundingBox())!.width).toBeGreaterThan(expandedWidth);
-      const bar = (await page.locator('.tmt-ui-shell-bar').boundingBox())!;
-      const control = (await toggle.boundingBox())!;
-      expect(control.y).toBeGreaterThanOrEqual(bar.y);
-      expect(control.y + control.height).toBeLessThanOrEqual(bar.y + bar.height);
+      // Collapsing moves neither the content nor the toggle, so the same place expands it again.
+      expect(await stage.boundingBox()).toEqual(expanded);
+      expect(await toggle.boundingBox()).toEqual(control);
+      // A click draws no focus frame, even after a key press such as a shortcut's modifier.
+      await page.keyboard.press('Shift');
+      await expect(toggle).toHaveCSS('outline-style', 'none');
       await page.evaluate(() => window.scrollTo(0, 500));
       await expect(toggle).toBeInViewport();
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-      expect((await stage.boundingBox())!.width).toBe(expandedWidth);
+      expect((await stage.boundingBox())!.width).toBe(expanded.width);
     }
     if (width === 390) await toggle.click();
     await expect(outline.getByRole('button', { name: 'Details' })).toBeVisible();
@@ -833,6 +838,19 @@ for (const width of [1440, 390])
     await expect(
       page.getByRole('navigation', { name: 'Page outline' }).locator('.page-outline-toggle'),
     ).toHaveAttribute('aria-expanded', 'false');
+    if (width === 1440) {
+      // A list longer than the window scrolls inside the outline, which ends at the window's
+      // bottom edge, and fades out while more of it is below.
+      await run(page, 'mount', { structuredOutline: true, outlineSections: 30 });
+      await toggle.click();
+      const list = outline.locator('.page-outline-list');
+      expect(
+        (await outline.boundingBox())!.y + (await outline.boundingBox())!.height,
+      ).toBeLessThanOrEqual(900);
+      await expect(list).toHaveAttribute('data-more', 'true');
+      await list.evaluate((node) => node.scrollTo(0, node.scrollHeight));
+      await expect(list).not.toHaveAttribute('data-more');
+    }
     await run(page, 'mount', { structured: true });
     await expect(page.getByRole('navigation', { name: 'Page outline' })).toHaveCount(0);
   });
