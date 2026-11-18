@@ -33,6 +33,8 @@ const columns: DataTableColumn<PageListRow>[] = [
     header: 'Title',
     role: 'primary',
     min: 140,
+    // The work number and about 24 characters of the title before another column grows (#6646).
+    ideal: 320,
     sortable: true,
     text: (page) => page.name,
     cell: (page) => page.title,
@@ -132,6 +134,8 @@ const columns: DataTableColumn<PageListRow>[] = [
 const pageViewColumns: DataTableColumn<PageListRow>[] = [
   {
     ...columns[0]!,
+    // The sub-pages view keeps its own widths; the ideal title width is the page list's (#6646).
+    ideal: undefined,
     header: 'Page',
     sub: (page) => (
       <>

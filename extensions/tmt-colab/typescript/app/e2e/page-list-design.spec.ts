@@ -67,6 +67,38 @@ for (const width of [390, 1440])
         ),
       ).toBe(true);
       await expect(long.locator('.tmt-data-table-sub')).toHaveText('');
+      if (width === 1440) {
+        // The title column gives way last (#6646): at 1280 the long title beside its work number
+        // shows at least its first 24 characters before the ellipsis.
+        await page.setViewportSize({ width: 1280, height: 900 });
+        const shown = await long.locator('.tmt-ui-list-title').evaluate((element) => {
+          let clip = element.getBoundingClientRect().right;
+          for (
+            let at: Element | null = element;
+            at && at.getAttribute('role') !== 'row';
+            at = at.parentElement
+          )
+            if (getComputedStyle(at).overflowX !== 'visible')
+              clip = Math.min(clip, at.getBoundingClientRect().right);
+          const text =
+            [...element.childNodes].find((node) =>
+              node.textContent?.startsWith('A deliberately'),
+            ) ?? element;
+          const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+          let count = 0;
+          for (let node = walker.nextNode(); node; node = walker.nextNode())
+            for (let i = 0; i < node.textContent!.length; i++) {
+              const range = document.createRange();
+              range.setStart(node, i);
+              range.setEnd(node, i + 1);
+              if (range.getBoundingClientRect().right > clip + 0.5) return count;
+              count++;
+            }
+          return count;
+        });
+        expect(shown).toBeGreaterThanOrEqual(24);
+        await page.setViewportSize({ width, height: 900 });
+      }
       expect(
         await long
           .locator('.tmt-ui-list-title')
