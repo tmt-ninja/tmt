@@ -216,6 +216,25 @@ elif a[0]=='tick':
  if m.get('clockEndFixture')=='clean':
   print(json.dumps({'schemaVersion':1,'complete':True,'jobs':{'accepted':0,'failures':[]},'stopped':True}));sys.exit(0)
  if m.get('clockEndFixture')=='error':print('invalid clock frame');sys.exit(1)
+ if m.get('clockSignalFixture'):
+  def stop(_signum,_frame):
+   signal.signal(signal.SIGTERM,signal.SIG_IGN)
+   raise InterruptedError
+  signal.signal(signal.SIGTERM,stop)
+  lease=p/'tick'/'clock.json'; lease.parent.mkdir()
+  lease.write_text(json.dumps({'pid':os.getpid()}))
+  def report(stopped):
+   print(json.dumps({'schemaVersion':1,'complete':True,'jobs':{'accepted':1,'failures':[]},'stopped':stopped}),flush=True)
+  try:
+   report(False)
+   # Publish readiness atomically, after publishing a complete report.
+   ready=p/'clock-ready'; ready.touch()
+   while os.read(0,1): pass
+  except InterruptedError:
+   report(True)
+  finally:
+   lease.unlink()
+  sys.exit(0)
  if m.get('clockLeaseFixture'):
   import fcntl,signal
   lease=open(p/'fixture-clock.lock','a+')

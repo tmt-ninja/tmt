@@ -36,6 +36,108 @@ fn legacy(f: &Fixture) -> (Core, Config, tmt_ops::cron::Lease, Vec<u8>) {
     (core, config, lease, held)
 }
 #[test]
+fn ops_run_exits_zero_after_its_accepted_holder_is_signalled_and_releases_lease() {
+    use nix::{
+        errno::Errno,
+        sys::signal::{Signal, kill},
+        unistd::Pid,
+    };
+    use std::{ffi::OsString, path::Path};
+
+    let f = Fixture::new();
+    f.change_model(|model| model["clockSignalFixture"] = json!(true));
+    let lease = f.directory.join("tick/clock.json");
+    let ready = f.directory.join("clock-ready");
+    let mut core_env = OsString::from("TMT_EXECUTABLE=");
+    core_env.push(f.core.executable());
+    let mut home_env = OsString::from("HOME=");
+    home_env.push(&f.directory);
+    let args = [
+        "-u".into(),
+        "TMUX".into(),
+        "-u".into(),
+        "TMUX_PANE".into(),
+        core_env,
+        home_env,
+        "TMT_OPS_CLOCK_SIGNAL_CHILD=1".into(),
+        std::env::current_exe().unwrap().into_os_string(),
+        "--ignored".into(),
+        "--exact".into(),
+        "--nocapture".into(),
+        "cron_clock::tests::lifecycle::ops_clock_signal_child".into(),
+    ];
+    let (output, pid) = std::thread::scope(|scope| {
+        let signal = scope.spawn(|| {
+            let pid = wait_for(|| {
+                if !ready.is_file() {
+                    return None;
+                }
+                let holder: Value = serde_json::from_slice(&fs::read(&lease).ok()?).ok()?;
+                Some(Pid::from_raw(i32::try_from(holder["pid"].as_i64()?).ok()?))
+            });
+            assert!(pid.as_raw() > 1);
+            kill(pid, Signal::SIGTERM).expect("signal the exact Core fixture holder");
+            pid
+        });
+        let output = tmt_invoke::invoke(
+            tmt_invoke::Request {
+                program: Path::new("/usr/bin/env"),
+                args: &args,
+                input: b"",
+                deadline: Instant::now() + Duration::from_secs(15),
+                max_stream_bytes: 16_384,
+                launch: Default::default(),
+            },
+            None,
+        );
+        (output.unwrap(), signal.join().unwrap())
+    });
+    assert!(!lease.exists(), "the private Core lease must be released");
+    assert_eq!(kill(pid, None), Err(Errno::ESRCH));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    let report: Value = serde_json::from_str(
+        stdout
+            .lines()
+            .find(|line| line.starts_with('{'))
+            .expect("Ops JSON report"),
+    )
+    .unwrap();
+    assert_eq!(report["action"], "run");
+    assert_eq!(report["accepted"], 1);
+    assert_eq!(report["complete"], true);
+    assert_eq!(report["warnings"], json!([]));
+}
+
+#[test]
+#[ignore = "isolated process for the Ops foreground clock signal regression"]
+fn ops_clock_signal_child() {
+    if std::env::var_os("TMT_OPS_CLOCK_SIGNAL_CHILD").is_none() {
+        return;
+    }
+    let crate::Request::Run(matches) =
+        crate::request(&["tmt-ops", "squad", "cron", "run", "--json"].map(Into::into)).unwrap()
+    else {
+        panic!("expected the cron run command")
+    };
+    let (_, squad) = matches.subcommand().unwrap();
+    let (command, args) = squad.subcommand().unwrap();
+    let report =
+        crate::run(command, args, tmt_cli_style::Interaction::detect(true)).map(|outcome| {
+            crate::CommandReport {
+                command,
+                outcome,
+                bare: false,
+            }
+        });
+    assert_eq!(
+        crate::finish_exception(true, report),
+        std::process::ExitCode::SUCCESS
+    );
+}
+
+#[test]
 fn competing_core_clock_keeps_idle_alerts_and_reacquires_after_holder_exits() {
     let f = Fixture::new();
     let at = 1_800_000_000_000i64;

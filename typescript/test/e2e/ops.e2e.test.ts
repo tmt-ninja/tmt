@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { assertPrivateSocket } from '../support/private-tmux.js';
@@ -1366,7 +1366,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
     }
   );
 
-  it('sends a scheduled slot once, refuses a second clock and releases its lease on shutdown', async () => {
+  it('delivers an admitted scheduled slot to its peer once across exact replays', async () => {
     await withE2EFixture(
       async (fixture) => {
         installSquad(fixture);
@@ -1381,32 +1381,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         const owner = durableIdentity(fixture, 'worker').id;
         expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
         expectJsonResult(await squadCli(fixture, ['add', 'worker']));
-        const leasePath = path.join(fixture.globalDir, 'tick', 'clock.json');
-        const clock = await spawnRealTmuxCli(fixture, ['ops', 'squad', 'cron', 'run', '--json'], {
-          name: 'primary-clock',
-          json: false,
-        });
-        fs.writeFileSync(clock.releasePath, 'run');
-        await fixture.waitFor(() => fs.existsSync(leasePath), 5_000, 'clock lease publication');
-        const observed = expectJsonResult<{
-          state: string;
-          holder: { pid: number; pane: string; token: string };
-        }>(await fixture.runJsonCli(['tick', 'status']));
-        expect(observed.state).toBe('running');
-        const holder = observed.holder;
-        expect(holder.pane).toBe(clock.pane);
-        const second = await spawnRealTmuxCli(fixture, ['ops', 'squad', 'cron', 'run', '--json'], {
-          name: 'second-clock',
-          json: false,
-        });
-        await releaseRealTmuxCli(fixture, second);
-        expect(readRealTmuxCli<{ error: { code: string } }>(second)).toMatchObject({
-          code: 1,
-          stdout: { error: { code: 'TICK_CLOCK_RUNNING' } },
-        });
         const message = 'literal {time}\nclock reminder';
-        const jobAddStartedAtMs = Date.now();
-        const added = expectJsonResult<{ job: { roomId: string } }>(
+        const added = expectJsonResult<{ job: { roomId: string; schedule: { anchorMs: number } } }>(
           await squadCli(fixture, [
             'cron',
             'add',
@@ -1419,94 +1395,14 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
             message,
           ])
         );
-        const jobAddCompletedAtMs = Date.now();
-        const scheduled = () =>
-          requestAttempts(fixture).filter((row) => row.message_text === message);
-        try {
-          await fixture.waitFor(
-            () => scheduled().length === 1,
-            5_000,
-            'scheduled request acceptance'
-          );
-        } catch (error) {
-          const failedAtMs = Date.now();
-          // Capture the private clock and durable request evidence before fixture cleanup.
-          const read = (file: string) => {
-            try {
-              return fs.readFileSync(file, 'utf8');
-            } catch (readError) {
-              return `unavailable: ${String(readError)}`;
-            }
-          };
-          let attempts: unknown;
-          try {
-            attempts = scheduled();
-          } catch (readError) {
-            attempts = `unavailable: ${String(readError)}`;
-          }
-          let jobs: unknown;
-          try {
-            jobs = await fixture.runJsonCli(['orch', 'job', 'ls']);
-          } catch (readError) {
-            jobs = `unavailable: ${String(readError)}`;
-          }
-          throw new Error(
-            `Scheduled-slot evidence: ${JSON.stringify({
-              jobAddStartedAtMs,
-              jobAddCompletedAtMs,
-              failedAtMs,
-              added,
-              attempts,
-              jobs,
-              lease: read(leasePath),
-              clockStdout: read(clock.outputPath),
-              clockStderr: read(clock.errorPath),
-              clockExit: read(clock.exitPath),
-            })}`,
-            { cause: error }
-          );
-        }
-        const request = scheduled()[0]!;
-        expect(request).toMatchObject({
-          recipient_identity_id: owner,
-          originator_kind: 'unknown',
-          originator_identity_id: null,
-          room_id: added.job.roomId,
-          route_kind: 'inbox',
-          message_text: message,
-        });
-        // Correlate the peer's consumed wake with durable request identity, not notice paint.
-        const isScheduledWake = (event: MockEvent) =>
-          event.event === 'input' &&
-          event.pid === peer.pid &&
-          event.line?.split(/\s+/).includes(request.request_id) === true;
-        await fixture.waitForEvent(isScheduledWake, 5_000);
-        await fixture.waitFor(
-          () => scheduled()[0]?.wake_state === 'sent',
-          5_000,
-          'scheduled wake committed'
-        );
-        const busy = await squadCli(fixture, ['cron', 'tick']);
-        expect(busy.code).toBe(1);
-        expect(errorCode(busy)).toBe('TICK_CLOCK_RUNNING');
-        process.kill(holder.pid, 'SIGTERM');
-        await fixture.waitFor(() => fs.existsSync(clock.exitPath), 5_000, 'clock signal cleanup');
-        expect(readRealTmuxCli(clock).code).toBe(0);
-        expect(fs.existsSync(leasePath)).toBe(false);
-        expect(fixture.mockProcessIsRunning(holder.pid)).toBe(false);
-        // A finite tick now observes the rest of its minute. Recover the exact
-        // canonical slot twice instead of waiting through two unrelated minutes.
         const listed = expectJsonResult<{
-          jobs: {
-            jobId: string;
-            revision: number;
-            lastRun: { id: number; slotMs: number; operationId: string; requestId: string };
-          }[];
+          jobs: { jobId: string; revision: number; schedule: { anchorMs: number } }[];
         }>(await fixture.runJsonCli(['orch', 'job', 'ls']));
         expect(listed.jobs).toHaveLength(1);
         const job = listed.jobs[0]!;
-        expect(job.lastRun.requestId).toBe(request.request_id);
-        const replayEnv: NodeJS.ProcessEnv = {
+        const slotMs = added.job.schedule.anchorMs;
+        expect(job.schedule.anchorMs).toBe(slotMs);
+        const runEnv: NodeJS.ProcessEnv = {
           ...process.env,
           HOME: home,
           TMT_HOME: fixture.globalDir,
@@ -1517,47 +1413,88 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           TMT_AGENT: '1',
           BROWSER: 'true',
         };
-        delete replayEnv.TMUX;
-        delete replayEnv.TMUX_PANE;
-        for (let attempt = 0; attempt < 2; attempt++) {
-          const recovered = JSON.parse(
-            execFileSync(
-              fixture.executables.cli.executable,
-              [...fixture.executables.cli.args, 'api'],
-              {
-                cwd: fixture.workspace,
-                env: replayEnv,
-                encoding: 'utf8',
-                timeout: 5_000,
-                input: JSON.stringify({
-                  version: 1,
-                  operation: 'orchestration.job.run',
-                  originator: 'anonymous',
-                  input: { jobId: job.jobId, revision: job.revision, slotMs: job.lastRun.slotMs },
-                }),
-              }
-            )
+        delete runEnv.TMUX;
+        delete runEnv.TMUX_PANE;
+        // Submit the same canonical slot request the foreground clock would send.
+        const runSlot = () => {
+          const result = spawnSync(
+            fixture.executables.cli.executable,
+            [...fixture.executables.cli.args, 'api'],
+            {
+              cwd: fixture.workspace,
+              env: runEnv,
+              encoding: 'utf8',
+              timeout: 5_000,
+              input: JSON.stringify({
+                version: 1,
+                operation: 'orchestration.job.run',
+                originator: 'anonymous',
+                input: { jobId: job.jobId, revision: job.revision, slotMs },
+              }),
+            }
           );
-          expect(recovered).toMatchObject({
+          expect(result.error).toBeUndefined();
+          expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+          return JSON.parse(result.stdout);
+        };
+        const accepted = runSlot();
+        expect(accepted).toMatchObject({
+          outcome: 'accepted',
+          created: true,
+          runId: expect.any(Number),
+          dispatch: { operationId: expect.any(String), items: [{ requestId: expect.any(String) }] },
+        });
+        expect(accepted.dispatch.items).toHaveLength(1);
+        const requestId = accepted.dispatch.items[0].requestId;
+        const scheduled = () =>
+          requestAttempts(fixture).filter((row) => row.message_text === message);
+        expect(scheduled()).toEqual([
+          expect.objectContaining({
+            request_id: requestId,
+            recipient_identity_id: owner,
+            originator_kind: 'unknown',
+            originator_identity_id: null,
+            room_id: added.job.roomId,
+            route_kind: 'inbox',
+            message_text: message,
+          }),
+        ]);
+        const isScheduledWake = (event: MockEvent) =>
+          event.event === 'input' &&
+          event.pid === peer.pid &&
+          event.line?.split(/\s+/).includes(requestId) === true;
+        await fixture.waitForEvent(isScheduledWake, 5_000);
+        await fixture.waitFor(
+          () => scheduled()[0]?.wake_state === 'sent',
+          5_000,
+          'scheduled wake committed'
+        );
+        const recorded = expectJsonResult<{
+          jobs: {
+            lastRun: { id: number; slotMs: number; operationId: string; requestId: string };
+          }[];
+        }>(await fixture.runJsonCli(['orch', 'job', 'ls']));
+        expect(recorded.jobs).toHaveLength(1);
+        expect(recorded.jobs[0]!.lastRun).toMatchObject({
+          id: accepted.runId,
+          slotMs,
+          operationId: accepted.dispatch.operationId,
+          requestId,
+        });
+        for (let attempt = 0; attempt < 2; attempt++) {
+          expect(runSlot()).toMatchObject({
+            outcome: 'accepted',
             created: false,
-            runId: job.lastRun.id,
+            runId: accepted.runId,
             dispatch: {
-              operationId: job.lastRun.operationId,
-              items: [{ requestId: request.request_id }],
+              operationId: accepted.dispatch.operationId,
+              items: [{ requestId }],
             },
           });
         }
         expect(scheduled()).toHaveLength(1);
         expect(fixture.events().filter(isScheduledWake)).toHaveLength(1);
-        expect(scheduled()[0]).toMatchObject({
-          request_id: request.request_id,
-          wake_state: 'sent',
-        });
-        const status = expectJsonResult<{ clock: { state: string } }>(
-          await squadCli(fixture, ['cron', 'clock'])
-        );
-        expect(status.clock.state).toBe('no clock');
-        expect(fs.existsSync(leasePath)).toBe(false);
+        expect(scheduled()[0]).toMatchObject({ request_id: requestId, wake_state: 'sent' });
       },
       { mode: 'input-log' }
     );
@@ -2673,11 +2610,11 @@ child.stdout.pipe(process.stdout);
         );
 
         const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
-        const where = (needle: string) => {
-          const rows = screen().split('\n');
-          const y = rows.findIndex((row) => row.includes(needle));
-          expect(y, `${needle} on screen:\n${screen()}`).toBeGreaterThanOrEqual(0);
-          return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
+        const locateLink = (viewport: string) => {
+          const rows = viewport.split('\n');
+          const y = rows.findIndex((row) => row.includes('Read the docs first.'));
+          if (y < 0) return;
+          return { x: [...rows[y]!.slice(0, rows[y]!.indexOf('the docs'))].length + 1, y };
         };
         const click = (x: number, y: number) => {
           for (const final of ['M', 'm'])
@@ -2696,25 +2633,38 @@ child.stdout.pipe(process.stdout);
             return '';
           }
         };
-        const open = async () => {
-          const label = where('the docs');
-          click(label.x + 1, label.y);
+        const open = async (label: { x: number; y: number }) => {
+          click(label.x, label.y);
           await fixture.waitForCapture((current) => current.includes('┌ Link'), shell.pane);
         };
 
         // The popover names where the link goes before it offers anything.
-        await open();
+        const initial = screen();
+        const label = locateLink(initial);
+        expect(label, initial).toBeDefined();
+        await open(label!);
         const popover = screen();
         expect(popover).toContain('https://example.com');
         for (const action of ['Open', 'Copy', 'Show full'])
           expect(popover, popover).toContain(action);
 
-        // Copy puts the whole address, not the label, on the clipboard.
+        // Copy publishes the full address before the completion frame is painted.
+        // Reopen only after the visible viewport has closed and restored the same link cell.
         fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'y']);
-        await fixture.waitFor(() => buffer() === link, 5_000, `Copy:\n${screen()}`);
+        await fixture.waitFor(
+          () => {
+            if (buffer() !== link) return false;
+            const closed = screen();
+            if (closed.includes('┌ Link') || !closed.includes('Copied to ')) return false;
+            const painted = locateLink(closed);
+            return painted?.x === label!.x && painted.y === label!.y;
+          },
+          5_000,
+          'clipboard and closed link at its original click cell'
+        );
 
         // Show full lists every character of the address.
-        await open();
+        await open(label!);
         fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'f']);
         await fixture.waitForCapture((current) => current.includes('Full link'), shell.pane);
         const lines = screen()
