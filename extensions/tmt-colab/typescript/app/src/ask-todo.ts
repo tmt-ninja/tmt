@@ -54,25 +54,28 @@ export interface AskTodo {
   text: string;
 }
 
-const CHECK =
-  /\nCheck it when done: tmt colab block props ([0-9a-f-]{36}) ([0-9a-f-]{36}) --set checked=true$/;
-
 /** The request's to-do section, appended after the comment. */
 export function todoSection(page: string, todo: AskTodo): string {
   return `\n\nTo-do: ${todo.text}\nCheck it when done: tmt colab block props ${page} ${todo.block} --set checked=true`;
 }
 
 /**
- * The to-do this page's own signed Ask named, read back from the message Colab composed. Only Colab
- * reads this section, for its own page; no other component may infer state from request text.
+ * The to-do an accepted Ask became, derived from its record, never read out of its text: the block
+ * ID from the page and the Ask's signed thread, the text from the verified comment it names. The
+ * signed message must end with exactly that section, so an Ask sent without one (an answer batch,
+ * a status notification, a page of HTML) or a comment that writes a look-alike line adds nothing.
  */
-export function askedTodo(page: string, message: string): AskTodo | undefined {
-  const check = CHECK.exec(message);
-  if (!check || check[1] !== page) return undefined;
-  const head = message.slice(0, check.index);
-  const at = head.lastIndexOf('\n\nTo-do: ');
-  if (at < 0) return undefined;
-  return { block: check[2]!, text: head.slice(at + '\n\nTo-do: '.length) };
+export async function askTodoFrom(
+  page: string,
+  ask: { thread: string; message: string; agentName: string },
+  comment: string | undefined,
+): Promise<AskTodo | undefined> {
+  if (comment === undefined) return undefined;
+  const todo = {
+    block: await todoBlockId(page, ask.thread),
+    text: todoText(comment, ask.agentName),
+  };
+  return todo.text && ask.message.endsWith(todoSection(page, todo)) ? todo : undefined;
 }
 
 const ROOT_PARENT = 'root';

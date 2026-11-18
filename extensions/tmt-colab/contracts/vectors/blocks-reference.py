@@ -310,10 +310,19 @@ page("convertedAt beyond what a browser number holds exactly", blocks_meta(conve
 page("convertedAt with a legacy source on an ordinary page", {"convertedAt": CONVERTED_AT}, False, html=LEGACY)
 page("convertedAt on an ordinary page", {"convertedAt": CONVERTED_AT}, False)
 page("the retired convertedFrom on a page of blocks", blocks_meta(convertedFrom=bid(7)), False)
+# A converted page keeps its HTML layout beside the legacy source (`legacyLayout`).
+page("converted canvas retains its layout and reason", {'pageType': 'blocks', 'convertedAt': 1, 'legacyLayout': {'layout': 'canvas', 'layoutReason': 'A custom frame'}}, True)
+page("converted column retains its layout", {'pageType': 'blocks', 'convertedAt': 1, 'legacyLayout': {'layout': 'column'}}, True)
+page("legacy layout without conversion marker", {'pageType': 'blocks', 'legacyLayout': {'layout': 'full'}}, False)
+page("legacy layout on ordinary page", {'legacyLayout': {'layout': 'full'}}, False)
+page("legacy canvas without reason", {'pageType': 'blocks', 'convertedAt': 1, 'legacyLayout': {'layout': 'canvas'}}, False)
+page("legacy noncanvas with reason", {'pageType': 'blocks', 'convertedAt': 1, 'legacyLayout': {'layout': 'column', 'layoutReason': 'extra'}}, False)
+page("legacy layout with unknown field", {'pageType': 'blocks', 'convertedAt': 1, 'legacyLayout': {'layout': 'full', 'extra': True}}, False)
+page("legacy layout has invalid type", {'pageType': 'blocks', 'convertedAt': 1, 'legacyLayout': 'canvas'}, False)
 page_doc = {
     "format": "tmt-colab-blocks-page",
     "version": 1,
-    "description": "Which metadata a page of blocks may carry (#6004), written by blocks-reference.py. Each case is a content document with an html text (empty unless the case gives `html`), no blocks root yet, a title and the meta given; valid ones are accepted and the others refused by the isolated decoder and the browser fold alike. A page of blocks keeps work, attachments, fromTemplate, a state and convertedAt (the time in ms it was converted in place), and never a template or a layout; convertedAt belongs to a page of blocks alone. Its html is empty on a new page, or the frozen legacy source of a page converted in place: it is never rendered and never writable. A case with `blocksRoot` also gives the document a `blocks` root with one entry, deleted again when it is `emptied`: a reverted page has no pageType but keeps that emptied root, which only a page without pageType may do, and not while it holds a block.",
+    "description": "Which metadata a page of blocks may carry (#6004), written by blocks-reference.py. Each case is a content document with an html text (empty unless the case gives `html`), no blocks root yet, a title and the meta given; valid ones are accepted and the others refused by the isolated decoder and the browser fold alike. A page of blocks keeps work, attachments, fromTemplate, a state and convertedAt (the time in ms it was converted in place), and never a template or a layout; convertedAt belongs to a page of blocks alone. Its html is empty on a new page, or the frozen legacy source of a page converted in place: it is never rendered and never writable. A case with `blocksRoot` also gives the document a `blocks` root with one entry, deleted again when it is `emptied`: a reverted page has no pageType but keeps that emptied root, which only a page without pageType may do, and not while it holds a block. A converted blocks page may also retain legacyLayout, a validated original layout restored on revert.",
     "cases": pages,
 }
 page_text = json.dumps(page_doc, ensure_ascii=False, indent=2) + "\n"

@@ -668,6 +668,20 @@ export function commentForAsk(threads: ThreadView[], context: CommentContext) {
   };
 }
 
+/** The comment an Ask of one comment was sent for (#6474), as written, from the admitted thread;
+ * nothing for a deleted or missing comment. */
+export function askedComment(
+  threads: readonly ThreadView[],
+  thread: string,
+  messageIds: readonly string[],
+): string | undefined {
+  if (messageIds.length !== 1) return undefined;
+  const view = threads.find((value) => value.threadId === thread);
+  const comment = view?.comments.find((value) => value.messageId === messageIds[0]);
+  if (!view || !comment || comment.deleted) return undefined;
+  return comment.body;
+}
+
 // Invisible and direction-changing characters JSON quoting leaves as they are.
 const INVISIBLE = /[\u00ad\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g;
 /** JSON-quoted untrusted text with invisible characters escaped, so it cannot open a line or a

@@ -13,14 +13,15 @@ import { LiveDocumentFiles, type DocumentFiles } from './document-files.js';
 import { shortPageId } from './short-links.js';
 import { commentsForAnswerBatch } from './answer-batch.js';
 import { inspectQuestions } from './questions.js';
-import { ThreadStore, commentForAsk, conversationForAsk } from './thread-store.js';
+import { ThreadStore, askedComment, commentForAsk, conversationForAsk } from './thread-store.js';
+import type { ThreadView } from './thread-records.js';
 import { readThreads, type DiscussionRef } from './thread-records.js';
 import { ThreadStatusCoordinator } from './thread-status-coordinator.js';
 import { statusNotificationForAsk } from './thread-status-notification.js';
 import { projectThreadPresentations } from './thread-status-presentation.js';
 import { VerifiedAsks } from './ask-records.js';
 import { ThreadStatusSeen } from './thread-status-view.js';
-import { askedTodo, todoInsertOps } from './ask-todo.js';
+import { askTodoFrom, todoInsertOps } from './ask-todo.js';
 import type { PageAsk } from './ask-panel.js';
 import type { BlockEntry } from './blocks.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
@@ -702,7 +703,7 @@ export class Live implements PageBinding {
           this.#threadProjection = { connection, admission, view: this.#projection };
           this.#discussionVerified = true;
           this.#publish();
-          this.#askTodos(asks, value);
+          void this.#askTodos(asks, value, threads);
           this.#observe();
         } catch (error) {
           if (this.#owns(open))
@@ -1170,14 +1171,19 @@ export class Live implements PageBinding {
    * accepted, and whose to-do block the page does not have yet, even deleted. A held, uncertain or
    * refused Ask inserts nothing; the thread-derived block ID keeps a retry from adding a second.
    */
-  #askTodos(
+  async #askTodos(
     asks: readonly PageAsk[],
     value: { pageType?: string; blocks?: Record<string, BlockEntry>; archived?: boolean },
+    threads: readonly ThreadView[],
   ) {
     if (value.pageType !== 'blocks' || !value.blocks || value.archived) return;
     for (const ask of asks) {
       if (ask.state !== 'accepted' || !ask.canTrack || !ask.thread) continue;
-      const todo = askedTodo(this.page.pageId, ask.message);
+      const todo = await askTodoFrom(
+        this.page.pageId,
+        { thread: ask.thread, message: ask.message, agentName: ask.agentName },
+        askedComment(threads, ask.thread, ask.messageIds ?? []),
+      );
       if (!todo || this.#todosInserting.has(todo.block)) continue;
       const ops = todoInsertOps(value.blocks, todo, ask.agentName, ask.thread);
       if (!ops.length) continue;
@@ -1189,6 +1195,7 @@ export class Live implements PageBinding {
       );
     }
   }
+
   async blocks(
     ops: readonly BlockOp[],
     attachments?: attachment.DocumentChange,

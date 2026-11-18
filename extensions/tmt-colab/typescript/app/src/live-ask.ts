@@ -225,12 +225,18 @@ export class LiveAsk implements AskBinding {
         requireValue(!this.#closed && c.active);
       }
       const thread = origin?.thread ?? crypto.randomUUID();
-      // Only a person's comment becomes a to-do: never an answer batch or a status notification.
+      // Only a person's comment in a thread becomes a to-do: never the page Chat, an answer batch or
+      // a status notification. Its text is the comment as written, as the page reads it back.
       const todo =
-        this.options.todos?.() && captured.context && !captured.batch && !notificationOrigin
+        this.options.todos?.() &&
+        captured.context &&
+        // The page Chat's thread is named by its writer (`isChatThread`); it makes no to-do.
+        captured.context.thread.id !== captured.context.thread.writer &&
+        !captured.batch &&
+        !notificationOrigin
           ? {
               block: await todoBlockId(this.options.page, thread),
-              text: todoText(origin?.comment ?? captured.comment, captured.destination.agentName),
+              text: todoText(captured.comment, captured.destination.agentName),
             }
           : undefined;
       this.#selection = {
