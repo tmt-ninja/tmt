@@ -1059,7 +1059,7 @@ for (const stage of ['progress', 'stalled'] as const) {
     await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Brio');
     await dialog.getByRole('textbox', { name: 'Tag prefix', exact: true }).fill('brio');
     await dialog.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(dialog.getByRole('status')).toHaveText('Creating pages: 0 of 112');
+    await expect(dialog.getByRole('status')).toHaveText('Creating pages: 0 of 118');
     await expect(dialog.getByRole('textbox', { name: 'Name', exact: true })).toBeDisabled();
     await expect(dialog.getByRole('textbox', { name: 'Tag prefix', exact: true })).toBeDisabled();
     const ink = await dialog
@@ -1077,7 +1077,7 @@ for (const stage of ['progress', 'stalled'] as const) {
     await expect(dialog.getByRole('button', { name: 'Creating…', exact: true })).toBeDisabled();
     if (stage === 'stalled')
       await expect(dialog.getByRole('status')).toHaveText(
-        'Still creating (0 of 112). This can take a while.',
+        'Still creating (0 of 118). This can take a while.',
       );
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(dialog).toHaveCount(0);
@@ -1178,8 +1178,8 @@ for (const width of [1440, 390]) {
         await dialog.getByRole('button', { name: 'Create', exact: true }).click();
         await expect(dialog.getByRole('status')).toHaveText(
           stage === 'stalled'
-            ? 'Still creating (0 of 112). This can take a while.'
-            : 'Creating pages: 0 of 112',
+            ? 'Still creating (0 of 118). This can take a while.'
+            : 'Creating pages: 0 of 118',
         );
         await capture(page, `${stage}-${width}-${theme}.png`);
         await dialog.getByRole('button', { name: 'Close', exact: true }).click();
