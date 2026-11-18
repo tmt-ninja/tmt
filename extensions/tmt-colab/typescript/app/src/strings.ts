@@ -1120,6 +1120,8 @@ export const text = {
       empty: 'No items',
       notify: 'Notify',
       recipients: 'Recipients',
+      talkDenied:
+        'This browser is not allowed to send to agents. Turn sending on in Remote settings, or pair with talk.',
       send: 'Send',
       quote: (project: string) =>
         `The work order for ${project} has changed. Please arrange your work in the current order.`,
@@ -1130,6 +1132,7 @@ export const text = {
         held: 'Held for approval',
         uncertain: 'Delivery unconfirmed: try again',
         refused: 'Not sent: try again',
+        notAllowed: 'Not allowed',
         cancelled: 'Not sent: try again',
       },
       recipientsFailed: 'Could not load recipients.',
