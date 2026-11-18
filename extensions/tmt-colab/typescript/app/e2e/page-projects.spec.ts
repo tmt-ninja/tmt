@@ -235,6 +235,10 @@ test('a page in eight projects cannot take a ninth or a new one', async ({ page 
   const header = await open(page, 1440, 'light', { current: eight, all: [...eight, 'p9'] });
   // Three chips and a count of the rest.
   await expect(header.locator('.page-project-group-chip')).toHaveText(['p1', 'p2', 'p3', '+5']);
+  // The top bar names the same labels after the page's status, the rest as a count (#6611).
+  const bar = page.locator('.tmt-ui-topbar:visible .page-bar-summary');
+  await expect(bar.locator('.page-bar-label')).toHaveText(['p1', 'p2', 'p3', '+5']);
+  await expect(bar.locator('.page-bar-label').last()).toHaveAccessibleName('5 more projects');
   await openPicker(page, header);
   await expect(page.getByRole('menuitemcheckbox', { name: 'p9' })).toBeDisabled();
   await expect(page.getByRole('menuitem', { name: text.pageList.newProjectItem })).toBeDisabled();

@@ -287,6 +287,10 @@ export const text = {
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
   headerByAuthor: (name: string) => `by ${name}`,
+  /** The opened page's summary in the top bar (#6611). */
+  pageBar: {
+    moreLabels: (count: number) => `${count} more ${count === 1 ? 'project' : 'projects'}`,
+  },
   /** The brand's accessible name and tooltip: the product and the connection it shows. */
   brandIdentity: (connection: string) => `${text.product} · ${connection}`,
   byAuthor: (name: string) => `By ${name}`,

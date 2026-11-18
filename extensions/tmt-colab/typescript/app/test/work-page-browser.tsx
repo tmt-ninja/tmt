@@ -122,7 +122,7 @@ export function mountWorkPage(
   owner = false,
   scenario: 'tree' | 'empty' | 'many' | 'filled' | 'work-fields' = 'tree',
   tall = false,
-  activityState?: 'working' | 'possibly-stalled',
+  activityState?: 'working' | 'possibly-stalled' | 'unknown',
 ) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';

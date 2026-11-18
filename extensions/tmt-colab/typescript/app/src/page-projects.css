@@ -44,7 +44,9 @@
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
-.page-project-group-chip {
+/* The top bar's labels are the same chips (#6611). */
+.page-project-group-chip,
+.page-bar-label {
   display: inline-flex;
   align-items: center;
   flex: 0 1 auto;
@@ -63,13 +65,15 @@
   line-height: 1;
   white-space: nowrap;
 }
-.page-project-group-chip > span {
+.page-project-group-chip > span,
+.page-bar-label > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.page-project-group-chip[data-overflow] {
+.page-project-group-chip[data-overflow],
+.page-bar-label[data-overflow] {
   flex: none;
   border: 1px solid var(--tmt-ui-surface-rule);
   background: transparent;

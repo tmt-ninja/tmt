@@ -246,6 +246,7 @@ export function PageProjects({
   open,
   pinRequest,
   onPinState,
+  onProjects,
 }: {
   transport: PageTransport;
   space: string | undefined;
@@ -260,6 +261,8 @@ export function PageProjects({
   /** A new request from the phone's More menu uses the header pin's existing write. */
   pinRequest?: PagePinRequest;
   onPinState?(state: PagePinState | undefined): void;
+  /** The page's projects as the list knows them, for the top bar's labels (#6611). */
+  onProjects?(names: readonly string[]): void;
 }) {
   const port = transport.management;
   const [home, setHome] = useState<SpaceHome>();
@@ -339,6 +342,11 @@ export function PageProjects({
   const listedPage = known?.find((candidate) => candidate.id === pageId);
   const pinned =
     port && listedPage && !listedPage.archived ? listedPage.pinned === true : undefined;
+  const projectKey = JSON.stringify(listedPage?.projects ?? []);
+  useEffect(() => {
+    // The bar names the projects only where the page shows them.
+    onProjects?.(port ? (JSON.parse(projectKey) as string[]) : []);
+  }, [projectKey, onProjects, port]);
   useEffect(() => {
     onPinState?.(
       pinned === undefined

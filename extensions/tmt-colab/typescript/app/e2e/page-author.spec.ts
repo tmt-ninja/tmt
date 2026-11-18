@@ -35,13 +35,10 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = value;
       }, theme);
       await mount(page);
-      // A page names its author in the bar; the reader in its own header.
+      // The bar carries the page's number, title, status and labels, not its author (#6611); About
+      // names the author.
       const header = page.locator('.tmt-ui-topbar:visible, .tmt-ui-header:visible');
-      await expect(header.locator('.tmt-ui-caption')).toHaveText('by Alice <b>creator</b>');
-      await expect(header.locator('.tmt-ui-caption'))[
-        width <= 900 ? 'toBeHidden' : 'toBeVisible'
-      ]();
-      await expect(header.locator('.tmt-ui-caption b')).toHaveCount(0);
+      await expect(header.locator('.tmt-ui-caption')).toHaveCount(0);
       await expect(header).toHaveCSS('height', `${headerHeight(width)}px`);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await info(page, false);
@@ -60,7 +57,6 @@ for (const width of [1440, 390])
         (await import(path)).updatePublisher();
       });
       await expect(attribution).not.toContainText('Latest publisher');
-      await expect(header.locator('.tmt-ui-caption')).toHaveText('by Alice <b>creator</b>');
       await mount(page, false, true);
       await expect(header.locator('.tmt-ui-caption')).toHaveCount(0);
       await info(page, false);
