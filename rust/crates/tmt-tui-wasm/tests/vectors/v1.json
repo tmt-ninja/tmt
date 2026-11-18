@@ -5447,25 +5447,12 @@
             [
               1,
               {
-                "glyph": " ",
+                "glyph": "▁",
                 "underlay": null,
                 "fg": "dim",
                 "bg": null,
                 "bold": false,
                 "chip_surface": null,
-                "continuation": false
-              }
-            ],
-            [
-              1,
-              {
-                "glyph": "▁",
-                "underlay": null,
-                "fg": "text",
-                "bg": null,
-                "bold": false,
-                "chip_surface": null,
-                "heat_level": 0,
                 "continuation": false
               }
             ],
@@ -5478,7 +5465,6 @@
                 "bg": null,
                 "bold": false,
                 "chip_surface": null,
-                "heat_level": 1,
                 "continuation": false
               }
             ],
@@ -5491,7 +5477,6 @@
                 "bg": null,
                 "bold": false,
                 "chip_surface": null,
-                "heat_level": 2,
                 "continuation": false
               }
             ],
@@ -5504,7 +5489,18 @@
                 "bg": null,
                 "bold": false,
                 "chip_surface": null,
-                "heat_level": 3,
+                "continuation": false
+              }
+            ],
+            [
+              1,
+              {
+                "glyph": "▅",
+                "underlay": null,
+                "fg": "text",
+                "bg": null,
+                "bold": false,
+                "chip_surface": null,
                 "continuation": false
               }
             ],
@@ -5517,7 +5513,6 @@
                 "bg": null,
                 "bold": false,
                 "chip_surface": null,
-                "heat_level": 4,
                 "continuation": false
               }
             ],
@@ -5530,7 +5525,6 @@
                 "bg": null,
                 "bold": false,
                 "chip_surface": null,
-                "heat_level": 5,
                 "continuation": false
               }
             ]
@@ -5558,7 +5552,7 @@
               {
                 "glyph": "·",
                 "underlay": "selection",
-                "fg": "text",
+                "fg": "muted",
                 "bg": null,
                 "bold": false,
                 "chip_surface": null,
@@ -5568,9 +5562,9 @@
             [
               1,
               {
-                "glyph": " ",
+                "glyph": "▁",
                 "underlay": "selection",
-                "fg": "text",
+                "fg": "muted",
                 "bg": null,
                 "bold": false,
                 "chip_surface": null,
@@ -5581,12 +5575,11 @@
               1,
               {
                 "glyph": "█",
-                "underlay": null,
+                "underlay": "selection",
                 "fg": "text",
                 "bg": null,
                 "bold": false,
                 "chip_surface": null,
-                "heat_level": 5,
                 "continuation": false
               }
             ]
@@ -6261,8 +6254,8 @@
   ],
   "artifacts": {
     "wasm": {
-      "raw": 478188,
-      "gzip": 143999
+      "raw": 485661,
+      "gzip": 144134
     },
     "glue": {
       "raw": 6145,
