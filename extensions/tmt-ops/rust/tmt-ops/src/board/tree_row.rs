@@ -249,6 +249,7 @@ pub(in crate::board) fn paint(
         let fit = |value: &str, align| {
             tmt_tui::text::fit_line(value, cell.width, TextFlow::Truncate, align)
         };
+        let mut open_hint = None;
         let mut line = match field {
             AgentsField::Agent => {
                 let member = matches!(row.source.target, OpsTarget::Member { .. });
@@ -281,7 +282,7 @@ pub(in crate::board) fn paint(
                     1 + branch.width() + usize::from(row.source.lead) + 4 * usize::from(show_label),
                 );
                 let name = crate::board::notes::single_line(&row.source.title);
-                let hint = row.open_hint.as_ref().filter(|hint| {
+                open_hint = row.open_hint.as_ref().filter(|hint| {
                     let available = name_width.saturating_sub(hint.width() + 1);
                     let first = name
                         .chars()
@@ -292,9 +293,9 @@ pub(in crate::board) fn paint(
                     first > 0 && available >= minimum && name_width >= hint.width() + 1
                 });
                 let fitted_width =
-                    name_width.saturating_sub(hint.map_or(0, |hint| hint.width() + 1));
+                    name_width.saturating_sub(open_hint.map_or(0, |hint| hint.width() + 1));
                 // Keep the leading gutter aligned with the squad tree.
-                let mut line = Line::from(vec![
+                Line::from(vec![
                     Span::styled(" ", look.role(Role::Muted)),
                     Span::styled(branch, look.role(Role::Text)),
                     Span::raw(match row.label {
@@ -316,12 +317,7 @@ pub(in crate::board) fn paint(
                         crate::board::view::fit(&name, fitted_width),
                         look.role(Role::Text),
                     ),
-                ]);
-                if let Some(hint) = hint {
-                    line.spans.extend(hint.spans.clone());
-                    line.spans.push(Span::raw(" "));
-                }
-                line
+                ])
             }
             AgentsField::State => {
                 let primary = row
@@ -400,6 +396,18 @@ pub(in crate::board) fn paint(
             && let Some(name) = line.spans.get_mut(NAME_SPAN)
         {
             name.style = name.style.add_modifier(Modifier::BOLD);
+        }
+        if let Some(hint) = open_hint {
+            // Keep the hint and its padding outside the row's span styling.
+            let name = &mut line.spans[NAME_SPAN];
+            let trimmed = name.content.trim_end_matches(' ');
+            let padding = name.content.len() - trimmed.len();
+            name.content = trimmed.to_owned().into();
+            if padding > 0 {
+                line.spans.push(Span::raw(" ".repeat(padding)));
+            }
+            line.spans.extend(hint.spans.clone());
+            line.spans.push(Span::raw(" "));
         }
         strip::paint_left(
             buffer,
