@@ -24,6 +24,10 @@ runs:
         for source in $(grep -l dl.google.com /etc/apt/sources.list.d/* 2>/dev/null || true); do
           sudo rm -f "$source"
         done
+        if [ -f "$APT_MIRRORS" ] && [ ! -L "$APT_MIRRORS" ] && [ -r "$APT_MIRRORS" ]; then
+          printf 'apt-install: initial mirror list:\n'
+          cat "$APT_MIRRORS" || true
+        fi
         retry="$GITHUB_WORKSPACE/scripts/retry-command.sh"
         # The network steps (update, download) have short bounds and retry; a kill
         # there changes no dpkg state. The unpack step is local and has a longer
@@ -37,8 +41,8 @@ runs:
         unpack_state=$(mktemp)
         trap '/bin/rm -f "$update_state" "$download_state" "$unpack_state"' EXIT
         # Runs one network attempt. After the phase's first attempt times out, the
-        # next attempt first removes Azure from the runner image's mirror list; a
-        # phase that finds Azure already removed changes nothing.
+        # next attempt first removes the regional mirror from the runner image's
+        # list; a phase that finds it already removed changes nothing.
         with_mirror_fallback='
           state=$1; sources=$2; mirrors=$3; shift 3
           previous=$(cat "$state")
@@ -56,14 +60,23 @@ runs:
                  /^[ \t]/ { bad=1 }
                  END { exit(!seen || bad) }
                '"'"' "$sources" &&
+               IFS= read -r first < "$mirrors" &&
+               tab=$(printf "\t") &&
+               regional=${first%%"$tab"*} &&
+               [[ "$regional" = http://azure.archive.ubuntu.com/ubuntu/ ||
+                  "$regional" =~ ^http://[abcdefghijklmnopqrstuvwxyz0123456789-]+[.]ec2[.]archive[.]ubuntu[.]com/ubuntu/$ ]] &&
                cmp -s "$mirrors" <(printf "%s\t%s\n" \
-                 http://azure.archive.ubuntu.com/ubuntu/ priority:1 \
+                 "$regional" priority:1 \
                  https://archive.ubuntu.com/ubuntu/ priority:2 \
                  https://security.ubuntu.com/ubuntu/ priority:3); then
               sudo sed -i "1d" "$mirrors"
-              printf "apt-install: removed http://azure.archive.ubuntu.com/ubuntu/ from %s; archive/security retained.\n" "$mirrors"
+              printf "apt-install: removed %s from %s; archive/security retained.\n" "$regional" "$mirrors"
             else
               printf "apt-install: mirror fallback no-op: unreadable or unexpected sources/list: %s / %s.\n" "$sources" "$mirrors" >&2
+              if [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ]; then
+                printf "apt-install: mirror list contents:\n" >&2
+                cat "$mirrors" >&2 || true
+              fi
             fi
           fi
           status=0
