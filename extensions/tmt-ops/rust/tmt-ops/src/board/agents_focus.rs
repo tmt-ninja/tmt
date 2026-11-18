@@ -238,8 +238,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if app.right_tab == crate::board::shell::RightTab::Talk
         && app.input.is_none()
         && let OpsTarget::Member { identity_id, .. } = selected
-        && let Some(forms) = snapshot.forms.as_ref()
-        && forms.iter().any(|form| &form.identity_id == identity_id)
+        && snapshot
+            .forms
+            .as_ref()
+            .is_some_and(|forms| forms.iter().any(|form| &form.identity_id == identity_id))
     {
         let mut lines = Vec::new();
         let mut push = |text: &str| {
@@ -248,7 +250,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 lines.push(neutral(format!(" {wrapped}"), app.look()));
             }
         };
-        for form in forms.iter().filter(|form| &form.identity_id == identity_id) {
+        for form in snapshot
+            .forms
+            .iter()
+            .flatten()
+            .filter(|form| &form.identity_id == identity_id)
+        {
             push(match (snapshot.forms_stale, form.kind.as_str()) {
                 (true, "question") => "◆ Question form · stale",
                 (true, "permission") => "◆ Permission form · stale",
@@ -257,6 +264,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 (false, "permission") => "◆ Permission form",
                 (false, _) => "◆ Plan approval",
             });
+            if let Some(message) = app.provider_answer.message(form) {
+                push(message);
+            }
             if snapshot.forms_stale {
                 push(if form.truncated {
                     "Last observed · current status unavailable · truncated, read-only"
@@ -278,12 +288,18 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     && row["presence"] == "active")
                     || super::overview::actions::host(row, app.invoker_tmux).is_ok()
             });
-            let hint = match (snapshot.forms_stale, jump_key, terminal_available) {
+            let check = snapshot.forms_stale || app.provider_answer.terminal_only(form);
+            let hint = match (check, jump_key, terminal_available) {
                 (true, Some(key), true) => format!(
                     "{} jump · check the terminal",
                     super::view::footer::key_label(&key)
                 ),
                 (true, _, _) => "Check the terminal · jump unavailable.".into(),
+                (false, Some(key), true) if app.provider_answer.eligible(form) => format!(
+                    "{} jump · answer here or in the terminal",
+                    super::view::footer::key_label(&key)
+                ),
+                (false, _, _) if app.provider_answer.eligible(form) => "Answer from Talk.".into(),
                 (false, Some(key), true) => format!(
                     "{} jump · answer in terminal",
                     super::view::footer::key_label(&key)
@@ -321,11 +337,31 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
         }
         app.conversation.borrow_mut().active = None;
+        let action = app.provider_answer_hint().filter(|_| area.height >= 3);
+        if let Some(label) = action {
+            let hit = Rect::new(
+                area.x + 1,
+                area.y + 1,
+                (label.chars().count() as u16).min(area.width.saturating_sub(1)),
+                1,
+            );
+            if !hit.is_empty() {
+                if !app.modal_open() {
+                    app.provider_answer.action_hit.set(Some(hit));
+                }
+                tmt_tui::components::strip::paint_left(
+                    frame.buffer_mut(),
+                    hit,
+                    ratatui::text::Line::styled(label, app.look().role(tmt_cli_style::Role::Link)),
+                );
+            }
+        }
+        let reserved = 1 + u16::from(action.is_some());
         let body = Rect::new(
             area.x,
-            area.y.saturating_add(1),
+            area.y.saturating_add(reserved),
             area.width,
-            area.height.saturating_sub(1),
+            area.height.saturating_sub(reserved),
         );
         app.scrolls
             .show(frame, Pane::Replies, body, &lines, app.look());

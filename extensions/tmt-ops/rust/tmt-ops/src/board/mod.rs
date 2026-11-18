@@ -44,6 +44,7 @@ mod member_session;
 mod member_terminals;
 mod new_member;
 mod offline_resume;
+mod provider_answer;
 mod switch_tool;
 mod tool_choices;
 pub(crate) use limits::history::document as limits_history;
@@ -152,6 +153,7 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// terminal hangs up, so the board never waits on it directly; the thread ends
 /// with the process, and a read error disconnects the channel.
 pub(in crate::board) enum BoardEvent {
+    ProviderAnswer(provider_answer::Completed),
     ShellCancelled {
         key: (String, String),
         confirmed: bool,
@@ -330,6 +332,7 @@ impl BoardEvent {
         match self {
             Self::ShellCancelled { .. } => "ShellCancelled",
             Self::ShellDone { .. } => "ShellDone",
+            Self::ProviderAnswer(_) => "ProviderAnswer",
             Self::Migration(_) => "Migration",
             Self::CronMigration(_) => "CronMigration",
             Self::CallerFailed(_) => "CallerFailed",
@@ -1120,6 +1123,12 @@ fn session(
                         dirty = true;
                         Effect::None
                     }
+                    Ok(BoardEvent::ProviderAnswer(completed)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        app.provider_answer_completed(completed);
+                        dirty = true;
+                        Effect::None
+                    }
                     Ok(BoardEvent::Checklist(completed)) => {
                         app.finished_checklist(completed);
                         dirty = true;
@@ -1864,6 +1873,10 @@ fn session(
                             lane::Job::Act(action)
                         };
                         submit(app, job);
+                    }
+                    Effect::AnswerProviderForm(answer) => {
+                        app.in_flight += 1;
+                        io(lane::Job::AnswerProviderForm(answer));
                     }
                     Effect::None => {}
                 }

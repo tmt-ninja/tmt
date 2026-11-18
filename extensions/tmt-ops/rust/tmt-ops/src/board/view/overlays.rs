@@ -6,6 +6,7 @@ use ratatui::{Frame, layout::Rect};
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
     app.peek_areas.clear();
     let set = |overlay, outer| app.peek_areas.set(overlay, outer);
+    app.render_provider_answer(frame, body);
     // The `?` panel is the lowest layer: dialogs opened from its settings rows paint above it.
     if app.help {
         crate::board::help::render(frame, app, body);

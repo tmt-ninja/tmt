@@ -306,9 +306,13 @@ once per member (~ when any member is missing/partial, — when none is observed
 Each mini-trend uses the same admitted meter observation and bounded buckets;
 no new history is acquired. Common-pool group tokens remain unavailable.
 A reported open provider form replaces the member's STATE text with `◆ form` and a
-clipped summary. The selected member's Talk pane shows the retained form in a
-scrollable read-only view, including truncation and terminal-jump availability.
-Only a user can invoke the existing jump; the board never calls `forms.answer`.
+clipped summary. The selected member's Talk pane shows the retained form,
+including truncation and terminal-jump availability. `provider_answer` owns the
+shared dialog for complete, fresh forms that Core admits for client answers.
+Only the user's explicit confirmation queues a bounded, one-shot
+`forms.answer` through the command lane. Core's cursor-driven list read remains
+the closure owner. An uncertain result leaves a check-the-terminal message and
+the board never replays it.
 
 A member's Talk composer recognizes `!`/`！` and `!!`/`！！` before normal
 message dispatch. The Shell marker uses the composer info row; the conversation

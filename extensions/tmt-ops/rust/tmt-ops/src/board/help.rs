@@ -437,6 +437,11 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ("Send now", "While Core says the newest message you sent can go now (held for a Digest checklist, or waiting to be typed), a Send now chip and Ctrl-S type it at once. Core decides who may and what the state allows; its sentence is the result, and nothing is retried."),
         ("turn output", "Captured output appears under its message, marked truncated when needed. working… follows Core's pending or bound capture; Missing capture says no turn output was captured; it is never presented as a reply."),
     ]));
+    if let Some(hint) = app.provider_answer_hint() {
+        sections.push(section("provider-forms", "provider forms", &[
+            (hint, "Open the selected member's answerable form from Talk. Only the answer button sends."),
+        ]));
+    }
     sections.push(section("editor", "message editor", &[
         ("Enter", "while typing, send to the displayed recipient; while the @ or tmt/ picker is open, Enter/Tab insert the selected agent instead"),
         ("Shift+Enter / Ctrl+N", "Ctrl+N always inserts a new line; Alt+Enter and Ctrl+J do too; Shift+Enter needs enhanced key reporting (in tmux: extended-keys on and extended-keys-format csi-u)"),

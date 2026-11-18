@@ -98,6 +98,7 @@ impl App {
     /// running hides and says so on the status line; reopening it shows the operation's result.
     pub(super) fn close_overlay(&mut self, overlay: Overlay) -> Effect {
         match overlay {
+            Overlay::ProviderAnswer => self.provider_answer.close(),
             Overlay::PastePreview => {
                 self.composer.paste_preview.get_mut().take();
             }
