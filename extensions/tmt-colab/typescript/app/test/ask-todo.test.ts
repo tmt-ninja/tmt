@@ -47,7 +47,7 @@ const block = (
   ...(deleted === undefined ? {} : { deleted }),
 });
 
-it('adds the to-do after the last to-do, else under a new heading, and never twice or back', () => {
+it('adds the to-do after the last to-do, else as the last block, and never twice or back', () => {
   const todo = { block: '30000000-0000-4000-8000-000000000003', text: 'Fix the gap' };
   const withTodos = {
     a: block('paragraph', 'a'),
@@ -55,7 +55,7 @@ it('adds the to-do after the last to-do, else under a new heading, and never twi
     c: block('todo', 'c'),
     d: block('paragraph', 'd'),
   };
-  expect(todoInsertOps(withTodos, todo, 'gui-3', thread, 'h')).toEqual([
+  expect(todoInsertOps(withTodos, todo, 'gui-3', thread)).toEqual([
     {
       op: 'insert',
       id: todo.block,
@@ -67,22 +67,18 @@ it('adds the to-do after the last to-do, else under a new heading, and never twi
     },
   ]);
   const plain = { a: block('paragraph', 'a'), d: block('paragraph', 'd') };
-  const ops = todoInsertOps(plain, todo, 'gui-3', thread, 'h');
+  const ops = todoInsertOps(plain, todo, 'gui-3', thread);
   expect(ops.map((op) => [op.op === 'insert' && op.type, op.op === 'insert' && op.after])).toEqual([
-    ['heading', 'd'],
-    ['todo', 'h'],
+    ['todo', 'd'],
   ]);
   expect(
-    todoInsertOps({ ...plain, [todo.block]: block('todo', 'z') }, todo, 'gui-3', thread, 'h'),
+    todoInsertOps({}, todo, 'gui-3', thread).map((op) => op.op === 'insert' && op.after),
+  ).toEqual([null]);
+  expect(
+    todoInsertOps({ ...plain, [todo.block]: block('todo', 'z') }, todo, 'gui-3', thread),
   ).toEqual([]);
   expect(
-    todoInsertOps(
-      { ...plain, [todo.block]: block('todo', 'z', {}, 1) },
-      todo,
-      'gui-3',
-      thread,
-      'h',
-    ),
+    todoInsertOps({ ...plain, [todo.block]: block('todo', 'z', {}, 1) }, todo, 'gui-3', thread),
   ).toEqual([]);
 });
 

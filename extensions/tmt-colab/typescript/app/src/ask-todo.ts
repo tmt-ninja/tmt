@@ -76,56 +76,32 @@ export function askedTodo(page: string, message: string): AskTodo | undefined {
 }
 
 const ROOT_PARENT = 'root';
-export const ASKED_HEADING = 'Asked here';
 
 /**
- * The ops that add an Ask's to-do: after the page's last top-level to-do, or under a new "Asked
- * here" heading at the end when the page has none. Nothing when the block exists, even deleted: a
- * to-do the person removed is never put back.
+ * The ops that add an Ask's to-do: after the page's last top-level to-do, or as the page's last
+ * block when it has none; nothing else is written into the person's page. Nothing when the block
+ * exists, even deleted: a to-do the person removed is never put back.
  */
 export function todoInsertOps(
   blocks: Readonly<Record<string, import('./blocks.js').BlockEntry>>,
   todo: AskTodo,
   assignee: string,
   thread: string,
-  headingId: string,
 ): import('./block-model.js').BlockOp[] {
   if (Object.hasOwn(blocks, todo.block)) return [];
   const top = Object.entries(blocks)
     .filter(([, block]) => block.parent === ROOT_PARENT && block.deleted === undefined)
     .sort(([a, x], [b, y]) => (x.pos < y.pos ? -1 : x.pos > y.pos ? 1 : a < b ? -1 : 1));
-  const lastTodo = top.filter(([, block]) => block.type === 'todo').at(-1)?.[0];
-  const props = { checked: false, assignee: assignee.slice(0, 128), thread };
-  if (lastTodo)
-    return [
-      {
-        op: 'insert',
-        id: todo.block,
-        type: 'todo',
-        parent: ROOT_PARENT,
-        after: lastTodo,
-        props,
-        text: todo.text,
-      },
-    ];
-  const last = top.at(-1)?.[0] ?? null;
+  const after =
+    top.filter(([, block]) => block.type === 'todo').at(-1)?.[0] ?? top.at(-1)?.[0] ?? null;
   return [
-    {
-      op: 'insert',
-      id: headingId,
-      type: 'heading',
-      parent: ROOT_PARENT,
-      after: last,
-      props: { level: 2 },
-      text: ASKED_HEADING,
-    },
     {
       op: 'insert',
       id: todo.block,
       type: 'todo',
       parent: ROOT_PARENT,
-      after: headingId,
-      props,
+      after,
+      props: { checked: false, assignee: assignee.slice(0, 128), thread },
       text: todo.text,
     },
   ];

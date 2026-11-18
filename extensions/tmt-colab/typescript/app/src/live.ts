@@ -1179,7 +1179,7 @@ export class Live implements PageBinding {
       if (ask.state !== 'accepted' || !ask.canTrack || !ask.thread) continue;
       const todo = askedTodo(this.page.pageId, ask.message);
       if (!todo || this.#todosInserting.has(todo.block)) continue;
-      const ops = todoInsertOps(value.blocks, todo, ask.agentName, ask.thread, crypto.randomUUID());
+      const ops = todoInsertOps(value.blocks, todo, ask.agentName, ask.thread);
       if (!ops.length) continue;
       this.#todosInserting.add(todo.block);
       void this.blocks(ops).then(
