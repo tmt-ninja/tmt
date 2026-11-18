@@ -447,6 +447,8 @@ export async function mountPageList(
                       ...(size === 'work-pinned' && n < 3 ? { pinned: true } : {}),
                       ...(size === 'work-pinned' && n === 0 ? { sharing: 'link' as const } : {}),
                       ...(size === 'work' && n === 0 ? { workNumber: 'COLAB-128' } : {}),
+                      // The long title beside a work number (#6646).
+                      ...(size === 'work-pinned' && n === 2 ? { workNumber: 'COLAB-119' } : {}),
                       summary: {
                         comments: n % 6,
                         waiting: n === 1,

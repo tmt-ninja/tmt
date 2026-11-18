@@ -44,6 +44,10 @@ export interface DataTableColumn<Row> {
   role: DataTableRole;
   /** Narrowest width in px. The primary column takes the spare width above it. */
   min?: number;
+  /** Primary column only: the width it keeps before any other column grows past its minimum, so
+   * the column a person reads the row for is never the one that gives way (#6646). The row never
+   * overflows for it: it is capped at what the other columns' minimums leave. */
+  ideal?: number;
   /** Widest width in px for a non-primary column; it stays between min and max. */
   max?: number;
   align?: 'start' | 'center' | 'end';
@@ -273,15 +277,25 @@ export function DataTable<Row>({
     bulkFocus.current = false;
     head.current?.querySelector<HTMLElement>('[role="checkbox"], button')?.focus();
   }, [bulkShown]);
+  const trailingWidth = `(${slots + 1} * var(--tmt-foundation-control-size) + ${slots} * var(--tmt-data-table-gap) + 2 * var(--tmt-data-table-pad))`;
+  // Everything beside the primary column at its minimum: what an ideal primary width may not eat.
+  const besidePrimary = [
+    selectable && 'var(--tmt-data-table-select)',
+    ...columns.filter((column) => column.role !== 'primary').map((c) => `${c.min ?? 64}px`),
+    trailing && trailingWidth,
+  ]
+    .filter(Boolean)
+    .join(' + ');
   const template = [
     selectable && 'var(--tmt-data-table-select)',
-    ...columns.map((column) =>
-      column.role === 'primary'
-        ? `minmax(${column.min ?? 200}px, 1fr)`
-        : `minmax(${column.min ?? 64}px, ${column.max ?? column.min ?? 160}px)`,
-    ),
-    trailing &&
-      `calc(${slots + 1} * var(--tmt-foundation-control-size) + ${slots} * var(--tmt-data-table-gap) + 2 * var(--tmt-data-table-pad))`,
+    ...columns.map((column) => {
+      if (column.role !== 'primary')
+        return `minmax(${column.min ?? 64}px, ${column.max ?? column.min ?? 160}px)`;
+      const min = column.min ?? 200;
+      if (column.ideal === undefined) return `minmax(${min}px, 1fr)`;
+      return `minmax(max(${min}px, min(${column.ideal}px, 100% - (${besidePrimary || '0px'}))), 1fr)`;
+    }),
+    trailing && `calc${trailingWidth}`,
   ]
     .filter(Boolean)
     .join(' ');
