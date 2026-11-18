@@ -10369,8 +10369,25 @@ function opsPlace(hash) {
 			memberId: dm[1],
 			squad: decodeURIComponent(dm[2])
 		};
+		const bare = /^#dm\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(hash);
+		if (bare) return {
+			memberId: bare[1],
+			squad: ""
+		};
 	} catch {}
 	return opsSection(hash);
+}
+/**
+* A member-only DM place takes the member's squad from the loaded board. A member the board does not
+* list keeps the empty squad, which shows the unknown-member message.
+*/
+function resolveOpsPlace(place, board) {
+	if (typeof place === "string" || place.squad || !place.memberId || !board || board.unavailable) return place;
+	const member = board.agents.find((agent) => agent.id === place.memberId);
+	return member ? {
+		squad: member.squad,
+		memberId: member.id
+	} : place;
 }
 function opsHref(pathname, place) {
 	if (typeof place === "string") return `${pathname}#${place}`;
@@ -13065,7 +13082,9 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 	ownDevice().then((name) => knowOwnDevice(name), () => knowOwnDevice(null));
 	let board;
 	const current = () => {
-		const place = opsPlace(location.hash);
+		const asked = opsPlace(location.hash);
+		const place = resolveOpsPlace(asked, board);
+		if (place !== asked) window.history.replaceState(window.history.state, "", opsHref(location.pathname, place));
 		if (place !== "home" || !board || board.unavailable) return place;
 		const first = bySquad(board, true)[0];
 		return first ? { squad: first.name } : "home";

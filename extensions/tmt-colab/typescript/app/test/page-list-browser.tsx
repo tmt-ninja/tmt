@@ -668,6 +668,26 @@ export async function mountPageList(
     ...(size === 'unmanaged' ? {} : { management }),
     ...(size === 'work-home'
       ? {
+          // A page's facts as its owner reads them when a row's details open (#6474).
+          workFacts: async (pageId: string) => ({
+            asOfMs: listNow,
+            state: (state.pages.find((page) => page.id === pageId)?.summary?.status ??
+              'unknown') as import('../src/reading-details.js').WorkFactView['state'],
+            known: true,
+            pulls: [
+              {
+                url: 'https://github.com/o/r/pull/6470',
+                fact: {
+                  state: 'open' as const,
+                  checks: 'PENDING' as const,
+                  released: null,
+                  tag: null,
+                  observedAtMs: listNow - 120_000,
+                },
+              },
+            ],
+            activity: null,
+          }),
           workActivity: async (owners: readonly string[]) => {
             window.__activityReads += 1;
             const at = listNow + window.__activityReads * 1000;

@@ -59,3 +59,81 @@
   font-size: 0.6875rem;
   line-height: 1.6;
 }
+
+/* The shared reader's outline (#6470): the page view's compact outline, a toggle at the canvas's
+   top-left whose list opens over the page. */
+.reader-outline {
+  position: sticky;
+  top: calc(var(--page-bar-size, 56px) + var(--tmt-ui-space-s));
+  z-index: 3;
+  height: 0;
+  margin-inline-start: var(--tmt-ui-space-m);
+}
+.reader-outline .page-outline {
+  width: max-content;
+  max-width: 220px;
+  padding: var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius-l);
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+/* On a phone the outline is a bar above the page, as in the page view, never over its text. */
+@media (max-width: 640px) {
+  .reader-outline {
+    top: var(--page-bar-size, 56px);
+    height: auto;
+    margin: 0 0 var(--tmt-ui-space-s);
+  }
+  .reader-outline .page-outline {
+    width: auto;
+    max-width: none;
+    border-radius: 0;
+    border-inline: 0;
+    box-shadow: none;
+  }
+}
+
+/* Desktop: the outline is a menu button beside the title in the top bar; its list opens under it. */
+.reader-outline-bar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-inline: var(--tmt-ui-space-s);
+  vertical-align: middle;
+}
+.reader-outline-bar .page-outline {
+  position: static;
+  max-height: none;
+  padding: 0;
+}
+.reader-outline-bar .page-outline-toggle {
+  width: 34px;
+  min-height: 34px;
+  justify-content: center;
+}
+.reader-outline-bar .page-outline-desktop,
+.reader-outline-bar .page-outline-phone,
+.reader-outline-bar .page-outline-count,
+.reader-outline-bar .page-outline-chevron {
+  display: none;
+}
+.reader-outline-bar .page-outline-icon {
+  display: block;
+}
+.reader-outline-bar .page-outline-list {
+  position: absolute;
+  top: calc(100% + var(--tmt-ui-space-xs));
+  left: 0;
+  z-index: 60;
+  width: 220px;
+  max-height: calc(100dvh - 2 * var(--page-bar-size, 56px));
+  box-sizing: border-box;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--tmt-ui-space-xs);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius-l);
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}

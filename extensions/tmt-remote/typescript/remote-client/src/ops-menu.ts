@@ -23,10 +23,25 @@ export function opsPlace(hash: string): OpsPlace {
       hash,
     );
     if (dm) return { memberId: dm[1]!, squad: decodeURIComponent(dm[2]!) };
+    // A link from another module (Colab's Work home, #6474) names the member only; the page
+    // finds the squad in the board it reads (`resolveOpsPlace`).
+    const bare = /^#dm\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(hash);
+    if (bare) return { memberId: bare[1]!, squad: '' };
   } catch {
     /* A malformed link never selects a member by name. */
   }
   return opsSection(hash);
+}
+
+/**
+ * A member-only DM place takes the member's squad from the loaded board. A member the board does not
+ * list keeps the empty squad, which shows the unknown-member message.
+ */
+export function resolveOpsPlace(place: OpsPlace, board: OpsBoard | undefined): OpsPlace {
+  if (typeof place === 'string' || place.squad || !place.memberId || !board || board.unavailable)
+    return place;
+  const member = board.agents.find((agent) => agent.id === place.memberId);
+  return member ? { squad: member.squad, memberId: member.id } : place;
 }
 
 export function opsHref(pathname: string, place: OpsPlace): string {
