@@ -87,6 +87,19 @@ it('adds the to-do after the last to-do, else as the last block, and never twice
   expect(
     todoInsertOps({}, todo, 'gui-3', thread).map((op) => op.op === 'insert' && op.after),
   ).toEqual([null]);
+  // An Ask anchored to a block puts its to-do right after that block, after the to-dos earlier
+  // Asks on it added, in that block's own parent (#6636); a deleted anchor falls back.
+  const asked = { ...withTodos, e: block('todo', 'e', { thread: 'other' }) };
+  const anchoredAfter = (blocks: typeof withTodos, anchor: string) =>
+    todoInsertOps(blocks, todo, 'gui-3', thread, anchor).map(
+      (op) => op.op === 'insert' && [op.parent, op.after],
+    );
+  expect(anchoredAfter(withTodos, 'a')).toEqual([['root', 'a']]);
+  expect(anchoredAfter(withTodos, 'd')).toEqual([['root', 'd']]);
+  expect(anchoredAfter(asked, 'd')).toEqual([['root', 'e']]);
+  expect(anchoredAfter({ ...withTodos, a: block('paragraph', 'a', {}, 1) }, 'a')).toEqual([
+    ['root', 'c'],
+  ]);
   expect(
     todoInsertOps({ ...plain, [todo.block]: block('todo', 'z') }, todo, 'gui-3', thread),
   ).toEqual([]);

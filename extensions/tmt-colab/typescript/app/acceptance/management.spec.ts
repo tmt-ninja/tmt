@@ -439,6 +439,10 @@ test('sidebar shortcuts reorder and delete survive a real served-page reload', a
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`${door.address}/x/colab/`);
     await expect(homeList(page)).toBeVisible();
+    // The owner's real list carries no sample-preview notice (#6636).
+    await expect(
+      page.getByText('This preview uses local sample pages.', { exact: false }),
+    ).toHaveCount(0);
     const rail = page.locator('.tmt-ui-rail-sub:visible');
     for (const name of ['First shortcut', 'Second shortcut']) {
       await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
