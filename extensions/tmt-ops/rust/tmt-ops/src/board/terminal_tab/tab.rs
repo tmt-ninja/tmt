@@ -283,9 +283,11 @@ impl Tab {
         }
     }
 
-    /// The frame being drawn starts with no clickable places.
-    pub(in crate::board) fn clear_hits(&self) {
+    /// A paint publishes only geometry it actually draws in this frame.
+    pub(in crate::board) fn begin_frame(&self) {
         self.hits.borrow_mut().clear();
+        self.area.set(None);
+        self.caret.set(None);
     }
 
     pub(in crate::board) fn add_hit(&self, area: Rect, hit: FrameHit) {

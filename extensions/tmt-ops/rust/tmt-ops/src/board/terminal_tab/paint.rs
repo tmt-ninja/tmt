@@ -25,8 +25,12 @@ use unicode_width::UnicodeWidthStr;
 /// The whole board: the header on row 0, the member's screen below, then any menu or dialog.
 pub(in crate::board) fn frame(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
-    app.terminal.clear_hits();
+    app.terminal.begin_frame();
+    if area.is_empty() {
+        return;
+    }
     if area.height < 2 || area.width < 20 {
+        tiny_header(frame.buffer_mut(), app, Rect { height: 1, ..area });
         return;
     }
     let buffer = frame.buffer_mut();
@@ -48,7 +52,6 @@ pub(in crate::board) fn frame(frame: &mut ratatui::Frame, app: &App) {
             }
         }
         None => {
-            app.terminal.place_caret(None);
             let text = match view.map(|view| &view.condition) {
                 None => format!("Looking for {name}'s terminal…"),
                 Some(Condition::Connecting { .. }) => format!("Connecting to {name}'s terminal…"),
@@ -79,6 +82,31 @@ pub(in crate::board) fn frame(frame: &mut ratatui::Frame, app: &App) {
         paint_dialog(frame, app, screen_area, dialog, &name);
     } else if let Some(menu) = app.terminal.menu() {
         paint_menu(frame, app, screen_area, menu, &name);
+    }
+}
+
+fn tiny_header(buffer: &mut Buffer, app: &App, row: Rect) {
+    const NOTICE: &str = "Terminal too small";
+    let look = app.look();
+    let track = look.role(Role::Track);
+    buffer.set_style(row, track);
+    say(buffer, row, NOTICE, look);
+
+    let back = app.member_back_label();
+    let hint = format!("{back}  Board");
+    let width = hint.width();
+    if NOTICE.width() + 1 + width <= usize::from(row.width) {
+        let width = width as u16;
+        let hit = Rect::new(row.right() - width, row.y, width, 1);
+        strip::paint_left(
+            buffer,
+            hit,
+            Line::from(vec![
+                Span::styled(back, look.role(Role::Keycap)),
+                Span::styled("  Board", look.role(Role::Text).patch(track)),
+            ]),
+        );
+        app.terminal.add_hit(hit, FrameHit::Back);
     }
 }
 

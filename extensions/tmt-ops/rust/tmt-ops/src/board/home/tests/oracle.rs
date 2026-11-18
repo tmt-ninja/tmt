@@ -396,7 +396,13 @@ fn terminal_tab_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
         styles,
         crate::board::terminal_tab::scenes::SCENES,
-        |_| grid(&[100, 60], &[36]),
+        |scene| {
+            let mut sizes = grid(&[100, 60], &[36]);
+            if scene == "frame-live" {
+                sizes.extend([(19, 4), (100, 1)]);
+            }
+            sizes
+        },
         |scene, look, _, _| crate::board::terminal_tab::scenes::capture_case(scene, look),
         |_, _| {},
     )
@@ -1680,8 +1686,8 @@ macro_rules! oracle_groups {
         $group!(7, 96, checklist_activity_frames($styles));
         $group!(8, 128, timeline_frames($styles));
         $group!(7, 32, snapshot_frames($styles));
-        $group!(7, 80, terminal_tab_frames($styles));
-        $group!(7, 32, member_terminals_frames($styles));
+        $group!(7, 88, terminal_tab_frames($styles));
+        $group!(7, 40, member_terminals_frames($styles));
         $group!(8, 36, offline_resume_frames($styles));
         $group!(8, 16, settings_keys_frames($styles));
         $group!(7, 52, label_frames($styles));

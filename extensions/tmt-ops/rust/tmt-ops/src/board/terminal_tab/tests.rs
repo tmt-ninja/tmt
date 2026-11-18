@@ -287,6 +287,29 @@ fn a_board_resize_gives_the_program_the_new_room_under_the_header() {
 }
 
 #[test]
+fn a_tiny_frame_names_its_limit_without_stale_program_geometry() {
+    let app = super::scenes::capture_case("frame-live", Look::default());
+    let normal = draw(&app, WIDTH, HEIGHT);
+    assert!(normal[0].contains("connected"));
+    assert!(app.terminal.area().is_some());
+    for (width, height, back_fits) in [(19, 4, false), (100, 1, true)] {
+        let lines = draw(&app, width, height);
+        assert!(lines[0].contains("Terminal too small"), "{lines:?}");
+        assert_eq!(lines[0].contains("ctrl-g  Board"), back_fits);
+        assert_eq!(
+            app.terminal.hit((width - 1, 0).into()),
+            back_fits.then_some(FrameHit::Back)
+        );
+        assert!(lines.iter().skip(1).all(|line| line.trim().is_empty()));
+        assert_eq!(app.terminal.area(), None);
+        assert_eq!(app.terminal.caret(), None);
+    }
+    let restored = draw(&app, 20, 2);
+    assert!(!restored[0].contains("Terminal too small"));
+    assert_eq!(app.terminal.area(), Some(Rect::new(0, 1, 20, 1)));
+}
+
+#[test]
 fn a_paused_member_shows_its_dialog_and_resume_asks_core() {
     let mut framed = Framed::new(b"x");
     framed.set_term(term(true, None));
