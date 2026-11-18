@@ -342,7 +342,7 @@ impl Worker {
                     }
                     let cancellation = read_generation.cancellation(generation);
                     let reader = background.cancellable(cancellation.clone());
-                    if let Deferred::ColabWork = job {
+                    if let Deferred::ReadColab = job {
                         let result = if cancellation.cancelled() {
                             Err("Colab Work was superseded.".into())
                         } else {
@@ -356,7 +356,7 @@ impl Worker {
                             .is_ok();
                     }
                     let event = match job {
-                        Deferred::ColabWork => unreachable!("handled above"),
+                        Deferred::ReadColab => unreachable!("handled above"),
                         Deferred::Checklist(_) => unreachable!("handled above"),
                         Deferred::Enrich(job) => {
                             let (squad, enrichment) =
@@ -470,7 +470,7 @@ impl Worker {
         });
     }
     pub fn colab_work(&self) {
-        let _ = self.requests.send(Work::ColabWork(
+        let _ = self.requests.send(Work::ReadColab(
             self.generation.number.load(Ordering::Acquire),
         ));
     }
@@ -509,7 +509,7 @@ impl Drop for Worker {
 }
 
 enum Work {
-    ColabWork(u64),
+    ReadColab(u64),
     History { job: HistoryJob, generation: u64 },
     Checklist(super::checklist::load::Task),
     Reload(Reload),
@@ -774,7 +774,7 @@ fn capture_footer(reader: &Core, name: &str) -> Option<String> {
 
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
-    ColabWork,
+    ReadColab,
     Checklist(super::checklist::load::Task),
     Enrich(EnrichJob),
     History(HistoryJob),
@@ -1036,7 +1036,7 @@ fn serve(
                     }
                     requested_history = Some((job, generation));
                 }
-                Work::ColabWork(generation) => colab_work = Some(generation),
+                Work::ReadColab(generation) => colab_work = Some(generation),
                 Work::Checklist(task) => checklist.push(task),
                 Work::Reload(reload) => wanted = Some(reload),
             }
@@ -1051,7 +1051,7 @@ fn serve(
         }
         wanted = wanted.filter(|reload| generation.load(Ordering::Acquire) == reload.generation);
         if let Some(expected) = colab_work
-            && !deferred(Deferred::ColabWork, expected)
+            && !deferred(Deferred::ReadColab, expected)
         {
             return;
         }
