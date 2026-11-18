@@ -14,6 +14,7 @@ on:
       - 'typescript/scripts/release-declaration.*'
       - 'typescript/test/tooling/release-version-injection.test.ts'
       - 'rust/crates/tmt-release-tool/**'
+      - 'scripts/retry-command.sh'
   push:
     branches: [main]
     paths:
@@ -25,6 +26,7 @@ on:
       - 'typescript/scripts/release-declaration.*'
       - 'typescript/test/tooling/release-version-injection.test.ts'
       - 'rust/crates/tmt-release-tool/**'
+      - 'scripts/retry-command.sh'
   schedule:
     - cron: '29 3 * * *'
 
@@ -89,7 +91,7 @@ jobs:
         with:
           packages: musl-tools
       - name: Install pinned Rust
-        run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.host.target }}'
+        run: sh "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 30 rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.host.target }}'
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: rust
@@ -111,7 +113,7 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: 1.97.0
         run: |
-          cargo fetch --locked --manifest-path rust/Cargo.toml
+          sh "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 30 cargo fetch --locked --manifest-path rust/Cargo.toml
           cargo build --offline --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
           cargo test --offline --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
           (cd typescript && pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/release-version-injection.test.ts)

@@ -82,7 +82,7 @@
           "name:Restore dependency cache for locked source acquisition",
           "id:gates"
         ],
-        "sha256": "26ab758ceea3dca7f8fdda9762eacec0ef8c89696ab8f046c00a942d6f57b931",
+        "sha256": "499f24480c8a5d8983de5bc10f49ed35d642a12584df2bc1327c126c4fa06da5",
         "releaseOnly": "Live checks read the allocated draft, its merged-main commit, the PR check suite and published releases, and the hold marker is a write to the real draft. The same gates run in the main-push and nightly rehearsals on the candidate (publication-gates.mjs dry, native-release-prepare.yml gates-dry); only the draft-bound evidence stays release-only."
       },
       "upgrade": {
@@ -143,7 +143,7 @@
           "name:Recheck version-only source after this stage",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "e4b37a9d82b83aff0ba75799d3c29960d606ac26f858278ab86cfeed20991ec8",
+        "sha256": "adaf4ab04ff762290c7b413c35959856242ff50afdeadfbec20dd38f32107c7a",
         "mainPush": [
           {
             "workflow": "release-rehearsal.yml",
@@ -176,7 +176,7 @@
           "name:Recheck version-only source after this stage",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "280bbaa59e5c802e940b17279b1b5ff9b0fbf3cb89880ff6f1dad0e47492559c",
+        "sha256": "1098aa8c764445420cbbb4921ba0ba2d08fd78b350fd774a4fa48e44228636b6",
         "mainPush": [
           {
             "workflow": "release-rehearsal.yml",
@@ -209,7 +209,7 @@
           "name:Capture the final CLI preparation report",
           "name:Retain the matching-host verification report"
         ],
-        "sha256": "15a5170da303aa5fef5209976ee1786f722b0e7cf9ef55eb4333f262a33e81fc",
+        "sha256": "4c2e2687a611f05d5b70b38e6fa90ac219cb4b5faf54b64ebc4d3bdb2f6d5d0b",
         "mainPush": [
           {
             "workflow": "release-rehearsal.yml",
@@ -274,7 +274,7 @@
           "name:Restore dependency cache for locked source acquisition",
           "name:Evaluate the gates for the candidate without a draft"
         ],
-        "sha256": "5feb85467e527dd68b65549db19759d2750bccd54d27509faa3e01f04cc2e701",
+        "sha256": "0aae2a98a79f5737d4817777d409c64b58c65add261b4ff906e558406f29e401",
         "mainPush": [
           {
             "workflow": "release-rehearsal.yml",
@@ -357,7 +357,7 @@
           "name:Recheck version-only source after runtime proof and adapter acceptance",
           "name:Keep the log of a failed proof"
         ],
-        "sha256": "229def336edb1ef4f226976ef2905fc06b6f3e85291d8247ced475e3e1f2c4e5",
+        "sha256": "8bda1fc2586eba9bbd56c5c4b6e7721c704e72660a64e6218f5afa01b48ee675",
         "mainPush": [
           {
             "workflow": "release-rehearsal.yml",
@@ -430,7 +430,7 @@
           "name:Draft immutable source cuts and dispatch their native gates",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "b8f5e4c8980e0e489f9bae65b1daf61736f7df164bf200b46c8684f07ef21371",
+        "sha256": "ed2aac455e3b7792907ebc73697180d3a29ae1c20a34313b519f8962c4545cba",
         "releaseOnly": "Cadence, draft visibility and concurrent allocation/recovery admission depend on live main and release state, and the planner needs a token that sees drafts, which no pull request holds. The pure cut planner is tested pre-merge; the commit-title input that once broke it is checked on every pull request (#1643)."
       }
     },

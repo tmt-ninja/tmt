@@ -59,7 +59,7 @@ jobs:
         with:
           node-version: 26.12.1
       - name: Install the pinned metadata toolchain
-        run: rustup toolchain install 1.97.0 --profile minimal
+        run: sh "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 30 rustup toolchain install 1.97.0 --profile minimal
       - name: Restore dependency cache for locked source acquisition
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:

@@ -1270,7 +1270,9 @@ describe('rehearsal upgrade proof and the publishing upgrade call', () => {
     expect(cache).toContain('CARGO_PROFILE_DEV_DEBUG: 0');
     expect(cache).toContain('CARGO_INCREMENTAL: 0');
     expect(prove).toContain('RUSTUP_TOOLCHAIN: 1.97.0');
-    expect(prove).toContain('run: rustup toolchain install 1.97.0 --profile minimal');
+    expect(prove).toContain(
+      'run: sh "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 30 rustup toolchain install 1.97.0 --profile minimal'
+    );
     expect(prove).not.toMatch(
       /add-rust-environment-hash-key:|cache-on-failure:|cache-workspace-crates:/
     );
