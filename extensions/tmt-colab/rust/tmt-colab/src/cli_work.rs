@@ -770,18 +770,28 @@ pub fn run_order(root: &Path, args: &ArgMatches) -> Result<()> {
             &format!("The project order changed. Current order: {current}"),
         ));
     }
-    if args.get_flag("json") {
-        println!("{}", serde_json::to_string(current)?);
-    } else {
-        println!("{name} · revision {}", current["revision"]);
-        for (i, item) in current["items"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .enumerate()
-        {
-            println!("{}. {}", i + 1, item.as_str().unwrap_or_default());
-        }
+    let json_output = args.get_flag("json");
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if json_output {
+        writeln!(output, "{current}")?;
+        return Ok(());
     }
+    let terminal = output.terminal();
+    let mut rows = vec![
+        ("project", name.to_string()),
+        ("revision", current["revision"].to_string()),
+    ];
+    for (index, item) in current["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        rows.push((
+            "item",
+            format!("{}. {}", index + 1, item.as_str().unwrap_or_default()),
+        ));
+    }
+    tmt_cli_style::detail::write(&mut output, terminal, "WORK ORDER", &rows)?;
     Ok(())
 }

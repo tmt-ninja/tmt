@@ -37,7 +37,7 @@ impl Drop for Fixture {
 }
 
 /// A store left at the schema before the current one, as an older Colab saved it: the current
-/// step adds release and status facts, so removing those additions recreates that store.
+/// step adds project order columns, so removing those additions recreates that store.
 fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     let store = layout.directory.join("space.db");
     Store::open(layout).unwrap().close().unwrap();
