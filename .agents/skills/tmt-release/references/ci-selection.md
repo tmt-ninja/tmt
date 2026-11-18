@@ -324,7 +324,7 @@ Real-binary acceptance runs weekly/manually or on `colab-acceptance` PRs. Only a
 that exact label triggers acceptance; removing it never does. Opening a PR never does:
 a PR created with the label also gets its `labeled` event, which starts the one wave for
 that head. Pushes and reopening a labelled PR start a wave. Label edits skip
-selector/interop; job concurrency prevents cancelling in-flight checks. Three shards
+selector/interop; job concurrency prevents cancelling in-flight checks. Four shards
 use `fail-fast: false`, separate concurrency/artifacts and whole-file duration
 weights (`colab-acceptance-shards.mjs`, `acceptance/shard-weights.json`), exactly once
 per file. Each tests the default merge ref and records head/merge SHAs in

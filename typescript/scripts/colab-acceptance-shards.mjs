@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { acceptanceDeadline } from './colab-acceptance-run.mjs';
 
 const ACCEPTANCE_DIRECTORY = new URL(
   '../../extensions/tmt-colab/typescript/app/acceptance/',
@@ -25,7 +26,7 @@ const COMPONENT = {
 };
 
 /** Shards of the real-binary acceptance run. The workflow declares one job per shard, so this is fixed. */
-export const ACCEPTANCE_SHARDS = 3;
+export const ACCEPTANCE_SHARDS = 4;
 export const COMPONENT_SHARDS = 12;
 
 export function loadShardWeights(text = readFileSync(WEIGHTS, 'utf8')) {
@@ -62,22 +63,38 @@ export function listAcceptanceFiles(directory = ACCEPTANCE_DIRECTORY) {
  * (11 and 21 minutes for two shards, #2827). Each shard's files are sorted by name. Every file
  * lands in exactly one shard, whatever the weights.
  */
-export function splitSpecFiles(files, count, weights) {
+export function splitSpecFiles(files, count, weights, initialLoad = []) {
   if (!Number.isInteger(count) || count < 1)
     throw new Error('The shard count must be a positive integer.');
   const seconds = (file) => weights.files[file] ?? weights.defaultSeconds;
-  const shards = Array.from({ length: count }, () => ({ load: 0, files: [] }));
+  const shards = Array.from({ length: count }, (_, index) => ({
+    load: initialLoad[index] ?? 0,
+    files: [],
+  }));
   const ordered = [...files].sort((a, b) => seconds(b) - seconds(a) || (a < b ? -1 : 1));
   for (const file of ordered) {
     const lightest = shards.reduce((best, shard) => (shard.load < best.load ? shard : best));
     lightest.files.push(file);
     lightest.load += seconds(file);
   }
-  return shards.map((shard) => ({ files: shard.files.sort(), seconds: shard.load }));
+  return shards.map((shard, index) => ({
+    files: shard.files.sort(),
+    seconds: shard.load - (initialLoad[index] ?? 0),
+  }));
 }
 
 export function splitAcceptanceFiles(files, count, weights = loadShardWeights()) {
-  return splitSpecFiles(files, count, weights);
+  // Only the CI matrix has job deadlines. Other counts are hypothetical whole-file splits.
+  if (count !== ACCEPTANCE_SHARDS) return splitSpecFiles(files, count, weights);
+  const cutoffs = Array.from(
+    { length: count },
+    (_, index) => acceptanceDeadline(1, index + 1) / 1000 - 1
+  );
+  const longest = Math.max(...cutoffs);
+  const setup = weights.setupSeconds ?? 0;
+  const overhead = weights.jobOverheadSeconds ?? 0;
+  const initialLoad = cutoffs.map((cutoff) => setup + overhead + longest - cutoff);
+  return splitSpecFiles(files, count, weights, initialLoad);
 }
 
 /** Playwright filters under the app directory, using the caller's discovery and measured weights. */
@@ -94,7 +111,8 @@ export function specShardFiles(
     !files.every((file) => /^[a-z0-9-]+\.(?:spec|test)\.[cm]?[jt]sx?$/.test(file))
   )
     throw new Error('Shard filters need plain suite and spec file names.');
-  return splitSpecFiles(files, count, loadShardWeights(readFileSync(suite.weightsFile, 'utf8')))
+  const split = suite === ACCEPTANCE ? splitAcceptanceFiles : splitSpecFiles;
+  return split(files, count, loadShardWeights(readFileSync(suite.weightsFile, 'utf8')))
     .at(index - 1)
     .files.map((file) => `${suite.prefix}/${file}`);
 }

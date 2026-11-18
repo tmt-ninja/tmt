@@ -44,21 +44,21 @@ before execution. Keep that directory unchanged throughout both acceptance runs.
 
 Run it twice for lifecycle acceptance; it remains a recorded manual gate on the PR head.
 The separate advisory `colab-browser.yml` acceptance job runs once weekly, manually,
-or for a PR carrying `colab-acceptance`, as three shards of whole spec files balanced by
-measured time (`typescript/scripts/colab-acceptance-shards.mjs`); each shard uses one
+or for a PR carrying `colab-acceptance`, as four shards of whole spec files assigned by measured duration
+to fit each shard’s cutoff (`typescript/scripts/colab-acceptance-shards.mjs`); each shard uses one
 app/native build and one Playwright worker. PR runs test the default merge ref and record
 both the PR head and tested merge SHA in each shard's `tested-head.txt`. It retains exact build hashes, test outcomes and bounded assertion locations/timeouts
 without private error values, traces or profiles. An unexpected outcome also prints this
 bounded summary even if the list reporter's detailed failure is absent from the job log;
 selection and concurrency are owned by the [CI reference](../../tmt-release/references/ci-selection.md#advisory-browser-selection).
 The acceptance job records its start timestamp before checkout. The ordinary suite is interrupted
-at +1,380 seconds on shard 1 or +1,740 seconds on shards 2 and 3, including setup/build time. The runner
+at +1,380 seconds on shard 1 or +1,740 seconds on shards 2 to 4, including setup/build time. The runner
 owns a new process group: SIGINT allows up to 30 seconds for final JSON and cleanup, then SIGKILL
 bounds that group only. Deadline and job-signal interruption remain nonzero even if the child
 exits zero. Shard 1 reserves 360 seconds for the hosted-reader step, covering Firebase setup, native
 builds, the browser proof and cleanup. Its budget is 1,380 seconds for setup and the suite, 30 seconds
 of grace, 360 seconds for the proof and 30 seconds for public reporting/upload: 1,800 seconds, fitting
-the unchanged 30-minute job ceiling. Shards 2 and 3 use 1,740 + 30 + 30 seconds without the proof.
+the unchanged 30-minute job ceiling. Shards 2 to 4 use 1,740 + 30 + 30 seconds without the proof.
 A forced group kill does not reach harness-detached browser/tmux groups and is not proof of clean world teardown;
 the hosted runner's job lifetime bounds those groups. These are CI budgets, not spec timeouts.
 

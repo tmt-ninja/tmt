@@ -4624,12 +4624,12 @@ describe('required CI gate', () => {
     );
     expect(acceptance).toContain('rust/target/debug/examples/provider-script-fixture >');
     expect(acceptance).toContain('test:acceptance --workers=1 --reporter=list,json');
-    // Three shards run the one single-worker suite (#2827): each builds its own binaries and world,
+    // Four shards run the one single-worker suite (#2827): each builds its own binaries and world,
     // keeps its own concurrency group and evidence, and none cancels another.
     expect(acceptance).toContain('fail-fast: false');
-    expect(acceptance).toContain('shard: [1, 2, 3]');
+    expect(acceptance).toContain('shard: [1, 2, 3, 4]');
     expect(acceptance).toContain(
-      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 3)"'
+      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 4)"'
     );
     expect(acceptance).toContain('if [ "${#files[@]}" -eq 0 ]; then');
     expect(acceptance).toContain('"${files[@]}"');
