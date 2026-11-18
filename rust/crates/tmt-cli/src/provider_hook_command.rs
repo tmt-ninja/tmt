@@ -1544,7 +1544,7 @@ fn observe_lifecycle_event(
         Caller::Bound(bound) => *bound,
     };
     observe_bound_lifecycle_event(
-        provider, harness, lifecycle, input, event, bound, deadline, learning,
+        provider, harness, lifecycle, input, event, bound, None, deadline, learning,
     )
 }
 
@@ -1556,8 +1556,42 @@ fn observe_bound_lifecycle_event(
     input: &[u8],
     event: Box<dyn tmt_adapters::runtime::lifecycle::LifecycleObservation>,
     bound: BoundCaller,
+    starting_turn: Option<(
+        &ProviderSessionId,
+        &tmt_adapters::runtime::hook_protocol::ActivityObservation,
+    )>,
     deadline: Instant,
     learning: Option<&Learning>,
+) -> Result<Observation, ()> {
+    observe_bound_lifecycle_event_with(
+        provider,
+        harness,
+        lifecycle,
+        input,
+        event,
+        bound,
+        starting_turn,
+        deadline,
+        learning,
+        crate::context_command::render_verified,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn observe_bound_lifecycle_event_with(
+    provider: &str,
+    harness: HarnessId,
+    lifecycle: &dyn RuntimeLifecycle,
+    input: &[u8],
+    event: Box<dyn tmt_adapters::runtime::lifecycle::LifecycleObservation>,
+    bound: BoundCaller,
+    starting_turn: Option<(
+        &ProviderSessionId,
+        &tmt_adapters::runtime::hook_protocol::ActivityObservation,
+    )>,
+    deadline: Instant,
+    learning: Option<&Learning>,
+    render: impl FnOnce(IdentityContextSnapshot, &ConfigPaths, Instant, bool) -> io::Result<String>,
 ) -> Result<Observation, ()> {
     let BoundCaller {
         host,
@@ -1719,56 +1753,104 @@ fn observe_bound_lifecycle_event(
         )
         .map_err(|_| ())?;
     }
-    if changed
-        && event.starting()
-        && let Ok(environment) = ProviderEnvironment::capture()
-        && tmt_adapters::drivers::Registry::builtin()
-            .find(provider)
-            .is_some_and(tmt_adapters::setup::usage_consented)
-        && let Some(refreshed) = Storage::context_by_identity(
-            &paths.database,
-            &binding.identity_id,
-            tmt_adapters::request_runtime::wall_time_ms(),
-        )
-        .map_err(|_| ())?
-        && refreshed
-            .entry
-            .binding
-            .as_ref()
-            .is_some_and(|b| b.id == binding.id && b.session == next)
-        && refreshed
-            .preferences
-            .remembered
-            .as_ref()
-            .is_some_and(|r| r.harness == harness && &r.provider_session == event.session())
-    {
-        let locator = lifecycle.consumption_locator(input, &environment);
-        storage
-            .commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
-                expected: &refreshed,
-                preferences: &refreshed.preferences,
-                remember_source: true,
-                locator: locator.as_deref(),
-                sampled: false,
-                consumption: None,
-                response: None,
-                boundary: None,
-                family: None,
-                now_ms: 0,
-                deadline,
-            })
-            .map_err(|_| ())?;
-    }
-    let post_commit = if changed && Instant::now() < deadline && event.starting() {
-        storage.context_by_pane_on_open(
-            snapshot.server.host,
-            &pane,
-            &snapshot.server.server_id,
-            tmt_adapters::request_runtime::wall_time_ms(),
-        )
+    let post_commit =
+        if changed && Instant::now() < deadline && (event.starting() || starting_turn.is_some()) {
+            storage.context_by_pane_on_open(
+                snapshot.server.host,
+                &pane,
+                &snapshot.server.server_id,
+                tmt_adapters::request_runtime::wall_time_ms(),
+            )
+        } else {
+            Ok(None)
+        };
+    let mut refreshed = if changed {
+        post_commit.map_err(|_| ())?
     } else {
-        Ok(None)
+        let _ = post_commit;
+        None
     };
+    if changed && let Some(refreshed) = refreshed.as_ref() {
+        let usage_on = event.starting()
+            && tmt_adapters::drivers::Registry::builtin()
+                .find(provider)
+                .is_some_and(tmt_adapters::setup::usage_consented);
+        let fallback_locator = || {
+            usage_on
+                .then(|| {
+                    ProviderEnvironment::capture().ok().and_then(|environment| {
+                        lifecycle.consumption_locator(
+                            input,
+                            &environment.with_data_root(&paths.global_dir),
+                        )
+                    })
+                })
+                .flatten()
+        };
+        let running_turn = starting_turn.filter(|(turn_session, _)| {
+            refreshed.entry.binding.as_ref().is_some_and(|current| {
+                current.id == binding.id
+                    && current.session.state == tmt_core::binding::session::RuntimeState::Running
+                    && current.session.key.as_ref().is_some_and(|key| {
+                        key.incarnation == process
+                            && key.provider_session.as_ref() == Some(*turn_session)
+                    })
+            }) && refreshed
+                .preferences
+                .remembered
+                .as_ref()
+                .is_some_and(|remembered| {
+                    remembered.harness == harness && &remembered.provider_session == *turn_session
+                })
+                && matches!(
+                    evaluate_binding(&refreshed.entry, &EndpointProbe::Live(snapshot.clone())),
+                    BindingEvidence::Active(_)
+                )
+        });
+        if let Some((turn_session, turn_activity)) = running_turn {
+            let locator = fallback_locator();
+            commit_main_event_turn_with(
+                Some(&mut storage),
+                usage_on.then_some(locator.as_deref()),
+                PromptObservation {
+                    provider,
+                    lifecycle,
+                    paths: &paths,
+                    stored: refreshed,
+                    session: turn_session,
+                    process: &process,
+                    activity: Some(turn_activity),
+                    form: None,
+                    payload: Some(input),
+                    deadline,
+                },
+            )?;
+        } else if usage_on
+            && refreshed
+                .entry
+                .binding
+                .as_ref()
+                .is_some_and(|b| b.id == binding.id && b.session == next)
+            && refreshed
+                .preferences
+                .remembered
+                .as_ref()
+                .is_some_and(|r| r.harness == harness && &r.provider_session == event.session())
+        {
+            let locator = fallback_locator();
+            commit_observation_on_storage(
+                &mut storage,
+                refreshed,
+                None,
+                None,
+                true,
+                locator.as_deref(),
+                None,
+                None,
+                deadline,
+            )?;
+        }
+    }
     storage.close().map_err(|_| ())?;
     if !changed || Instant::now() >= deadline {
         return Err(());
@@ -1782,16 +1864,16 @@ fn observe_bound_lifecycle_event(
             workspace: Some(binding.server.clone()),
         });
     }
-    // Re-read the bounded projection after acknowledgment. Do not inject a
-    // different binding if a concurrent rebind occurred during the callback.
-    let refreshed = post_commit.map_err(|_| ())?.ok_or(())?;
+    // Verify the projected binding before and after rendering context so a concurrent
+    // rebind during an extension callback never receives stale identity context (#6529).
+    let refreshed = refreshed.take().ok_or(())?;
     if refreshed
         .entry
         .binding
         .as_ref()
         .is_none_or(|value| value.id != binding.id || value.session != next)
         || !matches!(
-            evaluate_binding(&refreshed.entry, &EndpointProbe::Live(snapshot)),
+            evaluate_binding(&refreshed.entry, &EndpointProbe::Live(snapshot.clone())),
             BindingEvidence::Active(_)
         )
     {
@@ -1801,7 +1883,7 @@ fn observe_bound_lifecycle_event(
         let _ = learning.stage(Step::Context, deadline);
     }
     // Extension contributions share the hook's remaining budget.
-    let context = crate::context_command::render_verified(
+    let context = render(
         refreshed,
         &paths,
         deadline
@@ -1810,6 +1892,29 @@ fn observe_bound_lifecycle_event(
         event.transition() == Some(tmt_core::binding::session::SessionTransition::Compacted),
     )
     .map_err(|_| ())?;
+    let current = Storage::context_by_pane_until(
+        &paths.database,
+        snapshot.server.host,
+        &pane,
+        &snapshot.server.server_id,
+        tmt_adapters::request_runtime::wall_time_ms(),
+        ContextWait::Hook(deadline),
+    )
+    .map_err(|_| ())?
+    .ok_or(())?;
+    if Instant::now() >= deadline
+        || current
+            .entry
+            .binding
+            .as_ref()
+            .is_none_or(|value| value.id != binding.id || value.session != next)
+        || !matches!(
+            evaluate_binding(&current.entry, &EndpointProbe::Live(snapshot)),
+            BindingEvidence::Active(_)
+        )
+    {
+        return Err(());
+    }
     let encoded = lifecycle.encode_context(&context).ok_or(())?;
     refresh_pane_badge(&paths, binding, deadline);
     Ok(Observation {
@@ -2424,10 +2529,9 @@ fn observe_bound_main_event_with(
             && event.starting()
             && (unnamed_managed || matching_remembered)
         {
-            let binding_id = binding.id.clone();
-            let pane_id = binding.pane_id.clone();
-            let server = snapshot.server.clone();
-            let observation = observe_bound_lifecycle_event(
+            // Keep the verified activity incarnation (`process`, not the raw caller pid)
+            // on the rebuilt BoundCaller handed to lifecycle admission (#6531, #6529).
+            return observe_bound_lifecycle_event(
                 provider,
                 harness.clone(),
                 lifecycle,
@@ -2440,54 +2544,10 @@ fn observe_bound_main_event_with(
                     snapshot: snapshot.clone(),
                     process: process.clone(),
                 },
+                activity.map(|activity| (session, activity)),
                 deadline,
                 run.learning,
-            )?;
-            if activity.is_some()
-                && let Some(refreshed) = Storage::context_by_pane_until(
-                    &paths.database,
-                    server.host,
-                    &pane_id,
-                    &server.server_id,
-                    tmt_adapters::request_runtime::wall_time_ms(),
-                    ContextWait::Hook(deadline),
-                )
-                .map_err(|_| ())?
-                && refreshed.entry.binding.as_ref().is_some_and(|current| {
-                    current.id == binding_id
-                        && current.session.state
-                            == tmt_core::binding::session::RuntimeState::Running
-                        && current.session.key.as_ref().is_some_and(|key| {
-                            key.incarnation == process
-                                && key.provider_session.as_ref() == Some(session)
-                        })
-                })
-                && refreshed
-                    .preferences
-                    .remembered
-                    .as_ref()
-                    .is_some_and(|remembered| {
-                        &remembered.harness == harness && &remembered.provider_session == session
-                    })
-                && matches!(
-                    evaluate_binding(&refreshed.entry, &EndpointProbe::Live(snapshot)),
-                    BindingEvidence::Active(_)
-                )
-            {
-                commit_main_event_turn(PromptObservation {
-                    provider,
-                    lifecycle,
-                    paths: &paths,
-                    stored: &refreshed,
-                    session,
-                    process: &process,
-                    activity,
-                    form: None,
-                    payload: Some(bytes),
-                    deadline,
-                })?;
-            }
-            return Ok(observation);
+            );
         }
         run.stopped(Stop::NotCurrent);
         return Ok(Observation::default());
@@ -2572,6 +2632,14 @@ struct PromptObservation<'a> {
 }
 
 fn commit_main_event_turn(input: PromptObservation<'_>) -> Result<(), ()> {
+    commit_main_event_turn_with(None, None, input)
+}
+
+fn commit_main_event_turn_with(
+    existing_storage: Option<&mut Storage>,
+    remember_source: Option<Option<&str>>,
+    input: PromptObservation<'_>,
+) -> Result<(), ()> {
     let PromptObservation {
         provider,
         lifecycle,
@@ -2695,18 +2763,33 @@ fn commit_main_event_turn(input: PromptObservation<'_>) -> Result<(), ()> {
                 })
                 .map(|activity| activity.since_ms),
         );
-    if (next.is_some() || reading.is_some())
-        && !commit_observation(
-            paths,
-            stored,
-            next,
-            reading.map(|(_, reading)| reading),
-            None,
-            boundary,
-            deadline,
-        )?
-    {
-        return Err(());
+    if next.is_some() || reading.is_some() || remember_source.is_some() {
+        let source_locator = remember_source.flatten();
+        let committed = match existing_storage {
+            Some(storage) => commit_observation_on_storage(
+                storage,
+                stored,
+                next,
+                reading.map(|(_, reading)| reading),
+                remember_source.is_some(),
+                source_locator,
+                None,
+                boundary,
+                deadline,
+            )?,
+            None => commit_observation(
+                paths,
+                stored,
+                next,
+                reading.map(|(_, reading)| reading),
+                None,
+                boundary,
+                deadline,
+            )?,
+        };
+        if !committed {
+            return Err(());
+        }
     }
     // Kept for that period only; a failure leaves waiting reported without its form.
     if let Some((form, since)) = form_period
@@ -2738,6 +2821,47 @@ struct ConsumptionReading {
     now_ms: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
+fn commit_observation_on_storage(
+    storage: &mut Storage,
+    stored: &IdentityContextSnapshot,
+    next: Option<tmt_core::binding::session::DriverState>,
+    reading: Option<ConsumptionReading>,
+    remember_source: bool,
+    source_locator: Option<&str>,
+    response: Option<tmt_adapters::storage::ResponseCapture>,
+    boundary: Option<tmt_adapters::storage::TurnBoundary<'_>>,
+    deadline: Instant,
+) -> Result<bool, ()> {
+    let mut preferences = stored.preferences.clone();
+    if let Some(next) = next
+        && let Some(remembered) = preferences.remembered.as_mut()
+    {
+        remembered.state = Some(next);
+    }
+    storage
+        .commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
+            expected: stored,
+            preferences: &preferences,
+            remember_source: reading.is_some() || remember_source,
+            locator: reading
+                .as_ref()
+                .and_then(|r| r.locator.as_deref())
+                .or(source_locator),
+            sampled: reading.is_some(),
+            consumption: reading.as_ref().and_then(|r| r.consumption.clone()),
+            family: None,
+            response,
+            boundary,
+            // A kept answer is stamped even when no usage was read.
+            now_ms: reading
+                .as_ref()
+                .map_or_else(tmt_adapters::request_runtime::wall_time_ms, |r| r.now_ms),
+            deadline,
+        })
+        .map_err(|_| ())
+}
+
 fn commit_observation(
     paths: &ConfigPaths,
     stored: &IdentityContextSnapshot,
@@ -2750,33 +2874,26 @@ fn commit_observation(
     if Instant::now() + Duration::from_millis(100) >= deadline {
         return Err(());
     }
-    let mut preferences = stored.preferences.clone();
-    if let Some(next) = next
-        && let Some(remembered) = preferences.remembered.as_mut()
-    {
-        remembered.state = Some(next);
-    }
     let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
-    let pending = storage.commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
-        expected: stored,
-        preferences: &preferences,
-        remember_source: reading.is_some(),
-        locator: reading.as_ref().and_then(|r| r.locator.as_deref()),
-        sampled: reading.is_some(),
-        consumption: reading.as_ref().and_then(|r| r.consumption.clone()),
-        family: None,
+    let pending = commit_observation_on_storage(
+        &mut storage,
+        stored,
+        next,
+        reading,
+        false,
+        None,
         response,
         boundary,
-        // A kept answer is stamped even when no usage was read.
-        now_ms: reading
-            .as_ref()
-            .map_or_else(tmt_adapters::request_runtime::wall_time_ms, |r| r.now_ms),
         deadline,
-    });
-    let cleanup = storage.close();
-    pending
-        .and_then(|changed| cleanup.map(|()| changed))
-        .map_err(|_| ())
+    );
+    let cleanup = storage.close().map_err(|_| ());
+    match pending {
+        Ok(changed) => cleanup.map(|()| changed),
+        Err(()) => {
+            let _ = cleanup;
+            Err(())
+        }
+    }
 }
 
 fn worker_arguments(provider: &str, remaining: Duration) -> Result<Vec<std::ffi::OsString>, ()> {

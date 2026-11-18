@@ -342,6 +342,23 @@ impl Learning {
             Storage::open_hook(&self.paths.database, deadline)
         }
         .map_err(|_| ())?;
+        // Avoid acquiring an IMMEDIATE write lock on stage checks when the launch is already
+        // cleanly admitted or settled with a diagnostic (#6529).
+        if matches!(update, Update::Stage(_, None))
+            && let Some(observed) = storage
+                .launch_observation(&self.launch.binding_id, &owner)
+                .map_err(|_| ())?
+            && observed.driver == self.driver
+            && ((observed.status == LaunchStatus::Settled && observed.diagnostic.is_some())
+                || (observed.status == LaunchStatus::Admitted && observed.diagnostic.is_none()))
+        {
+            match observed.status {
+                LaunchStatus::Settled => self.settled.set(Some(true)),
+                LaunchStatus::Admitted => self.admitted_clean.set(true),
+                _ => {}
+            }
+            return storage.close().map_err(|_| ());
+        }
         let operation = |records: &mut dyn BindingRecords<Error = StorageError>| {
             let Some(observed) = records.launch_observation(&self.launch.binding_id, &owner)?
             else {

@@ -1039,3 +1039,37 @@ fn binding_stages_write_before_admission_and_skip_once_admitted_cleanly() {
     assert_eq!(row.diagnostic, None);
     assert_eq!(fresh.verified_owner(), Some(launch.owner));
 }
+
+#[test]
+fn clean_admitted_stage_does_not_acquire_a_sqlite_write_lock() {
+    let mut launch = launch(HostKind::pty(), "agy");
+    launch
+        .storage
+        .with_binding_transaction(|records| {
+            let observed = records
+                .launch_observation(&launch.binding.id, &launch.owner)?
+                .unwrap();
+            settle(records, &observed, LaunchStatus::Admitted, None)
+        })
+        .unwrap();
+
+    // Hold a SQLite write lock across `stage_with` so any `BEGIN IMMEDIATE` fails fast.
+    let lock = rusqlite::Connection::open(&launch.paths.database).unwrap();
+    lock.execute_batch("BEGIN IMMEDIATE;").unwrap();
+    let runner = CountingRunner(std::sync::atomic::AtomicUsize::new(0));
+    let fresh = Learning::with_role(
+        launch.learning.launch.clone(),
+        launch.driver.clone(),
+        launch.paths.clone(),
+        Role::Binding,
+    );
+    fresh
+        .stage_with(
+            &runner,
+            SessionLearningStep::Input,
+            Instant::now() + std::time::Duration::from_millis(200),
+        )
+        .unwrap();
+    lock.execute_batch("ROLLBACK;").unwrap();
+    assert_eq!(fresh.verified_owner(), Some(launch.owner));
+}
