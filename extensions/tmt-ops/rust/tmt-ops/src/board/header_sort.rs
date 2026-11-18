@@ -110,7 +110,7 @@ impl Marks {
     /// The right-aligned TOK caption of a `width`-cell column as its three controls:
     /// the sort mark takes the cell before the unit word, so no column moves, and a
     /// hovered unit word shows the unit a click switches to. `None` when the caption
-    /// leaves no cell for the mark, which then has no controls. The hit areas are
+    /// leaves no cell for a configured sort mark. The hit areas are
     /// offsets into the cell and follow the unit on screen, never the hover.
     pub(in crate::board) fn tokens(
         &self,
@@ -122,16 +122,22 @@ impl Marks {
     ) -> Option<TokCell> {
         let (unit, window) = (heading.unit(), heading.range.argument());
         let caption = (unit.width() + 1 + window.width()) as u16;
-        let lead = width.checked_sub(caption).filter(|lead| *lead > 0)?;
+        let lead = width.checked_sub(caption)?;
+        if lead == 0 && sort.is_some() {
+            return None;
+        }
         let mark = sort.and_then(|header| self.mark(header)).unwrap_or(" ");
         let mark_style = sort.map_or(base, |header| self.style(header, base, look));
         let unit_style = self.lit(Control::Unit, base, look);
-        let mut spans = vec![Span::styled(" ".repeat(usize::from(lead) - 1), base)];
+        let mut spans = vec![Span::styled(
+            " ".repeat(usize::from(lead.saturating_sub(1))),
+            base,
+        )];
         if self.hover == Some(Control::Unit) {
             // The other unit may be a cell wider: it then takes the mark's cell.
             let other = heading.other_unit();
             let pad = unit.width().saturating_sub(other.width());
-            if other.width() <= unit.width() {
+            if lead > 0 && other.width() <= unit.width() {
                 spans.push(Span::styled(mark, mark_style));
             }
             spans.push(Span::styled(
@@ -139,7 +145,9 @@ impl Marks {
                 unit_style,
             ));
         } else {
-            spans.push(Span::styled(mark.to_owned(), mark_style));
+            if lead > 0 {
+                spans.push(Span::styled(mark.to_owned(), mark_style));
+            }
             spans.push(Span::styled(unit.to_owned(), unit_style));
         }
         spans.push(Span::styled(" ", base));

@@ -733,10 +733,8 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
         "activity-count-mid",
         "activity-count-settled",
         "activity-working",
-        "activity-heat-zero",
-        "activity-heat-low",
-        "activity-heat-normal",
-        "activity-heat-high",
+        "tokens-5m-burning",
+        "tokens-10m-quiet",
         "activity-row-flash",
         "activity-squad",
         "activity-motion-off",
@@ -770,6 +768,11 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
                     let workspace =
                         &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
                     workspace.preferences.activity_window = window;
+                    workspace.preferences.tok_range = match state {
+                        "tokens-5m-burning" => crate::config::TokRange::FiveMinutes,
+                        "tokens-10m-quiet" => crate::config::TokRange::TenMinutes,
+                        _ => crate::config::TokRange::Hour,
+                    };
                     workspace.preferences.motion_off = state == "activity-motion-off";
                     let member = workspace.roster.members.get_mut(MEMBER).unwrap();
                     member.activity.phase = crate::board::activity::Phase::Working;
@@ -852,19 +855,12 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
                     snapshot.view = Ok(view);
                     app.apply(snapshot);
 
-                    let rate = match state {
-                        "activity-heat-zero" => 0,
-                        "activity-heat-low" => 500,
-                        "activity-heat-normal" => 5_000,
-                        "activity-heat-high" => 20_000,
-                        _ => 2_000,
-                    };
-                    app.agents_live.set_capture_rate(
-                        MEMBER,
-                        rate,
-                        state == "activity-heat-high",
-                        now,
-                    );
+                    if state == "tokens-5m-burning" || state == "activity-motion-off" {
+                        app.agents_live.observe_burn(
+                            std::collections::BTreeMap::from([(MEMBER.into(), Some(true))]),
+                            now + Duration::from_secs(60),
+                        );
+                    }
                     if state == "activity-row-flash" {
                         let key = format!(
                             "{:?}",
@@ -1537,13 +1533,13 @@ const NOW: u64 = 1_791_600_000_000;
 macro_rules! oracle_groups {
     ($group:ident, $styles:expr) => {
         $group!(0, 1856, base_frames($styles));
-        $group!(0, 160, chart_frames($styles));
+        $group!(0, 180, chart_frames($styles));
         $group!(1, 224, bindings_frames($styles));
         $group!(6, 80, settings_menu_frames($styles));
         $group!(7, 16, measure_frames($styles));
         $group!(7, 24, search_frames($styles));
         $group!(7, 36, measure_exchanges_frames($styles));
-        $group!(7, 180, agents_activity_frames($styles));
+        $group!(7, 156, agents_activity_frames($styles));
         $group!(7, 40, provider_form_frames($styles));
         $group!(7, 32, shell_composer_frames($styles));
         $group!(8, 228, paste_frames($styles));

@@ -12,7 +12,12 @@ pub(in crate::board) struct Grid {
 
 impl Grid {
     pub fn new(each_ms: u64, range_ms: u64, now_ms: u64) -> Result<Self, &'static str> {
-        if each_ms < 300_000
+        let min_each = if matches!(range_ms, 300_000 | 600_000) {
+            60_000
+        } else {
+            300_000
+        };
+        if each_ms < min_each
             || !each_ms.is_multiple_of(60_000)
             || each_ms > range_ms
             || !range_ms.is_multiple_of(each_ms)

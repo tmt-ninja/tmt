@@ -204,7 +204,7 @@ fn header_keeps_caption_and_independent_dropdowns_in_their_tracks() {
 fn long_ranges_render_exact_buckets_and_reject_old_or_inactive_demand() {
     crate::status::with_now_ms(fixtures::NOW, || {
         let _no_commands = crate::runner::forbid_commands();
-        for range_minutes in Selection::RANGE.into_iter().skip(1) {
+        for range_minutes in Selection::RANGE.into_iter().filter(|range| *range > 60) {
             for &each_minutes in Selection::each_choices(range_minutes) {
                 let mut app = board();
                 fixtures::mixed(&mut app);

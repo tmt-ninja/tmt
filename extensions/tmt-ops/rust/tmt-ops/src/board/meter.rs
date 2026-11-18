@@ -258,10 +258,19 @@ impl Meter {
     }
 
     pub fn sample(&mut self, input: Result<&Input, ()>, now: Instant) {
+        self.sample_with_burn(input, now, |_, _| {});
+    }
+
+    pub fn sample_with_burn(
+        &mut self,
+        input: Result<&Input, ()>,
+        now: Instant,
+        burn: impl FnMut(&str, Option<bool>),
+    ) {
         self.evidence_changed();
         let ms = self.milliseconds(now);
         match input {
-            Ok(input) => self.rate.sample(input, ms),
+            Ok(input) => self.rate.sample_with_burn(input, ms, burn),
             Err(()) => self.rate.failed(ms, self.settings.every.as_millis() as u64),
         }
         self.sampled = now;

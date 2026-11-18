@@ -140,6 +140,88 @@ fn tokens_stay_the_default_and_the_heading_names_the_unit() {
 }
 
 #[test]
+fn agents_show_only_the_range_token_caption() {
+    let screen = paint(&board(), 160, 40).join("\n");
+    assert!(screen.contains("TOK 1h"), "{screen}");
+    assert!(!screen.contains("TOK/min"), "{screen}");
+}
+
+#[test]
+fn short_token_ranges_cycle_before_the_hour() {
+    let mut app = board();
+    let range = |app: &mut App| {
+        let Effect::Act(Request::WorkspacePreferences { next, .. }) = app.cycle_tok_range() else {
+            panic!("Range must use the workspace preferences writer");
+        };
+        let arg = next.tok_range.argument();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences = next;
+        arg
+    };
+    let cycle = (0..7).map(|_| range(&mut app)).collect::<Vec<_>>();
+    assert_eq!(cycle, ["3h", "6h", "1d", "7d", "5m", "10m", "1h"]);
+}
+
+#[test]
+fn accepted_burn_marks_the_token_figure_in_no_color_with_motion_off() {
+    use ratatui::style::Modifier;
+    let mut app = valued_board();
+    report_for_member(&mut app);
+    let prefs = &mut app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences;
+    prefs.tok_range = TokRange::Day;
+    prefs.motion_off = true;
+    let view = app.view.as_mut().unwrap();
+    view.look.depth = tmt_cli_style::Depth::None;
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
+    assert_eq!(app.look().depth, tmt_cli_style::Depth::None);
+    let now = Instant::now();
+    let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+    let mut bold = |app: &App| {
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let area = *figures(app).last().expect("member token figure");
+        let digits: Vec<_> = (area.x..area.right())
+            .map(|x| &buffer[(x, area.y)])
+            .filter(|cell| cell.symbol().bytes().any(|b| b.is_ascii_digit()))
+            .collect();
+        assert!(!digits.is_empty(), "the token figure has a value");
+        digits
+            .iter()
+            .all(|cell| cell.modifier.contains(Modifier::BOLD))
+    };
+    assert!(!bold(&app), "an idle total uses normal weight");
+    app.agents_live.observe_burn(
+        std::collections::BTreeMap::from([(MEMBER.into(), Some(true))]),
+        now,
+    );
+    assert!(
+        bold(&app),
+        "an accepted positive delta marks the token figure"
+    );
+    app.agents_live.observe_burn(
+        std::collections::BTreeMap::from([(MEMBER.into(), None)]),
+        now,
+    );
+    assert!(!bold(&app), "a coverage break clears the bold cue");
+}
+
+#[test]
 fn money_is_the_list_price_of_the_input_tokens_or_a_dash_never_a_partial_sum() {
     let mut app = valued_board();
 
@@ -306,57 +388,4 @@ fn capture_agents_cost_cells_at_160_columns() {
         });
         println!("--- {name} ---\n{}", paint(&app, 160, 36).join("\n"));
     }
-}
-
-#[test]
-fn cost_mode_keeps_minute_tokens_and_only_range_unit_is_clickable() {
-    use crate::board::{agents_live::AgentsLiveUsage, rate::Reading};
-    let mut app = valued_board();
-    app.shell.tab = crate::board::shell::OpsTab::Agents;
-    hold(&mut app, SavingsUnit::Cost);
-    report_for_member(&mut app);
-    app.agents_live.begin(&app, Instant::now());
-    app.agents_live.usage.get_mut().insert(
-        MEMBER.into(),
-        AgentsLiveUsage {
-            minute: Some(Reading {
-                tokens: 1_234,
-                partial: false,
-                span: 60,
-            }),
-            activity: [None; 12],
-        },
-    );
-    let shown = paint(&app, 240, 40);
-    let (y, heading) = shown
-        .iter()
-        .enumerate()
-        .find(|(_, row)| row.contains("TOK/min") && row.contains("≈$ 1d"))
-        .expect("cost range and token minute headings");
-    let x = heading
-        .chars()
-        .collect::<Vec<_>>()
-        .windows(7)
-        .position(|chars| chars.iter().collect::<String>() == "TOK/min")
-        .unwrap();
-    let row = shown
-        .iter()
-        .find(|row| row.contains("└ worker") && row.contains("working"))
-        .expect("member row");
-    assert!(
-        row.contains("1.2k") && row.contains("≈$2.00"),
-        "minute tokens and range cost: {row}"
-    );
-    let hits = app.workspace_strip_hits.borrow();
-    assert!(
-        hits.iter().any(|(_, choice)| *choice == Choice::TokUnit),
-        "range unit is clickable"
-    );
-    assert!(
-        !hits.iter().any(|(area, choice)| *choice == Choice::TokUnit
-            && area.y == y as u16
-            && area.x <= x as u16
-            && area.right() > x as u16),
-        "minute heading has no unit hit"
-    );
 }

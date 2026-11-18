@@ -129,23 +129,6 @@ impl Counter {
             && !(complete && gap))
             .then_some(counter)
     }
-
-    /// A continuous, monotonic counter pair. None means rebaseline.
-    pub(super) fn delta(&self, previous: &Self) -> Option<u64> {
-        if !self.usable
-            || !previous.usable
-            || self.key != previous.key
-            || self.sequence < previous.sequence
-            || self.observed < previous.observed
-            || (self.sequence == previous.sequence && self != previous)
-        {
-            return None;
-        }
-        let input = self.input.checked_sub(previous.input)?;
-        let output = self.output.checked_sub(previous.output)?;
-        self.cached.checked_sub(previous.cached)?;
-        input.checked_add(output)
-    }
 }
 
 #[derive(Debug, Default)]
@@ -692,6 +675,16 @@ impl Rate {
 
     /// Monotonic receipt time; model attribution is deliberately best effort.
     pub fn sample(&mut self, input: &Input, now: u64) {
+        self.sample_with_burn(input, now, |_, _| {});
+    }
+
+    /// Report a continuous delta to the board that owns the visible burn cue.
+    pub fn sample_with_burn(
+        &mut self,
+        input: &Input,
+        now: u64,
+        mut burn: impl FnMut(&str, Option<bool>),
+    ) {
         self.last_success = Some(now);
         self.retain(input);
         for (id, resume) in &input.resumes {
@@ -709,6 +702,7 @@ impl Rate {
                     (0, Provider::Unknown),
                     self.slots,
                 );
+                burn(id, None);
                 continue;
             };
             state.reporter = true;
@@ -727,6 +721,7 @@ impl Rate {
                     (0, Provider::Unknown),
                     self.slots,
                 );
+                burn(id, None);
                 continue;
             }
             quota::observe(state, resume, &next, now);
@@ -741,6 +736,7 @@ impl Rate {
                     (0, Provider::Unknown),
                     self.slots,
                 );
+                burn(id, None);
                 continue;
             }
             let continuous = state.previous.as_ref().filter(|previous| {
@@ -764,6 +760,7 @@ impl Rate {
                     0,
                 ),
             };
+            burn(id, evidence.then_some(tokens > 0));
             state.began.get_or_insert(now);
             let provider = state.driver(&next.key.0);
             state.previous = Some(next);

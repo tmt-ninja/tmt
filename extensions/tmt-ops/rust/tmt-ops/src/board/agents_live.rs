@@ -1,5 +1,5 @@
 //! Frame-bounded, evidence-keyed Agents usage projections; no acquisition or I/O.
-use super::{app::App, rate::Reading, workspace::OpsObservation};
+use super::{app::App, workspace::OpsObservation};
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
@@ -8,63 +8,7 @@ use std::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub(in crate::board) struct AgentsLiveUsage {
-    pub minute: Option<Reading>,
     pub activity: [Option<f64>; 12],
-}
-
-/// Presentation-only rate from accepted cumulative observations. It decays to
-/// zero over a bounded interval after the last moving sample.
-#[derive(Default)]
-struct SmoothRate {
-    baseline: Option<(super::rate::Counter, Instant)>,
-    peak: f64,
-    peak_at: Option<Instant>,
-    observed: bool,
-    shown: u128,
-    flash_until: Option<Instant>,
-    shown_flash: bool,
-}
-
-impl SmoothRate {
-    const DECAY: Duration = Duration::from_secs(30);
-    const FRAME: Duration = Duration::from_millis(250);
-
-    fn value(&self, now: Instant) -> u128 {
-        let Some(at) = self.peak_at else { return 0 };
-        let fraction =
-            1.0 - now.saturating_duration_since(at).as_secs_f64() / Self::DECAY.as_secs_f64();
-        (self.peak * fraction.max(0.0)).round() as u128
-    }
-
-    fn observe(&mut self, value: &serde_json::Value, now: Instant) {
-        let Some(next) = super::rate::Counter::read(value) else {
-            self.baseline = None;
-            return;
-        };
-        if let Some((previous, at)) = &self.baseline {
-            // Unchanged rows can be re-delivered when another member changes.
-            // They do not reset this member's sampling interval.
-            if &next == previous {
-                return;
-            }
-            if let Some(delta) = next.delta(previous) {
-                self.observed = true;
-                let elapsed = now.saturating_duration_since(*at).as_secs_f64();
-                if delta > 0 && elapsed > 0.0 {
-                    let instantaneous = delta as f64 * 60.0 / elapsed;
-                    self.peak = (self.value(now) as f64 + instantaneous) / 2.0;
-                    self.peak_at = Some(now);
-                    self.flash_until = Some(now + Duration::from_millis(800));
-                }
-            } else {
-                self.peak = 0.0;
-                self.peak_at = None;
-                self.flash_until = None;
-                self.observed = false;
-            }
-        }
-        self.baseline = Some((next, now));
-    }
 }
 
 #[derive(Default)]
@@ -117,16 +61,14 @@ pub(in crate::board) struct Projection {
     pub(in crate::board) usage: RefCell<BTreeMap<String, AgentsLiveUsage>>,
     pub(in crate::board) missing: RefCell<BTreeSet<String>>,
     seen: RefCell<BTreeSet<String>>,
-    squad_seen: RefCell<BTreeSet<String>>,
-    pub(in crate::board) squads: RefCell<BTreeMap<String, Option<Reading>>>,
     generation: RefCell<Vec<(u64, u64)>>,
     at: Cell<Option<Instant>>,
     window: Cell<crate::config::ActivityWindow>,
-    rates: RefCell<BTreeMap<String, SmoothRate>>,
+    burn: BTreeMap<String, Instant>,
+    visible_burn_deadline: Cell<Option<Instant>>,
     flashes: RefCell<BTreeMap<String, RowFlash>>,
     flash_seen: RefCell<BTreeSet<String>>,
     motion_off: Cell<bool>,
-    rate_active: Cell<bool>,
     flash_active: Cell<bool>,
 }
 
@@ -134,89 +76,53 @@ impl Projection {
     pub fn invalidate(&mut self) {
         self.usage.get_mut().clear();
         self.missing.get_mut().clear();
-        self.squads.get_mut().clear();
         self.generation.get_mut().clear();
         self.at.set(None);
     }
 
-    #[cfg(test)]
-    pub(in crate::board) fn set_capture_rate(
-        &self,
-        id: &str,
-        value: u128,
-        flash: bool,
-        now: Instant,
-    ) {
-        let at = now + Duration::from_secs(60);
-        self.rates.borrow_mut().insert(
-            id.into(),
-            SmoothRate {
-                peak: value as f64,
-                peak_at: Some(at),
-                observed: true,
-                shown: value,
-                flash_until: flash.then_some(at),
-                shown_flash: flash,
-                ..Default::default()
-            },
-        );
-        self.rate_active.set(value > 0 || flash);
-    }
-
-    pub fn observe_rates(&mut self, rows: &BTreeMap<String, serde_json::Value>, now: Instant) {
-        let rates = self.rates.get_mut();
-        rates.retain(|id, _| rows.contains_key(id));
-        for (id, row) in rows {
-            let rate = rates.entry(id.clone()).or_default();
-            rate.observe(row, now);
-            rate.shown = rate.value(now);
-            rate.shown_flash = rate.flash_until.is_some_and(|until| now < until);
-            if rate.shown > 0 || rate.shown_flash {
-                self.rate_active.set(true);
+    pub fn observe_burn(&mut self, observations: BTreeMap<String, Option<bool>>, now: Instant) {
+        self.burn
+            .retain(|id, until| *until > now && observations.contains_key(id));
+        for (id, update) in observations {
+            match update {
+                Some(true) => {
+                    self.burn.insert(id, now + Duration::from_secs(30));
+                }
+                Some(false) => {}
+                None => {
+                    self.burn.remove(&id);
+                }
             }
         }
     }
 
-    pub fn tick_rates(&self, now: Instant) -> bool {
-        if self.motion_off.get() || !self.rate_active.get() {
+    pub fn burning(&self, id: &str, now: Instant) -> bool {
+        let Some(until) = self.burn.get(id).copied().filter(|until| *until > now) else {
             return false;
-        }
-        let seen = self.seen.borrow();
-        let mut changed = false;
-        let mut rates = self.rates.borrow_mut();
-        let mut active = false;
-        for id in seen.iter() {
-            if let Some(rate) = rates.get_mut(id) {
-                let value = rate.value(now);
-                let flash = rate.flash_until.is_some_and(|until| now < until);
-                changed |= value != rate.shown || flash != rate.shown_flash;
-                active |= value > 0 || flash;
-                rate.shown = value;
-                rate.shown_flash = flash;
-            }
-        }
-        drop(rates);
-        self.rate_active.set(active);
-        if changed {
-            self.usage.borrow_mut().clear();
-            self.squads.borrow_mut().clear();
-        }
-        changed
+        };
+        self.visible_burn_deadline.set(Some(
+            self.visible_burn_deadline
+                .get()
+                .map_or(until, |held| held.min(until)),
+        ));
+        true
     }
 
-    pub fn rate_wait(&self, now: Instant) -> Option<Duration> {
-        if self.motion_off.get() || !self.rate_active.get() {
-            return None;
-        }
-        let seen = self.seen.borrow();
-        let rates = self.rates.borrow();
-        seen.iter()
-            .any(|id| {
-                rates.get(id).is_some_and(|rate| {
-                    rate.value(now) > 0 || rate.flash_until.is_some_and(|until| now < until)
-                })
-            })
-            .then_some(SmoothRate::FRAME)
+    pub fn burn_wait(&self, now: Instant) -> Option<Duration> {
+        self.visible_burn_deadline
+            .get()
+            .map(|until| until.saturating_duration_since(now))
+    }
+
+    pub fn expire_burn(&self, now: Instant) -> bool {
+        self.visible_burn_deadline.get().is_some_and(|until| {
+            if until <= now {
+                self.visible_burn_deadline.set(None);
+                true
+            } else {
+                false
+            }
+        })
     }
 
     /// Admit one clock instant and check evidence once for the entire frame.
@@ -232,18 +138,17 @@ impl Projection {
             .filter_map(|(name, _)| app.home_meter(name).map(|meter| meter.evidence_key(now)))
             .map(|(evidence, time)| (evidence, if motion_off { 0 } else { time }))
             .collect::<Vec<_>>();
+        self.visible_burn_deadline.set(None);
         let window = app.activity_window();
         if motion_changed || *self.generation.borrow() != generation || self.window.get() != window
         {
             self.usage.borrow_mut().clear();
             self.missing.borrow_mut().clear();
-            self.squads.borrow_mut().clear();
             *self.generation.borrow_mut() = generation;
             self.window.set(window);
         }
         self.at.set(Some(now));
         self.seen.borrow_mut().clear();
-        self.squad_seen.borrow_mut().clear();
         self.flash_seen.borrow_mut().clear();
     }
 
@@ -253,8 +158,6 @@ impl Projection {
         self.missing.borrow_mut().retain(|id| seen.contains(id));
         let seen = self.flash_seen.borrow();
         self.flashes.borrow_mut().retain(|id, _| seen.contains(id));
-        let squads = self.squad_seen.borrow();
-        self.squads.borrow_mut().retain(|id, _| squads.contains(id));
     }
 
     pub fn row_flash(
@@ -339,24 +242,8 @@ impl Projection {
                 if best.as_ref().is_some_and(|(previous, _)| *previous >= rank) {
                     continue;
                 }
-                let minute = meter
-                    .observation(id, crate::config::TokenWindow::MINUTE, now)
-                    .map(|(mut reading, _)| {
-                        if let Some(rate) = self.rates.borrow().get(id).filter(|rate| rate.observed)
-                        {
-                            if rate.value(now) > 0 {
-                                self.rate_active.set(true);
-                            }
-                            reading.tokens = if self.motion_off.get() {
-                                rate.shown
-                            } else {
-                                rate.value(now)
-                            };
-                        }
-                        reading
-                    });
                 let activity = meter.member_trend_window(id, now, self.window.get().token_window());
-                best = Some((rank, AgentsLiveUsage { minute, activity }));
+                best = Some((rank, AgentsLiveUsage { activity }));
             }
         }
         let value = best.map(|(_, usage)| usage);
@@ -366,30 +253,6 @@ impl Projection {
             self.missing.borrow_mut().insert(id.to_owned());
         }
         value
-    }
-
-    pub fn rate_flash(&self, id: &str, now: Instant) -> Option<bool> {
-        let rates = self.rates.borrow();
-        let rate = rates.get(id).filter(|rate| rate.observed)?;
-        Some(rate.flash_until.is_some_and(|until| now < until))
-    }
-
-    pub fn squad_rate_flash(&self, app: &App, room: &str, now: Instant) -> Option<bool> {
-        let squad = app
-            .workspace_snapshot()?
-            .roster
-            .squads
-            .iter()
-            .find(|squad| squad.room_id == room)?;
-        let mut any_known = false;
-        let mut flashing = false;
-        for id in &squad.members {
-            if let Some(value) = self.rate_flash(id, now) {
-                any_known = true;
-                flashing |= value;
-            }
-        }
-        any_known.then_some(flashing)
     }
 
     pub fn squad_activity(&self, app: &App, room: &str) -> [Option<f64>; 12] {
@@ -420,68 +283,11 @@ impl Projection {
         }
         if seen.is_empty() { [None; 12] } else { total }
     }
-
-    pub fn squad_minute(&self, app: &App, room: &str) -> Option<Reading> {
-        self.squad_seen.borrow_mut().insert(room.to_owned());
-        if let Some(value) = self.squads.borrow().get(room) {
-            if let Some(squad) = app.workspace_snapshot().and_then(|snapshot| {
-                snapshot
-                    .roster
-                    .squads
-                    .iter()
-                    .find(|squad| squad.room_id == room)
-            }) {
-                self.seen.borrow_mut().extend(squad.members.iter().cloned());
-            }
-            return *value;
-        }
-        let value = app.workspace_snapshot().and_then(|snapshot| {
-            let squad = snapshot
-                .roster
-                .squads
-                .iter()
-                .find(|squad| squad.room_id == room)?;
-            let mut seen = BTreeSet::new();
-            let mut total = 0u128;
-            let mut span = u64::MAX;
-            let mut known = false;
-            let mut partial = squad.observation != OpsObservation::Complete;
-            for id in &squad.members {
-                if !seen.insert(id) {
-                    continue;
-                }
-                if let Some(reading) = self.member(app, id).and_then(|usage| usage.minute) {
-                    total = total.saturating_add(reading.tokens);
-                    span = span.min(reading.span);
-                    partial |= reading.partial;
-                    known = true;
-                } else {
-                    partial = true;
-                }
-            }
-            known.then_some(Reading {
-                tokens: total,
-                partial,
-                span,
-            })
-        });
-        self.squads.borrow_mut().insert(room.to_owned(), value);
-        value
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    fn counter(tokens: u64, sequence: u64) -> serde_json::Value {
-        json!({"driver":"codex", "session":"one", "consumption": {
-            "inputTokens":tokens, "outputTokens":0, "cachedInputTokens":0,
-            "epoch":"00000000-0000-4000-8000-000000000001", "sequence":sequence,
-            "observedAtMs":sequence, "complete":true, "gap":false
-        }})
-    }
 
     #[test]
     fn row_flash_only_fires_on_new_attention_and_stops() {
@@ -503,48 +309,5 @@ mod tests {
             flash.observe(true, true, 1, true, start + Duration::from_secs(4)),
             2
         );
-    }
-
-    #[test]
-    fn hidden_and_motion_off_rates_do_not_schedule_animation() {
-        let start = Instant::now();
-        let projection = Projection::default();
-        let mut rate = SmoothRate::default();
-        rate.observe(&counter(1, 1), start);
-        rate.observe(&counter(101, 2), start + Duration::from_secs(10));
-        projection.rates.borrow_mut().insert("a".into(), rate);
-        projection.rate_active.set(true);
-        assert_eq!(projection.rate_wait(start + Duration::from_secs(11)), None);
-        projection.seen.borrow_mut().insert("a".into());
-        assert!(
-            projection
-                .rate_wait(start + Duration::from_secs(11))
-                .is_some()
-        );
-        projection.motion_off.set(true);
-        assert_eq!(projection.rate_wait(start + Duration::from_secs(11)), None);
-        assert!(!projection.tick_rates(start + Duration::from_secs(11)));
-    }
-
-    #[test]
-    fn rate_smooths_accepted_deltas_decays_and_rebaselines_resets() {
-        let start = Instant::now();
-        let mut rate = SmoothRate::default();
-        rate.observe(&counter(100, 1), start);
-        assert!(!rate.observed);
-        rate.observe(&counter(100, 1), start + Duration::from_secs(9));
-        rate.observe(&counter(200, 2), start + Duration::from_secs(10));
-        assert_eq!(rate.value(start + Duration::from_secs(10)), 300);
-        let flash = rate.flash_until;
-        rate.observe(&counter(200, 2), start + Duration::from_millis(10_500));
-        assert_eq!(
-            rate.flash_until, flash,
-            "duplicate observations do not replay a flash"
-        );
-        assert_eq!(rate.value(start + Duration::from_secs(25)), 150);
-        assert_eq!(rate.value(start + Duration::from_secs(40)), 0);
-        rate.observe(&counter(1, 3), start + Duration::from_secs(41));
-        assert!(!rate.observed);
-        assert_eq!(rate.value(start + Duration::from_secs(41)), 0);
     }
 }

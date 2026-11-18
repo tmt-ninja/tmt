@@ -1,7 +1,7 @@
 //! Acquired-data cases shared by frozen-oracle candidates and visual evidence.
 use super::*;
 
-pub(in crate::board) const NAMES: [&str; 8] = [
+pub(in crate::board) const NAMES: [&str; 9] = [
     "usage-dropdowns",
     "usage-each-menu",
     "usage-auto",
@@ -10,11 +10,16 @@ pub(in crate::board) const NAMES: [&str; 8] = [
     "usage-hover",
     "usage-pinned",
     "usage-disabled-each",
+    "usage-short-range",
 ];
 
 pub(in crate::board) fn board_case(name: &str, look: crate::look::Look, width: u16) -> App {
     let mut app = board();
-    fixtures::mixed(&mut app);
+    if name == "usage-short-range" {
+        fixtures::mixed_with_recent_minutes(&mut app, Some(fixtures::SHORT_MINUTES));
+    } else {
+        fixtures::mixed(&mut app);
+    }
     app.view.as_mut().unwrap().look = look;
     app.view
         .as_mut()
@@ -30,14 +35,14 @@ pub(in crate::board) fn board_case(name: &str, look: crate::look::Look, width: u
         app.look().role(tmt_cli_style::Role::Text),
         look.role(tmt_cli_style::Role::Text)
     );
-    let range = if name == "usage-disabled-each" {
-        43_200
-    } else {
-        10_080
+    let range = match name {
+        "usage-disabled-each" => 43_200,
+        "usage-short-range" => 5,
+        _ => 10_080,
     };
     app.usage_chart.borrow_mut().restore_chart_controls(
         range,
-        if name == "usage-auto" {
+        if matches!(name, "usage-auto" | "usage-short-range") {
             Each::Auto
         } else {
             Each::Fixed(60)
@@ -45,8 +50,10 @@ pub(in crate::board) fn board_case(name: &str, look: crate::look::Look, width: u
     );
     paint(&mut app, width, 51); // resolve Auto before acquiring its exact grid
     let selection = app.usage_chart.borrow().selection;
-    let read = fixtures::retained(&app, selection);
-    assert!(app.apply_history(read, std::time::Instant::now()));
+    if range > 60 {
+        let read = fixtures::retained(&app, selection);
+        assert!(app.apply_history(read, std::time::Instant::now()));
+    }
     paint(&mut app, width, 51);
     if name == "usage-middle" {
         app.usage_chart
@@ -87,6 +94,33 @@ pub(in crate::board) fn board_case(name: &str, look: crate::look::Look, width: u
         }
     }
     app
+}
+
+#[test]
+fn short_range_renders_distinct_observed_minute_buckets() {
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let app = board_case("usage-short-range", crate::look::Look::default(), 100);
+        let chart = app.usage_chart.borrow();
+        assert_eq!(chart.selection.each_minutes, 1);
+        let observed = chart.observed.as_ref().expect("projected short chart");
+        assert_eq!(
+            observed
+                .buckets
+                .iter()
+                .map(|bucket| bucket.tokens)
+                .collect::<Vec<_>>(),
+            [Some(30), Some(90), Some(0), Some(60), Some(135)]
+        );
+        let hit_buckets = chart
+            .hits
+            .iter()
+            .filter_map(|hit| match hit.target {
+                Target::Bar(index) => Some(index),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(hit_buckets, (0..5).collect());
+    });
 }
 
 #[test]

@@ -1338,7 +1338,7 @@ impl App {
     }
 
     pub(in crate::board) fn overview_member_usage(&self, id: &str) -> Option<super::rate::Reading> {
-        if self.tok_range() != crate::config::TokRange::Hour {
+        let Some(window) = self.tok_range().live_window() else {
             let super::usage_report::View::Report(report) =
                 self.usage_report.view_for(self.tok_range())
             else {
@@ -1350,8 +1350,8 @@ impl App {
                 partial: !seat.complete,
                 span: seat.covered_ms,
             });
-        }
-        self.member_usage_observation(id, Instant::now())
+        };
+        self.member_usage_observation(id, window, Instant::now())
             .map(|(_, reading)| reading)
     }
 
@@ -1360,13 +1360,14 @@ impl App {
         id: &str,
     ) -> [Option<f64>; N] {
         let now = Instant::now();
-        self.member_usage_observation(id, now)
+        self.member_usage_observation(id, crate::config::TokenWindow::HOUR, now)
             .map_or([None; N], |(meter, _)| meter.member_trend(id, now))
     }
 
     fn member_usage_observation(
         &self,
         id: &str,
+        window: crate::config::TokenWindow,
         now: Instant,
     ) -> Option<(&super::meter::Meter, super::rate::Reading)> {
         self.view
@@ -1376,15 +1377,14 @@ impl App {
             .filter(|(_, rate)| rate.settings.enabled)
             .filter_map(|(squad, _)| {
                 let meter = self.home_meter(squad)?;
-                let (reading, evidence) =
-                    meter.observation(id, crate::config::TokenWindow::HOUR, now)?;
+                let (reading, evidence) = meter.observation(id, window, now)?;
                 Some((meter, reading, evidence))
             })
             .max_by_key(|(_, reading, evidence)| (*evidence, reading.span, !reading.partial))
             .map(|(meter, reading, _)| (meter, reading))
     }
 
-    /// The same HOUR readings and per-room UUID de-duplication supply both tables.
+    /// The same window readings and per-room UUID de-duplication supply both tables.
     pub(in crate::board) fn overview_squad_usage(
         &self,
         squad: &super::workspace::OpsSquad,
@@ -1642,6 +1642,7 @@ impl App {
             return false;
         };
         let mut sampled = false;
+        let mut burn: BTreeMap<String, Option<bool>> = BTreeMap::new();
         for (name, rate) in &mut view.home_rate {
             if let Ok(rows) = resumes {
                 rate.input = rate.input.joined(rows);
@@ -1652,14 +1653,15 @@ impl App {
                 .filter(|meter| rate.settings.enabled && (changed || meter.due(now)))
             {
                 let input = resumes.map(|rows| rate.input.joined(rows));
-                meter.sample(input.as_ref().map_err(|_| ()), now);
+                meter.sample_with_burn(input.as_ref().map_err(|_| ()), now, |id, value| {
+                    let held = burn.entry(id.to_owned()).or_default();
+                    *held = (*held).max(value);
+                });
                 sampled = true;
             }
         }
         if sampled {
-            if let Ok(rows) = resumes {
-                self.agents_live.observe_rates(rows, now);
-            }
+            self.agents_live.observe_burn(burn, now);
             self.usage_chart.get_mut().invalidate_data();
             self.agents_live.invalidate();
         }
@@ -6581,15 +6583,6 @@ mod token_window_tests {
             .observation("a", TokenWindow::MINUTE, soon)
             .map(|(reading, _)| reading);
         assert_eq!(current.unwrap().tokens, 450);
-        assert_eq!(
-            app.agents_live
-                .member(&app, "a")
-                .unwrap()
-                .minute
-                .unwrap()
-                .tokens,
-            9_000
-        );
     }
 
     #[test]
@@ -6613,11 +6606,13 @@ mod token_window_tests {
         };
         assert!(app.apply_history(read, now + Duration::from_secs(20)));
         app.agents_live.begin(&app, now + Duration::from_secs(20));
-        let current = app.meters["product"]
-            .observation("a", TokenWindow::MINUTE, now + Duration::from_secs(20))
-            .map(|(reading, _)| reading);
+        let current = app.meters["product"].member_trend_window(
+            "a",
+            now + Duration::from_secs(20),
+            app.activity_window().token_window(),
+        );
         assert_eq!(
-            app.agents_live.member(&app, "a").unwrap().minute,
+            app.agents_live.member(&app, "a").unwrap().activity,
             current,
             "a history receipt must refresh the cached member"
         );
@@ -6630,19 +6625,49 @@ mod token_window_tests {
         let at = now + Duration::from_secs(10);
         assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
         app.agents_live.begin(&app, at);
-        let before = app.agents_live.member(&app, "a").unwrap();
-        let later = now + Duration::from_secs(20);
-        app.meters.get_mut("product").unwrap().suspend(later);
+        assert!(app.agents_live.member(&app, "a").is_some());
+        let generation = app.meters["product"].evidence_key(at).0;
+        app.meters.get_mut("product").unwrap().suspend(at);
         app.meters
             .get_mut("product")
             .unwrap()
-            .resume(TokenWindow::MINUTE, later);
-        app.agents_live.begin(&app, later);
-        let actual = app.meters["product"]
-            .observation("a", TokenWindow::MINUTE, later)
-            .map(|(reading, _)| reading);
-        assert_ne!(before.minute, actual, "fixture must change coverage");
-        assert_eq!(app.agents_live.member(&app, "a").unwrap().minute, actual);
+            .resume(TokenWindow::MINUTE, at);
+        assert_ne!(app.meters["product"].evidence_key(at).0, generation);
+        app.agents_live.begin(&app, at);
+        assert!(
+            app.agents_live.usage.borrow().is_empty(),
+            "a resumed meter must invalidate the cached activity in the same time slot"
+        );
+    }
+
+    #[test]
+    fn agents_short_windows_use_observed_deltas_and_distinct_cutoffs() {
+        use crate::config::TokRange;
+        crate::status::with_now_ms(3_600_000, || {
+            let now = Instant::now();
+            let mut app = home(now);
+            let reading = |app: &App, range: TokRange, at| {
+                app.member_usage_observation("a", range.live_window().unwrap(), at)
+                    .map(|(_, reading)| reading)
+            };
+            let at = now + Duration::from_secs(10);
+            assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+            for range in [TokRange::FiveMinutes, TokRange::TenMinutes] {
+                let value = reading(&app, range, at).unwrap();
+                assert_eq!(value.tokens, 150);
+                assert!(value.partial);
+            }
+            let at = now + Duration::from_secs(320);
+            assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+            assert_eq!(
+                reading(&app, TokRange::FiveMinutes, at).map(|value| value.tokens),
+                Some(0)
+            );
+            assert_eq!(
+                reading(&app, TokRange::TenMinutes, at).map(|value| value.tokens),
+                Some(150)
+            );
+        });
     }
 
     #[test]
@@ -6653,16 +6678,18 @@ mod token_window_tests {
         assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
         app.agents_live.begin(&app, at);
         let before = app.agents_live.member(&app, "a").unwrap();
-        let later = now + Duration::from_secs(75);
+        let later = now + Duration::from_secs(305);
         app.agents_live.begin(&app, later);
-        let actual = app.meters["product"]
-            .observation("a", TokenWindow::MINUTE, later)
-            .map(|(reading, _)| reading);
-        assert_ne!(
-            before.minute, actual,
-            "fixture must cross the minute window"
+        let actual = app.meters["product"].member_trend_window(
+            "a",
+            later,
+            app.activity_window().token_window(),
         );
-        assert_eq!(app.agents_live.member(&app, "a").unwrap().minute, actual);
+        assert_ne!(
+            before.activity, actual,
+            "fixture must cross an activity cell boundary"
+        );
+        assert_eq!(app.agents_live.member(&app, "a").unwrap().activity, actual);
     }
 
     #[test]
@@ -6767,7 +6794,6 @@ mod token_window_tests {
             assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
             app.agents_live.begin(&app, at);
             let reading = app.agents_live.member(&app, "a").expect("sampled identity");
-            assert_eq!(reading.minute.unwrap().tokens, 150);
             assert_eq!(
                 reading.activity[11],
                 Some(150.0),
@@ -6785,19 +6811,6 @@ mod token_window_tests {
                 before,
                 "receipt does not reload the view"
             );
-            let at = now + Duration::from_secs(75);
-            assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
-            app.agents_live.begin(&app, at);
-            assert_eq!(
-                app.agents_live
-                    .member(&app, "a")
-                    .unwrap()
-                    .minute
-                    .unwrap()
-                    .tokens,
-                0
-            );
-            assert_eq!(app.view.as_ref().unwrap().document, before);
         });
     }
 

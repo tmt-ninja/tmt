@@ -264,18 +264,18 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
     title: 'Overlay / menu',
     lead: 'Places a focused menu or reference layer above the current workspace.',
     section: 'overlays',
-    anatomy: sample('settings-menu', [11, 35]),
+    anatomy: sample('settings-menu', [9, 35]),
     parts: [
-      { name: 'Section title', row: 12, text: 'settings' },
-      { name: 'Selected choice', row: 13, text: 'Auto layout (current)' },
-      { name: 'Scroll position', row: 33, text: '1–19 of 19' },
+      { name: 'Section title', row: 10, text: 'settings' },
+      { name: 'Selected choice', row: 11, text: 'Auto layout (current)' },
+      { name: 'Scroll position', row: 33, text: '1–21 of 21' },
       { name: 'Layer keys', row: 34, text: 'Esc close' },
     ],
     states: [
       {
         kind: 'focused',
         label: 'Selected settings choice',
-        sample: sample('settings-menu', [11, 35]),
+        sample: sample('settings-menu', [9, 35]),
       },
       {
         kind: 'disabled',

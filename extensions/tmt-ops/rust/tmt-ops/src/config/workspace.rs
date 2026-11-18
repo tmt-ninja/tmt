@@ -60,6 +60,8 @@ pub enum OverviewDirection {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum TokRange {
+    FiveMinutes,
+    TenMinutes,
     #[default]
     Hour,
     ThreeHours,
@@ -71,7 +73,9 @@ pub enum TokRange {
 }
 
 impl TokRange {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
+        Self::FiveMinutes,
+        Self::TenMinutes,
         Self::Hour,
         Self::ThreeHours,
         Self::SixHours,
@@ -87,6 +91,8 @@ impl TokRange {
 
     pub fn argument(self) -> &'static str {
         match self {
+            Self::FiveMinutes => "5m",
+            Self::TenMinutes => "10m",
             Self::Hour => "1h",
             Self::ThreeHours => "3h",
             Self::SixHours => "6h",
@@ -98,6 +104,8 @@ impl TokRange {
 
     pub fn caption(self) -> &'static str {
         match self {
+            Self::FiveMinutes => "TOK 5m",
+            Self::TenMinutes => "TOK 10m",
             Self::Hour => "TOK 1h",
             Self::ThreeHours => "TOK 3h",
             Self::SixHours => "TOK 6h",
@@ -110,6 +118,8 @@ impl TokRange {
     /// The caption while the column shows money: the same range word after `≈$`.
     pub fn caption_money(self) -> &'static str {
         match self {
+            Self::FiveMinutes => "≈$ 5m",
+            Self::TenMinutes => "≈$ 10m",
             Self::Hour => "≈$ 1h",
             Self::ThreeHours => "≈$ 3h",
             Self::SixHours => "≈$ 6h",
@@ -130,6 +140,8 @@ impl TokRange {
 
     pub fn milliseconds(self) -> u64 {
         match self {
+            Self::FiveMinutes => 300_000,
+            Self::TenMinutes => 600_000,
             Self::Hour => 3_600_000,
             Self::ThreeHours => 10_800_000,
             Self::SixHours => 21_600_000,
@@ -139,13 +151,24 @@ impl TokRange {
         }
     }
 
+    pub fn live_window(self) -> Option<super::TokenWindow> {
+        match self {
+            Self::FiveMinutes => Some(super::TokenWindow::FIVE_MINUTES),
+            Self::TenMinutes => super::TokenWindow::parse("10m"),
+            Self::Hour => Some(super::TokenWindow::HOUR),
+            _ => None,
+        }
+    }
+
     pub fn next(self) -> Self {
         match self {
+            Self::FiveMinutes => Self::TenMinutes,
+            Self::TenMinutes => Self::Hour,
             Self::Hour => Self::ThreeHours,
             Self::ThreeHours => Self::SixHours,
             Self::SixHours => Self::Day,
             Self::Day => Self::Week,
-            Self::Week | Self::Month => Self::Hour,
+            Self::Week | Self::Month => Self::FiveMinutes,
         }
     }
 }
@@ -2346,7 +2369,7 @@ mod tests {
             );
             expected = loaded;
         }
-        assert_eq!(expected.tok_range.next(), TokRange::Hour);
+        assert_eq!(expected.tok_range.next(), TokRange::FiveMinutes);
         for invalid in ["24h", "30d", "0h", "2h", "1H", ""] {
             assert_eq!(TokRange::parse(invalid), None);
         }

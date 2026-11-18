@@ -83,7 +83,7 @@ fn live_projection_only_visits_painted_members_and_painted_squads() {
 }
 
 #[test]
-fn live_projection_retains_only_the_last_painted_rows_and_their_squads() {
+fn live_projection_retains_only_the_last_painted_rows_and_their_members() {
     use crate::board::workspace::OpsTarget;
     use std::collections::BTreeSet;
 
@@ -222,13 +222,10 @@ fn row_flash_preserves_the_activity_cells_grey_scale() {
     for (index, value) in values.iter_mut().enumerate() {
         *value = Some(index as f64 * 100.0);
     }
-    app.agents_live.usage.borrow_mut().insert(
-        MEMBER.into(),
-        AgentsLiveUsage {
-            minute: None,
-            activity: values,
-        },
-    );
+    app.agents_live
+        .usage
+        .borrow_mut()
+        .insert(MEMBER.into(), AgentsLiveUsage { activity: values });
     let before = frame(&app, 160);
     let header = area_of(&app, |choice| *choice == Choice::ActivityWindow).unwrap();
     let y = (0..before.area.height)
@@ -349,19 +346,15 @@ fn squad_activity_sums_known_members_and_preserves_unknown_cells() {
     app.agents_live.usage.borrow_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
-            minute: None,
             activity: [Some(2.0); 12],
         },
     );
     let mut second = [Some(3.0); 12];
     second[4] = None;
-    app.agents_live.usage.borrow_mut().insert(
-        "second".into(),
-        AgentsLiveUsage {
-            minute: None,
-            activity: second,
-        },
-    );
+    app.agents_live
+        .usage
+        .borrow_mut()
+        .insert("second".into(), AgentsLiveUsage { activity: second });
     let total = app.agents_live.squad_activity(&app, &room);
     assert_eq!(total[0], Some(5.0));
     assert_eq!(total[4], None);
@@ -520,7 +513,6 @@ fn the_window_keeps_cycling() {
 
 fn sampled_member_row() -> String {
     use crate::board::agents_live::AgentsLiveUsage;
-    use crate::board::rate::Reading;
 
     let mut app = open(SavingsUnit::Tokens);
     // The activity glyph is visible at NO_COLOR depth rather than the color ramp's background.
@@ -530,17 +522,10 @@ fn sampled_member_row() -> String {
     let mut activity = [Some(0.0); 12];
     activity[11] = Some(120.0);
     app.agents_live.begin(&app, Instant::now());
-    app.agents_live.usage.get_mut().insert(
-        MEMBER.into(),
-        AgentsLiveUsage {
-            minute: Some(Reading {
-                tokens: 1_234,
-                partial: false,
-                span: 60,
-            }),
-            activity,
-        },
-    );
+    app.agents_live
+        .usage
+        .get_mut()
+        .insert(MEMBER.into(), AgentsLiveUsage { activity });
     let lines = paint(&app, 240, 40);
     let row = lines
         .iter()
@@ -552,204 +537,11 @@ fn sampled_member_row() -> String {
 }
 
 #[test]
-fn sampled_member_minute_is_painted_in_the_live_column() {
-    let row = sampled_member_row();
-    assert!(
-        row.contains("1.2k"),
-        "the measured per-minute figure: {row}"
-    );
-}
-
-#[test]
 fn sampled_member_activity_is_painted_oldest_to_newest() {
     let row = sampled_member_row();
     assert!(
         row.contains("▁▁▁▁▁▁▁▁▁▁▁█"),
         "the oldest-to-newest activity cells: {row}"
-    );
-}
-
-fn minute_cell(reading: Option<crate::board::rate::Reading>) -> String {
-    let mut app = open(SavingsUnit::Tokens);
-    app.agents_live.begin(&app, Instant::now());
-    app.agents_live.usage.get_mut().insert(
-        MEMBER.into(),
-        crate::board::agents_live::AgentsLiveUsage {
-            minute: reading,
-            activity: [None; 12],
-        },
-    );
-    let buffer = frame(&app, 240);
-    let rows: Vec<_> = buffer.content.chunks(240).collect();
-    let heading = rows
-        .iter()
-        .find(|row| {
-            row.windows(7).any(|cells| {
-                cells.iter().map(|cell| cell.symbol()).collect::<String>() == "TOK/min"
-            })
-        })
-        .expect("per-minute heading");
-    let x = heading
-        .windows(7)
-        .position(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>() == "TOK/min")
-        .unwrap();
-    let row = rows
-        .iter()
-        .find(|cells| {
-            let text: String = cells.iter().map(|cell| cell.symbol()).collect();
-            text.contains("└ worker") && text.contains("working")
-        })
-        .expect("member row");
-    row[x..x + 7]
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect::<String>()
-        .trim()
-        .to_owned()
-}
-
-#[test]
-fn minute_track_distinguishes_observed_zero_from_unavailable() {
-    use crate::board::rate::Reading;
-    assert_eq!(minute_cell(None), "—");
-    assert_eq!(
-        minute_cell(Some(Reading {
-            tokens: 0,
-            partial: false,
-            span: 60
-        })),
-        "0"
-    );
-}
-
-#[test]
-fn minute_track_marks_partial_evidence() {
-    use crate::board::rate::Reading;
-    assert_eq!(
-        minute_cell(Some(Reading {
-            tokens: 1_234,
-            partial: true,
-            span: 30
-        })),
-        "~1.2k"
-    );
-}
-
-#[test]
-fn squad_minute_deduplicates_members_and_marks_missing_evidence() {
-    use crate::board::{agents_live::AgentsLiveUsage, rate::Reading};
-
-    let mut app = open(SavingsUnit::Tokens);
-    let roster = &mut app
-        .view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .roster;
-    let mut missing = roster.members[MEMBER].clone();
-    missing.id = "missing".into();
-    missing.name = "missing".into();
-    roster.members.insert(missing.id.clone(), missing);
-    roster.squads[0]
-        .members
-        .extend([MEMBER.into(), "missing".into()]);
-    app.agents_live.begin(&app, Instant::now());
-    app.agents_live.usage.get_mut().insert(
-        MEMBER.into(),
-        AgentsLiveUsage {
-            minute: Some(Reading {
-                tokens: 1_234,
-                partial: false,
-                span: 60,
-            }),
-            activity: [None; 12],
-        },
-    );
-    app.workspace_reconcile();
-    app.agents_live.squads.get_mut().clear();
-    let buffer = frame(&app, 240);
-    let rows: Vec<_> = buffer.content.chunks(240).collect();
-    let header = rows
-        .iter()
-        .find(|row| {
-            row.windows(7).any(|cells| {
-                cells.iter().map(|cell| cell.symbol()).collect::<String>() == "TOK/min"
-            })
-        })
-        .expect("per-minute heading");
-    let x = header
-        .windows(7)
-        .position(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>() == "TOK/min")
-        .unwrap();
-    let squad = rows
-        .iter()
-        .find(|cells| {
-            let text: String = cells.iter().map(|cell| cell.symbol()).collect();
-            text.contains("▾ product")
-        })
-        .expect("squad row");
-    let value: String = squad[x..x + 7].iter().map(|cell| cell.symbol()).collect();
-    assert_eq!(
-        value.trim(),
-        "~1.2k",
-        "sum the identity once and mark missing evidence"
-    );
-}
-
-#[test]
-fn changed_minute_figure_is_bold_in_the_painted_member_row() {
-    use crate::board::{agents_live::AgentsLiveUsage, rate::Reading};
-    use ratatui::style::Modifier;
-    let mut app = open(SavingsUnit::Tokens);
-    let view = app.view.as_mut().unwrap();
-    view.look.depth = tmt_cli_style::Depth::TrueColor;
-    view.home.as_mut().unwrap().workspace.squad_looks.clear();
-    let usage = |tokens| AgentsLiveUsage {
-        minute: Some(Reading {
-            tokens,
-            partial: false,
-            span: 60,
-        }),
-        activity: [None; 12],
-    };
-    app.agents_live
-        .usage
-        .get_mut()
-        .insert(MEMBER.into(), usage(100));
-    frame(&app, 240);
-    app.agents_live
-        .usage
-        .get_mut()
-        .insert(MEMBER.into(), usage(400));
-    let buffer = frame(&app, 240);
-    let rows: Vec<_> = buffer.content.chunks(240).collect();
-    let heading = rows
-        .iter()
-        .find(|row| {
-            row.windows(7).any(|cells| {
-                cells.iter().map(|cell| cell.symbol()).collect::<String>() == "TOK/min"
-            })
-        })
-        .expect("per-minute heading");
-    let x = heading
-        .windows(7)
-        .position(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>() == "TOK/min")
-        .unwrap();
-    let row = rows
-        .iter()
-        .find(|cells| {
-            let text: String = cells.iter().map(|cell| cell.symbol()).collect();
-            text.contains("└ worker") && text.contains("working")
-        })
-        .expect("member row");
-    assert!(
-        row[x..x + 7]
-            .iter()
-            .any(|cell| cell.modifier.contains(Modifier::BOLD)),
-        "changed TOK/min is bold"
     );
 }
 
@@ -764,10 +556,7 @@ fn selected_activity_keeps_the_no_color_reverse_cue_on_observed_cells() {
     app.agents_live.begin(&app, Instant::now());
     app.agents_live.usage.get_mut().insert(
         MEMBER.into(),
-        crate::board::agents_live::AgentsLiveUsage {
-            minute: None,
-            activity,
-        },
+        crate::board::agents_live::AgentsLiveUsage { activity },
     );
     let buffer = frame(&app, 240);
     let hit = app.hits.borrow().iter().find(|hit| hit.row().is_some_and(|index|
@@ -786,7 +575,7 @@ fn selected_activity_keeps_the_no_color_reverse_cue_on_observed_cells() {
 #[test]
 #[ignore = "read-only live Agents layout evidence; never records fixtures"]
 fn capture_live_agents_widths() {
-    use crate::board::{agents_live::AgentsLiveUsage, rate::Reading};
+    use crate::board::agents_live::AgentsLiveUsage;
     use tmt_cli_style::{Depth, Theme, theme::Base};
     let output = std::env::var("TMT_LIVE_AGENTS_CAPTURE").expect("task-owned output path");
     let mut frames = Vec::new();
@@ -821,18 +610,10 @@ fn capture_live_agents_widths() {
                     activity[9] = Some(60.0);
                     activity[11] = Some(120.0);
                     app.agents_live.begin(&app, Instant::now());
-                    app.agents_live.usage.get_mut().insert(
-                        MEMBER.into(),
-                        AgentsLiveUsage {
-                            minute: Some(Reading {
-                                tokens: 1_234,
-                                partial: false,
-                                span: 60_000,
-                            }),
-                            activity,
-                        },
-                    );
-                    app.agents_live.squads.get_mut().clear();
+                    app.agents_live
+                        .usage
+                        .get_mut()
+                        .insert(MEMBER.into(), AgentsLiveUsage { activity });
                     if squad {
                         app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
                         app.workspace_reconcile();
@@ -894,7 +675,6 @@ fn activity_distinguishes_unknown_observed_empty_and_partial_buckets() {
     app.agents_live.usage.get_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
-            minute: None,
             activity: [Some(0.0); 12],
         },
     );
@@ -997,13 +777,10 @@ fn empty_activity_uses_lowest_grey_and_missing_activity_uses_unknown_dot() {
     frame(&app, 160);
     let mut activity = [Some(0.0); 12];
     activity[1] = None;
-    app.agents_live.usage.borrow_mut().insert(
-        MEMBER.into(),
-        AgentsLiveUsage {
-            minute: None,
-            activity,
-        },
-    );
+    app.agents_live
+        .usage
+        .borrow_mut()
+        .insert(MEMBER.into(), AgentsLiveUsage { activity });
     let actual = frame(&app, 160);
     let area = area_of(&app, |choice| *choice == Choice::ActivityWindow).unwrap();
     let y = (0..actual.area.height)
@@ -1023,7 +800,6 @@ fn empty_activity_uses_lowest_grey_and_missing_activity_uses_unknown_dot() {
     app.agents_live.usage.borrow_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
-            minute: None,
             activity: [None; 12],
         },
     );
