@@ -451,11 +451,49 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   background: var(--tmt-ui-surface-sheet);
 }
 @media (min-width: 641px) {
-  /* A structured page keeps its outline column whether the list is open or closed, so a toggle
-     never moves the content or the toggle (#6470). The outline rises into the title band and
-     starts level with the title row, which reserves the same column. */
+  /* The outline rises into the title band and starts level with the title row, which reserves the
+     same column (#6470). Closing it slides the column shut to the left, leaving only its toggle as
+     an icon, and the content and title take the room back; opening is the reverse (#6611). The
+     motion tokens are 0ms under reduced motion. */
+  .structured-layout[data-outline] {
+    transition: grid-template-columns var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+  }
+  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false']) {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
   .structured-layout[data-outline] .page-outline {
     margin-block-start: calc(-1 * var(--colab-work-band-size, 0px));
+  }
+  .structured-layout[data-outline] .page-outline-toggle[aria-expanded='false'] {
+    width: 34px;
+    min-height: 34px;
+    justify-content: center;
+    padding: 0;
+  }
+  .structured-layout[data-outline] .page-outline-toggle[aria-expanded='false'] .page-outline-icon {
+    display: block;
+  }
+  .structured-layout[data-outline]
+    .page-outline-toggle[aria-expanded='false']
+    .page-outline-chevron {
+    display: none;
+  }
+  /* The word stays the toggle's name while only the icon shows. */
+  .structured-layout[data-outline]
+    .page-outline-toggle[aria-expanded='false']
+    .page-outline-desktop {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .structured-layout[data-outline] .page-outline-list {
+    transition: opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+    @starting-style {
+      opacity: 0;
+    }
   }
   .html-outline {
     z-index: 52;
@@ -536,6 +574,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .structured-page-stage .tmt-block-doc-body {
   --tmt-block-gutter: var(--colab-block-inset);
+}
+/* The text a new block annotation quotes stays marked while its window is open (#6611). */
+::highlight(colab-annotating) {
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 16%, transparent);
+  color: inherit;
 }
 .structured-page-stage[data-annotation-mode] .tmt-block {
   cursor: crosshair;

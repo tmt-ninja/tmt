@@ -4,7 +4,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { recordBlocksResults } from './harness/blocks-results.js';
-import { freePort, run } from './harness/ask.js';
+import { freePort, openChat, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { until } from './harness/process.js';
 import { commentsClose } from '../test/comments-region.js';
@@ -90,7 +90,9 @@ test('a structured page draws CLI blocks and keeps typing and an agent edit of t
   });
 });
 
-// #6449: the comment remains anchored after a real page reload.
+// #6449: the comment remains anchored after a real page reload. #6611: text selected in a block
+// offers Annotate as on an HTML page, without Selection mode; a block without text is still
+// annotated whole from Selection mode.
 test('a comment on a structured block survives reopening', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -166,9 +168,19 @@ test('a comment on a structured block survives reopening', async () => {
     await page.goto(new URL(created.path, `${door.address}/`).href);
     const block = page.locator(`[data-block-id="${paragraph}"]`);
     await expect(block).toContainText('Review this release before launch.');
-    await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
-    await block.click();
+    await block.getByText('Review this release before launch.').click();
+    await page.keyboard.press('End');
+    for (const _ of 'launch.') await page.keyboard.press('Shift+ArrowLeft');
+    await page.getByRole('button', { name: 'Annotate', exact: true }).click();
     const annotation = page.locator('.annotation-popover');
+    // Titled and marked as an HTML page's selection: the quoted text stays marked while it is open.
+    await expect(annotation.getByText('Annotate the selection', { exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(() => {
+        const marked = [...(CSS.highlights.get('colab-annotating') ?? [])];
+        return marked.map((range) => range.toString());
+      }),
+    ).toEqual(['launch.']);
     await annotation.getByRole('combobox', { name: 'Message' }).fill('Please check this block.');
     await annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     await expect(page.getByText('Please check this block.', { exact: true })).toBeVisible();
@@ -187,6 +199,7 @@ test('a comment on a structured block survives reopening', async () => {
     const preview = page.locator(`[data-block-id="${mockup}"]`);
     await preview.locator('.tmt-block-mockup-viewport').click();
     const mockupComment = page.locator('.annotation-popover');
+    await expect(mockupComment.getByText('Annotate the block', { exact: true })).toBeVisible();
     await mockupComment.getByRole('combobox', { name: 'Message' }).fill('Review this mockup.');
     await mockupComment.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     await expect(preview.getByRole('button', { name: 'Open comment 2' })).toBeAttached();
@@ -196,11 +209,16 @@ test('a comment on a structured block survives reopening', async () => {
     const threads = JSON.parse(run(world, colab, ['threads', created.pageId, '--json']))
       .threads as {
       id: string;
-      anchor: { block?: string } | null;
+      anchor: { block?: string; quote?: { exact: string } } | null;
     }[];
     expect(threads.map((thread) => thread.anchor?.block).sort()).toEqual(
       [paragraph, mockup].sort(),
     );
+    // The selection's text is the quote; the editor kept its text.
+    expect(threads.find((thread) => thread.anchor?.block === paragraph)?.anchor?.quote?.exact).toBe(
+      'launch.',
+    );
+    await expect(block).toContainText('Review this release before launch.');
     const target = threads.find((thread) => thread.anchor?.block === mockup)!;
     run(world, colab, ['page', 'convert', created.pageId, '--revert', '--yes', '--json']);
     await page.reload();
@@ -221,6 +239,93 @@ test('a comment on a structured block survives reopening', async () => {
       threads: { id: string; resolved: boolean }[];
     };
     expect(reopened.threads.find((thread) => thread.id === target.id)?.resolved).toBe(false);
+  });
+});
+
+// #6611: an agent's edit never moves a person's typing out of the Chat composer, even with a
+// block selected on the page before they moved there.
+test('an agent edit keeps focus in Chat and never moves it into the page', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'chat-focus', { talk: true });
+    world.linkExtensions();
+    const colab = world.binaries.colab;
+    const created = JSON.parse(
+      run(world, colab, [
+        'page',
+        'create',
+        '--title',
+        'Focus',
+        '--structured',
+        '--json',
+        '--no-open',
+      ]),
+    ) as { pageId: string; path: string };
+    const id = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          created.pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'First block.',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+    const page = await browser.context.newPage();
+    await page.goto(new URL(created.path, `${door.address}/`).href);
+    const block = page.locator(`[data-block-id="${id}"]`);
+    await block.getByText('First block.').click();
+    await page.keyboard.press('Escape');
+    await expect(block).toBeFocused();
+    await openChat(page);
+    const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' });
+    await input.click();
+    await page.keyboard.type('hello ');
+    run(world, colab, [
+      'block',
+      'text',
+      created.pageId,
+      id,
+      '--find',
+      'First',
+      '--replace',
+      'Second',
+      '--json',
+    ]);
+    await expect(block).toContainText('Second block.');
+    await expect(input).toBeFocused();
+    await page.keyboard.type('there');
+    await expect.poll(() => input.innerText()).toBe('hello there');
+    await expect(page.locator('[data-block-id]')).toHaveText(['Second block.']);
+    // Focus the person left on the empty page is not taken by the selected block either: a key
+    // after the agent's next edit changes nothing on the page.
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    await block.getByText('Second block.').click();
+    await page.keyboard.press('Escape');
+    await expect(block).toBeFocused();
+    const empty = (await page.locator('.structured-page-stage').boundingBox())!;
+    await page.mouse.click(empty.x + empty.width / 2, empty.y + empty.height + 120);
+    await expect(block).not.toBeFocused();
+    run(world, colab, [
+      'block',
+      'text',
+      created.pageId,
+      id,
+      '--find',
+      'Second',
+      '--replace',
+      'Third',
+      '--json',
+    ]);
+    await expect(block).toContainText('Third block.');
+    await expect(block).not.toBeFocused();
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('x');
+    await expect(page.locator('[data-block-id]')).toHaveText(['Third block.']);
   });
 });
 

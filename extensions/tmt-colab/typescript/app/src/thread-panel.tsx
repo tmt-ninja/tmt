@@ -461,6 +461,8 @@ export type ThreadWindowProps = {
   /** Absent until the first committed turn; the composer stays in this same window. */
   thread?: ThreadView;
   anchor?: ThreadAnchor;
+  /** A new annotation of a whole block, from Selection mode, rather than of text selected in it. */
+  wholeBlock?: boolean;
   layout?: 'panel' | 'anchored' | 'discussion';
   attached: boolean;
   anchorsChecked: boolean;
@@ -498,6 +500,7 @@ export function ThreadWindow({
   number,
   thread,
   anchor: initialAnchor,
+  wholeBlock,
   creationRecipient,
   layout = 'panel',
   attached,
@@ -687,7 +690,7 @@ export function ThreadWindow({
             {thread && (shownResolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />)}
             <span>
               {!thread
-                ? anchor && 'block' in anchor
+                ? anchor && 'block' in anchor && (wholeBlock || !anchor.quote)
                   ? text.annotateBlock
                   : text.annotateSelection
                 : thread.deleted
