@@ -239,7 +239,7 @@ fn v2_lost_receipt_answer_preserves_confirmation_and_the_worker_observes_one_ori
                 if event["event"] == "invite" {
                     tx.send(event["code"].as_str().unwrap().to_owned()).unwrap();
                 }
-                Ok((event["event"] == "candidate").then_some((true, false)))
+                Ok((event["event"] == "candidate").then(|| wire.owner_choice((true, false))))
             })
         });
         let code = rx.recv_timeout(Duration::from_secs(10)).unwrap();
