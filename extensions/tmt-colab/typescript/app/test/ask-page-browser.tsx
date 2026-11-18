@@ -254,6 +254,13 @@ function sessionDrafts(mode: 'session' | 'failing' | 'split', wait?: Promise<voi
     },
   };
 }
+/** A heading's (0) or its paragraph's (1) position: A to F for the first three sections, then
+ * two letters after Z, so any number of sections keeps its order. */
+function outlinePos(index: number, part: 0 | 1) {
+  if (index < 3) return String.fromCharCode(65 + index * 2 + part);
+  const n = (index - 3) * 2 + part;
+  return `Z${String.fromCharCode(65 + Math.floor(n / 26))}${String.fromCharCode(65 + (n % 26))}`;
+}
 export async function mount(
   options: {
     creator?: boolean;
@@ -330,6 +337,8 @@ export async function mount(
     structured?: boolean;
     /** A long structured page with headings for the outline. */
     structuredOutline?: boolean;
+    /** More outline sections than the window holds, after the first three. */
+    outlineSections?: number;
     structuredKind?: 'duplicate' | 'image' | 'mockup';
   } = {},
 ) {
@@ -380,13 +389,21 @@ export async function mount(
       pageType: 'blocks' as const,
       blocks: options.structuredOutline
         ? Object.fromEntries(
-            ['Overview', 'Details', 'Decisions'].flatMap((title, index) => [
+            [
+              'Overview',
+              'Details',
+              'Decisions',
+              ...Array.from(
+                { length: Math.max(0, (options.outlineSections ?? 3) - 3) },
+                (_, index) => `Section ${index + 4}`,
+              ),
+            ].flatMap((title, index) => [
               [
                 id(101 + index * 2),
                 {
                   type: 'heading',
                   parent: 'root',
-                  pos: String.fromCharCode(65 + index * 2),
+                  pos: outlinePos(index, 0),
                   props: index === 0 ? {} : { level: index === 1 ? 3 : 2 },
                   text: { s: title, marks: [] },
                 },
@@ -396,7 +413,7 @@ export async function mount(
                 {
                   type: 'paragraph',
                   parent: 'root',
-                  pos: String.fromCharCode(66 + index * 2),
+                  pos: outlinePos(index, 1),
                   props: {},
                   text: { s: `${title} section. `.repeat(100), marks: [] },
                 },
