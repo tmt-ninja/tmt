@@ -1,3 +1,5 @@
+import { useOwnerActivity } from './use-owner-activity.js';
+import { workItems } from './work-home-model.js';
 import { useShortcuts } from './use-shortcuts.js';
 import { WorkFieldDetails } from './work-band.js';
 import { useMedia } from './use-media.js';
@@ -19,9 +21,11 @@ import {
   Plus,
 } from 'lucide-react';
 import {
+  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -167,6 +171,12 @@ export function Home() {
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
   const { pages: homePages, hints: titleHints } = useHomeSpace(space);
+  const refreshActivity = useCallback(
+    () => void rereadInPlace(() => router.invalidate()),
+    [router],
+  );
+  const activityItems = useMemo(() => workItems(space.pages), [space.pages]);
+  useOwnerActivity(transport, activityItems, space.pages, refreshActivity);
   const port = transport.management;
   const shortcuts = useShortcuts(spaceId);
   const [shortcutDialog, setShortcutDialog] = useState<'save' | 'edit' | 'manage'>();

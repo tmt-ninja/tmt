@@ -302,6 +302,7 @@ export async function mountPageList(
     /** A dashboard (shell page). */
     | 'shells'
     /** Work home (#6474): the spec mockup's items, with owners, statuses and done times. */
+    | 'owner-activity'
     | 'work-home'
     /** Twenty-two projects of one page each; page n is n hours old, so Project 01 is the newest. */
     | 'projects' = 'few',
@@ -518,6 +519,17 @@ export async function mountPageList(
       chosen: pinned !== 'automatic',
       names: pinned === 'automatic' ? [] : [...pinned],
     };
+  if (size === 'owner-activity') {
+    state.pages = [
+      page(1, 'Owner activity page', [], {
+        summary: {
+          ...idle,
+          status: 'unchecked',
+          fields: { owner: { id: id(201), name: 'gui-5' } },
+        },
+      }),
+    ];
+  }
   for (const p of state.pages) for (const name of p.projects ?? []) state.projects.add(name);
   const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));
   const transport = localTransport('Studio pages', snapshots);
@@ -670,6 +682,25 @@ export async function mountPageList(
   const router = createAppRouter({
     ...transport,
     ...(size === 'unmanaged' ? {} : { management }),
+    ...(size === 'owner-activity'
+      ? {
+          workActivity: async (owners: readonly string[]) => {
+            window.__activityReads += 1;
+            if (owners.length !== 1 || owners[0] !== id(201)) throw new Error('Unexpected owners');
+            state.pages = state.pages.map((page) => ({
+              ...page,
+              summary: { ...page.summary!, status: 'working' },
+            }));
+            return {
+              [id(201)]: {
+                state: 'working' as const,
+                lastActivityMs: listNow,
+                observedAtMs: listNow,
+              },
+            };
+          },
+        }
+      : {}),
     ...(size === 'work-home'
       ? {
           // A page's facts as its owner reads them when a row's details open (#6474).
