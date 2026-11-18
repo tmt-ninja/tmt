@@ -499,6 +499,60 @@ mod board {
     }
 
     #[test]
+    fn a_switching_terminal_panel_waits_for_the_new_targets_first_screen() {
+        use crate::board::terminal_tab::stream::StreamEvent;
+        use ratatui::{Terminal, backend::TestBackend};
+        use std::sync::Arc;
+        use tmt_tui::components::terminal::Screen;
+
+        let (mut app, member) = listed_board();
+        let screen = |text: &[u8]| {
+            let mut program = Screen::new(40, 6);
+            program.feed(text);
+            StreamEvent::Screen(Arc::new(program.frame()))
+        };
+        let draw = |app: &App| {
+            let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, app))
+                .unwrap();
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(160)
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        select(&mut app, &member, 1);
+        assert!(app.terminal_sync());
+        assert!(app.apply_terminal(1, screen(b"Terminal one output")));
+        assert!(draw(&app).contains("Terminal one output"));
+
+        select(&mut app, &member, 2);
+        assert!(app.terminal_sync());
+        assert!(!app.apply_terminal(1, screen(b"Late Terminal one output")));
+        let pending = draw(&app);
+        assert!(pending.contains("Connecting to Terminal 2"), "{pending}");
+        assert!(!pending.contains("Terminal one output"), "{pending}");
+        assert!(!pending.contains("Terminal 2 live"), "{pending}");
+        assert!(!pending.contains("· running ·"), "{pending}");
+
+        assert!(app.apply_terminal(2, screen(b"Terminal two output")));
+        let live = draw(&app);
+        assert!(live.contains("Terminal two output"), "{live}");
+        assert!(live.contains("Terminal 2 live"), "{live}");
+
+        assert!(app.apply_terminal(2, StreamEvent::Connecting { attempt: 2 }));
+        let retry = draw(&app);
+        assert!(retry.contains("Reconnecting"), "{retry}");
+        assert!(retry.contains("Terminal two output"), "{retry}");
+        assert!(!retry.contains("Terminal 2 live"), "{retry}");
+    }
+
+    #[test]
     fn clicking_the_terminal_panel_focuses_it_without_changing_the_view() {
         use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
         let mut app =
@@ -778,13 +832,29 @@ mod board {
     }
 
     #[test]
-    fn a_terminal_row_shows_mock_8s_keys() {
+    fn a_terminal_row_offers_typing_only_after_the_screen_arrives() {
+        use crate::board::terminal_tab::stream::StreamEvent;
+        use std::sync::Arc;
+        use tmt_tui::components::terminal::Screen;
+
         let (mut app, member) = listed_board();
         select(&mut app, &member, 1);
+        let hints = crate::board::view::footer::agents_hints;
+        let connecting =
+            Some("t New terminal  z Full screen  x Close  ctrl-g Back to list  ? Help");
+        assert_eq!(hints(&app, 200).as_deref(), connecting);
+
+        assert!(app.terminal_sync());
+        assert_eq!(hints(&app, 200).as_deref(), connecting);
+        let screen = Screen::new(40, 6);
+        assert!(app.apply_terminal(1, StreamEvent::Screen(Arc::new(screen.frame()))));
         assert_eq!(
-            crate::board::view::footer::agents_hints(&app, 200).as_deref(),
+            hints(&app, 200).as_deref(),
             Some("t New terminal  ⏎ Type  z Full screen  x Close  ctrl-g Back to list  ? Help")
         );
+
+        assert!(app.apply_terminal(1, StreamEvent::Connecting { attempt: 2 }));
+        assert_eq!(hints(&app, 200).as_deref(), connecting);
     }
 }
 

@@ -20,6 +20,7 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "terminals-panel",
     "terminals-panel-focused",
     "terminals-panel-selected",
+    "terminals-panel-switching",
     "terminals-close-confirm",
 ];
 
@@ -97,6 +98,10 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     assert!(app.terminal_sync(), "the selected terminal's stream opens");
     if scene != "terminals-close-confirm" {
         app.apply_terminal(1, StreamEvent::Screen(shell()));
+        if scene == "terminals-panel-switching" {
+            app.workspace.selected = super::target(&target, &listed(2, true).id);
+            assert!(app.terminal_sync(), "Terminal 2 replaces the old stream");
+        }
         if scene == "terminals-panel-focused" {
             app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         }

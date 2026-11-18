@@ -16,10 +16,17 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let Some((identity, row)) = app.selected_terminal() else {
         return;
     };
-    if area.height < 4 {
+    if area.is_empty() {
         return;
     }
-    app.terminals.drew_panel(&row.id, area);
+    let view = (!row.ended).then(|| app.terminal.view(&row.id)).flatten();
+    let waiting = match view.map(|view| &view.condition) {
+        Some(Condition::Connecting { attempt }) if *attempt > 1 => Some("Reconnecting"),
+        Some(Condition::Connecting { .. }) => Some("Connecting"),
+        None if !row.ended => Some("Connecting"),
+        _ => None,
+    };
+    app.terminal.place_caret(None);
     let member = app
         .workspace_snapshot()
         .and_then(|snapshot| snapshot.roster.members.get(identity))
@@ -29,7 +36,23 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         title.push_str(" · ");
         title.push_str(&directory);
     }
-    let typing = app.terminals.typing() == Some(row.id.as_str());
+    if area.height < 4 {
+        let Some(state) = waiting else {
+            return;
+        };
+        let title = format!("{state} · {title}");
+        section_rule::paint(
+            frame.buffer_mut(),
+            Rect { height: 1, ..area },
+            &title,
+            Line::default(),
+            false,
+            look,
+        );
+        return;
+    }
+    app.terminals.drew_panel(&row.id, area);
+    let typing = waiting.is_none() && app.terminals.typing() == Some(row.id.as_str());
     let note = if typing {
         Line::styled("typing", look.role(Role::Text))
     } else {
@@ -48,7 +71,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let footer = Rect::new(area.x, area.bottom() - 1, area.width, 1);
     // The shell's name comes from Core's listing, never from this process's `$SHELL`;
     // without one the line names what it is.
-    let state = if row.ended { "ended" } else { "running" };
+    let state = waiting.unwrap_or(if row.ended { "ended" } else { "running" });
     let shell = row.shell.as_deref().unwrap_or("shell");
     muted(
         frame,
@@ -59,13 +82,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         ),
         app,
     );
-    let view = (!row.ended).then(|| app.terminal.view(&row.id)).flatten();
-    app.terminal.place_caret(None);
     if !row.ended {
         app.terminal.drew(screen_area);
     }
     let buffer = frame.buffer_mut();
-    match view.and_then(|view| view.screen.as_deref()) {
+    let screen = view.and_then(|view| view.screen.as_deref());
+    match screen {
         Some(screen) => {
             let live = view.is_some_and(|view| view.condition == Condition::Live);
             paint::cells(buffer, screen_area, screen, !live, look);
@@ -81,7 +103,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             let text = if row.ended {
                 format!(" {} ended.", row.title())
             } else {
-                format!(" Connecting to {}…", row.title())
+                format!(" {} to {}…", waiting.unwrap_or("Connecting"), row.title())
             };
             strip::paint_left(
                 buffer,
@@ -93,7 +115,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             );
         }
     }
-    if !row.ended
+    if screen.is_some()
         && let Some(target) = app.workspace.selected.clone()
     {
         crate::board::conversation::source::publish(
@@ -102,10 +124,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             screen_area,
         );
     }
-    let words = match (row.ended, typing) {
-        (true, _) => format!(" {} ended · x removes it", row.title()),
-        (false, true) => format!(" Typing into {}", row.title()),
-        (false, false) => format!(
+    let words = match (row.ended, typing, waiting) {
+        (true, _, _) => format!(" {} ended · x removes it", row.title()),
+        (false, _, Some(_)) => " z full screen".into(),
+        (false, true, None) => format!(" Typing into {}", row.title()),
+        (false, false, None) => format!(
             " {} live · click to type · ⏎ type in · z full screen",
             row.title()
         ),
