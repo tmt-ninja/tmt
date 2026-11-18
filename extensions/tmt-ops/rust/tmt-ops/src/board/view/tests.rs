@@ -341,14 +341,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     let mut app = workspace_board();
     workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
     let full = hints(&app, usize::MAX);
-    let order = [
-        "⏎ talk",
-        "e edit",
-        "n new",
-        "r rename",
-        "down next",
-        "up previous",
-    ];
+    let order = ["⏎ talk", "n new", "r rename", "down next", "up previous"];
     let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
     assert!(
         order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
@@ -594,6 +587,38 @@ L = "jump lead"
     assert!(notices.contains("bind.L") && notices.contains("implicit lead targeting is retired"));
     assert!(
         notices.contains("bind.l") && notices.contains("retired squad-tab/HOME/notebook layout")
+    );
+}
+
+#[test]
+fn board_opens_with_retired_edit_binding_notice_and_no_e_binding() {
+    let mut app = workspace_board();
+    workspace_keys(
+        &mut app,
+        r#"[bind]
+e = "edit"
+z = "jump"
+"#,
+    );
+    let rendered = draw(&app, 120, 30).join("\n");
+    assert!(
+        rendered.contains("worker")
+            && rendered.contains("r rename")
+            && !rendered.contains("e edit"),
+        "{rendered}"
+    );
+    let summary = super::super::workspace::render::summary(&app, 120).to_string();
+    assert!(
+        summary.contains("Configuration needs migration"),
+        "{summary}"
+    );
+    assert!(!app.bindings().contains_key("e"));
+    assert_eq!(app.bindings()["z"].verb, crate::action::Verb::Jump);
+    assert_eq!(app.bindings()["r"].text, "rename");
+    let help = help_lines(&app).join("\n");
+    assert!(
+        help.contains("bind.e") && help.contains("'edit' is retired") && help.contains("rename"),
+        "{help}"
     );
 }
 

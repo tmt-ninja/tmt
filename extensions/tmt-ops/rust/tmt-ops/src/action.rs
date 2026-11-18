@@ -78,6 +78,7 @@ impl Verb {
             "overview-filter" => Self::Retired("overview-filter"),
             "overview-view" => Self::Retired("overview-view"),
             "overview" => Self::Retired("overview"),
+            "edit" => Self::Retired("edit"),
             "unbound" => Self::Unbound,
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,

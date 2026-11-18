@@ -661,7 +661,7 @@ fn member_footer_uses_effective_crud_bindings_and_never_advertises_future_action
     for hint in ["n new", "m move", "r rename", "x close"] {
         assert!(text.contains(hint), "{hint}: {text}");
     }
-    assert!(text.contains("e edit"), "{text}");
+    assert!(!text.contains("e edit"), "{text}");
     assert!(!text.contains("S switch tool"));
     assert!(!text.contains("R resume"));
     assert!(!text.contains("d remove"));
@@ -742,9 +742,10 @@ fn edit_replaces_member_s_preserves_squad_s_and_opens_before_io() {
             "location": {"host": "tmux", "session": "work"}}]
     })));
     assert!(!app.bindings().contains_key("S"));
-    assert_eq!(app.bindings()["e"].text, "edit");
+    assert!(!app.bindings().contains_key("e"));
+    assert_eq!(app.bindings()["r"].text, "rename");
     let _no_commands = crate::runner::forbid_commands();
-    key(&mut app, KeyCode::Char('e'));
+    key(&mut app, KeyCode::Char('r'));
     let text = paint(&app, 150, 43).join("\n");
     assert!(text.contains("Edit member"));
     assert!(text.contains("Loading"));

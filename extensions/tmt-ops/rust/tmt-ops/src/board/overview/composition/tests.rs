@@ -183,8 +183,8 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
         assert!(!text.contains("Subscriptions") && !text.contains("Digest status"));
         assert!(app.hits.borrow().iter().any(|hit| hit.row().is_some()));
         assert_eq!(app.workspace.selected, selected);
-        key(&mut app, KeyCode::Char('e'));
-        assert!(app.new_member_shown(), "e opens Edit even at eight rows");
+        key(&mut app, KeyCode::Char('r'));
+        assert!(app.new_member_shown(), "r opens Edit even at eight rows");
         assert!(app.monitor_details.is_none());
         key(&mut app, KeyCode::Esc);
         app.perform(&crate::action::Action::parse("monitor-details").unwrap());

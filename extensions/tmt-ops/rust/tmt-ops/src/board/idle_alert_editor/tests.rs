@@ -94,7 +94,8 @@ fn unchanged_duration_rules_are_used_even_when_alert_is_off() {
 fn edit_replaces_default_i_and_authored_i_keeps_its_meaning() {
     let mut app = board();
     assert!(!app.workspace_bindings().contains_key("i"));
-    assert_eq!(app.workspace_bindings()["e"].text, "edit");
+    assert!(!app.workspace_bindings().contains_key("e"));
+    assert_eq!(app.workspace_bindings()["r"].text, "rename");
     app.focus = 1;
     assert!(!app.workspace_bindings().contains_key("i"));
     let app = configured_member(

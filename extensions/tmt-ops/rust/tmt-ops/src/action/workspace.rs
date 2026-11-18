@@ -14,7 +14,6 @@ pub enum OpsUiAction {
     DigestPreviousWindow,
     Inspect,
     MonitorDetails,
-    Edit,
     Rename,
     DigestDetails,
     MemberSession,
@@ -107,7 +106,6 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
-    spec!(Edit, "edit", "edit", "edit the selected agent or squad", 7),
     spec!(
         Rename,
         "rename",

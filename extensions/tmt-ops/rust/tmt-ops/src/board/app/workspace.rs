@@ -702,7 +702,6 @@ impl App {
                         OpsUiAction::IdleAlert
                             | OpsUiAction::MemberLabel
                             | OpsUiAction::NewMember
-                            | OpsUiAction::Edit
                             | OpsUiAction::Rename
                             | OpsUiAction::SwitchTool
                             | OpsUiAction::DiscoverAgents
@@ -833,7 +832,7 @@ impl App {
                 let unchanged = keys.get(&event) == defaults.get(&event);
                 if unchanged
                     && (source.is_some_and(|source| source == "workspace default")
-                        || ((matches!(event.as_str(), "e" | "i" | "z")
+                        || ((matches!(event.as_str(), "i" | "z")
                             || (self.shell.tab == OpsTab::Digest
                                 && matches!(event.as_str(), "u" | "["))
                             || (self.shell.tab == OpsTab::Agents && event == "b"))
@@ -1278,7 +1277,6 @@ impl App {
             MemberBack => return self.close_member_frame(),
             IdleAlert => return self.open_idle_alert(None),
             NewMember => return self.open_new_member(),
-            Edit => return self.open_member_edit(),
             Rename => return self.open_member_rename(),
             SwitchTool => return self.open_switch_tool(),
             MonitorDetails => {

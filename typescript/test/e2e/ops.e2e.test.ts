@@ -786,8 +786,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       fixture.tmux(['send-keys', '-t', board, 'Enter']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), board);
       fixture.tmux(['send-keys', '-t', board, '/', 'worker', 'Enter', 'End']);
-      await fixture.waitForCapture((screen) => screen.includes('e edit'), board);
-      fixture.tmux(['send-keys', '-t', board, 'e']);
+      await fixture.waitForCapture((screen) => screen.includes('r rename'), board);
+      fixture.tmux(['send-keys', '-t', board, 'r']);
       await fixture.waitForCapture(
         (screen) => screen.includes('Edit member · worker') && /More\s+current effort/.test(screen),
         board

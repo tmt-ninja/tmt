@@ -469,7 +469,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     match scope {
         OpsKeyScope::Reader | OpsKeyScope::Orchestration => {}
         OpsKeyScope::Squad => entries.extend([
-            ("e", "edit"),
             ("r", "rename"),
             ("z", "jump"),
             ("o", "open"),
@@ -480,7 +479,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("S", "show-squad"),
         ]),
         OpsKeyScope::Member => entries.extend([
-            ("e", "edit"),
             ("r", "rename"),
             ("enter", "talk"),
             ("z", "jump"),
@@ -530,6 +528,7 @@ pub(crate) fn admit_action(action: &Action, path: &str) -> Result<(), SquadError
         let instead = match name {
             "overview" => "the Overview tab was merged into Agents; use 'agents'",
             "overview-view" => "Agents now shows the squad tree",
+            "edit" => "use 'rename' instead",
             _ => "Agents now shows the squad tree",
         };
         return Err(invalid(format!(
@@ -1381,7 +1380,8 @@ mod tests {
             !scoped.contains_key("S"),
             "runtime changes belong in Edit by default"
         );
-        assert_eq!(scoped["e"].text, "edit");
+        assert!(!scoped.contains_key("e"));
+        assert_eq!(scoped["r"].text, "rename");
         for (event, action) in scoped {
             assert!(!event.is_empty());
             assert!(!action.description().is_empty());
@@ -1966,6 +1966,32 @@ mod tests {
                     .values()
                     .any(|action| action.text == "overview-view")
             );
+        }
+    }
+    #[test]
+    fn retired_edit_binding_still_loads_with_notice_and_no_binding() {
+        for text in [
+            "[bind]\ne = 'edit'\nz = 'jump'\n",
+            "[bind]\nz = 'jump'\n[bind.tmux]\ne = 'edit'\n",
+        ] {
+            let config = config(text);
+            let before = config.document.to_string();
+            for scope in [OpsKeyScope::Squad, OpsKeyScope::Member] {
+                let keys = config.workspace_keys(scope, Some("tmux"), None).unwrap();
+                assert!(
+                    keys.notices.iter().any(|notice| {
+                        notice.contains("`bind.e`")
+                            && notice.contains("'edit' is retired")
+                            && notice.contains("rename")
+                    }),
+                    "{scope:?}: {:?}",
+                    keys.notices
+                );
+                assert!(!keys.bindings.contains_key("e"), "{scope:?}");
+                assert_eq!(keys.bindings["z"].verb, Verb::Jump, "{scope:?}");
+                assert_eq!(keys.bindings["r"].text, "rename", "{scope:?}");
+            }
+            assert_eq!(config.document.to_string(), before);
         }
     }
     #[test]

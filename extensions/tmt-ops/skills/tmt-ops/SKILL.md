@@ -364,8 +364,7 @@ TOK 1h from existing HOUR readings, and its now text when admitted; pending
 request previews are never disclosed in the tree. Blocked state alone does not imply waiting. A squad selection messages its
 observed lead; an agent selection uses that exact member. Missing evidence refuses
 rather than choosing another recipient. Search and refresh retain hidden UUID
-anchors. `e` edits the selected agent or squad. `r` opens that same form with
-Name focused and the caret at the end. A name-only change shows Enter rename;
+anchors. `r` opens Edit for the selected agent or squad with Name focused and the caret at the end. A name-only change shows Enter rename;
 Enter saves through the same writer. Other kept edits show Enter next and Enter
 moves to Save for explicit review. Esc keeps the draft. Full observed values are
 under Measure. Actions → Member session opens Session for the selected agent;
@@ -592,7 +591,7 @@ order, never the selection or a message.
 In Agents, `n` opens New member on any row. `N` creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
 member row, `m` manages a squad or moves an agent in place, and `x` opens Close and
 delete for the selected agent. Leave a squad with `m` to Common pool or Edit's Squad field. The Agents footer is one line of the keys the selected
-row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  / search  ? help  q quit`.
+row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  r rename  m move  x close  / search  ? help  q quit`.
 The selected member's name row shows its effective jump key, for example `z open`, when
 available and there is room after the name. Authored bindings win; unavailable hints are
 hidden. Talk, Measure and Checklist remain available through their keys and right-pane tabs.
@@ -618,7 +617,7 @@ a fresh review. Esc hides pending work without cancelling or replaying it; `x`
 after a refused result starts a fresh confirmation. `D` opens Digest and `c` opens
 Timers outside a modal.
 
-On Agents, `e` opens Edit for the selected agent or squad. An agent form has Name,
+On Agents, `r` opens Edit for the selected agent or squad with Name focused and the caret at the end. An agent form has Name,
 AI tool, Model, Effort and Squad; Host and Session stay fixed. The model and effort
 start from the recorded resume settings, with the last observed model shown
 separately. A tool change clears incompatible choices. An empty same-tool choice
@@ -629,14 +628,14 @@ change and one coalesced runtime resume in that order. A requested setting is no
 an observed setting: unavailable model/effort evidence stays Unknown. A copy-only
 host offers Copy command; copying runs nothing and leaves every other edit unsaved.
 
-Squad `e` edits Name, Idle alert, After and Hidden. After accepts a typed duration
+Squad Edit (`r`) edits Name, Idle alert, After and Hidden. After accepts a typed duration
 or the existing 15m/30m/1h/2h presets. Only the selected membership moves; other
 memberships remain. Common pool is offered as a destination only for a single
 membership, where it means leave. From Common pool, choosing a squad adds one.
 Default member S and the separate i shortcut are folded into Edit; squad S still
 shows a hidden squad. The read-only full monitor values remain under Measure's
 Observed values control and named action, including UUID, memberships and long
-values. `e` does not open that reader.
+values; `r` does not open that reader.
 
 A squad member's Checklist chip follows Talk / Measure in the right pane. `C` opens
 that member's Checklist; from a focused chat input, `Ctrl+L` opens it and Esc returns
@@ -1501,7 +1500,7 @@ Digest and capture without Ops idle alerts.
 
 In Agents, the selected squad's detail pane shows `Idle alert  ◷ 30m` when enabled
 or `Idle alert  ○ off` when disabled; Common pool has no setting. Click the control
-for its quick editor, or use squad `e` to edit Idle alert and After together with the
+for its quick editor, or use `r` to edit Idle alert and After together with the
 squad's name and visibility. Authored bindings take precedence. Use On/Off chips, type After or
 choose 15m/30m/1h/2h; ↑↓ changes rows and ←→ changes choices. The dialog previews who would
 no longer count as over. Invalid times refuse Save; Esc/Cancel saves nothing and keeps an
