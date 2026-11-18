@@ -622,15 +622,19 @@ fn upload_post_effect_deadline_and_result_write_spend_are_unknown_and_channel_li
         let env = Env::new();
         let peer = Peer::start(&env, "alpha", Answer::Expect);
         let service = env.service(&ALPHA, bounds()).unwrap();
-        // Only the first request is spent; the follow-up keeps the contract bound, so a
-        // slow host cannot spend it as well (#2860).
-        service.set_first_request(Duration::from_millis(400));
+        // Spend only the chosen post-effect boundary, not a real short request
+        // window that can expire before the callback reaches it on a slow host.
+        // The follow-up keeps the ordinary contract budget (#6577, #2860).
         let count = Arc::new(AtomicUsize::new(0));
-        service.set_hook(Some(Arc::new(move |point, deadline| {
+        let invoked = Arc::clone(&count);
+        service.set_deadline_hook(Some(Arc::new(move |point, deadline| {
             let selected = point == pause
-                && (pause != Pause::BeforeAdmitWrite || count.fetch_add(1, Ordering::AcqRel) == 2);
-            if selected && count.fetch_add(1_000, Ordering::AcqRel) < 1_000 {
-                spend_until(deadline);
+                && (pause != Pause::BeforeAdmitWrite
+                    || invoked.fetch_add(1, Ordering::AcqRel) == 2);
+            if selected && invoked.fetch_add(1_000, Ordering::AcqRel) < 1_000 {
+                Instant::now()
+            } else {
+                deadline
             }
         })));
         service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
@@ -640,7 +644,15 @@ fn upload_post_effect_deadline_and_result_write_spend_are_unknown_and_channel_li
             let disclose = callback(&peer);
             decide(&peer, disclose.callback_id.get(), 1, Decision::Allow);
         }
-        assert_eq!(result(&peer).outcome, Outcome::Failure(ErrorCode::Unknown));
+        assert_eq!(
+            result(&peer).outcome,
+            Outcome::Failure(ErrorCode::Unknown),
+            "{pause:?}"
+        );
+        assert!(
+            count.load(Ordering::Acquire) >= 1_000,
+            "expiry hook not reached: {pause:?}"
+        );
         assert_eq!(
             service
                 .handle("alpha")

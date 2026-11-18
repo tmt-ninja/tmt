@@ -341,7 +341,11 @@ pub(super) fn serve(
     // Effect boundary: after invoking this call every loss of the publication
     // budget or authority is unknown, even if the backend reports an error.
     let performed = original.perform(hub, &request.call, &io);
-    dispatch::between(hub, deadline);
+    let deadline = dispatch::between(hub, deadline);
+    let io = IoBudget {
+        deadline,
+        cancelled: &hub.stop,
+    };
     if original.fence(hub, request, context, &io, false).is_err() {
         return unknown();
     }
@@ -377,7 +381,11 @@ pub(super) fn serve(
     if decision != Decision::Allow {
         return unknown();
     }
-    dispatch::before_result(hub, deadline);
+    let deadline = dispatch::before_result(hub, deadline);
+    let io = IoBudget {
+        deadline,
+        cancelled: &hub.stop,
+    };
     // A completed commit/discard need not remain staging. The original expiry
     // was still enforced through its call, and the publication budget stays clipped.
     if original.fence(hub, request, context, &io, false).is_err() {

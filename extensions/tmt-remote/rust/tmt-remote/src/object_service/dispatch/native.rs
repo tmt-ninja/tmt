@@ -23,7 +23,7 @@ pub(super) fn serve(
 ) -> Result<(), ChannelEnd> {
     #[cfg(test)]
     if let Some(hook) = &hub.hook {
-        hook(super::Pause::BeforeRequest, deadline)
+        hook(super::Pause::BeforeRequest, deadline);
     }
     let io = IoBudget {
         deadline,
@@ -54,7 +54,7 @@ pub(super) fn serve(
     };
     #[cfg(test)]
     if let Some(hook) = &hub.hook {
-        hook(super::Pause::BeforeResultWrite, deadline)
+        hook(super::Pause::BeforeResultWrite, deadline);
     }
     if hub.stopped() {
         return Err(ChannelEnd::Stopped);
