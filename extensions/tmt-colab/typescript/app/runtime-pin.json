@@ -60,10 +60,10 @@
     {
       "name": "terminal-frame",
       "kind": "wasm",
-      "path": "assets/colab-runtime-terminal-db8f661deeca3ff0.wasm",
-      "sha256": "db8f661deeca3ff0235bf64041bf7954e9c6e6cf9c30faa0ef2d5d82196a94dd",
-      "length": 478188,
-      "gzip": 143999,
+      "path": "assets/colab-runtime-terminal-7636591c14f80df0.wasm",
+      "sha256": "7636591c14f80df0c01c5d872184af11b0198b29baf42ca2b0ba12e3873d3dec",
+      "length": 485673,
+      "gzip": 144146,
       "glue": {
         "sha256": "51bdfaaed1b6a47565545e9ff2ef2897ee21acfa0e08c8bf165262aeb9be7044",
         "length": 9454,
@@ -78,7 +78,7 @@
   },
   "binder": {
     "path": "assets/colab-standalone-binder.js",
-    "sha256": "51a7d96ca5b23325949f1a01929d9ce9e88146dc1e3c66e2edd51d218a586b10",
+    "sha256": "6db2a7a4d7d776fba7f49e6c43acba4442db7e648d61b40296e6c8c45eff1311",
     "length": 70556
   }
 }

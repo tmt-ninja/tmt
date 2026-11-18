@@ -192,32 +192,44 @@ fn stacked_saved_larger_than_used_is_unknown() {
 }
 
 #[test]
-fn activity_keeps_missing_zero_and_all_six_semantic_levels() {
-    let props = ActivityCellsProps {
-        values: vec![
-            None,
-            Some(0),
-            Some(1),
-            Some(2),
-            Some(3),
-            Some(4),
-            Some(5),
-            Some(6),
-        ],
-        selected: false,
-    };
-    let mut grid = CellGrid::new(Size {
-        width: 8,
-        height: 1,
-    });
-    ActivityCells::render(&props, area(8, 1), &mut grid);
-    assert_eq!(grid.get(0, 0).unwrap().glyph, "·");
-    assert_eq!(grid.get(1, 0).unwrap().glyph, " ");
-    for level in 0..6 {
-        assert_eq!(
-            grid.get(level + 2, 0).unwrap().heat_level.map(u8::from),
-            Some(level as u8)
-        );
+fn activity_keeps_missing_zero_and_all_six_glyph_levels() {
+    for selected in [false, true] {
+        let props = ActivityCellsProps {
+            values: vec![
+                None,
+                Some(0),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+            ],
+            selected,
+        };
+        let mut grid = CellGrid::new(Size {
+            width: 8,
+            height: 1,
+        });
+        ActivityCells::render(&props, area(8, 1), &mut grid);
+        for (x, glyph) in ["·", "▁", "▂", "▃", "▄", "▅", "▆", "█"]
+            .into_iter()
+            .enumerate()
+        {
+            let cell = grid.get(x as u16, 0).unwrap();
+            assert_eq!(cell.glyph, glyph);
+            assert_eq!(
+                cell.fg,
+                Some(match (x < 2, selected) {
+                    (true, true) => Role::Muted,
+                    (true, false) => Role::Dim,
+                    (false, _) => Role::Text,
+                })
+            );
+            assert_eq!(cell.bg, None);
+            assert_eq!(cell.heat_level, None);
+            assert_eq!(cell.underlay, selected.then_some(Role::Selection));
+        }
     }
 }
 

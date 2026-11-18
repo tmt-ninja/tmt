@@ -691,7 +691,7 @@ pub(in crate::board) fn record_activity_geometry(
     task: u16,
 ) {
     use ratatui::layout::Rect;
-    let mut states = app.workspace_state_cells.borrow_mut();
+    let mut states = app.selection_ink_regions.borrow_mut();
     if primary > 0 {
         states.push(Rect::new(cell.x, cell.y, primary, 1));
         app.push_unread_row_hit(Rect::new(cell.x, cell.y, primary, 1), &row.target);

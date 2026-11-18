@@ -353,9 +353,10 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   back to the previous name; ordinary same-generation reloads do not acquire it.
 - Publication: the same worker serializes roster, history and a fresh public
   usage observation. History never replays the opening snapshot's older counters.
-  One global `ls` supplies the post-history observation, replacing the first
-  scheduled usage poll. Delivery checks cancellation, displayed owner, room UUID,
-  settings, exact member UUIDs and current token/quota demand before seeding Rate. A failed
+  One global `ls` supplies the post-history observation. Delivery checks
+  cancellation, displayed owner, room UUID, settings and exact member UUIDs.
+  Recent history survives a change to chart or quota demand. Each optional tier
+  requires its own current demand. A failed
   observation preserves historical evidence with a gap; it cannot imply zero or
   continuous coverage. The usable roster remains interactive while usage updates.
 - Seeding: closed deltas replace the authoritative recent region on re-entry,
@@ -404,9 +405,13 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
 - Evidence: each reporting UUID owns a bounded ring of 5 s buckets sized by the
   longest configured window, up to 24 h. Receipt time advances monotonically from
   a UTC anchor. `Rate` validates cumulative input/output/cache-subset,
-  driver/session/epoch and sequence/time order. Missing, invalid, gap, decrease,
-  new-session or recovery evidence establishes a baseline without invented
-  tokens. Removing a roster UUID drops its history. Failed reads close continuity
+  driver/session/epoch and sequence/time order. A valid positive increment in a
+  gap-free pair remains a lower bound even when either receipt is incomplete.
+  Only a complete pair proves interval coverage and measured zero. Missing,
+  invalid, explicit-gap, decrease, new-session or recovery evidence establishes a
+  baseline without invented tokens. A fresh positive delta can set the existing
+  Agents burn cue. Historical replay never sets it. Removing a roster UUID drops
+  its history. Failed reads close continuity
   and mark gaps after two sampling periods. Provider `observedAtMs` is order
   evidence, not a heartbeat. Retained model attribution uses the current observed
   session model and is best effort.

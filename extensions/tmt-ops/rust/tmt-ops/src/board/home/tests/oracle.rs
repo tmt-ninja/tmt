@@ -791,8 +791,9 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
                     }
                     app.overview_rows.borrow_mut().clear();
                     let now = Instant::now();
-                    // A full synthetic hour exposes the existing grey scale at every
-                    // selected resolution; partial evidence remains explicit.
+                    // A full synthetic hour exposes the glyph levels at every
+                    // selected resolution. The partial scene puts a measured
+                    // zero beside two low positive bars and keeps a separate gap.
                     let mut seed = crate::board::rate::tests::fixture_seeds(
                         &crate::board::rate::tests::history_fixture(),
                     )
@@ -814,7 +815,11 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
                                 _ => false,
                             };
                             let age = 719 - i;
-                            let tokens = 2 * (1 + age / 60 % 6) * (1 + age / 5 * 7 % 12) + age % 5;
+                            let tokens = if state == "activity-partial" && i == 718 {
+                                0
+                            } else {
+                                2 * (1 + age / 60 % 6) * (1 + age / 5 * 7 % 12) + age % 5
+                            };
                             crate::board::rate::history::Slice {
                                 from_ms: from,
                                 to_ms: from + 5_000,

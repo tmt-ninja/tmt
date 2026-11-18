@@ -148,7 +148,7 @@ pub(in crate::board) fn render_frame(
     app.workspace_action_hits.borrow_mut().clear();
     app.cron_scope_hits.borrow_mut().clear();
     app.workspace_strip_hits.borrow_mut().clear();
-    app.workspace_state_cells.borrow_mut().clear();
+    app.selection_ink_regions.borrow_mut().clear();
     app.unread_hits.borrow_mut().clear();
     app.unread_counted.set(app.unread_pending());
     app.member_links.borrow_mut().begin_frame(frame.area());
@@ -293,7 +293,7 @@ pub(in crate::board) fn render_frame(
     } else {
         look.selected_words(
             frame.buffer_mut(),
-            &app.workspace_state_cells.borrow(),
+            &app.selection_ink_regions.borrow(),
             app.conversation_tinted.get(),
         );
     }

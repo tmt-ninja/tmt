@@ -912,7 +912,7 @@ fn plans(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
             ]),
         );
         if chosen {
-            app.workspace_state_cells
+            app.selection_ink_regions
                 .borrow_mut()
                 .push(Rect::new(row.x + 1, row.y, 1, 1));
         }
@@ -985,7 +985,7 @@ fn table(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         }
         strip::paint_left(frame.buffer_mut(), row, Line::from(spans));
         if chosen {
-            app.workspace_state_cells
+            app.selection_ink_regions
                 .borrow_mut()
                 .push(Rect::new(row.x + 19, row.y, 9, 1));
         }
@@ -1329,7 +1329,7 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) -> (Str
             );
             if selected {
                 // Matrix tiles own their foreground and fill even on the selected row.
-                app.workspace_state_cells.borrow_mut().push(rect);
+                app.selection_ink_regions.borrow_mut().push(rect);
             }
             state.hits.borrow_mut().push((rect, Control::Cell(r, c)));
         }
@@ -1592,7 +1592,7 @@ fn talk_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
         let row = Rect::new(area.x, y, area.width, 1);
         state.hits.borrow_mut().push((row, Control::Talk(offset)));
         if chosen {
-            app.workspace_state_cells.borrow_mut().push(Rect::new(
+            app.selection_ink_regions.borrow_mut().push(Rect::new(
                 row.x + 46,
                 row.y,
                 row.width.saturating_sub(46),
@@ -1874,7 +1874,7 @@ fn job_rows(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
             ]),
         );
         if chosen {
-            app.workspace_state_cells.borrow_mut().push(Rect::new(
+            app.selection_ink_regions.borrow_mut().push(Rect::new(
                 row.x + state_x,
                 row.y,
                 state_w as u16,

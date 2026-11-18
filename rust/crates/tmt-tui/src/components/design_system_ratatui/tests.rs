@@ -5,7 +5,9 @@ use std::fmt::Write;
 use tmt_cli_style::{Depth, Theme, theme::Base};
 
 #[test]
-fn activity_ramp_matches_the_native_six_levels_and_no_color_glyphs() {
+fn activity_glyphs_keep_selection_across_all_levels_in_every_look() {
+    let glyphs = ["·", "▁", "▂", "▃", "▄", "▅", "▆", "█"];
+    let area = NativeRect::new(0, 0, glyphs.len() as u16, 1);
     for (base, depth) in [
         (Base::Tmt, Depth::TrueColor),
         (Base::TmtLight, Depth::TrueColor),
@@ -13,79 +15,45 @@ fn activity_ramp_matches_the_native_six_levels_and_no_color_glyphs() {
         (Base::Tmt, Depth::None),
     ] {
         let theme = Theme::new(base);
-        let mut grid = CellGrid::new(Size {
-            width: 6,
-            height: 1,
-        });
-        ActivityCells::render(
-            &ActivityCellsProps {
-                values: (1..=6).map(Some).collect(),
-                selected: false,
-            },
-            Rect {
-                x: 0,
-                y: 0,
-                width: 6,
+        for selected in [false, true] {
+            let mut grid = CellGrid::new(Size {
+                width: area.width,
                 height: 1,
-            },
-            &mut grid,
-        );
-        let area = NativeRect::new(0, 0, 6, 1);
-        let mut buffer = Buffer::empty(area);
-        paint(&grid, area, &mut buffer, &theme, depth);
-        for level in 0..6u16 {
-            let expected = screen::neutral_ramp(&theme, depth, level as u8);
-            let mut expected_cell = ratatui::buffer::Cell::default();
-            expected_cell.set_style(expected);
-            assert_eq!(buffer[(level, 0)].style(), expected_cell.style());
-            assert_eq!(
-                buffer[(level, 0)].symbol(),
-                if expected.bg.is_some() {
-                    " "
-                } else {
-                    ["▁", "▂", "▃", "▄", "▆", "█"][usize::from(level)]
-                }
+            });
+            ActivityCells::render(
+                &ActivityCellsProps {
+                    values: [None].into_iter().chain((0..=6).map(Some)).collect(),
+                    selected,
+                },
+                Rect {
+                    x: 0,
+                    y: 0,
+                    width: area.width,
+                    height: 1,
+                },
+                &mut grid,
             );
+            let mut buffer = Buffer::empty(area);
+            paint(&grid, area, &mut buffer, &theme, depth);
+            for (x, glyph) in glyphs.into_iter().enumerate() {
+                let role = match (x < 2, selected) {
+                    (true, true) => Role::Muted,
+                    (true, false) => Role::Dim,
+                    (false, _) => Role::Text,
+                };
+                let mut expected = screen::style(&theme, role, depth);
+                if selected {
+                    expected = screen::style(&theme, Role::Selection, depth).patch(expected);
+                    if expected.bg.is_none() {
+                        expected = expected.add_modifier(ratatui::style::Modifier::REVERSED);
+                    }
+                }
+                let mut expected_cell = ratatui::buffer::Cell::default();
+                expected_cell.set_style(expected);
+                assert_eq!(buffer[(x as u16, 0)].style(), expected_cell.style());
+                assert_eq!(buffer[(x as u16, 0)].symbol(), glyph);
+            }
         }
-        let mut grid = CellGrid::new(Size {
-            width: 2,
-            height: 1,
-        });
-        ActivityCells::render(
-            &ActivityCellsProps {
-                values: vec![None, Some(0)],
-                selected: true,
-            },
-            Rect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 1,
-            },
-            &mut grid,
-        );
-        let mut buffer = Buffer::empty(NativeRect::new(0, 0, 2, 1));
-        paint(
-            &grid,
-            NativeRect::new(0, 0, 2, 1),
-            &mut buffer,
-            &theme,
-            depth,
-        );
-        let mut selection = screen::style(&theme, Role::Text, depth).patch(screen::style(
-            &theme,
-            Role::Selection,
-            depth,
-        ));
-        if selection.bg.is_none() {
-            selection = selection.add_modifier(ratatui::style::Modifier::REVERSED);
-        }
-        let mut expected_cell = ratatui::buffer::Cell::default();
-        expected_cell.set_style(selection);
-        assert_eq!(buffer[(0, 0)].style(), expected_cell.style());
-        assert_eq!(buffer[(1, 0)].style(), expected_cell.style());
-        assert_eq!(buffer[(0, 0)].symbol(), "·");
-        assert_eq!(buffer[(1, 0)].symbol(), " ");
     }
 }
 
