@@ -1,6 +1,8 @@
 import '@tmt/browser-ui/work.css';
 import './work-home.css';
 import { BrowserAvatar, BrowserSegments } from '@tmt/browser-ui/react';
+import { WorkOrderView, rankedNext } from './work-order-view.js';
+import { WorkNextLine } from '@tmt/browser-ui/work-order';
 import { Popover, PopoverContent, PopoverTrigger, UiTheme } from '@tmt/browser-ui/ui';
 import { getTheme, subscribeTheme } from './theme.js';
 import { getRouteApi, Link, useLocation, useRouter } from '@tanstack/react-router';
@@ -22,6 +24,7 @@ import {
   stuckSection,
 } from './section-view.js';
 import {
+  byAttention,
   doneChart,
   HIDDEN_WHEN_ZERO,
   inProject,
@@ -320,6 +323,15 @@ export function WorkHome() {
   // A remembered project that no page names any more falls back to every project.
   const scope = project !== undefined && projectNames.includes(project) ? project : undefined;
   const items = all.filter((item) => inProject(item, scope));
+  const orderItems = useMemo(
+    () =>
+      scope && space.projectOrders
+        ? workItems(pages, true)
+            .filter((item) => inProject(item, scope) && item.status !== 'done')
+            .sort(byAttention)
+        : [],
+    [pages, scope, space.projectOrders],
+  );
   const now7 = overview(items);
   const week = doneChart(items, 'week', now);
   const chart = doneChart(items, period, now);
@@ -519,7 +531,11 @@ export function WorkHome() {
         </div>
 
         <h2 className="work-home-heading">
-          {t.projects} <span>{sections.filter((section) => section.name).length}</span>
+          {scope && space.projectOrders ? null : (
+            <>
+              {t.projects} <span>{sections.filter((section) => section.name).length}</span>
+            </>
+          )}
           {only ? (
             <button
               type="button"
@@ -535,6 +551,22 @@ export function WorkHome() {
           const rows = section.open.filter(
             (item) => only === undefined || overviewStatus(item.status) === only,
           );
+          if (scope && (space.projectOrders || space.projectOrdersOmitted?.includes(scope))) {
+            return (
+              <WorkOrderView
+                key={scope}
+                project={scope}
+                refresh={reread}
+                rows={orderItems.filter(
+                  (item) => only === undefined || overviewStatus(item.status) === only,
+                )}
+                listed={space.projectOrders?.[scope]}
+                omitted={space.projectOrdersOmitted?.includes(scope) ?? false}
+                transport={transport}
+                renderRow={(item) => <WorkRow item={item} now={now} transport={transport} />}
+              />
+            );
+          }
           const open = expanded.has(key);
           const shown = open ? rows : rows.slice(0, SHOWN);
           return (
@@ -589,6 +621,22 @@ export function WorkHome() {
                   {open ? t.showFewer : t.showMore(rows.length - SHOWN)}
                 </button>
               ) : null}
+              {section.name && space.projectOrders?.[section.name] && (
+                <WorkNextLine
+                  titles={rankedNext(section.open, space.projectOrders[section.name])
+                    .slice(0, 3)
+                    .map((row) => row.title)}
+                />
+              )}
+              {section.name && space.projectOrdersOmitted?.includes(section.name) && (
+                <button
+                  type="button"
+                  className="work-home-more"
+                  onClick={() => go({ project: section.name })}
+                >
+                  View Next in {section.name}
+                </button>
+              )}
             </section>
           );
         })}

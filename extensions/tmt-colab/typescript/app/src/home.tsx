@@ -1239,6 +1239,7 @@ export function Home() {
             onCancel={cancelOperation}
           />
           <NewProjectDialog
+            prefixes={space.projectPrefixes}
             open={dialog?.kind === 'new'}
             pages={space.pages}
             existing={projectNames}
@@ -1247,6 +1248,7 @@ export function Home() {
             onClose={() => setDialog(undefined)}
           />
           <ManageProjectsDialog
+            prefixes={space.projectPrefixes}
             open={dialog?.kind === 'manage'}
             pages={space.pages}
             projects={projectCounts(space.pages, space.projects)}

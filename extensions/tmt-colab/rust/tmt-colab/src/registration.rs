@@ -474,8 +474,7 @@ impl Registration {
         let Some(open) = self.order_source.as_ref().or(self.summary_source.as_ref()) else {
             return Ok(());
         };
-        let orders = self.store.project_orders()?;
-        let order = orders.get(name).ok_or(crate::store::Fault::Invalid)?;
+        let order = self.store.project_order(name)?;
         let ids: std::collections::BTreeSet<_> = order
             .items
             .iter()
@@ -525,10 +524,11 @@ impl Registration {
         let catalog = self
             .work_catalog(false, self.order_source.is_none())
             .map_err(|code| std::io::Error::other(code.text()))?;
-        self.visible_project_orders(&catalog)
-            .map_err(|code| std::io::Error::other(code.text()))?
-            .remove(name)
-            .ok_or_else(|| crate::store::Fault::Invalid.into())
+        let membership = crate::store::project_orders::WorkMembership::from_catalog(&catalog);
+        Ok(self
+            .store
+            .project_order(name)?
+            .visible(&|key| membership.classify(name, key)))
     }
 
     pub(crate) fn change_work_order(

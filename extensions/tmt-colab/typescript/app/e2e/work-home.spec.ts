@@ -137,3 +137,52 @@ for (const width of [390, 1440])
     await expect(rows).toHaveCount(3);
     await expect(page).toHaveURL(/status=working/);
   });
+
+async function mountOrder(page: import('@playwright/test').Page) {
+  await page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    await (await import(path)).mountPageList('work-order', '/colab/work?project=Colab');
+  });
+}
+
+test('keyboard reorder survives reload when the list omits the project order', async ({ page }) => {
+  await page.goto('/');
+  await mountOrder(page);
+  const next = page.getByRole('region', { name: 'Next', exact: true });
+  const rows = next.locator('[data-order-key]');
+  await expect(rows).toHaveCount(8);
+  await rows.nth(1).getByRole('button', { name: 'Move up' }).press('Enter');
+  await expect(rows.first()).toContainText('Queued item 2');
+  await expect(rows.first()).toBeFocused();
+  await page.reload();
+  await mountOrder(page);
+  await expect(rows.first()).toContainText('Queued item 2');
+  expect(await page.evaluate(() => sessionStorage.getItem('fixture-notifications'))).toBeNull();
+});
+
+test('Notify sends once to each explicitly chosen recipient', async ({ page }) => {
+  await page.goto('/');
+  await mountOrder(page);
+  const next = page.getByRole('region', { name: 'Next', exact: true });
+  await next.locator('[data-order-key]').nth(1).hover();
+  await next.locator('[data-order-key]').nth(1).getByRole('button', { name: 'Move up' }).click();
+  await expect(next.locator('[data-order-key]').first()).toContainText('Queued item 2');
+  await page.getByRole('button', { name: 'Notify' }).click();
+  await expect(page.getByRole('checkbox', { name: /Ada/ })).toBeChecked();
+  const bea = page.getByRole('checkbox', { name: /Bea/ });
+  await expect(bea).toBeChecked();
+  await bea.uncheck();
+  expect(await page.evaluate(() => sessionStorage.getItem('fixture-notifications'))).toBeNull();
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  await send.click();
+  await expect(send).toBeDisabled();
+  const messages = await page.evaluate(() =>
+    JSON.parse(sessionStorage.getItem('fixture-notifications') ?? '[]'),
+  );
+  expect(messages).toHaveLength(1);
+  expect(messages[0].agentId).toBe('c0000501-1111-4111-8111-000000000001');
+  expect(messages[0].message).toBe(
+    'The work order for Colab has changed. Please arrange your work in the current order.\n' +
+      new URL('/colab/work?project=Colab', page.url()).href,
+  );
+});

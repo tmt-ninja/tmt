@@ -1,4 +1,5 @@
 import { BrowserAvatar } from '../src/react.js';
+import { WorkDragHandle, WorkNextLine } from '../src/work-order.js';
 import { Cell, Cells, Pair, Section } from './kit.js';
 
 type State =
@@ -99,6 +100,12 @@ export function WorkSection() {
   const busiest = Math.max(...week.map(([, count]) => count));
   return (
     <Section id="work">
+      <Pair title="Order drag handle" note="Drag a ranked Work item to its new position.">
+        {() => <WorkDragHandle label="Move item" onDragStart={() => {}} />}
+      </Pair>
+      <Pair title="Next line" note="The first three ranked items below a project.">
+        {() => <WorkNextLine titles={['Title fields', 'Computed status', 'Work home']} />}
+      </Pair>
       <Pair
         title="Work row"
         note="One work item in a project section: status dot, number, priority and title, next step, owner and time since its last activity. Under the compact width the title leads and the number, owner and time share a last line."

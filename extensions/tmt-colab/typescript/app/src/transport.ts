@@ -203,6 +203,7 @@ export interface TitleReadBudget {
 /** App data port. Mounted adapters own authentication and admission;
  * neither HTML nor the renderer receives that adapter or its capabilities. */
 export interface PageTransport {
+  readonly orderAgents?: Pick<import('./ask-remote.js').RemoteClient, 'listAgents' | 'send'>;
   /** Mounted-door snapshot only; absent for hosted and detached adapters. */
   readonly remotePresence?: RemotePresence;
   /** Display-only name from the mounted session device context. */

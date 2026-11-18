@@ -274,7 +274,7 @@ export const browserDocs: BrowserDoc[] = [
     name: 'Work home',
     section: 'work',
     description:
-      'The Work home parts: the work row, the status overview and ratio bar, the done-count chart and the field chips of a page title row.',
+      'The Work home parts: the work row, the status overview and ratio bar, the done-count chart, project order drag handle and Next line, and the field chips of a page title row.',
     Demo: WorkSection,
     css: ['work', 'avatar'],
   },

@@ -417,6 +417,9 @@ export async function mountedTransport(
         return current.registration.deviceName;
       },
       drafts,
+      get orderAgents() {
+        return current.remote ?? undefined;
+      },
       management,
       remotePresence,
       watchPages: (changed) => pageListFeed.watch(changed),

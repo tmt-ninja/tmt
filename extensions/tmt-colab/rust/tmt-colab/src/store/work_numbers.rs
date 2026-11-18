@@ -225,8 +225,18 @@ impl super::Store {
     pub fn project_prefixes(
         &self,
     ) -> StoreResult<std::collections::BTreeMap<String, serde_json::Value>> {
-        let mut query = self.connection.prepare("SELECT p.name,p.prefix,EXISTS(SELECT 1 FROM work_numbers n WHERE n.prefix=p.prefix) FROM project_meta p WHERE p.name<>''")?;
-        let rows = query.query_map([], |row| Ok((row.get(0)?,serde_json::json!({"prefix":row.get::<_,String>(1)?,"issued":row.get::<_,bool>(2)?}))))?;
+        let mut query = self.connection.prepare(
+            "SELECT p.name, p.prefix, EXISTS(SELECT 1 FROM work_numbers n WHERE n.prefix=p.prefix)
+             FROM project_meta p WHERE p.name<>''",
+        )?;
+        let rows = query.query_map([], |row| {
+            let prefix: String = row.get(1)?;
+            let issued: bool = row.get(2)?;
+            Ok((
+                row.get(0)?,
+                serde_json::json!({"prefix": prefix, "issued": issued}),
+            ))
+        })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 

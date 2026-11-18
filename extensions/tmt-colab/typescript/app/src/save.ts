@@ -113,6 +113,7 @@ export type MetadataAction =
   | 'question.handle'
   | 'question.reopen'
   | 'question.agent'
+  | 'page.set'
   | 'page.state'
   | 'page.convert'
   | 'page.revert'

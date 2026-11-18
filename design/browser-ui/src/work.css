@@ -308,3 +308,23 @@ button.tmt-ui-field-chip:hover {
 .tmt-ui-segments > [data-state='blocked'] {
   background: var(--tmt-ui-color-blocked);
 }
+
+.tmt-ui-work-grip {
+  display: inline-flex;
+  cursor: grab;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-work-grip:active {
+  cursor: grabbing;
+}
+.tmt-ui-work-next-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-work-next-line span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -15,12 +15,9 @@ const approvedGzipBytes = 27_134;
  * #5821: prose tables scroll under the compact width, 951 -> 999 bytes. Pending GUI approval with the
  * Linux CI measurement on its PR; no headroom. */
 const approvedEditorialGzipBytes = 999;
-/** #6474: the Work home parts are their own entry, loaded only by Work home, so pages and the
- * static cap do not carry them. 1,299 bytes measured locally; pending GUI approval with the Linux
- * CI measurement on its PR, no headroom. #6619 (approved by the GUI lead): sections are progress
- * adds two parts here, not in the page-injected static layer: the state-mark shapes half and target,
- * and the section segments (`.tmt-ui-segments`), 1,299 -> 1,492 bytes; no headroom. */
-const approvedWorkGzipBytes = 1_492;
+/** Work home loads its own CSS. GUI approved the measured 1,355-byte macOS maximum
+ * for #6613's drag handle and Next line, with no headroom. */
+const approvedWorkGzipBytes = 1_355;
 
 const gzipped = (name: string) =>
   gzipSync(readFileSync(new URL(`../generated/${name}.css`, import.meta.url)), { level: 9 }).length;

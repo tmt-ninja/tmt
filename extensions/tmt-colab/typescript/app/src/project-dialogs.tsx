@@ -20,6 +20,24 @@ import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
 import './project-dialogs.css';
 
+type Prefixes = import('./bootstrap.js').Bootstrap['projectPrefixes'];
+const lockedPrefix = 'This prefix is fixed because a work number has been issued.';
+function previewPrefix(name: string, prefixes: NonNullable<Prefixes>) {
+  const letters = name
+    .replace(/[^a-z]/gi, '')
+    .toUpperCase()
+    .slice(0, 6);
+  const base = !letters || letters === 'W' ? 'P' : letters;
+  const occupied = new Set(Object.values(prefixes).map((value) => value.prefix));
+  let candidate = base;
+  for (let i = 1; occupied.has(candidate); i++) {
+    let suffix = '';
+    for (let n = i; n > 0; n = Math.floor((n - 1) / 26))
+      suffix = String.fromCharCode(65 + ((n - 1) % 26)) + suffix;
+    candidate = base.slice(0, 6 - suffix.length) + suffix;
+  }
+  return candidate;
+}
 const t = text.pageList;
 
 /** What the owner needs to finish a write: Home applies the changes and refreshes the list. */
@@ -34,6 +52,7 @@ export interface ProjectWriting {
 /** The words for a failed project write, whichever surface asked for it. */
 export function projectFailureText(failure: unknown): string {
   const code = failure instanceof ManagementError ? failure.code : 'UNKNOWN';
+  if (code === 'PROJECT_PREFIX_ISSUED') return lockedPrefix;
   return t.failures[code as keyof typeof t.failures] ?? t.failures.UNKNOWN;
 }
 
@@ -79,6 +98,7 @@ export function NewProjectDialog({
   open,
   pages,
   existing,
+  prefixes,
   initial,
   writing,
   onClose,
@@ -87,6 +107,7 @@ export function NewProjectDialog({
   pages: readonly PageSummary[];
   /** The projects the space already has: a new one needs another name. */
   existing: readonly string[];
+  prefixes?: Prefixes;
   /** Pages ticked when the dialog opens. */
   initial: readonly string[];
   writing: ProjectWriting;
@@ -107,6 +128,7 @@ export function NewProjectDialog({
       {/* Unmounted when closed, so every open starts a fresh form. */}
       <NewProjectForm
         pages={pages}
+        prefixes={prefixes}
         existing={existing}
         initial={initial}
         writing={writing}
@@ -119,6 +141,7 @@ export function NewProjectDialog({
 function NewProjectForm({
   pages,
   existing,
+  prefixes,
   initial,
   writing,
   saving,
@@ -126,12 +149,15 @@ function NewProjectForm({
 }: {
   pages: readonly PageSummary[];
   existing: readonly string[];
+  prefixes?: Prefixes;
   initial: readonly string[];
   writing: ProjectWriting;
   saving: { current: boolean };
   onClose(): void;
 }) {
   const [name, setName] = useState('');
+  const [override, setOverride] = useState<string>();
+  const [createdName, setCreatedName] = useState<string>();
   const [ticked, setTicked] = useState(() => new Set(initial));
   const [error, setError] = useState<string>();
   const [busy, setBusyState] = useState(false);
@@ -151,7 +177,7 @@ function NewProjectForm({
   async function create() {
     const invalid = userProjectNameError(name);
     if (invalid) return setError(t.nameErrors[invalid]);
-    if (existing.includes(name)) return setError(t.nameErrors.exists);
+    if (existing.includes(name) && createdName !== name) return setError(t.nameErrors.exists);
     const changes: ProjectChange[] = [];
     for (const page of pages.filter((candidate) => ticked.has(candidate.id))) {
       const change = withProject(page, name, true);
@@ -160,13 +186,23 @@ function NewProjectForm({
     }
     setBusy(true);
     setError(undefined);
-    if (changes.length === 0) {
-      const created = await writing.manage({ action: 'create', name });
+    if ((changes.length === 0 || override !== undefined) && createdName !== name) {
+      const created = await writing.manage(
+        override === undefined
+          ? { action: 'create', name }
+          : { action: 'create-with-prefix', name, prefix: override },
+      );
       // A completion belongs to this opening only: it never closes a later one.
       if (!mounted.current) return;
-      setBusy(false);
-      if (created.failure === undefined) return onClose();
-      return setError(writing.failureText(created.failure));
+      if (created.failure !== undefined) {
+        setBusy(false);
+        return setError(writing.failureText(created.failure));
+      }
+      setCreatedName(name);
+      if (!changes.length) {
+        setBusy(false);
+        return onClose();
+      }
     }
     const outcome = await writing.save(changes);
     if (!mounted.current) return;
@@ -193,6 +229,19 @@ function NewProjectForm({
           setError(undefined);
         }}
       />
+      {prefixes && (
+        <label>
+          Work number prefix{' '}
+          <input
+            value={override ?? previewPrefix(name, prefixes)}
+            readOnly={createdName === name}
+            pattern="[A-Z]{1,6}"
+            required
+            maxLength={6}
+            onChange={(event) => setOverride(event.target.value.toUpperCase())}
+          />
+        </label>
+      )}
       <div className="project-divider" role="separator" />
       <fieldset className="project-pages">
         <legend>{t.pagesField}</legend>
@@ -257,6 +306,7 @@ export function ManageProjectsDialog({
   open,
   pages,
   projects,
+  prefixes,
   writing,
   onClose,
   onNewProject,
@@ -265,6 +315,7 @@ export function ManageProjectsDialog({
   pages: readonly PageSummary[];
   /** Every project of the space, including those with no pages. */
   projects: readonly { name: string; count: number }[];
+  prefixes?: Prefixes;
   writing: ProjectWriting;
   onClose(): void;
   onNewProject(): void;
@@ -366,6 +417,43 @@ export function ManageProjectsDialog({
                         </span>
                       </span>
                     </div>
+                    {prefixes?.[name] && (
+                      <form
+                        key={prefixes[name].prefix}
+                        onSubmit={async (event) => {
+                          event.preventDefault();
+                          const prefix = String(new FormData(event.currentTarget).get('prefix'));
+                          setBusy(true);
+                          try {
+                            const result = await writing.manage({ action: 'prefix', name, prefix });
+                            setMessage(
+                              result.failure === undefined
+                                ? { text: t.projectSaved, failed: false }
+                                : { text: writing.failureText(result.failure), failed: true },
+                            );
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        <label>
+                          Work number prefix{' '}
+                          <input
+                            name="prefix"
+                            defaultValue={prefixes[name].prefix}
+                            readOnly={prefixes[name].issued}
+                            pattern="[A-Z]{1,6}"
+                            maxLength={6}
+                            required
+                          />
+                        </label>
+                        {prefixes[name].issued ? (
+                          <p>{lockedPrefix}</p>
+                        ) : (
+                          <button disabled={busy}>Save prefix</button>
+                        )}
+                      </form>
+                    )}
                   </li>
                 );
               })}

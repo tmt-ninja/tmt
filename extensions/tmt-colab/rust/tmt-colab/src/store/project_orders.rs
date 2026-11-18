@@ -180,6 +180,10 @@ pub(super) fn move_item(
 }
 
 impl super::Store {
+    pub fn project_order(&self, name: &str) -> StoreResult<ProjectOrder> {
+        load(&self.connection, name)
+    }
+
     pub fn project_orders(&self) -> StoreResult<BTreeMap<String, ProjectOrder>> {
         let mut query = self.connection.prepare(
             "SELECT name,order_revision,order_items FROM project_meta WHERE name<>'' ORDER BY name",

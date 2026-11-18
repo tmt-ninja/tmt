@@ -55,6 +55,7 @@ const uiCss = new Set(['checkbox', 'ds-scope']); // also styles the ui Checkbox 
 const entries: Record<string, string> = {
   './static.css': 'every Browser entry',
   './editorial.css': 'Browser entry editorial',
+  './work-order': 'Browser entry work',
   './work.css': 'Browser entry work',
   './static': 'Browser entries (static classes and helpers)',
   './glyph': 'Browser entry overview (glyphs)',
