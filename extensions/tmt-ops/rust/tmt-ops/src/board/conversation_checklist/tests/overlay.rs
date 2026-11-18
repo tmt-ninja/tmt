@@ -1900,7 +1900,8 @@ fn transcript_reference_only_offers_to_open_its_item() {
     );
     let (mut app, _) = read_with(vec![todo(1), second]);
     app.focus = 1;
-    let source = format!("{reference}, #missing (deadbeef), and `{reference}`");
+    let leading = "#tracking then ";
+    let source = format!("{leading}{reference}, #missing (deadbeef), and `{reference}`");
     let mapped =
         crate::board::markdown::render_conversation_with_members(&source, 100, app.look(), None);
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
@@ -1921,6 +1922,18 @@ fn transcript_reference_only_offers_to_open_its_item() {
             );
         })
         .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    let underlined = |column| {
+        buffer[(column, 0)]
+            .modifier
+            .contains(ratatui::style::Modifier::UNDERLINED)
+    };
+    assert!(!underlined(0), "the earlier hashtag is ordinary text");
+    assert!(
+        underlined(leading.len() as u16),
+        "the item caption is a link"
+    );
 
     assert!(
         app.member_link_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))

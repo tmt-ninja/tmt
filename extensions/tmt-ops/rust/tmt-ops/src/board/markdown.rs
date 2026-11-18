@@ -645,7 +645,8 @@ fn checklist_references(text: &str) -> Vec<SourceReference> {
             {
                 let title_end = chunk_start + title.len();
                 let words = &line[title_start..title_end];
-                if let Some((start, _)) = words.match_indices('#').find(|&(index, _)| {
+                // A separate hashtag earlier in the same sentence is not part of the caption.
+                if let Some((start, _)) = words.rmatch_indices('#').find(|&(index, _)| {
                     words[..index].chars().next_back().is_none_or(|ch| {
                         ch.is_whitespace() || matches!(ch, '(' | '[' | '{' | '\'' | '"')
                     }) && words[index + 1..].starts_with(|ch: char| !ch.is_whitespace())
