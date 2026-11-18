@@ -1192,3 +1192,386 @@ fn pi_usage_collection_follows_per_launch_setup_consent() {
         false
     );
 }
+
+#[test]
+fn woken_turns_measure_tokens_after_first_turn_while_ordinary_prompts_skip_start_reads() {
+    register();
+    let fixture = Fixture::delivering("wake-turns-measured");
+    bind(&fixture, fixture.approve());
+    fixture.json(&["identity", "create", "ben", "--json"]);
+    let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let home = fixture.root.join("home");
+    let transcript = home.join(".claude/projects/-workspace/s-wake.jsonl");
+    fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    let source =
+        include_str!("../../../tmt-adapters/src/runtime/fixtures/claude-usage-sequence.jsonl");
+    let line1 = source.lines().next().unwrap();
+    let line2 = source.lines().nth(1).unwrap();
+    let line4 = source.lines().nth(3).unwrap();
+    fs::write(&transcript, format!("{{\"type\":\"user\"}}\n{line1}\n")).unwrap();
+    install_capture_hook(&fixture, "claude");
+
+    let mut provider = SteppedProvider::start(&fixture, "claude", "wake-measured-steps");
+    ok(provider.hook(claude_event("SessionStart")));
+    let tmt_adapters::process::runtime::ProcessObservation::Live(owner) = observe_runtime_process(
+        &UnixCommandRunner,
+        u64::from(std::process::id()),
+        deadline(),
+    )
+    .unwrap() else {
+        panic!("test owner is not live");
+    };
+    let launch = record_admitted_launch(&fixture, &agent, "claude", &owner);
+    provider.launch = Some(serde_json::to_string(&launch).unwrap());
+
+    // Turn 1 (ordinary first turn): establishes initial consumption state in remembered.state.
+    let mut prompt1 = claude_event("UserPromptSubmit");
+    prompt1["prompt"] = "ordinary turn 1".into();
+    prompt1["transcript_path"] = transcript.to_string_lossy().into_owned().into();
+    ok(provider.hook(prompt1));
+    let mut stop1 = claude_event("Stop");
+    stop1["stop_hook_active"] = false.into();
+    stop1["transcript_path"] = transcript.to_string_lossy().into_owned().into();
+    stop1["last_assistant_message"] = "ordinary answer 1".into();
+    ok(provider.hook(stop1));
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let list = fixture.json(&["ls", "--json"]);
+        if worker(&list)["resume"]["usage"]["tokens"] == 355_113
+            || std::time::Instant::now() >= deadline
+        {
+            assert_eq!(
+                worker(&list)["resume"]["usage"]["tokens"],
+                355_113,
+                "{list:#}"
+            );
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    let db = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
+    let wake_count: i64 = db
+        .query_row("SELECT count(*) FROM wake_turns", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(wake_count, 0);
+
+    // Turn 2 (woken subsequent turn with existing remembered consumption): must read baseline at
+    // UserPromptSubmit and close wake_turns as measured after Stop follow-up.
+    let sent = fixture.json(&[
+        "talk",
+        "worker",
+        "wake task 2",
+        "--identity",
+        "ben",
+        "--detach",
+        "--json",
+    ]);
+    let req_id = sent["requestId"].as_str().unwrap().to_owned();
+    let mut prompt2 = claude_event("UserPromptSubmit");
+    prompt2["prompt"] = "wake task 2".into();
+    prompt2["transcript_path"] = transcript.to_string_lossy().into_owned().into();
+    ok(provider.hook(prompt2));
+
+    let (ended_at_start, baseline): (Option<i64>, Option<String>) = db
+        .query_row(
+            "SELECT ended_ms, baseline FROM wake_turns ORDER BY started_ms DESC LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(ended_at_start.is_none());
+    assert!(
+        baseline.is_some(),
+        "woken TurnStarted must capture start baseline even after Turn 1"
+    );
+
+    fs::write(
+        &transcript,
+        format!("{{\"type\":\"user\"}}\n{line1}\n{line2}\n"),
+    )
+    .unwrap();
+    let mut stop2 = claude_event("Stop");
+    stop2["stop_hook_active"] = false.into();
+    stop2["transcript_path"] = transcript.to_string_lossy().into_owned().into();
+    stop2["last_assistant_message"] = "wake answer 2".into();
+    ok(provider.hook(stop2));
+
+    let deadline2 = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let page = passthrough::api(
+            &fixture,
+            "ok",
+            "digest.wakeTurns",
+            serde_json::json!({
+                "identityIds": [agent],
+                "fromMs": 0,
+                "throughMs": tmt_core::limits::MAX_JS_SAFE_INTEGER,
+                "limit": 10
+            }),
+        );
+        let turns = page["turns"].as_array().unwrap();
+        if turns.len() == 1 && !turns[0]["endedAtMs"].is_null()
+            || std::time::Instant::now() >= deadline2
+        {
+            assert_eq!(turns.len(), 1, "{page:#}");
+            let turn = &turns[0];
+            assert!(!turn["endedAtMs"].is_null(), "{turn:#}");
+            assert_eq!(turn["measured"], true, "{turn:#}");
+            assert_eq!(turn["requestIds"], serde_json::json!([req_id]));
+            assert_eq!(turn["tokens"]["inputTokens"], 355_402, "{turn:#}");
+            assert_eq!(turn["tokens"]["outputTokens"], 546, "{turn:#}");
+            assert_eq!(turn["tokens"]["cachedInputTokens"], 355_111, "{turn:#}");
+            assert_eq!(turn["byModel"][0]["modelId"], "claude-opus-5-5", "{turn:#}");
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+
+    // Turn 3 (ordinary prompt, no pending wake): mutate transcript BEFORE UserPromptSubmit and
+    // verify ordinary prompt performs no transcript read (sampled_at_ms & tokens stay at Turn 2).
+    let (sampled_before_t3, latest_before_t3): (Option<i64>, Option<String>) = db
+        .query_row(
+            "SELECT sampled_at_ms, latest FROM consumption_sources WHERE identity_id=?",
+            [&agent],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    fs::write(
+        &transcript,
+        format!("{{\"type\":\"user\"}}\n{line1}\n{line2}\n{line4}\n"),
+    )
+    .unwrap();
+    let mut prompt3 = claude_event("UserPromptSubmit");
+    prompt3["prompt"] = "ordinary turn 3".into();
+    prompt3["transcript_path"] = transcript.to_string_lossy().into_owned().into();
+    ok(provider.hook(prompt3));
+    let (sampled_after_p3, latest_after_p3): (Option<i64>, Option<String>) = db
+        .query_row(
+            "SELECT sampled_at_ms, latest FROM consumption_sources WHERE identity_id=?",
+            [&agent],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(sampled_after_p3, sampled_before_t3);
+    assert_eq!(latest_after_p3, latest_before_t3);
+
+    let mut stop3 = claude_event("Stop");
+    stop3["stop_hook_active"] = false.into();
+    stop3["transcript_path"] = transcript.to_string_lossy().into_owned().into();
+    stop3["last_assistant_message"] = "ordinary answer 3".into();
+    ok(provider.hook(stop3));
+    let deadline3 = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let timeline = passthrough::api(
+            &fixture,
+            "ok",
+            "responses.timeline",
+            serde_json::json!({"identityId": agent}),
+        );
+        if timeline["responses"]
+            .as_array()
+            .is_some_and(|r| r.len() == 3)
+            || std::time::Instant::now() >= deadline3
+        {
+            assert_eq!(
+                timeline["responses"].as_array().unwrap().len(),
+                3,
+                "{timeline:#}"
+            );
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    let wake_count_after: i64 = db
+        .query_row("SELECT count(*) FROM wake_turns", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(wake_count_after, 1);
+}
+
+#[test]
+fn interrupted_unreadable_and_unconsented_woken_stops_close_wake_turns_unmeasured() {
+    register();
+    let fixture = Fixture::delivering("wake-turns-unmeasured");
+    bind(&fixture, fixture.approve());
+    fixture.json(&["identity", "create", "ben", "--json"]);
+    assert_eq!(
+        fixture.json(&["setup", "pi", "--yes", "--json"])["usage"],
+        true
+    );
+    let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let session = "44444444-4444-4444-8444-444444444444";
+    let transcript = fixture.root.join(format!(
+        "home/.pi/agent/sessions/proj/2026-11-18_{session}.jsonl"
+    ));
+    fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    let write_pi = |tokens: u64, text: &str| {
+        let entry = serde_json::json!({
+            "type": "message",
+            "id": format!("msg-{tokens}"),
+            "parentId": null,
+            "timestamp": "2026-11-18T00:00:00.000Z",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": text}],
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-5",
+                "usage": {
+                    "input": tokens,
+                    "output": 10,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "totalTokens": tokens + 10
+                },
+                "stopReason": "stop",
+                "timestamp": 1794873600000u64
+            }
+        });
+        fs::write(&transcript, format!("{entry}\n")).unwrap();
+    };
+    write_pi(100, "Pi base");
+
+    let mut provider = SteppedProvider::start(&fixture, "pi", "pi-unmeasured-steps");
+    ok(provider.hook(serde_json::json!({
+        "event": "session_start",
+        "session_id": session,
+        "session_file": transcript,
+        "reason": "startup"
+    })));
+    let db = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
+    let rows = || -> Vec<(Option<i64>, i64)> {
+        let mut stmt = db
+            .prepare("SELECT ended_ms, measured FROM wake_turns ORDER BY started_ms")
+            .unwrap();
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+
+    // 1. Interrupted Stop closes wake turn with measured=0.
+    fixture.json(&[
+        "talk",
+        "worker",
+        "wake 1",
+        "--identity",
+        "ben",
+        "--detach",
+        "--json",
+    ]);
+    ok(provider.hook(serde_json::json!({
+        "event": "before_agent_start",
+        "session_id": session,
+        "session_file": transcript,
+        "prompt": "wake 1"
+    })));
+    write_pi(200, "aborted reply");
+    ok(provider.hook(serde_json::json!({
+        "event": "agent_settled",
+        "session_id": session,
+        "session_file": transcript,
+        "aborted": true,
+        "final_text": "aborted reply"
+    })));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let r = rows();
+        if (r.len() == 1 && r[0].0.is_some()) || std::time::Instant::now() >= deadline {
+            assert_eq!(r.len(), 1, "{r:?}");
+            assert!(r[0].0.is_some(), "interrupted Stop must close wake turn");
+            assert_eq!(r[0].1, 0, "interrupted Stop must have measured=0");
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+
+    // 2. Unreadable transcript at Stop closes wake turn with measured=0.
+    write_pi(200, "before unreadable");
+    fixture.json(&[
+        "talk",
+        "worker",
+        "wake 2",
+        "--identity",
+        "ben",
+        "--detach",
+        "--json",
+    ]);
+    ok(provider.hook(serde_json::json!({
+        "event": "before_agent_start",
+        "session_id": session,
+        "session_file": transcript,
+        "prompt": "wake 2"
+    })));
+    fs::write(&transcript, "{not-valid-json\n").unwrap();
+    ok(provider.hook(serde_json::json!({
+        "event": "agent_settled",
+        "session_id": session,
+        "session_file": transcript,
+        "aborted": false,
+        "final_text": "done unreadable"
+    })));
+    let deadline2 = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let r = rows();
+        let timeline = passthrough::api(
+            &fixture,
+            "ok",
+            "responses.timeline",
+            serde_json::json!({"identityId": agent}),
+        );
+        if (r.len() == 2 && r[1].0.is_some()) || std::time::Instant::now() >= deadline2 {
+            assert_eq!(r.len(), 2, "{r:?} {timeline:#}");
+            assert!(r[1].0.is_some(), "unreadable Stop must close wake turn");
+            assert_eq!(r[1].1, 0, "unreadable Stop must have measured=0");
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+
+    // 3. Unconsented Stop closes wake turn with measured=0.
+    write_pi(300, "before unconsented");
+    fixture.json(&[
+        "talk",
+        "worker",
+        "wake 3",
+        "--identity",
+        "ben",
+        "--detach",
+        "--json",
+    ]);
+    ok(provider.hook(serde_json::json!({
+        "event": "before_agent_start",
+        "session_id": session,
+        "session_file": transcript,
+        "prompt": "wake 3"
+    })));
+    assert_eq!(
+        fixture.json(&["setup", "pi", "--no-usage", "--yes", "--json"])["usage"],
+        false
+    );
+    write_pi(450, "done unconsented");
+    ok(provider.hook(serde_json::json!({
+        "event": "agent_settled",
+        "session_id": session,
+        "session_file": transcript,
+        "aborted": false,
+        "final_text": "done unconsented"
+    })));
+    let deadline3 = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let r = rows();
+        if (r.len() == 3 && r[2].0.is_some()) || std::time::Instant::now() >= deadline3 {
+            assert_eq!(r.len(), 3, "{r:?}");
+            assert!(r[2].0.is_some(), "unconsented Stop must close wake turn");
+            assert_eq!(r[2].1, 0, "unconsented Stop must have measured=0");
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+}

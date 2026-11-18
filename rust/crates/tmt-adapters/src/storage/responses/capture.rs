@@ -277,6 +277,13 @@ fn commit_turn_end(
         capture.now_ms,
     )?;
     if capture.interrupted {
+        super::super::consumption_history::wake_turns::close_started_before(
+            db,
+            &binding.identity_id,
+            capture.now_ms,
+            Some(capture.now_ms),
+            None,
+        )?;
         super::super::capture_batches::close(db, &binding.identity_id, capture.now_ms)?;
     }
     Ok(TurnCaptureOutcome::Committed)

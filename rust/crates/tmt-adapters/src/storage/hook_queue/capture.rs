@@ -176,6 +176,9 @@ impl CaptureEvent {
     pub fn session(&self) -> Option<&str> {
         self.capture.as_ref().map(|c| c.session.as_str())
     }
+    pub fn captured_at_ms(&self) -> Option<u64> {
+        self.capture.as_ref().map(|c| c.now_ms)
+    }
     /// A delayed optional follow-up must not reintroduce an old Stop diagnostic
     /// or sample an old transcript into the activity of a newer input batch.
     pub fn is_current_batch(&self, database: &Path) -> Result<bool, StorageError> {
@@ -856,7 +859,7 @@ fn ingest(db: &Connection, event: &CaptureEvent) -> Result<CaptureResult, Storag
         return Ok(outcome);
     }
     let result = match &event.capture {
-        Some(c) => commit(db, c, transaction_now_ms)?,
+        Some(c) => commit(db, c, event.follow_up.usage, transaction_now_ms)?,
         None => CaptureResult::NotApplicable,
     };
     if let Some(capture) = &event.capture {
@@ -943,6 +946,7 @@ fn current_turn(db: &Connection, c: &PendingCapture) -> Result<bool, StorageErro
 fn commit(
     db: &Connection,
     c: &PendingCapture,
+    follow_up_usage: bool,
     transaction_now_ms: u64,
 ) -> Result<CaptureResult, StorageError> {
     let mut rows = BindingRows(db);
@@ -1047,6 +1051,15 @@ fn commit(
             super::super::requests::end_digest_continuation(db, &c.identity, c.now_ms)?;
         }
         super::super::requests::turns::close(db, &c.identity, c.now_ms)?;
+        if c.interrupted || !follow_up_usage {
+            super::super::consumption_history::wake_turns::close_started_before(
+                db,
+                &c.identity,
+                c.now_ms,
+                Some(c.now_ms),
+                None,
+            )?;
+        }
         super::super::requests::passthrough::settle_turn(
             db,
             &c.identity,

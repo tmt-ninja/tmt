@@ -82,18 +82,22 @@ pub(in crate::storage) fn open(
     Ok(())
 }
 
-/// The open turn of `identity` ended at `now`. `read` is when the end event's own usage read was
-/// taken, if it carried one: every token of the turn is then in its buckets.
-pub(in crate::storage) fn close(
+/// Close an open wake turn that started at or before `max_started_ms` (when set), never a later turn.
+pub(in crate::storage) fn close_started_before(
     db: &Connection,
     identity: &str,
     now: u64,
+    max_started_ms: Option<u64>,
     read: Option<u64>,
 ) -> Result<(), StorageError> {
+    let ceiling = ms(
+        max_started_ms.unwrap_or(MAX_JS_SAFE_INTEGER),
+        "Wake turn start ceiling",
+    )?;
     let open: Option<(u64, Option<String>)> = db
         .query_row(
-            "SELECT started_ms,baseline FROM wake_turns WHERE identity_id=? AND ended_ms IS NULL ORDER BY started_ms DESC LIMIT 1",
-            [identity],
+            "SELECT started_ms,baseline FROM wake_turns WHERE identity_id=?1 AND ended_ms IS NULL AND started_ms<=?2 ORDER BY started_ms DESC LIMIT 1",
+            params![identity, ceiling],
             |row| Ok((integer(row, 0)?, row.get(1)?)),
         )
         .optional()

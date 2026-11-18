@@ -4,6 +4,36 @@
 use super::*;
 use tmt_core::request::{delivery::HandoverTurn, passthrough::BOUND_WINDOW_MS};
 
+const PENDING_FROM: &str = "FROM request_attempts a
+         WHERE a.recipient_identity_id=?1 AND a.route_kind='inbox' AND a.request_kind='request'
+           AND a.wake_state='sent' AND a.withdrawn_at_ms IS NULL
+           AND a.prepared_at_ms<=?2 AND a.prepared_at_ms>=?3
+           AND NOT EXISTS (SELECT 1 FROM request_responses r WHERE r.request_id=a.request_id)
+           AND NOT EXISTS (SELECT 1 FROM request_passthrough p WHERE p.request_id=a.request_id)
+           AND NOT EXISTS (SELECT 1 FROM request_turns t WHERE t.request_id=a.request_id)";
+
+fn turn_window(now: u64) -> Result<(i64, i64), StorageError> {
+    Ok((
+        checked_i64(now, "Request turn start")?,
+        checked_i64(now.saturating_sub(BOUND_WINDOW_MS), "Request turn window")?,
+    ))
+}
+
+/// Whether at least one handed-over inbox request is eligible to bind the next main turn.
+pub(in crate::storage) fn has_pending(
+    db: &Connection,
+    identity: &str,
+    now: u64,
+) -> Result<bool, StorageError> {
+    let (now_i64, floor) = turn_window(now)?;
+    db.query_row(
+        &format!("SELECT EXISTS(SELECT 1 {PENDING_FROM})"),
+        params![identity, now_i64, floor],
+        |row| row.get(0),
+    )
+    .map_err(|error| classify(error, "Check pending handed-over requests"))
+}
+
 /// A main turn started at `now`: every request already handed to `identity` that no turn has
 /// accompanied yet, has no final and is no passthrough, gets this turn. A turn already running
 /// when the message arrived began before it was prepared and so claims nothing; the message waits
@@ -13,17 +43,11 @@ pub(in crate::storage) fn open(
     identity: &str,
     now: u64,
 ) -> Result<usize, StorageError> {
-    let now_i64 = checked_i64(now, "Request turn start")?;
-    let floor = checked_i64(now.saturating_sub(BOUND_WINDOW_MS), "Request turn window")?;
+    let (now_i64, floor) = turn_window(now)?;
     db.execute(
-        "INSERT INTO request_turns(request_id,started_ms)
-         SELECT a.request_id,?2 FROM request_attempts a
-         WHERE a.recipient_identity_id=?1 AND a.route_kind='inbox' AND a.request_kind='request'
-           AND a.wake_state='sent' AND a.withdrawn_at_ms IS NULL
-           AND a.prepared_at_ms<=?2 AND a.prepared_at_ms>=?3
-           AND NOT EXISTS (SELECT 1 FROM request_responses r WHERE r.request_id=a.request_id)
-           AND NOT EXISTS (SELECT 1 FROM request_passthrough p WHERE p.request_id=a.request_id)
-           AND NOT EXISTS (SELECT 1 FROM request_turns t WHERE t.request_id=a.request_id)",
+        &format!(
+            "INSERT INTO request_turns(request_id,started_ms) SELECT a.request_id,?2 {PENDING_FROM}"
+        ),
         params![identity, now_i64, floor],
     )
     .map_err(|error| classify(error, "Open the turns of handed-over requests"))
