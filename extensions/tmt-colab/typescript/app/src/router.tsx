@@ -468,7 +468,36 @@ function PageOutline({
       return undefined;
     }
   });
-  const expanded = preference ?? (!phone && !compact);
+  // Without the gutter (a compact HTML outline above the phone width) the list is a transient
+  // menu under its top-bar button: it opens only on a click, closes on a pick, Escape or a click
+  // outside, and is never restored open. The remembered state applies to the gutter and the phone
+  // bar (#6470).
+  const menu = compact && !phone;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const expanded = menu ? menuOpen : (preference ?? (!phone && !compact));
+  const nav = useRef<HTMLElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!menu || !menuOpen) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMenuOpen(false);
+      toggle.current?.focus();
+    };
+    const pointerdown = (event: PointerEvent) => {
+      if (!nav.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    // A click in the page's own frame reaches only the frame; the parent sees its window lose focus.
+    const blur = () => setMenuOpen(false);
+    document.addEventListener('keydown', keydown);
+    document.addEventListener('pointerdown', pointerdown, true);
+    window.addEventListener('blur', blur);
+    return () => {
+      document.removeEventListener('keydown', keydown);
+      document.removeEventListener('pointerdown', pointerdown, true);
+      window.removeEventListener('blur', blur);
+    };
+  }, [menu, menuOpen]);
   const [current, setCurrent] = useState(0);
   // A click leaves the toggle focused without a frame, until the keyboard is used on it.
   const [pointer, setPointer] = useState(false);
@@ -510,8 +539,9 @@ function PageOutline({
   }, [headings, locate]);
   if (headings.length < 3) return null;
   return (
-    <nav className="page-outline" aria-label={text.pageOutline}>
+    <nav className="page-outline" aria-label={text.pageOutline} ref={nav}>
       <button
+        ref={toggle}
         type="button"
         className="page-outline-toggle"
         aria-label={compact && !phone ? text.outline : undefined}
@@ -523,6 +553,10 @@ function PageOutline({
         }}
         onBlur={() => setPointer(false)}
         onClick={() => {
+          if (menu) {
+            setMenuOpen(!menuOpen);
+            return;
+          }
           const next = !expanded;
           setPreference(next);
           try {
@@ -550,7 +584,11 @@ function PageOutline({
                 onClick={() => {
                   const target = locate(heading.id);
                   setCurrent(index);
-                  if (innerWidth <= 640) {
+                  if (menu) {
+                    setMenuOpen(false);
+                    toggle.current?.focus();
+                    target?.scrollTo();
+                  } else if (innerWidth <= 640) {
                     setPreference(false);
                     try {
                       localStorage.setItem('tmt:colab:outline', 'closed');
