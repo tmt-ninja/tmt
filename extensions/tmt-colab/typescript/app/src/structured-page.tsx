@@ -205,6 +205,7 @@ export interface StructuredPageProps {
   onHoverMention?(entry: string): void;
   /** Where a mark naming a block on another page points (#6208); it opens through `onLink`. */
   blockPageHref?(page: string, block: string): string;
+  anchorBlock?: string;
   /** Files dropped or pasted on the page, after the block they landed on (#6202). */
   onAttach?(files: File[], after?: string): void;
   /** Files reached a page that cannot take them now (no file access, or read only): the page says
@@ -246,6 +247,13 @@ interface Pointer {
  */
 export function StructuredPage(props: StructuredPageProps) {
   const root = useRef<HTMLDivElement>(null);
+  const anchor = props.anchorBlock;
+  useEffect(() => {
+    if (anchor)
+      root.current
+        ?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(anchor)}"]`)
+        ?.scrollIntoView({ block: 'start' });
+  }, [anchor]);
   const [hovered, setHovered] = useState<string>();
   // The last block the pointer entered: typing hides its handle, and the next move shows it again.
   const entered = useRef<string>(undefined);

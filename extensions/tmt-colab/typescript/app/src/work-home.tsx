@@ -250,7 +250,7 @@ function WorkRow({
           className="work-home-row-link"
           to="/pages/$pageId"
           params={{ pageId: item.pageId }}
-          {...(item.blockId ? { hash: item.blockId } : {})}
+          {...(item.blockId ? { hash: `block-${item.blockId}` } : {})}
         >
           {item.title}
         </Link>

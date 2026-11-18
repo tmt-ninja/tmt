@@ -1,3 +1,4 @@
+import { useRouterState } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { AttachmentInput, StoredAttachment } from './attachment-service.js';
 import type { BlockFiles } from './block-uploads.js';
@@ -71,6 +72,7 @@ export function LiveStructuredPage({
   annotations?: ReadonlyMap<string, readonly { id: string; ordinal: number; open: boolean }[]>;
   onOpenAnnotation?(id: string): void;
 }) {
+  const hash = useRouterState({ select: (state) => state.location.hash });
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
   // The agents an @ names (#6203): the ones this page can ask, and its creator.
   const { directory } = useAgentDirectory(questionPage?.ask);
@@ -160,6 +162,7 @@ export function LiveStructuredPage({
   }, [onSettle, settle]);
   return (
     <StructuredPage
+      anchorBlock={hash.startsWith('block-') ? hash.slice(6) : hash}
       tree={tree}
       todoNumbers={todoNumbers}
       annotationMode={annotationMode}
