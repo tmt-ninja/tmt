@@ -147,6 +147,10 @@ export function failureSignature(run, jobs) {
     .update(JSON.stringify([run.workflow_id, names.length === 1 ? names[0] : names]))
     .digest('hex');
 }
+function readsFailureJobs(run) {
+  return run.conclusion === 'failure' || run.conclusion === 'cancelled';
+}
+
 export function observeRun(state, run, jobs, routing, now) {
   if (!watchedRun(run) || run.status !== 'completed') return;
   const token = `${run.id}:${run.run_attempt}`;
@@ -155,23 +159,29 @@ export function observeRun(state, run, jobs, routing, now) {
   const eventKey = `${run.workflow_id}:${run.event}`;
   if (run.conclusion === 'success')
     state.green[eventKey] = Math.max(state.green[eventKey] ?? 0, ended);
-  if (run.conclusion === 'failure') {
-    const failed = jobs
-      .map((job, index) => ({ ...job, index, started: Date.parse(job.started_at) }))
-      .filter((job) => ['failure', 'timed_out'].includes(job.conclusion))
-      .sort((a, b) => {
-        const first = Number.isFinite(a.started) ? a.started : Infinity;
-        const second = Number.isFinite(b.started) ? b.started : Infinity;
-        return (first === second ? 0 : first - second) || a.index - b.index;
-      });
+  const failed = readsFailureJobs(run)
+    ? jobs.filter((job) => job.conclusion === 'failure' || job.conclusion === 'timed_out')
+    : [];
+  if (run.conclusion === 'failure' || failed.length > 0) {
     const names = failed.length
-      ? failed.map((job) => job.name)
+      ? failed
+          .map((job, index) => ({ job, index, started: Date.parse(job.started_at) }))
+          .sort((a, b) => {
+            const first = Number.isFinite(a.started) ? a.started : Infinity;
+            const second = Number.isFinite(b.started) ? b.started : Infinity;
+            return (first === second ? 0 : first - second) || a.index - b.index;
+          })
+          .map(({ job }) => job.name)
       : ['[failure has no failed-job metadata]'];
+    const cancelled =
+      run.conclusion === 'cancelled'
+        ? jobs.filter((job) => job.conclusion === 'cancelled').map((job) => job.name)
+        : [];
     assert(
       new Set(names).size === names.length,
       'WATCH_METADATA: ambiguous duplicate failed job names'
     );
-    for (const job of names)
+    for (const job of [...names, ...cancelled])
       assert(
         typeof job === 'string' && job.length > 0 && job.length < 2000,
         'WATCH_METADATA: invalid job name'
@@ -191,7 +201,8 @@ export function observeRun(state, run, jobs, routing, now) {
       workflowPath: run.path,
       event: run.event,
       job: names[0],
-      jobs: names,
+      // Persist notice labels in the existing array without changing the key or route.
+      jobs: [...names, ...cancelled.map((job) => job + ' (cancelled)')],
       route: routeFailure(routing, run.path, names[0]),
       firstSeen: old?.firstSeen ?? now,
       lastSeen: now,
@@ -273,7 +284,7 @@ export function notificationGroups(state, now) {
   }
   return [...squads.values()].slice(0, available);
 }
-function failedJobNames(alert) {
+function noticeJobNames(alert) {
   return alert.jobs ?? [alert.job];
 }
 export function formatNotification(group) {
@@ -282,8 +293,8 @@ export function formatNotification(group) {
     group
       .map(
         (a) =>
-          `${clean(a.workflow, 80)} / ${failedJobNames(a)
-            .map((job) => clean(job, 1999))
+          `${clean(a.workflow, 80)} / ${noticeJobNames(a)
+            .map((job) => clean(job, 2011))
             .join(', ')} — ${a.runUrl}${a.issueUrl ? ` (${a.issueUrl})` : ''}`
       )
       .join('; ')
@@ -502,7 +513,7 @@ export function collectWatchCycle({
       state.seen[`${run.id}:${run.run_attempt}`]
     )
       continue;
-    const jobs = run.conclusion === 'failure' ? jobsFor(api, repo, run) : [];
+    const jobs = readsFailureJobs(run) ? jobsFor(api, repo, run) : [];
     observeRun(state, run, jobs, routing, now);
     examined.push({ run: run.id, attempt: run.run_attempt, conclusion: run.conclusion });
   }
