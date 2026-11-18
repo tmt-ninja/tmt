@@ -64,8 +64,12 @@ use crate::{
 };
 use clap::{Arg, ArgAction, ArgMatches, Command, error::ErrorKind};
 use serde_json::{Value, json};
-use std::{ffi::OsString, io::Write, process::ExitCode};
-use tmt_cli_style::{Interaction, Mode, Route};
+use std::{
+    ffi::OsString,
+    io::{self, Write},
+    process::ExitCode,
+};
+use tmt_cli_style::{CliOutput, Interaction, Mode, Render, RenderFailure, Route};
 use tmt_cli_style::{
     Terminal, Token,
     list::Section,
@@ -1170,6 +1174,7 @@ fn main() -> ExitCode {
         return hook_protocol::run(&argv[1..]);
     }
     let json = argv.iter().skip(1).any(|arg| arg == "--json");
+    let output = CliOutput::new(json);
     let routed = bare_is_list(argv.clone());
     let bare = routed != argv;
     let matches = match request(&routed) {
@@ -1186,7 +1191,7 @@ fn main() -> ExitCode {
         Err(error) if json && error.use_stderr() => {
             let message = error.render().to_string();
             let failure = SquadError::new("USAGE_ERROR", message.trim_end());
-            return print_document(&failure.to_json(), USAGE_EXIT);
+            return finish(&output, Err::<CommandReport<'_>, _>(failure));
         }
         Err(error) => {
             let _ = error.print();
@@ -1216,18 +1221,14 @@ fn main() -> ExitCode {
         return print_embedded(SKILL);
     }
     if command == "ui" && sub.get_flag("reload-all") {
-        return reload_all(json);
+        return reload_all(&output);
     }
     if command == "ui" && sub.get_flag("reset-view") && interaction.view() != Mode::Interactive {
         let failure = SquadError::new(
             "USAGE_ERROR",
             "--reset-view requires an interactive terminal.",
         );
-        if json {
-            return print_document(&failure.to_json(), USAGE_EXIT);
-        }
-        report(&failure);
-        return ExitCode::from(USAGE_EXIT);
+        return finish(&output, Err::<CommandReport<'_>, _>(failure));
     }
     // The board needs a person at a terminal; otherwise it is `ls`.
     if command == "ui" && interaction.view() == Mode::Interactive {
@@ -1260,76 +1261,194 @@ fn main() -> ExitCode {
             }
         };
     }
-    match run(command, sub, interaction) {
-        Ok(outcome) => {
-            let code = if outcome.complete { 0 } else { 1 };
-            if json {
-                return print_document(&outcome.document, code);
+    let boundary = output_boundary(command, sub.subcommand_name())
+        .unwrap_or_else(|| unreachable!("no report boundary for {command}"));
+    let report = run(command, sub, interaction).map(|outcome| CommandReport {
+        command,
+        outcome,
+        bare,
+    });
+    match boundary {
+        OpsOutput::Paired => finish(&output, report),
+        OpsOutput::View | OpsOutput::Streaming | OpsOutput::Embedded => {
+            finish_exception(json, report)
+        }
+        OpsOutput::Completion => unreachable!("completion exits before dispatch"),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OpsOutput {
+    Paired,
+    View,
+    Streaming,
+    Embedded,
+    Completion,
+}
+
+fn output_boundary(command: &str, action: Option<&str>) -> Option<OpsOutput> {
+    use OpsOutput::*;
+    Some(match (command, action) {
+        (
+            "init" | "me" | "lead" | "add" | "rm" | "rename" | "set" | "ls" | "jump" | "back"
+            | "open" | "copy" | "digest" | "limits" | "ui",
+            None,
+        )
+        | ("layout", Some("validate"))
+        | ("config", Some("show" | "set"))
+        | ("theme", None | Some("ls" | "set" | "rm"))
+        | ("hotkeys", Some("show" | "install" | "rm"))
+        | ("playbook", Some("ls" | "install" | "rm"))
+        | (
+            "cron",
+            Some(
+                "ls" | "show" | "add" | "edit" | "rm" | "pause" | "resume" | "reassign" | "send"
+                | "tick" | "clock",
+            ),
+        )
+        | (
+            "checklist",
+            Some(
+                "ls" | "counts" | "events" | "show" | "add" | "done" | "create" | "edit" | "assign"
+                | "unassign" | "complete" | "reopen" | "archive" | "restore" | "delete" | "reorder",
+            ),
+        ) => Paired,
+        ("view", None | Some("ls" | "set" | "rm")) => View,
+        ("cron", Some("run")) => Streaming,
+        ("skill" | "playbook", Some("show")) => Embedded,
+        ("__complete", None) => Completion,
+        _ => return None,
+    })
+}
+
+struct CommandReport<'a> {
+    command: &'a str,
+    outcome: Outcome,
+    bare: bool,
+}
+
+impl Render for CommandReport<'_> {
+    fn human(
+        &self,
+        stdout: &mut dyn Write,
+        mut stderr: &mut dyn Write,
+        out: Terminal,
+        err: Terminal,
+    ) -> io::Result<()> {
+        let document = &self.outcome.document;
+        let mut body = human(self.command, document, out);
+        if self.bare {
+            body.push_str("\ntmt ops ui opens the board\n");
+        }
+        let written = stdout
+            .write_all(body.as_bytes())
+            .and_then(|()| stdout.flush());
+        if self.command == "cron" {
+            for warning in document["warnings"].as_array().into_iter().flatten() {
+                let _ = message::warning(
+                    &mut stderr,
+                    err,
+                    warning["error"]["message"]
+                        .as_str()
+                        .unwrap_or("Cron follow-up failed"),
+                    None,
+                );
             }
+        }
+        for (what, hint) in human_failures(self.command, document) {
+            let _ = message::error(&mut stderr, err, &what, hint.as_deref());
+        }
+        written
+    }
+
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        write_document(stdout, &self.outcome.document)
+    }
+
+    fn exit_status(&self) -> u8 {
+        u8::from(!self.outcome.complete)
+    }
+}
+
+impl Render for SquadError {
+    fn human(
+        &self,
+        _: &mut dyn Write,
+        mut stderr: &mut dyn Write,
+        _: Terminal,
+        terminal: Terminal,
+    ) -> io::Result<()> {
+        let (what, hint) = SquadError::human(self);
+        let _ = message::error(&mut stderr, terminal, what, hint);
+        Ok(())
+    }
+
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        write_document(stdout, &self.to_json())
+    }
+}
+
+impl RenderFailure for SquadError {
+    fn exit_status(&self) -> u8 {
+        1
+    }
+}
+
+fn finish(output: &CliOutput, result: Result<impl Render, SquadError>) -> ExitCode {
+    output
+        .finish(result)
+        .map_or(ExitCode::FAILURE, ExitCode::from)
+}
+
+fn finish_exception(json: bool, result: Result<CommandReport<'_>, SquadError>) -> ExitCode {
+    match result {
+        Ok(report) if json => print_document(&report.outcome.document, report.exit_status()),
+        Ok(report) => {
             let mut stdout = tmt_cli_style::stream::stdout(false);
-            let mut body = human(command, &outcome.document, stdout.terminal());
-            if bare {
-                body.push_str("\ntmt ops ui opens the board\n");
-            }
-            let written = stdout
-                .write_all(body.as_bytes())
-                .and_then(|()| stdout.flush());
             let mut stderr = tmt_cli_style::stream::stderr();
-            let terminal = stderr.terminal();
-            if command == "cron" {
-                for warning in outcome.document["warnings"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                {
-                    let _ = message::warning(
-                        &mut stderr,
-                        terminal,
-                        warning["error"]["message"]
-                            .as_str()
-                            .unwrap_or("Cron follow-up failed"),
-                        None,
-                    );
-                }
-            }
-            for (what, hint) in human_failures(command, &outcome.document) {
-                let _ = message::error(&mut stderr, terminal, &what, hint.as_deref());
-            }
-            match written {
-                Ok(()) => ExitCode::from(code),
-                Err(_) => ExitCode::FAILURE,
-            }
+            let out = stdout.terminal();
+            let err = stderr.terminal();
+            report
+                .human(&mut stdout, &mut stderr, out, err)
+                .map_or(ExitCode::FAILURE, |()| ExitCode::from(report.exit_status()))
         }
         Err(failure) if json => print_document(&failure.to_json(), 1),
         Err(failure) => {
             report(&failure);
-            ExitCode::from(1)
+            ExitCode::FAILURE
         }
     }
 }
 
-/// `ui --reload-all`: records the request every board older than now obeys.
-/// It needs no terminal and no Core, and says nothing about how many boards are open.
-fn reload_all(json: bool) -> ExitCode {
+/// `ui --reload-all` records the request without starting a board.
+fn reload_all(output: &CliOutput) -> ExitCode {
     let now_ms = status::now_ms();
-    match board::request_reload_all(now_ms) {
-        Ok(()) if json => print_document(&json!({"requested": true, "atMs": now_ms}), 0),
-        Ok(()) => {
-            let mut stdout = tmt_cli_style::stream::stdout(false);
-            let terminal = stdout.terminal();
-            let written = message::success(
-                &mut stdout,
-                terminal,
-                "Every open board reloads when it is idle",
-            )
-            .and_then(|()| stdout.flush());
-            ExitCode::from(u8::from(written.is_err()))
-        }
-        Err(failure) if json => print_document(&failure.to_json(), 1),
-        Err(failure) => {
-            report(&failure);
-            ExitCode::from(1)
-        }
+    finish(
+        output,
+        board::request_reload_all(now_ms).map(|()| ReloadReport(now_ms)),
+    )
+}
+
+struct ReloadReport(u64);
+
+impl Render for ReloadReport {
+    fn human(
+        &self,
+        mut stdout: &mut dyn Write,
+        _: &mut dyn Write,
+        terminal: Terminal,
+        _: Terminal,
+    ) -> io::Result<()> {
+        message::success(
+            &mut stdout,
+            terminal,
+            "Every open board reloads when it is idle",
+        )
+        .and_then(|()| stdout.flush())
+    }
+
+    fn json(&self, stdout: &mut dyn Write) -> io::Result<()> {
+        write_document(stdout, &json!({"requested": true, "atMs": self.0}))
     }
 }
 
@@ -1362,10 +1481,14 @@ fn print_help(help: &clap::builder::StyledStr, json: bool) -> ExitCode {
 /// `--json`: one document and a newline, unstyled.
 fn print_document(document: &Value, code: u8) -> ExitCode {
     let mut stdout = tmt_cli_style::stream::stdout(true);
-    match writeln!(stdout, "{document}").and_then(|()| stdout.flush()) {
+    match write_document(&mut stdout, document) {
         Ok(()) => ExitCode::from(code),
         Err(_) => ExitCode::FAILURE,
     }
+}
+
+fn write_document(stdout: &mut dyn Write, document: &Value) -> io::Result<()> {
+    writeln!(stdout, "{document}").and_then(|()| stdout.flush())
 }
 
 /// `__complete`: one candidate per line, for the shell.
@@ -1409,6 +1532,32 @@ mod cli_style_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_command_leaf_has_an_output_boundary() {
+        fn walk(parent: &Command, family: Option<&str>) {
+            for child in parent.get_subcommands() {
+                let name = child.get_name();
+                let boundary = match family {
+                    Some(command) => output_boundary(command, Some(name)),
+                    None => output_boundary(name, None),
+                };
+                if child.get_subcommands().next().is_none() {
+                    assert!(
+                        boundary.is_some(),
+                        "missing output boundary: {family:?} {name}"
+                    );
+                } else {
+                    walk(child, (name != "squad").then_some(name));
+                }
+                for alias in child.get_all_aliases() {
+                    let canonical = parent.find_subcommand(alias).expect("alias resolves");
+                    assert_eq!(canonical.get_name(), name);
+                }
+            }
+        }
+        walk(&grammar(), None);
+    }
 
     #[test]
     fn every_command_has_human_output() {
