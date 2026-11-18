@@ -888,7 +888,10 @@ pub(super) fn run_bound(
                 .filter(|name| tmt_core::driver::descriptor::for_executable(name).is_none()),
         },
     )
-    .unwrap_or(None);
+    .unwrap_or_else(|error| {
+        diagnostic(&format!("could not commit foreground admission: {error}"));
+        None
+    });
     if admitted.is_none() && startup_live {
         diagnostic(
             "command started, but runtime ownership could not be recorded; automatic delivery is not established.",

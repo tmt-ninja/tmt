@@ -831,10 +831,14 @@ pub fn finish_records(
         let diagnostic = if observed.status == LaunchStatus::Admitted {
             None
         } else {
-            diagnostic.or(Some(SessionLearningDiagnostic::new(
-                SessionLearningStep::Storage,
-                SessionLearningReason::LaunchEnded,
-            )))
+            diagnostic
+                .or(observed.diagnostic.filter(|diagnostic| {
+                    *diagnostic == crate::run_command::admission::FOREGROUND_UNVERIFIED
+                }))
+                .or(Some(SessionLearningDiagnostic::new(
+                    SessionLearningStep::Storage,
+                    SessionLearningReason::LaunchEnded,
+                )))
         };
         settle(records, &observed, LaunchStatus::Settled, diagnostic)?;
     }

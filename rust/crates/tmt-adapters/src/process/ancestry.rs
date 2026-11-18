@@ -390,6 +390,26 @@ pub fn pinned_chain<R: CommandRunner>(
     first: u64,
     deadline: Instant,
 ) -> Result<PinnedChain, AncestryError> {
+    read_pinned_chain(runner, first, None, deadline)
+}
+
+/// Pin the path through the required endpoint. Its ancestors are outside this
+/// proof; reaching the root without reaching the endpoint is inconclusive.
+pub(crate) fn pinned_chain_through<R: CommandRunner>(
+    runner: &R,
+    first: u64,
+    endpoint: u64,
+    deadline: Instant,
+) -> Result<PinnedChain, AncestryError> {
+    read_pinned_chain(runner, first, Some(endpoint), deadline)
+}
+
+fn read_pinned_chain<R: CommandRunner>(
+    runner: &R,
+    first: u64,
+    endpoint: Option<u64>,
+    deadline: Instant,
+) -> Result<PinnedChain, AncestryError> {
     let mut links: Vec<PinnedLink> = Vec::new();
     let mut pid = first;
     for _ in 0..MAX_DEPTH {
@@ -429,7 +449,7 @@ pub fn pinned_chain<R: CommandRunner>(
             parent,
             start: link.start,
         });
-        if parent == 0 {
+        if endpoint.map_or(parent == 0, |endpoint| pid == endpoint) {
             return Ok(PinnedChain { links });
         }
         pid = parent;
