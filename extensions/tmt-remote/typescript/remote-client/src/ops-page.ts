@@ -22,10 +22,10 @@ import {
 } from './conversation-history.js';
 import type { ConversationUnread } from './conversation-seen.js';
 import {
-  OPS_SECTIONS,
   opsHref,
   opsMenu,
   opsPlace,
+  opsPlaceLabel,
   resolveOpsPlace,
   type OpsPlace,
 } from './ops-menu.js';
@@ -142,14 +142,7 @@ export function opsPage(
           )
         : undefined;
     history.select(member ? { id: member.id, name: member.name } : undefined);
-    const label =
-      typeof section === 'string'
-        ? (OPS_SECTIONS.find((item) => item.id === section)?.label ?? 'Ops')
-        : section.memberId
-          ? (board?.agents.find(
-              (agent) => agent.id === section.memberId && agent.squad === section.squad,
-            )?.name ?? 'Member unavailable')
-          : `#${section.squad}`;
+    const label = opsPlaceLabel(section, board);
     shell.setTitle(label, label === 'Ops' ? [] : ['Ops'], 'Ops');
     if (!board) main.replaceChildren(pageLoading());
     else if (board.unavailable) main.replaceChildren();

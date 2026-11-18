@@ -44,6 +44,21 @@ export function resolveOpsPlace(place: OpsPlace, board: OpsBoard | undefined): O
   return member ? { squad: member.squad, memberId: member.id } : place;
 }
 
+/**
+ * The view's title. A member is named from a loaded board; "Member unavailable" only once a loaded
+ * board does not list it, so a member-only link shows the loading page, not that message (#6474).
+ */
+export function opsPlaceLabel(place: OpsPlace, board: OpsBoard | undefined): string {
+  if (typeof place === 'string')
+    return OPS_SECTIONS.find((item) => item.id === place)?.label ?? 'Ops';
+  if (!place.memberId) return `#${place.squad}`;
+  if (!board || board.unavailable) return 'Ops';
+  return (
+    board.agents.find((agent) => agent.id === place.memberId && agent.squad === place.squad)
+      ?.name ?? 'Member unavailable'
+  );
+}
+
 export function opsHref(pathname: string, place: OpsPlace): string {
   if (typeof place === 'string') return `${pathname}#${place}`;
   const squad = encodeURIComponent(place.squad);

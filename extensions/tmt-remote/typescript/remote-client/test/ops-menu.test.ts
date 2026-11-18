@@ -1,5 +1,12 @@
 import { expect, it, vi } from 'vite-plus/test';
-import { opsMenu, opsSection, opsPlace, opsHref, resolveOpsPlace } from '../src/ops-menu.js';
+import {
+  opsMenu,
+  opsSection,
+  opsPlace,
+  opsHref,
+  opsPlaceLabel,
+  resolveOpsPlace,
+} from '../src/ops-menu.js';
 import { visibleCurrent } from '@tmt/browser-ui/shell';
 import type { OpsAgent, OpsBoard } from '../src/ops-source.js';
 
@@ -96,6 +103,16 @@ it('resolves a member-only DM link to the member listed on the board, else keeps
   expect(resolveOpsPlace(asked, undefined)).toBe(asked);
   const full = { squad: 'sample', memberId: first };
   expect(resolveOpsPlace(full, board())).toBe(full);
+});
+
+it('names a member-only place only after a loaded board, and says unavailable only when it lacks it', () => {
+  const asked = opsPlace(`#dm/${first}`);
+  // Before the board loads, the page shows its loading state: no unknown-member message.
+  expect(opsPlaceLabel(asked, undefined)).toBe('Ops');
+  expect(opsPlaceLabel(resolveOpsPlace(asked, board()), board())).toBe('first');
+  const missing = opsPlace('#dm/00000000-0000-4000-8000-000000000999');
+  expect(opsPlaceLabel(resolveOpsPlace(missing, board()), board())).toBe('Member unavailable');
+  expect(opsPlaceLabel({ squad: 'sample' }, undefined)).toBe('#sample');
 });
 
 it('keeps selection and disclosure by identity and shows only verified unread counts', () => {
