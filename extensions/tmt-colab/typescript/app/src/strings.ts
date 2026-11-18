@@ -1063,6 +1063,15 @@ export const text = {
       form: 'Use up to 80 characters without control characters.',
     },
   },
+  askTodo: {
+    added: 'Added as a to-do',
+    state: {
+      done: 'Done',
+      answered: 'Answered',
+      'in-progress': 'In progress',
+      open: 'Open',
+    },
+  },
   workHome: {
     statusDetails: (item: string) => `${item}, show status details`,
     statusReading: 'Reading the latest status…',

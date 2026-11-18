@@ -10389,6 +10389,16 @@ function resolveOpsPlace(place, board) {
 		memberId: member.id
 	} : place;
 }
+/**
+* The view's title. A member is named from a loaded board; "Member unavailable" only once a loaded
+* board does not list it, so a member-only link shows the loading page, not that message (#6474).
+*/
+function opsPlaceLabel(place, board) {
+	if (typeof place === "string") return OPS_SECTIONS.find((item) => item.id === place)?.label ?? "Ops";
+	if (!place.memberId) return `#${place.squad}`;
+	if (!board || board.unavailable) return "Ops";
+	return board.agents.find((agent) => agent.id === place.memberId && agent.squad === place.squad)?.name ?? "Member unavailable";
+}
 function opsHref(pathname, place) {
 	if (typeof place === "string") return `${pathname}#${place}`;
 	const squad = encodeURIComponent(place.squad);
@@ -13129,7 +13139,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 			id: member.id,
 			name: member.name
 		} : void 0);
-		const label = typeof section === "string" ? OPS_SECTIONS.find((item) => item.id === section)?.label ?? "Ops" : section.memberId ? board?.agents.find((agent) => agent.id === section.memberId && agent.squad === section.squad)?.name ?? "Member unavailable" : `#${section.squad}`;
+		const label = opsPlaceLabel(section, board);
 		shell.setTitle(label, label === "Ops" ? [] : ["Ops"], "Ops");
 		if (!board) main.replaceChildren(pageLoading());
 		else if (board.unavailable) main.replaceChildren();

@@ -20,6 +20,8 @@ import { shortPageUrl } from './short-links.js';
 import { entryFragment } from './entry.js';
 import { ownerPageHint } from './reading-link.js';
 
+import { todoSection } from './ask-todo.js';
+
 export const REQUEST_BYTES = 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
 
@@ -37,6 +39,8 @@ export interface AdmittedSelection {
   url: string;
   /** Supplied only by admitted page composition, never renderer geometry. */
   shortId?: string;
+  /** A block page's comment Ask names the to-do it becomes once sent (#6474). */
+  todo?: import('./ask-todo.js').AskTodo;
 }
 /** Caller-verified machine/grant snapshot; this primitive creates no authority.
  * Revision and session expiry reference the verified Remote grant; unavailable policy stays null. */
@@ -61,9 +65,11 @@ export interface SignedAsk {
 
 /** Display and capture use the same framing; callers own mounted URL admission. */
 export function formatAskMessage(
-  input: Pick<AdmittedSelection, 'title' | 'url' | 'quote' | 'comment'>,
+  input: Pick<AdmittedSelection, 'title' | 'url' | 'quote' | 'comment'> &
+    Partial<Pick<AdmittedSelection, 'page' | 'todo'>>,
 ) {
-  return `Page: ${input.title}\nLink: ${input.url}\n\nQuote:\n${capped(input.quote, QUOTE_POINTS)}\n\nComment:\n${input.comment}`;
+  const todo = input.todo && input.page ? todoSection(input.page, input.todo) : '';
+  return `Page: ${input.title}\nLink: ${input.url}\n\nQuote:\n${capped(input.quote, QUOTE_POINTS)}\n\nComment:\n${input.comment}${todo}`;
 }
 
 /** The most code points of an anchored passage an Ask quotes (#6002); the thread keeps it whole. */

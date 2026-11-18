@@ -158,6 +158,7 @@
             "checked": true,
             "assignee": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "due": "2026-12-31",
+            "thread": "10000000-0000-4000-8000-000000000009",
             "indent": 0
           },
           "text": {
@@ -1114,6 +1115,23 @@
           "pos": "V",
           "props": {
             "due": "2026-13-01"
+          },
+          "text": {
+            "s": "",
+            "marks": []
+          }
+        }
+      }
+    },
+    {
+      "name": "a to-do thread that is not an ID",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "todo",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "thread": "thread-1"
           },
           "text": {
             "s": "",

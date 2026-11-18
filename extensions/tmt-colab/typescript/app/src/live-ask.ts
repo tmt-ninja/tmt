@@ -10,6 +10,7 @@ import {
 } from './ask-attempt.js';
 import type { AskDestination, AdmittedSelection } from './ask-intent.js';
 import { AskRecordStore } from './ask-record-store.js';
+import { todoBlockId, todoText } from './ask-todo.js';
 import { readAskViews, type AskRoot, type VerifiedAsks } from './ask-records.js';
 import type { RemoteClient, RemoteAgent, SessionEvictedError } from './ask-remote.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
@@ -83,6 +84,8 @@ export interface LiveAskOptions {
   activityObserved?(observation: ActivityObservation): void;
   messageStateObserved?(operationId: string, observed: ObservedMessageState | undefined): void;
   sessionEnded?(error?: SessionEvictedError): void;
+  /** A block page: a comment Ask names the to-do it becomes once sent (#6474). */
+  todos?(): boolean;
 }
 
 /** Page composition only. The controller owns operation policy and the Writer
@@ -221,10 +224,25 @@ export class LiveAsk implements AskBinding {
         );
         requireValue(!this.#closed && c.active);
       }
+      const thread = origin?.thread ?? crypto.randomUUID();
+      // Only a person's comment in a thread becomes a to-do: never the page Chat, an answer batch or
+      // a status notification. Its text is the comment as written, as the page reads it back.
+      const todo =
+        this.options.todos?.() &&
+        captured.context &&
+        // The page Chat's thread is named by its writer (`isChatThread`); it makes no to-do.
+        captured.context.thread.id !== captured.context.thread.writer &&
+        !captured.batch &&
+        !notificationOrigin
+          ? {
+              block: await todoBlockId(this.options.page, thread),
+              text: todoText(captured.comment, captured.destination.agentName),
+            }
+          : undefined;
       this.#selection = {
         space: this.options.space,
         page: this.options.page,
-        thread: origin?.thread ?? crypto.randomUUID(),
+        thread,
         messageIds: origin?.messageIds ?? [],
         senderDevice: this.options.deviceId,
         quote: origin?.quote ?? captured.quote,
@@ -232,6 +250,7 @@ export class LiveAsk implements AskBinding {
         title: captured.title,
         url: captured.url,
         shortId: this.options.shortId,
+        ...(todo?.text ? { todo } : {}),
       };
       return controller.prepare(
         captured.destination,

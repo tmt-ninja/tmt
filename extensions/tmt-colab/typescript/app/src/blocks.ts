@@ -360,7 +360,13 @@ const SCHEMA: Record<string, Record<string, Prop>> = {
   paragraph: { tone: choice('default', 'muted') },
   heading: { level: int(2, 3) },
   list: { style: choice('bullet', 'number'), indent },
-  todo: { checked: bool, assignee: line(128), due: { kind: 'date' }, indent },
+  todo: {
+    checked: bool,
+    assignee: line(128),
+    due: { kind: 'date' },
+    thread: { kind: 'id' },
+    indent,
+  },
   table: {
     label: line(256),
     columns: custom(columns),
