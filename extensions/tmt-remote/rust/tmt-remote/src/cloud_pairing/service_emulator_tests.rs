@@ -1074,7 +1074,7 @@ fn ordinary_user_two_way_finals_and_direction_refusals() {
     let (collaborator, _collaborator_lease) =
         service(&core.root.join("collaborator"), &core, emulator.ports());
     emulator.seed_owner(&owner);
-    let events = pair_with_reciprocal_choice(&owner, &collaborator, false);
+    let events = pair_with_reciprocal_choice(&owner, &collaborator, false, None);
     assert_eq!(
         events
             .iter()

@@ -220,6 +220,21 @@ impl Wire {
             ready: std::sync::Condvar::new(),
         }
     }
+    fn signal_ready(&self) {
+        let mut ready = self.readiness.lock().unwrap();
+        ready.generation += 1;
+        self.ready.notify_all();
+    }
+
+    // Accepting the local choice queues routes but does not write to the
+    // provider. Wake the fixture's next waiting callback so it flushes them.
+    fn owner_choice(&self, choice: (bool, bool)) -> (bool, bool) {
+        if choice.0 {
+            self.signal_ready();
+        }
+        choice
+    }
+
     fn route(&self, service: &Arc<Service>) {
         self.receivers
             .lock()
@@ -457,9 +472,7 @@ impl Http for Wire {
         }
         drop(docs);
         if !writes.is_empty() {
-            let mut ready = self.readiness.lock().unwrap();
-            ready.generation += 1;
-            self.ready.notify_all();
+            self.signal_ready();
         }
         if self.lost_invite_delete_reply.swap(false, Ordering::AcqRel)
             && writes.iter().any(|w| {
@@ -1277,6 +1290,7 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
     std::thread::scope(|scope| {
         let _cancel = Cancel(vec![owner.stop.clone(), sender.stop.clone()]);
         let owner_clone = owner.clone();
+        let choice_wire = wire.clone();
         let invite = scope.spawn(move || {
             owner_clone.invite_selected(PROJECT, config(), |event| {
                 if event["event"] == "waiting" {
@@ -1289,9 +1303,9 @@ fn native_ceremony_requires_owner_confirmation_and_read_only_default_then_keeps_
                 }
                 if event["event"] == "candidate" {
                     words_tx.send(Ok(event["words"].clone())).unwrap();
-                    return Ok(Some(
+                    return Ok(Some(choice_wire.owner_choice(
                         choice_rx.recv_timeout(Duration::from_secs(15)).unwrap(),
-                    ));
+                    )));
                 }
                 Ok(None)
             })
@@ -1538,6 +1552,7 @@ fn pair_with_reciprocal_choice(
     owner: &Arc<Service>,
     collaborator: &Arc<Service>,
     reverse_talk: bool,
+    wire: Option<&Wire>,
 ) -> Vec<Value> {
     let (code_tx, code_rx) = mpsc::channel();
     let mut events = Vec::new();
@@ -1561,7 +1576,8 @@ fn pair_with_reciprocal_choice(
                         .expect("confirmed member");
                     assert_eq!(event["memberId"], member.member_id);
                 }
-                Ok((event["event"] == "candidate").then_some((true, true)))
+                Ok((event["event"] == "candidate")
+                    .then(|| wire.map_or((true, true), |wire| wire.owner_choice((true, true)))))
             })
         });
         let code = code_rx.recv_timeout(Duration::from_secs(10)).unwrap();
@@ -1598,7 +1614,7 @@ fn missing_peer_machine_discovery_is_bounded_across_polls_and_reopen() {
     let owner_root = core.root.join("owner");
     let (owner, owner_lease) = service(&owner_root, &core, make_ports());
     let (joiner, _joiner_lease) = service(&core.root.join("joiner"), &core, make_ports());
-    pair_with_reciprocal_choice(&owner, &joiner, false);
+    pair_with_reciprocal_choice(&owner, &joiner, false, Some(&wire));
     let original = owner
         .store()
         .unwrap()
@@ -1754,7 +1770,7 @@ fn paired_machines_push_exact_finals_both_ways_and_reply_without_reverse_talk_pe
             })
             .count()
     };
-    let events = pair_with_reciprocal_choice(&owner, &collaborator, false);
+    let events = pair_with_reciprocal_choice(&owner, &collaborator, false, Some(&wire));
     let remote = events
         .iter()
         .find(|event| event["event"] == "connected")
@@ -2448,7 +2464,7 @@ fn denied_invite_cleanup_does_not_block_enrolled_reconciliation_or_receipt_pruni
     let (owner, _owner_lease) = service(&core.root.join("owner"), &core, make_ports());
     let (collaborator, _collaborator_lease) =
         service(&core.root.join("collaborator"), &core, make_ports());
-    let events = pair_with_reciprocal_choice(&owner, &collaborator, false);
+    let events = pair_with_reciprocal_choice(&owner, &collaborator, false, Some(&wire));
     let remote = events
         .iter()
         .find(|event| event["event"] == "connected")

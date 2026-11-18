@@ -105,7 +105,7 @@ fn native_cli_squad_change_heartbeat_restart_revoke_and_budget() {
     let (sender, sender_lease) =
         service_with_summary_source(&core.root.join("sender"), &core, emulator.ports());
     emulator.seed_owner(&owner);
-    let events = pair_with_reciprocal_choice(&owner, &sender, false);
+    let events = pair_with_reciprocal_choice(&owner, &sender, false, None);
     let remote = events.iter().find(|v| v["event"] == "connected").unwrap()["remote"]
         .as_str()
         .unwrap()

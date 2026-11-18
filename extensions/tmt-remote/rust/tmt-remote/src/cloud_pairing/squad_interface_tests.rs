@@ -36,7 +36,7 @@ fn directory_adapter_reads_original_delivery_and_final_without_dispatch_replay()
     };
     let (owner, _owner_lease) = service(&core.root.join("owner"), &core, make_ports());
     let (sender, _sender_lease) = service(&core.root.join("sender"), &core, make_ports());
-    let events = pair_with_reciprocal_choice(&owner, &sender, false);
+    let events = pair_with_reciprocal_choice(&owner, &sender, false, Some(&wire));
     let remote = events
         .iter()
         .find(|event| event["event"] == "connected")
@@ -218,7 +218,7 @@ fn recovered_original_without_core_message_state_is_unknown_not_delivered() {
     };
     let (owner, _owner_lease) = service(&core.root.join("owner"), &core, make_ports());
     let (sender, _sender_lease) = service(&core.root.join("sender"), &core, make_ports());
-    let events = pair_with_reciprocal_choice(&owner, &sender, false);
+    let events = pair_with_reciprocal_choice(&owner, &sender, false, Some(&wire));
     let remote = events
         .iter()
         .find(|event| event["event"] == "connected")
@@ -301,7 +301,7 @@ fn native_read_only_capability_gate_and_summary_cleanup_share_the_existing_chann
                 service_with_summary_source(&root.join("sender"), &core, make_ports());
             assert!(owner.layout.directory.starts_with(&root));
             assert!(sender.layout.directory.starts_with(&root));
-            pair_with_reciprocal_choice(&owner, &sender, false);
+            pair_with_reciprocal_choice(&owner, &sender, false, Some(&wire));
             wire.route(&owner);
             wire.route(&sender);
             let source_grant = sender
