@@ -4,7 +4,10 @@ mod surface;
 #[cfg(test)]
 pub(in crate::board) mod tests;
 
-use std::{cell::RefCell, time::Duration};
+use std::{
+    cell::RefCell,
+    time::{Duration, Instant},
+};
 
 use ratatui::layout::Rect;
 
@@ -12,14 +15,17 @@ pub(super) use model::{Item, List, Status};
 pub(super) use surface::render;
 
 const WITHIN: Duration = Duration::from_secs(3);
+const REFRESH_EVERY: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Default)]
 pub(in crate::board) struct State {
     pub list: Option<List>,
     pub notice: Option<String>,
     pub stale: bool,
-    pub pending: bool,
-    pub requested: bool,
+    pending: bool,
+    next_read: Option<Instant>,
+    explicit_refresh: bool,
+    needs_update: bool,
     pub selected: Option<String>,
     pub project: Option<String>,
     pub recent: bool,
@@ -29,17 +35,35 @@ pub(in crate::board) struct State {
 }
 
 impl State {
-    pub fn request(&mut self) -> bool {
-        if self.pending || self.requested {
+    pub fn request(&mut self, now: Instant) -> bool {
+        if self.pending
+            || (!self.explicit_refresh
+                && (self.needs_update || self.next_read.is_some_and(|next| now < next)))
+        {
             return false;
         }
         self.pending = true;
-        self.requested = true;
+        self.explicit_refresh = false;
         true
     }
 
-    pub fn apply(&mut self, read: Result<List, String>) {
+    pub fn refresh(&mut self) {
+        self.explicit_refresh = true;
+    }
+
+    pub fn cancel(&mut self, now: Instant) {
         self.pending = false;
+        self.next_read = Some(now + REFRESH_EVERY);
+    }
+
+    pub fn apply(&mut self, now: Instant, read: Result<List, ReadFailure>) {
+        // Count from completion so time queued behind another worker job
+        // cannot make two automatic Colab invocations land in one minute.
+        self.cancel(now);
+        self.needs_update = matches!(
+            &read,
+            Err(ReadFailure::NotInstalled | ReadFailure::UpdateNeeded)
+        );
         match read {
             Ok(list) => {
                 if self
@@ -67,7 +91,7 @@ impl State {
             }
             Err(error) => {
                 self.stale = self.list.is_some();
-                self.notice = Some(error);
+                self.notice = Some(error.message());
             }
         }
         self.hits.get_mut().clear();
@@ -78,52 +102,74 @@ impl State {
 /// once it ships; a development build can still prove support by its wire shape.
 const LAST_UNSUPPORTED: &str = "0.1.0-alpha.472";
 
-#[derive(Default)]
-pub(super) struct Reader {
-    version: Option<semver::Version>,
+#[derive(Debug)]
+pub(super) enum ReadFailure {
+    NotInstalled,
+    UpdateNeeded,
+    Unavailable(String),
 }
 
-impl Reader {
-    pub fn read(&mut self, core: &crate::core::Core) -> Result<List, String> {
-        let started = std::time::Instant::now();
-        let output = core
-            .json_finished(&["colab", "ls"], WITHIN)
-            .map_err(|error| {
-                format!(
-                    "Colab Work unavailable · {}",
-                    super::notes::single_line(&error.message)
-                )
-            })?;
-        if !output.success {
-            let error: serde_json::Value = if output.stdout.len() <= model::MAX_BYTES {
-                serde_json::from_slice(&output.stdout).unwrap_or_default()
-            } else {
-                serde_json::Value::Null
-            };
-            return Err(if error["error"]["code"] == "EXTENSION_NOT_INSTALLED" {
-                "Colab is not installed.".into()
-            } else {
-                let message = error["error"]["message"]
-                    .as_str()
-                    .unwrap_or("check the owner space");
-                format!(
-                    "Colab Work unavailable · {}",
-                    super::notes::single_line(message)
-                )
-            });
+impl ReadFailure {
+    fn message(self) -> String {
+        match self {
+            Self::NotInstalled => "Colab is not installed.".into(),
+            Self::UpdateNeeded => "Update Colab · Work requires the owner-summary list.".into(),
+            Self::Unavailable(message) => message,
         }
-        let list = List::decode_output(&output.stdout)?;
-        if !list.has_summary {
-            let version = self.version.get_or_insert_with(|| {
-                core.colab_version(WITHIN.saturating_sub(started.elapsed()))
-                    .unwrap_or_else(|| semver::Version::new(0, 0, 0))
-            });
-            if *version <= LAST_UNSUPPORTED.parse().expect("valid Colab version") {
-                return Err("Update Colab · Work requires the owner-summary list.".into());
-            }
-        }
-        Ok(list)
     }
+}
+
+impl From<String> for ReadFailure {
+    fn from(message: String) -> Self {
+        Self::Unavailable(message)
+    }
+}
+
+impl From<&str> for ReadFailure {
+    fn from(message: &str) -> Self {
+        Self::Unavailable(message.into())
+    }
+}
+
+pub(super) fn read(core: &crate::core::Core) -> Result<List, ReadFailure> {
+    let started = Instant::now();
+    let output = core
+        .json_finished(&["colab", "ls"], WITHIN)
+        .map_err(|error| {
+            format!(
+                "Colab Work unavailable · {}",
+                super::notes::single_line(&error.message)
+            )
+        })?;
+    if !output.success {
+        let error: serde_json::Value = if output.stdout.len() <= model::MAX_BYTES {
+            serde_json::from_slice(&output.stdout).unwrap_or_default()
+        } else {
+            serde_json::Value::Null
+        };
+        if error["error"]["code"] == "EXTENSION_NOT_INSTALLED" {
+            return Err(ReadFailure::NotInstalled);
+        }
+        let message = error["error"]["message"]
+            .as_str()
+            .unwrap_or("check the owner space");
+        return Err(format!(
+            "Colab Work unavailable · {}",
+            super::notes::single_line(message)
+        )
+        .into());
+    }
+    let list = List::decode_output(&output.stdout)?;
+    if !list.has_summary {
+        // An explicit retry must inspect the currently installed companion.
+        let version = core
+            .colab_version(WITHIN.saturating_sub(started.elapsed()))
+            .ok_or("Colab Work unavailable · could not read the Colab version.")?;
+        if version <= LAST_UNSUPPORTED.parse().expect("valid Colab version") {
+            return Err(ReadFailure::UpdateNeeded);
+        }
+    }
+    Ok(list)
 }
 
 pub(super) fn open(core: &crate::core::Core, page: &str) -> Result<(), String> {

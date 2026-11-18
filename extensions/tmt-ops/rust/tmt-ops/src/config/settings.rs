@@ -408,7 +408,12 @@ mod tests {
         for (value, expected) in [
             ("last", StartupTab::Last),
             ("agents", StartupTab::Agents),
+            ("work", StartupTab::Work),
+            ("2", StartupTab::Work),
             ("digest", StartupTab::Digest),
+            ("3", StartupTab::Digest),
+            ("orchestration", StartupTab::Orchestration),
+            ("4", StartupTab::Orchestration),
         ] {
             let cfg = config(&format!("[board]\nstartup_tab = {value:?} # retained\n"));
             assert_eq!(cfg.startup_tab(), (expected, None));
@@ -418,7 +423,8 @@ mod tests {
                 .iter()
                 .find(|row| row.key == "board.startup_tab")
                 .unwrap();
-            assert_eq!(row.value, json!(value));
+            assert_eq!(row.value, json!(expected.name()));
+            assert_eq!(cfg.document["board"]["startup_tab"].as_str(), Some(value));
             assert!(row.editable);
             assert!(!cfg.can_edit_setting("board.startup_tab", Some("worker")));
         }

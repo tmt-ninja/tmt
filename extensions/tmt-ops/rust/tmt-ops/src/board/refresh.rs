@@ -212,7 +212,6 @@ impl Worker {
         };
         let thread = std::thread::spawn(move || {
             let mut checklist = super::checklist::load::Lane::default();
-            let mut work_reader = super::work::Reader::default();
             let initial = core.cancellable(read_generation.cancellation(0));
             let known = std::rc::Rc::new(std::cell::RefCell::new(Known::default()));
             let mut kept = Kept {
@@ -346,7 +345,7 @@ impl Worker {
                         let result = if cancellation.cancelled() {
                             Err("Colab Work was superseded.".into())
                         } else {
-                            work_reader.read(&reader)
+                            super::work::read(&reader)
                         };
                         return events
                             .send(super::BoardEvent::WorkRead {

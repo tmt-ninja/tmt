@@ -140,8 +140,10 @@ fn key(app: &mut App, code: KeyCode) -> Effect {
 fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
     let mut app = board();
     let selected = app.workspace.selected.clone();
-    app.work
-        .apply(List::decode(&owner_list(crate::status::now_ms())));
+    app.work.apply(
+        Instant::now(),
+        List::decode(&owner_list(crate::status::now_ms())).map_err(Into::into),
+    );
     let _guard = crate::runner::forbid_commands();
     assert_eq!(key(&mut app, KeyCode::Char('2')), Effect::None);
     assert_eq!(app.shell.tab, OpsTab::Work);
@@ -175,7 +177,8 @@ fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
             .iter()
             .any(|(_, hit)| matches!(hit, surface::Hit::Open(_)))
     );
-    app.work.apply(Err("Colab could not answer.".into()));
+    app.work
+        .apply(Instant::now(), Err("Colab could not answer.".into()));
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     terminal
         .draw(|frame| crate::board::view::render(frame, &app))
@@ -228,7 +231,8 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
         });
         app.workspace_reconcile();
     } else {
-        app.work.apply(List::decode(&pages));
+        app.work
+            .apply(Instant::now(), List::decode(&pages).map_err(Into::into));
         key(&mut app, KeyCode::Char('2'));
         if scene == "work-done" {
             key(&mut app, KeyCode::Char('p'));
@@ -236,30 +240,101 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
             key(&mut app, KeyCode::Char('d'));
         }
         if scene == "work-stale" {
-            app.work.apply(Err("Colab owner list unavailable.".into()));
+            app.work
+                .apply(Instant::now(), Err("Colab owner list unavailable.".into()));
         }
     }
     if scene == "agents-work" {
-        app.work.apply(List::decode(&pages));
+        app.work
+            .apply(Instant::now(), List::decode(&pages).map_err(Into::into));
     }
     app
 }
 
 #[test]
-fn colab_work_coalesces_refreshes_into_one_trailing_read() {
+fn colab_work_rate_limits_normal_reads_and_coalesces_explicit_refreshes() {
     let mut state = State::default();
-    assert!(state.request());
-    state.requested = false;
-    assert!(!state.request());
-    state.requested = false;
-    assert!(!state.request());
-    state.apply(List::decode(&owner_list(1_800_000_000_000)));
-    assert!(
-        state.request(),
-        "the latest refresh reads once after delivery"
-    );
-    state.apply(List::decode(&owner_list(1_800_000_000_000)));
-    assert!(!state.request());
+    let now = Instant::now();
+    let delivered = || List::decode(&owner_list(1_800_000_000_000)).map_err(Into::into);
+    assert!(state.request(now));
+    state.apply(now + Duration::from_secs(2), delivered());
+    for seconds in [5, 10, 15, 59, 60, 61] {
+        assert!(!state.request(now + Duration::from_secs(seconds)));
+    }
+    assert!(state.request(now + Duration::from_secs(62)));
+    state.refresh();
+    state.refresh();
+    assert!(!state.request(now + Duration::from_secs(63)));
+    state.apply(now + Duration::from_secs(63), delivered());
+    assert!(state.request(now + Duration::from_secs(63)));
+    state.apply(now + Duration::from_secs(63), delivered());
+    assert!(!state.request(now + Duration::from_secs(64)));
+}
+
+#[test]
+fn colab_work_pauses_for_missing_or_old_colab_until_explicit_refresh() {
+    let now = Instant::now();
+    for unavailable in [ReadFailure::NotInstalled, ReadFailure::UpdateNeeded] {
+        let mut state = State::default();
+        assert!(state.request(now));
+        state.apply(now, Err(unavailable));
+        let later = now + Duration::from_secs(600);
+        assert!(!state.request(later));
+        state.refresh();
+        assert!(state.request(later));
+        state.apply(
+            later,
+            List::decode(&owner_list(1_800_000_000_000)).map_err(Into::into),
+        );
+        assert!(state.request(later + Duration::from_secs(60)));
+    }
+}
+
+#[test]
+fn colab_work_reads_once_across_workspace_snapshot_applies() {
+    use crate::board::{BoardEvent, app::tests::snapshot, session};
+    use std::{
+        cell::Cell,
+        sync::{atomic::AtomicUsize, mpsc::channel},
+    };
+
+    let mut app = board();
+    let (tx, rx) = channel();
+    let work_reads = Cell::new(0);
+    tx.send(BoardEvent::WorkRead {
+        result: List::decode(&owner_list(1_800_000_000_000)).map_err(Into::into),
+        cancellation: crate::runner::Cancellation::default(),
+    })
+    .unwrap();
+    for _ in 0..4 {
+        let mut next = snapshot(crate::board::ALL, json!([]));
+        next.view = Ok(board().view.take().unwrap());
+        tx.send(BoardEvent::Snapshot {
+            snapshot: Box::new(next),
+            cancellation: crate::runner::Cancellation::default(),
+        })
+        .unwrap();
+    }
+    tx.send(BoardEvent::InputClosed).unwrap();
+    session(
+        &mut app,
+        &AtomicUsize::new(0),
+        &rx,
+        |_, _, _, _| {},
+        |_, _| {},
+        |_| {},
+        |job| panic!("unexpected action {job:?}"),
+        |_| {},
+        |_| {},
+        || Ok(()),
+        || Ok(()),
+        None,
+        |_| Ok(()),
+        |_| {},
+        || work_reads.set(work_reads.get() + 1),
+    )
+    .unwrap();
+    assert_eq!(work_reads.get(), 1);
 }
 
 #[test]

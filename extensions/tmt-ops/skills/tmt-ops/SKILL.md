@@ -202,10 +202,10 @@ edit the user's notes for it.
 
 ## Startup tab
 
-`tmt ops ui --tab agents|digest` opens a fixed destination; `1` and `2` are
-aliases. The retired `overview` opens Agents. The flag wins over the global
-`[board] startup_tab` preference, which accepts `last` (default), `agents` or
-`digest`. `last` keeps the
+`tmt ops ui --tab agents|work|digest|orchestration` opens a fixed destination.
+The aliases `1` through `4` match the tab strip. The retired `overview` opens
+Agents. The flag wins over the global `[board] startup_tab` preference, which
+accepts the same destinations and `last` (default). `last` keeps the
 selected view layer's saved destination. Edit **startup tab** in Ops Config or
 run `tmt ops sq config set board.startup_tab digest`. Invalid authored values are
 ignored with a notice and left untouched; an invalid flag or edit is rejected.
@@ -361,7 +361,7 @@ partial usage still reads `—`: those windows use the full aggregate. It is an 
 list price, not a bill; the heading still sorts by tokens.
 The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
-and completion keep `1`/`2` as input.
+and completion keep `1` through `4` as input.
 
 The left list's rule carries the shared search field; totals sit at the bottom
 right of the squad tree. A squad row shows its lead-first TEAM strip in STATE,
@@ -584,7 +584,7 @@ in the effective footer, and the link line shows only its resolved target.
 These defaults are the same on every host (tmux, Herdr or unknown); a
 `[bind.<host>]` table only overrides keys for rows on that host and never changes
 the default of a host without one.
-Tab moves between the tree and conversation. `1`/`2`/`3` switch
+Tab moves between the tree and conversation. `1` through `4` switch
 sections only when an editor, search, completion, overlay or conversation has not
 claimed the key. Keyboard sort is opt-in: bind `sort` or
 `reverse-sort` in the usual binding table. Column headers sort without a binding:

@@ -161,7 +161,7 @@ pub(in crate::board) enum BoardEvent {
         result: Result<serde_json::Value, String>,
     },
     WorkRead {
-        result: Result<work::List, String>,
+        result: Result<work::List, work::ReadFailure>,
         cancellation: crate::runner::Cancellation,
     },
     WorkOpened(Result<(), String>),
@@ -1008,7 +1008,7 @@ fn session(
         if (app.shell.tab == shell::OpsTab::Work
             || app.shell.tab == shell::OpsTab::Agents && app.workspace_snapshot().is_some())
             && !app.framed()
-            && app.work.request()
+            && app.work.request(now)
         {
             work_read();
         }
@@ -1167,7 +1167,6 @@ fn session(
                                 app.selected_request = refresh::SelectedRequest::Ready(None);
                             }
                             app.apply(*snapshot);
-                            app.work.requested = false;
                             dirty = true;
                             Effect::None
                         } else {
@@ -1188,11 +1187,10 @@ fn session(
                         result,
                         cancellation,
                     }) => {
-                        app.work.pending = false;
                         if cancellation.cancelled() {
-                            app.work.requested = false;
+                            app.work.cancel(Instant::now());
                         } else {
-                            app.work.apply(result);
+                            app.work.apply(Instant::now(), result);
                             dirty = true;
                         }
                         Effect::None
@@ -1691,6 +1689,7 @@ fn session(
                         refreshed = Instant::now();
                     }
                     Effect::Refresh => {
+                        app.work.refresh();
                         revision += 1;
                         app.prepare_snapshot_refresh();
                         let history = app.history_demand();
