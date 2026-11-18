@@ -204,6 +204,33 @@ function RowStatus({ item, transport }: { item: WorkItem; transport: PageTranspo
   );
 }
 
+const IDENTITY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * The owner opens the conversation with that agent in Ops (spec 工作頁細節 › 操作). The link names
+ * the member only; Ops finds the member's squad on the board it reads, or says the member is
+ * unknown. An owner without an identity (a to-do's assignee name) is not a link.
+ */
+function OwnerCell({ owner }: { owner: NonNullable<WorkItem['owner']> }) {
+  const content = (
+    <>
+      <BrowserAvatar name={owner.name} kind="agent" size="s" decorative />
+      <span>{owner.name}</span>
+    </>
+  );
+  return owner.id && IDENTITY.test(owner.id) ? (
+    <a
+      className="tmt-ui-work-owner work-home-owner-link"
+      href={`/ops/#dm/${owner.id}`}
+      aria-label={t.talkTo(owner.name)}
+    >
+      {content}
+    </a>
+  ) : (
+    <span className="tmt-ui-work-owner">{content}</span>
+  );
+}
+
 function WorkRow({
   item,
   now,
@@ -233,12 +260,7 @@ function WorkRow({
       <span className="tmt-ui-work-next">
         {item.status === 'blocked' && item.next ? `Blocked: ${item.next}` : (item.next ?? '')}
       </span>
-      {item.owner ? (
-        <span className="tmt-ui-work-owner">
-          <BrowserAvatar name={item.owner.name} kind="agent" size="s" decorative />
-          <span>{item.owner.name}</span>
-        </span>
-      ) : null}
+      {item.owner ? <OwnerCell owner={item.owner} /> : null}
       <span className="tmt-ui-work-time">{age(item.lastMs, now)}</span>
     </div>
   );

@@ -1066,6 +1066,7 @@ export const text = {
   workHome: {
     statusDetails: (item: string) => `${item}, show status details`,
     statusReading: 'Reading the latest status…',
+    talkTo: (name: string) => `Talk to ${name} in Ops`,
     title: 'Work',
     summary: (open: number, moving: number, done: number) =>
       `${open} open · ${moving} ${moving === 1 ? 'agent' : 'agents'} moving · ${done} done in 7 days`,

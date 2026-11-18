@@ -21,7 +21,14 @@ import {
   type ConversationTalk,
 } from './conversation-history.js';
 import type { ConversationUnread } from './conversation-seen.js';
-import { OPS_SECTIONS, opsMenu, opsPlace, type OpsPlace } from './ops-menu.js';
+import {
+  OPS_SECTIONS,
+  opsHref,
+  opsMenu,
+  opsPlace,
+  resolveOpsPlace,
+  type OpsPlace,
+} from './ops-menu.js';
 import { forms, type RemoteForms } from './forms.js';
 import { FormsNotAllowed, opsForms } from './ops-forms.js';
 
@@ -61,7 +68,11 @@ export function opsPage(
   );
   let board: OpsBoard | undefined;
   const current = (): OpsPlace => {
-    const place = opsPlace(location.hash);
+    const asked = opsPlace(location.hash);
+    const place = resolveOpsPlace(asked, board);
+    // The resolved member address replaces the member-only one, so reload and history keep it.
+    if (place !== asked)
+      window.history.replaceState(window.history.state, '', opsHref(location.pathname, place));
     if (place !== 'home' || !board || board.unavailable) return place;
     const first = bySquad(board, true)[0];
     return first ? { squad: first.name } : 'home';

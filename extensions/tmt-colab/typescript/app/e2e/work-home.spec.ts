@@ -77,6 +77,11 @@ test('a Work home row shows status details from its dot and opens its page from 
   await expect(details).toContainText('PR #6470');
   await page.keyboard.press('Escape');
   await expect(details).toHaveCount(0);
+  // The owner opens the Ops conversation by identity; Ops resolves the squad (#6474).
+  await expect(home.getByRole('link', { name: 'Talk to gui-3 in Ops' }).first()).toHaveAttribute(
+    'href',
+    /^\/ops\/#dm\/[0-9a-f-]{36}$/,
+  );
   await home.getByRole('link', { name: 'Mockup toolbar has no spacing' }).click();
   await expect(page).toHaveURL(/#\/pages\/|\/pages\//);
 });

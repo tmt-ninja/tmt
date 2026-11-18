@@ -369,3 +369,17 @@
 .work-home-row-status:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
+
+/* The owner opens its Ops conversation; it sits above the row's title link. */
+.work-home-owner-link {
+  position: relative;
+  z-index: 1;
+  color: inherit;
+  text-decoration: none;
+}
+.work-home-owner-link:hover > span:last-child {
+  text-decoration: underline;
+}
+.work-home-owner-link:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}

@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vite-plus/test';
-import { opsMenu, opsSection, opsPlace, opsHref } from '../src/ops-menu.js';
+import { opsMenu, opsSection, opsPlace, opsHref, resolveOpsPlace } from '../src/ops-menu.js';
 import { visibleCurrent } from '@tmt/browser-ui/shell';
 import type { OpsAgent, OpsBoard } from '../src/ops-source.js';
 
@@ -82,6 +82,20 @@ it('routes channels and DMs by scoped UUID and sends removed routes to the chann
   for (const hash of ['#agents', '#squads', '#schedules', '#dm/name/alpha', '#channel/%broken'])
     expect(opsPlace(hash)).toBe('home');
   expect(opsSection('#orchestration')).toBe('orchestration');
+});
+
+it('resolves a member-only DM link to the member listed on the board, else keeps it unknown', () => {
+  const asked = opsPlace(`#dm/${first}`);
+  expect(asked).toEqual({ memberId: first, squad: '' });
+  expect(resolveOpsPlace(asked, board())).toEqual({
+    squad: board().agents[0]!.squad,
+    memberId: first,
+  });
+  const missing = opsPlace('#dm/00000000-0000-4000-8000-000000000999');
+  expect(resolveOpsPlace(missing, board())).toBe(missing);
+  expect(resolveOpsPlace(asked, undefined)).toBe(asked);
+  const full = { squad: 'sample', memberId: first };
+  expect(resolveOpsPlace(full, board())).toBe(full);
 });
 
 it('keeps selection and disclosure by identity and shows only verified unread counts', () => {
