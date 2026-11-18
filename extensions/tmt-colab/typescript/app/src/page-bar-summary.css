@@ -41,7 +41,7 @@
 }
 /* Narrower still, the number and title keep the room: the status leaves the bar, the page's own
    title row still shows it. */
-@container tmt-ui-topbar-title (width < 150px) {
+@container tmt-ui-topbar-title (width < 120px) {
   .page-bar-summary {
     display: none;
   }
