@@ -493,6 +493,12 @@ by exactly one and cite the prior signed statement hash. Clients persist their
 highest verified `(revision, hash)` before applying dependent state; lower
 heads, forks or unknown operations report “space state rolled back” and apply
 nothing. Backend membership/index records are only edge-admission projections.
+A browser tab may reuse its own earlier successful verification of a statement
+(#6456): only for the exact same envelope bytes, space, owner key and previous
+head (revision, hash and owner-member keys). Reuse is in memory for that tab,
+bounded, never persisted or shared between tabs, and never records a failure;
+any new or changed statement is verified in full. The durable log is rewritten
+only when its bytes change.
 
 A statement transport contains exactly `{statement, payload, signature}`; exact
 binary payload bytes are hashed in the statement. An owner-statement payload is

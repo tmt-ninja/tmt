@@ -6,13 +6,16 @@ import { Frames } from '../src/frames.js';
 import { Catchup } from '../src/catchup.js';
 import { Objects } from '../src/objects.js';
 import type { Registration } from '../src/registration.js';
+import { forgetVerifiedStatements } from '../src/verified-statements.js';
 
 const records = new Map<string, unknown>();
 let failWrite = false;
+let writes = 0;
 vi.mock('../src/storage.js', () => ({
   record: async (key: string, ...values: unknown[]) => {
     if (values.length) {
       if (failWrite) throw new Error('Fixture durable write failed');
+      writes++;
       records.set(key, structuredClone(values[0]));
     } else return records.get(key);
   },
@@ -383,6 +386,53 @@ function first(membershipHead: unknown = head()) {
     more: true,
   });
 }
+it('reuses a verified statement only for the same bytes, key and head, and skips an unchanged write (#6456)', async () => {
+  records.clear();
+  forgetVerifiedStatements();
+  const verify = vi.spyOn(c.statement.Envelope.prototype, 'verifyNext');
+  try {
+    const opened = admission();
+    await opened.membership(head(), true);
+    expect(verify).toHaveBeenCalledTimes(1);
+    // A second page open restores the same log: no statement is verified again, and a catch-up
+    // that adds nothing leaves the durable log unwritten.
+    const again = admission();
+    const writesBefore = writes;
+    // The fixture registration's certificate is valid at this clock (as in the restore case below).
+    vi.useFakeTimers();
+    vi.setSystemTime(50);
+    await again.restore();
+    vi.useRealTimers();
+    await again.membership({ ...head(), statements: [] }, true);
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(writes).toBe(writesBefore);
+    expect(again.head?.revision).toBe(1n);
+    // One changed signature byte, after a cached success of the original, is verified and refused.
+    const wire = JSON.parse(c.decodeText(c.binary(raw, STATEMENT_ENVELOPE_BYTES)));
+    const signature = c.binary(wire.signature, 64, 64);
+    signature[0] ^= 1;
+    const tampered = transport({ ...wire, signature: c.encodeBinary(signature) });
+    records.clear();
+    await expect(
+      admission().membership({ ...head(), statements: [tampered] }, true),
+    ).rejects.toThrow();
+    expect(verify).toHaveBeenCalledTimes(2);
+    // A different owner key verifies again, and refuses.
+    const other = new Uint8Array(root);
+    other[0] ^= 1;
+    const keyed = new Admission(v.space, v.page, '1', other, {
+      deviceId: v.page,
+      chain: c.certificate.Chain.fromJson(c.text(JSON.stringify(v.chain))),
+      issuer: c.statement.Envelope.fromJson(c.text(JSON.stringify(v.statement))),
+    } as Registration);
+    await expect(
+      keyed.membership({ ...head(), ownerKey: c.encodeBinary(other) }, true),
+    ).rejects.toThrow();
+    expect(verify).toHaveBeenCalledTimes(3);
+  } finally {
+    verify.mockRestore();
+  }
+});
 it('persists a verified root/log before dependent state, and rejects lower heads/forks', async () => {
   records.clear();
   const a = admission();

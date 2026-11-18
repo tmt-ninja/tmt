@@ -156,7 +156,17 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
       window.scrollTo(0, 0);
     });
     const frameWidth = (await element.boundingBox())?.width;
-    const pageHeight = await reader.page.evaluate(() => document.documentElement.scrollHeight);
+    // The frame re-measures its content after the width change: read the height once it holds
+    // across a few frames, not mid-resize.
+    const settledHeight = () =>
+      reader.page.evaluate(async () => {
+        const read = () => document.documentElement.scrollHeight;
+        const before = read();
+        for (let i = 0; i < 6; i++) await new Promise((done) => requestAnimationFrame(done));
+        return before === read() ? before : -1;
+      });
+    await expect.poll(settledHeight).toBeGreaterThan(0);
+    const pageHeight = await settledHeight();
     await (await readerAction(reader.page, 'Info')).click();
     await expect(reader.page.getByText('You are reading a shared page.')).toBeVisible();
     expect((await element.boundingBox())?.width).toBe(frameWidth);
