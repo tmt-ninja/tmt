@@ -99,6 +99,28 @@ fn colab_work_preserves_published_status_sanitizes_and_ranks_items() {
 }
 
 #[test]
+fn colab_work_projects_and_rows_do_not_require_order_data() {
+    let mut document = owner_list(1_800_000_000_000);
+    assert!(document.get("projectOrders").is_none());
+    for order_field in [None, Some(json!("opaque additive field"))] {
+        if let Some(value) = order_field {
+            document["projectOrders"] = value;
+        }
+        let list = List::decode_output(&serde_json::to_vec(&document).unwrap()).unwrap();
+        assert!(list.has_summary);
+        assert_eq!(list.projects, ["Colab", "Core"]);
+        assert_eq!(
+            list.items
+                .iter()
+                .filter(|item| item.projects.iter().any(|project| project == "Colab"))
+                .filter_map(|item| item.number.as_deref())
+                .collect::<Vec<_>>(),
+            ["COLAB-119", "COLAB-140", "COLAB-143", "COLAB-110"]
+        );
+    }
+}
+
+#[test]
 fn colab_work_binds_page_uuid_and_only_unique_exact_todo_names() {
     let app = board();
     let mut roster = super::super::workspace::OpsRoster {
