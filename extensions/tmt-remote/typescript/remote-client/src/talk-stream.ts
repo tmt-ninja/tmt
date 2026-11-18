@@ -6,6 +6,8 @@
  * asks Core again), an unknown outcome only observed and never sent again, and a Talk-grant refusal answered with the setting, not a
  * retry. Untrusted words stay text. */
 import { avatarInitials, browserUiClasses as c } from '@tmt/browser-ui/static';
+import { mountBrowserMenu } from '@tmt/browser-ui/menu-host';
+import { commandMentions } from './command-mentions.js';
 import { el } from './ops-parts.js';
 import type { MessageState, ResultState, SendNowState, SendState } from './operations.js';
 import type { ConversationItem } from './conversations.js';
@@ -123,7 +125,11 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * become inline code (kept literal); an @mention of a known name is marked. Nothing else is read as
  * markup.
  */
-export function richText(words: string, mentions: readonly string[] = []): (Node | string)[] {
+export function richText(
+  words: string,
+  mentions: readonly string[] = [],
+  commandAuthor?: string,
+): (Node | string)[] {
   const out: (Node | string)[] = [];
   const named = mentions.length
     ? new RegExp(
@@ -163,13 +169,47 @@ export function richText(words: string, mentions: readonly string[] = []): (Node
     }
     plain(text.slice(from));
   };
+  const ordinary = (text: string) => {
+    let from = 0;
+    for (const match of text.matchAll(/`([^`\n]+)`/g)) {
+      linked(text.slice(from, match.index));
+      out.push(el('code', 'ops-dm-code', match[1]!));
+      from = match.index + match[0].length;
+    }
+    linked(text.slice(from));
+  };
   let from = 0;
-  for (const match of words.matchAll(/`([^`\n]+)`/g)) {
-    linked(words.slice(from, match.index));
-    out.push(el('code', 'ops-dm-code', match[1]!));
-    from = match.index + match[0].length;
+  for (const mention of commandAuthor ? commandMentions(words) : []) {
+    const [start, end] = mention.range;
+    ordinary(words.slice(from, start));
+    const shown = words.slice(...mention.content);
+    const host = el('span', 'ops-dm-command');
+    const description = el('span', 'ops-dm-command-description');
+    description.append(el('strong', undefined, 'Command'), el('code', undefined, mention.command));
+    const status = el('span', 'ops-dm-command-status');
+    status.setAttribute('role', 'status');
+    mountBrowserMenu(host, {
+      label: `Command: ${shown}`,
+      triggerText: shown,
+      presentation: 'compact',
+      description,
+      items: [{ key: 'copy', label: 'Copy command' }],
+      onSelect() {
+        void (async () => {
+          try {
+            await navigator.clipboard.writeText(mention.command);
+            status.textContent = 'Command copied.';
+          } catch {
+            status.textContent = 'Could not copy the command.';
+          }
+        })();
+      },
+    });
+    host.append(status);
+    out.push(host);
+    from = end;
   }
-  linked(words.slice(from));
+  ordinary(words.slice(from));
   return out;
 }
 
@@ -187,6 +227,8 @@ export function messageRow(options: {
   mentions?: readonly string[];
   /** The words are a shortened preview: they end in an ellipsis and this says so on hover. */
   shortened?: string;
+  /** Canonical author of an agent message. Owner messages and notices leave it unset. */
+  commandAuthor?: string;
 }): HTMLElement {
   const row = el('li', 'ops-dm-message');
   if (options.self) row.dataset.self = '';
@@ -223,7 +265,9 @@ export function messageRow(options: {
   const text = el('p', 'ops-dm-message-text', words ?? 'Message preview unavailable');
   if (words === null || options.quiet) text.dataset.quiet = '';
   else {
-    text.replaceChildren(...richText(words, options.mentions));
+    text.replaceChildren(
+      ...richText(words, options.mentions, device ? undefined : options.commandAuthor),
+    );
     if (options.shortened) {
       text.append('…');
       text.title = options.shortened;
@@ -273,6 +317,9 @@ export function exchangeRows(
       self: fromMe,
       at: new Date(item.preparedAtMs),
       text: fullPost ?? item.preview,
+      ...(!fromMe && item.sender.kind === 'verified'
+        ? { commandAuthor: item.sender.identityId }
+        : {}),
       ...(item.previewTruncated && fullPost === undefined ? { shortened: SHORTENED_POST } : {}),
       ...(fromMe ? { state: deliveryText(item), mark: deliveryMark(item) } : {}),
     }),
@@ -289,6 +336,7 @@ export function exchangeRows(
         self: !fromMe,
         ...(item.final.status === 'retained' ? { at: new Date(item.final.submittedAtMs) } : {}),
         text: replyWords,
+        ...(fromMe && item.final.status === 'retained' ? { commandAuthor: item.recipientId } : {}),
         quiet: fullReply === undefined && item.responsePreview === null,
         ...(replyShortened ? { shortened: replyShortened } : {}),
       }),

@@ -11,16 +11,19 @@ use ratatui::layout::Rect;
 use std::cell::RefCell;
 
 impl App {
-    pub(in crate::board) fn command_popover(&mut self, shown: &str, anchor: Rect) -> Effect {
-        let Some(command) = commands::command(shown) else {
-            return Effect::None;
-        };
+    pub(in crate::board) fn command_popover(
+        &mut self,
+        mention: &commands::Command,
+        anchor: Rect,
+    ) -> Effect {
+        let command = mention.text.as_str();
         let identity = self.terminals_owner().map(str::to_owned);
         let target = identity
             .as_deref()
             .and_then(|id| self.member_link_target(id));
         let screen = self.member_links.borrow().screen;
-        let lines: Vec<_> = shown
+        let lines: Vec<_> = mention
+            .shown
             .split('\n')
             .flat_map(|line| chunks(line, LINE))
             .collect();
@@ -142,7 +145,13 @@ impl App {
 }
 
 #[cfg(test)]
-pub(super) fn capture_case(look: crate::look::Look, width: u16, height: u16) -> App {
+pub(super) fn capture_case(
+    look: crate::look::Look,
+    width: u16,
+    height: u16,
+    response: &str,
+    open: bool,
+) -> App {
     use crate::board::{
         app::workspace::tests::{MEMBER, board},
         inventory::Inventory,
@@ -158,8 +167,12 @@ pub(super) fn capture_case(look: crate::look::Look, width: u16, height: u16) -> 
         view.look = look;
         view.home.as_mut().unwrap().workspace.squad_looks.clear();
         view.replies = vec![
-            serde_json::json!({"recipientId":MEMBER,"requestId":"command-scene","response":"Please run `! printf '%s' 'hello from the terminal'`."}),
+            serde_json::json!({"recipientId":MEMBER,"requestId":"command-scene","response":response}),
         ];
+    }
+    app.focus = 1;
+    if !open {
+        return app;
     }
     app.terminals.finished(
         Completed::Listed(vec![(
@@ -185,7 +198,6 @@ pub(super) fn capture_case(look: crate::look::Look, width: u16, height: u16) -> 
         )]),
         0,
     );
-    app.focus = 1;
     let draw = |app: &App| {
         Terminal::new(TestBackend::new(width, height))
             .unwrap()
@@ -251,6 +263,13 @@ mod tests {
             .collect()
     }
 
+    fn marked_fixture(shown: &str) -> commands::Command {
+        commands::Command {
+            shown: shown.into(),
+            text: shown.strip_prefix("! ").unwrap().into(),
+        }
+    }
+
     #[test]
     fn selecting_and_opening_command_mentions_is_inert_then_run_queues_the_exact_command() {
         let mut app = reader("Please run `! printf '%s' 'one quoted value'` then `! pwd`.");
@@ -266,7 +285,7 @@ mod tests {
         assert!(app.terminals.offer(&[], None, 0).is_none());
         app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         assert!(
-            matches!(&app.member_links.borrow().focused.as_ref().unwrap().target, Target::Command(shown) if shown == "! printf '%s' 'one quoted value'")
+            matches!(&app.member_links.borrow().focused.as_ref().unwrap().target, Target::Command(mention) if mention.shown == "! printf '%s' 'one quoted value'")
         );
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let menu = app.menu.as_ref().expect("the shared menu opens");
@@ -289,7 +308,7 @@ mod tests {
     fn copy_drops_only_the_marker_and_run_cannot_hide_text_or_survive_resize() {
         let mut app = reader("`! printf '%s' 'a b'`");
         let anchor = Rect::new(4, 5, 8, 1);
-        app.command_popover("! printf '%s' 'a b'", anchor);
+        app.command_popover(&marked_fixture("! printf '%s' 'a b'"), anchor);
         let run = app
             .menu
             .as_ref()
@@ -322,7 +341,7 @@ mod tests {
         app.member_links
             .borrow_mut()
             .begin_frame(Rect::new(0, 0, 120, 40));
-        app.command_popover(&full, anchor);
+        app.command_popover(&marked_fixture(&full), anchor);
         let menu = app.menu.as_ref().unwrap();
         let header: Vec<_> = menu
             .entries
@@ -348,7 +367,7 @@ mod tests {
             ("! pwd".into(), Rect::new(0, 0, 40, 20)),
         ] {
             app.member_links.borrow_mut().begin_frame(screen);
-            app.command_popover(&command, anchor);
+            app.command_popover(&marked_fixture(&command), anchor);
             assert!(
                 !app.menu
                     .as_ref()

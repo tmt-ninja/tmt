@@ -287,15 +287,17 @@ session search/scope and reveals hidden squads without changing shared preferenc
 Esc or a click outside closes the menu. The menu flips above a mention near the
 bottom edge and never covers it. NO_COLOR keeps the underline.
 
-An agent's explicitly marked inline code (`! command`) or a fenced block whose body starts
-with `! ` is also a selectable mention. It opens the same adjacent menu, titled Command,
-with the complete command above Run in Terminal N, Run in a new terminal and Copy command.
-Opening does nothing; choosing Run confirms submission to that member's idle terminal shell.
-Run has no single-key accelerator: select its row and press Enter, or click the row. `y` copies.
-Copy removes only the leading `! ` marker. Run is unavailable for multiline/hidden input or
-when the whole command cannot fit at once; resize or copy instead. Use an empty shell prompt.
-An uncertain submission is never retried automatically. Ordinary shell fences, `!!` and
-full-width markers do not become command mentions.
+An agent's inline code or a closed fence starting with `! ` or `！ ` is a command mention.
+A closed `sh`, `bash`, `shell` or `zsh` fence uses its whole body. A closed `console`
+or `shell-session` fence uses each `$ ` prompt line separately and ignores output.
+An explicit leading marker takes precedence over the fence label.
+
+Select a mention to see the adjacent Command menu. Selecting Run confirms submission
+to that member's idle terminal shell. Run has no single-key accelerator. Press `y`
+to copy the exact command, with the recognized marker or prompt removed. Multiline
+commands are Copy only. For Run, the complete command must fit in the menu and the
+shell prompt must be empty. Resize or copy if the command does not fit. An uncertain
+submission stays unconfirmed.
 
 ## Reloading open boards
 

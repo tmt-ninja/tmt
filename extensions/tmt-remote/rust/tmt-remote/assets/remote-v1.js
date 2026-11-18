@@ -7287,7 +7287,7 @@ function niceMax(max) {
 	return 10 * base;
 }
 /** `count + 1` evenly spaced ticks from 0 to `max`. */
-function ticks(max, count = 4) {
+function ticks$1(max, count = 4) {
 	return Array.from({ length: count + 1 }, (_, at) => max * at / count);
 }
 /** 1.9B, 48.2M, 310K, 940: compact token and message counts. */
@@ -7416,7 +7416,7 @@ function seriesModel(options, width) {
 	const dataMax = stack ? stack.max : Math.max(0, ...options.series.flatMap((layer) => layer.values.map((v) => v ?? 0)), ...options.reference?.values.map((v) => v ?? 0) ?? []);
 	const max = options.max ?? (share ? 100 : niceMax(dataMax));
 	const height = options.height ?? 200;
-	const tickLabels = ticks(max, 4).map(format);
+	const tickLabels = ticks$1(max, 4).map(format);
 	const left = Math.max(MARGIN.left, Math.max(...tickLabels.map((label) => label.length)) * TICK_CHARACTER + TICK_GAP + TICK_INSET);
 	const inner = {
 		left,
@@ -7480,7 +7480,7 @@ function seriesModel(options, width) {
 	return {
 		width,
 		height,
-		grid: ticks(max, 4).map((tick, at) => ({
+		grid: ticks$1(max, 4).map((tick, at) => ({
 			y: yAt(tick),
 			x1: inner.left,
 			x2: inner.right,
@@ -10846,6 +10846,86 @@ function conversations(session, options = {}) {
 	};
 }
 //#endregion
+//#region src/command-mentions.ts
+var marked = (words) => /^(?:!|！) /.test(words) ? words.slice(2) : void 0;
+var opening = /^( {0,3})(`{3,}|~{3,})([^\r\n]*)/;
+var ticks = /`+/g;
+function commandMentions(source) {
+	const mentions = [];
+	function add(start, end, from, text, command) {
+		if (command.trim()) mentions.push({
+			range: [start, end],
+			content: [from, from + text.length],
+			command
+		});
+	}
+	function inline(from, to) {
+		const words = source.slice(from, to);
+		const delimiters = [...words.matchAll(ticks)];
+		const next = /* @__PURE__ */ new Map();
+		const matching = /* @__PURE__ */ new Map();
+		for (let i = delimiters.length - 1; i >= 0; i--) {
+			const length = delimiters[i][0].length;
+			const close = next.get(length);
+			if (close !== void 0) matching.set(i, close);
+			next.set(length, i);
+		}
+		for (let i = 0; i < delimiters.length; i++) {
+			const token = delimiters[i];
+			let slashes = 0;
+			while (words[token.index - slashes - 1] === "\\") slashes++;
+			if (slashes % 2) continue;
+			const close = matching.get(i);
+			if (close === void 0) continue;
+			const end = delimiters[close];
+			const start = token.index + token[0].length;
+			const shown = words.slice(start, end.index);
+			const command = marked(shown);
+			if (command !== void 0) add(from + token.index, from + end.index + end[0].length, from + start, shown, command);
+			i = close;
+		}
+	}
+	const lines = [...source.matchAll(/[^\n]*(?:\n|$)/g)];
+	let inlineStart = 0;
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		const match = opening.exec(line[0]);
+		if (!match || match[2][0] === "`" && match[3].includes("`")) {
+			if (/^(?: {4}|\t)/.test(line[0]) || !line[0].trim()) {
+				inline(inlineStart, line.index);
+				inlineStart = line.index + line[0].length;
+			}
+			continue;
+		}
+		inline(inlineStart, line.index);
+		const delimiter = match[2];
+		const close = new RegExp(`^ {0,3}${delimiter[0]}{${delimiter.length},}[ \t]*\r?\n?$`);
+		const from = line.index + line[0].length;
+		const label = match[3].trim().split(/\s+/, 1)[0].toLowerCase();
+		let closing = i + 1;
+		while (closing < lines.length && !close.test(lines[closing][0])) closing++;
+		if (closing === lines.length) return mentions;
+		const end = lines[closing];
+		const body = source.slice(from, end.index).replace(/\r?\n$/, "");
+		const command = marked(body);
+		if (command !== void 0 || [
+			"sh",
+			"bash",
+			"shell",
+			"zsh"
+		].includes(label)) add(line.index + match[1].length, end.index + end[0].replace(/\r?\n$/, "").length, from, body, command ?? body);
+		else if (label === "console" || label === "shell-session") for (let j = i + 1; j < closing; j++) {
+			const prompt = lines[j];
+			const shown = prompt[0].replace(/\r?\n$/, "");
+			if (shown.startsWith("$ ")) add(prompt.index, prompt.index + shown.length, prompt.index, shown, shown.slice(2));
+		}
+		i = closing;
+		inlineStart = end.index + end[0].length;
+	}
+	inline(inlineStart, source.length);
+	return mentions;
+}
+//#endregion
 //#region src/talk-stream.ts
 /** The talk stream shared by the Ops DM and channel (#5704, spec 8d17ce7c screens 1-3): messages
 * anchored at the bottom with day separators, each message's delivery under it and replies as their
@@ -10939,7 +11019,7 @@ var escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 * become inline code (kept literal); an @mention of a known name is marked. Nothing else is read as
 * markup.
 */
-function richText(words, mentions = []) {
+function richText(words, mentions = [], commandAuthor) {
 	const out = [];
 	const named = mentions.length ? new RegExp(`(@(?:${[...mentions].sort((a, b) => b.length - a.length).map(escape).join("|")}))(?![\\w-])`) : void 0;
 	const plain = (text) => {
@@ -10971,13 +11051,50 @@ function richText(words, mentions = []) {
 		}
 		plain(text.slice(from));
 	};
+	const ordinary = (text) => {
+		let from = 0;
+		for (const match of text.matchAll(/`([^`\n]+)`/g)) {
+			linked(text.slice(from, match.index));
+			out.push(el("code", "ops-dm-code", match[1]));
+			from = match.index + match[0].length;
+		}
+		linked(text.slice(from));
+	};
 	let from = 0;
-	for (const match of words.matchAll(/`([^`\n]+)`/g)) {
-		linked(words.slice(from, match.index));
-		out.push(el("code", "ops-dm-code", match[1]));
-		from = match.index + match[0].length;
+	for (const mention of commandAuthor ? commandMentions(words) : []) {
+		const [start, end] = mention.range;
+		ordinary(words.slice(from, start));
+		const shown = words.slice(...mention.content);
+		const host = el("span", "ops-dm-command");
+		const description = el("span", "ops-dm-command-description");
+		description.append(el("strong", void 0, "Command"), el("code", void 0, mention.command));
+		const status = el("span", "ops-dm-command-status");
+		status.setAttribute("role", "status");
+		mountBrowserMenu(host, {
+			label: `Command: ${shown}`,
+			triggerText: shown,
+			presentation: "compact",
+			description,
+			items: [{
+				key: "copy",
+				label: "Copy command"
+			}],
+			onSelect() {
+				(async () => {
+					try {
+						await navigator.clipboard.writeText(mention.command);
+						status.textContent = "Command copied.";
+					} catch {
+						status.textContent = "Could not copy the command.";
+					}
+				})();
+			}
+		});
+		host.append(status);
+		out.push(host);
+		from = end;
 	}
-	linked(words.slice(from));
+	ordinary(words.slice(from));
 	return out;
 }
 function messageRow(options) {
@@ -11018,7 +11135,7 @@ function messageRow(options) {
 	const text = el("p", "ops-dm-message-text", words ?? "Message preview unavailable");
 	if (words === null || options.quiet) text.dataset.quiet = "";
 	else {
-		text.replaceChildren(...richText(words, options.mentions));
+		text.replaceChildren(...richText(words, options.mentions, device ? void 0 : options.commandAuthor));
 		if (options.shortened) {
 			text.append("…");
 			text.title = options.shortened;
@@ -11053,6 +11170,7 @@ function exchangeRows(item, names, fullReply, fullPost, now) {
 		self: fromMe,
 		at: new Date(item.preparedAtMs),
 		text: fullPost ?? item.preview,
+		...!fromMe && item.sender.kind === "verified" ? { commandAuthor: item.sender.identityId } : {},
 		...item.previewTruncated && fullPost === void 0 ? { shortened: SHORTENED_POST } : {},
 		...fromMe ? {
 			state: deliveryText(item),
@@ -11068,6 +11186,7 @@ function exchangeRows(item, names, fullReply, fullPost, now) {
 		self: !fromMe,
 		...item.final.status === "retained" ? { at: new Date(item.final.submittedAtMs) } : {},
 		text: replyWords,
+		...fromMe && item.final.status === "retained" ? { commandAuthor: item.recipientId } : {},
 		quiet: fullReply === void 0 && item.responsePreview === null,
 		...replyShortened ? { shortened: replyShortened } : {}
 	}));
@@ -12024,7 +12143,8 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 				self: false,
 				...side.at ? { at: side.at } : {},
 				text: side.words ?? "Reading the reply…",
-				quiet: !side.read
+				quiet: !side.read,
+				...side.read && names().has(side.item.recipientId) ? { commandAuthor: side.item.recipientId } : {}
 			}));
 		}
 		threadList.replaceChildren(...rows);

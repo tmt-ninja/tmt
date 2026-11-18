@@ -317,6 +317,29 @@ impl App {
     }
 }
 
+/// Captures only command action targets using the same hit map as pointer and read focus.
+#[cfg(test)]
+pub(in crate::board) fn capture_command_hits(app: &App) -> serde_json::Value {
+    let links = app.member_links.borrow();
+    let hits: Vec<_> = links
+        .hits
+        .iter()
+        .filter_map(|hit| {
+            let Target::Command(command) = &hit.target else {
+                return None;
+            };
+            Some(serde_json::json!({
+                "rect": [hit.area.x, hit.area.y, hit.area.width, hit.area.height],
+                "command": command.text,
+                "shown": command.shown,
+                "occurrence": hit.occurrence,
+                "reader": hit.reader,
+            }))
+        })
+        .collect();
+    serde_json::json!(hits)
+}
+
 /// The oracle's link scenes: the popover for a link in the chat, without a browser, and the
 /// whole address. The address is fixed and synthetic.
 #[cfg(test)]
@@ -325,6 +348,7 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "link-no-browser",
     "link-full",
     "command-popover",
+    "command-forms",
 ];
 
 #[cfg(test)]
@@ -334,8 +358,37 @@ pub(in crate::board) fn capture_case(
     width: u16,
     height: u16,
 ) -> App {
-    if scene == "command-popover" {
-        return super::command_popover::capture_case(look, width, height);
+    match scene {
+        "command-popover" => {
+            return super::command_popover::capture_case(
+                look,
+                width,
+                height,
+                "Please run `! printf '%s' 'hello from the terminal'`.",
+                true,
+            );
+        }
+        "command-forms" => {
+            return super::command_popover::capture_case(
+                look,
+                width,
+                height,
+                concat!(
+                    "Run `！ pwd`.\n\n",
+                    "~~~bash\n",
+                    "printf first\n",
+                    "printf second\n",
+                    "~~~\n\n",
+                    "```console\n",
+                    "$ ls -l\n",
+                    "! output\n",
+                    "$ whoami\n",
+                    "```",
+                ),
+                false,
+            );
+        }
+        _ => {}
     }
 
     use crate::board::app::workspace::tests::{MEMBER, board};

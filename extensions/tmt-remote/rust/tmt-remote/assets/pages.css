@@ -2225,6 +2225,31 @@ body:not(:has(.tmt-ui-shell)) {
   font-family: var(--tmt-ui-font-mono);
   font-size: 0.9em;
 }
+.ops-dm-command .tmt-ui-menu[data-presentation='compact'] {
+  max-width: 100%;
+  width: auto;
+}
+.ops-dm-command .tmt-ui-menu[data-presentation='compact'] .tmt-ui-menu-trigger {
+  height: auto;
+  padding: 0 3px;
+  border: 0;
+  color: inherit;
+  font: 0.9em var(--tmt-ui-font-mono);
+  text-decoration: underline;
+}
+.ops-dm-command .tmt-ui-menu[data-presentation='compact'] .tmt-ui-menu-value,
+.ops-dm-command-description code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.ops-dm-command-description {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  user-select: text;
+}
+.ops-dm-command-status:empty {
+  display: none;
+}
 /* A message that continues the one above (same sender, same people, within five minutes) has no
  * face or header of its own; its time shows beside it under the pointer. The header stays for
  * screen readers. */

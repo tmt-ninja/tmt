@@ -36,6 +36,46 @@ async function shot(page: Page, name: string) {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: join(root, name + '.png'), fullPage: true });
 }
+test('an agent command opens a Copy menu and copies the exact source', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.dmEnabled = true;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: (text: string) => Promise.resolve(sessionStorage.setItem('copied', text)),
+      },
+    });
+  });
+  await open(page);
+  await page.evaluate(() => {
+    const item = window.dmNewest.items[0]!;
+    item.preview = 'Owner wrote `! pwd`.';
+    const response = "Try `！ printf '%s' '界  '`.";
+    item.responsePreview = response;
+    if (item.final.status === 'retained')
+      item.final.bodyBytes = new TextEncoder().encode(response).length;
+  });
+  await details(page);
+  await memberLink(page, 'sample-1').click();
+  const trigger = conversation(page).getByRole('button', {
+    name: /^Command: ！ printf/,
+  });
+  await expect(conversation(page).getByRole('button', { name: 'Command: ! pwd' })).toHaveCount(0);
+  await expect(trigger).toBeVisible();
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  expect(await menu.locator('code').textContent()).toBe("printf '%s' '界  '");
+  await expect(menu.getByRole('menuitem')).toHaveText('Copy command');
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('copied'))).toBeNull();
+  await menu.getByRole('menuitem', { name: 'Copy command' }).click();
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('copied')))
+    .toBe("printf '%s' '界  '");
+  await expect(trigger).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.dmSends.length)).toBe(0);
+});
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'])
     test(`local channel and UUID DM are read-only at ${width} ${theme}`, async ({ page }) => {
@@ -719,7 +759,7 @@ test('channel posts to the lead or each mention with the board room, and shows r
       'req_00000011-cccc-4ccc-8ccc-cccccccccccc': {
         state: 'replied',
         requestId: 'req_00000011-cccc-4ccc-8ccc-cccccccccccc',
-        message: 'On it.',
+        message: 'On it.\n\n```console\n$ pwd\n! output\n```',
       },
     };
   });
@@ -759,6 +799,11 @@ test('channel posts to the lead or each mention with the board room, and shows r
   const thread = page.getByRole('complementary', { name: 'Thread' });
   await expect(thread).toContainText('sample-lead→ You');
   await expect(thread).toContainText('On it.');
+  await thread.getByRole('button', { name: 'Command: $ pwd', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Copy command' })).toBeVisible();
+  await expect(thread.getByRole('button', { name: 'Command: ! output' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(thread).toBeVisible();
   await expect(thread.getByRole('heading')).toHaveText('Ask @sample-2 <b>about</b> the plan');
   await expect(summary).toHaveAttribute('aria-expanded', 'true');
   // Leaving the channel closes its thread; coming back shows the channel.

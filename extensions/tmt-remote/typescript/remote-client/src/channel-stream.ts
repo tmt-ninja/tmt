@@ -346,6 +346,9 @@ export function channelStream(
           ...(side.at ? { at: side.at } : {}),
           text: side.words ?? 'Reading the reply…',
           quiet: !side.read,
+          ...(side.read && names().has(side.item.recipientId)
+            ? { commandAuthor: side.item.recipientId }
+            : {}),
         }),
       );
     }
