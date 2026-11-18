@@ -5,6 +5,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
@@ -16,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 
 const script = fileURLToPath(new URL('../../../scripts/ci-wake.sh', import.meta.url));
 const HEAD = 'a'.repeat(40);
+const UUID = '8a52db56-081f-42cb-b47c-31e4a1b1b2a9';
 
 let root: string;
 let bin: string;
@@ -54,10 +56,27 @@ esac`
   tool(
     'tmt',
     `case $1 in
-  identity) [ ! -f "$HOME/no-identity" ] || exit 3 ;;
+  identity)
+    [ ! -f "$HOME/no-identity" ] || exit 3
+    printf '%s\\n' "$*" >> "$HOME/identity.log"
+    if [ -f "$HOME/pull-count" ] && [ -f "$HOME/identity-json" ]; then
+      cat "$HOME/identity-json"
+    else
+      printf '%s\\n' '{"identity":{"id":"${UUID}","name":"core-ops","canonicalName":"core-ops","lifetime":"saved"},"resume":null}'
+    fi ;;
   talk)
     printf '%s|pane=%s|tmux=%s\\n' "$*" "\${TMUX_PANE-unset}" "\${TMUX-unset}" >> "$HOME/talk.log"
-    [ ! -f "$HOME/talk-fails" ] || exit 1 ;;
+    case " $* " in
+      *' --expect-name '*) printf '%s\\n' '--expect-name needs --remote' >&2; exit 2 ;;
+    esac
+    if [ "$2" = "${UUID}" ]; then
+      printf '%s\\n' 'Local talk needs a name' >&2
+      exit 3
+    fi
+    if [ -f "$HOME/talk-fails" ]; then
+      printf '%s\\n' 'fixture delivery failure' 'second diagnostic line' >&2
+      exit 1
+    fi ;;
 esac`
   );
   // A fake clock that only a nap advances, so the cap is reached by naps, never by how
@@ -249,6 +268,64 @@ describe('scripts/ci-wake.sh', () => {
     expect(result.stdout).toContain('wake could not be sent to core-ops; not retried');
   });
 
+  it.each([
+    { identity: 'core-ops', target: 'core-ops' },
+    { identity: UUID, target: 'core-ops' },
+    { identity: UUID, target: 'renamed-ops' },
+  ])('delivers $identity by the current local name $target without jq', ({ identity, target }) => {
+    const c = newCase([open, 'closed true ' + HEAD], {
+      'identity-json': JSON.stringify({ identity: { id: UUID, name: target } }),
+    });
+    const posixBin = path.join(c.home, 'posix-bin');
+    mkdirSync(posixBin);
+    // The ambient system may ship jq, including under /usr/bin.
+    for (const tool of [
+      'awk',
+      'cat',
+      'chmod',
+      'date',
+      'env',
+      'grep',
+      'mkdir',
+      'rm',
+      'sed',
+      'tr',
+      'wc',
+    ]) {
+      const source = ['/usr/bin', '/bin'].map((dir) => path.join(dir, tool)).find(existsSync);
+      if (!source) throw new Error(`Missing POSIX fixture tool: ${tool}`);
+      symlinkSync(source, path.join(posixBin, tool));
+    }
+    const result = c.run(['42', '--identity', identity, '--foreground', '--until', 'merged'], {
+      PATH: `${bin}${path.delimiter}${posixBin}`,
+    });
+    expect(result.status).toBe(0);
+    const lookup = 'identity show ' + identity + ' --json';
+    expect(c.lines('identity.log')).toEqual(identity === UUID ? [lookup, lookup] : [lookup]);
+    expect(c.lines('talk.log')).toEqual([
+      `talk ${target} ci-wake #42 aaaaaaaaaaaa: merged --detach --urgent --kind fyi|pane=unset|tmux=unset`,
+    ]);
+    const log = /; log (\S+)\n$/.exec(result.stdout)![1];
+    expect(existsSync(log)).toBe(false);
+  });
+
+  it.each([
+    { id: '11111111-1111-4111-8111-111111111111', name: 'core-ops' },
+    { id: UUID, name: 'name with spaces' },
+  ])('refuses UUID delivery with mismatched or unsafe identity JSON ($name)', ({ id, name }) => {
+    const c = newCase(['closed true ' + HEAD], {
+      'identity-json': JSON.stringify({
+        identity: { id, name },
+        resume: { id: UUID, name: 'core-ops' },
+      }),
+    });
+    const result = c.run(['42', '--identity', UUID, '--foreground']);
+    expect(result.status).toBe(3);
+    const log = /; log (\S+)\n$/.exec(result.stdout)![1];
+    expect(readFileSync(log, 'utf8')).toContain('to a safe local name; not sent');
+    expect(c.lines('talk.log')).toEqual([]);
+  });
+
   it('starts one detached wait with an owner-only log and returns at once', () => {
     const c = newCase([open, `closed true ${HEAD}`]);
     const result = c.run(['42', '--identity', 'core-ops', '--until', 'merged']);
@@ -322,6 +399,8 @@ describe('scripts/ci-wake.sh', () => {
     const evidence = readFileSync(log, 'utf8');
     expect(evidence).toContain('requested foreground mode');
     expect(evidence).toContain('waiter started pid=');
+    expect(evidence).toContain('wake delivery error: fixture delivery failure');
+    expect(evidence).not.toContain('second diagnostic line');
     expect(evidence).toContain('waiter exit status=3 phase=notification reason=exit');
     expect(statSync(log).mode & 0o777).toBe(0o600);
   });

@@ -151,11 +151,34 @@ wake() {
   phase=notification
   text="ci-wake #$pr ${head%"${head#????????????}"}: $1"
   note "$text"
-  if anonymous "$TMT" talk "$self" "$text" --detach --urgent --kind fyi >/dev/null 2>&1; then
+  target=$self
+  if [ "$self" != 00000000-0000-0000-0000-000000000000 ] &&
+     printf '%s\n' "$self" | LC_ALL=C grep -Eq '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'; then
+    # Local talk accepts only names. Re-resolve before sending so a rename
+    # during the wait does not send to the previous holder of that name.
+    identity=$(anonymous "$TMT" identity show "$self" --json 2>/dev/null) || identity=
+    prefix='{"identity":{"id":"'"$self"'","name":"'
+    target=
+    case $identity in
+      "$prefix"*)
+        target=$(printf '%s\n' "${identity#"$prefix"}" | LC_ALL=C sed -n \
+          '1s/^\([A-Za-z0-9][A-Za-z0-9._-]\{0,63\}\)"[,}].*$/\1/p')
+        ;;
+    esac
+    if [ -z "$target" ]; then
+      note "wake could not resolve $self to a safe local name; not sent"
+      exit 3
+    fi
+  fi
+  if delivery_error=$(anonymous "$TMT" talk "$target" "$text" --detach --urgent --kind fyi 2>&1 >/dev/null); then
     # Delivered: the log has nothing left to explain.
     exit_reason=delivered
     [ -z "$log" ] || rm -f "$log"
     exit 0
+  fi
+  if [ -n "$delivery_error" ]; then
+    first_line=$(printf '%s\n' "$delivery_error" | awk 'NR == 1 { print substr($0, 1, 500); exit }')
+    note "wake delivery error: $first_line"
   fi
   note "wake could not be sent to $self; not retried"
   exit 3
