@@ -336,7 +336,7 @@
       "  SQUAD / AGENT ↑   STATE            TOK 1h  ◷ │ product · member · — · — · tmux",
       " ▸ Common pool                            —  — │",
       " ▾ product          ●                     —  — │── Conversation ────────────────────────────────────",
-      "   └ worker         ⠋ working             —  — │ worker → Owner                          20743d ago",
+      "   └ worker z open  ⠋ working             —  — │ worker → Owner                          20743d ago",
       "                                               │  First response line",
       "                                               │  Second response line",
       "                                               │  Third response line",

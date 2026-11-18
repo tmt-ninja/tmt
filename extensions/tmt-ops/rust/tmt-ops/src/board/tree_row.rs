@@ -11,7 +11,7 @@ use ratatui::{
 };
 use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::{components::strip, style::TextFlow};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Where the agent's name sits among the spans of its cell: pin, branch, lead mark, name.
 const NAME_SPAN: usize = 5;
@@ -249,6 +249,8 @@ pub(in crate::board) fn paint(
         let fit = |value: &str, align| {
             tmt_tui::text::fit_line(value, cell.width, TextFlow::Truncate, align)
         };
+        let mut open_hint = None;
+        let mut original_name = None;
         let mut line = match field {
             AgentsField::Agent => {
                 let member = matches!(row.source.target, OpsTarget::Member { .. });
@@ -280,6 +282,22 @@ pub(in crate::board) fn paint(
                 let name_width = usize::from(cell.width).saturating_sub(
                     1 + branch.width() + usize::from(row.source.lead) + 4 * usize::from(show_label),
                 );
+                let name = crate::board::notes::single_line(&row.source.title);
+                open_hint = row.open_hint.as_ref().filter(|hint| {
+                    let available = name_width.saturating_sub(hint.width() + 1);
+                    let first = name
+                        .chars()
+                        .next()
+                        .and_then(UnicodeWidthChar::width)
+                        .unwrap_or(0);
+                    let minimum = first + usize::from(name.width() > available);
+                    first > 0 && available >= minimum && name_width > hint.width()
+                });
+                let fitted_width =
+                    name_width.saturating_sub(open_hint.map_or(0, |hint| hint.width() + 1));
+                if open_hint.is_some() && !row.query.is_empty() && name.width() > fitted_width {
+                    original_name = Some(name.clone());
+                }
                 // Keep the leading gutter aligned with the squad tree.
                 Line::from(vec![
                     Span::styled(" ", look.role(Role::Muted)),
@@ -300,10 +318,7 @@ pub(in crate::board) fn paint(
                         look.role(Role::Muted),
                     ),
                     Span::styled(
-                        crate::board::view::fit(
-                            &crate::board::notes::single_line(&row.source.title),
-                            name_width,
-                        ),
+                        crate::board::view::fit(&name, fitted_width),
                         look.role(Role::Text),
                     ),
                 ])
@@ -386,28 +401,26 @@ pub(in crate::board) fn paint(
         {
             name.style = name.style.add_modifier(Modifier::BOLD);
         }
-        if matches!(field, AgentsField::Agent)
-            && let Some(hint) = &row.open_hint
-            && let Some(name) = line.spans.get(NAME_SPAN)
-        {
-            // The fitted name is padded to its whole cell. Only that trailing padding can
-            // yield to the hint; a clipped name keeps all its existing cells and ellipsis.
-            let padding = name.content.len() - name.content.trim_end_matches(' ').len();
-            let remaining = usize::from(cell.width).saturating_sub(line.width()) + padding;
-            // Keep the pane edge free as well as the gap after the name.
-            if remaining > hint.width() + 1 {
-                let name = &mut line.spans[NAME_SPAN];
-                name.content = name.content.trim_end_matches(' ').to_owned().into();
-                line.spans
-                    .push(Span::raw(" ".repeat(remaining - hint.width() - 1)));
-                line.spans.extend(hint.spans.clone());
-                line.spans.push(Span::raw(" "));
+        if let Some(hint) = open_hint {
+            // Keep the hint and its padding outside the row's span styling.
+            let name = &mut line.spans[NAME_SPAN];
+            let trimmed = name.content.trim_end_matches(' ');
+            let padding = name.content.len() - trimmed.len();
+            name.content = trimmed.to_owned().into();
+            if padding > 0 {
+                line.spans.push(Span::raw(" ".repeat(padding)));
             }
+            line.spans.extend(hint.spans.clone());
+            line.spans.push(Span::raw(" "));
         }
         strip::paint_left(
             buffer,
             cell,
-            crate::board::search_field::highlight_line(line, row.query),
+            crate::board::search_field::highlight_line_with_fitted_span(
+                line,
+                row.query,
+                original_name.as_deref().map(|name| (NAME_SPAN, name)),
+            ),
         );
     }
     painted
@@ -643,10 +656,11 @@ mod tests {
                 app.look(),
             );
             let shown: String = after.content.iter().map(|cell| cell.symbol()).collect();
-            assert!(
-                shown.starts_with(name.trim_end()),
-                "hint clipped name at width {width}: {name:?} -> {shown:?}"
-            );
+            if shown.contains("z open") {
+                assert!(shown.ends_with(" z open "), "{shown}");
+            } else {
+                assert_eq!(shown, name, "hidden hint changed the row at width {width}");
+            }
             if width == 40 {
                 assert!(shown.contains("z open"), "{shown}");
             }

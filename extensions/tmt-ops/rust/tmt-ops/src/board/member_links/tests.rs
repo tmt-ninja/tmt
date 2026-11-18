@@ -1641,30 +1641,51 @@ fn selected_member_open_hint_uses_the_authored_jump_key_and_hides_when_unavailab
 }
 
 #[test]
-fn an_open_hint_yields_the_pane_edge_without_clipping_its_word_or_the_name() {
+fn an_open_hint_remains_visible_next_to_a_clipped_long_name() {
+    use crate::board::app::workspace::tests::{MEMBER, ROOM, assert_open_hint_cell};
     use ratatui::{Terminal, backend::TestBackend};
-    let app = crate::board::app::workspace::tests::capture_case(
-        "action-needed",
-        crate::look::Look::default(),
-    );
-    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
-    terminal
-        .draw(|frame| crate::board::view::render(frame, &app))
-        .unwrap();
-    let lines: Vec<String> = terminal
-        .backend()
-        .buffer()
-        .content
-        .chunks(160)
-        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
-        .collect();
-    let selected = lines
-        .iter()
-        .find(|line| line.contains("worker") && line.contains('└'))
-        .unwrap();
-    assert!(
-        selected.contains("z open") || !selected.contains("z ope"),
-        "the hint is whole or hidden: {selected}"
-    );
-    assert!(selected.contains("worker"), "{selected}");
+    use tmt_cli_style::{Base, Depth, Theme};
+    for (name, base, depth) in [
+        (
+            "worker-with-a-very-long-member-name",
+            Base::Terminal,
+            Depth::Ansi16,
+        ),
+        ("界界界界界界界界界界界界界界界界", Base::Tmt, Depth::None),
+    ] {
+        let mut app = crate::board::app::workspace::tests::configured_member(
+            "",
+            serde_json::json!({"id":MEMBER,"name":name,"presence":"active","pane":{"id":"%3","location":{"host":"tmux"}}}),
+        );
+        let look = crate::look::Look {
+            theme: Theme::new(base),
+            depth,
+        };
+        let view = app.view.as_mut().unwrap();
+        view.look = look;
+        let workspace = &mut view.home.as_mut().unwrap().workspace;
+        workspace.squad_looks.insert(ROOM.into(), look);
+        workspace.roster.members.get_mut(MEMBER).unwrap().name = name.into();
+        app.overview_rows.borrow_mut().clear();
+        let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let lines: Vec<String> = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(160)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+        let selected = lines.iter().find(|line| line.contains('└')).unwrap();
+        let (name, _) = selected.split_once(" z open ").expect(selected);
+        assert!(name.trim_end().ends_with('…'), "{selected}");
+        let row = lines.iter().position(|line| line == selected).unwrap();
+        let cells = &terminal.backend().buffer().content[row * 160..(row + 1) * 160];
+        let key = cells.iter().position(|cell| cell.symbol() == "z").unwrap();
+        for (offset, cell) in cells[key - 1..key + 6].iter().enumerate() {
+            assert_open_hint_cell(cell, look, offset as u16);
+        }
+    }
 }

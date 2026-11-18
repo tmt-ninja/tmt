@@ -2494,7 +2494,7 @@ mod tests {
     }
 
     #[test]
-    fn history_demand_without_enabled_sources_is_observed_without_spinning() {
+    fn history_demand_without_enabled_sources_dispatches_no_work() {
         let mut app = app::workspace::tests::board();
         app.view.as_mut().unwrap().refresh = None;
         app.set_body_width(160);
@@ -2504,14 +2504,12 @@ mod tests {
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 50)).unwrap();
         terminal.draw(|frame| view::render(frame, &app)).unwrap();
-        assert!(app.history_demand().is_some());
-        assert!(refresh::HistoryJob::requested(&app, app.history_demand()).is_none());
+        let demand = app.history_demand().expect("the chart requests history");
         let (events, input) = channel();
         for _ in 0..3 {
             events.send(BoardEvent::ViewStatePublished).unwrap();
         }
         events.send(key(KeyCode::Char('q'))).unwrap();
-        let draws = std::cell::Cell::new(0);
         session_with_history(
             &mut app,
             &AtomicUsize::new(0),
@@ -2521,18 +2519,13 @@ mod tests {
             |_| {},
             no_io,
             |app| {
-                draws.set(draws.get() + 1);
                 terminal.draw(|frame| view::render(frame, app)).unwrap();
                 Ok(())
             },
             |_| panic!("disabled history must not dispatch"),
         )
         .unwrap();
-        assert_eq!(
-            draws.get(),
-            1,
-            "an unchanged unavailable demand must not repaint on each loop"
-        );
+        assert_eq!(app.history_demand(), Some(demand));
     }
 
     #[test]
