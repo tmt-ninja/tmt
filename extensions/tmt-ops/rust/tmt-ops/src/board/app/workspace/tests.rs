@@ -698,8 +698,13 @@ fn compact_workspace_labels_keep_name_state_and_complete_source_units() {
     )]);
     for width in [40, 60, 100] {
         let row = painted_member_row(&app, width, 36);
+        let expected_name = if width == 40 {
+            "work… z open"
+        } else {
+            "worker"
+        };
         assert!(
-            row.contains("worker") && row.contains("● working"),
+            row.contains(expected_name) && row.contains("● working"),
             "{width}: {row}"
         );
         assert!(!row.contains("Auto"), "{width}: {row}");
@@ -858,11 +863,8 @@ fn frame_rows_never_retain_old_roster_filter_or_membership_authority() {
         .get_mut(MEMBER)
         .unwrap()
         .name = "renamed-worker".into();
-    assert!(
-        paint(&app, 160, 36)
-            .iter()
-            .any(|line| line.contains("renamed-worker"))
-    );
+    let renamed = painted_member_row(&app, 160, 36);
+    assert!(renamed.contains("renamed… z open"), "{renamed}");
     app.search = "no-match".into();
     app.workspace_reconcile();
     paint(&app, 80, 24);
@@ -5006,24 +5008,32 @@ fn committed_search_count_lives_in_filter_and_highlights_matching_name() {
         .borrow()
         .iter()
         .find_map(|hit| match hit.target {
-            HitTarget::Row(index) if app.workspace_rows()[index].title == "worker" => Some(hit.y),
+            HitTarget::Row(index) if app.workspace_rows()[index].title == "worker" => {
+                assert_eq!(
+                    Some(&app.workspace_rows()[index].target),
+                    app.workspace.selected.as_ref()
+                );
+                Some(hit.y)
+            }
             _ => None,
         })
         .expect("matching member remains actionable");
     let row = &lines[usize::from(name_row)];
     assert!(
-        row.contains(" P  worker"),
-        "label and matching name stay together: {row}"
+        row.contains(" P  wor… z open"),
+        "label, fitted name and complete hint stay together: {row}"
     );
     assert!(app.workspace_strip_hits.borrow().iter().any(|(_, choice)| matches!(choice, Choice::LabelTarget(OpsTarget::Member { identity_id, .. }) if identity_id == MEMBER)));
-    let name_x = row.find("worker").expect("painted matching name");
+    let name_x = row.find("wor…").expect("painted matching name");
     // All preceding cells in this fixture are single-column ASCII/box glyphs.
     let x = row[..name_x].chars().count() as u16;
-    assert!(
-        buffer[(x, name_row)]
-            .modifier
-            .contains(ratatui::style::Modifier::BOLD)
-    );
+    for column in x..x + 3 {
+        assert!(
+            buffer[(column, name_row)]
+                .modifier
+                .contains(ratatui::style::Modifier::BOLD)
+        );
+    }
 }
 
 #[test]

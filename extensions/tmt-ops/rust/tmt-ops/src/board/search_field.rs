@@ -219,11 +219,47 @@ fn highlight(text: &str, query: &str, normal: ratatui::style::Style) -> Line<'st
     Line::from(spans)
 }
 
-pub(super) fn highlight_line(mut line: Line<'static>, query: &str) -> Line<'static> {
+pub(super) fn highlight_line(line: Line<'static>, query: &str) -> Line<'static> {
+    highlight_line_with_fitted_span(line, query, None)
+}
+
+pub(super) fn highlight_line_with_fitted_span(
+    mut line: Line<'static>,
+    query: &str,
+    fitted: Option<(usize, &str)>,
+) -> Line<'static> {
     line.spans = line
         .spans
         .into_iter()
-        .flat_map(|span| highlight(&span.content, query, span.style).spans)
+        .enumerate()
+        .flat_map(|(index, span)| {
+            if let Some((_, source)) = fitted.filter(|(target, _)| *target == index)
+                && !query.is_empty()
+                && let Some(prefix) = span.content.trim_end_matches(' ').strip_suffix('…')
+                && source.starts_with(prefix)
+                && source != span.content.trim_end_matches(' ')
+            {
+                // Intersect the original styled runs with the exact prefix the fitter kept.
+                let mut remaining = prefix.len();
+                let mut spans = Vec::new();
+                for mut matched in highlight(source, query, span.style).spans {
+                    if remaining == 0 {
+                        break;
+                    }
+                    let len = remaining.min(matched.content.len());
+                    matched.content = matched.content[..len].to_owned().into();
+                    spans.push(matched);
+                    remaining -= len;
+                }
+                spans.push(Span::styled(
+                    span.content[prefix.len()..].to_owned(),
+                    span.style,
+                ));
+                spans
+            } else {
+                highlight(&span.content, query, span.style).spans
+            }
+        })
         .collect();
     line
 }

@@ -250,6 +250,7 @@ pub(in crate::board) fn paint(
             tmt_tui::text::fit_line(value, cell.width, TextFlow::Truncate, align)
         };
         let mut open_hint = None;
+        let mut original_name = None;
         let mut line = match field {
             AgentsField::Agent => {
                 let member = matches!(row.source.target, OpsTarget::Member { .. });
@@ -294,6 +295,9 @@ pub(in crate::board) fn paint(
                 });
                 let fitted_width =
                     name_width.saturating_sub(open_hint.map_or(0, |hint| hint.width() + 1));
+                if open_hint.is_some() && !row.query.is_empty() && name.width() > fitted_width {
+                    original_name = Some(name.clone());
+                }
                 // Keep the leading gutter aligned with the squad tree.
                 Line::from(vec![
                     Span::styled(" ", look.role(Role::Muted)),
@@ -412,7 +416,11 @@ pub(in crate::board) fn paint(
         strip::paint_left(
             buffer,
             cell,
-            crate::board::search_field::highlight_line(line, row.query),
+            crate::board::search_field::highlight_line_with_fitted_span(
+                line,
+                row.query,
+                original_name.as_deref().map(|name| (NAME_SPAN, name)),
+            ),
         );
     }
     painted
