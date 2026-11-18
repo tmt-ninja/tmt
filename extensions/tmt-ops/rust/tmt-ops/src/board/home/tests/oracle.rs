@@ -333,6 +333,9 @@ fn capture_frame(
     captured["hits"] = json!(format!("{:?}", app.hits.borrow()));
     captured["actions"] = json!(format!("{:?}", app.workspace_action_hits.borrow()));
     captured["tabs"] = json!(format!("{:?}", app.tab_hits.borrow()));
+    if !app.work.hits.borrow().is_empty() {
+        captured["workHits"] = json!(format!("{:?}", app.work.hits.borrow()));
+    }
     captured["starts"] = json!(*app.row_starts.borrow());
     captured["selected"] = json!(format!("{:?}", app.workspace.selected));
     captured["selectionState"] = json!(format!("{:?}", app.workspace_selection_state()));
@@ -1323,6 +1326,24 @@ fn orchestration_frames(styles: &mut Styles) -> Vec<Value> {
     frames
 }
 
+fn work_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in crate::board::work::tests::SCENES {
+            let widths: &[u16] = if *scene == "agents-work" {
+                &[160, 100, 60]
+            } else {
+                &[160, 100]
+            };
+            for &width in widths {
+                let app = crate::board::work::tests::scene(scene, look);
+                frames.push(capture_frame(&app, scene, look_name, width, 36, styles));
+            }
+        }
+    }
+    frames
+}
+
 fn digest_impact_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
@@ -1606,6 +1627,7 @@ macro_rules! oracle_groups {
         $group!(7, 360, skills_picker_frames($styles));
         $group!(7, 32, visibility_frames($styles));
         $group!(7, 608, orchestration_frames($styles));
+        $group!(7, 36, work_frames($styles));
     };
 }
 

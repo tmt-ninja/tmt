@@ -477,7 +477,7 @@ fn resize_reader_agents_and_custom_binding_remove_old_chart_authority() {
                 .iter()
                 .all(|hit| hit.target == Target::Controls)
         );
-        press(&mut app, KeyCode::Char('2'));
+        press(&mut app, KeyCode::Char('3'));
         assert_eq!(
             app.workspace.selected,
             Some(crate::board::workspace::OpsTarget::DigestAll)
@@ -574,7 +574,7 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
         assert_eq!(app.search, "u");
         assert!(!app.usage_chart.borrow().focused());
         press(&mut app, KeyCode::Esc);
-        press(&mut app, KeyCode::Char('2'));
+        press(&mut app, KeyCode::Char('3'));
         assert_eq!(
             app.workspace.selected,
             Some(crate::board::workspace::OpsTarget::DigestAll)

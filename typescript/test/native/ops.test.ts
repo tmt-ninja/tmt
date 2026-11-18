@@ -6193,7 +6193,7 @@ describe('large board responsiveness', () => {
           timeout: 30_000,
           interval: 50,
         });
-        tmux(['send-keys', '-t', pane, '2']);
+        tmux(['send-keys', '-t', pane, '3']);
         await vi.waitFor(() => expect(screen()).toContain('Estimate basis…'), {
           timeout: 10_000,
           interval: 25,

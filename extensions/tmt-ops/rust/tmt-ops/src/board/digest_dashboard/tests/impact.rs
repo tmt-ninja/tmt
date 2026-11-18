@@ -521,7 +521,7 @@ fn basis_opens_the_evidence_modal_and_leaves_hidden_details_hidden() {
 fn the_single_panel_has_amounts_once_and_provenance_stays_in_estimate_basis() {
     use super::super::details;
     let mut app = valued_board();
-    press(&mut app, '2');
+    press(&mut app, '3');
     select_worker(&mut app);
     let row = app.selected_row();
     let panel = details::panel_text(&app, 121_000, row).join("\n");

@@ -319,6 +319,7 @@ pub enum Effect {
     PickTheme,
     SaveTheme,
     Act(Request),
+    OpenWorkPage(String),
     Shell {
         key: (String, String),
         command: String,
@@ -864,6 +865,7 @@ pub struct App {
     /// Terminal-owner observation for hints only; never persisted or inferred.
     pub(in crate::board) keyboard_enhanced: bool,
     pub(super) shell: super::shell::OpsShell,
+    pub(in crate::board) work: super::work::State,
     pub(in crate::board) orchestration: super::orchestration::State,
     pub(super) workspace: super::workspace::OpsWorkspace,
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
@@ -2422,7 +2424,7 @@ impl App {
                     collapsed.insert(Pane::Replies);
                 }
             }
-            super::shell::OpsTab::Orchestration => {
+            super::shell::OpsTab::Work | super::shell::OpsTab::Orchestration => {
                 collapsed.extend([Pane::Rows, Pane::Replies]);
             }
             super::shell::OpsTab::Digest => {
@@ -4531,6 +4533,7 @@ impl App {
                 action.verb,
                 Verb::Ui(
                     crate::action::OpsUiAction::Agents
+                        | crate::action::OpsUiAction::Work
                         | crate::action::OpsUiAction::DigestDashboard
                         | crate::action::OpsUiAction::Orchestration
                 )
@@ -4672,6 +4675,9 @@ impl App {
         if self.menu.is_some() {
             return self.menu_key(key);
         }
+        if !typing && let Some(effect) = self.work_key(key) {
+            return effect;
+        }
         if let Some(input) = super::search_field::key(&mut self.search, &mut self.searching, key) {
             self.clamp();
             match input {
@@ -4704,6 +4710,7 @@ impl App {
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
         self.orchestration.invalidate();
+        self.work.hits.borrow_mut().clear();
         self.pane_resize.invalidate();
         self.buttons.invalidate();
         if let Some(picker) = &self.panels_picker {
@@ -5364,6 +5371,11 @@ impl App {
         {
             return self.cycle_token_window();
         }
+        if !self.modal_open()
+            && let Some(effect) = self.work_mouse(event)
+        {
+            return effect;
+        }
         if self.shell.tab == super::shell::OpsTab::Orchestration
             && !self.modal_open()
             && let Some(effect) = self.orchestration_mouse(event)
@@ -5381,8 +5393,9 @@ impl App {
         if let (MouseEventKind::Down(MouseButton::Left), Some(hit)) = (event.kind, tab) {
             let action = match hit.tab {
                 0 => crate::action::OpsUiAction::Agents,
-                1 => crate::action::OpsUiAction::DigestDashboard,
-                2 => crate::action::OpsUiAction::Orchestration,
+                1 => crate::action::OpsUiAction::Work,
+                2 => crate::action::OpsUiAction::DigestDashboard,
+                3 => crate::action::OpsUiAction::Orchestration,
                 _ => return Effect::None,
             };
             self.focus = 0;
@@ -5448,6 +5461,9 @@ impl App {
     }
 
     pub(super) fn selected_read(&self) -> Option<super::refresh::SelectedRead> {
+        if self.shell.tab == super::shell::OpsTab::Work && self.unread_overlay.is_none() {
+            return None;
+        }
         if self.shell.tab == super::shell::OpsTab::Orchestration && self.unread_overlay.is_none() {
             return Some(super::refresh::SelectedRead::Orchestration(
                 self.orchestration.read(),

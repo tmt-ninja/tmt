@@ -221,9 +221,9 @@ fn grammar() -> Command {
                 .arg(Arg::new("view").long("view").value_name("NAME")
                     .value_parser(board::ViewLayer::parse).default_value("default")
                     .help("Retain this board's view in a named layer (1–32 lowercase letters, digits or hyphens)"))
-                .arg(Arg::new("tab").long("tab").value_name("overview|agents|digest")
+                .arg(Arg::new("tab").long("tab").value_name("agents|work|digest|orchestration")
                     .value_parser(config::StartupTab::flag)
-                    .help("Open this tab (also 1 or 2), overriding the startup preference and retained tab"))
+                    .help("Open this tab (also 1–4; overview opens Agents), overriding the startup preference and retained tab"))
                 .arg(Arg::new("reset-view").long("reset-view").action(ArgAction::SetTrue)
                     .help("Clear the selected view layer before opening the board (terminal required)"))
                 .arg(Arg::new("tabs").long("tabs").value_name("NAMES")
@@ -1683,7 +1683,11 @@ mod tests {
             ("agents", config::StartupTab::Agents),
             ("1", config::StartupTab::Agents),
             ("digest", config::StartupTab::Digest),
-            ("2", config::StartupTab::Digest),
+            ("work", config::StartupTab::Work),
+            ("2", config::StartupTab::Work),
+            ("3", config::StartupTab::Digest),
+            ("orchestration", config::StartupTab::Orchestration),
+            ("4", config::StartupTab::Orchestration),
         ] {
             let parsed = grammar()
                 .try_get_matches_from(["tmt-ops", "ui", "--tab", name])
@@ -1697,12 +1701,12 @@ mod tests {
                 Some(&expected)
             );
         }
-        for name in ["last", "0", "4", "bogus"] {
+        for name in ["last", "0", "5", "bogus"] {
             let error = grammar()
                 .try_get_matches_from(["tmt-ops", "ui", "--tab", name])
                 .unwrap_err()
                 .to_string();
-            assert!(error.contains("Tab must be agents or digest"));
+            assert!(error.contains("Tab must be agents, work, digest or orchestration"));
         }
         assert!(
             grammar()

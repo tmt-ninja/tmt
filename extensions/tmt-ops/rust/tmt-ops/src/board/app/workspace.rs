@@ -542,7 +542,7 @@ impl App {
                 .overview_panels()
                 .shown(crate::config::OverviewPanel::Monitor),
             OpsTab::Digest => self.digest_panels().shown(crate::config::DigestPanel::List),
-            OpsTab::Orchestration => false,
+            OpsTab::Work | OpsTab::Orchestration => false,
         };
         target_shown && self.workspace_selection_state() == SelectionState::Visible
     }
@@ -628,6 +628,9 @@ impl App {
     }
 
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
+        if self.shell.tab == OpsTab::Work {
+            return OpsKeyScope::Work;
+        }
         if self.shell.tab == super::super::shell::OpsTab::Orchestration {
             return OpsKeyScope::Orchestration;
         }
@@ -1165,11 +1168,12 @@ impl App {
                 self.open_help(false);
                 return Effect::None;
             }
-            Agents | DigestDashboard | Orchestration => {
+            Agents | Work | DigestDashboard | Orchestration => {
                 let digit = match action {
                     Agents => '1',
-                    DigestDashboard => '2',
-                    _ => '3',
+                    Work => '2',
+                    DigestDashboard => '3',
+                    _ => '4',
                 };
                 let owner = self.workspace_input_owner();
                 if !self
@@ -1379,10 +1383,10 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            ResizePane | Agents | DigestDashboard | Orchestration | QuotaDetails | SavingsUnit
-            | UsageControls | CycleTokRange | CycleActivityWindow | DigestPreviousWindow
-            | Unread | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown
-            | ScrollTop | ScrollBottom => {
+            ResizePane | Agents | Work | DigestDashboard | Orchestration | QuotaDetails
+            | SavingsUnit | UsageControls | CycleTokRange | CycleActivityWindow
+            | DigestPreviousWindow | Unread | Help | Quit | ScrollUp | ScrollDown
+            | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }

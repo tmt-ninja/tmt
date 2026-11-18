@@ -196,7 +196,7 @@ fn app_checklist_text_captures_q_digits_and_its_buttons_allow_destination_keys()
         .select("back");
     assert!(!app.checklist.as_ref().unwrap().owns_typing());
     assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE)),
+        app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)),
         Effect::None
     );
     assert_eq!(app.shell.tab, OpsTab::Digest);

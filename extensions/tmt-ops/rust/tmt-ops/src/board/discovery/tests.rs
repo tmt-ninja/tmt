@@ -31,7 +31,7 @@ fn app_discovery_name_owns_typing_and_down_to_actions_releases_destination_keys(
         "↓ reaches the actions"
     );
     assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE)),
+        app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)),
         Effect::None
     );
     assert_eq!(app.shell.tab, OpsTab::Digest);

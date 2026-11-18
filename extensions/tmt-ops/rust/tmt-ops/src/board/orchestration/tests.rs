@@ -329,7 +329,7 @@ fn a_slot_boundary_requests_one_new_read_without_a_cursor_change() {
 fn first_orchestration_demand_does_not_need_a_workspace_snapshot() {
     let mut app = super::super::app::App::default();
     assert!(app.shell.select_digit(
-        '3',
+        '4',
         super::super::shell::OpsInputOwner::List,
         &mut app.workspace.selected
     ));
@@ -343,7 +343,7 @@ fn first_orchestration_demand_does_not_need_a_workspace_snapshot() {
 fn held_rendering_does_no_core_io_and_never_fabricates_jobs_or_routes() {
     let mut app = super::super::app::App::default();
     app.shell.select_digit(
-        '3',
+        '4',
         super::super::shell::OpsInputOwner::List,
         &mut app.workspace.selected,
     );
@@ -505,7 +505,7 @@ fn routes_pages_follow_next_after_until_core_says_the_end() {
 fn matrix_app() -> super::super::app::App {
     let mut app = super::super::app::App::default();
     app.shell.select_digit(
-        '3',
+        '4',
         super::super::shell::OpsInputOwner::List,
         &mut app.workspace.selected,
     );
@@ -1474,7 +1474,7 @@ pub(in crate::board) mod captures {
         let mut app =
             crate::board::app::workspace::tests::capture_case("idle-alert-overview", look);
         assert!(app.shell.select_digit(
-            '3',
+            '4',
             super::super::super::shell::OpsInputOwner::List,
             &mut app.workspace.selected,
         ));

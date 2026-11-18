@@ -24,7 +24,9 @@ pub(super) fn startup_destination(
     match explicit.unwrap_or(preference) {
         StartupTab::Last => None,
         StartupTab::Agents => Some(OpsTab::Agents),
+        StartupTab::Work => Some(OpsTab::Work),
         StartupTab::Digest => Some(OpsTab::Digest),
+        StartupTab::Orchestration => Some(OpsTab::Orchestration),
     }
 }
 

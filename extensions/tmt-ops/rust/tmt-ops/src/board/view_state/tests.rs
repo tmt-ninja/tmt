@@ -443,6 +443,7 @@ fn background_publication_does_not_become_an_action_or_repaint() {
             Ok(())
         },
         |_| {},
+        || {},
     )
     .unwrap();
     assert_eq!(publications.get(), 1);
@@ -806,7 +807,9 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
     use crate::config::StartupTab;
     let fixed = [
         (StartupTab::Agents, OpsTab::Agents),
+        (StartupTab::Work, OpsTab::Work),
         (StartupTab::Digest, OpsTab::Digest),
+        (StartupTab::Orchestration, OpsTab::Orchestration),
     ];
     assert_eq!(startup_destination(None, StartupTab::Last, false), None);
     for (preference, expected) in fixed {
@@ -820,7 +823,12 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
         }
     }
     let scratch = Scratch::missing("view-state");
-    write(&view_file(&scratch), &saved());
+    let retained = ViewState {
+        shell: OpsTab::Work,
+        selected: None,
+        ..saved()
+    };
+    write(&view_file(&scratch), &retained);
     for (_, tab) in fixed {
         let mut app = cold();
         app.workspace_startup = Some(crate::board::app::WorkspaceStartup {
@@ -838,7 +846,7 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
         assert!(session.prepare(&mut app).is_some());
         assert_eq!(
             app.shell.tab, tab,
-            "saved Agents tab cannot override fixed startup"
+            "saved Work tab cannot override fixed startup"
         );
         app.shell.tab = OpsTab::Agents;
 
@@ -850,7 +858,7 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
     session.prepare(&mut app).unwrap();
     assert_eq!(
         app.shell.tab,
-        OpsTab::Agents,
+        OpsTab::Work,
         "last retains the existing layer destination"
     );
 }
@@ -1155,6 +1163,7 @@ fn late_hint_after_navigation(paint: bool, explicit: bool, query: &str) {
             Ok(())
         },
         |_| {},
+        || {},
     )
     .unwrap();
     assert!(
@@ -1536,6 +1545,7 @@ fn navigation_trace_records_the_saved_hint_at_the_view_state_tick() {
         Some(&mut state),
         |_| Ok(()),
         |_| {},
+        || {},
     )
     .unwrap();
     assert_eq!(app.workspace.selected, saved().selected);

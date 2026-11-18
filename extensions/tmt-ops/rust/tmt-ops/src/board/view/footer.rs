@@ -732,6 +732,26 @@ fn help_only(verb: crate::action::Verb) -> bool {
 }
 
 fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
+    if app.shell.tab == crate::board::shell::OpsTab::Work {
+        return fit_hints(
+            [
+                ("↑↓", "move"),
+                ("⏎", "open page"),
+                ("p", "project"),
+                ("d", "period"),
+                ("c", "recently done"),
+                ("r", "refresh"),
+                ("?", "help"),
+                ("q", "quit"),
+            ]
+            .into_iter()
+            .filter(|(key, _)| *key != "⏎" || app.work.open_hit_visible())
+            .map(|(key, label)| (key.into(), label.into()))
+            .collect(),
+            vec![],
+            width,
+        );
+    }
     if app.shell.tab == crate::board::shell::OpsTab::Digest && !app.searching {
         return digest_pairs(app, width);
     }

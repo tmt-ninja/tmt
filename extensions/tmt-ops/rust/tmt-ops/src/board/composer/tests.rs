@@ -1143,10 +1143,10 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
     assert_eq!(quote.range, 0..url.len());
     assert_eq!(quote.text, url);
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    for tab in ['1', '2'] {
+    for tab in ['1', '3'] {
         app.key(KeyEvent::new(KeyCode::Char(tab), KeyModifiers::NONE));
         draw(&mut app, 100, 36);
-        if tab == '2' {
+        if tab == '3' {
             assert_eq!(
                 app.workspace.selected,
                 Some(crate::board::workspace::OpsTarget::DigestAll)

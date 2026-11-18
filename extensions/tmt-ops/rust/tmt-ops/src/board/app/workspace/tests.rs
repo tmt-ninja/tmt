@@ -918,14 +918,14 @@ fn workspace_shell_is_available_before_data_at_every_theme_depth() {
             let lines = paint(&app, 80, 8);
             assert!(lines[0].contains("TMT   OPS / UI"), "{base:?} {depth:?}");
             // The tabs follow the top bar directly: there is no boundary band.
-            for label in ["1  Agents", "2  Digest", "3  Orchestration"] {
+            for label in ["1  Agents", "2  Work", "3  Digest", "4  Orchestration"] {
                 assert!(lines[1].contains(label), "{base:?} {depth:?}: {label}");
             }
             assert!(!lines[0].contains("private-squad"));
             let hits = app.tab_hits.borrow();
             assert_eq!(
                 hits.iter().map(|hit| hit.tab).collect::<Vec<_>>(),
-                [0, 1, 2]
+                [0, 1, 2, 3]
             );
             assert!(hits.iter().all(|hit| hit.y == 1 && hit.x + hit.width <= 80));
         }
@@ -936,7 +936,7 @@ fn workspace_shell_is_available_before_data_at_every_theme_depth() {
 fn startup_navigation_uses_shell_tabs_without_recipient_authority() {
     let mut app = App::new(Some(crate::board::ALL.into()));
     app.tabs = vec!["private-squad".into()];
-    for (digit, expected) in [('2', OpsTab::Digest), ('1', OpsTab::Agents)] {
+    for (digit, expected) in [('3', OpsTab::Digest), ('1', OpsTab::Agents)] {
         assert_eq!(key(&mut app, KeyCode::Char(digit)), Effect::None);
         assert_eq!(app.shell.tab, expected);
         paint(&app, 80, 8);
@@ -1187,14 +1187,14 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
             let line = crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 80, 1));
             assert_eq!(
                 line.to_string(),
-                "   1  Agents    2  Digest    3  Orchestration  "
+                "   1  Agents    2  Work    3  Digest    4  Orchestration  "
             );
             let hits = app.tab_hits.borrow();
-            assert_eq!(hits.len(), 3);
-            for (hit, (x, width)) in hits.iter().zip([(1, 12), (14, 12), (27, 19)]) {
+            assert_eq!(hits.len(), 4);
+            for (hit, (x, width)) in hits.iter().zip([(1, 12), (14, 10), (25, 12), (38, 19)]) {
                 assert_eq!((hit.x, hit.y, hit.width), (x, 0, width));
             }
-            for gap_x in [13, 26, 46] {
+            for gap_x in [13, 24, 37, 57] {
                 assert!(
                     !hits
                         .iter()
@@ -4273,7 +4273,7 @@ fn scope_chip_admits_whole_names_then_a_count_and_neutralizes_untrusted_roster_n
     let middle = text(&app, 80);
     assert!(middle.contains("Scope: 3 squads ×"), "{middle}");
     assert!(!middle.contains("Scope: charlie"));
-    // Beside all three tabs at 60 columns only the bare count fits, and it still shows.
+    // Beside all four tabs at 60 columns only the bare count fits, and it still shows.
     let narrow = text(&app, 60);
     assert!(narrow.contains("Scope 3 ×"), "{narrow}");
     assert!(!narrow.contains("Scope: "));

@@ -202,10 +202,10 @@ edit the user's notes for it.
 
 ## Startup tab
 
-`tmt ops ui --tab agents|digest` opens a fixed destination; `1` and `2` are
-aliases. The retired `overview` opens Agents. The flag wins over the global
-`[board] startup_tab` preference, which accepts `last` (default), `agents` or
-`digest`. `last` keeps the
+`tmt ops ui --tab agents|work|digest|orchestration` opens a fixed destination.
+The aliases `1` through `4` match the tab strip. The retired `overview` opens
+Agents. The flag wins over the global `[board] startup_tab` preference, which
+accepts the same destinations and `last` (default). `last` keeps the
 selected view layer's saved destination. Edit **startup tab** in Ops Config or
 run `tmt ops sq config set board.startup_tab digest`. Invalid authored values are
 ignored with a notice and left untouched; an invalid flag or edit is rejected.
@@ -312,7 +312,10 @@ Boards started before this behavior shipped need one manual restart.
 
 ## Board appearance
 
-The board opens one `OPS / UI` shell: `1 Agents`, `2 Digest`.
+The board opens one `OPS / UI` shell with `1 Agents`, `2 Work`, `3 Digest` and
+`4 Orchestration`. Work shows the owner list from Colab 0.1.0-alpha.478 or
+later. Use `p` for project, `d` for the Done period, `c` for recent
+completions, and Enter to open the selected page when a link is available.
 Shortcut caps precede tab and filter labels and show effective configured keys;
 unbound actions have no cap. Selected tabs use a brighter neutral cap.
 Agents holds the whole workspace: a full-width Usage band (global usage and provider
@@ -358,7 +361,7 @@ partial usage still reads `—`: those windows use the full aggregate. It is an 
 list price, not a bill; the heading still sorts by tokens.
 The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
-and completion keep `1`/`2` as input.
+and completion keep `1` through `4` as input.
 
 The left list's rule carries the shared search field; totals sit at the bottom
 right of the squad tree. A squad row shows its lead-first TEAM strip in STATE,
@@ -581,7 +584,7 @@ in the effective footer, and the link line shows only its resolved target.
 These defaults are the same on every host (tmux, Herdr or unknown); a
 `[bind.<host>]` table only overrides keys for rows on that host and never changes
 the default of a host without one.
-Tab moves between the tree and conversation. `1`/`2`/`3` switch
+Tab moves between the tree and conversation. `1` through `4` switch
 sections only when an editor, search, completion, overlay or conversation has not
 claimed the key. Keyboard sort is opt-in: bind `sort` or
 `reverse-sort` in the usual binding table. Column headers sort without a binding:
@@ -893,7 +896,7 @@ migration notices and preserves authored TOML. `--tabs` is refused. Launch with
 `tmt ops ui --squad product --squad infra`, to show only those squads for this
 session, opening Agents on the first named squad. Scope overrides saved hides,
 excludes Common pool, and appears as a chip at the right end of the
-`1 Agents  2 Digest` tab strip: `Scope: product +1 ×`, or `Scope: 2 squads ×`
+`1 Agents  2 Work  3 Digest  4 Orchestration` tab strip: `Scope: product +1 ×`, or `Scope: 2 squads ×`
 when a whole name does not fit.
 Click × or press Escape outside an editor, search or overlay to clear it;
 explicit bindings win. Duplicate room IDs collapse and an unknown
@@ -1156,7 +1159,7 @@ ordinary deliveries; owner and urgent messages can still interrupt.
 
 ## Orchestration tab
 
-`3` opens **Orchestration**: Core's plans and every member's effective state and
+`4` opens **Orchestration**: Core's plans and every member's effective state and
 receiving policy at a selected time, read through the public `orchestration.read`
 views. One header line names the selected time and zone, whether it follows now and
 how many plans are in effect, with the range, **Plans** and (away from now) **Now**

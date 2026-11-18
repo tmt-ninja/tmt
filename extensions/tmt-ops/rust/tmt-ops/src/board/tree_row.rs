@@ -72,6 +72,7 @@ pub(in crate::board) struct Row<'a> {
     pub in_conversation: bool,
     /// An effective open hint in the name cell; it yields to the existing name.
     pub open_hint: Option<Line<'static>>,
+    pub work_hint: Option<Line<'static>>,
     pub query: &'a str,
 }
 #[derive(Default)]
@@ -401,17 +402,31 @@ pub(in crate::board) fn paint(
         {
             name.style = name.style.add_modifier(Modifier::BOLD);
         }
-        if let Some(hint) = open_hint {
-            // Keep the hint and its padding outside the row's span styling.
+        if matches!(field, AgentsField::Agent) {
+            // z open already owns its space. Use only the fitted name's
+            // trailing padding for a whole Work chip before that hint.
             let name = &mut line.spans[NAME_SPAN];
             let trimmed = name.content.trim_end_matches(' ');
-            let padding = name.content.len() - trimmed.len();
-            name.content = trimmed.to_owned().into();
-            if padding > 0 {
-                line.spans.push(Span::raw(" ".repeat(padding)));
+            let mut padding = name.content.len() - trimmed.len();
+            let work_hint = row
+                .work_hint
+                .as_ref()
+                .filter(|hint| padding > hint.width() + 1);
+            if open_hint.is_some() || work_hint.is_some() {
+                name.content = trimmed.to_owned().into();
+                if let Some(hint) = work_hint {
+                    line.spans.push(Span::raw(" "));
+                    line.spans.extend(hint.spans.clone());
+                    padding -= hint.width() + 1;
+                }
+                if let Some(hint) = open_hint {
+                    if padding > 0 {
+                        line.spans.push(Span::raw(" ".repeat(padding)));
+                    }
+                    line.spans.extend(hint.spans.clone());
+                    line.spans.push(Span::raw(" "));
+                }
             }
-            line.spans.extend(hint.spans.clone());
-            line.spans.push(Span::raw(" "));
         }
         strip::paint_left(
             buffer,
@@ -494,6 +509,7 @@ mod tests {
                     unread,
                     in_conversation: false,
                     open_hint: None,
+                    work_hint: None,
                     query: "",
                 };
                 let mut buffer = Buffer::empty(Rect::new(0, 0, 30, 1));
@@ -594,6 +610,7 @@ mod tests {
                 unread: false,
                 in_conversation: false,
                 open_hint: None,
+                work_hint: None,
                 query: "",
             },
             look,
@@ -632,6 +649,7 @@ mod tests {
             unread: false,
             in_conversation: false,
             open_hint: None,
+            work_hint: None,
             query: "",
         };
         for width in 1..=40 {
@@ -728,6 +746,7 @@ mod tests {
                 unread: false,
                 in_conversation: false,
                 open_hint: None,
+                work_hint: None,
                 query: "",
             },
             look,
@@ -799,6 +818,7 @@ mod tests {
                         unread: false,
                         in_conversation,
                         open_hint: None,
+                        work_hint: None,
                         query: "",
                     },
                     look,

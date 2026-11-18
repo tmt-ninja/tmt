@@ -674,7 +674,7 @@ fn digest_first_entry_uses_all_and_destination_picks_stay_independent() {
     let agents = app.workspace.selected.clone();
     assert!(matches!(agents, Some(OpsTarget::Member { .. })));
     paint(&app, 160, 36);
-    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('3'));
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
 
     let rows = app.workspace_rows();
@@ -695,9 +695,9 @@ fn digest_first_entry_uses_all_and_destination_picks_stay_independent() {
         .unwrap();
     app.workspace_select(index);
     let changed_agents = app.workspace.selected.clone();
-    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('3'));
     assert_eq!(app.workspace.selected, Some(digest.clone()));
-    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('3'));
     assert_eq!(app.workspace.selected, Some(digest));
     app.workspace_reconcile();
     assert!(
@@ -787,7 +787,7 @@ fn destination_bindings_leave_conversation_and_dismiss_read_only_owners() {
             _ => unreachable!(),
         }
         paint(&app, 160, 36);
-        assert_eq!(key(&mut app, KeyCode::Char('2')), Effect::None, "{owner}");
+        assert_eq!(key(&mut app, KeyCode::Char('3')), Effect::None, "{owner}");
         assert_eq!(app.shell.tab, OpsTab::Digest, "{owner}");
         assert!(!app.modal_open(), "{owner}");
         assert_eq!(app.focused_pane(), Some(Pane::Rows), "{owner}");
@@ -980,7 +980,7 @@ fn pending_operations_hide_reopen_and_keep_their_single_outcome_without_resubmis
         assert!(app.reload_blocked());
         // Destination selection hides, but never submits or forgets, the owned operation.
         assert_eq!(observe(app.workspace_begin(kind)), Effect::None);
-        assert_eq!(observe(key(&mut app, KeyCode::Char('2'))), Effect::None);
+        assert_eq!(observe(key(&mut app, KeyCode::Char('3'))), Effect::None);
         assert_eq!(app.shell.tab, OpsTab::Digest);
         assert!(!app.workspace_form.as_ref().unwrap().shown);
         assert!(app.reload_blocked());
@@ -1083,7 +1083,7 @@ fn q_steps_back_in_overlays_and_release_events_do_not_switch_tabs() {
     assert!(!app.help);
     app.perform(&crate::action::Action::parse("inspect").unwrap());
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
-    let mut release = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
+    let mut release = KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE);
     release.kind = ratatui::crossterm::event::KeyEventKind::Release;
     assert_eq!(app.key(release), Effect::None);
     assert_eq!(app.shell.tab, OpsTab::Agents);
@@ -1114,7 +1114,7 @@ fn digest_restores_keep_explicit_uuid_and_the_other_destination_is_session_only(
         assert_eq!(replacement.shell.tab, OpsTab::Digest);
         assert_eq!(replacement.workspace.selected, target);
         key(&mut replacement, KeyCode::Char('1'));
-        key(&mut replacement, KeyCode::Char('2'));
+        key(&mut replacement, KeyCode::Char('3'));
         assert_eq!(replacement.workspace.selected, target);
     }
 }
@@ -1127,13 +1127,13 @@ fn digest_keyboard_pointer_and_authored_entry_share_the_selection_transition() {
         let agents = app.workspace.selected.clone();
         paint(&app, 160, 36);
         let effect = match entry {
-            "key" => key(&mut app, KeyCode::Char('2')),
+            "key" => key(&mut app, KeyCode::Char('3')),
             "pointer" => {
                 let hit = *app
                     .tab_hits
                     .borrow()
                     .iter()
-                    .find(|hit| hit.tab == 1)
+                    .find(|hit| hit.tab == 2)
                     .unwrap();
                 app.mouse(
                     MouseEvent {

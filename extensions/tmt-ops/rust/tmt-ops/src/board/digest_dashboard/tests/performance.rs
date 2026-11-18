@@ -148,7 +148,7 @@ fn digest_frame_timing() {
                     since: app.tok_range(),
                     result: Ok(exchanges),
                 });
-            key(&mut app, KeyCode::Char('2'));
+            key(&mut app, KeyCode::Char('3'));
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
             for _ in 0..10 {
                 measure(&mut app, &mut terminal, |_, _| {});
@@ -197,12 +197,12 @@ fn digest_frame_timing() {
                 (0..100)
                     .map(|i| {
                         measure(&mut app, &mut terminal, |app, _| {
-                            key(app, KeyCode::Char(if i % 2 == 0 { '1' } else { '2' }))
+                            key(app, KeyCode::Char(if i % 2 == 0 { '1' } else { '3' }))
                         })
                     })
                     .collect(),
             );
-            key(&mut app, KeyCode::Char('2'));
+            key(&mut app, KeyCode::Char('3'));
             app.focus = 0;
             checked(
                 rows,
@@ -309,7 +309,7 @@ fn digest_full_status_frame_timing() {
                     since: app.tok_range(),
                     result: Ok(exchanges.clone()),
                 });
-            key(&mut app, KeyCode::Char('2'));
+            key(&mut app, KeyCode::Char('3'));
             let digest_selection = app.workspace.selected.clone();
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
             for _ in 0..10 {

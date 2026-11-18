@@ -339,17 +339,19 @@ pub enum OpsKeyScope {
     Terminal,
     Pool,
     Reader,
+    Work,
     /// The Orchestration tab (#4893): its own controls, with the tab and app keys.
     Orchestration,
 }
 
 impl OpsKeyScope {
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::Squad,
         Self::Member,
         Self::Terminal,
         Self::Pool,
         Self::Reader,
+        Self::Work,
         Self::Orchestration,
     ];
 
@@ -366,11 +368,26 @@ pub struct WorkspaceKeys {
 }
 
 pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
-    let mut entries = if scope == OpsKeyScope::Orchestration {
+    let mut entries = if scope == OpsKeyScope::Work {
         vec![
             ("1", "agents"),
-            ("2", "digest-dashboard"),
-            ("3", "orchestration"),
+            ("2", "work"),
+            ("3", "digest-dashboard"),
+            ("4", "orchestration"),
+            ("?", "help"),
+            ("q", "quit"),
+            ("r", "refresh"),
+            ("ctrl-r", "refresh"),
+            (",", "settings"),
+            ("w", "workspace-snapshots"),
+            ("g", "open-web"),
+        ]
+    } else if scope == OpsKeyScope::Orchestration {
+        vec![
+            ("1", "agents"),
+            ("2", "work"),
+            ("3", "digest-dashboard"),
+            ("4", "orchestration"),
             ("up", "previous"),
             ("down", "next"),
             ("left", "fold"),
@@ -407,8 +424,9 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     } else if scope.is_reader() {
         vec![
             ("1", "agents"),
-            ("2", "digest-dashboard"),
-            ("3", "orchestration"),
+            ("2", "work"),
+            ("3", "digest-dashboard"),
+            ("4", "orchestration"),
             ("]", "digest-details"),
             ("up", "scroll-up"),
             ("k", "scroll-up"),
@@ -436,8 +454,9 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     } else {
         vec![
             ("1", "agents"),
-            ("2", "digest-dashboard"),
-            ("3", "orchestration"),
+            ("2", "work"),
+            ("3", "digest-dashboard"),
+            ("4", "orchestration"),
             ("up", "previous"),
             ("down", "next"),
             ("left", "fold"),
@@ -467,7 +486,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         ]
     };
     match scope {
-        OpsKeyScope::Reader | OpsKeyScope::Orchestration => {}
+        OpsKeyScope::Reader | OpsKeyScope::Work | OpsKeyScope::Orchestration => {}
         OpsKeyScope::Squad => entries.extend([
             ("r", "rename"),
             ("z", "jump"),
@@ -505,7 +524,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         entries.push(("n", "new-member"));
         entries.push(("s", "discover-agents"));
     }
-    if scope != OpsKeyScope::Orchestration {
+    if !matches!(scope, OpsKeyScope::Work | OpsKeyScope::Orchestration) {
         entries.extend([
             ("w", "workspace-snapshots"),
             ("g", "open-web"),
@@ -1628,7 +1647,12 @@ mod tests {
     fn source_reader_and_destination_defaults_are_unique_and_yield_to_authored_keys() {
         for scope in [OpsKeyScope::Member, OpsKeyScope::Reader] {
             let defaults = defaults(scope);
-            for (event, verb) in [("1", "agents"), ("2", "digest-dashboard")] {
+            for (event, verb) in [
+                ("1", "agents"),
+                ("2", "work"),
+                ("3", "digest-dashboard"),
+                ("4", "orchestration"),
+            ] {
                 assert_eq!(defaults[event].text, verb);
                 assert_eq!(
                     defaults

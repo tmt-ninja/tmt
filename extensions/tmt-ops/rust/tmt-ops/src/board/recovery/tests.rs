@@ -44,7 +44,7 @@ fn app_save_query_owns_typing_but_its_action_list_allows_destination_keys() {
         "↓ reaches the actions"
     );
     assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE)),
+        app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)),
         Effect::None
     );
     assert_eq!(app.shell.tab, OpsTab::Digest);

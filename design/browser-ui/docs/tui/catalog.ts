@@ -99,17 +99,17 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
     anatomy: sample('agents', [0, 2]),
     parts: [
       { name: 'Selected view', row: 2, text: 'Agents' },
-      { name: 'Inactive view', row: 2, text: 'Digest' },
+      { name: 'Inactive view', row: 2, text: 'Work' },
     ],
     states: [
       {
         kind: 'focused',
-        label: 'Selected Agents and inactive Digest',
+        label: 'Selected Agents and inactive Work',
         sample: sample('agents', [1, 2]),
       },
       { kind: 'narrow', label: 'Narrow view tabs', sample: narrow('agents', [0, 2]) },
     ],
-    keys: ['1', '2'],
+    keys: ['1', '2', '3', '4'],
     roles: ['text', 'muted', 'dim', 'selection', 'keycap'],
   },
   {

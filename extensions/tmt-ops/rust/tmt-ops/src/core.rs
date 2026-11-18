@@ -265,6 +265,27 @@ impl Core {
             .flatten()
     }
 
+    /// The executable selected by the extension dispatch, using the same runner as its reads.
+    pub(crate) fn colab_version(&self, timeout: Duration) -> Option<semver::Version> {
+        let finished = self
+            .finish(
+                &["colab".into(), "--version".into()],
+                b"",
+                timeout,
+                tmt_invoke::EnvironmentPolicy::Inherit,
+            )
+            .ok()?;
+        if !finished.success {
+            return None;
+        }
+        std::str::from_utf8(&finished.stdout)
+            .ok()?
+            .trim()
+            .strip_prefix("colab ")?
+            .parse()
+            .ok()
+    }
+
     /// `resume --show` emits JSON itself and rejects the generic --json flag.
     pub(crate) fn resume_show(&self, identity: &str) -> Result<Value, SquadError> {
         self.call_within(

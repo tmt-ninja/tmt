@@ -79,7 +79,7 @@ impl Config {
             return StartupTab::parse(text)
                 .map(|tab| value(tab.name()))
                 .ok_or_else(|| {
-                    invalid("`board.startup_tab` must be last, agents or digest (overview opens agents).")
+                    invalid("`board.startup_tab` must be last, agents, work, digest or orchestration (overview opens agents).")
                 });
         }
         if matches!(key, "reminders.enabled" | "idle_alert.enabled") {

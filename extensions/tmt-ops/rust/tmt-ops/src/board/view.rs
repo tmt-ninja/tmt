@@ -102,7 +102,7 @@ fn scope_chip(frame: &mut Frame, app: &App, area: Rect, used: u16) {
     for scope in super::workspace::render::scope_labels(app) {
         let label = format!(" {scope} ");
         let width = (label.width() + 2) as u16;
-        if area.width < used + 2 + width {
+        if area.width < used.saturating_add(width) {
             continue;
         }
         let x = area.right() - width;
@@ -154,6 +154,7 @@ pub(in crate::board) fn render_frame(
     app.member_links.borrow_mut().begin_frame(frame.area());
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
+    app.work.hits.borrow_mut().clear();
     app.scrolls.begin_frame();
     if app.framed() {
         super::terminal_tab::paint::frame(frame, app);
@@ -194,7 +195,10 @@ pub(in crate::board) fn render_frame(
         let line = tabs::paint(app, summary);
         let used = line.width() as u16;
         strip::paint_left(frame.buffer_mut(), summary, line);
-        if app.shell.tab != super::shell::OpsTab::Orchestration {
+        if matches!(
+            app.shell.tab,
+            super::shell::OpsTab::Agents | super::shell::OpsTab::Digest
+        ) {
             scope_chip(frame, app, summary, used);
         }
     } else {
