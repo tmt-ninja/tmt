@@ -16,7 +16,7 @@ const approvedGzipBytes = 27_134;
  * Linux CI measurement on its PR; no headroom. */
 const approvedEditorialGzipBytes = 999;
 /** Work home loads its own CSS. #6619's section state marks and segments plus #6613's
- * drag handle, Next line and rank badge measure at most 1,602 gzip bytes on macOS. */
+ * drag handle, Next line and rank badge, shared with the #6624 display tags, measure at most 1,602 gzip bytes on macOS. */
 const approvedWorkGzipBytes = 1_602;
 
 const gzipped = (name: string) =>
