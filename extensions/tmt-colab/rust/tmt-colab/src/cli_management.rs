@@ -654,12 +654,17 @@ fn work_home_summaries(root: &Path, layout: &Layout, catalog: &mut Value) -> Res
         }
         Err(error) => return Err(error),
     };
-    let projected: Value = serde_json::from_slice(&bytes)?;
+    let mut projected: Value = serde_json::from_slice(&bytes)?;
     let revision = catalog["membershipHead"]["revision"]
         .as_str()
         .unwrap_or("0");
     if projected["revision"] != revision || projected["spaceId"] != catalog["spaceId"] {
         return Err(management_error("STALE_HEAD"));
+    }
+    for field in ["projectOrders", "projectOrdersOmitted"] {
+        if let Some(value) = projected.get_mut(field) {
+            catalog[field] = value.take();
+        }
     }
     let mut summaries: std::collections::BTreeMap<_, _> = projected["pages"]
         .as_array()

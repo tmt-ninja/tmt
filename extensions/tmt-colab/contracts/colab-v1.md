@@ -6703,6 +6703,8 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   - `tmt colab ls --json --work` opts into the same `summary`: a running serve uses its owner-list
     read, including retained activity and observation stamps, while an offline read folds the
     local store, uses fold-only status, and reports retained times without stamping them.
+    Both paths include the bounded owner list’s `projectOrders` and `projectOrdersOmitted`
+    with `--work`. Plain `ls --json` omits both fields.
   - `doneAtMs` and `blockedSinceMs` are the page's last admitted activity (`lastUpdateAtMs`, never
     later than the read) when an owner list read first saw its status `done` or a non-empty
     `blocked` field, so work already done when the list first sees it keeps the time of its last

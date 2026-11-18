@@ -13618,6 +13618,27 @@ fn work_home_cli_and_browser_share_the_owner_list_summary() {
         r#"{"assignee":"Fixture agent"}"#,
         "--json",
     ]);
+    let saved = pilot.call(&[
+        "work",
+        "order",
+        "move",
+        "Colab",
+        "COLAB-1",
+        "--last",
+        "--revision",
+        "0",
+        "--json",
+    ]);
+    let check_list = |catalog: Value, work: bool| {
+        if work {
+            assert_eq!(catalog["projectOrders"], json!({"Colab": saved}));
+            assert_eq!(catalog["projectOrdersOmitted"], json!([]));
+        } else {
+            assert!(catalog.get("projectOrders").is_none());
+            assert!(catalog.get("projectOrdersOmitted").is_none());
+        }
+        catalog
+    };
     let list_summary = |catalog: Value| {
         catalog["pages"]
             .as_array()
@@ -13627,16 +13648,15 @@ fn work_home_cli_and_browser_share_the_owner_list_summary() {
             .unwrap()["summary"]
             .clone()
     };
-    let plain = || pilot.call(&["ls", "--json"]);
-    assert!(list_summary(plain()).is_null());
-    let offline = list_summary(pilot.call(&["ls", "--json", "--work"]));
+    assert!(list_summary(check_list(pilot.call(&["ls", "--json"]), false)).is_null());
+    let offline = list_summary(check_list(pilot.call(&["ls", "--json", "--work"]), true));
     assert_eq!(offline["status"], "blocked");
     assert!(offline.get("blockedSinceMs").is_none());
     pilot.start();
-    assert!(list_summary(pilot.call(&["ls", "--json"])).is_null());
+    assert!(list_summary(check_list(pilot.call(&["ls", "--json"]), false)).is_null());
     let deadline = Instant::now() + Duration::from_secs(15);
     let local = loop {
-        let summary = list_summary(pilot.call(&["ls", "--json", "--work"]));
+        let summary = list_summary(check_list(pilot.call(&["ls", "--json", "--work"]), true));
         if summary.is_object() {
             break summary;
         }
@@ -13660,7 +13680,10 @@ fn work_home_cli_and_browser_share_the_owner_list_summary() {
     assert_eq!(local["todos"][0]["number"], "COLAB-2");
     assert_eq!(local["todos"][0]["assignee"], "Fixture agent");
     pilot.stop();
-    assert_eq!(list_summary(pilot.call(&["ls", "--json", "--work"])), local);
+    assert_eq!(
+        list_summary(check_list(pilot.call(&["ls", "--json", "--work"]), true)),
+        local
+    );
 }
 
 #[test]
