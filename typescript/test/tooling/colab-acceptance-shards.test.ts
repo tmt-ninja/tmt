@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import model from '../../../extensions/tmt-colab/typescript/app/acceptance/shard-weights.json' with { type: 'json' };
 import { describe, expect, it } from 'vite-plus/test';
 import {
   ACCEPTANCE_SHARDS,
@@ -10,6 +11,9 @@ import {
   splitAcceptanceFiles,
 } from '../../scripts/colab-acceptance-shards.mjs';
 
+const { acceptanceDeadline } = await import(
+  new URL('../../scripts/colab-acceptance-run.mjs', import.meta.url).href
+);
 const { runPackedCommand } = await import(
   new URL('../../scripts/packed-command.mjs', import.meta.url).href
 );
@@ -33,7 +37,7 @@ describe('Colab acceptance shards', () => {
       acceptanceShardFiles(index + 1, ACCEPTANCE_SHARDS)
     );
     expect(sorted(filters.flat())).toEqual(files.map((file) => `acceptance/${file}`));
-    expect(ACCEPTANCE_SHARDS).toBe(3);
+    expect(ACCEPTANCE_SHARDS).toBe(4);
   });
 
   it('finds every spec file Playwright would run, with none hidden in a subdirectory', () => {
@@ -60,11 +64,19 @@ describe('Colab acceptance shards', () => {
       const seconds = splitAcceptanceFiles(files, count, weights).map((shard) => shard.seconds);
       expect(Math.max(...seconds) / Math.min(...seconds), `count ${count}`).toBeLessThan(bound);
     }
-    // The heaviest spec (a 2 MiB page) bounds what any shard count can reach. The split CI runs
-    // leaves each shard well inside its spec deadline (1,380 seconds from job start on shard 1).
     const heaviest = Math.max(...Object.values<number>(weights.files));
     const split = splitAcceptanceFiles(files, ACCEPTANCE_SHARDS, weights);
-    expect(Math.max(...split.map((shard) => shard.seconds))).toBeLessThan(1200);
+    for (const [index, shard] of split.entries()) {
+      const cutoff = acceptanceDeadline(1, index + 1) / 1000 - 1;
+      const elapsed = model.setupSeconds + model.jobOverheadSeconds + shard.seconds;
+      expect(
+        cutoff - elapsed,
+        `Shard ${index + 1}: refit the weights or add a shard`
+      ).toBeGreaterThanOrEqual(120);
+      expect(acceptanceShardFiles(index + 1, ACCEPTANCE_SHARDS)).toEqual(
+        shard.files.map((file) => `acceptance/${file}`)
+      );
+    }
     expect(heaviest).toBeGreaterThan(400);
   });
 
@@ -99,7 +111,7 @@ describe('Colab acceptance shards', () => {
     // list is refused: with no filters Playwright would run the whole suite in every shard.
     expect(workflow).toContain('set -euo pipefail\n');
     expect(workflow).toContain(
-      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 3)"'
+      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 4)"'
     );
     expect(workflow).toContain('read -r -a files <<< "$shard_files"');
     expect(workflow).toContain('if [ "${#files[@]}" -eq 0 ]; then');
