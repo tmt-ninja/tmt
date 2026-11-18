@@ -106,7 +106,7 @@ export function PageWorkBand({
       // The list stays as it was; the next read of it shows the change.
     }
   }, [transport, space]);
-  const owner = binding?.work !== undefined && binding.canWork?.() === true;
+  const owner = showsComputedStatus(binding);
   const stateControl = owner ? (
     <ComputedStatus facts={workFacts} blocked={blockedReason} />
   ) : (
@@ -119,7 +119,7 @@ export function PageWorkBand({
     childrenOf: tree.childrenOf,
     counts: observed ? tree.counts : undefined,
   };
-  if (!owner) return <WorkBand {...shared} />;
+  if (!owner || !binding) return <WorkBand {...shared} />;
   const add = async (choice: AddChoice): Promise<string | undefined> => {
     try {
       // One action each: an attach that fails leaves nothing behind, and a create that made its
@@ -180,6 +180,17 @@ export function PageWorkBand({
   );
 }
 
+/** Whether this viewer's page shows its computed status: only the owner, who can do work on it,
+ * receives the work facts it is computed from. The page bar shows it under the same condition. */
+export function showsComputedStatus(binding?: PageBinding): boolean {
+  return binding?.work !== undefined && binding.canWork?.() === true;
+}
+
+/** A computed status's word, the same in the work band and the page bar. */
+export function computedLabel(state: import('./reading-details.js').WorkFactView['state']) {
+  return t.computedState[state];
+}
+
 /** The dot tone of a computed status, shared by the work band and the page bar. */
 export function computedTone(state: string): 'blocked' | 'working' | 'waiting' | 'muted' {
   return state === 'blocked'
@@ -202,7 +213,7 @@ function ComputedStatus({
   const trigger = useRef<HTMLButtonElement>(null);
   const restoredOnEscape = useRef(false);
   const state = facts?.state ?? 'unknown';
-  const label = t.computedState[state];
+  const label = computedLabel(state);
   const tone = computedTone(state);
   return (
     <UiTheme theme={theme}>

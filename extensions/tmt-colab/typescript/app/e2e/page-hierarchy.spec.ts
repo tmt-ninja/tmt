@@ -46,6 +46,30 @@ for (const width of [1440, 1100, 800, 390])
     await expect(work.locator('.work-count-wide')).toBeVisible();
     const state = work.getByRole('button', { name: 'Blocked, show status details' });
     await expect(state).toHaveText('Blocked');
+    // The bar says the owner's status in the same word as the page's chip under it (#6611); the
+    // narrowest bar keeps only the title.
+    const barStatus = page.locator('.tmt-ui-topbar:visible .page-bar-status');
+    await expect(barStatus).toBeVisible();
+    await expect(barStatus.locator('.page-bar-status-label')).toHaveText('Blocked');
+    if (width === 1440) {
+      // Not computed yet: the bar uses the page's own word for it, never the list's.
+      await page.evaluate(async () => {
+        const path = '/test/work-page-browser.tsx';
+        (await import(path)).mountWorkPage(true, 'work-fields', false, 'unknown');
+      });
+      const chip = work.locator('.work-page-state');
+      await expect(chip).toBeVisible();
+      await expect(barStatus.locator('.page-bar-status-label')).toHaveText(
+        (await chip.textContent())!.trim(),
+      );
+      await expect(barStatus.locator('.page-bar-status-label')).not.toHaveText('Not checked yet');
+      await mount(page, 'work-fields');
+    }
+    if (width === 390) {
+      await page.setViewportSize({ width: 320, height: 900 });
+      await expect(barStatus).toBeHidden();
+      await page.setViewportSize({ width, height: 900 });
+    }
     await expect(page.getByRole('link', { name: 'PR #42 · Released in v1.2.3' })).toBeVisible();
     await expect(page.getByText('Last activity 2 minutes ago')).toBeVisible();
     // Sections are progress (#6619): the title row counts done sections, and each counted heading

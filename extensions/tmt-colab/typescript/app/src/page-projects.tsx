@@ -344,8 +344,9 @@ export function PageProjects({
     port && listedPage && !listedPage.archived ? listedPage.pinned === true : undefined;
   const projectKey = JSON.stringify(listedPage?.projects ?? []);
   useEffect(() => {
-    onProjects?.(JSON.parse(projectKey) as string[]);
-  }, [projectKey, onProjects]);
+    // The bar names the projects only where the page shows them.
+    onProjects?.(port ? (JSON.parse(projectKey) as string[]) : []);
+  }, [projectKey, onProjects, port]);
   useEffect(() => {
     onPinState?.(
       pinned === undefined

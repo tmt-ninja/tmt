@@ -271,7 +271,8 @@ test.describe('the shell bar', () => {
       // own title block.
       const title = bar(page).locator('.tmt-ui-topbar-title');
       await expect(title.locator('.tmt-ui-topbar-title-current')).toContainText('Live shared page');
-      await expect(title.locator('.page-bar-status')).toBeVisible();
+      // This fixture's viewer receives no work facts: the bar shows no status chip (#6611).
+      await expect(title.locator('.page-bar-status')).toHaveCount(0);
       await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
       const visibleTitle = page.locator('.page-mobile-title:visible h1');
       await expect(visibleTitle).toBeVisible();

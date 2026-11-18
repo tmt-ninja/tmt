@@ -1,7 +1,7 @@
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import type { WorkFactView } from './reading-details.js';
 import { text } from './strings.js';
-import { computedTone } from './work-band-live.js';
+import { computedLabel, computedTone } from './work-band-live.js';
 import { projectTone } from './projects.js';
 import './page-projects.css';
 import './page-bar-summary.css';
@@ -17,27 +17,32 @@ const LABELS = 3;
  */
 export function PageBarSummary({
   facts,
+  status,
   labels,
 }: {
   facts?: WorkFactView;
+  /** Whether the page shows its computed status (`showsComputedStatus`): no chip otherwise. */
+  status: boolean;
   labels: readonly string[];
 }) {
   const state = facts?.state ?? 'unknown';
-  // A status no page view has computed yet reads as the list says it.
-  const label =
-    state === 'unknown' ? text.pageList.notCheckedYet : text.workBand.computedState[state];
+  // The same word as the page's own status chip just under the bar.
+  const label = computedLabel(state);
   const shown = labels.slice(0, LABELS);
+  if (!status && shown.length === 0) return null;
   return (
     <span className="page-bar-summary">
-      <span className={`page-bar-status ${ui.countChip}`} title={label} data-state={state}>
-        <span
-          className={ui.stateMark}
-          data-shape="dot"
-          data-tone={computedTone(state)}
-          aria-hidden="true"
-        />
-        <span className="page-bar-status-label">{label}</span>
-      </span>
+      {status && (
+        <span className={`page-bar-status ${ui.countChip}`} title={label} data-state={state}>
+          <span
+            className={ui.stateMark}
+            data-shape="dot"
+            data-tone={computedTone(state)}
+            aria-hidden="true"
+          />
+          <span className="page-bar-status-label">{label}</span>
+        </span>
+      )}
       {shown.length > 0 && (
         <span className="page-bar-labels" title={labels.join(', ')}>
           {/* The same chips as the page's own projects, in the same tones. */}

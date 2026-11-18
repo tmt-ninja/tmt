@@ -579,6 +579,8 @@ test('a viewer sees the same tree without write controls', async ({ page }) => {
   await expect(band.getByRole('button', { name: /^More for / })).toHaveCount(0);
   await expect(band.getByRole('button', { name: /^State of / })).toHaveCount(0);
   await expect(band.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
+  // A viewer never receives the work facts a status is computed from: the bar shows none (#6611).
+  await expect(page.locator('.tmt-ui-topbar .page-bar-status')).toHaveCount(0);
 });
 
 test('the title controls scroll with the page, and the sub-page list scrolls independently', async ({

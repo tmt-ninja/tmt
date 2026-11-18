@@ -498,7 +498,8 @@ test('one-row fitting retains full labels, stable content and compact action aut
   const header = bar.locator('.tmt-ui-topbar-title');
   const heading = page.locator('.page-mobile-title h1').filter({ hasText: title });
   await expect(heading).toBeVisible();
-  await expect(header.locator('.page-bar-status')).toBeVisible();
+  // This page view receives no work facts, so its bar shows no status (#6611).
+  await expect(header.locator('.page-bar-status')).toHaveCount(0);
   await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
   const iframe = page.locator('#layout-fixture iframe');
   await expect(
@@ -508,9 +509,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
   const titleHandle = await heading.elementHandle();
   for (const width of [800, 640, 390, 320, 1440]) {
     await page.setViewportSize({ width, height: 900 });
-    // The status stays beside the title down to a phone; the narrowest bar keeps only the number
-    // and title. The bar names no author (#6611).
-    await expect(header.locator('.page-bar-status'))[width >= 390 ? 'toBeVisible' : 'toBeHidden']();
+    // The bar names no author (#6611).
     await expect(header.locator('.tmt-ui-caption')).toHaveCount(0);
     // The shell carries the mark at every width (the rail, or the phone's menu button), not the bar.
     await expect(bar.locator('.tmt-ui-mark')).toBeHidden();

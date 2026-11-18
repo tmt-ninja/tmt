@@ -2,7 +2,7 @@ import { useNeedsYouVersions } from './use-needs-you-versions.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
-import { PageStateMenu, PageWorkBand } from './work-band-live.js';
+import { PageStateMenu, PageWorkBand, showsComputedStatus } from './work-band-live.js';
 import { htmlOutlineSections, sectionTotals } from './section-view.js';
 import { MobileWorkTitle, WorkPullChips } from './work-band.js';
 import { PageBarSummary } from './page-bar-summary.js';
@@ -2826,7 +2826,14 @@ function OpenPage({
               )}
               {/* The page's number, title, status and labels stay in the bar while it scrolls
                   (#6611); #6520 had left only the product and the author there. */}
-              <PageBarSummary facts={view.workFacts} labels={barLabels} />
+              <PageBarSummary
+                facts={view.workFacts}
+                status={
+                  !design &&
+                  showsComputedStatus(archived || liveError ? undefined : snapshot.binding)
+                }
+                labels={barLabels}
+              />
             </>
           }
           crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
