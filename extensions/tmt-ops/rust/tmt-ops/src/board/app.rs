@@ -6768,24 +6768,27 @@ mod token_window_tests {
 
     #[test]
     fn live_projection_ages_on_bucket_boundary_without_new_receipt() {
-        let now = Instant::now();
-        let mut app = home(now);
-        let at = now + Duration::from_secs(10);
-        assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
-        app.agents_live.begin(&app, at);
-        let before = app.agents_live.member(&app, "a").unwrap();
-        let later = now + Duration::from_secs(305);
-        app.agents_live.begin(&app, later);
-        let actual = app.meters["product"].member_trend_window(
-            "a",
-            later,
-            app.activity_window().token_window(),
-        );
-        assert_ne!(
-            before.activity, actual,
-            "fixture must cross an activity cell boundary"
-        );
-        assert_eq!(app.agents_live.member(&app, "a").unwrap().activity, actual);
+        // Start on a five-minute cell boundary so +10 s and +305 s land in adjacent cells.
+        crate::status::with_now_ms(3_600_000, || {
+            let now = Instant::now();
+            let mut app = home(now);
+            let at = now + Duration::from_secs(10);
+            assert!(app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), at));
+            app.agents_live.begin(&app, at);
+            let before = app.agents_live.member(&app, "a").unwrap();
+            let later = now + Duration::from_secs(305);
+            app.agents_live.begin(&app, later);
+            let actual = app.meters["product"].member_trend_window(
+                "a",
+                later,
+                app.activity_window().token_window(),
+            );
+            assert_ne!(
+                before.activity, actual,
+                "fixture must cross an activity cell boundary"
+            );
+            assert_eq!(app.agents_live.member(&app, "a").unwrap().activity, actual);
+        });
     }
 
     #[test]
