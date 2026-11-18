@@ -125,6 +125,7 @@ impl App {
                 .next()
                 .unwrap_or_default();
             if token.starts_with('#')
+                && !token.starts_with(super::member_links::LEGACY_TRIGGER)
                 && let Some(key) = self.checklist_reference_key()
             {
                 checklist = true;

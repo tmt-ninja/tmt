@@ -66,6 +66,9 @@ pub(super) fn bare_urls(text: &str) -> Vec<Range<usize>> {
     found
 }
 
+/// The transcript still recognizes this explicit member syntax in authored text.
+pub(super) const LEGACY_TRIGGER: &str = "#tmt:";
+
 fn word_char(ch: char) -> bool {
     ch.is_alphanumeric() || matches!(ch, '-' | '_')
 }
@@ -99,11 +102,11 @@ pub(super) fn resolve(text: &str, inventory: &Inventory) -> Vec<Resolved> {
             });
             continue;
         }
-        let legacy = text[start..].starts_with("#tmt:");
+        let legacy = text[start..].starts_with(LEGACY_TRIGGER);
         // `tmt/<name>` is the mention the composer writes; `@name` stays for older text.
         let mention = text[start..].starts_with(super::mentions::TRIGGER);
         let prefix = if legacy {
-            5
+            LEGACY_TRIGGER.len()
         } else if mention {
             super::mentions::TRIGGER.len()
         } else {
