@@ -1,11 +1,15 @@
 //! The Colab project order, separate from attention order and work status.
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 use crate::board::{notes::single_line, recent_responses::canonical_identity};
 
 use super::{Item, Status};
+
+/// Colab alpha.481 first supplies both the order commands and the Work-list orders.
+const LAST_UNSUPPORTED: &str = "0.1.0-alpha.480";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ProjectOrder {
@@ -160,9 +164,9 @@ impl Move {
     }
 }
 
-fn unsupported(value: &Value) -> bool {
+fn unsupported(core: &crate::core::Core, value: &Value, remaining: Duration) -> bool {
     value["error"]["code"] == "COLAB_INPUT_INVALID"
-        && matches!(
+        && (matches!(
             value["error"]["message"]
                 .as_str()
                 .and_then(|text| text.lines().next()),
@@ -172,7 +176,10 @@ fn unsupported(value: &Value) -> bool {
                     | "error: unrecognized subcommand 'move'"
                     | "error: unrecognized subcommand 'show'"
             )
-        )
+        ) || (!remaining.is_zero()
+            && core.colab_version(remaining).is_some_and(|version| {
+                version <= LAST_UNSUPPORTED.parse().expect("valid Colab version")
+            })))
 }
 
 fn refusal(value: &Value) -> Option<String> {
@@ -183,6 +190,7 @@ fn refusal(value: &Value) -> Option<String> {
 /// Only a confirmed Move job writes. A lost response or conflict reads
 /// the owner once and never submits a second write.
 pub(in crate::board) fn run(core: &crate::core::Core, job: Job) -> Reply {
+    let started = Instant::now();
     let project = &job.target().project;
     let body = match &job {
         Job::Show(_) => show(core, project),
@@ -199,7 +207,15 @@ pub(in crate::board) fn run(core: &crate::core::Core, job: Job) -> Reply {
         .and_then(|result| result.as_ref().ok())
         .and_then(ProjectOrder::decode);
     let outcome = match (&job, body, order) {
-        (_, Some(Err(value)), _) if unsupported(&value) => Outcome::Update,
+        (_, Some(Err(value)), _)
+            if unsupported(
+                core,
+                &value,
+                super::WITHIN.saturating_sub(started.elapsed()),
+            ) =>
+        {
+            Outcome::Update
+        }
         (Job::Show(_), _, Some(order)) => Outcome::Read(order),
         (Job::Show(_), body, _) => Outcome::Refused(
             body.as_ref()

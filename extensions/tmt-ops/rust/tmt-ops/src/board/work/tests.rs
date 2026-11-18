@@ -319,7 +319,9 @@ fn colab_work_order_cli_conflict_and_unknown_results_read_once_without_replaying
         r#"#!/bin/sh
 cd "$(dirname "$0")" || exit 2
 printf '%s\n' "$*" >> calls
-if [ "$4" = show ]; then
+if [ "$2" = --version ]; then
+    cat version
+elif [ "$4" = show ]; then
     cat current
 else
     cat response
@@ -370,6 +372,28 @@ fi
             order::Outcome::Update => assert!(response_body.contains("unrecognized subcommand")),
             order::Outcome::Refused(message) => assert_eq!(message, "No numbered work item matches."),
             other => panic!("unexpected order outcome: {other:?}"),
+        }
+    }
+    fs::write(
+        &response,
+        json!({"error":{"code":"COLAB_INPUT_INVALID","message":"Invalid project order input."}})
+            .to_string(),
+    )
+    .unwrap();
+    for (version, outdated) in [("0.1.0-alpha.480", true), ("0.1.0-alpha.481", false)] {
+        fs::write(&calls, "").unwrap();
+        fs::write(scratch.join("version"), format!("colab {version}\n")).unwrap();
+        let reply = run_order(&core, OrderJob::Move(task.clone()));
+        assert_eq!(
+            fs::read_to_string(&calls).unwrap(),
+            format!("{move_line}colab --version\n")
+        );
+        if outdated {
+            assert!(matches!(reply.outcome, order::Outcome::Update));
+        } else {
+            assert!(
+                matches!(reply.outcome, order::Outcome::Refused(message) if message == "Invalid project order input.")
+            );
         }
     }
 }
