@@ -38,12 +38,7 @@ fn member_noun(count: Option<usize>) -> &'static str {
 }
 
 pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
-    let tabs = [
-        OpsTab::Agents,
-        OpsTab::Work,
-        OpsTab::Digest,
-        OpsTab::Orchestration,
-    ];
+    let tabs = OpsTab::ALL;
     let selected = tabs
         .iter()
         .position(|tab| *tab == app.shell.tab)

@@ -8,12 +8,12 @@ pub(in crate::board) mod scene;
 mod tabs;
 pub(in crate::board) mod waiting;
 
-use super::app::App;
+use super::{app::App, shell::OpsTab};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
 };
-use tmt_cli_style::grid::Align;
+use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::components::strip;
 
 pub(in crate::board) use header::ClockSurface;
@@ -28,6 +28,57 @@ pub fn fit(text: &str, width: usize) -> String {
         tmt_tui::style::TextFlow::Truncate,
         Align::Left,
     )
+}
+
+/// The first admitted paint, before settings and snapshot acquisition.
+pub(super) fn opening(frame: &mut Frame<'_>, look: crate::look::Look, tab: Option<OpsTab>) {
+    let area = frame.area();
+    if area.is_empty() {
+        return;
+    }
+    let row = |y| Rect::new(area.x, y, area.width, 1);
+    let [header, _, tabs, _, _, body, footer] = workspace_bands(area);
+    if area.height > 1 {
+        super::top_bar::paint_attention(
+            frame.buffer_mut(),
+            header,
+            super::top_bar::Caption::default(),
+            None,
+            None,
+            look,
+            &[],
+        );
+    }
+    if area.height > 2 {
+        let labels = OpsTab::ALL.map(OpsTab::label);
+        let selected = OpsTab::ALL
+            .iter()
+            .position(|candidate| Some(*candidate) == tab)
+            .unwrap_or(labels.len());
+        // This display-only strip has no key caps or registered hits.
+        let (line, _) = super::tab_strip::line(&labels, &[], selected, tabs, look, false);
+        strip::paint_left(frame.buffer_mut(), tabs, line);
+    }
+    let status_y = if area.height < 4 {
+        area.bottom() - 1
+    } else {
+        body.y
+    };
+    strip::paint_left(
+        frame.buffer_mut(),
+        row(status_y),
+        ratatui::text::Line::styled(" ◌ Loading squads…", look.role(Role::Muted)),
+    );
+    if area.height >= 4 {
+        strip::paint_left(
+            frame.buffer_mut(),
+            footer,
+            ratatui::text::Line::styled(
+                scene::rule("", usize::from(footer.width)),
+                look.role(Role::Dim),
+            ),
+        );
+    }
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
@@ -87,6 +138,22 @@ fn bands(app: &App, area: Rect, has_usage: bool, limit_rows: u16) -> [Rect; 7] {
         Constraint::Length(u16::from(
             header::meter_enabled(app) || has_usage || home_history_pending,
         )),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .areas(area)
+}
+
+fn workspace_bands(area: Rect) -> [Rect; 7] {
+    let shell_gap = u16::from(area.height >= 24);
+    // Hidden squads live in the Agents list and the scope on the tab strip,
+    // so the workspace has no boundary band.
+    Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(0),
+        Constraint::Length(1),
+        Constraint::Length(shell_gap),
+        Constraint::Length(0),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
@@ -167,20 +234,8 @@ pub(in crate::board) fn render_frame(
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
     let workspace = app.workspace_snapshot().is_some() || app.view.is_none();
-    let shell_gap = u16::from(frame.area().height >= 24);
     let [tabs, boundary, summary, limits, meter_status, body, footer] = if workspace {
-        // Hidden squads live in the Agents list and the scope on the tab strip,
-        // so the workspace has no boundary band.
-        Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(0),
-            Constraint::Length(1),
-            Constraint::Length(shell_gap),
-            Constraint::Length(0),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
-        .areas(frame.area())
+        workspace_bands(frame.area())
     } else {
         bands(
             app,

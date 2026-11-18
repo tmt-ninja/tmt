@@ -11,6 +11,8 @@ pub enum OpsTab {
 }
 
 impl OpsTab {
+    pub(super) const ALL: [Self; 4] = [Self::Agents, Self::Work, Self::Digest, Self::Orchestration];
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Agents => "Agents",
