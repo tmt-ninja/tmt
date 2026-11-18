@@ -387,6 +387,9 @@
 /* The details popover renders inside the row's status cell, which keeps one line; the popover wraps. */
 .work-home .work-status-details {
   max-width: min(360px, calc(100vw - 32px));
+  /* A page's section list can be taller than the room beside its row (#6619). */
+  max-height: var(--radix-popover-content-available-height);
+  overflow-y: auto;
   white-space: normal;
 }
 
@@ -412,6 +415,15 @@
   color: var(--tmt-ui-color-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.work-home-section-details {
+  margin-bottom: var(--tmt-ui-space-m);
+  padding-bottom: var(--tmt-ui-space-m);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+}
+.work-home-section-details > p {
+  margin: 0;
+  font-weight: 600;
 }
 .work-home-section-details ul {
   display: grid;

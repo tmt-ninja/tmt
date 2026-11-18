@@ -136,7 +136,7 @@ export function PageOutline({
           {totals && (
             <span className="page-outline-progress">
               {' · '}
-              {text.sections.summary(totals.done, totals.total)}
+              {text.sections.outlineSummary(totals.done, totals.total)}
             </span>
           )}
         </span>
@@ -196,7 +196,11 @@ function OutlineRow({ title, section }: { title: string; section?: SectionSummar
         aria-hidden="true"
       />
       <span className="page-outline-title">{title}</span>
-      <span className="page-outline-section-count">{view.count}</span>
+      {/* The narrow gutter keeps the count; the mark's shape and tone say the state, named here. */}
+      <span className="page-outline-section-count" title={view.word}>
+        {view.short}
+        <span className="tmt-ui-visually-hidden">, {view.word}</span>
+      </span>
     </>
   );
 }

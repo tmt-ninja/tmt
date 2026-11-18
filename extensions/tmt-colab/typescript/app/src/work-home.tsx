@@ -199,12 +199,13 @@ function RowStatus({ item, transport }: { item: WorkItem; transport: PageTranspo
             <p>{t.statusReading}</p>
           ) : (
             <>
+              {/* Where the page is stuck comes first (#6619), then its status in full. */}
+              <SectionDetails sections={view?.sections ?? item.sections} />
               <StatusDetailsBody
                 state={state}
                 {...(view ? { facts: view } : {})}
                 {...(item.status === 'blocked' && item.next ? { blocked: item.next } : {})}
               />
-              <SectionDetails sections={view?.sections ?? item.sections} />
             </>
           )}
         </PopoverContent>

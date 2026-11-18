@@ -774,6 +774,7 @@ export const text = {
   sections: {
     count: (done: number, total: number) => `${done}/${total}`,
     summary: (done: number, total: number) => `${done}/${total} sections done`,
+    outlineSummary: (done: number, total: number) => `${done}/${total} done`,
     summaryLabel: (done: number, total: number) =>
       `${done} of ${total} ${total === 1 ? 'section' : 'sections'} done`,
     stuck: (word: string, title: string) => `${word}: stuck at the section “${title}”.`,

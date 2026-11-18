@@ -2704,6 +2704,12 @@ button.discussion-quote:focus-visible {
 .structured-section-mark {
   margin-inline-start: calc(-12px - var(--tmt-ui-space-s));
 }
+/* The phone's page gutter has no room beside the heading: the mark moves into its line. */
+@media (max-width: 640px) {
+  .structured-section-mark {
+    margin-inline-start: 0;
+  }
+}
 .structured-section-count {
   flex: none;
   color: var(--tmt-ui-color-secondary);

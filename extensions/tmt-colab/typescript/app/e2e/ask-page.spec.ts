@@ -802,11 +802,11 @@ for (const width of [1440, 390])
       const title = (await page.locator('.page-mobile-title h1').boundingBox())!;
       // Sections are progress (#6619): each counted heading has its mark and count, and the title
       // row counts done sections.
-      await expect(toggle).toContainText('Outline · 1/3 sections done');
+      await expect(toggle).toContainText('Outline · 1/3 done');
       await expect(outline.locator('.page-outline-section-count')).toHaveText([
-        '3/4',
-        '2/2',
-        '0/1 · Needs you',
+        '3/4, In progress',
+        '2/2, Done',
+        '0/1, Needs you',
       ]);
       await expect(outline.locator('.page-outline-mark')).toHaveCount(3);
       expect(Math.abs(control.y - title.y)).toBeLessThanOrEqual(4);

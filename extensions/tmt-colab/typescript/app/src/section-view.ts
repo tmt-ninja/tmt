@@ -12,6 +12,8 @@ export interface SectionMarkView {
   count: string;
   /** The state word, for an accessible name. */
   word: string;
+  /** The count alone ("0/3"), or the word for a section without to-dos. */
+  short: string;
 }
 
 const t = text.sections;
@@ -49,7 +51,8 @@ export function sectionMark(section: SectionSummary): SectionMarkView {
       : plain
         ? t.count(section.done, section.total)
         : `${t.count(section.done, section.total)} · ${word}`;
-  return { shape, ...(tone ? { tone } : {}), count, word };
+  const short = section.total === 0 ? word : t.count(section.done, section.total);
+  return { shape, ...(tone ? { tone } : {}), count, word, short };
 }
 
 /** An HTML page's sections on the outline the frame measured (#6619): the owner reads the source,

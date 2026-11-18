@@ -290,8 +290,8 @@ button.tmt-ui-field-chip:hover {
   min-width: 0;
 }
 .tmt-ui-segments > span {
-  flex: 0 1 14px;
-  min-width: 4px;
+  flex: none;
+  width: 10px;
   height: 6px;
   border-radius: var(--tmt-ui-radius-pill);
   background: color-mix(in srgb, var(--tmt-ui-color-secondary) 30%, transparent);
