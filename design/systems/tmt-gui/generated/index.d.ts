@@ -621,6 +621,57 @@ export interface WorkBandProps {
   children?: ReactNode;
 }
 
+/** <tmt-ui-work-row>: props from its schema, slots as nodes. */
+export interface WorkRowProps {
+  state?: "working" | "waiting-ci" | "waiting-release" | "blocked" | "needs-you" | "possibly-stalled" | "discussing" | "done" | "unknown" | "unchecked";
+  number?: string;
+  next?: string;
+  owner?: string;
+  time?: string;
+  priority?: "normal" | "high";
+  label?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-work-overview>: props from its schema, slots as nodes. */
+export interface WorkOverviewProps {
+  counts?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-work-ratio>: props from its schema, slots as nodes. */
+export interface WorkRatioProps {
+  counts?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-work-done-chart>: props from its schema, slots as nodes. */
+export interface WorkDoneChartProps {
+  period?: "today" | "week" | "month";
+  cells?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-work-field-chips>: props from its schema, slots as nodes. */
+export interface WorkFieldChipsProps {
+  owner?: string;
+  priority?: "normal" | "high";
+  next?: string;
+  blocked?: string;
+  "status-label"?: string;
+  pull?: string;
+  parent?: string;
+  subpages?: string;
+  state?: "working" | "waiting-ci" | "waiting-release" | "blocked" | "needs-you" | "possibly-stalled" | "discussing" | "done" | "unknown" | "unchecked";
+  children?: ReactNode;
+}
+
+/** <tmt-ui-work-next-line>: props from its schema, slots as nodes. */
+export interface WorkNextLineProps {
+  titles?: string;
+  children?: ReactNode;
+}
+
 /** <tmt-ui-message-row>: props from its schema, slots as nodes. */
 export interface MessageRowProps {
   author?: string;

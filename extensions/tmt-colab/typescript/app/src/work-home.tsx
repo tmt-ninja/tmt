@@ -1,3 +1,4 @@
+import { WorkRow as WorkRowPart, WorkRatio } from '@tmt/browser-ui/work-display';
 import '@tmt/browser-ui/work.css';
 import './work-home.css';
 import { BrowserAvatar, BrowserSegments } from '@tmt/browser-ui/react';
@@ -98,17 +99,14 @@ function Ratio({ counts }: { counts: Partial<Record<OverviewStatus, number>> }) 
   const parts = OVERVIEW.filter((status) => (counts[status] ?? 0) > 0);
   if (!parts.length) return null;
   return (
-    <div
-      className="tmt-ui-work-ratio"
-      role="img"
-      aria-label={t.ratio(
-        parts.map((status) => `${counts[status]} ${t.status[status]}`).join(', '),
-      )}
-    >
-      {parts.map((status) => (
-        <span key={status} data-state={partState(status)} style={{ flexGrow: counts[status] }} />
-      ))}
-    </div>
+    <WorkRatio
+      counts={parts.map((status) => ({
+        state: partState(status),
+        label: t.status[status],
+        count: counts[status]!,
+      }))}
+      label={t.ratio(parts.map((status) => counts[status] + ' ' + t.status[status]).join(', '))}
+    />
   );
 }
 
@@ -250,11 +248,13 @@ function WorkRow({
   // The title's link covers the row (work-home.css), so the status and owner controls sit beside
   // it rather than inside a link.
   return (
-    <div className="tmt-ui-work-row work-home-row">
-      <RowStatus item={item} transport={transport} />
-      <span className="tmt-ui-work-number">{item.number ?? ''}</span>
-      <span className="tmt-ui-work-title">
-        {item.high ? <span className="tmt-ui-work-priority">High</span> : null}
+    <WorkRowPart
+      className="work-home-row"
+      state={item.status}
+      number={item.number}
+      statusControl={<RowStatus item={item} transport={transport} />}
+      priority={item.high ? 'high' : 'normal'}
+      title={
         <Link
           className="work-home-row-link"
           to="/pages/$pageId"
@@ -263,14 +263,12 @@ function WorkRow({
         >
           {item.title}
         </Link>
-      </span>
-      <span className="tmt-ui-work-next">
-        {item.status === 'blocked' && item.next ? `Blocked: ${item.next}` : (item.next ?? '')}
-      </span>
-      {item.sections ? <RowSections sections={item.sections} /> : null}
-      {item.owner ? <OwnerCell owner={item.owner} /> : null}
-      <span className="tmt-ui-work-time">{age(item.lastMs, now)}</span>
-    </div>
+      }
+      next={item.status === 'blocked' && item.next ? 'Blocked: ' + item.next : item.next}
+      sections={item.sections ? <RowSections sections={item.sections} /> : undefined}
+      ownerControl={item.owner ? <OwnerCell owner={item.owner} /> : undefined}
+      time={age(item.lastMs, now)}
+    />
   );
 }
 

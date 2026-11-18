@@ -1,3 +1,11 @@
+import {
+  WorkRow,
+  WorkOverview,
+  WorkRatio,
+  WorkDoneChart,
+  WorkFieldChips,
+  WorkNextLine,
+} from '../src/work-display.js';
 import { lazy, type ComponentType } from 'react';
 import {
   BrowserMessageRow,
@@ -67,7 +75,88 @@ export interface BrowserDoc {
   entry?: string;
 }
 
+const workCounts = [
+  { state: 'working', label: 'In progress', count: 3 },
+  { state: 'blocked', label: 'Blocked', count: 1 },
+];
+
 export const browserDocs: BrowserDoc[] = [
+  {
+    slug: 'work-row',
+    name: 'Work row',
+    section: 'work',
+    exports: ['WorkRow'],
+    entry: 'work-display',
+    description: 'Status, title, next step and owner for one work item.',
+    Demo: () => (
+      <WorkRow
+        state="working"
+        number="COLAB-143"
+        title="Review the toolbar"
+        owner="gui-3"
+        time="3 min"
+      />
+    ),
+    css: ['work'],
+  },
+  {
+    slug: 'work-overview',
+    name: 'Work status overview',
+    section: 'work',
+    exports: ['WorkOverview'],
+    entry: 'work-display',
+    description: 'Open items counted by status.',
+    Demo: () => <WorkOverview counts={workCounts} />,
+    css: ['work'],
+  },
+  {
+    slug: 'work-ratio',
+    name: 'Work ratio bar',
+    section: 'work',
+    exports: ['WorkRatio'],
+    entry: 'work-display',
+    description: 'Each status occupies a share proportional to its count.',
+    Demo: () => <WorkRatio counts={workCounts} />,
+    css: ['work'],
+  },
+  {
+    slug: 'work-done-chart',
+    name: 'Work done-count chart',
+    section: 'work',
+    exports: ['WorkDoneChart'],
+    entry: 'work-display',
+    description: 'Completed items by period, scaled to the busiest cell.',
+    Demo: () => (
+      <WorkDoneChart
+        cells={[
+          { label: 'Mon', count: 2 },
+          { label: 'Tue', count: 3, current: true },
+        ]}
+      />
+    ),
+    css: ['work'],
+  },
+  {
+    slug: 'work-field-chips',
+    name: 'Work field chips',
+    section: 'work',
+    exports: ['WorkFieldChips'],
+    entry: 'work-display',
+    description: 'The owner, priority and next step of a page.',
+    Demo: () => <WorkFieldChips owner="gui-3" priority="high" next="Review the toolbar" />,
+    css: ['work'],
+  },
+  {
+    slug: 'work-next-line',
+    name: 'Work Next line',
+    section: 'work',
+    exports: ['WorkNextLine'],
+    entry: 'work-display',
+    description: 'The first ranked items in project order.',
+    Demo: () => <WorkNextLine titles={['Review the toolbar', 'Check the chart', 'Publish']} />,
+    css: ['work'],
+  },
+
   {
     slug: 'page-row',
     name: 'Page row',

@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "work-field-chips",
+  "source": "work-field-chips.js",
+  "props": {
+    "owner": {
+      "type": "string"
+    },
+    "priority": {
+      "enum": [
+        "normal",
+        "high"
+      ],
+      "default": "normal"
+    },
+    "next": {
+      "type": "string"
+    },
+    "blocked": {
+      "type": "string"
+    },
+    "status-label": {
+      "type": "string"
+    },
+    "pull": {
+      "type": "string"
+    },
+    "parent": {
+      "type": "string"
+    },
+    "subpages": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "working",
+        "waiting-ci",
+        "waiting-release",
+        "blocked",
+        "needs-you",
+        "possibly-stalled",
+        "discussing",
+        "done",
+        "unknown",
+        "unchecked"
+      ],
+      "default": "discussing"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "work.css",
+  "uiParts": [
+    "WorkFieldChips"
+  ],
+  "examples": [
+    {
+      "title": "Work field chips",
+      "markup": "<tmt-ui-work-field-chips owner=\"gui-3\" priority=\"high\" state=\"working\" status-label=\"Working\" pull=\"#6457 merged\" parent=\"Colab stability\" next=\"Review the toolbar\"></tmt-ui-work-field-chips>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

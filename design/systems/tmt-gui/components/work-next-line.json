@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "work-next-line",
+  "source": "work-next-line.js",
+  "props": {
+    "titles": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "work.css",
+  "uiParts": [
+    "WorkNextLine"
+  ],
+  "examples": [
+    {
+      "title": "Next line",
+      "markup": "<tmt-ui-work-next-line titles=\"[&quot;Review the toolbar&quot;,&quot;Check the chart&quot;,&quot;Publish&quot;]\"></tmt-ui-work-next-line>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

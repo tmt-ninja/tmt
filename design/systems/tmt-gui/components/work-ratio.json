@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "work-ratio",
+  "source": "work-ratio.js",
+  "props": {
+    "counts": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "work.css",
+  "uiParts": [
+    "WorkRatio"
+  ],
+  "examples": [
+    {
+      "title": "Status ratio bar",
+      "markup": "<tmt-ui-work-ratio counts=\"[{&quot;state&quot;:&quot;working&quot;,&quot;count&quot;:3,&quot;label&quot;:&quot;In progress&quot;},{&quot;state&quot;:&quot;blocked&quot;,&quot;count&quot;:1,&quot;label&quot;:&quot;Blocked&quot;}]\"></tmt-ui-work-ratio>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

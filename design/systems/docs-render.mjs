@@ -95,6 +95,12 @@ export async function renderDocs() {
         pages: [
           ['page-row', 'page-row'],
           ['work-band', 'work-band'],
+          ['work-row', 'work-row'],
+          ['work-overview', 'work-overview'],
+          ['work-ratio', 'work-ratio'],
+          ['work-done-chart', 'work-done-chart'],
+          ['work-field-chips', 'work-field-chips'],
+          ['work-next-line', 'work-next-line'],
           ['message-row', 'message-row'],
           ['status-line', 'status-line'],
           ['avatar', 'browser-avatar'],

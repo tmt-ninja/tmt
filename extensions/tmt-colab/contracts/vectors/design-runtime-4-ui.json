@@ -107,6 +107,12 @@
     "BrowserChart",
     "BrowserPageRow",
     "BrowserWorkBand",
+    "WorkRow",
+    "WorkOverview",
+    "WorkRatio",
+    "WorkDoneChart",
+    "WorkFieldChips",
+    "WorkNextLine",
     "BrowserMessageRow",
     "BrowserStatusLine",
     "TerminalFrame"

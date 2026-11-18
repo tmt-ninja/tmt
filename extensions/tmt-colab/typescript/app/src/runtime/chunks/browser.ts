@@ -40,12 +40,27 @@ import {
   BrowserStatusLine,
   BrowserWorkBand,
 } from '@tmt/browser-ui/pattern-parts';
+import {
+  WorkRow,
+  WorkOverview,
+  WorkRatio,
+  WorkDoneChart,
+  WorkFieldChips,
+  WorkNextLine,
+} from '@tmt/browser-ui/work-display';
 registerChunk('browser', {
   ui: {
     BrowserMessageRow,
     BrowserPageRow,
     BrowserStatusLine,
     BrowserWorkBand,
+    WorkRow,
+    WorkOverview,
+    WorkRatio,
+    WorkDoneChart,
+    WorkFieldChips,
+    WorkNextLine,
+
     BrowserAvatar,
     BrowserAction,
     BrandMark,
