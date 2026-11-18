@@ -11,7 +11,7 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
 use crate::board::{
-    app::{App, Effect},
+    app::{App, Choice, Effect, Menu, MenuEntry},
     shell::OpsTab,
     view::{fit, scene},
 };
@@ -22,6 +22,7 @@ use super::{Item, List, Status};
 pub(in crate::board) enum Hit {
     Row(String),
     Open(String),
+    Move(String),
     Project,
     Recent,
     More(Option<String>),
@@ -313,6 +314,46 @@ fn rows<'a>(
             );
             rows.push(Row::label(format!("  {heading}"), Role::Dim));
         }
+        let order = project.and_then(|name| list.orders.get(name));
+        if let Some(order) = order
+            && filter.is_some()
+        {
+            let next = order.next(&open);
+            let ranked: std::collections::BTreeSet<_> =
+                next.iter().map(|item| item.key.as_str()).collect();
+            rows.push(Row::label("── Now", Role::Muted));
+            rows.extend(
+                open.iter()
+                    .filter(|item| super::order::now(item.status))
+                    .map(|item| Row::item(item, &section)),
+            );
+            rows.push(Row::label("── Next", Role::Muted));
+            rows.extend(next.into_iter().map(|item| Row::item(item, &section)));
+            rows.push(Row::label("── No preference", Role::Muted));
+            rows.extend(
+                open.into_iter()
+                    .filter(|item| {
+                        !super::order::now(item.status) && !ranked.contains(item.key.as_str())
+                    })
+                    .map(|item| Row::item(item, &section)),
+            );
+            continue;
+        }
+        let preview = order.map(|order| {
+            order
+                .next(&open)
+                .into_iter()
+                .take(3)
+                .map(|item| {
+                    if width < WIDE {
+                        item.number.as_deref().unwrap_or(&item.title)
+                    } else {
+                        &item.title
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" → ")
+        });
         let expanded = state.expanded.contains(&project.map(str::to_owned));
         let count = open.len();
         rows.extend(
@@ -332,6 +373,14 @@ fn rows<'a>(
                 hit: Some(Hit::More(project.map(str::to_owned))),
                 selection: Some(format!("more:{section}")),
             });
+        }
+        if let Some(preview) = preview {
+            let preview = if preview.is_empty() {
+                "No ranked items"
+            } else {
+                &preview
+            };
+            rows.push(Row::label(format!("Next: {preview}"), Role::Muted));
         }
     }
     let [today, week, month] = done_counts(
@@ -502,7 +551,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     super::super::pane_chrome::mark_focused_rule(frame.buffer_mut(), app, Some(band(0)), None);
     let mut top = 1;
-    if let Some(notice) = &state.notice
+    let order_notice = state
+        .order_notice
+        .as_ref()
+        .filter(|(target, _)| state.order_target().as_ref() == Some(target))
+        .map(|(_, notice)| notice);
+    if let Some(notice) = state.notice.as_ref().or(order_notice)
         && top < area.height
     {
         let label = if state.stale {
@@ -597,14 +651,28 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     {
         let line = band(area.height - 1);
         let can_open = !state.stale && item.can_open;
-        let action = if state.stale {
+        let open_action = if state.stale {
             " Stale"
         } else if can_open {
             " ⏎ open page"
         } else {
             " No link · check Colab serve and pairing"
         };
-        let action_cells = unicode_width::UnicodeWidthStr::width(action);
+        let order_context = state.project.as_ref().is_some_and(|name| {
+            list.orders.contains_key(name) || list.omitted_orders.contains(name)
+        });
+        let choices = order_context.then(|| state.move_choices(&item.key));
+        let move_label = choices.as_ref().and_then(|choices| match choices {
+            Ok(_) => Some(" m move"),
+            Err(_) => None,
+        });
+        let action = format!("{}{open_action}", move_label.unwrap_or_default());
+        let action = if unicode_width::UnicodeWidthStr::width(action.as_str()) > width {
+            open_action.to_owned()
+        } else {
+            action
+        };
+        let action_cells = unicode_width::UnicodeWidthStr::width(action.as_str());
         let action_width = action_cells.min(width);
         let detail = item
             .release
@@ -612,34 +680,42 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             .or(item.next.as_ref())
             .or(item.parent.as_ref());
         let number = item.number.as_deref().unwrap_or(&item.title);
+        let mut detail = detail.map_or_else(
+            || format!(" {number}"),
+            |detail| format!(" {number} · {detail}"),
+        );
+        if let Some(Err(reason)) = choices {
+            detail.push_str(" · ");
+            detail.push_str(reason);
+        }
         strip::paint_left(
             frame.buffer_mut(),
             line,
             Line::from(vec![
+                Span::styled(fit(&detail, width - action_width), look.role(Role::Muted)),
                 Span::styled(
-                    fit(
-                        &detail.map_or_else(
-                            || format!(" {number}"),
-                            |detail| format!(" {number} · {detail}"),
-                        ),
-                        width - action_width,
-                    ),
-                    look.role(Role::Muted),
-                ),
-                Span::styled(
-                    fit(action, action_width),
+                    fit(&action, action_width),
                     look.role(Role::Text).add_modifier(Modifier::BOLD),
                 ),
             ]),
         );
-        if can_open && action_width == action_cells {
+        if let Some(move_label) = move_label
+            && action.starts_with(move_label)
+        {
             hits.push((
                 Rect::new(
                     line.right() - action_width as u16,
                     line.y,
-                    action_width as u16,
+                    move_label.len() as u16,
                     1,
                 ),
+                Hit::Move(item.key.clone()),
+            ));
+        }
+        if can_open && action_width == action_cells {
+            let open_width = unicode_width::UnicodeWidthStr::width(open_action) as u16;
+            hits.push((
+                Rect::new(line.right() - open_width, line.y, open_width, 1),
                 Hit::Open(item.key.clone()),
             ));
         }
@@ -664,7 +740,7 @@ impl App {
                 | KeyCode::PageUp
                 | KeyCode::PageDown
                 | KeyCode::Enter
-                | KeyCode::Char('p' | 'c' | 'd' | '/')
+                | KeyCode::Char('p' | 'c' | 'd' | 'm' | '/')
         ) {
             return None;
         }
@@ -672,7 +748,7 @@ impl App {
         let Some(list) = &state.list else {
             return matches!(
                 key.code,
-                KeyCode::Char('/' | 'p' | 'c' | 'd') | KeyCode::Enter
+                KeyCode::Char('/' | 'p' | 'c' | 'd' | 'm') | KeyCode::Enter
             )
             .then_some(Effect::None);
         };
@@ -718,6 +794,13 @@ impl App {
             KeyCode::Char('p') => return Some(self.work_hit(Hit::Project)),
             KeyCode::Char('c') => return Some(self.work_hit(Hit::Recent)),
             KeyCode::Char('d') => return Some(self.work_hit(Hit::Period)),
+            KeyCode::Char('m') => {
+                let key = items
+                    .get(index)
+                    .and_then(|row| row.item)
+                    .map(|item| item.key.clone());
+                return Some(key.map_or(Effect::None, |key| self.work_hit(Hit::Move(key))));
+            }
             KeyCode::Char('/') => {}
             _ => return None,
         }
@@ -749,6 +832,9 @@ impl App {
     }
 
     fn work_hit(&mut self, hit: Hit) -> Effect {
+        if let Hit::Move(key) = hit {
+            return self.open_work_order(&key);
+        }
         let state = &mut self.work;
         let Some(list) = &state.list else {
             return Effect::None;
@@ -781,8 +867,43 @@ impl App {
                 }
             }
             Hit::Period => state.period = (state.period + 1) % 3,
+            Hit::Move(_) => unreachable!("move handled above"),
         }
         Effect::None
+    }
+
+    fn open_work_order(&mut self, key: &str) -> Effect {
+        let choices = match self.work.move_choices(key) {
+            Ok(choices) => choices,
+            Err(reason) => return self.say(reason),
+        };
+        self.menu = Some(Menu {
+            link: None,
+            prefill: String::new(),
+            title: "Move work".into(),
+            entries: choices
+                .into_iter()
+                .map(|(key, label, task)| MenuEntry {
+                    chip: None,
+                    separator: false,
+                    key: key.into(),
+                    label: label.into(),
+                    choice: Choice::WorkOrder(task),
+                })
+                .collect(),
+            selected: 0,
+            anchor: None,
+            surface: Default::default(),
+        });
+        Effect::None
+    }
+
+    pub(in crate::board) fn confirm_work_order(&mut self, task: super::OrderMove) -> Effect {
+        if self.shell.tab == OpsTab::Work && self.work.confirm_move(&task) {
+            Effect::WorkOrder(task)
+        } else {
+            self.say("Project order changed · choose the move again.")
+        }
     }
 }
 

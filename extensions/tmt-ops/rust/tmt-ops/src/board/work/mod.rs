@@ -1,17 +1,20 @@
-//! Read-only Work home projection from the Colab owner list (#6474).
+//! Work home projection and explicit order moves through the Colab CLI (#6474).
 mod model;
+mod order;
 mod surface;
 #[cfg(test)]
 pub(in crate::board) mod tests;
 
 use std::{
     cell::RefCell,
+    collections::BTreeSet,
     time::{Duration, Instant},
 };
 
 use ratatui::layout::Rect;
 
 pub(super) use model::{Item, List, Status};
+pub(super) use order::{Job as OrderJob, Move as OrderMove, Reply as OrderReply, run as run_order};
 pub(super) use surface::render;
 
 const WITHIN: Duration = Duration::from_secs(3);
@@ -32,6 +35,12 @@ pub(in crate::board) struct State {
     pub period: usize,
     pub expanded: std::collections::BTreeSet<Option<String>>,
     pub hits: RefCell<Vec<(Rect, surface::Hit)>>,
+    order_pending: bool,
+    order_unsupported: bool,
+    order_attempted: BTreeSet<String>,
+    order_blocked: Option<order::Target>,
+    order_recovery_read: bool,
+    order_notice: Option<(order::Target, String)>,
 }
 
 impl State {
@@ -43,12 +52,17 @@ impl State {
             return false;
         }
         self.pending = true;
+        self.order_recovery_read = self.order_blocked.is_some();
         self.explicit_refresh = false;
         true
     }
 
     pub fn refresh(&mut self) {
         self.explicit_refresh = true;
+        if self.order_unsupported {
+            self.order_notice = None;
+        }
+        self.order_unsupported = false;
     }
 
     pub fn cancel(&mut self, now: Instant) {
@@ -65,7 +79,7 @@ impl State {
             Err(ReadFailure::NotInstalled | ReadFailure::UpdateNeeded)
         );
         match read {
-            Ok(list) => {
+            Ok(mut list) => {
                 if self
                     .list
                     .as_ref()
@@ -76,7 +90,34 @@ impl State {
                     self.expanded.clear();
                     self.recent = false;
                     self.period = 0;
+                    self.order_unsupported = false;
+                    self.order_blocked = None;
+                    self.order_notice = None;
                 }
+                if let Some(previous) = self.list.as_ref().filter(|old| old.space == list.space) {
+                    for (project, current) in &mut list.orders {
+                        if let Some(held) = previous.orders.get(project)
+                            && held.revision > current.revision
+                        {
+                            *current = held.clone();
+                        }
+                    }
+                    for project in &list.omitted_orders {
+                        if let Some(held) = previous.orders.get(project) {
+                            list.orders.insert(project.clone(), held.clone());
+                        }
+                    }
+                }
+                if self.order_recovery_read
+                    && self.order_blocked.as_ref().is_some_and(|target| {
+                        target.space == list.space
+                            && list.orders.contains_key(&target.project)
+                            && !list.omitted_orders.contains(&target.project)
+                    })
+                {
+                    self.order_blocked = None;
+                }
+                self.order_attempted.clear();
                 if self
                     .project
                     .as_ref()
@@ -94,6 +135,211 @@ impl State {
                 self.notice = Some(error.message());
             }
         }
+        self.order_recovery_read = false;
+        self.hits.get_mut().clear();
+    }
+
+    fn order_target(&self) -> Option<order::Target> {
+        Some(order::Target {
+            space: self.list.as_ref()?.space.clone(),
+            project: self.project.clone()?,
+        })
+    }
+
+    pub fn request_order_show(&mut self) -> Option<OrderJob> {
+        if self.stale || self.order_pending || self.order_unsupported {
+            return None;
+        }
+        let target = self.order_target()?;
+        let list = self.list.as_ref()?;
+        if !list.omitted_orders.contains(&target.project)
+            || !self.order_attempted.insert(target.project.clone())
+        {
+            return None;
+        }
+        self.order_pending = true;
+        self.order_notice = Some((target.clone(), "Reading project order…".into()));
+        Some(OrderJob::Show(target))
+    }
+
+    fn order_reason(&self, target: &order::Target) -> Option<&'static str> {
+        if self.stale {
+            return Some("Refresh Colab Work before moving items.");
+        }
+        if self.order_unsupported {
+            return Some("Update Colab · project ordering is unavailable.");
+        }
+        if self.order_pending {
+            return Some("A project order operation is running.");
+        }
+        if self.order_blocked.as_ref() == Some(target) {
+            return Some("Refresh the project order before moving again.");
+        }
+        None
+    }
+
+    fn move_choices(
+        &self,
+        key: &str,
+    ) -> Result<Vec<(&'static str, &'static str, OrderMove)>, &'static str> {
+        let target = self
+            .order_target()
+            .ok_or("Choose one project to move work.")?;
+        if let Some(reason) = self.order_reason(&target) {
+            return Err(reason);
+        }
+        let list = self.list.as_ref().expect("target has a list");
+        let order = list
+            .orders
+            .get(&target.project)
+            .ok_or("Project order is unavailable.")?;
+        let open: Vec<_> = list
+            .items
+            .iter()
+            .filter(|item| item.status != Status::Done && item.projects.contains(&target.project))
+            .collect();
+        let item = open
+            .iter()
+            .find(|item| item.key == key)
+            .ok_or("Work item is unavailable.")?;
+        if order::now(item.status) {
+            return Err("Now keeps its stored rank.");
+        }
+        if item.number.is_none() {
+            return Err("Only numbered work can move.");
+        }
+        let next = order.next(&open);
+        let task = |position| OrderMove {
+            target: target.clone(),
+            key: key.into(),
+            revision: order.revision,
+            position,
+        };
+        let Some(index) = next.iter().position(|item| item.key == key) else {
+            return Ok(vec![("a", "Add to Next", task(order::Position::Last))]);
+        };
+        let complete = order
+            .items
+            .iter()
+            .all(|key| open.iter().any(|item| item.key == *key));
+        let mut choices = Vec::with_capacity(3);
+        if let Some(previous) = index.checked_sub(1).map(|index| next[index])
+            && previous.number.is_some()
+            && complete
+        {
+            choices.push((
+                "u",
+                "Move up",
+                task(order::Position::Before(previous.key.clone())),
+            ));
+        }
+        let anchor = next.get(index + 2);
+        if index + 1 < next.len() && complete && anchor.is_none_or(|item| item.number.is_some()) {
+            choices.push((
+                "d",
+                "Move down",
+                task(anchor.map_or(order::Position::Last, |item| {
+                    order::Position::Before(item.key.clone())
+                })),
+            ));
+        }
+        choices.push(("r", "Remove from Next", task(order::Position::Unrank)));
+        Ok(choices)
+    }
+
+    fn confirm_move(&mut self, task: &OrderMove) -> bool {
+        if !self
+            .move_choices(&task.key)
+            .is_ok_and(|choices| choices.into_iter().any(|(_, _, current)| current == *task))
+        {
+            return false;
+        }
+        self.order_pending = true;
+        self.order_notice = Some((task.target.clone(), "Saving project order…".into()));
+        self.hits.get_mut().clear();
+        true
+    }
+
+    pub fn apply_order(&mut self, reply: OrderReply) {
+        self.order_pending = false;
+        let order::Reply { job, outcome } = reply;
+        let target = job.target();
+        let wrote = matches!(job, OrderJob::Move(_));
+        if wrote {
+            self.explicit_refresh = true;
+        }
+        if self.order_target().as_ref() != Some(target) {
+            if wrote
+                && self
+                    .list
+                    .as_ref()
+                    .is_some_and(|list| list.space == target.space)
+            {
+                self.order_blocked = Some(target.clone());
+            }
+            if !wrote {
+                self.order_attempted.remove(&target.project);
+            }
+            return;
+        }
+        let list = self.list.as_mut().expect("matching owner list");
+        let (order, message) = match outcome {
+            order::Outcome::Read(order) => (Some(order), None),
+            order::Outcome::Saved(order) => {
+                let OrderJob::Move(task) = &job else {
+                    unreachable!("only a move saves")
+                };
+                let open: Vec<_> = list
+                    .items
+                    .iter()
+                    .filter(|item| item.projects.contains(&target.project))
+                    .collect();
+                let index = order
+                    .next(&open)
+                    .iter()
+                    .position(|item| item.key == task.key);
+                let message = index.map_or_else(
+                    || "Moved to No preference.".to_owned(),
+                    |index| format!("Moved to Next · position {}.", index + 1),
+                );
+                (Some(order), Some(message))
+            }
+            order::Outcome::Conflict(order) => {
+                let message = if order.is_some() {
+                    "Order changed elsewhere; showing the current order"
+                } else {
+                    "Order changed elsewhere; refresh to see the current order"
+                };
+                (order, Some(message.into()))
+            }
+            order::Outcome::Uncertain(order) => (
+                order,
+                Some("Move outcome unknown · check the current order.".into()),
+            ),
+            order::Outcome::Update => {
+                self.order_unsupported = true;
+                (
+                    None,
+                    Some("Update Colab · project ordering is unavailable.".into()),
+                )
+            }
+            order::Outcome::Refused(message) => (None, Some(message)),
+        };
+        if let Some(order) = order {
+            if list
+                .orders
+                .get(&target.project)
+                .is_none_or(|held| order.revision >= held.revision)
+            {
+                list.orders.insert(target.project.clone(), order);
+            }
+            if self.order_blocked.as_ref() == Some(target) {
+                self.order_blocked = None;
+            }
+        } else if !self.order_unsupported {
+            self.order_blocked = Some(target.clone());
+        }
+        self.order_notice = message.map(|message| (target.clone(), message));
         self.hits.get_mut().clear();
     }
 }
@@ -221,6 +467,19 @@ pub(super) fn row_chip(item: &Item, count: usize) -> String {
 }
 
 impl State {
+    pub fn move_hit_visible(&self) -> bool {
+        self.hits
+            .borrow()
+            .iter()
+            .any(|(_, hit)| matches!(hit, surface::Hit::Move(_)))
+    }
+
+    pub fn has_project_orders(&self) -> bool {
+        self.list
+            .as_ref()
+            .is_some_and(|list| !list.orders.is_empty())
+    }
+
     pub fn open_hit_visible(&self) -> bool {
         !self.stale
             && self

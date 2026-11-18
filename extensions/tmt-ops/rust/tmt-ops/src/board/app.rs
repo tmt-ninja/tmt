@@ -320,6 +320,7 @@ pub enum Effect {
     SaveTheme,
     Act(Request),
     OpenWorkPage(String),
+    WorkOrder(super::work::OrderMove),
     Shell {
         key: (String, String),
         command: String,
@@ -341,6 +342,7 @@ pub enum Effect {
 /// What a menu entry does: run a binding, or reply to one open request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
+    WorkOrder(super::work::OrderMove),
     LabelTarget(super::workspace::OpsTarget),
     MemberLabel {
         expected: std::sync::Arc<crate::config::WorkspaceLabels>,
@@ -3413,6 +3415,7 @@ impl App {
 
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
+            Choice::WorkOrder(task) => self.confirm_work_order(task),
             Choice::LabelTarget(target) => {
                 if !matches!(target, super::workspace::OpsTarget::Member { .. })
                     || self

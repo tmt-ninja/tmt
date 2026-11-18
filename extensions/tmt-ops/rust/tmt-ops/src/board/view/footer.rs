@@ -744,6 +744,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
             [
                 ("↑↓", "move"),
                 ("⏎", "open page"),
+                ("m", "move work"),
                 ("p", "project"),
                 ("d", "period"),
                 ("c", "recently done"),
@@ -753,6 +754,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
             ]
             .into_iter()
             .filter(|(key, _)| *key != "⏎" || app.work.open_hit_visible())
+            .filter(|(key, _)| *key != "m" || app.work.move_hit_visible())
             .map(|(key, label)| (key.into(), label.into()))
             .collect(),
             vec![],

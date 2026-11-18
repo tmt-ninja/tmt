@@ -164,6 +164,213 @@ fn key(app: &mut App, code: KeyCode) -> Effect {
 }
 
 #[test]
+fn colab_work_renders_now_and_next_in_the_owner_order() {
+    let now = 1_800_000_000_000;
+    let document = ordered_list(now);
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    app.work.project = Some("Core".into());
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    let mut terminal = Terminal::new(TestBackend::new(100, 36)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let lines = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(100)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>();
+    let row = |label| {
+        lines
+            .iter()
+            .position(|line| line.contains(label))
+            .unwrap_or_else(|| panic!("Missing {label} in {lines:?}"))
+    };
+    assert!(row("── Now") < row("COLAB-119     ✗ Blocked"));
+    assert!(row("── Next") < row("CORE-88"));
+    assert!(row("CORE-88") < row("COLAB-143"));
+    assert!(row("── No preference") > row("COLAB-143"));
+    assert!(row("── No preference") < row("W-91"));
+}
+
+fn ordered_list(now: u64) -> Value {
+    let mut document = owner_list(now);
+    document["pages"][0]["summary"]["todos"][1]["ask"] = Value::Null;
+    document["pages"][1]["projects"] = json!(["Core"]);
+    document["pages"][1]["summary"]["status"] = json!("unchecked");
+    document["projectOrders"] = json!({
+        "Core": {"revision": 3, "items": [PAGE, UNCHECKED, format!("{PAGE}:two")]},
+        "Colab": {"revision": 1, "items": []}
+    });
+    document
+}
+
+#[test]
+fn colab_work_move_confirm_uses_the_visible_neighbor_and_one_revision() {
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    app.work.project = Some("Core".into());
+    app.work.apply(
+        Instant::now(),
+        List::decode(&ordered_list(1_800_000_000_000)).map_err(Into::into),
+    );
+    let _guard = crate::runner::forbid_commands();
+    key(&mut app, KeyCode::Home);
+    assert_eq!(key(&mut app, KeyCode::Char('m')), Effect::None);
+    assert!(app.menu.is_none(), "the stored Now rank is read-only");
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Down);
+    assert_eq!(key(&mut app, KeyCode::Char('m')), Effect::None);
+    let Effect::WorkOrder(first) = key(&mut app, KeyCode::Enter) else {
+        panic!("confirming the move must emit one order job");
+    };
+    assert_eq!(first.key, UNCHECKED);
+    assert_eq!(first.revision, 3);
+    assert_eq!(first.position, order::Position::Last);
+    assert_eq!(key(&mut app, KeyCode::Char('m')), Effect::None);
+    assert!(
+        app.menu.is_none(),
+        "cannot start a second move while saving"
+    );
+    let selected = app.work.selected.clone();
+    app.work.apply_order(OrderReply {
+        job: OrderJob::Move(first),
+        outcome: order::Outcome::Conflict(Some(order::ProjectOrder {
+            revision: 4,
+            items: vec![PAGE.into(), format!("{PAGE}:two"), UNCHECKED.into()],
+        })),
+    });
+    assert_eq!(app.work.selected, selected);
+    assert_eq!(
+        app.work.order_notice.as_ref().unwrap().1,
+        "Order changed elsewhere; showing the current order"
+    );
+    app.work.apply(
+        Instant::now(),
+        List::decode(&ordered_list(1_800_000_000_000)).map_err(Into::into),
+    );
+    assert_eq!(key(&mut app, KeyCode::Char('m')), Effect::None);
+    let Effect::WorkOrder(revised) = key(&mut app, KeyCode::Enter) else {
+        panic!("a new explicit confirmation is required after a conflict");
+    };
+    assert_eq!(
+        revised.revision, 4,
+        "a delayed list cannot overwrite the confirmed revision"
+    );
+    assert_eq!(
+        revised.position,
+        order::Position::Before(format!("{PAGE}:two"))
+    );
+    let list = app.work.list.as_ref().unwrap();
+    assert_eq!(list.orders["Core"].items[0], PAGE);
+}
+
+#[test]
+fn colab_work_order_reads_only_the_omitted_selected_project() {
+    let mut value = ordered_list(1_800_000_000_000);
+    value["projectOrders"]
+        .as_object_mut()
+        .unwrap()
+        .remove("Core");
+    value["projectOrdersOmitted"] = json!(["Core"]);
+    let mut state = State::default();
+    state.apply(Instant::now(), List::decode(&value).map_err(Into::into));
+    assert!(state.request_order_show().is_none());
+    state.project = Some("Colab".into());
+    assert!(state.request_order_show().is_none());
+    state.project = Some("Core".into());
+    let job = state.request_order_show().unwrap();
+    assert!(state.request_order_show().is_none());
+    state.apply_order(OrderReply {
+        job,
+        outcome: order::Outcome::Read(order::ProjectOrder {
+            revision: 3,
+            items: vec![UNCHECKED.into()],
+        }),
+    });
+    assert_eq!(
+        state.list.as_ref().unwrap().orders["Core"].items,
+        [UNCHECKED]
+    );
+    assert!(state.request_order_show().is_none());
+}
+
+#[test]
+fn colab_work_order_cli_conflict_and_unknown_results_read_once_without_replaying() {
+    use crate::{
+        core::Core,
+        test_support::{Scratch, write_ready_executable},
+    };
+    use std::fs;
+
+    let scratch = Scratch::new("colab-work-order");
+    let executable = scratch.join("tmt");
+    let calls = scratch.join("calls");
+    let response = scratch.join("response");
+    write_ready_executable(
+        &executable,
+        r#"#!/bin/sh
+cd "$(dirname "$0")" || exit 2
+printf '%s\n' "$*" >> calls
+if [ "$4" = show ]; then
+    cat current
+else
+    cat response
+    exit 1
+fi
+"#,
+    );
+    fs::write(
+        scratch.join("current"),
+        json!({"revision":4,"items":[UNCHECKED]}).to_string(),
+    )
+    .unwrap();
+    let core = Core::at(executable);
+    let task = OrderMove {
+        target: order::Target {
+            space: "fixture".into(),
+            project: "-Core".into(),
+        },
+        key: UNCHECKED.into(),
+        revision: 3,
+        position: order::Position::Before(format!("{PAGE}:two")),
+    };
+    let move_line = format!(
+        "colab work order move --revision 3 --before {PAGE}:two --json -- -Core {UNCHECKED}\n"
+    );
+    for (response_body, needs_show) in [
+        (json!({"error":{"code":"COLAB_ORDER_CONFLICT","message":"Current order: untyped text"}}).to_string(), true),
+        (String::new(), true),
+        (json!({"error":{"code":"COLAB_INPUT_INVALID","message":"error: unrecognized subcommand 'order'"}}).to_string(), false),
+        (json!({"error":{"code":"COLAB_WORK_ITEM_NOT_FOUND","message":"No numbered work item matches."}}).to_string(), false),
+    ] {
+        fs::write(&calls, "").unwrap();
+        fs::write(&response, &response_body).unwrap();
+        let reply = run_order(&core, OrderJob::Move(task.clone()));
+        let recorded = fs::read_to_string(&calls).unwrap();
+        let expected = if needs_show {
+            format!("{move_line}colab work order show --json -- -Core\n")
+        } else {
+            move_line.clone()
+        };
+        assert_eq!(recorded, expected);
+        match reply.outcome {
+            order::Outcome::Conflict(Some(order)) | order::Outcome::Uncertain(Some(order)) => {
+                assert!(needs_show);
+                assert_eq!(order.revision, 4);
+                assert_eq!(order.items, [UNCHECKED]);
+            }
+            order::Outcome::Update => assert!(response_body.contains("unrecognized subcommand")),
+            order::Outcome::Refused(message) => assert_eq!(message, "No numbered work item matches."),
+            other => panic!("unexpected order outcome: {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
     let mut app = board();
     let selected = app.workspace.selected.clone();
@@ -221,14 +428,47 @@ fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
     assert_eq!(app.workspace.selected, selected);
 }
 
-pub(in crate::board) const SCENES: &[&str] =
-    &["work-projects", "work-done", "work-stale", "agents-work"];
+pub(in crate::board) const SCENES: &[&str] = &[
+    "work-projects",
+    "work-done",
+    "work-stale",
+    "agents-work",
+    "work-order-all",
+    "work-order-project",
+    "work-order-conflict",
+];
 
 pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
     let mut app = capture_case("agents", look);
     disable_motion(&mut app);
     app.local_zone = Some(jiff::tz::TimeZone::UTC);
     let mut pages = owner_list(crate::status::now_ms());
+    if scene.starts_with("work-order-") {
+        pages = ordered_list(crate::status::now_ms());
+        app.work
+            .apply(Instant::now(), List::decode(&pages).map_err(Into::into));
+        key(&mut app, KeyCode::Char('2'));
+        if scene != "work-order-all" {
+            app.work.project = Some("Core".into());
+            key(&mut app, KeyCode::Home);
+            key(&mut app, KeyCode::Down);
+            key(&mut app, KeyCode::Down);
+        }
+        if scene == "work-order-conflict" {
+            key(&mut app, KeyCode::Char('m'));
+            let Effect::WorkOrder(task) = key(&mut app, KeyCode::Enter) else {
+                panic!("conflict scene needs a confirmed move");
+            };
+            app.work.apply_order(OrderReply {
+                job: OrderJob::Move(task),
+                outcome: order::Outcome::Conflict(Some(order::ProjectOrder {
+                    revision: 4,
+                    items: vec![PAGE.into(), format!("{PAGE}:two"), UNCHECKED.into()],
+                })),
+            });
+        }
+        return app;
+    }
     if scene == "agents-work" {
         use crate::board::workspace::OpsTarget;
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
