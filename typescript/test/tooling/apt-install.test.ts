@@ -172,7 +172,16 @@ function run(
     readFileSync(path.join(dir, `mirrors-${attempt}`), 'utf8');
   const beforeUpdate = (attempt: number) =>
     readFileSync(path.join(dir, `update-mirrors-${attempt}`), 'utf8');
-  return { result, lines, mirrorBytes, beforeInstall, beforeUpdate, list, originalMirrors };
+  return {
+    result,
+    lines,
+    mirrorBytes,
+    beforeInstall,
+    beforeUpdate,
+    list,
+    originalMirrors,
+    originalSources,
+  };
 }
 
 const options = '-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30';
@@ -190,13 +199,15 @@ describe('apt-install composite action', () => {
   });
 
   it('leaves the list unchanged on a healthy first install', () => {
-    const { result, lines, mirrorBytes, beforeInstall } = run();
+    const { result, lines, mirrorBytes, beforeInstall, originalSources } = run();
     expect(result.status).toBe(0);
     expect(mirrorBytes()).toBe(mirrors);
     expect(beforeInstall(1)).toBe(mirrors);
     expect(lines('mirror-edits')).toEqual([]);
     expect(lines('dpkg')).toEqual([]);
-    expect(result.stdout).toBe(`apt-install: initial mirror list:\n${mirrors}`);
+    expect(result.stdout).toBe(
+      `apt-install: initial mirror list:\n${mirrors}apt-install: initial ubuntu.sources:\n${originalSources}`
+    );
   });
 
   it.each(['1', '2'])(
@@ -377,7 +388,11 @@ describe('apt-install composite action', () => {
   ] as const)(
     'reports an explicit no-op for %s and preserves bytes/status/retry policy',
     (_, input) => {
-      const { result, lines, mirrorBytes, originalMirrors } = run('download', '99', input);
+      const { result, lines, mirrorBytes, originalMirrors, originalSources } = run(
+        'download',
+        '99',
+        input
+      );
       expect(result.status).toBe(124);
       expect(mirrorBytes()).toBe(originalMirrors);
       expect(lines('mirror-edits')).toEqual([]);

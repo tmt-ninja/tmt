@@ -28,6 +28,10 @@ runs:
           printf 'apt-install: initial mirror list:\n'
           cat "$APT_MIRRORS" || true
         fi
+        if [ -f "$APT_SOURCES" ] && [ ! -L "$APT_SOURCES" ] && [ -r "$APT_SOURCES" ]; then
+          printf 'apt-install: initial ubuntu.sources:\n'
+          cat "$APT_SOURCES" || true
+        fi
         retry="$GITHUB_WORKSPACE/scripts/retry-command.sh"
         # The network steps (update, download) have short bounds and retry; a kill
         # there changes no dpkg state. The unpack step is local and has a longer
@@ -48,19 +52,23 @@ runs:
           previous=$(cat "$state")
           if [ "$previous" = 124 ]; then
             # Admit only the pinned runner-image mirror+file layout.
+            refusal=
             if [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ] &&
                cmp -s "$mirrors" <(printf "%s\t%s\n" \
                  https://archive.ubuntu.com/ubuntu/ priority:2 \
                  https://security.ubuntu.com/ubuntu/ priority:3); then
               :
-            elif [ -f "$sources" ] && [ ! -L "$sources" ] && [ -r "$sources" ] &&
-               [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ] &&
-               awk -v uri="mirror+file:$mirrors" '"'"'
+            elif [ ! -f "$sources" ] || [ -L "$sources" ] || [ ! -r "$sources" ]; then
+              refusal="sources file is not a readable regular file or is a symlink"
+            elif [ ! -f "$mirrors" ] || [ -L "$mirrors" ] || [ ! -r "$mirrors" ]; then
+              refusal="mirror list is not a readable regular file or is a symlink"
+            elif ! awk -v uri="mirror+file:$mirrors" '"'"'
                  tolower($0) ~ /^uris:/ { seen++; if ($0 != "URIs: " uri) bad=1 }
                  /^[ \t]/ { bad=1 }
                  END { exit(!seen || bad) }
-               '"'"' "$sources" &&
-               IFS= read -r first < "$mirrors" &&
+               '"'"' "$sources"; then
+              refusal="unexpected sources shape"
+            elif IFS= read -r first < "$mirrors" &&
                tab=$(printf "\t") &&
                regional=${first%%"$tab"*} &&
                [[ "$regional" = http://azure.archive.ubuntu.com/ubuntu/ ||
@@ -72,7 +80,14 @@ runs:
               sudo sed -i "1d" "$mirrors"
               printf "apt-install: removed %s from %s; archive/security retained.\n" "$regional" "$mirrors"
             else
-              printf "apt-install: mirror fallback no-op: unreadable or unexpected sources/list: %s / %s.\n" "$sources" "$mirrors" >&2
+              refusal="unexpected mirror list bytes"
+            fi
+            if [ -n "$refusal" ]; then
+              printf "apt-install: mirror fallback no-op: %s: %s / %s.\n" "$refusal" "$sources" "$mirrors" >&2
+              if [ -f "$sources" ] && [ ! -L "$sources" ] && [ -r "$sources" ]; then
+                printf "apt-install: ubuntu.sources contents:\n" >&2
+                cat "$sources" >&2 || true
+              fi
               if [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ]; then
                 printf "apt-install: mirror list contents:\n" >&2
                 cat "$mirrors" >&2 || true
