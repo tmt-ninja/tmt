@@ -62,13 +62,7 @@ runs:
               refusal="sources file is not a readable regular file or is a symlink"
             elif [ ! -f "$mirrors" ] || [ -L "$mirrors" ] || [ ! -r "$mirrors" ]; then
               refusal="mirror list is not a readable regular file or is a symlink"
-            elif ! awk -v uri="mirror+file:$mirrors" '"'"'
-                 tolower($0) ~ /^uris:/ { seen++; if ($0 != "URIs: " uri) bad=1 }
-                 /^[ \t]/ { bad=1 }
-                 END { exit(!seen || bad) }
-               '"'"' "$sources"; then
-              refusal="unexpected sources shape"
-            elif IFS= read -r first < "$mirrors" &&
+            elif ! { IFS= read -r first < "$mirrors" &&
                tab=$(printf "\t") &&
                regional=${first%%"$tab"*} &&
                [[ "$regional" = http://azure.archive.ubuntu.com/ubuntu/ ||
@@ -76,11 +70,36 @@ runs:
                cmp -s "$mirrors" <(printf "%s\t%s\n" \
                  "$regional" priority:1 \
                  https://archive.ubuntu.com/ubuntu/ priority:2 \
-                 https://security.ubuntu.com/ubuntu/ priority:3); then
+                 https://security.ubuntu.com/ubuntu/ priority:3); }; then
+              refusal="unexpected mirror list bytes"
+            elif ! awk -v uri="mirror+file:$mirrors" -v regional="$regional" '"'"'
+                 tolower($0) ~ /^uris:/ { seen++; if ($0 != "URIs: " uri) different=1 }
+                 /^[ \t]/ { indented=1 }
+                 /^$/ && n { separator="\n" }
+                 !/^#/ && NF {
+                   n++
+                   if (n == 3 && $0 == "Suites: resolute resolute-updates resolute-backports")
+                     suite="resolute"
+                   fields=fields separator $0 "\n"
+                   separator=""
+                 }
+                 END {
+                   if (!seen || indented) exit 1
+                   if (!different) exit 0
+                   # Observed EC2 images use the list for distribution and a
+                   # direct URI for the paired security stanza.
+                   if (regional == "http://azure.archive.ubuntu.com/ubuntu/") exit 1
+                   if (!suite) suite="noble"
+                   shared="\nComponents: main universe restricted multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+                   expected="Types: deb\nURIs: " uri "\nSuites: " suite " " suite "-updates " suite "-backports" shared \
+                     "\nTypes: deb\nURIs: http://security.ubuntu.com/ubuntu\nSuites: " suite "-security" shared
+                   exit(fields != expected)
+                 }
+               '"'"' "$sources"; then
+              refusal="unexpected sources shape"
+            else
               sudo sed -i "1d" "$mirrors"
               printf "apt-install: removed %s from %s; archive/security retained.\n" "$regional" "$mirrors"
-            else
-              refusal="unexpected mirror list bytes"
             fi
             if [ -n "$refusal" ]; then
               printf "apt-install: mirror fallback no-op: %s: %s / %s.\n" "$refusal" "$sources" "$mirrors" >&2

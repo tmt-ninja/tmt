@@ -115,6 +115,36 @@ const sourcesFor = (list: string) =>
   `Types: deb\nURIs: mirror+file:${list}\nSuites: noble noble-updates noble-backports\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\n` +
   `Types: deb\nURIs: mirror+file:${list}\nSuites: noble-security\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n`;
 
+// Stanza bytes printed by jobs 134548223979 (noble) and 134547841168 (resolute).
+const ec2Sources = {
+  noble:
+    'Types: deb\n' +
+    'URIs: mirror+file:/etc/apt/apt-mirrors.txt\n' +
+    'Suites: noble noble-updates noble-backports\n' +
+    'Components: main universe restricted multiverse\n' +
+    'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' +
+    '\n' +
+    'Types: deb\n' +
+    'URIs: http://security.ubuntu.com/ubuntu\n' +
+    'Suites: noble-security\n' +
+    'Components: main universe restricted multiverse\n' +
+    'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n',
+  resolute:
+    'Types: deb\n' +
+    'URIs: mirror+file:/etc/apt/apt-mirrors.txt\n' +
+    'Suites: resolute resolute-updates resolute-backports\n' +
+    'Components: main universe restricted multiverse\n' +
+    'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' +
+    '\n' +
+    'Types: deb\n' +
+    'URIs: http://security.ubuntu.com/ubuntu\n' +
+    'Suites: resolute-security\n' +
+    'Components: main universe restricted multiverse\n' +
+    'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n',
+};
+const ec2SourcesFor = (source: string, list: string) =>
+  source.replace('/etc/apt/apt-mirrors.txt', list);
+
 function run(
   failPhase = '',
   failCount = '0',
@@ -227,20 +257,24 @@ describe('apt-install composite action', () => {
     }
   );
 
-  it('removes the EC2 mirror before the second download after a timeout', () => {
-    const original = ec2 + remainingMirrors;
-    const { result, lines, mirrorBytes, beforeInstall, list } = run('download', '1', {
-      mirrors: original,
-    });
-    expect(result.status).toBe(0);
-    expect(beforeInstall(1)).toBe(original);
-    expect(beforeInstall(2)).toBe(remainingMirrors);
-    expect(mirrorBytes()).toBe(remainingMirrors);
-    expect(lines('mirror-edits')).toEqual([`-i 1d ${list}`]);
-    expect(result.stdout.startsWith(`apt-install: initial mirror list:\n${original}`)).toBe(true);
-    expect(result.stdout.match(/apt-install: initial mirror list:/g)).toHaveLength(1);
-    expect(result.stdout).toContain(`removed ${ec2Url} from ${list}`);
-  });
+  it.each(Object.entries(ec2Sources))(
+    'removes the EC2 mirror for %s before the second download',
+    (_, source) => {
+      const original = ec2 + remainingMirrors;
+      const { result, lines, mirrorBytes, beforeInstall, list } = run('download', '1', {
+        mirrors: original,
+        sources: (list) => ec2SourcesFor(source, list),
+      });
+      expect(result.status).toBe(0);
+      expect(beforeInstall(1)).toBe(original);
+      expect(beforeInstall(2)).toBe(remainingMirrors);
+      expect(mirrorBytes()).toBe(remainingMirrors);
+      expect(lines('mirror-edits')).toEqual([`-i 1d ${list}`]);
+      expect(result.stdout.startsWith(`apt-install: initial mirror list:\n${original}`)).toBe(true);
+      expect(result.stdout.match(/apt-install: initial mirror list:/g)).toHaveLength(1);
+      expect(result.stdout).toContain(`removed ${ec2Url} from ${list}`);
+    }
+  );
 
   it('retains fallback and returns the last timeout after all three download attempts', () => {
     const { result, lines, mirrorBytes, beforeInstall } = run('download', '99');
@@ -341,6 +375,29 @@ describe('apt-install composite action', () => {
 
   it.each([
     ['missing sources', { missingSources: true }],
+    [
+      'direct security on Azure',
+      { sources: (list: string) => ec2SourcesFor(ec2Sources.noble, list) },
+    ],
+    [
+      'unexpected EC2 security suite',
+      {
+        mirrors: ec2 + remainingMirrors,
+        sources: (list: string) =>
+          ec2SourcesFor(ec2Sources.noble, list).replace('noble-security', 'noble-updates'),
+      },
+    ],
+    [
+      'unexpected EC2 security URI',
+      {
+        mirrors: ec2 + remainingMirrors,
+        sources: (list: string) =>
+          ec2SourcesFor(ec2Sources.noble, list).replace(
+            'http://security.ubuntu.com',
+            'https://security.ubuntu.com'
+          ),
+      },
+    ],
     ['source reader failure', { awkFailure: '13' }],
     ['absent list', { mirrors: null }],
     ['empty list', { mirrors: '' }],
