@@ -490,6 +490,28 @@ test('the handle opens the block menu, moves and duplicates, and its grip drags 
   await expect.poll(ids).toEqual(['p', 'e', 'h', 't']);
   await expect(host.locator('[data-slot="block-drop"]')).toHaveCount(0);
   await expect(ghost).toHaveCount(0);
+  // A heading's menu also sets its section (#6619): Mark as done, then back to automatic.
+  await heading.hover();
+  await host.getByRole('button', { name: 'Block actions' }).click();
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    /Move up/,
+    /Move down/,
+    /Duplicate/,
+    /Delete/,
+    'Mark as done',
+    'Not progress',
+  ]);
+  await menu.getByRole('menuitem', { name: 'Mark as done' }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.sent.filter((op) => op.op === 'props').at(-1)))
+    .toMatchObject({ id: 'h', set: { progress: 'done' } });
+  await heading.hover();
+  await host.getByRole('button', { name: 'Block actions' }).click();
+  await expect(menu.getByRole('menuitem').filter({ hasText: /Mark as done/ })).toHaveCount(0);
+  await menu.getByRole('menuitem', { name: 'Count automatically' }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.sent.filter((op) => op.op === 'props').at(-1)))
+    .toMatchObject({ id: 'h', unset: ['progress'] });
   // The drop was one move op, and the grip's click after a drag opened no menu.
   await expect(menu).toHaveCount(0);
   // This tab's batches go in order, each once the one before it settles.

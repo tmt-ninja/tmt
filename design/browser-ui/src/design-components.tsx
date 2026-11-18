@@ -60,7 +60,7 @@ export function BrowserSegments({
   states: readonly BrowserSegmentState[];
 }) {
   return (
-    <span className={c.segments} role="img" aria-label={label}>
+    <span className="tmt-ui-segments" role="img" aria-label={label}>
       {states.map((state, index) => (
         <span key={index} data-state={state} />
       ))}

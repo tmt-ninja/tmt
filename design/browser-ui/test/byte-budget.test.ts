@@ -17,8 +17,10 @@ const approvedGzipBytes = 27_134;
 const approvedEditorialGzipBytes = 999;
 /** #6474: the Work home parts are their own entry, loaded only by Work home, so pages and the
  * static cap do not carry them. 1,299 bytes measured locally; pending GUI approval with the Linux
- * CI measurement on its PR, no headroom. */
-const approvedWorkGzipBytes = 1_299;
+ * CI measurement on its PR, no headroom. #6619: sections are progress adds two state-mark shapes and
+ * the section segments here, not in the page-injected static layer, 1,299 -> 1,496 bytes. Pending
+ * GUI approval with the Linux CI measurement on its PR; no headroom. */
+const approvedWorkGzipBytes = 1_496;
 
 const gzipped = (name: string) =>
   gzipSync(readFileSync(new URL(`../generated/${name}.css`, import.meta.url)), { level: 9 }).length;
