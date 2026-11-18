@@ -481,8 +481,7 @@
 .work-order-view .work-home-section-head {
   padding-bottom: 12px;
 }
-.work-order-actions button,
-.work-order-view .work-home-section-head button {
+.work-order-actions button {
   border: 1px solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius-s);
   background: var(--tmt-ui-surface-paper);
@@ -497,14 +496,6 @@
 .work-order-row .work-home-row {
   border: 0;
 }
-.work-order-view fieldset label {
-  display: block;
-}
-.work-order-view fieldset {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 .work-order-view .work-home-project-section {
   border: 0;
   border-radius: 0;
@@ -517,29 +508,31 @@
   position: relative;
   margin-inline-start: auto;
 }
-.work-order-notify fieldset {
-  position: absolute;
-  z-index: 2;
-  inset-inline-end: 0;
-  top: 100%;
-  width: min(21rem, 75vw);
-  box-sizing: border-box;
-  padding: 14px 16px;
-  margin: 4px 0;
-  background: var(--tmt-ui-surface-paper);
-  color: var(--tmt-ui-color-text);
-  border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius-s);
-  font-size: 13px;
+.work-order-view .work-home-section-head {
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.work-order-notify legend {
-  float: left;
-  width: 100%;
-  font-weight: 600;
-  margin-bottom: 8px;
+.work-order-view .work-home-section-head small,
+.work-notify-card small {
+  color: var(--tmt-ui-color-secondary);
 }
-.work-order-notify label {
-  padding-block: 4px;
+.work-notify-card {
+  width: min(22rem, 88vw);
+  overflow-wrap: anywhere;
+}
+.work-notify-card label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 6px;
+}
+.work-notify-card small {
+  display: block;
+}
+.work-notify-card blockquote {
+  margin: 8px 0;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--tmt-ui-surface-rule);
 }
 @media (min-width: 761px) {
   .work-order-row {
@@ -552,6 +545,11 @@
     opacity: 0;
     pointer-events: none;
     background: var(--tmt-ui-surface-paper);
+  }
+  .work-order-actions[data-unranked] {
+    position: static;
+    opacity: 1;
+    pointer-events: auto;
   }
   .work-order-row:hover .work-order-actions,
   .work-order-row:focus-within .work-order-actions {
@@ -572,4 +570,27 @@
   .work-order-row .work-home-row {
     flex: 1 1 75%;
   }
+}
+
+.work-assign-menu {
+  position: absolute;
+  z-index: 2;
+  inset-inline-end: 0;
+  top: 100%;
+  display: grid;
+  min-width: 9rem;
+  padding: 4px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-paper);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+.work-order-actions .work-assign-menu button {
+  border: none;
+  text-align: start;
+}
+.work-order-actions:has(.work-assign-menu) {
+  position: relative;
+  opacity: 1;
+  pointer-events: auto;
 }

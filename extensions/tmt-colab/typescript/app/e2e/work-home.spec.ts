@@ -154,6 +154,10 @@ test('keyboard reorder survives reload when the list omits the project order', a
   await rows.nth(1).getByRole('button', { name: 'Move up' }).press('Enter');
   await expect(rows.first()).toContainText('Queued item 2');
   await expect(rows.first()).toBeFocused();
+  await expect(rows.first().locator('.tmt-ui-work-rank')).toHaveText('1');
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Queued item 2 moved to position 1.' }),
+  ).toBeVisible();
   await page.reload();
   await mountOrder(page);
   await expect(rows.first()).toContainText('Queued item 2');
@@ -168,6 +172,10 @@ test('Notify sends once to each explicitly chosen recipient', async ({ page }) =
   await next.locator('[data-order-key]').nth(1).getByRole('button', { name: 'Move up' }).click();
   await expect(next.locator('[data-order-key]').first()).toContainText('Queued item 2');
   await page.getByRole('button', { name: 'Notify' }).click();
+  const card = page.getByRole('dialog', { name: 'Recipients' });
+  await expect(card.locator('blockquote')).toHaveText(
+    'The work order for Colab has changed. Please arrange your work in the current order.',
+  );
   await expect(page.getByRole('checkbox', { name: /Ada/ })).toBeChecked();
   const bea = page.getByRole('checkbox', { name: /Bea/ });
   await expect(bea).toBeChecked();
@@ -176,6 +184,7 @@ test('Notify sends once to each explicitly chosen recipient', async ({ page }) =
   const send = page.getByRole('button', { name: 'Send', exact: true });
   await send.click();
   await expect(send).toBeDisabled();
+  await expect(card.getByRole('status')).toHaveText('Sent');
   const messages = await page.evaluate(() =>
     JSON.parse(sessionStorage.getItem('fixture-notifications') ?? '[]'),
   );

@@ -30,3 +30,8 @@ export function WorkNextLine({ titles }: { titles: readonly string[] }) {
     </p>
   );
 }
+
+/** The one-based position in the project's Next list. */
+export function WorkRank({ rank }: { rank: number }) {
+  return <span className="tmt-ui-work-rank">{rank}</span>;
+}

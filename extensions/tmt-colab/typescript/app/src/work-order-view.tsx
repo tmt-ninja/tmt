@@ -1,11 +1,14 @@
 import { WorkOrderNotify } from './work-order-notify.js';
-import { WorkDragHandle } from '@tmt/browser-ui/work-order';
+import { text } from './strings.js';
+import { Toast, useToast } from './template-toast.js';
+import { WorkDragHandle, WorkRank } from '@tmt/browser-ui/work-order';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ProjectOrder } from './bootstrap.js';
 import type { OrderMove } from './management.js';
 import type { PageTransport } from './transport.js';
 import type { WorkItem } from './work-home-model.js';
 
+const t = text.workHome.order;
 const active = new Set([
   'working',
   'waiting-ci',
@@ -45,7 +48,7 @@ export function WorkOrderView({
   const [assigning, setAssigning] = useState<string>();
   const [directory, setDirectory] = useState<readonly import('./ask-remote.js').RemoteAgent[]>([]);
   const [assignments, setAssignments] = useState(new Map<string, string[]>());
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useToast();
   const [baseline, setBaseline] = useState<ProjectOrder>();
   const [saving, setSaving] = useState(false);
   const dragged = useRef<string>(undefined);
@@ -61,14 +64,14 @@ export function WorkOrderView({
       void management.workOrder(project).then(
         (answer) => accept(answer.projectOrder),
         () => {
-          if (live) setMessage('Could not load the project order.');
+          if (live) setMessage(t.loadFailed);
         },
       );
     }
     return () => {
       live = false;
     };
-  }, [listed, omitted, project, management]);
+  }, [listed, omitted, project, management, setMessage]);
   const next = rankedNext(rows, order);
   const ranked = new Set(next.map((row) => row.key));
   const now = rows.filter((row) => active.has(row.status));
@@ -87,11 +90,7 @@ export function WorkOrderView({
       const title = rows.find((row) => row.key === item)?.title ?? item;
       const index = rankedNext(rows, answer.projectOrder).findIndex((row) => row.key === item);
       setMessage(
-        answer.conflict
-          ? 'The order changed on another device. Review it and try again.'
-          : index < 0
-            ? title + ' removed from Next.'
-            : title + ' moved to position ' + (index + 1) + '.',
+        answer.conflict ? t.conflict : index < 0 ? t.removed(title) : t.moved(title, index + 1),
       );
       requestAnimationFrame(() =>
         region.current
@@ -99,7 +98,7 @@ export function WorkOrderView({
           ?.focus(),
       );
     } catch {
-      setMessage('Could not save the project order. Try again.');
+      setMessage(t.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -133,7 +132,7 @@ export function WorkOrderView({
       setAssigning(undefined);
       refresh();
     } catch {
-      setMessage('Could not assign ' + row.title + '.');
+      setMessage(t.assignFailed(row.title));
     } finally {
       setSaving(false);
     }
@@ -147,21 +146,21 @@ export function WorkOrderView({
   return (
     <div ref={region} className="work-order-view">
       {[
-        { title: 'Now', items: now },
-        { title: 'Next', items: next },
-        { title: 'No preference', items: rest },
+        { title: text.workHome.now, items: now },
+        { title: t.next, items: next },
+        { title: t.rest, items: rest },
       ].map(({ title, items }) => (
         <section
           key={title}
           aria-label={title}
           className="work-home-card work-home-project-section"
           onDragOver={(event) => {
-            if (title !== 'Now' && dragged.current) event.preventDefault();
+            if (title !== text.workHome.now && dragged.current) event.preventDefault();
           }}
           onDrop={(event) => {
-            if (dragged.current && title !== 'Now') {
+            if (dragged.current && title !== text.workHome.now) {
               event.preventDefault();
-              void move(dragged.current, title === 'Next' ? 'last' : 'unrank');
+              void move(dragged.current, title === t.next ? 'last' : 'unrank');
               dragged.current = undefined;
             }
           }}
@@ -170,7 +169,10 @@ export function WorkOrderView({
             <h3>
               {title} <span>{items.length}</span>
             </h3>
-            {title === 'Next' && transport.orderAgents && (
+            {title !== text.workHome.now && (
+              <small>{title === t.next ? t.nextHint : t.restHint}</small>
+            )}
+            {title === t.next && transport.orderAgents && (
               <WorkOrderNotify
                 key={order?.revision}
                 project={project}
@@ -179,7 +181,7 @@ export function WorkOrderView({
               />
             )}
           </div>
-          {!items.length && <p>{title === 'Next' ? 'No ranked items' : 'No items'}</p>}
+          {!items.length && <p>{title === t.next ? t.emptyNext : t.empty}</p>}
           {items.map((row, i) => (
             <div
               key={row.key}
@@ -187,7 +189,7 @@ export function WorkOrderView({
               data-order-key={row.key}
               className="work-order-row"
               onDrop={(event) => {
-                if (title === 'Next' && dragged.current) {
+                if (title === t.next && dragged.current) {
                   event.preventDefault();
                   event.stopPropagation();
                   if (dragged.current !== row.key) void move(dragged.current, { before: row.key });
@@ -195,9 +197,9 @@ export function WorkOrderView({
                 }
               }}
             >
-              {title !== 'Now' && order && (
+              {title !== text.workHome.now && order && (
                 <WorkDragHandle
-                  label={'Drag ' + row.title}
+                  label={t.drag(row.title)}
                   onDragStart={(event) => {
                     dragged.current = row.key;
                     event.dataTransfer.effectAllowed = 'move';
@@ -208,50 +210,65 @@ export function WorkOrderView({
                   }}
                 />
               )}
-              {title === 'Next' && <span>{i + 1}</span>}
+              {title === t.next && <WorkRank rank={i + 1} />}
               {renderRow(row)}
-              {title !== 'Now' && order && (
-                <div className="work-order-actions">
+              {title !== text.workHome.now && order && (
+                <div className="work-order-actions" data-unranked={title === t.rest || undefined}>
                   {transport.orderAgents && (
                     <button
+                      aria-expanded={assigning === row.key}
                       onClick={async () => {
+                        if (assigning === row.key) {
+                          setAssigning(undefined);
+                          return;
+                        }
                         try {
                           setDirectory(await transport.orderAgents!.listAgents());
                           setAssigning(row.key);
                         } catch {
-                          setMessage('Could not load agents.');
+                          setMessage(t.agentsFailed);
                         }
                       }}
                     >
-                      {row.owner ? 'Reassign' : 'Assign'}
+                      {row.owner ? t.reassign : t.assign}
                     </button>
                   )}
                   {assigning === row.key && (
-                    <select
-                      aria-label={'Assign ' + row.title}
-                      defaultValue=""
-                      onChange={(event) => {
-                        const agent = directory.find(
-                          (candidate) => candidate.id === event.target.value,
-                        );
-                        if (agent) void assign(row, agent);
+                    <div
+                      className="work-assign-menu"
+                      role="group"
+                      aria-label={t.assignItem(row.title)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          setAssigning(undefined);
+                          region.current
+                            ?.querySelector<HTMLElement>(
+                              '[data-order-key="' +
+                                CSS.escape(row.key) +
+                                '"] button[aria-expanded]',
+                            )
+                            ?.focus();
+                        }
                       }}
                     >
-                      <option value="">Select an agent</option>
                       {directory.map((agent) => (
-                        <option key={agent.id} value={agent.id}>
+                        <button
+                          key={agent.id}
+                          disabled={saving}
+                          onClick={() => void assign(row, agent)}
+                        >
                           {agent.name}
-                        </option>
+                        </button>
                       ))}
-                    </select>
+                    </div>
                   )}
-                  {title === 'Next' && (
+                  {title === t.next && (
                     <>
                       <button
                         disabled={saving || i === 0}
                         onClick={() => void move(row.key, { before: next[i - 1]!.key })}
                       >
-                        Move up
+                        {t.up}
                       </button>
                       <button
                         disabled={saving || i === next.length - 1}
@@ -259,15 +276,15 @@ export function WorkOrderView({
                           void move(row.key, next[i + 2] ? { before: next[i + 2]!.key } : 'last')
                         }
                       >
-                        Move down
+                        {t.down}
                       </button>
                     </>
                   )}
                   <button
                     disabled={saving}
-                    onClick={() => void move(row.key, title === 'Next' ? 'unrank' : 'last')}
+                    onClick={() => void move(row.key, title === t.next ? 'unrank' : 'last')}
                   >
-                    {title === 'Next' ? 'Remove from Next' : 'Add to Next'}
+                    {title === t.next ? t.remove : t.add}
                   </button>
                 </div>
               )}
@@ -275,7 +292,7 @@ export function WorkOrderView({
           ))}
         </section>
       ))}
-      <p role="status">{message}</p>
+      <Toast message={message} />
     </div>
   );
 }

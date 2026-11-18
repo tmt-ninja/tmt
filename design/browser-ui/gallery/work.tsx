@@ -1,5 +1,5 @@
 import { BrowserAvatar } from '../src/react.js';
-import { WorkDragHandle, WorkNextLine } from '../src/work-order.js';
+import { WorkDragHandle, WorkNextLine, WorkRank } from '../src/work-order.js';
 import { Cell, Cells, Pair, Section } from './kit.js';
 
 type State =
@@ -102,6 +102,9 @@ export function WorkSection() {
     <Section id="work">
       <Pair title="Order drag handle" note="Drag a ranked Work item to its new position.">
         {() => <WorkDragHandle label="Move item" onDragStart={() => {}} />}
+      </Pair>
+      <Pair title="Order rank" note="Position in the project’s Next list.">
+        {() => <WorkRank rank={1} />}
       </Pair>
       <Pair title="Next line" note="The first three ranked items below a project.">
         {() => <WorkNextLine titles={['Title fields', 'Computed status', 'Work home']} />}

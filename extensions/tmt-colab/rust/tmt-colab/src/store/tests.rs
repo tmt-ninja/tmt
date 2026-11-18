@@ -734,6 +734,40 @@ mod page_titles {
     }
 
     #[test]
+    fn deleting_the_only_numbered_page_keeps_its_project_prefix_locked() {
+        use crate::projects::Change;
+        let mut t = Titled::new();
+        t.tx(|tx| {
+            tx.manage_project(&Change::CreateWithPrefix {
+                name: "Alpha".into(),
+                prefix: "ABC".into(),
+            })
+        });
+        assert_eq!(
+            t.tx(|tx| tx.allocate_work_number(TITLED, Some("Alpha"))),
+            "ABC-1"
+        );
+        t.tx(|tx| tx.delete_page_data(TITLED));
+        assert_eq!(
+            t.fixture.store.project_prefixes().unwrap()["Alpha"],
+            serde_json::json!({"prefix":"ABC","issued":true})
+        );
+        let result =
+            t.fixture
+                .store
+                .project_transaction(&t.key.space_id, &t.key.owner_public(), |tx| {
+                    tx.manage_project(&Change::Prefix {
+                        name: "Alpha".into(),
+                        prefix: "XYZ".into(),
+                    })
+                });
+        assert!(matches!(
+            result.unwrap_err().downcast_ref::<Fault>(),
+            Some(Fault::PrefixIssued)
+        ));
+    }
+
+    #[test]
     fn an_archive_and_a_delete_take_the_row_and_the_title_of_a_page_the_store_lacks_is_refused() {
         let mut t = Titled::new();
         t.edit(1);

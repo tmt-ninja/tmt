@@ -1,4 +1,15 @@
-import { useRef, useState } from 'react';
+import {
+  Button,
+  Checkbox,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  UiTheme,
+} from '@tmt/browser-ui/ui';
+import { BrowserAvatar } from '@tmt/browser-ui/react';
+import { getTheme, subscribeTheme } from './theme.js';
+import { text } from './strings.js';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import type { PageTransport } from './transport.js';
 import type { RemoteAgent, SendState } from './ask-remote.js';
 
@@ -19,11 +30,10 @@ export function WorkOrderNotify({
   const [error, setError] = useState('');
   const url = new URL('/colab/work', window.location.origin);
   url.searchParams.set('project', project);
-  const message =
-    'The work order for ' +
-    project +
-    ' has changed. Please arrange your work in the current order.\n' +
-    url.href;
+  const t = text.workHome.order;
+  const quote = t.quote(project);
+  const message = quote + '\n' + url.href;
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const delivered = (id: string) => ['accepted', 'held'].includes(results.get(id) ?? '');
   async function open() {
     setBusy(true);
@@ -35,7 +45,7 @@ export function WorkOrderNotify({
       );
       setError('');
     } catch {
-      setError('Could not load recipients.');
+      setError(t.recipientsFailed);
     } finally {
       setBusy(false);
     }
@@ -62,43 +72,56 @@ export function WorkOrderNotify({
   }
   return (
     <div className="work-order-notify">
-      <button
-        type="button"
-        disabled={busy}
-        aria-expanded={!!agents}
-        onClick={() => (agents ? setAgents(undefined) : void open())}
-      >
-        Notify
-      </button>
-      {agents && (
-        <fieldset>
-          <legend>Recipients</legend>
-          {agents.map((agent) => (
-            <label key={agent.id}>
-              <input
-                type="checkbox"
-                checked={selected.has(agent.id)}
-                disabled={busy || delivered(agent.id)}
-                onChange={(event) => {
-                  const ids = new Set(selected);
-                  if (event.target.checked) ids.add(agent.id);
-                  else ids.delete(agent.id);
-                  setSelected(ids);
-                }}
-              />
-              {agent.name} {affected.get(agent.name)?.join(', ')} {results.get(agent.id)}
-            </label>
-          ))}
-          <p>{message}</p>
-          <button
-            type="button"
-            disabled={busy || ![...selected].some((id) => !delivered(id))}
-            onClick={() => void send()}
-          >
-            Send
-          </button>
-        </fieldset>
-      )}
+      <UiTheme theme={theme}>
+        <Popover
+          open={!!agents}
+          onOpenChange={(next) => (next ? void open() : setAgents(undefined))}
+        >
+          <PopoverTrigger asChild>
+            <Button size="sm" disabled={busy}>
+              {t.notify}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="work-notify-card" aria-label={t.recipients}>
+            <strong>{t.recipients}</strong>
+            {agents?.map((agent) => {
+              const changes = affected.get(agent.name);
+              const result = results.get(agent.id);
+              return (
+                <label key={agent.id}>
+                  <Checkbox
+                    aria-label={agent.name}
+                    checked={selected.has(agent.id)}
+                    disabled={busy || delivered(agent.id)}
+                    onCheckedChange={(checked) =>
+                      setSelected((previous) => {
+                        const ids = new Set(previous);
+                        if (checked === true) ids.add(agent.id);
+                        else ids.delete(agent.id);
+                        return ids;
+                      })
+                    }
+                  />
+                  <BrowserAvatar name={agent.name} kind="agent" size="s" decorative />
+                  <span>
+                    {agent.name}
+                    {changes?.length ? <small>{t.changed(changes)}</small> : null}
+                  </span>
+                  {result && <small role="status">{t.results[result]}</small>}
+                </label>
+              );
+            })}
+            <blockquote>{quote}</blockquote>
+            <Button
+              size="sm"
+              disabled={busy || ![...selected].some((id) => !delivered(id))}
+              onClick={() => void send()}
+            >
+              {t.send}
+            </Button>
+          </PopoverContent>
+        </Popover>
+      </UiTheme>
       {error && <p role="alert">{error}</p>}
     </div>
   );
