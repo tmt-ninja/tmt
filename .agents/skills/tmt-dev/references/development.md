@@ -318,7 +318,9 @@ denies waits and polls by default. Start the tracked
 from a worktree of this repository, never a copy, in a provider-native retained
 background task, then end the turn. Never disable or bypass the guard, or wait,
 sleep or poll from the main session. Use `host-health.sh --gate` once only for
-host capacity. The guard's header owns implementation and provider details.
+host capacity. Edit files with `apply_patch` and run each check as its own
+command: a shell or script body that holds wait words is judged. The guard's
+header owns implementation and provider details.
 
 ## Review and evidence
 

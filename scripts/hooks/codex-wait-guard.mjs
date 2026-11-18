@@ -169,7 +169,7 @@ function judgeUrl() {
 }
 
 const POLICY = `You review one tool call an AI coding agent is about to make in a software repository. You see the tool name, its input, and the content of any repository script the call runs; secrets in them are replaced by [REDACTED]. A shell command reaches you only because it holds a wait primitive (sleep, wait, a while or until loop, watch, following a log, a timeout or retry, nohup or a background &).
-Deny only when this call itself waits or polls: it sleeps, loops over a repeated status check of CI, pull requests, merge queues, deploys or other agents, follows output, or leaves a background loop running. Never deny for anything else the call does, such as publishing, commenting, messaging, committing, editing files or notes, or text that only mentions waiting.
+Deny only when this call itself waits or polls: it sleeps, loops over a repeated status check of CI, pull requests, merge queues, deploys or other agents, follows output, or leaves a background loop running. Never deny for anything else the call does, such as publishing, commenting, messaging, committing, editing files or notes, or text that only mentions waiting. Code that only writes or patches files is editing, even when the text it writes holds sleep, a loop or a waiter's source; judge what the call runs, not what it writes.
 Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it, in the foreground or in the background. Its own polling loop and its --foreground option are how it works, and environment assignments before it change nothing; neither is a reason to deny. A call that starts it and otherwise only runs commands that do not wait, such as pushing, opening a pull request, messaging, writing notes or stopping an old waiter, is allowed.
 One status read, such as a single gh pr view, gh pr checks without --watch or gh api request, is not a wait; only repeated or looped checks are.
 A script whose content you are not shown is judged by its command line only; never deny because you cannot see it. When \`unsent\` names a script outside the repository and the wait primitive it holds, deny for that script only when the primitive is sleep, watch or following a log (tail -f, tail -F, --follow); any other primitive there is judged by the command line, never by a guess about content you cannot see.
@@ -1228,7 +1228,7 @@ async function main() {
   const judgeMs = Date.now() - started;
   if (result.verdict === 'deny' && ENFORCE) {
     deny(
-      `${result.reason} Start sh <repo-worktree>/scripts/ci-wake.sh <pr> --identity <self> --foreground, the tracked waker of any worktree of this repository (never a copy), inside a provider-native retained background task that wakes you, and end the turn instead of waiting; to wait for host capacity, run host-health.sh --gate once`
+      `${result.reason} Start sh <repo-worktree>/scripts/ci-wake.sh <pr> --identity <self> --foreground, the tracked waker of any worktree of this repository (never a copy), inside a provider-native retained background task that wakes you, and end the turn instead of waiting; to wait for host capacity, run host-health.sh --gate once. To edit a file, use apply_patch and run each check as its own command`
     );
   }
   finish({
