@@ -13,8 +13,9 @@
 #
 # Final states, the first one wins:
 # - Checks mode wakes on a failure, cancelled, timed_out or action_required check
-#   conclusion, or a failure/error commit status. If checks are still pending,
-#   it reports `failed so far: <names>; <N> checks still running`.
+#   conclusion, or a failure/error commit status. While work is pending, failures
+#   must appear in two consecutive polls before `failed so far` is reported.
+#   The early wake names the confirmed failures and counts pending checks.
 #   Green requires at least one workflow and one check or commit status, all
 #   workflows and checks completed, and no pending commit status.
 # - `--until merged`: the PR merged.
@@ -210,6 +211,7 @@ EOF
 }
 start_head=$head
 started=$("$CLOCK" +%s)
+previous_failures=
 while :; do
   phase=read-state
   read -r state merged now_head <<EOF
@@ -229,7 +231,7 @@ EOF
     # only the newest (highest ID) run of each name counts.
     runs=$("$GH" api --paginate "repos/{owner}/{repo}/commits/$head/check-runs?per_page=100" \
       --jq '.check_runs[] | [.name, .id, .status, (.conclusion // "")] | @tsv' |
-      sort -t "$(printf '\t')" -k1,1 -k2,2nr | awk -F '\t' '$1 != seen { seen = $1; print $3 "\t" $4 "\t" $1 }' || true)
+      sort -t "$(printf '\t')" -k1,1 -k2,2nr | awk -F '\t' '$1 != seen { seen = $1; print $3 "\t" $4 "\t" $1 "\t" $2 }' || true)
     statuses=$("$GH" api "repos/{owner}/{repo}/commits/$head/status" \
       --jq '.statuses[] | [.state, .context] | @tsv' || true)
     workflows=$("$GH" api --paginate "repos/{owner}/{repo}/actions/runs?head_sha=$head&per_page=100" \
@@ -243,14 +245,21 @@ EOF
     )
     started_runs=$(printf '%s\n' "$workflows" | grep -c . || true)
     pending_workflows=$(printf '%s\n' "$workflows" | awk 'NF && $1 != "completed" { n++ } END { print n+0 }')
-    failed=$(
-      {
-        printf '%s\n' "$runs" | awk -F '\t' '$1 == "completed" && $2 ~ /^(failure|cancelled|timed_out|action_required)$/ { print $3 }'
-        printf '%s\n' "$statuses" | awk -F '\t' '$1 ~ /^(failure|error)$/ { print $2 }'
-      } | sort -u | paste -sd ',' - | sed 's/,/, /g'
+    failures=$(
+      printf '%s\n' "$runs" | awk -F '\t' '$1 == "completed" && $2 ~ /^(failure|cancelled|timed_out|action_required)$/ { print "check\t" $4 "\t" $3 }'
+      printf '%s\n' "$statuses" | awk -F '\t' '$1 ~ /^(failure|error)$/ { print "status\t" $1 "\t" $2 }'
     )
+    if [ "$pending" -gt 0 ] || [ "$pending_workflows" -gt 0 ]; then
+      confirmed=$(printf '%s\n\n%s\n' "$previous_failures" "$failures" |
+        awk 'NF == 0 { current=1; next } !current { seen[$0]=1; next } $0 in seen')
+    else
+      confirmed=$failures
+    fi
+    previous_failures=$failures
+    failed=$(printf '%s\n' "$confirmed" | awk -F '\t' 'NF { print $3 }' |
+      sort -u | paste -sd ',' - | sed 's/,/, /g')
     if [ -n "$failed" ]; then
-      if [ "$pending" -gt 0 ]; then
+      if [ "$pending" -gt 0 ] || [ "$pending_workflows" -gt 0 ]; then
         wake "failed so far: $failed; $pending checks still running"
       fi
       wake "failed: $failed"
