@@ -932,9 +932,9 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
     frames
 }
 
-/// Five provider-form scenes; answers are always taken in the member's terminal.
+/// Provider-form read-only views and user-owned answer dialogs.
 fn provider_form_frames(styles: &mut Styles) -> Vec<Value> {
-    scene_group(
+    provider_form_scenes(
         styles,
         &[
             "form-question",
@@ -943,6 +943,13 @@ fn provider_form_frames(styles: &mut Styles) -> Vec<Value> {
             "form-truncated",
             "form-two",
         ],
+    )
+}
+
+fn provider_form_scenes(styles: &mut Styles, scenes: &[&str]) -> Vec<Value> {
+    scene_group(
+        styles,
+        scenes,
         |_| grid(&[160, 100], &[36]),
         |state, look, _, _| {
             let mut app = capture_case("overview", look);
@@ -1026,6 +1033,27 @@ fn provider_form_frames(styles: &mut Styles) -> Vec<Value> {
             }
         },
     )
+}
+
+#[test]
+#[ignore = "exports only the 16 provider answer dialogs to HOME_ORACLE_OUT; never records fixtures"]
+fn dump_provider_answer_dialogs() {
+    crate::status::with_now_ms(NOW, || {
+        let mut styles = Styles::default();
+        let frames = provider_form_scenes(&mut styles, &["form-question", "form-plan"]);
+        assert_eq!(frames.len(), 16);
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        fs::write(
+            std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path"),
+            serde_json::to_string_pretty(&json!({"styles": styles, "frames": frames})).unwrap()
+                + "\n",
+        )
+        .unwrap();
+    });
 }
 
 /// Shell mode and its owner-local member conversation, without running commands.

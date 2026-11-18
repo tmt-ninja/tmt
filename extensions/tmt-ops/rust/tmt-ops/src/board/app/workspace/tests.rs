@@ -6246,6 +6246,46 @@ fn the_provider_answer_follows_the_close_rule() {
 }
 
 #[test]
+fn provider_answer_dialog_fits_short_content_and_scrolls_a_long_plan() {
+    let mut app = answerable_plan_board();
+    let overlay = crate::board::app::Overlay::ProviderAnswer;
+    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+    let screen = paint(&app, 100, 36);
+    let sheet = app.peek_areas.area(overlay).unwrap();
+    let body_top = usize::from(sheet.y) + 1;
+    assert!(screen[body_top].contains("Review the retry plan."));
+    assert!(screen[body_top + 1].contains("Approve plan uses manual edits."));
+    assert!(screen[body_top + 2].contains("Keep planning"));
+    assert_eq!(sheet.height, 5);
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .forms
+        .as_mut()
+        .unwrap()[0]
+        .plan = Some("Plan detail\n".repeat(36) + "End of the plan.");
+    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+    let screen = paint(&app, 100, 36);
+    let sheet = app.peek_areas.area(overlay).unwrap();
+    assert!(!screen.join("\n").contains("End of the plan."));
+    for _ in 0..6 {
+        assert_eq!(key(&mut app, KeyCode::PageDown), Effect::None);
+    }
+    let scrolled = paint(&app, 100, 36);
+    assert_eq!(app.peek_areas.area(overlay), Some(sheet));
+    assert!(scrolled.join("\n").contains("End of the plan."));
+    let footer = usize::from(sheet.bottom()) - 2;
+    assert_eq!(scrolled[footer], screen[footer]);
+    assert!(scrolled[footer].contains("Keep planning"));
+}
+
+#[test]
 fn provider_answer_keeps_mixed_question_draft_and_sends_original_indices() {
     use crate::{
         core::Core,
@@ -6284,7 +6324,16 @@ fn provider_answer_keeps_mixed_question_draft_and_sends_original_indices() {
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
     assert!(!app.modal_open());
     assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
-    let screen = paint(&app, 100, 36).join("\n");
+    let rows = paint(&app, 100, 36);
+    let other = rows
+        .iter()
+        .position(|line| line.contains("Other:") && line.contains("quality"))
+        .unwrap();
+    assert!(
+        rows[other + 1].contains("Send answer"),
+        "the buttons follow the last field"
+    );
+    let screen = rows.join("\n");
     for expected in ["● Fresh", "☑ Focused", "quality"] {
         assert!(screen.contains(expected), "{screen}");
     }

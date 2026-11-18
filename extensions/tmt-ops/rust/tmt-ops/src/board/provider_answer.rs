@@ -665,35 +665,15 @@ impl App {
             }
             .into(),
         };
-        let area = dialog.areas(body, [76, 24], plan_note);
-        let look = self.look();
-        let mut hits = dialog.paint(
-            area,
-            focus,
-            frame.buffer_mut(),
-            DialogLook {
-                theme: &look.theme,
-                depth: look.depth,
-                active: true,
-                hovered: None,
-            },
-        );
-        if plan_note {
-            strip::paint_left(
-                frame.buffer_mut(),
-                area.status,
-                Line::styled("Approve plan uses manual edits.", look.role(Role::Dim)),
-            );
-        }
-        let width = usize::from(area.content.width);
-        let height = usize::from(area.content.height);
+        let capacity = dialog.areas(body, [76, u16::MAX], plan_note);
+        let width = usize::from(capacity.content.width);
         let mut lines = Vec::<(String, Option<usize>, Role)>::new();
         let mut add = |text: &str, field, role| {
             for line in super::notes::wrap(&super::notes::sanitize(text), width.max(1)) {
                 lines.push((line, field, role));
             }
         };
-        if let Surface::Pick { forms, .. } = surface {
+        let field_count = if let Surface::Pick { forms, .. } = surface {
             for (index, form) in forms.iter().enumerate() {
                 let label = if form.kind == "planApproval" {
                     "Plan approval"
@@ -706,7 +686,7 @@ impl App {
                     Role::Text,
                 );
             }
-            hits.fields.resize(forms.len(), Rect::ZERO);
+            forms.len()
         } else if let Some(draft) = draft {
             if !self.draft_is_current() {
                 add(
@@ -746,7 +726,42 @@ impl App {
                     field += 1;
                 }
             }
-            hits.fields.resize(field, Rect::ZERO);
+            field
+        } else {
+            0
+        };
+        let mut area = capacity;
+        let body_capacity = capacity.content.height + capacity.position.height;
+        if let Ok(rows) = u16::try_from(lines.len())
+            && rows <= body_capacity
+        {
+            let chrome = capacity.outer.height - body_capacity;
+            area = dialog.areas(body, [76, chrome + rows], plan_note);
+            // The shared geometry reserves a scroll-position row. Reclaim it
+            // for the wrapped body when there is no scroll position to show.
+            area.content.height += area.position.height;
+            area.position = Rect::ZERO;
+        }
+        let height = usize::from(area.content.height);
+        let look = self.look();
+        let mut hits = dialog.paint(
+            area,
+            focus,
+            frame.buffer_mut(),
+            DialogLook {
+                theme: &look.theme,
+                depth: look.depth,
+                active: true,
+                hovered: None,
+            },
+        );
+        hits.fields.resize(field_count, Rect::ZERO);
+        if plan_note {
+            strip::paint_left(
+                frame.buffer_mut(),
+                area.status,
+                Line::styled("Approve plan uses manual edits.", look.role(Role::Dim)),
+            );
         }
         let max_top = lines.len().saturating_sub(height);
         state.limit.set(max_top);
