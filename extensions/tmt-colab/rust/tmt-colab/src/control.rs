@@ -92,10 +92,9 @@ impl std::error::Error for StopFault {}
 
 /// Wait for a listener during a release handoff, then send one stop request.
 /// None means the previously held lock released before a listener became available.
-pub fn request_stop(layout: &Layout) -> Result<Option<StopReply>> {
+pub fn request_stop(layout: &Layout, deadline: std::time::Instant) -> Result<Option<StopReply>> {
     use std::io::ErrorKind;
     use std::time::{Duration, Instant};
-    let deadline = Instant::now() + Duration::from_secs(5);
     let mut delay = Duration::from_millis(10);
     let socket = loop {
         match crate::ipc::connect(layout) {

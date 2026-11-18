@@ -491,7 +491,11 @@ fn serve(
             .map(|path| path.as_path()),
     )?;
     let layout = Layout::open(root)?;
-    let lock = layout.serve_lock()?;
+    let lock = if args.get_flag("inherit-serve-lock") {
+        layout.adopt_serve_lock()?
+    } else {
+        layout.serve_lock()?
+    };
     let mut diagnostic = Some(ErrorRecord::clear(
         layout.file("serve-error.json")?,
         RECORD_BYTES,
@@ -644,12 +648,12 @@ fn serve(
     }
     // The record is written and closed while the serve lock is still held.
     drop(diagnostic);
-    drop(lock);
     match result? {
         Some(candidate) if !stop.load(Ordering::Acquire) => {
             use std::os::unix::process::CommandExt;
             let mut command = std::process::Command::new(candidate.program());
-            command.args(["serve", "--foreground", "--no-open"]);
+            command.args(["serve", "--foreground", "--no-open", "--inherit-serve-lock"]);
+            command.stdin(lock.try_clone()?);
             if json_output || detached {
                 command.arg("--json");
             }
@@ -673,6 +677,7 @@ fn verify_replacement(
     let args = [
         "serve".into(),
         "--upgrade-check".into(),
+        "--inherit-serve-lock".into(),
         "--json".into(),
         "--no-open".into(),
     ];

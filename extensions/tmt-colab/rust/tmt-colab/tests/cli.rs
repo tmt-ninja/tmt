@@ -6367,69 +6367,53 @@ fn a_release_replacement_keeps_human_foreground_output_instead_of_printing_json(
 }
 
 #[test]
-fn stop_during_owned_door_cleanup_at_upgrade_cutoff() {
+fn one_stop_during_release_handoff_stops_the_replacement_and_its_door() {
     let pilot = Pilot::new(None);
     seed_page(&pilot);
     let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
-    let script = pilot.root.join("remote-serve");
-    let old = fs::read_to_string(&script).unwrap();
-    let gate = pilot.root.join("door-cleanup.go");
+    let gate = pilot.root.join("replacement.go");
     use nix::sys::stat::Mode;
     nix::unistd::mkfifo(&gate, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
-    fs::write(
-        &script,
-        old.replace(
-            ": > serve.term; exit 0",
-            "echo cleanup > serve.term; read go < door-cleanup.go; exit 0",
-        ),
-    )
-    .unwrap();
+    // Open before exec so the gate can be released even if the shell has
+    // just written its PID and has not opened the FIFO for reading yet.
+    let mut release = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&gate)
+        .unwrap();
     let (mut serving, lib) = installed_service(&pilot, core, true);
-    // Only the old door pauses in cleanup. The replacement door uses the normal fixture.
-    fs::write(&script, old).unwrap();
-    select_replacement(&pilot, &lib, false, "");
-    Serving::wait_for(&pilot.root.join("serve.term"), "cleanup");
-    assert!(
-        !pilot.socket().exists(),
-        "old socket has already been removed"
+    select_replacement(&pilot, &lib, false, "read go < replacement.go || exit 1");
+    Serving::wait_for(&pilot.root.join("replacement.pid"), "\n");
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    assert!(layout.running().unwrap(), "the old flock survives exec");
+    assert!(!pilot.socket().exists());
+    // At this gate there is no listener to receive a request. A deadline reached in
+    // this exact state must never produce a successful stopped answer.
+    let fault = tmt_colab::control::request_stop(&layout, Instant::now()).unwrap_err();
+    assert_eq!(
+        fault
+            .downcast_ref::<tmt_colab::control::StopFault>()
+            .unwrap()
+            .code(),
+        "COLAB_UNAVAILABLE"
     );
-    // Start the actual CLI in the gap. An immediate unavailable reply is a regression.
     let child = pilot
         .command()
         .args(["stop", "--json"])
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    let (sent, received) = std::sync::mpsc::channel();
-    let waiter = thread::spawn(move || sent.send(child.wait_with_output().unwrap()).unwrap());
-    assert!(matches!(
-        received.recv_timeout(Duration::from_millis(150)),
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-    ));
-    use std::os::unix::fs::OpenOptionsExt;
-    fs::OpenOptions::new()
-        .write(true)
-        .custom_flags(nix::fcntl::OFlag::O_NONBLOCK.bits())
-        .open(gate)
-        .unwrap()
-        .write_all(b"go\n")
-        .unwrap();
-    let output = received.recv_timeout(Duration::from_secs(15)).unwrap();
-    waiter.join().unwrap();
+    release.write_all(b"go\n").unwrap();
+    let output = child.wait_with_output().unwrap();
     assert!(output.status.success(), "{output:?}");
     let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(answer["state"], "stopped");
-    // The release is allowed to win the race before the replacement binds.
-    if answer["door"].is_null() {
-        assert_eq!(replacement_ready(&serving)["door"], "started");
-        assert_eq!(
-            pilot.stop_json(),
-            json!({"state":"stopped","door":"started"})
-        );
-    } else {
-        assert_eq!(answer["door"], "started");
-    }
+    assert_eq!(answer, json!({"state":"stopped","door":"started"}));
     serving.exits();
+    assert_gone(pid_file(&pilot, "serve.pid"));
+    assert!(!pilot.socket().exists());
+    assert!(!layout.running().unwrap());
 }
 
 #[test]
@@ -6437,15 +6421,13 @@ fn stop_reports_replacement_if_the_locked_listener_never_returns() {
     let pilot = Pilot::new(None);
     let layout = tmt_colab::keyring::Layout::open(&pilot.root.join("selected")).unwrap();
     let _lock = layout.serve_lock().unwrap();
-    let started = Instant::now();
-    let error = failure(&pilot, &["stop", "--json"], "COLAB_UNAVAILABLE");
-    assert!(started.elapsed() >= Duration::from_secs(5));
-    assert!(
-        error["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("replacement is in progress")
-    );
+    let deadline = Instant::now() + Duration::from_millis(2);
+    let error = tmt_colab::control::request_stop(&layout, deadline).unwrap_err();
+    let fault = error
+        .downcast_ref::<tmt_colab::control::StopFault>()
+        .unwrap();
+    assert_eq!(fault.code(), "COLAB_UNAVAILABLE");
+    assert!(fault.to_string().contains("replacement is in progress"));
 }
 
 #[test]

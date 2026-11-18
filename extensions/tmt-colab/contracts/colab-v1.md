@@ -5771,7 +5771,10 @@ sees the flag, then shutdown is exactly SIGTERM's: close the socket and workers,
 door `serve` started (never an attached one). Pairings, grants and data are untouched.
 
 If the serve lock is held but the private listener is absent or refuses the connection, stop
-polls for up to five seconds during replacement. If the lock releases first, cleanup is checked
+polls for up to five seconds during replacement. During automatic replacement the old serve passes its exclusive flock across exec on stdin.
+The replacement verifies the descriptor against the private serve.lock, adopts it, and restores
+stdin to /dev/null before starting any children. Preflight verifies that the candidate accepts
+this handoff before the old serve drains. If the lock releases first, cleanup is checked
 and the result is `{state:"stopped",door:null}`. If the listener returns, stop sends its request
 once. If the deadline expires with the lock held, `COLAB_UNAVAILABLE` reports a serve replacement
 in progress. A transmitted stop request is never repeated.

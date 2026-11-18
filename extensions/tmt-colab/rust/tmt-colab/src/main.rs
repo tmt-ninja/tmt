@@ -323,6 +323,7 @@ fn grammar() -> Command {
                             .action(ArgAction::SetTrue)
                             .requires("foreground"),
                     )
+                    .arg(Arg::new("inherit-serve-lock").long("inherit-serve-lock").hide(true).action(clap::ArgAction::SetTrue))
                     .arg(
                         Arg::new("upgrade-check")
                             .long("upgrade-check")
@@ -578,7 +579,8 @@ fn stop_serving(root: &std::path::Path, json_output: bool) -> Result<()> {
     let layout = Layout::existing(root)?;
     let (stopped, door) = match &layout {
         Some(layout) if layout.running()? => {
-            let reply = control::request_stop(layout)?;
+            let reply =
+                control::request_stop(layout, Instant::now() + std::time::Duration::from_secs(5))?;
             let deadline = Instant::now() + STOP_WAIT;
             while reply.is_some() && layout.running()? {
                 if Instant::now() >= deadline {
