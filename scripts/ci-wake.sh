@@ -103,9 +103,27 @@ if [ -z "$run" ]; then
     fi
   fi
   # Refuse at once, in the seat's own turn, when there is nobody to wake.
-  if ! anonymous "$TMT" identity show "$self" --json >/dev/null 2>&1; then
+  unresolved_identity() {
     printf 'ci-wake: identity %s cannot be resolved; nothing started.\n' "$self" >&2
     exit 3
+  }
+  identity=$(anonymous "$TMT" identity show "$self" --json 2>/dev/null) || unresolved_identity
+  expect_name=
+  if [ "$self" != 00000000-0000-0000-0000-000000000000 ] &&
+     printf '%s\n' "$self" | LC_ALL=C grep -Eq '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'; then
+    # identity show emits compact JSON with identity.id and identity.name first.
+    # Refuse any other shape rather than taking a name from a later object.
+    prefix='{"identity":{"id":"'"$self"'","name":"'
+    case $identity in
+      "$prefix"*)
+        expect_name=$(printf '%s\n' "${identity#"$prefix"}" | LC_ALL=C sed -n \
+          '1s/^\([A-Za-z0-9][A-Za-z0-9._-]\{0,63\}\)"[,}].*$/\1/p')
+        ;;
+    esac
+    if [ -z "$expect_name" ]; then
+      printf 'ci-wake: identity %s lookup did not return the requested UUID with a safe name; nothing started.\n' "$self" >&2
+      exit 3
+    fi
   fi
   umask 077
   logs=${TMPDIR:-/tmp}
@@ -118,7 +136,7 @@ if [ -z "$run" ]; then
   printf '%s launcher pid=%s requested %s mode\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$launch_mode" >"$log"
   if [ -n "$foreground" ]; then
     printf 'ci-wake: foreground pid %s waiting on #%s (%s); log %s\n' "$$" "$pr" "$until" "$log"
-    CI_WAKE_LOG=$log exec /bin/sh "$0" __run "$pr" --identity "$self" \
+    CI_WAKE_LOG=$log CI_WAKE_EXPECT_NAME=$expect_name exec /bin/sh "$0" __run "$pr" --identity "$self" \
       --until "$until" --interval "$interval" --cap "$cap" >>"$log" 2>&1
   fi
   # A new session, so the seat's process group ending does not end the wait.
@@ -128,7 +146,7 @@ if [ -z "$run" ]; then
   else
     set -- perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!\n"'
   fi
-  CI_WAKE_LOG=$log nohup "$@" /bin/sh "$0" __run "$pr" --identity "$self" \
+  CI_WAKE_LOG=$log CI_WAKE_EXPECT_NAME=$expect_name nohup "$@" /bin/sh "$0" __run "$pr" --identity "$self" \
     --until "$until" --interval "$interval" --cap "$cap" </dev/null >>"$log" 2>&1 &
   printf 'ci-wake: pid %s waiting on #%s (%s); log %s\n' "$!" "$pr" "$until" "$log"
   exit 0
@@ -151,11 +169,19 @@ wake() {
   phase=notification
   text="ci-wake #$pr ${head%"${head#????????????}"}: $1"
   note "$text"
-  if anonymous "$TMT" talk "$self" "$text" --detach --urgent --kind fyi >/dev/null 2>&1; then
+  set -- "$self" "$text" --detach --urgent --kind fyi
+  if [ -n "${CI_WAKE_EXPECT_NAME:-}" ]; then
+    set -- "$@" --expect-name "$CI_WAKE_EXPECT_NAME"
+  fi
+  if delivery_error=$(anonymous "$TMT" talk "$@" 2>&1 >/dev/null); then
     # Delivered: the log has nothing left to explain.
     exit_reason=delivered
     [ -z "$log" ] || rm -f "$log"
     exit 0
+  fi
+  if [ -n "$delivery_error" ]; then
+    first_line=$(printf '%s\n' "$delivery_error" | awk 'NR == 1 { print substr($0, 1, 500); exit }')
+    note "wake delivery error: $first_line"
   fi
   note "wake could not be sent to $self; not retried"
   exit 3

@@ -5,6 +5,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
@@ -16,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 
 const script = fileURLToPath(new URL('../../../scripts/ci-wake.sh', import.meta.url));
 const HEAD = 'a'.repeat(40);
+const UUID = '8a52db56-081f-42cb-b47c-31e4a1b1b2a9';
 
 let root: string;
 let bin: string;
@@ -54,9 +56,26 @@ esac`
   tool(
     'tmt',
     `case $1 in
-  identity) [ ! -f "$HOME/no-identity" ] || exit 3 ;;
+  identity)
+    [ ! -f "$HOME/no-identity" ] || exit 3
+    printf '%s\\n' "$*" >> "$HOME/identity.log"
+    if [ -f "$HOME/identity-json" ]; then
+      cat "$HOME/identity-json"
+    else
+      printf '%s\\n' '{"identity":{"id":"${UUID}","name":"core-ops","canonicalName":"core-ops","lifetime":"saved"},"resume":null}'
+    fi ;;
   talk)
     printf '%s|pane=%s|tmux=%s\\n' "$*" "\${TMUX_PANE-unset}" "\${TMUX-unset}" >> "$HOME/talk.log"
+    if [ "$2" = "${UUID}" ]; then
+      case "$*" in
+        *' --expect-name core-ops') ;;
+        *) printf '%s\\n' 'A UUID target needs --expect-name' >&2; exit 3 ;;
+      esac
+      if [ -f "$HOME/renamed" ]; then
+        printf '%s\\n' 'Identity changed: expected core-ops' 'second diagnostic line' >&2
+        exit 5
+      fi
+    fi
     [ ! -f "$HOME/talk-fails" ] || exit 1 ;;
 esac`
   );
@@ -247,6 +266,67 @@ describe('scripts/ci-wake.sh', () => {
     // The starter points the waiting process's output at this log.
     expect(existsSync(result.log)).toBe(true);
     expect(result.stdout).toContain('wake could not be sent to core-ops; not retried');
+  });
+
+  it.each([
+    { identity: 'core-ops', renamed: false, status: 0, suffix: '' },
+    { identity: UUID, renamed: false, status: 0, suffix: ' --expect-name core-ops' },
+    { identity: UUID, renamed: true, status: 3, suffix: ' --expect-name core-ops' },
+  ])('delivers to $identity with the startup name (renamed=$renamed)', (test) => {
+    const c = newCase([`closed true ${HEAD}`], test.renamed ? { renamed: '' } : {});
+    const posixBin = path.join(c.home, 'posix-bin');
+    mkdirSync(posixBin);
+    // The ambient system may ship jq, including under /usr/bin.
+    for (const tool of [
+      'awk',
+      'cat',
+      'chmod',
+      'date',
+      'env',
+      'grep',
+      'mkdir',
+      'rm',
+      'sed',
+      'tr',
+      'wc',
+    ]) {
+      const source = ['/usr/bin', '/bin'].map((dir) => path.join(dir, tool)).find(existsSync);
+      if (!source) throw new Error(`Missing POSIX fixture tool: ${tool}`);
+      symlinkSync(source, path.join(posixBin, tool));
+    }
+    const result = c.run(['42', '--identity', test.identity, '--foreground', '--until', 'merged'], {
+      PATH: `${bin}${path.delimiter}${posixBin}`,
+    });
+    expect(result.status).toBe(test.status);
+    expect(c.lines('identity.log')).toEqual([`identity show ${test.identity} --json`]);
+    expect(c.lines('talk.log')).toEqual([
+      `talk ${test.identity} ci-wake #42 aaaaaaaaaaaa: merged --detach --urgent --kind fyi${test.suffix}|pane=unset|tmux=unset`,
+    ]);
+    const log = /; log (\S+)\n$/.exec(result.stdout)![1];
+    if (test.renamed) {
+      const evidence = readFileSync(log, 'utf8');
+      expect(evidence).toContain('wake delivery error: Identity changed: expected core-ops');
+      expect(evidence).toContain('not retried');
+      expect(evidence).not.toContain('second diagnostic line');
+    } else expect(existsSync(log)).toBe(false);
+  });
+
+  it.each([
+    { id: '11111111-1111-4111-8111-111111111111', name: 'core-ops' },
+    { id: UUID, name: 'name with spaces' },
+  ])('refuses UUID startup with mismatched or unsafe identity JSON ($name)', ({ id, name }) => {
+    const c = newCase([open], {
+      'identity-json': JSON.stringify({
+        identity: { id, name },
+        resume: { id: UUID, name: 'core-ops' },
+      }),
+    });
+    const result = c.run(['42', '--identity', UUID, '--foreground']);
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain('did not return the requested UUID with a safe name');
+    expect(c.lines('gh.log')).toEqual([]);
+    expect(c.lines('talk.log')).toEqual([]);
+    expect(existsSync(path.join(c.home, 'ci-wake'))).toBe(false);
   });
 
   it('starts one detached wait with an owner-only log and returns at once', () => {
