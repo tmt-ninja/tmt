@@ -22,15 +22,29 @@ pub(crate) fn exchange(layout: &Layout, path: &str, body: &[u8]) -> Result<(u16,
 /// Connect and write the whole request. An error here means the server cannot have acted: it
 /// acts only on a complete body.
 pub(crate) fn send(layout: &Layout, path: &str, body: &[u8]) -> Result<UnixStream> {
+    let socket = connect(layout).map_err(|_| Fault::Unavailable)?;
+    send_connected(socket, path, body)
+}
+
+/// Connect only to the private socket. Preserve connection errors so stop can
+/// distinguish a missing replacement listener before any request bytes are sent.
+pub(crate) fn connect(layout: &Layout) -> std::io::Result<UnixStream> {
     let socket_path = layout.directory.join(crate::socket::SOCKET);
-    let metadata = std::fs::symlink_metadata(&socket_path).map_err(|_| Fault::Unavailable)?;
+    let metadata = std::fs::symlink_metadata(&socket_path)?;
     if !metadata.file_type().is_socket()
         || metadata.uid() != nix::unistd::Uid::effective().as_raw()
         || metadata.mode() & 0o777 != 0o600
     {
-        return Err(Fault::Unavailable.into());
+        return Err(std::io::ErrorKind::PermissionDenied.into());
     }
-    let mut socket = UnixStream::connect(socket_path).map_err(|_| Fault::Unavailable)?;
+    UnixStream::connect(socket_path)
+}
+
+pub(crate) fn send_connected(
+    mut socket: UnixStream,
+    path: &str,
+    body: &[u8],
+) -> Result<UnixStream> {
     socket.set_write_timeout(Some(limits::ACQUISITION))?;
     write!(
         socket,

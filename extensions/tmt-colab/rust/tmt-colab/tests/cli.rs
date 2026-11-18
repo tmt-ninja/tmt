@@ -6367,6 +6367,88 @@ fn a_release_replacement_keeps_human_foreground_output_instead_of_printing_json(
 }
 
 #[test]
+fn stop_during_owned_door_cleanup_at_upgrade_cutoff() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    let script = pilot.root.join("remote-serve");
+    let old = fs::read_to_string(&script).unwrap();
+    let gate = pilot.root.join("door-cleanup.go");
+    use nix::sys::stat::Mode;
+    nix::unistd::mkfifo(&gate, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
+    fs::write(
+        &script,
+        old.replace(
+            ": > serve.term; exit 0",
+            "echo cleanup > serve.term; read go < door-cleanup.go; exit 0",
+        ),
+    )
+    .unwrap();
+    let (mut serving, lib) = installed_service(&pilot, core, true);
+    // Only the old door pauses in cleanup. The replacement door uses the normal fixture.
+    fs::write(&script, old).unwrap();
+    select_replacement(&pilot, &lib, false, "");
+    Serving::wait_for(&pilot.root.join("serve.term"), "cleanup");
+    assert!(
+        !pilot.socket().exists(),
+        "old socket has already been removed"
+    );
+    // Start the actual CLI in the gap. An immediate unavailable reply is a regression.
+    let child = pilot
+        .command()
+        .args(["stop", "--json"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (sent, received) = std::sync::mpsc::channel();
+    let waiter = thread::spawn(move || sent.send(child.wait_with_output().unwrap()).unwrap());
+    assert!(matches!(
+        received.recv_timeout(Duration::from_millis(150)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+    ));
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(nix::fcntl::OFlag::O_NONBLOCK.bits())
+        .open(gate)
+        .unwrap()
+        .write_all(b"go\n")
+        .unwrap();
+    let output = received.recv_timeout(Duration::from_secs(15)).unwrap();
+    waiter.join().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(answer["state"], "stopped");
+    // The release is allowed to win the race before the replacement binds.
+    if answer["door"].is_null() {
+        assert_eq!(replacement_ready(&serving)["door"], "started");
+        assert_eq!(
+            pilot.stop_json(),
+            json!({"state":"stopped","door":"started"})
+        );
+    } else {
+        assert_eq!(answer["door"], "started");
+    }
+    serving.exits();
+}
+
+#[test]
+fn stop_reports_replacement_if_the_locked_listener_never_returns() {
+    let pilot = Pilot::new(None);
+    let layout = tmt_colab::keyring::Layout::open(&pilot.root.join("selected")).unwrap();
+    let _lock = layout.serve_lock().unwrap();
+    let started = Instant::now();
+    let error = failure(&pilot, &["stop", "--json"], "COLAB_UNAVAILABLE");
+    assert!(started.elapsed() >= Duration::from_secs(5));
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("replacement is in progress")
+    );
+}
+
+#[test]
 fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() {
     let pilot = Pilot::new(None);
     seed_page(&pilot);

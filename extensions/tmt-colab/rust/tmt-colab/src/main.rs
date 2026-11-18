@@ -576,36 +576,32 @@ fn stop_serving(root: &std::path::Path, json_output: bool) -> Result<()> {
     use std::time::Instant;
     use tmt_colab::control::{self, StopFault};
     let layout = Layout::existing(root)?;
-    let door = match &layout {
-        None => None,
+    let (stopped, door) = match &layout {
         Some(layout) if layout.running()? => {
             let reply = control::request_stop(layout)?;
             let deadline = Instant::now() + STOP_WAIT;
-            while layout.running()? {
+            while reply.is_some() && layout.running()? {
                 if Instant::now() >= deadline {
                     return Err(StopFault::Slow.into());
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
-            reply.door()
+            (true, reply.and_then(|answer| answer.door()))
         }
-        Some(_) => None,
+        _ => (false, None),
     };
     if let Some(layout) = &layout {
         control::confirm_cleanup(layout)?;
     }
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
-        let state = if door.is_some() {
-            "stopped"
-        } else {
-            "not-running"
-        };
+        let state = if stopped { "stopped" } else { "not-running" };
         writeln!(output, "{}", json!({"state":state,"door":door}))?;
         return Ok(());
     }
     let terminal = output.terminal();
     let done = match door {
+        None if stopped => "Colab stopped",
         None => "Colab is not running",
         Some("started") => "Colab stopped, and the Remote door it started",
         Some(_) => "Colab stopped",
