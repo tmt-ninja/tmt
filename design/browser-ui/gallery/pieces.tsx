@@ -9,6 +9,7 @@ import {
   BrowserMenu,
   BrowserOverview,
   BrowserPager,
+  BrowserSegments,
   BrowserStatusTile,
   BrowserStatusTiles,
   type BrowserMenuItem,
@@ -383,7 +384,17 @@ export function StatusTileSection() {
             </Cell>
             <Cell label="state marks (one 12px box each)">
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
-                {['dot', 'ring', 'dashed', 'clock', 'diamond', 'cross', 'unknown'].map((shape) => (
+                {[
+                  'dot',
+                  'half',
+                  'target',
+                  'ring',
+                  'dashed',
+                  'clock',
+                  'diamond',
+                  'cross',
+                  'unknown',
+                ].map((shape) => (
                   <span
                     key={shape}
                     style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}
@@ -392,6 +403,32 @@ export function StatusTileSection() {
                     {shape}
                   </span>
                 ))}
+              </div>
+            </Cell>
+            <Cell label="segments (one per section, #6619)">
+              <div style={{ display: 'grid', gap: '0.6rem', justifyItems: 'start' }}>
+                <BrowserSegments
+                  label="4 of 9 sections done"
+                  states={[
+                    'done',
+                    'done',
+                    'done',
+                    'done',
+                    'working',
+                    'waiting',
+                    'todo',
+                    'todo',
+                    'todo',
+                  ]}
+                />
+                <BrowserSegments
+                  label="2 of 3 sections done"
+                  states={['done', 'done', 'blocked']}
+                />
+                <BrowserSegments
+                  label="0 of 4 sections done"
+                  states={['todo', 'todo', 'todo', 'todo']}
+                />
               </div>
             </Cell>
             <Cell label="other tones">

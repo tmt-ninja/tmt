@@ -162,6 +162,27 @@ function workHomePages(): PageSummary[] {
       'needs-you',
       { owner: agent('tmt-gui-lead'), priority: 'high', next: 'Answer 4 questions' },
       10,
+      // Sections are progress (#6619): nine counted sections, four done, one waiting on a person.
+      {
+        sections: [
+          ['Goal', 'done'],
+          ['Requirements', 'done'],
+          ['Data', 'done'],
+          ['Views', 'working'],
+          ['Decisions', 'needs-you'],
+          ['Tests', 'not-started'],
+          ['Review', 'done'],
+          ['Release', 'not-started'],
+          ['Follow-ups', 'not-started'],
+        ].map(([title, state], index) => ({
+          id: `s${index}`,
+          title,
+          level: 2,
+          done: state === 'done' ? 2 : state === 'working' ? 1 : 0,
+          total: 2,
+          state,
+        })),
+      },
     ),
     item(
       'Mockup toolbar has no spacing',
@@ -691,6 +712,9 @@ export async function mountPageList(
               },
             ],
             activity: null,
+            ...(state.pages.find((page) => page.id === pageId)?.summary?.sections
+              ? { sections: state.pages.find((page) => page.id === pageId)!.summary!.sections }
+              : {}),
           }),
           workActivity: async (owners: readonly string[]) => {
             window.__activityReads += 1;

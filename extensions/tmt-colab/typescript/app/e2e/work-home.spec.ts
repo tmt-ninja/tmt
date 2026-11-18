@@ -32,6 +32,16 @@ test('Work home counts open work, filters by a status and lists what was done', 
   expect(segment).toBe(dot);
   const rows = home.locator('.tmt-ui-work-row');
   await expect(rows).toHaveCount(8);
+  // Sections are progress (#6619): a page with sections shows one bar and one number, and its
+  // details name the stuck section.
+  const sectioned = rows.filter({ hasText: 'COLAB-140' });
+  await expect(sectioned.getByRole('img', { name: '4 of 9 sections done' })).toBeVisible();
+  await expect(sectioned.locator('.work-home-sections')).toHaveText('4/9');
+  await sectioned.locator('.work-home-row-status').click();
+  const details = page.locator('.work-status-details');
+  await expect(details).toContainText('Needs you: stuck at the section “Decisions”.');
+  await expect(details.locator('.work-home-section-details li')).toHaveCount(9);
+  await page.keyboard.press('Escape');
   await home.getByRole('button', { name: '1 Blocked' }).click();
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('COLAB-119');

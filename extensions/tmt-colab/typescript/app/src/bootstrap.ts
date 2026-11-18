@@ -132,6 +132,67 @@ export interface PageActivity {
   todos?: TodoWorkItem[];
   /** The to-dos did not fit in the list read; the page lists none rather than some. */
   todosOmitted?: true;
+  /** The page's counted sections, in document order (#6619). */
+  sections?: SectionSummary[];
+  /** More sections than the list carries, or none fit. */
+  sectionsOmitted?: true;
+}
+/** The states `sections.rs` gives a counted section: the page status words, then the to-do fallbacks. */
+export const SECTION_STATES = [
+  'done',
+  'blocked',
+  'needs-you',
+  'waiting-ci',
+  'waiting-release',
+  'working',
+  'not-started',
+  'unchecked',
+] as const;
+export type SectionState = (typeof SECTION_STATES)[number];
+/** One counted section: a heading and what follows it (#6619). Display only. */
+export interface SectionSummary {
+  id: string;
+  title: string;
+  level: number;
+  done: number;
+  total: number;
+  state: SectionState;
+  /** The heading's manual setting; `done` wins over the count, which stays the real one. */
+  manual?: 'done';
+}
+/** Matches `SECTIONS` and `SECTION_TITLE` in the Rust sections module. */
+const SECTIONS = 64;
+const SECTION_TITLE = 256;
+/** A bounded list of section summaries, as the owner list and the work-facts reply carry them. */
+export function sectionSummaries(value: unknown): void {
+  requireValue(Array.isArray(value) && value.length <= SECTIONS);
+  for (const item of value as unknown[]) {
+    requireValue(item !== null && typeof item === 'object' && !Array.isArray(item));
+    const row = item as Record<string, unknown>;
+    exactKeys(row, [
+      'id',
+      'title',
+      'level',
+      'done',
+      'total',
+      'state',
+      ...('manual' in row ? ['manual'] : []),
+    ]);
+    requireValue(
+      text(row.id, 64) &&
+        text(row.title, SECTION_TITLE, true) &&
+        Number.isSafeInteger(row.level) &&
+        Number(row.level) >= 1 &&
+        Number(row.level) <= 6 &&
+        Number.isSafeInteger(row.done) &&
+        Number.isSafeInteger(row.total) &&
+        Number(row.done) >= 0 &&
+        Number(row.done) <= Number(row.total) &&
+        Number(row.total) <= 100_000 &&
+        SECTION_STATES.some((state) => state === row.state) &&
+        (!('manual' in row) || row.manual === 'done'),
+    );
+  }
 }
 /** One to-do as a work item in the owner list. Display only. */
 export interface TodoWorkItem {
@@ -246,9 +307,15 @@ export function activity(value: unknown): asserts value is PageActivity {
     ...('work' in value ? ['work'] : []),
     ...('parent' in value ? ['parent'] : []),
     ...('status' in value ? ['status'] : []),
-    ...['doneAtMs', 'blockedSinceMs', 'release', 'todos', 'todosOmitted'].filter(
-      (key) => key in value,
-    ),
+    ...[
+      'doneAtMs',
+      'blockedSinceMs',
+      'release',
+      'todos',
+      'todosOmitted',
+      'sections',
+      'sectionsOmitted',
+    ].filter((key) => key in value),
   ]);
   requireValue(
     Number.isSafeInteger(value.comments) &&
@@ -274,6 +341,8 @@ export function activity(value: unknown): asserts value is PageActivity {
   if ('release' in value)
     requireValue(text(value.release, 128) && !/\p{Cc}/u.test(value.release as string));
   if ('todosOmitted' in value) requireValue(value.todosOmitted === true && !('todos' in value));
+  if ('sections' in value) sectionSummaries(value.sections);
+  if ('sectionsOmitted' in value) requireValue(value.sectionsOmitted === true);
   if ('todos' in value) {
     requireValue(
       Array.isArray(value.todos) && value.todos.length > 0 && value.todos.length <= WORK_TODOS,

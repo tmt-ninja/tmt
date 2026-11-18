@@ -46,6 +46,22 @@ for (const width of [1440, 1100, 800, 390])
     await expect(state).toHaveText('Blocked');
     await expect(page.getByRole('link', { name: 'PR #42 · Released in v1.2.3' })).toBeVisible();
     await expect(page.getByText('Last activity 2 minutes ago')).toBeVisible();
+    // Sections are progress (#6619): the title row counts done sections, and each counted heading
+    // has its mark and count beside it, the state word added when the count does not say it.
+    await expect(page.locator('.page-section-totals')).toHaveText('0/2 sections done');
+    const sections = page.locator('.structured-section-heading');
+    await expect(sections.locator('.structured-section-count')).toHaveText([
+      '2/3',
+      '0/1 · Needs you',
+    ]);
+    await expect(sections.first().locator('.structured-section-mark')).toHaveAttribute(
+      'data-shape',
+      'half',
+    );
+    await expect(sections.last().locator('.structured-section-mark')).toHaveAttribute(
+      'data-shape',
+      'target',
+    );
     if (width === 1440) {
       await state.click();
       await expect(page.getByText(/CI passed.*Observed/)).toBeVisible();

@@ -751,10 +751,21 @@ it('accepts Work home list fields and refuses malformed ones', async () => {
     { id: 't1', text: 'Reply', checked: true, number: 'COLAB-3', assignee: 'gui-3', doneAtMs: 5 },
     { id: 't2', text: '', checked: false },
   ];
+  // Sections (#6619): counted ones with their real count; a manual done keeps it.
+  const sections = [
+    { id: 'h1', title: 'Plan', level: 2, done: 1, total: 2, state: 'working' },
+    { id: 'h2', title: 'Ship', level: 3, done: 0, total: 3, state: 'done', manual: 'done' },
+  ];
   await response([
-    { ...metadata, state: 'todo', summary: { ...summary, doneAtMs: 1, blockedSinceMs: 2, todos } },
+    {
+      ...metadata,
+      state: 'todo',
+      summary: { ...summary, doneAtMs: 1, blockedSinceMs: 2, todos, sections },
+    },
   ]);
-  expect((await discover(mount)).pages[0].summary?.todos).toEqual(todos);
+  const listed = (await discover(mount)).pages[0].summary;
+  expect(listed?.todos).toEqual(todos);
+  expect(listed?.sections).toEqual(sections);
   for (const patch of [
     { doneAtMs: -1 },
     { todos: [] },
@@ -762,6 +773,11 @@ it('accepts Work home list fields and refuses malformed ones', async () => {
     { todos: [{ id: 't', text: 'x', checked: false, extra: 1 }] },
     { todosOmitted: true, todos },
     { todosOmitted: false },
+    { sections: [{ ...sections[0], state: 'discussing' }] },
+    { sections: [{ ...sections[0], done: 3 }] },
+    { sections: [{ ...sections[0], manual: 'off' }] },
+    { sections: [{ ...sections[0], level: 0 }] },
+    { sectionsOmitted: false },
   ]) {
     await response([{ ...metadata, state: 'todo', summary: { ...summary, ...patch } }]);
     await expect(discover(mount), JSON.stringify(patch)).rejects.toThrow();

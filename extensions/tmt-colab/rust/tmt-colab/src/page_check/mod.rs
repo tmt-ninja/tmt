@@ -36,6 +36,48 @@ pub(crate) fn hrefs(source: &str) -> Option<Vec<String>> {
     )
 }
 
+/// One part of an HTML page, in document order, for its sections (#6619).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Part {
+    /// An `h2` or `h3` outside a question, as the page outline lists it: its level and its text
+    /// with white space collapsed, cut at 256 characters.
+    Heading(u8, String),
+    /// A question or question group, by its `data-id`.
+    Question(String),
+    /// A link or a text node, either of which may name a pull request.
+    Link(String),
+    Text(String),
+}
+
+pub(crate) fn parts(source: &str) -> Option<Vec<Part>> {
+    let tree = tree::Tree::parse(source).ok()?;
+    let mut found = Vec::new();
+    for (id, text) in tree.visible_order() {
+        if let Some(text) = text {
+            found.push(Part::Text(text.to_owned()));
+            continue;
+        }
+        let name = tree.name(id);
+        if matches!(name, "h2" | "h3") && tree.closest(id, &["tmt-question"]).is_none() {
+            let text = tree.visible_text_of(id);
+            let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            found.push(Part::Heading(
+                if name == "h2" { 2 } else { 3 },
+                collapsed.chars().take(256).collect(),
+            ));
+        } else if matches!(name, "tmt-question" | "tmt-questions")
+            && let Some(id) = tree.attr(id, "data-id")
+        {
+            found.push(Part::Question(id.to_owned()));
+        } else if name == "a"
+            && let Some(href) = tree.attr(id, "href")
+        {
+            found.push(Part::Link(href.to_owned()));
+        }
+    }
+    Some(found)
+}
+
 /// Renderer text excludes script and hidden subtrees, like the page's text walker.
 pub(crate) fn visible_text(source: &str) -> Option<Vec<String>> {
     let tree = tree::Tree::parse(source).ok()?;

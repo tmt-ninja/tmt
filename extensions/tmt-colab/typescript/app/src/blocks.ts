@@ -358,7 +358,7 @@ function markup(value: unknown) {
 
 const SCHEMA: Record<string, Record<string, Prop>> = {
   paragraph: { tone: choice('default', 'muted') },
-  heading: { level: int(2, 3) },
+  heading: { level: int(2, 3), progress: choice('done', 'off') },
   list: { style: choice('bullet', 'number'), indent },
   todo: {
     checked: bool,

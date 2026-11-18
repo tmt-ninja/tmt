@@ -100,6 +100,10 @@ pub struct SummaryProjection {
     /// The page's visible to-dos in page order, at most [`crate::limits::WORK_TODOS`], each a work
     /// item for the Work home list (#6474). Empty for an HTML or read-only page.
     pub todo_items: Vec<TodoItem>,
+    /// The page's sections (#6619), at most [`crate::sections::SECTIONS`], and whether more were
+    /// left out. Empty for an HTML or read-only page.
+    pub sections: Vec<crate::sections::Section>,
+    pub sections_omitted: bool,
 }
 
 /// One to-do as a work item: display text only, never authority.
@@ -147,6 +151,8 @@ impl From<Summary> for SummaryProjection {
             pr_links: None,
             todo_counts: None,
             todo_items: Vec::new(),
+            sections: Vec::new(),
+            sections_omitted: false,
         }
     }
 }
@@ -239,6 +245,19 @@ fn fold_details(
     } else {
         Vec::new()
     };
+    let (sections, sections_omitted) = if !active {
+        (Vec::new(), false)
+    } else if folded.blocks.is_some() {
+        crate::sections::sections(folded.blocks.as_ref())
+    } else {
+        // An HTML page: its questions still waiting are the pending answers.
+        let open = pending
+            .iter()
+            .filter(|item| item.kind == "answer")
+            .map(|item| item.id.as_str())
+            .collect();
+        crate::sections::html_sections(&folded.source, &open)
+    };
     let todo_items = todos
         .iter()
         .filter_map(|id| {
@@ -275,6 +294,8 @@ fn fold_details(
             pr_links,
             todo_counts,
             todo_items,
+            sections,
+            sections_omitted,
         },
         title,
         todos,
@@ -369,6 +390,19 @@ impl SummaryCache {
             .filter(|entry| entry.fingerprint == fingerprint)
             .and_then(|entry| entry.projection.as_ref())
             .map(|projection| projection.todo_items.clone())
+    }
+    /// The page's sections at this fingerprint and whether more were left out, or `None` without a
+    /// fresh projection.
+    pub fn sections(
+        &self,
+        page: &str,
+        fingerprint: &str,
+    ) -> Option<(Vec<crate::sections::Section>, bool)> {
+        self.lock()
+            .get(page)
+            .filter(|entry| entry.fingerprint == fingerprint)
+            .and_then(|entry| entry.projection.as_ref())
+            .map(|projection| (projection.sections.clone(), projection.sections_omitted))
     }
     /// The page list's status from this fresh fold alone (`work_index::derived_state`), or `None`
     /// without a fresh projection. `activity` gives an owner's already observed activity, if any;

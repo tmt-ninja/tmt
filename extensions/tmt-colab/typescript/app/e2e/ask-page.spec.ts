@@ -800,6 +800,15 @@ for (const width of [1440, 390])
       const control = (await toggle.boundingBox())!;
       // The outline starts level with the page title row, not with the first block (#6470).
       const title = (await page.locator('.page-mobile-title h1').boundingBox())!;
+      // Sections are progress (#6619): each counted heading has its mark and count, and the title
+      // row counts done sections.
+      await expect(toggle).toContainText('Outline · 1/3 done');
+      await expect(outline.locator('.page-outline-section-count')).toHaveText([
+        '3/4, In progress',
+        '2/2, Done',
+        '0/1, Needs you',
+      ]);
+      await expect(outline.locator('.page-outline-mark')).toHaveCount(3);
       expect(Math.abs(control.y - title.y)).toBeLessThanOrEqual(4);
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -809,7 +818,7 @@ for (const width of [1440, 390])
       expect((await stage.boundingBox())!.width).toBe(expanded.width + 188 - 34);
       const closed = (await toggle.boundingBox())!;
       expect([closed.x, closed.y, closed.width]).toEqual([control.x, control.y, 34]);
-      await expect(toggle).toHaveAccessibleName('Outline');
+      await expect(toggle).toHaveAccessibleName(/^Outline( · |$)/);
       const titleX = (await page.locator('.page-mobile-title h1').boundingBox())!.x;
       expect(titleX).toBe(title.x - (188 - 34));
       // A click draws no focus frame, even after a key press such as a shortcut's modifier.

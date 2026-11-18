@@ -1,3 +1,4 @@
+import type { SectionSummary } from './bootstrap.js';
 import type { ListStatus, TodoAsk } from './bootstrap.js';
 import { text } from './strings.js';
 import { projectNameError } from './projects.js';
@@ -28,6 +29,8 @@ export interface WorkItem {
   /** The release a retained fact proved for the page's PR. */
   release?: string;
   projects: readonly string[];
+  /** The page's counted sections (#6619); a page with any shows them as its one number. */
+  sections?: readonly SectionSummary[];
 }
 
 export type Period = 'today' | 'week' | 'month';
@@ -128,6 +131,7 @@ export function workItems(pages: readonly PageSummary[]): WorkItem[] {
       ...(summary.blockedSinceMs === undefined ? {} : { blockedSinceMs: summary.blockedSinceMs }),
       ...(summary.release ? { release: summary.release } : {}),
       projects,
+      ...(summary.sections?.length ? { sections: summary.sections } : {}),
     });
     // An assigned, numbered to-do is a small task of its own; any other to-do is the page's content
     // (#6578 review: unassigned to-dos would flood the open work).

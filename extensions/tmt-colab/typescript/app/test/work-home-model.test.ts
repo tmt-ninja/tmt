@@ -8,6 +8,13 @@ import {
   recentlyDone,
   workItems,
 } from '../src/work-home-model.js';
+import {
+  htmlOutlineSections,
+  sectionMark,
+  sectionTotals,
+  segmentState,
+  stuckSection,
+} from '../src/section-view.js';
 
 const DAY = 86_400_000;
 const now = new Date(2026, 10, 17, 15, 0).getTime();
@@ -78,6 +85,54 @@ it('counts pages and assigned numbered to-dos, never an unassigned or plain chec
   ]);
   expect(items.find((item) => item.key.endsWith(':g'))?.next).toBe('Answered');
   expect(items.find((item) => item.key.endsWith(':e'))?.next).toBe('Page 1');
+});
+
+it('carries the counted sections of a page as its one number, bar and stuck section (#6619)', () => {
+  const sections = [
+    { id: 'a', title: 'Plan', level: 2, done: 3, total: 3, state: 'done' },
+    { id: 'b', title: 'Build', level: 3, done: 1, total: 2, state: 'waiting-ci' },
+    { id: 'c', title: 'Ask', level: 2, done: 0, total: 3, state: 'needs-you' },
+    { id: 'd', title: 'Hand', level: 2, done: 1, total: 4, state: 'done', manual: 'done' },
+    { id: 'e', title: 'Later', level: 2, done: 0, total: 2, state: 'not-started' },
+  ] as const;
+  const [item] = workItems([page('working', { summary: { sections } })]);
+  expect(item.sections).toEqual(sections);
+  expect(sectionTotals(item.sections!)).toEqual({ done: 2, total: 5 });
+  expect(item.sections!.map((section) => segmentState(section.state))).toEqual([
+    'done',
+    'working',
+    'waiting',
+    'done',
+    'todo',
+  ]);
+  expect(
+    item.sections!.map((section) => [sectionMark(section).shape, sectionMark(section).count]),
+  ).toEqual([
+    ['dot', '3/3'],
+    ['half', '1/2 · Waiting for CI'],
+    ['target', '0/3 · Needs you'],
+    // A manual done keeps the real count.
+    ['dot', '1/4'],
+    ['ring', '0/2'],
+  ]);
+  expect(stuckSection(item.sections!)?.title).toBe('Ask');
+  // An HTML page's sections take the frame's visible headings in order; one it hides is left out.
+  expect(
+    htmlOutlineSections(
+      [
+        { id: 'h1', title: 'Plan', level: 2, done: 0, total: 0, state: 'needs-you' },
+        { id: 'h2', title: 'Hidden', level: 2, done: 0, total: 0, state: 'working' },
+        { id: 'h3', title: 'Plan', level: 3, done: 0, total: 0, state: 'working' },
+      ],
+      [
+        { id: '0', title: 'Plan', level: 2 },
+        { id: '1', title: 'Intro', level: 3 },
+        { id: '2', title: 'Plan', level: 3 },
+      ],
+    ).map((section) => section.id),
+  ).toEqual(['0', '2']);
+  // A page without counted sections carries none.
+  expect(workItems([page('working')])[0].sections).toBeUndefined();
 });
 
 it('counts the overview in five statuses and only shows discussing or unchecked work it has', () => {

@@ -66,7 +66,7 @@ ok("every type with its smallest value", {
     bid(13): block("page-view", pos="h"),
 })
 ok("props at their edges", {
-    bid(1): block("heading", props={"level": 3}, text=rich("h")),
+    bid(1): block("heading", props={"level": 3, "progress": "done"}, text=rich("h")),
     bid(2): block("list", pos="W", props={"style": "number", "indent": 2}, text=rich("x")),
     bid(3): block("todo", pos="X", props={"checked": True, "assignee": "a" * 128, "due": "2026-12-31", "thread": bid(9), "indent": 0}, text=rich("t")),
     bid(4): block("card", pos="Y", props={"variant": "section", "title": "t" * 256, "meta": "m" * 128, "collapsible": True, "collapsed": False}),
@@ -142,6 +142,7 @@ bad("a prop outside the type's schema", {bid(1): para(props={"colour": "red"})})
 bad("a prop of another type's schema", {bid(1): para(props={"level": 2})})
 bad("an enum prop outside its values", {bid(1): block("callout", props={"tone": "info"}, text=rich(""))})
 bad("an integer prop out of range", {bid(1): block("heading", props={"level": 4}, text=rich(""))})
+bad("a heading progress outside done and off", {bid(1): block("heading", props={"progress": "auto"}, text=rich(""))})
 bad("an integer prop that is a float", {bid(1): block("heading", props={"level": 2.5}, text=rich(""))})
 bad("an indent of three", {bid(1): block("list", props={"indent": 3}, text=rich(""))})
 bad("a boolean prop that is a string", {bid(1): block("todo", props={"checked": "yes"}, text=rich(""))})

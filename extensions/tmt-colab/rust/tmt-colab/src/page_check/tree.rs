@@ -316,6 +316,45 @@ impl Tree {
         }
         found
     }
+    /// Elements and text nodes in document order, without excluded subtrees (the renderer's text
+    /// walker never reaches them), each with its text when it is a text node.
+    pub(super) fn visible_order(&self) -> Vec<(Id, Option<&str>)> {
+        let mut found = Vec::new();
+        let mut stack: Vec<Id> = self.nodes[self.root]
+            .children
+            .iter()
+            .rev()
+            .copied()
+            .collect();
+        while let Some(id) = stack.pop() {
+            match &self.nodes[id].kind {
+                Kind::Text(text) => found.push((id, Some(text.as_str()))),
+                Kind::Element(_) if !self.excluded(id) => {
+                    found.push((id, None));
+                    stack.extend(self.nodes[id].children.iter().rev());
+                }
+                _ => {}
+            }
+        }
+        found
+    }
+
+    /// The text inside an element, without excluded subtrees.
+    pub(super) fn visible_text_of(&self, id: Id) -> String {
+        let mut text = String::new();
+        let mut stack: Vec<Id> = self.nodes[id].children.iter().rev().copied().collect();
+        while let Some(node) = stack.pop() {
+            match &self.nodes[node].kind {
+                Kind::Text(value) => text.push_str(value),
+                Kind::Element(_) if !self.excluded(node) => {
+                    stack.extend(self.nodes[node].children.iter().rev());
+                }
+                _ => {}
+            }
+        }
+        text
+    }
+
     pub(super) fn excluded(&self, id: Id) -> bool {
         matches!(
             self.name(id),

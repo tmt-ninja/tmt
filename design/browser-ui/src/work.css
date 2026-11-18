@@ -269,3 +269,42 @@ button.tmt-ui-field-chip:hover {
   border-color: var(--tmt-ui-color-focus);
   outline: 0;
 }
+
+/* Sections are progress (#6619), drawn by the parent app only: two more state-mark shapes, and one
+   segment per section in order, each drawn by its state. */
+.tmt-ui-state-mark[data-shape='half'] {
+  border: 1.5px solid currentColor;
+  border-radius: var(--tmt-ui-radius-pill);
+  background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+}
+.tmt-ui-state-mark[data-shape='target'] {
+  border: 1.5px solid currentColor;
+  border-radius: var(--tmt-ui-radius-pill);
+  background: radial-gradient(circle, currentColor 0 2px, transparent 2.5px);
+}
+.tmt-ui-segments {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.tmt-ui-segments > span {
+  flex: none;
+  width: 10px;
+  height: 6px;
+  border-radius: var(--tmt-ui-radius-pill);
+  background: color-mix(in srgb, var(--tmt-ui-color-secondary) 30%, transparent);
+}
+.tmt-ui-segments > [data-state='done'] {
+  background: var(--tmt-ui-color-text);
+}
+.tmt-ui-segments > [data-state='working'] {
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 55%, transparent);
+}
+.tmt-ui-segments > [data-state='waiting'] {
+  background: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-segments > [data-state='blocked'] {
+  background: var(--tmt-ui-color-blocked);
+}

@@ -12,7 +12,7 @@ it('retains the reviewed Browser source and static CSS baseline', () => {
     let bytes = readFileSync(new URL(`../${file}`, import.meta.url));
     if (file === 'src/react.ts') {
       // The new shared parts are additive: retain the original entry's exact reviewed bytes.
-      const addition = `export {\n  BrowserEditorial,\n  BrowserVisuallyHidden,\n  BrowserCardMeter,\n  BrowserOverview,\n  BrowserChart,\n} from './design-components.js';\n`;
+      const addition = `export {\n  BrowserEditorial,\n  BrowserVisuallyHidden,\n  BrowserCardMeter,\n  BrowserSegments,\n  type BrowserSegmentState,\n  BrowserOverview,\n  BrowserChart,\n} from './design-components.js';\n`;
       const source = bytes.toString('utf8');
       expect(source.endsWith(addition)).toBe(true);
       bytes = Buffer.from(source.slice(0, -addition.length));
