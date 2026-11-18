@@ -34,8 +34,8 @@ pub struct PageWork {
     pub legacy: bool,
 }
 
-/// Provisional until the user chooses a stalled-work threshold. This is not a heartbeat.
-pub const STALL_THRESHOLD_MS: u64 = 2 * 60 * 60 * 1000;
+/// Maximum age of a working observation and inactivity interval for possibly stalled work.
+pub const STALL_THRESHOLD_MS: u64 = 30 * 60 * 1000;
 
 /// External observations are unsigned display facts, never page authority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -459,17 +459,10 @@ mod tests {
         );
         let activity = OwnerActivity::Working {
             last_activity_ms: Some(0),
-            observed_at_ms: STALL_THRESHOLD_MS,
+            observed_at_ms: 30 * 60_000,
         };
         assert_eq!(
-            computed_state(
-                Some((0, 1)),
-                false,
-                false,
-                Some(&[]),
-                activity,
-                STALL_THRESHOLD_MS
-            ),
+            computed_state(Some((0, 1)), false, false, Some(&[]), activity, 30 * 60_000),
             "possibly-stalled"
         );
         assert_eq!(

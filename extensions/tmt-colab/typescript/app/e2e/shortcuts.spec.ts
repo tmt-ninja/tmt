@@ -409,9 +409,7 @@ test('an external deletion does not remount an active Edit draft', async ({ page
   }
 });
 
-test('Save keeps a project condition from an older link even when the project is gone', async ({
-  page,
-}) => {
+test('Save records the displayed default view when a linked project is gone', async ({ page }) => {
   await mount(page);
   await page.evaluate(async () => {
     const path = '/test/page-list-browser.tsx';
@@ -419,11 +417,15 @@ test('Save keeps a project condition from an older link even when the project is
   });
   await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
-  // What is saved is what the field shows: the project token, matching nothing.
-  await expect(dialog.getByRole('status')).toHaveText('project: gone · 0 pages');
+  // The shortcut preview, stored conditions and list agree on the default view.
+  await expect(dialog.getByRole('status')).toContainText('5 pages');
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Current view');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('#list-fixture .page-list-table [data-page-id]')).toHaveCount(0);
+  await expect(page.locator('#list-fixture .page-list-table [data-page-id]')).toHaveCount(5);
+  expect(
+    (await record(page)).items.find((item: { name: string }) => item.name === 'Current view')
+      .search,
+  ).toEqual({});
 });
 
 test('explicit pinned projects become project shortcuts once, in order; automatic ones do not', async ({

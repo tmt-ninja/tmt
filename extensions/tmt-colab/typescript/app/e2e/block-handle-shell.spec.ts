@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
 // the pointer left the root before it reached a button and the handle went, as before #6248; at a
 // narrow window the handle lay off the screen. block-handle.spec.ts passed because its fixture host
 // is a 720px column with the design system's own gutter. This one runs in the real shell.
-async function mountShell(page: Page, width: number) {
+async function mountShell(page: Page, width: number, hash = '') {
   await page.setViewportSize({ width, height: 900 });
   await page.route('**/colab/renderer.html', async (route) =>
     route.fulfill({
@@ -15,7 +15,7 @@ async function mountShell(page: Page, width: number) {
   await page.route('**/src/main.tsx', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
-      body: `import {mountBlockShell} from '/test/block-shell-browser.tsx'; void mountBlockShell();`,
+      body: `import {mountBlockShell} from '/test/block-shell-browser.tsx'; void mountBlockShell(undefined, ${JSON.stringify(hash)});`,
     }),
   );
   // Any served path: the fixture puts the page's own address in place.
@@ -159,3 +159,15 @@ for (const width of [1440, 390])
     expect(notice.y + notice.height).toBeLessThanOrEqual(block.y + block.height + 1);
     expect(next.y).toBeGreaterThanOrEqual(notice.y + notice.height);
   });
+
+test('opening a page at a block hash reveals the offscreen block', async ({ page }) => {
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.textContent = '[data-block-id="one"] { min-height: 1200px }';
+      document.head.append(style);
+    });
+  });
+  await mountShell(page, 390, '#block-after');
+  await expect(page.locator('[data-block-id="after"]')).toBeInViewport();
+});

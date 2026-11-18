@@ -41,7 +41,7 @@ const blocks: Record<string, BlockEntry> = {
   after: entry('paragraph', 'G', '提示下面的區塊'),
 };
 
-export async function mountBlockShell(url = `/colab/pages/${PAGE}`) {
+export async function mountBlockShell(url = `/colab/pages/${PAGE}`, hash = '') {
   // The batches the editor sent: what a click on Insert block does, as the page answers later.
   const batches: { op: string; after?: string | null }[][] = [];
   (window as unknown as { blockShell: unknown }).blockShell = { batches };
@@ -97,7 +97,7 @@ export async function mountBlockShell(url = `/colab/pages/${PAGE}`) {
   element.className = 'tmt-ui-shell';
   element.innerHTML =
     '<div class="tmt-ui-shell-content"><div class="tmt-ui-shell-bar"></div><div class="tmt-ui-shell-main"></div></div>';
-  history.replaceState(null, '', url);
+  history.replaceState(null, '', url + hash);
   hostInShell(null);
   const load = async () => ({
     mount: (slot: import('@tmt/browser-ui/shell-host').ShellSlot) => {

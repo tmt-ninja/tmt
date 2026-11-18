@@ -160,7 +160,10 @@ export function Home() {
   const space = homeRoute.useLoaderData();
   const { transport, space: spaceId } = rootRoute.useRouteContext();
   const shortcutRequest = useContext(ShortcutMenuRequestSlot);
-  const search = homeRoute.useSearch();
+  const routeSearch = homeRoute.useSearch();
+  const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
+  const projects = routeSearch.project?.filter((name) => projectNames.includes(name));
+  const search = { ...routeSearch, project: projects?.length ? projects : undefined };
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
   const { pages: homePages, hints: titleHints } = useHomeSpace(space);
@@ -172,7 +175,7 @@ export function Home() {
   const currentShortcut = shortcuts.items.find((item) => item.id === search.shortcut);
   function savedShortcut(item: Shortcut) {
     setShortcutDialog(undefined);
-    void navigate({ search: { ...item.search, shortcut: item.id }, replace: true });
+    void navigate({ search: { ...item.search, shortcut: item.id }, resetScroll: false });
   }
 
   // The owner folds summaries in the background: while an active page has none the list reads
@@ -198,7 +201,6 @@ export function Home() {
   // The pages the tab holds: a stage tab keeps the pages at that stage, so one that has not
   // reported its sub-pages yet is in none of them.
   const staged = filter.stage ? shown.filter((p) => pageStage(p) === filter.stage) : shown;
-  const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
   // The projects are the base: filters, counts and the needs-you chip see only the pages in them.
   // One project names the list (title, crumb, empty text) as a scope did.
   const scope = filter.projects.length === 1 ? filter.projects[0] : undefined;
@@ -296,8 +298,10 @@ export function Home() {
   useEffect(() => setNow(Date.now()), [space.pages, archived]);
   useSpaceTitle(space.title, text.product);
 
+  // Each applied change is a history entry, so Back and Forward restore the filters (#6612); the
+  // search text applies on Enter, never per keystroke.
   function setSearch(patch: Partial<HomeSearch>) {
-    void navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
+    void navigate({ search: (previous) => ({ ...previous, ...patch }), resetScroll: false });
   }
   /** The choice is the default the next visit opens on; All pages removes it. */
   // The side menu lists shortcuts, not projects: the owner's explicit pinned projects become

@@ -6433,6 +6433,16 @@ successful comparison is retained per PR, merge and candidate tag; a positive re
 retained and never polled again for that filter. The reader requests only the checks rollup state.
 No GitHub output is added to page HTML, and share readers receive none of these observations.
 
+The shell Work home (`/colab/work`) records its view in the query string. `project`
+selects a project, `period` selects today or month (omitting it selects week), and
+`status` selects an overview count. `day` identifies a chart cell by its start in Unix
+milliseconds. `more` lists expanded project sections, with an empty name for unassigned
+projects. The page list uses `q` for submitted text, `project` for project names, `by`
+for authors, `state` for page states, `stage` for the tab, `needs` for work needing the
+viewer, `archived` and `includeArchived` for archive filters, `sort` for ordering and
+`shortcut` for the saved shortcut. Applying a filter adds a history entry. A remembered
+Work home project fills an unspecified choice by replacing the current entry.
+
 Work home (`/work`, #6474) may POST `{owners}` to `/api/work-activity`: at most 256 owner ids,
 on its own events only (opening, the tab becoming visible, a list re-read it did not ask for), never
 on a timer. The
@@ -6452,11 +6462,10 @@ with no retained receipts or checkpoints in any epoch has no links or to-dos and
 unavailable written pages remain unknown. Activity is read from `identities.status` for the admitted
 owner on page open, visibility, owner sync events and PR refresh, after comparing `changes.cursor`;
 there is no activity timer or watcher. A missed update between those events is accepted. An
-activity observation older than the named provisional stall threshold cannot claim working or
+activity observation at least 30 minutes old cannot claim working or
 possibly stalled. Last activity is not a heartbeat. The current owner-local result is retained by
 page fingerprint for `ls --json` and `show --json` as `computedStatus`; these reads do not start
-GitHub requests. The retained `asOfMs` is the observation time and can be old; reads do not restamp it. A missing, stale or failed observation is unknown. The threshold is provisional;
-the user has not chosen it. There is no automatic stalled-work follow-up in this version.
+GitHub requests. The retained `asOfMs` is the observation time and can be old; reads do not restamp it. A missing, stale or failed observation is unknown. With a fresh working observation, 30 minutes since the last activity qualifies as possibly stalled. There is no automatic stalled-work follow-up in this version.
 
 A structured to-do block also receives an owner-local number, keyed by its page and stable block
 ID; delete and restore keep that number. After a new content publication commits, the owner queues
