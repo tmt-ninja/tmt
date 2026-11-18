@@ -374,7 +374,6 @@ function PageFloatingActions({
             tooltipPlacement={tooltipPlacement}
             busy={selectPending}
             label={text.selectionMode}
-            tooltipLabel={enabled ? undefined : text.selectionModeTooltip}
             ariaKeyShortcuts={enabled ? 'c Escape' : 'c'}
             pressed={enabled}
             icon={

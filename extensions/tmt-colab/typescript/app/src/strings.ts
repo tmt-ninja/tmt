@@ -322,8 +322,6 @@ export const text = {
   newMessages: 'New messages',
   selectionMode: 'Selection mode',
   selecting: 'Selecting',
-  /** The Selection mode button's tooltip: what it is for, and its key. */
-  selectionModeTooltip: 'Comment on an element or a selection (C)',
   selectionModeHint: 'Click an element or select text to comment · Esc or C to stop',
   annotationTitle: 'Annotate',
   annotateSelection: 'Annotate the selection',
