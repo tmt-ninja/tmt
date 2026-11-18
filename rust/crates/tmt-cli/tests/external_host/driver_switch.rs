@@ -134,11 +134,28 @@ pub(super) fn wait_for_launch_evidence(
     what: &str,
     launch_to_pid: std::time::Duration,
 ) {
+    wait_with_launch_diagnostics(
+        fixture,
+        expected.owner.pid(),
+        what,
+        format_args!("provider={provider}, launch to agent.pid={launch_to_pid:?}"),
+        || missing_launch_evidence(&remembered(fixture), expected),
+    );
+}
+
+/// Observe readiness without opening another store handle on the success path.
+pub(super) fn wait_with_launch_diagnostics<T: std::fmt::Debug>(
+    fixture: &Fixture,
+    owner_pid: u64,
+    what: &str,
+    context: std::fmt::Arguments<'_>,
+    mut missing_evidence: impl FnMut() -> Option<T>,
+) {
     use std::io::Read;
     let mut missing = None;
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         wait_until(what, || {
-            missing = missing_launch_evidence(&remembered(fixture), expected);
+            missing = missing_evidence();
             missing.is_none()
         });
     }));
@@ -153,8 +170,30 @@ pub(super) fn wait_for_launch_evidence(
                 Err(error) => format!("unavailable: {error}"),
             }
         };
+        let producer = rusqlite::Connection::open_with_flags(
+            fixture.state().join("tmt.db"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .and_then(|db| {
+            db.busy_timeout(std::time::Duration::ZERO)?;
+            use rusqlite::OptionalExtension;
+            db.query_row(
+                "SELECT status, step, reason, detail FROM launch_observations
+                 WHERE owner_pid = ? ORDER BY created_at_ms DESC LIMIT 1",
+                [owner_pid as i64],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                },
+            )
+            .optional()
+        });
         eprintln!(
-            "launch admission: provider={provider}, last missing={missing:?}, launch to agent.pid={launch_to_pid:?}\nhook status: {:?}\nhook stderr: {:?}\nlaunch stderr: {:?}",
+            "launch admission: {context}, owner={owner_pid}, last missing={missing:?}\nlaunch observation (status, step, reason, detail): {producer:?}\nhook status: {:?}\nhook stderr: {:?}\nlaunch stderr: {:?}",
             bounded("switch.hook.status"),
             bounded("switch.hook.err"),
             bounded("launched.err"),

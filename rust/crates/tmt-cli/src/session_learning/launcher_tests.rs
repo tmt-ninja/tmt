@@ -45,6 +45,67 @@ fn native_session_survives_direct_or_npm_launch_in_both_start_orderings() {
     );
 }
 
+#[test]
+fn unavailable_foreground_proof_records_a_diagnostic_without_admitting_a_session() {
+    let super::tests::Launch {
+        directory: _directory,
+        mut storage,
+        identity,
+        binding,
+        owner,
+        driver,
+        ..
+    } = launch(HostKind::pty(), "codex");
+    let registry = RuntimeRegistry::first_party();
+    let lifecycle = registry.lifecycle(&driver).unwrap();
+    let preferences = storage.session_preferences(&identity.id).unwrap();
+
+    // Inject the fail-closed result of the foreground proof at the launcher's
+    // admission seam. No provider hook or fallback may fabricate a session.
+    let result = admit_foreground(
+        &mut storage,
+        ForegroundAdmission {
+            binding: &binding,
+            owner: Some(&owner),
+            child: &tmt_adapters::process::runtime::ProcessObservation::Unknown,
+            driver: Some(&driver),
+            resumed: None,
+            lifecycle,
+            preferences: &preferences,
+            lease_session: None,
+            channel: None,
+            can_admit: true,
+            plain: None,
+        },
+    )
+    .unwrap();
+    assert!(result.is_none());
+    let observed = storage
+        .launch_observation(&binding.id, &owner)
+        .unwrap()
+        .unwrap();
+    assert_eq!(observed.status, LaunchStatus::Intent);
+    let view = identity_view(&storage, &identity, &preferences)
+        .unwrap()
+        .unwrap();
+    assert_eq!(view.cause(), "provider_verification: not_admitted");
+    assert!(view.unbound);
+    let stored = storage
+        .with_binding_transaction(|records| records.entry_by_id(&identity.id))
+        .unwrap()
+        .unwrap()
+        .binding
+        .unwrap();
+    assert!(stored.session.key.is_none());
+    finish_launch(&mut storage, &binding.id, &owner, None).unwrap();
+    let settled = storage
+        .launch_observation(&binding.id, &owner)
+        .unwrap()
+        .unwrap();
+    assert_eq!(settled.status, LaunchStatus::Settled);
+    assert_eq!(settled.diagnostic, observed.diagnostic);
+}
+
 fn retained(wrapped: bool, early: bool) -> bool {
     let super::tests::Launch {
         directory: _directory,

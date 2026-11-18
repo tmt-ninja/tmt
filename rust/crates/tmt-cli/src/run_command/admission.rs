@@ -11,9 +11,18 @@ use tmt_core::{
         session::{
             HarnessId, ObservedSessionKey, RememberedSession, RuntimeLiveness, RuntimeState,
             SessionPreferences, SessionTransition,
+            launch::{
+                LaunchStatus, SessionLearningDiagnostic, SessionLearningReason, SessionLearningStep,
+            },
         },
     },
     endpoint::ProcessIncarnation,
+};
+
+pub(crate) const FOREGROUND_UNVERIFIED: SessionLearningDiagnostic = SessionLearningDiagnostic {
+    step: SessionLearningStep::ProviderVerification,
+    reason: SessionLearningReason::NotAdmitted,
+    detail: None,
 };
 
 pub(crate) struct ForegroundAdmission<'a> {
@@ -97,6 +106,24 @@ pub(crate) fn admit_foreground(
             _ => None,
         };
         let (true, Some(owner), Some(child)) = (can_admit, &owner, &child_incarnation) else {
+            if can_admit
+                && matches!(input.child, ProcessObservation::Unknown)
+                && let Some(observed) = &learning
+                && observed.status == LaunchStatus::Intent
+                && observed.diagnostic
+                    == Some(SessionLearningDiagnostic::new(
+                        SessionLearningStep::Input,
+                        SessionLearningReason::NotAdmitted,
+                    ))
+                && records.launch_preferences_match(observed)?
+            {
+                // Preserve the live intent so a verified hook can still admit this launch.
+                let mut next = observed.clone();
+                next.diagnostic = Some(FOREGROUND_UNVERIFIED);
+                if !records.set_launch_observation(observed, &next)? {
+                    return Err(conflict());
+                }
+            }
             remember_driver(records, &binding.identity_id, claim.as_ref())?;
             return Ok(None);
         };

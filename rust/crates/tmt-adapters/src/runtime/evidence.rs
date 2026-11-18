@@ -22,7 +22,7 @@ pub(crate) fn observe_direct_main_child(
     deadline: Instant,
     executable: &str,
 ) -> Result<Option<ProcessIncarnation>, crate::process::ancestry::AncestryError> {
-    use crate::process::ancestry::{AncestryError, pinned_chain};
+    use crate::process::ancestry::{AncestryError, pinned_chain_through};
     let snapshot = || {
         query_ps(
             runner,
@@ -38,9 +38,6 @@ pub(crate) fn observe_direct_main_child(
             .map(|actual| actual.matches(expected) == RuntimeLiveness::Alive)
             .map_err(AncestryError::Command)
     };
-    if !exact_live(launcher)? || !exact_live(owner)? {
-        return Err(AncestryError::Unavailable);
-    }
     let Some(pid) = direct_child(&snapshot()?, launcher.pid(), executable)? else {
         return Ok(None);
     };
@@ -49,7 +46,15 @@ pub(crate) fn observe_direct_main_child(
     else {
         return Err(AncestryError::Unavailable);
     };
-    let chain = pinned_chain(runner, native.pid(), deadline)?;
+    // Pin the path to the pane, including the launch owner even when the pane
+    // is one of the two nearer processes. The pane's ancestors do not enter
+    // the placement proof.
+    let endpoint = if pane == native.pid() || pane == launcher.pid() {
+        owner.pid()
+    } else {
+        pane
+    };
+    let chain = pinned_chain_through(runner, native.pid(), endpoint, deadline)?;
     if chain
         .links()
         .first()
@@ -875,12 +880,14 @@ mod direct_child_tests {
         reused: Option<u64>,
         replace_native: bool,
         native_reads: Cell<u32>,
+        reads: Cell<u32>,
     }
     fn incarnation(pid: u64) -> ProcessIncarnation {
         ProcessIncarnation::new(pid, "fixture-start").unwrap()
     }
     impl CommandRunner for LaunchTree {
         fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            self.reads.set(self.reads.get() + 1);
             Ok(CommandOutput {
                 stdout: format!(
                     "1 0 init\n4 1 sh\n5 4 tmt\n10 {} node\n20 10 codex\n",
@@ -891,6 +898,7 @@ mod direct_child_tests {
             })
         }
         fn process_observation(&self, pid: u64, _: Instant) -> Option<ProcessObservation> {
+            self.reads.set(self.reads.get() + 1);
             if pid == 20 {
                 self.native_reads.set(self.native_reads.get() + 1);
             }
@@ -932,6 +940,7 @@ mod direct_child_tests {
                 reused,
                 replace_native,
                 native_reads: Cell::new(0),
+                reads: Cell::new(0),
             };
             let result = observe_direct_main_child(
                 &runner,
@@ -946,6 +955,11 @@ mod direct_child_tests {
                 accepted.then(|| incarnation(20)),
                 "parent={parent} reused={reused:?} replace_native={replace_native}"
             );
+            if accepted {
+                // Two snapshots, one initial native read, four pinned links
+                // through the pane, and three final incarnation checks.
+                assert_eq!(runner.reads.get(), 10);
+            }
         }
     }
 

@@ -315,14 +315,31 @@ child.on('exit', (code, signal) => {{ if (signal) process.kill(process.pid,signa
             .env("PATH", path)
             .env("TMT_TEST_NPM_NATIVE_PEER", "1")
             .env("NODE_DISABLE_COMPILE_CACHE", "1");
+        let launch_started = std::time::Instant::now();
         let mut run = Launched::start(&fixture, command);
         run.adopt("native.pid", false);
+        let launch_to_pid = launch_started.elapsed();
         run.adopt("launcher.pid", false);
         let native_pid = run.owned[0].incarnation.pid();
-        wait_until("the exact native foreground is admitted", || {
-            row(&fixture)
-                .is_some_and(|r| r.state == "running" && r.runtime_pid == Some(native_pid as i64))
-        });
+        let owner_pid = u64::from(run.child.as_ref().unwrap().id());
+        super::driver_switch::wait_with_launch_diagnostics(
+            &fixture,
+            owner_pid,
+            "the exact native foreground is admitted",
+            format_args!(
+                "provider=codex, resuming={resuming}, stopped={stopped}, wrapper_exits={wrapper_exits}, expected native PID={native_pid}, launch to native.pid={launch_to_pid:?}"
+            ),
+            || {
+                let stored = row(&fixture);
+                if stored.as_ref().is_some_and(|r| {
+                    r.state == "running" && r.runtime_pid == Some(native_pid as i64)
+                }) {
+                    None
+                } else {
+                    Some(stored)
+                }
+            },
+        );
         let baseline = row(&fixture);
         if !wrapper_exits {
             let (status, stderr) = run.finish();
