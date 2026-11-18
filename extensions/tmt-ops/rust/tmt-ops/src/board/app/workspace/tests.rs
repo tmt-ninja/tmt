@@ -4273,7 +4273,7 @@ fn scope_chip_admits_whole_names_then_a_count_and_neutralizes_untrusted_roster_n
     let middle = text(&app, 80);
     assert!(middle.contains("Scope: 3 squads ×"), "{middle}");
     assert!(!middle.contains("Scope: charlie"));
-    // Beside all three tabs at 60 columns only the bare count fits, and it still shows.
+    // Beside all four tabs at 60 columns only the bare count fits, and it still shows.
     let narrow = text(&app, 60);
     assert!(narrow.contains("Scope 3 ×"), "{narrow}");
     assert!(!narrow.contains("Scope: "));

@@ -56,8 +56,24 @@ pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
         (OpsUiAction::Orchestration, "4"),
     ]
     .map(|(action, preferred)| crate::board::keycap::key(app, action, preferred));
-    let (line, hits) =
-        crate::board::tab_strip::line(&tabs.map(OpsTab::label), &keys, selected, area, app.look());
+    let labels = tabs.map(OpsTab::label);
+    let paint = |compact| {
+        crate::board::tab_strip::line(&labels, &keys, selected, area, app.look(), compact)
+    };
+    let (line, hits) = paint(false);
+    let scope = app.workspace.visibility.scope.len();
+    // Reserve the shortest complete scope chip before offering any truncated
+    // tab. A compact strip keeps all four full labels and their hit areas.
+    let shortest_chip =
+        unicode_width::UnicodeWidthStr::width(format!(" Scope {scope} × ").as_str());
+    let (line, hits) = if scope != 0
+        && matches!(app.shell.tab, OpsTab::Agents | OpsTab::Digest)
+        && line.width() + shortest_chip > usize::from(area.width)
+    {
+        paint(true)
+    } else {
+        (line, hits)
+    };
     app.tab_hits
         .borrow_mut()
         .extend(hits.into_iter().map(|(tab, area)| TabHit {

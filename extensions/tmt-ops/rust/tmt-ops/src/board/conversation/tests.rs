@@ -790,7 +790,7 @@ fn returning_to_agents_keeps_uuid_and_link_while_only_observed_questions_are_dis
     let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
     for (key, tab) in [
         ('1', OpsTab::Agents),
-        ('2', OpsTab::Digest),
+        ('3', OpsTab::Digest),
         ('1', OpsTab::Agents),
     ] {
         app.focus = 0;

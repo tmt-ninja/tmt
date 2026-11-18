@@ -3405,7 +3405,7 @@ print(json.dumps(out))
                                 KeyCode::Down,
                                 KeyCode::Down,
                                 KeyCode::Up,
-                                KeyCode::Char('2'),
+                                KeyCode::Char('3'),
                                 KeyCode::Char('q'),
                             ] {
                                 events.send(key(code)).unwrap();

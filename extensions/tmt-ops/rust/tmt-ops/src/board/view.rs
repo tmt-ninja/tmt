@@ -102,7 +102,7 @@ fn scope_chip(frame: &mut Frame, app: &App, area: Rect, used: u16) {
     for scope in super::workspace::render::scope_labels(app) {
         let label = format!(" {scope} ");
         let width = (label.width() + 2) as u16;
-        if area.width < used + 2 + width {
+        if area.width < used.saturating_add(width) {
             continue;
         }
         let x = area.right() - width;

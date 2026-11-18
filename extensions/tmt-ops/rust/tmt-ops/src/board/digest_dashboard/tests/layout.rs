@@ -778,6 +778,21 @@ fn digest_selected_agent_takes_last_available_slot_without_reordering_cached_tra
     ));
 }
 
+#[test]
+fn digest_retained_pick_capture_keeps_the_selected_member() {
+    use crate::board::app::workspace::tests::{MEMBER, ROOM};
+
+    let app = capture_case("digest-retained-pick", crate::look::Look::default());
+    assert_eq!(app.shell.tab, OpsTab::Digest);
+    assert_eq!(
+        app.workspace.selected,
+        Some(OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        })
+    );
+}
+
 /// Additive evidence uses the same held-report fixture as the rank regressions.
 pub(in crate::board) fn capture_case(state: &str, look: crate::look::Look) -> App {
     let mut app = fixture();
@@ -798,7 +813,7 @@ pub(in crate::board) fn capture_case(state: &str, look: crate::look::Look) -> Ap
         *style = look;
     }
     app.shell.tab = OpsTab::Agents;
-    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('3'));
     match state {
         "digest-first-open" => {}
         "digest-retained-pick" => {
@@ -806,7 +821,7 @@ pub(in crate::board) fn capture_case(state: &str, look: crate::look::Look) -> Ap
             app.select(last);
             let selected = app.workspace.selected.clone();
             key(&mut app, KeyCode::Char('1'));
-            key(&mut app, KeyCode::Char('2'));
+            key(&mut app, KeyCode::Char('3'));
             assert_eq!(app.workspace.selected, selected);
         }
         "digest-busy-late" | "digest-empty-flow" | "digest-unavailable-flow" => {

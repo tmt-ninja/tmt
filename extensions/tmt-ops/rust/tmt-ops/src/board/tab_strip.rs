@@ -13,14 +13,19 @@ pub(in crate::board) fn line(
     selected: usize,
     area: Rect,
     look: Look,
+    compact: bool,
 ) -> (Line<'static>, Vec<(usize, Rect)>) {
-    let mut spans = vec![Span::raw(" ")];
+    let padding = usize::from(!compact);
+    let mut spans = Vec::new();
+    if !compact {
+        spans.push(Span::raw(" "));
+    }
     let mut hits = Vec::new();
-    let mut x = area.x.saturating_add(1).min(area.right());
+    let mut x = area.x.saturating_add(padding as u16).min(area.right());
     for (index, label) in labels.iter().enumerate() {
         let key = keys.get(index).and_then(Option::as_deref);
         let label = super::keycap::label(key, label, selected == index, look);
-        let width = label.width() + 2;
+        let width = label.width() + 2 * padding;
         let painted = width.min(usize::from(area.right().saturating_sub(x))) as u16;
         if painted > 0 && usize::from(painted) == width && area.height > 0 {
             hits.push((index, Rect::new(x, area.y, painted, 1)));
@@ -33,13 +38,19 @@ pub(in crate::board) fn line(
         } else {
             look.role(Role::Muted)
         };
-        spans.push(Span::styled(" ", style));
+        if !compact {
+            spans.push(Span::styled(" ", style));
+        }
         spans.extend(label.spans.into_iter().map(|span| {
             let span_style = style.patch(span.style);
             span.style(span_style)
         }));
-        spans.push(Span::styled(" ", style));
-        spans.push(Span::raw(" "));
+        if !compact {
+            spans.push(Span::styled(" ", style));
+        }
+        if !compact || index + 1 < labels.len() {
+            spans.push(Span::raw(" "));
+        }
     }
     (Line::from(spans), hits)
 }
@@ -56,6 +67,7 @@ mod tests {
             0,
             Rect::new(0, 0, 25, 1),
             look,
+            false,
         );
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].1, Rect::new(1, 0, 12, 1));
