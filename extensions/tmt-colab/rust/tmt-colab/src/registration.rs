@@ -576,7 +576,11 @@ impl Registration {
             .collect())
     }
 
-    fn work_catalog(&self, bounded: bool, serving: bool) -> std::result::Result<serde_json::Value, Code> {
+    fn work_catalog(
+        &self,
+        bounded: bool,
+        serving: bool,
+    ) -> std::result::Result<serde_json::Value, Code> {
         let CatalogRead {
             mut catalog,
             fingerprints,
