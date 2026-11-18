@@ -626,6 +626,9 @@ impl Registration {
                         if let Some(at) = times.get(&(item, "done")) {
                             row["doneAtMs"] = serde_json::json!(at);
                         }
+                        if let Some(ask) = todo.ask {
+                            row["ask"] = serde_json::json!(ask);
+                        }
                         row
                     })
                     .collect();
@@ -2442,6 +2445,7 @@ mod describe_tests {
             text: format!("Item {id}"),
             checked,
             assignee: checked.then(|| "gui-3".to_owned()),
+            ask: None,
         };
         let work_home = |checked: bool| {
             let mut projection = SummaryProjection::from(Summary {

@@ -12992,6 +12992,7 @@ function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
 			}
 		},
 		waiting(identityId) {
+			if (status === "off") return 0;
 			return list.filter((form) => form.identityId === identityId).length + [...sent.values()].filter((entry) => entry.identityId === identityId && entry.state === "uncertain" && !list.some((form) => form.formId === entry.formId)).length;
 		},
 		unavailable: () => status === "unavailable",

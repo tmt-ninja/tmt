@@ -44,6 +44,24 @@ it('counts pages and assigned numbered to-dos, never an unassigned or plain chec
             assignee: 'gui-3',
           },
           { id: 'd', text: 'Someday', checked: false, number: 'C-4' },
+          // To-dos an Ask made read the Ask's state.
+          { id: 'e', text: 'Asked', checked: false, number: 'C-5', assignee: 'gui-4', ask: 'sent' },
+          {
+            id: 'f',
+            text: 'Replied',
+            checked: false,
+            number: 'C-6',
+            assignee: 'gui-4',
+            ask: 'needs-you',
+          },
+          {
+            id: 'g',
+            text: 'Handled',
+            checked: false,
+            number: 'C-7',
+            assignee: 'gui-4',
+            ask: 'answered',
+          },
         ],
       },
     }),
@@ -54,7 +72,12 @@ it('counts pages and assigned numbered to-dos, never an unassigned or plain chec
     ['page', 'working'],
     ['a', 'discussing'],
     ['c', 'done'],
+    ['e', 'working'],
+    ['f', 'needs-you'],
+    ['g', 'working'],
   ]);
+  expect(items.find((item) => item.key.endsWith(':g'))?.next).toBe('Answered');
+  expect(items.find((item) => item.key.endsWith(':e'))?.next).toBe('Page 1');
 });
 
 it('counts the overview in five statuses and only shows discussing or unchecked work it has', () => {

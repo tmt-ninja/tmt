@@ -110,6 +110,30 @@ pub struct TodoItem {
     pub text: String,
     pub checked: bool,
     pub assignee: Option<String>,
+    /// The state of the Ask this to-do came from, linked by the block's `thread` prop (#6594):
+    /// `sent`, `needs-you` (answered, its thread still open) or `answered` (answered, its thread
+    /// resolved). `None` for a to-do no Ask made. Display only, owner-local.
+    pub ask: Option<&'static str>,
+}
+
+/// The Ask state of the thread a to-do names (see [`TodoItem::ask`]).
+fn todo_ask(conversations: &Conversations, thread: &str) -> Option<&'static str> {
+    let asks: Vec<_> = conversations
+        .asks
+        .iter()
+        .filter(|ask| ask.thread == thread)
+        .collect();
+    if asks.is_empty() {
+        return None;
+    }
+    if !asks.iter().any(|ask| ask.reply.is_some()) {
+        return Some("sent");
+    }
+    let resolved = conversations
+        .threads
+        .iter()
+        .any(|value| value.id == thread && !value.deleted && value.resolved);
+    Some(if resolved { "answered" } else { "needs-you" })
 }
 
 #[cfg(test)]
@@ -234,6 +258,10 @@ fn fold_details(
                     .as_str()
                     .filter(|name| !name.is_empty())
                     .map(str::to_owned),
+                ask: block["props"]["thread"]
+                    .as_str()
+                    .filter(|thread| !thread.is_empty())
+                    .and_then(|thread| todo_ask(&conversations, thread)),
             })
         })
         .take(crate::limits::WORK_TODOS)
@@ -743,6 +771,44 @@ mod tests {
             threads,
             asks: Vec::new(),
         }
+    }
+
+    #[test]
+    fn an_ask_made_to_do_reads_its_ask_state_by_the_thread_it_names() {
+        // #6594 stores the Ask's thread on the to-do; the list shows the Ask's state from it.
+        let ask = |thread: &str, replied: bool| crate::export::conversations::Ask {
+            writer: "w".into(),
+            operation_id: format!("op-{thread}"),
+            device_name: "d".into(),
+            agent_name: "a".into(),
+            agent: "agent".into(),
+            machine: "m".into(),
+            thread: thread.into(),
+            message_ids: Vec::new(),
+            issued_at: 1,
+            expires_at: 2,
+            message: "m".into(),
+            state: if replied { "replied" } else { "accepted" }.into(),
+            reason: None,
+            request_id: None,
+            reply: replied.then(|| crate::export::conversations::Reply {
+                request_id: "r".into(),
+                agent_id: "agent".into(),
+                body: "done".into(),
+            }),
+        };
+        let mut handled = thread("handled", true, Vec::new());
+        handled.resolved = true;
+        let mut view = conversations(vec![
+            thread("sent", true, Vec::new()),
+            thread("open", true, Vec::new()),
+            handled,
+        ]);
+        view.asks = vec![ask("sent", false), ask("open", true), ask("handled", true)];
+        assert_eq!(todo_ask(&view, "sent"), Some("sent"));
+        assert_eq!(todo_ask(&view, "open"), Some("needs-you"));
+        assert_eq!(todo_ask(&view, "handled"), Some("answered"));
+        assert_eq!(todo_ask(&view, "none"), None);
     }
 
     #[test]

@@ -6685,7 +6685,10 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   - `release` is the release tag a retained owner fact proved for one of the page's PRs (the last
     such PR); absent when none is retained. The list read never reads GitHub for it.
   - `todos` lists the page's visible to-dos in page order, at most 64:
-    `{id, text, checked, number?, assignee?, doneAtMs?}`. `text` is cut at 256 bytes on a
+    `{id, text, checked, number?, assignee?, doneAtMs?, ask?}`. `ask` is the state of the Ask a
+    to-do came from, linked by the block's `thread` prop: `sent` (no reply yet), `needs-you`
+    (answered, its thread still open) or `answered` (answered, its thread resolved); omitted for a
+    to-do no Ask made. It is owner-local, display only, and never sent to share readers. `text` is cut at 256 bytes on a
     character boundary; `number` is the to-do's issued work number; `doneAtMs` is when a list read
     first saw it checked (its page's last activity then, as above), cleared when it is unchecked
     or no longer listed by a read that lists all of the page's to-dos. Deleting a page removes its

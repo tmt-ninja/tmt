@@ -488,6 +488,8 @@ export function opsForms(
       }
     },
     waiting(identityId) {
+      // A browser that may not read forms shows no count: it could not show the card either.
+      if (status === 'off') return 0;
       return (
         list.filter((form) => form.identityId === identityId).length +
         [...sent.values()].filter(
