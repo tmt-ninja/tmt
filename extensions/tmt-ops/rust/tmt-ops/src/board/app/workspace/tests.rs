@@ -864,7 +864,10 @@ fn frame_rows_never_retain_old_roster_filter_or_membership_authority() {
         .unwrap()
         .name = "renamed-worker".into();
     let renamed = painted_member_row(&app, 160, 36);
-    assert!(renamed.contains("renamed… z open"), "{renamed}");
+    assert!(
+        renamed.starts_with("   └ renamed-worker   z open  "),
+        "{renamed}"
+    );
     app.search = "no-match".into();
     app.workspace_reconcile();
     paint(&app, 80, 24);
@@ -4970,16 +4973,20 @@ fn committed_search_releases_list_shortcuts_and_clear_invalidates_pointer_hits()
 
 #[test]
 fn committed_search_count_lives_in_filter_and_highlights_matching_name() {
+    const NAME: &str = "worker-longer-member-name";
+    const QUERY: &str = "worker-longe";
+    const VISIBLE: &str = "worker-long";
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    workspace.roster.members.get_mut(MEMBER).unwrap().name = NAME.into();
     let mut preferences = workspace.preferences.clone();
     preferences
         .labels
         .members
         .insert(MEMBER.into(), "pr".into());
     workspace.set_preferences(preferences);
-    app.search = "worker".into();
+    app.search = QUERY.into();
     app.workspace_reconcile();
     let mut terminal = Terminal::new(TestBackend::new(148, 51)).unwrap();
     terminal
@@ -4993,7 +5000,7 @@ fn committed_search_count_lives_in_filter_and_highlights_matching_name() {
         .collect();
     let filter = lines
         .iter()
-        .find(|line| line.contains("/  worker"))
+        .find(|line| line.contains(&format!("/  {QUERY}")))
         .expect("shared search field");
     assert!(
         filter.starts_with("▸━ "),
@@ -5008,7 +5015,7 @@ fn committed_search_count_lives_in_filter_and_highlights_matching_name() {
         .borrow()
         .iter()
         .find_map(|hit| match hit.target {
-            HitTarget::Row(index) if app.workspace_rows()[index].title == "worker" => {
+            HitTarget::Row(index) if app.workspace_rows()[index].title == NAME => {
                 assert_eq!(
                     Some(&app.workspace_rows()[index].target),
                     app.workspace.selected.as_ref()
@@ -5020,14 +5027,14 @@ fn committed_search_count_lives_in_filter_and_highlights_matching_name() {
         .expect("matching member remains actionable");
     let row = &lines[usize::from(name_row)];
     assert!(
-        row.contains(" P  wor… z open"),
+        row.contains(&format!(" P  {VISIBLE}… z open")),
         "label, fitted name and complete hint stay together: {row}"
     );
     assert!(app.workspace_strip_hits.borrow().iter().any(|(_, choice)| matches!(choice, Choice::LabelTarget(OpsTarget::Member { identity_id, .. }) if identity_id == MEMBER)));
-    let name_x = row.find("wor…").expect("painted matching name");
+    let name_x = row.find(VISIBLE).expect("painted matching name");
     // All preceding cells in this fixture are single-column ASCII/box glyphs.
     let x = row[..name_x].chars().count() as u16;
-    for column in x..x + 3 {
+    for column in x..x + VISIBLE.len() as u16 {
         assert!(
             buffer[(column, name_row)]
                 .modifier
