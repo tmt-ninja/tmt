@@ -300,7 +300,10 @@ fn colab_work_captures_align_headings_and_show_bound_chips() {
         assert!(selected.contains("worker") && !selected.contains("before"));
         assert!(lines.iter().any(|line| line.contains("in COLAB-119")));
         let stale = render(&mut terminal, "work-stale");
-        assert!(stale.iter().all(|line| !line.contains("Enter open page")));
+        assert!(stale.iter().all(|line| !line.contains("⏎ open page")));
+        assert!(lines.iter().all(|line| !line.trim_start().starts_with('·')));
+        assert!(lines[34].contains("⏎ open page"));
+        assert!(lines[35].contains("⏎ open page") && lines[35].contains("c recently done"));
         let agents = render(&mut terminal, "agents-work");
         assert!(
             agents.iter().any(|line| line.contains("sam ○ W-91")),

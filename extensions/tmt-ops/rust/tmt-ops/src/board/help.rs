@@ -352,16 +352,13 @@ pub(super) fn model(app: &App) -> KeyHelp {
             "Colab work",
             &[
                 ("↑↓", "select a work item"),
-                (
-                    "Enter",
-                    "open the selected page or expand a project section",
-                ),
+                ("⏎", "open page or expand a project section"),
                 ("p", "cycle the project filter"),
                 (
                     "d",
                     "cycle the Done period through Today, 7 days and 30 days",
                 ),
-                ("c", "show or hide recent completions"),
+                ("c", "recently done · show or hide completions"),
                 ("r", "refresh the owner list"),
             ],
         ));

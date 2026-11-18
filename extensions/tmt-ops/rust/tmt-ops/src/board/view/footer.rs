@@ -736,16 +736,16 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
         return fit_hints(
             [
                 ("↑↓", "move"),
-                ("Enter", "open page"),
+                ("⏎", "open page"),
                 ("p", "project"),
                 ("d", "period"),
-                ("c", "Recently done"),
+                ("c", "recently done"),
                 ("r", "refresh"),
                 ("?", "help"),
                 ("q", "quit"),
             ]
             .into_iter()
-            .filter(|(key, _)| *key != "Enter" || app.work.open_hit_visible())
+            .filter(|(key, _)| *key != "⏎" || app.work.open_hit_visible())
             .map(|(key, label)| (key.into(), label.into()))
             .collect(),
             vec![],

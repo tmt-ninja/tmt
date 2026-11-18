@@ -104,6 +104,26 @@ fn counts(items: impl Iterator<Item = Status>, include_zeros: bool) -> String {
     words.join(" · ")
 }
 
+fn wrap_counts(summary: &str, width: usize) -> Vec<String> {
+    use unicode_width::UnicodeWidthStr;
+
+    const SEPARATOR: &str = " · ";
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for item in summary.split(SEPARATOR) {
+        if !line.is_empty() {
+            if line.width() + SEPARATOR.width() + item.width() > width {
+                lines.push(std::mem::take(&mut line));
+            } else {
+                line.push_str(SEPARATOR);
+            }
+        }
+        line.push_str(item);
+    }
+    lines.push(line);
+    lines
+}
+
 fn local_start(now: i64, zone: &jiff::tz::TimeZone, days_back: i32) -> Option<i64> {
     let date = jiff::Timestamp::from_millisecond(now)
         .ok()?
@@ -188,7 +208,7 @@ fn rows<'a>(
             .map(|item| item.status),
         true,
     );
-    let mut rows: Vec<_> = crate::board::notes::wrap(
+    let mut rows: Vec<_> = wrap_counts(
         &summary,
         if width == 0 {
             usize::MAX
@@ -580,7 +600,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         let action = if state.stale {
             " Stale"
         } else if can_open {
-            " Enter Open page"
+            " ⏎ open page"
         } else {
             " No link · check Colab serve and pairing"
         };
