@@ -1721,8 +1721,9 @@ offers `Open in checklist`, which selects the item.
 In Talk, reply and annotation, Left/Right, Home/End and click place the caret.
 Hold Shift while moving or drag to select. Backspace/Delete remove the selection
 or one grapheme.
-Enter submits. Alt+Enter, Ctrl+J and Ctrl+N insert a newline. The hints show
-Shift+Enter when enhanced keyboard reporting is active and Alt+Enter otherwise.
+Enter submits. Alt+Enter, Ctrl+J and Ctrl+N insert a newline. Shift+Enter also
+inserts a newline with enhanced keyboard reporting. The hints show Shift+Enter
+when available and Alt+Enter otherwise.
 Input scrolls after six text rows; the info line and footer stay in place.
 Shift+Enter in tmux 3.5 or later needs `set -g extended-keys on` (or `always`)
 and `set -g extended-keys-format csi-u`. Ops reads both once at startup and
