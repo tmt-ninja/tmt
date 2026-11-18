@@ -6428,7 +6428,7 @@ rows are skipped. For an old multi-project page it uses the canonical first proj
 readable page-scoped creation statement follow in page-ID order. The number is owner-local
 display data, not authority.
 `tmt colab page create --project NAME` sets the initial project before allocating the page number;
-`tmt colab project set NAME --prefix PREFIX` changes a project's prefix for future allocations.
+`tmt colab project set NAME --prefix PREFIX` can change the generated prefix until a work number has been issued with it. The owner then refuses a change, including after the numbered item is deleted. Saving the same prefix remains valid.
 `tmt colab project set NAME --release-tag-prefix PREFIX` sets an optional owner-local filter for
 release tags; `--clear-release-tag-prefix` removes it. A page uses the first canonical project
 with a filter, or accepts any release tag when none has one. A merged PR is released only when
@@ -6720,7 +6720,7 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     or no longer listed by a read that lists all of the page's to-dos. Deleting a page removes its
     times and its to-dos' times. Omitted for a page without to-dos, an
     HTML page and a read-only page.
-  - `todos` come last within `DISCOVERY_BYTES`: a page whose items do not fit carries
+  - `todos` are bounded within `DISCOVERY_BYTES`: a page whose items do not fit carries
     `todosOmitted: true` instead of some of them. The times live in the owner's store
     (`work_observed`), so another device reads the same ones.
   - `sections` (#6619) lists the page's counted sections in document order, after the to-dos within
@@ -6748,6 +6748,15 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   - The overview counts open items in the order `working`, `waiting` (CI and release combined),
     `needs-you`, `blocked`, `possibly-stalled`, `discussing`, and `unchecked` (including
     `unknown`). Show `discussing` and `unchecked` only when nonzero.
+  - After the to-dos and sections, the owner list includes whole orders that fit in the same 2 MiB reply.
+    `projectOrders` maps project names to `{revision, items}`; `projectOrdersOmitted` lists
+    the names whose complete orders did not fit. Project membership arrays remain strings.
+    Work home reads an omitted selected project directly. The CLI direct read
+    `tmt colab work order show PROJECT --json` returns its complete visible order.
+    Each project holds up to 256 ranked page IDs or `pageId:blockId` keys. The owner preserves
+    a rank while an item appears in Now. It omits completed, deleted and moved-away items and
+    prunes their stored positions on the next successful move. An unavailable fold cannot
+    establish deletion. A stale revision returns the current order without changing it.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the

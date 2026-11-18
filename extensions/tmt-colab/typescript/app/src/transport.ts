@@ -188,6 +188,9 @@ export interface SpaceHome {
   readonly projects?: readonly string[];
   /** The owner's side-menu projects; absent where a source has none (the menu then lists every project). */
   readonly projectPins?: ProjectPins;
+  readonly projectPrefixes?: import('./bootstrap.js').Bootstrap['projectPrefixes'];
+  readonly projectOrdersOmitted?: readonly string[];
+  readonly projectOrders?: import('./bootstrap.js').Bootstrap['projectOrders'];
   readonly pages: readonly PageSummary[];
   readonly pageIds?: readonly PageId[];
 }
@@ -200,6 +203,7 @@ export interface TitleReadBudget {
 /** App data port. Mounted adapters own authentication and admission;
  * neither HTML nor the renderer receives that adapter or its capabilities. */
 export interface PageTransport {
+  readonly orderAgents?: Pick<import('./ask-remote.js').RemoteClient, 'listAgents' | 'send'>;
   /** Mounted-door snapshot only; absent for hosted and detached adapters. */
   readonly remotePresence?: RemotePresence;
   /** Display-only name from the mounted session device context. */

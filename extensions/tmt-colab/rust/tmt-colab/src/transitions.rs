@@ -31,6 +31,7 @@ pub enum Code {
     Conflict,
     StaleHead,
     TemplateChanged,
+    PrefixIssued,
     Capacity,
     Unavailable,
 }
@@ -42,6 +43,7 @@ impl Code {
             Self::Expired => "EXPIRED",
             Self::Conflict => "CONFLICT",
             Self::StaleHead => "STALE_HEAD",
+            Self::PrefixIssued => "PROJECT_PREFIX_ISSUED",
             Self::TemplateChanged => "TEMPLATE_CHANGED",
             Self::Capacity => "CAPACITY",
             Self::Unavailable => "UNAVAILABLE",
@@ -77,6 +79,7 @@ impl TransitionError {
             }
         } else if let Some(f) = cause.downcast_ref::<crate::store::Fault>() {
             match f {
+                crate::store::Fault::PrefixIssued => Code::PrefixIssued,
                 crate::store::Fault::Capacity => Code::Capacity,
                 crate::store::Fault::StaleEpoch => Code::StaleHead,
                 crate::store::Fault::Invalid => Code::Invalid,

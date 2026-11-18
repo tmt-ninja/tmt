@@ -445,3 +445,194 @@
   color: var(--tmt-ui-color-secondary);
   font-variant-numeric: tabular-nums;
 }
+
+.work-order-view {
+  display: grid;
+  gap: 1rem;
+}
+.work-order-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.work-order-row .work-home-row {
+  flex: 1 1 24rem;
+  min-width: 0;
+}
+.work-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+@media (max-width: 600px) {
+  .work-order-row .tmt-ui-work-grip {
+    display: none;
+  }
+  .work-order-actions {
+    flex-basis: 100%;
+  }
+}
+
+.work-order-view .work-home-project-section {
+  margin: 0;
+  gap: 0;
+}
+.work-order-view .work-home-section-head {
+  padding-bottom: 12px;
+}
+.work-order-actions button {
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.work-order-row {
+  border-top: 1px solid var(--tmt-ui-surface-rule-soft);
+}
+.work-order-row .work-home-row {
+  border: 0;
+}
+.work-order-view .work-home-project-section {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+.work-order-view .work-home-section-head {
+  padding: 8px 0;
+}
+.work-order-notify {
+  position: relative;
+  margin-inline-start: auto;
+}
+.work-order-view .work-home-section-head {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.work-order-view .work-home-section-head small,
+.work-notify-card small {
+  color: var(--tmt-ui-color-secondary);
+}
+.work-notify-card {
+  width: min(22rem, 88vw);
+  overflow-wrap: anywhere;
+}
+.work-notify-card label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 6px;
+}
+.work-notify-card small {
+  display: block;
+}
+.work-notify-card blockquote {
+  margin: 8px 0;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--tmt-ui-surface-rule);
+}
+@media (min-width: 761px) {
+  .work-order-row {
+    position: relative;
+    flex-wrap: nowrap;
+  }
+  .work-order-actions {
+    position: absolute;
+    right: 0;
+    opacity: 0;
+    pointer-events: none;
+    background: var(--tmt-ui-surface-paper);
+  }
+  .work-order-actions[data-unranked] {
+    position: static;
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .work-order-row:hover .work-order-actions,
+  .work-order-row:focus-within .work-order-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+@media (max-width: 760px) {
+  .work-home-recent a {
+    grid-template: 'mark title title title title' '. number owner release time' / 14px max-content minmax(
+        0,
+        1fr
+      ) max-content max-content;
+  }
+  .work-order-row {
+    padding-block: 8px;
+  }
+  .work-order-row .work-home-row {
+    flex: 1 1 75%;
+  }
+}
+
+.work-assign-menu {
+  position: absolute;
+  z-index: 2;
+  inset-inline-end: 0;
+  top: 100%;
+  display: grid;
+  min-width: 9rem;
+  padding: 4px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-paper);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+.work-order-actions .work-assign-menu button {
+  border: none;
+  text-align: start;
+}
+.work-order-actions:has(.work-assign-menu) {
+  position: relative;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.work-order-secondary {
+  display: contents;
+}
+@media (max-width: 640px) {
+  .work-order-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 4px;
+  }
+  .work-order-row .tmt-ui-work-grip {
+    display: none;
+  }
+  .work-order-row .work-home-row {
+    grid-column: 2;
+    min-width: 0;
+    padding-block: 0;
+  }
+  .work-order-row .tmt-ui-work-rank {
+    grid-column: 1;
+  }
+  .work-order-actions {
+    position: relative;
+    grid-column: 3;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0;
+  }
+  .work-order-actions .work-order-icon {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .work-order-actions .work-assign-menu {
+    z-index: 3;
+  }
+}

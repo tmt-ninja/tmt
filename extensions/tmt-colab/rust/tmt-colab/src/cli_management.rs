@@ -610,6 +610,7 @@ fn ipc_post(layout: &Layout, route: &str, body: &[u8], response_limit: usize) ->
             b"EXPIRED" => management::Code::Expired,
             b"CONFLICT" => management::Code::Conflict,
             b"STALE_HEAD" => management::Code::StaleHead,
+            b"PROJECT_PREFIX_ISSUED" => management::Code::PrefixIssued,
             b"TEMPLATE_CHANGED" => management::Code::TemplateChanged,
             b"CAPACITY" => management::Code::Capacity,
             b"UNAVAILABLE" => management::Code::Unavailable,
@@ -685,6 +686,10 @@ fn management_error(code: &str) -> Box<dyn std::error::Error + Send + Sync> {
             "COLAB_CONFLICT",
             "Operation ID conflicts with previously committed selections.",
         ),
+        "PROJECT_PREFIX_ISSUED" => (
+            "COLAB_PROJECT_PREFIX_ISSUED",
+            "This prefix is fixed because a work number has been issued.",
+        ),
         "STALE_HEAD" => (
             "COLAB_STALE_HEAD",
             "Owner state changed; review it before creating a new operation.",
@@ -697,8 +702,27 @@ fn management_error(code: &str) -> Box<dyn std::error::Error + Send + Sync> {
     };
     fail(code, message)
 }
-fn offline(store: Store, key: Keyring, space: &str, body: &[u8]) -> Result<Vec<u8>> {
-    let mut service = Registration::new(store, key, std::env::current_exe()?)?;
+fn offline(
+    layout: &Layout,
+    store: Store,
+    key: Keyring,
+    space: &str,
+    body: &[u8],
+) -> Result<Vec<u8>> {
+    let program = std::env::current_exe()?;
+    let root = layout
+        .directory
+        .parent()
+        .ok_or_else(|| input("Missing Colab data root."))?
+        .to_path_buf();
+    let mut service = Registration::new(store, key, program.clone())?.with_order_source(
+        std::sync::Arc::new(move || {
+            tmt_colab::page::save::open_source(
+                &root,
+                tmt_colab::decoder::Config::new(program.clone()),
+            )
+        }),
+    );
     let now = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
     let result =
         management::local(&mut service, space, body, now).map_err(|c| management_error(c.text()));
@@ -718,7 +742,7 @@ pub(crate) fn mutate(layout: &Layout, space: &str, body: &[u8]) -> Result<Vec<u8
         Ok(_lock) => {
             let key = Keyring::read(layout)?;
             let store = Store::open(layout)?;
-            offline(store, key, space, body)
+            offline(layout, store, key, space, body)
         }
         Err(e) if e.downcast_ref::<StateFault>() == Some(&StateFault::AlreadyServing) => {
             ipc(layout, body)
@@ -872,7 +896,7 @@ fn commit_creation_with(
                 let store = Store::open(&layout)?;
                 let body = request(&key, &store)?;
                 let space = key.space_id.clone();
-                let bytes = offline(store, key, &space, &body)?;
+                let bytes = offline(&layout, store, key, &space, &body)?;
                 (space, bytes)
             }
             Err(error) if error.downcast_ref::<StateFault>() == Some(&StateFault::AlreadyServing) => {

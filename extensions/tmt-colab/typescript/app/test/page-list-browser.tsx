@@ -116,7 +116,7 @@ function work(stage: PageWorkRow['stage'], done: number, total: number): PageWor
 const idle = { comments: 0, waiting: false, needsYou: 0 };
 
 /** Work home's fixture (#6474): the spec mockup's projects and items, read at `listNow`. */
-function workHomePages(): PageSummary[] {
+function workHomePages(withOrder = false): PageSummary[] {
   const agents: Record<string, string> = {};
   const agent = (name: string) => ({
     id: (agents[name] ??=
@@ -141,7 +141,29 @@ function workHomePages(): PageSummary[] {
       summary: { ...idle, status, fields, ...extra } as PageSummary['summary'],
     });
   };
+  const queued = withOrder
+    ? Array.from({ length: 9 }, (_, index) =>
+        page(
+          101 + index,
+          index === 7
+            ? 'A long project title that still leaves the order controls reachable on a narrow phone'
+            : 'Queued item ' + (index + 1),
+          ['Colab'],
+          {
+            workNumber: 'COLAB-' + (200 + index),
+            summary: {
+              ...idle,
+              status: 'discussing',
+              fields: {
+                owner: { id: id(501 + (index % 2)), name: index % 2 ? 'Bea' : 'Ada' },
+              },
+            },
+          },
+        ),
+      )
+    : [];
   return [
+    ...queued,
     item(
       'Batch reads for large design pages',
       'Colab',
@@ -325,6 +347,7 @@ export async function mountPageList(
     /** Work home (#6474): the spec mockup's items, with owners, statuses and done times. */
     | 'owner-activity'
     | 'work-home'
+    | 'work-order'
     /** Twenty-two projects of one page each; page n is n hours old, so Project 01 is the newest. */
     | 'projects' = 'few',
   hash = '/',
@@ -401,8 +424,8 @@ export async function mountPageList(
               summary: { ...idle, work: work('in-progress', 0, 2) },
             }),
           ]
-        : size === 'work-home'
-          ? workHomePages()
+        : size === 'work-home' || size === 'work-order'
+          ? workHomePages(size === 'work-order')
           : size === 'work' || size === 'work-pinned'
             ? [
                 ...Array.from({ length: 75 }, (_, n) => {
@@ -555,7 +578,24 @@ export async function mountPageList(
   const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));
   const transport = localTransport('Studio pages', snapshots);
   let templates = fixtureTemplates();
+  const readOrder = (): { revision: number; items: string[] } =>
+    JSON.parse(
+      sessionStorage.getItem('fixture-order') ??
+        JSON.stringify({ revision: 0, items: Array.from({ length: 8 }, (_, i) => id(101 + i)) }),
+    );
   const management: ManagementPort = {
+    async workOrder(_project, move) {
+      const current = readOrder();
+      if (!move || move.revision !== current.revision)
+        return { projectOrder: current, conflict: !!move };
+      const items = current.items.filter((key) => key !== move.item);
+      if (move.position === 'last') items.push(move.item);
+      else if (typeof move.position === 'object')
+        items.splice(items.indexOf(move.position.before), 0, move.item);
+      const projectOrder = { revision: current.revision + 1, items };
+      sessionStorage.setItem('fixture-order', JSON.stringify(projectOrder));
+      return { projectOrder, conflict: false };
+    },
     newPage: async (request) => {
       window.__newPages.push(request);
       if (window.__newPageRefusal) {
@@ -702,6 +742,25 @@ export async function mountPageList(
   let remainingFailure = failure;
   const router = createAppRouter({
     ...transport,
+    ...(size === 'work-order'
+      ? {
+          orderAgents: {
+            listAgents: async () => [
+              { id: id(501), name: 'Ada' },
+              { id: id(502), name: 'Bea' },
+            ],
+            send: async (input: import('../src/ask-remote.js').SendInput) => {
+              const messages = JSON.parse(sessionStorage.getItem('fixture-notifications') ?? '[]');
+              sessionStorage.setItem('fixture-notifications', JSON.stringify([...messages, input]));
+              return {
+                state: 'accepted' as const,
+                operationId: input.operationId,
+                requestId: id(503),
+              };
+            },
+          },
+        }
+      : {}),
     ...(size === 'unmanaged' ? {} : { management }),
     ...(size === 'owner-activity'
       ? {
@@ -769,6 +828,7 @@ export async function mountPageList(
       if (fail === 'session') throw new SessionEndedError('REMOTE_SESSION_ENDED');
       return {
         title: 'Studio pages',
+        ...(size === 'work-order' ? { projectOrders: {}, projectOrdersOmitted: ['Colab'] } : {}),
         projects: [...state.projects].sort(),
         ...(state.pins
           ? {

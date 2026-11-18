@@ -18,7 +18,13 @@ import type { statement } from '@tmt/colab-client';
 import { Admission, applyLifecycle, type Lifecycle } from './admission.js';
 import { validPins } from './project-pins.js';
 import { Frames } from './frames.js';
-import { discover, type Bootstrap, type PageInfo } from './bootstrap.js';
+import {
+  discover,
+  validateProjectOrder,
+  type ProjectOrder,
+  type Bootstrap,
+  type PageInfo,
+} from './bootstrap.js';
 import {
   projectNameError,
   PROJECT_REQUEST_PAGES,
@@ -95,6 +101,16 @@ export interface Acknowledgment {
   storage?: 'freed' | 'pending' | 'unsupported' | 'unknown';
   storageHint?: string;
 }
+export type OrderMove = {
+  revision: number;
+  item: string;
+  position: 'last' | 'unrank' | { before: string };
+};
+export interface OrderResult {
+  projectOrder: ProjectOrder;
+  conflict: boolean;
+}
+
 export interface ManagementPort {
   readonly storage?: StoragePort;
   read(page: string, signal?: AbortSignal): Promise<ManagementView>;
@@ -105,6 +121,7 @@ export interface ManagementPort {
   setProjects(changes: readonly ProjectChange[]): Promise<void>;
   /** One display-only `project.manage` request: create, rename or delete a project, no page named. */
   manageProject(change: ProjectManage): Promise<void>;
+  workOrder?(name: string, move?: OrderMove): Promise<OrderResult>;
   /** One display-only `page.pin` request: pin or unpin a page, no view or revision (contract: Pins). */
   setPinned(pageId: string, pinned: boolean): Promise<void>;
   /** One `page.new` (#5076): the owner makes a top-level page from a template and answers its ID. A
@@ -622,6 +639,20 @@ export class ManagementClient implements ManagementPort {
       requireValue(projectNameError(change.to) === undefined && change.to !== change.name);
     await this.displayOnly(SPACE_SCOPE_PAGE, 'project.manage', change);
   }
+  async workOrder(name: string, move?: OrderMove): Promise<OrderResult> {
+    requireValue(projectNameError(name) === undefined);
+    const id = crypto.randomUUID();
+    const payload = move ? { action: 'order-move', name, ...move } : { action: 'order-show', name };
+    const reply = await this.signed(SPACE_SCOPE_PAGE, 'project.manage', payload, id);
+    exactKeys(
+      reply,
+      move ? ['operationId', 'projectOrder', 'conflict'] : ['operationId', 'projectOrder'],
+    );
+    requireValue(reply.operationId === id && (!move || typeof reply.conflict === 'boolean'));
+    validateProjectOrder(reply.projectOrder);
+    return { projectOrder: reply.projectOrder, conflict: reply.conflict === true };
+  }
+
   /** A signed `page.pin` request: the owner pins or unpins the page it names. */
   async setPinned(pageId: string, pinned: boolean): Promise<void> {
     generatedId(pageId);
@@ -788,6 +819,7 @@ export class ManagementClient implements ManagementPort {
           CONFLICT: 409,
           STALE_HEAD: 409,
           TEMPLATE_CHANGED: 409,
+          PROJECT_PREFIX_ISSUED: 409,
           CAPACITY: 503,
           UNAVAILABLE: 503,
         };

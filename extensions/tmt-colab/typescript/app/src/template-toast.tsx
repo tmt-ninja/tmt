@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import './template-card.css';
 
 /** A short confirmation at the bottom of the screen, read out once and gone after a few seconds. */
@@ -9,7 +9,8 @@ export function useToast(): [string | undefined, (message: string) => void] {
     const timer = setTimeout(() => setMessage(undefined), 3200);
     return () => clearTimeout(timer);
   }, [message]);
-  return [message?.text, (text) => setMessage({ text, at: Date.now() })];
+  const show = useCallback((text: string) => setMessage({ text, at: Date.now() }), []);
+  return [message?.text, show];
 }
 export function Toast({ message }: { message: string | undefined }) {
   return (

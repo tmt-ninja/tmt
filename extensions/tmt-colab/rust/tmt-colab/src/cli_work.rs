@@ -668,3 +668,130 @@ fn list(root: &Path, page: &str, json_output: bool) -> Result<()> {
     tmt_cli_style::detail::write(&mut output, terminal, "WORK", &rows)?;
     Ok(())
 }
+
+pub fn order_command() -> Command {
+    let example = example!("tmt colab work order show launch --json");
+    let project = || Arg::new("project").value_name("PROJECT").required(true);
+    let order = spec(
+        "order",
+        "Read or change a project's work order",
+        "Ben and leads reorder work. Changes are owner-local.",
+        example,
+    )
+    .subcommand_required(true)
+    .subcommand(
+        spec(
+            "show",
+            "Show the ranked work items",
+            "Includes the revision for the next move.",
+            example,
+        )
+        .arg(project()),
+    )
+    .subcommand(
+        spec(
+            "move",
+            "Move one work item",
+            "Ben and leads reorder work. A stale revision returns the current order.",
+            example!("tmt colab work order move launch REL-1 --last --revision 0 --json"),
+        )
+        .arg(project())
+        .arg(Arg::new("item").required(true).value_name("ITEM"))
+        .arg(Arg::new("before").long("before").value_name("ITEM"))
+        .arg(Arg::new("last").long("last").action(ArgAction::SetTrue))
+        .arg(Arg::new("unrank").long("unrank").action(ArgAction::SetTrue))
+        .group(
+            clap::ArgGroup::new("position")
+                .args(["before", "last", "unrank"])
+                .required(true),
+        )
+        .arg(
+            Arg::new("revision")
+                .long("revision")
+                .required(true)
+                .value_name("REV")
+                .value_parser(clap::value_parser!(i64).range(0..)),
+        ),
+    );
+    spec(
+        "work",
+        "Read or change Work home data",
+        "Ben and leads reorder work.",
+        example,
+    )
+    .mut_arg("json", |arg| arg.global(true))
+    .subcommand_required(true)
+    .subcommand(order)
+}
+
+pub fn run_order(root: &Path, args: &ArgMatches) -> Result<()> {
+    let (_, order) = args.subcommand().expect("required order");
+    let (action, args) = order.subcommand().expect("required action");
+    let name = args.get_one::<String>("project").expect("required project");
+    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
+    let key = Keyring::read(&layout)?;
+    let mut payload = json!({"action":"order-show","name":name});
+    if action == "move" {
+        let store = Store::read(&layout)?;
+        let numbers = store.work_numbers()?;
+        let resolve = |input: &str| -> Result<String> {
+            numbers
+                .iter()
+                .find(|(id, number)| id.as_str() == input || number.as_str() == input)
+                .map(|(id, _)| id.clone())
+                .ok_or_else(|| {
+                    fail(
+                        "COLAB_WORK_ITEM_NOT_FOUND",
+                        "No numbered work item matches that ID or work number.",
+                    )
+                })
+        };
+        let item = resolve(args.get_one::<String>("item").expect("required item"))?;
+        let position = if let Some(anchor) = args.get_one::<String>("before") {
+            json!({"before":resolve(anchor)?})
+        } else if args.get_flag("last") {
+            json!("last")
+        } else {
+            json!("unrank")
+        };
+        payload = json!({"action":"order-move","name":name,"revision":args.get_one::<i64>("revision"),"item":item,"position":position});
+    }
+    let reply = crate::cli_projects::send_reply(
+        &layout,
+        &key,
+        tmt_colab_model::auth::SPACE_SCOPE_PAGE,
+        "project.manage",
+        &payload,
+    )?;
+    let current = &reply["projectOrder"];
+    if reply["conflict"] == true {
+        return Err(fail(
+            "COLAB_ORDER_CONFLICT",
+            &format!("The project order changed. Current order: {current}"),
+        ));
+    }
+    let json_output = args.get_flag("json");
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if json_output {
+        writeln!(output, "{current}")?;
+        return Ok(());
+    }
+    let terminal = output.terminal();
+    let mut rows = vec![
+        ("project", name.to_string()),
+        ("revision", current["revision"].to_string()),
+    ];
+    for (index, item) in current["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        rows.push((
+            "item",
+            format!("{}. {}", index + 1, item.as_str().unwrap_or_default()),
+        ));
+    }
+    tmt_cli_style::detail::write(&mut output, terminal, "WORK ORDER", &rows)?;
+    Ok(())
+}

@@ -76,6 +76,8 @@ enum Action {
     /// of the named pages' projects, or one change to the space's projects.
     Projects(Vec<(String, Vec<String>)>),
     Project(crate::projects::Change),
+    WorkOrder(WorkOrderMove),
+    OrderShow(String),
     /// Display-only pin of the request's page (contract: Pins).
     Pin(bool),
     Archive,
@@ -92,6 +94,16 @@ enum Action {
     /// The serving machine's default template (#5077): a selector, or none for `starter`.
     DefaultTemplate(Option<String>),
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkOrderMove {
+    action: String,
+    name: String,
+    revision: i64,
+    item: String,
+    position: crate::store::project_orders::Position,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TemplateDefault {
@@ -367,6 +379,38 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
                 return Err(tmt_colab_model::Invalid);
             }
             let tag: ProjectAction = typed(bytes)?;
+            if tag.action == "order-show" {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Show {
+                    action: String,
+                    name: String,
+                }
+                let value: Show = typed(bytes)?;
+                if value.action != "order-show" || !valid(&value.name) {
+                    return Err(tmt_colab_model::Invalid);
+                }
+                return Ok(Action::OrderShow(value.name));
+            }
+            if tag.action == "order-move" {
+                let value: WorkOrderMove = typed(bytes)?;
+                let valid_item = |item: &str| {
+                    let (page, block) = item
+                        .split_once(':')
+                        .map_or((item, None), |(p, b)| (p, Some(b)));
+                    values::generated_id(page).is_ok()
+                        && block.is_none_or(|b| values::generated_id(b).is_ok())
+                };
+                if value.action != "order-move"
+                    || !valid(&value.name)
+                    || !(0..=9_007_199_254_740_991).contains(&value.revision)
+                    || !valid_item(&value.item)
+                    || matches!(&value.position, crate::store::project_orders::Position::Before(id) if !valid_item(id))
+                {
+                    return Err(tmt_colab_model::Invalid);
+                }
+                return Ok(Action::WorkOrder(value));
+            }
             if tag.action == "pins" {
                 let value: ProjectPins = typed(bytes)?;
                 let names = value.names.as_slice();
@@ -374,6 +418,16 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
                     return Err(tmt_colab_model::Invalid);
                 }
                 return Ok(Action::Project(Change::Pins(names.to_vec())));
+            }
+            if tag.action == "create-with-prefix" {
+                let value: ProjectPrefix = typed(bytes)?;
+                if !valid(&value.name) {
+                    return Err(tmt_colab_model::Invalid);
+                }
+                return Ok(Action::Project(Change::CreateWithPrefix {
+                    name: value.name,
+                    prefix: value.prefix,
+                }));
             }
             if tag.action == "prefix" {
                 let value: ProjectPrefix = typed(bytes)?;
@@ -616,7 +670,7 @@ pub fn status(code: Code) -> u16 {
     match code {
         Code::Invalid => 400,
         Code::Denied | Code::Expired => 403,
-        Code::Conflict | Code::StaleHead | Code::TemplateChanged => 409,
+        Code::Conflict | Code::StaleHead | Code::TemplateChanged | Code::PrefixIssued => 409,
         Code::Capacity | Code::Unavailable => 503,
     }
 }
@@ -697,6 +751,39 @@ fn apply(
     }
     if let Action::DefaultTemplate(template) = &command.action {
         return default_template(service, &command, template.as_deref());
+    }
+    if let Action::OrderShow(name) = &command.action {
+        let order = service.show_work_order(name).map_err(|_| Code::Invalid)?;
+        let body = serde_json::to_vec(
+            &serde_json::json!({"operationId":command.operation_id,"projectOrder":order}),
+        )
+        .map_err(|_| Code::Unavailable)?;
+        return Ok(Applied {
+            body,
+            resync_page: None,
+            deleted_page: None,
+            touched: Vec::new(),
+        });
+    }
+    if let Action::WorkOrder(value) = &command.action {
+        use crate::store::project_orders::MoveOutcome;
+        let result = service
+            .change_work_order(&value.name, value.revision, &value.item, &value.position)
+            .map_err(|e| match e.downcast_ref::<crate::store::Fault>() {
+                Some(crate::store::Fault::Invalid) => Code::Invalid,
+                Some(crate::store::Fault::Capacity) => Code::Capacity,
+                _ => Code::Unavailable,
+            })?;
+        let (conflict, order) = match result {
+            MoveOutcome::Saved(order) => (false, order),
+            MoveOutcome::Conflict(order) => (true, order),
+        };
+        return Ok(Applied {
+            body: serde_json::to_vec(&serde_json::json!({"operationId":command.operation_id,"conflict":conflict,"projectOrder":order})).map_err(|_| Code::Unavailable)?,
+            resync_page: None,
+            deleted_page: None,
+            touched: Vec::new(),
+        });
     }
     // Projects are display-only owner-store state: no statement, no revision (the signed field is empty), no receipt.
     if let Some(head) = match &command.action {
@@ -818,6 +905,8 @@ fn apply(
         },
         Action::Projects(_)
         | Action::Project(_)
+        | Action::OrderShow(_)
+        | Action::WorkOrder(_)
         | Action::Pin(_)
         | Action::New(_)
         | Action::DefaultTemplate(_) => {

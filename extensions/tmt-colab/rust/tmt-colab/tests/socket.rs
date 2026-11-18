@@ -2089,15 +2089,16 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
         }
         list
     };
-    let page = |projects: Value| {
+    let page = |projects: Value, orders: Value, prefixes: Value| {
         json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130","pageIds":[{"pageId":PAGE,"deleted":false}],
         "projects":projects,"projectPins":{"names":[],"automatic":true},
+        "projectOrders":orders,"projectOrdersOmitted":[],"projectPrefixes":prefixes,
         "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":[],"projects":projects,"state":null,"stateError":"page-unavailable"}]})
     };
     // The reply names the space's projects and every entry the projects it is in (display-only,
     // from the owner store, sorted), empty by default. The sidebar pins are the automatic default
     // (no page has been updated, so none qualifies) until the owner writes a list.
-    assert_eq!(listed(&server), page(json!([])));
+    assert_eq!(listed(&server), page(json!([]), json!({}), json!({})));
     // This fixture creates the page without its epoch secret, which page creation always commits
     // and deletion removes; an open page is one that still has it.
     rusqlite::Connection::open(layout.directory.join("space.db"))
@@ -2112,7 +2113,14 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
             tx.set_projects(&[(PAGE.to_owned(), vec!["b".to_owned(), "a b".to_owned()])])
         })
         .unwrap();
-    assert_eq!(listed(&server), page(json!(["a b", "b"])));
+    assert_eq!(
+        listed(&server),
+        page(
+            json!(["a b", "b"]),
+            json!({"a b":{"revision":0,"items":[]},"b":{"revision":0,"items":[]}}),
+            json!({"a b":{"prefix":"AB","issued":false},"b":{"prefix":"B","issued":false}})
+        )
+    );
     // A project with no page is still listed, in the space's names and in no entry.
     store
         .project_transaction(&server.space, &key.owner_public(), |tx| {

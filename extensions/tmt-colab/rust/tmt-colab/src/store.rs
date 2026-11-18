@@ -3,6 +3,7 @@
 mod edits;
 pub use edits::{EDIT_DECISIONS, EditState};
 pub mod owner;
+pub mod project_orders;
 pub mod publication;
 mod schema;
 #[cfg(test)]
@@ -55,6 +56,7 @@ pub enum Accepted {
 #[derive(Debug)]
 pub enum Fault {
     Invalid,
+    PrefixIssued,
     StaleEpoch,
     StaleCheckpoint,
     ResyncRequired,
@@ -73,6 +75,7 @@ pub enum Fault {
 impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::PrefixIssued => f.write_str("This prefix is fixed because a work number has been issued."),
             Self::OutdatedSchema(_) => {
                 f.write_str("This space was saved by an older Colab service.")
             }
@@ -94,6 +97,7 @@ impl std::fmt::Display for Fault {
 impl Fault {
     pub fn code(&self) -> Option<&'static str> {
         match self {
+            Self::PrefixIssued => Some("COLAB_PROJECT_PREFIX_ISSUED"),
             Self::OutdatedSchema(_) => Some("COLAB_STORE_OUTDATED"),
             Self::UnsupportedSchema(..) => Some("COLAB_STORE_NEWER"),
             Self::Backup(_) => Some("COLAB_STORE_BACKUP_FAILED"),

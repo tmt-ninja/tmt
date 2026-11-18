@@ -156,6 +156,8 @@ pub const PROJECT_POINTS: usize = 32;
 pub const PAGE_PROJECTS: usize = 8;
 pub const SPACE_PROJECTS: usize = 256;
 pub const SPACE_PROJECT_PAGES: usize = 1000;
+/// Maximum ranked work items held for one owner project.
+pub const PROJECT_ORDER_ITEMS: usize = 256;
 /// Pinned pages (contract: Pins): at most this many in the space, so the owner list stays short and
 /// the `/api/pages` reply stays under its cap.
 pub const SPACE_PINS: usize = 20;

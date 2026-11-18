@@ -234,6 +234,9 @@ export async function mountedTransport(
           title: text.product,
           projects: boot.projects,
           projectPins: boot.projectPins,
+          projectPrefixes: boot.projectPrefixes,
+          projectOrders: boot.projectOrders,
+          projectOrdersOmitted: boot.projectOrdersOmitted,
           pageIds: boot.pageIds,
           pages: await Promise.all(
             boot.pages.map(async (page) => {
@@ -319,6 +322,10 @@ export async function mountedTransport(
     setProjects(changes) {
       const client = managementClient;
       return managed(client, () => client.setProjects(changes));
+    },
+    workOrder(name, move) {
+      const client = managementClient;
+      return managed(client, () => client.workOrder(name, move));
     },
     manageProject(change) {
       const client = managementClient;
@@ -410,6 +417,9 @@ export async function mountedTransport(
         return current.registration.deviceName;
       },
       drafts,
+      get orderAgents() {
+        return current.remote ?? undefined;
+      },
       management,
       remotePresence,
       watchPages: (changed) => pageListFeed.watch(changed),

@@ -308,3 +308,34 @@ button.tmt-ui-field-chip:hover {
 .tmt-ui-segments > [data-state='blocked'] {
   background: var(--tmt-ui-color-blocked);
 }
+
+.tmt-ui-work-grip {
+  display: inline-flex;
+  cursor: grab;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-work-grip:active {
+  cursor: grabbing;
+}
+.tmt-ui-work-next-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-work-next-line span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tmt-ui-work-rank {
+  background: var(--tmt-ui-color-text);
+  color: var(--tmt-ui-surface-paper);
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  font: 600 12px var(--tmt-ui-font-mono);
+}

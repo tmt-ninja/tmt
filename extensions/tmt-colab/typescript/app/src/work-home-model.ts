@@ -104,7 +104,10 @@ export function overviewStatus(status: ListStatus): OverviewStatus | undefined {
 }
 
 /** Every work item the list holds: each active page with a fresh summary, and each assigned numbered to-do. */
-export function workItems(pages: readonly PageSummary[]): WorkItem[] {
+export function workItems(
+  pages: readonly PageSummary[],
+  includeUnassignedTodos = false,
+): WorkItem[] {
   const items: WorkItem[] = [];
   for (const page of pages) {
     const summary = page.summary;
@@ -136,7 +139,7 @@ export function workItems(pages: readonly PageSummary[]): WorkItem[] {
     // An assigned, numbered to-do is a small task of its own; any other to-do is the page's content
     // (#6578 review: unassigned to-dos would flood the open work).
     for (const todo of summary.todos ?? []) {
-      if (!todo.number || !todo.assignee) continue;
+      if (!todo.number || (!includeUnassignedTodos && !todo.assignee)) continue;
       items.push({
         key: `${page.id}:${todo.id}`,
         pageId: page.id,
