@@ -6718,7 +6718,10 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     what the fold alone decides, else `unchecked`; the page's `/api/work-facts` reply carries the
     same `sections` decided with the facts it read. At most 64 sections are summarised (titles cut
     at 256 bytes); a page with more, or whose sections do not fit, carries `sectionsOmitted: true`.
-    Omitted for an HTML page and a read-only page. Display only: it never authorizes anything.
+    An HTML page's sections are its `h2` and `h3` outside questions and hidden subtrees, as the
+    page outline lists them, keyed `h1`, `h2`, ... in order; they count waiting questions and pull
+    request links only (no to-dos, no manual setting). Omitted for a read-only page. Display only:
+    it never authorizes anything.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the

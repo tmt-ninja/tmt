@@ -52,6 +52,27 @@ export function sectionMark(section: SectionSummary): SectionMarkView {
   return { shape, ...(tone ? { tone } : {}), count, word };
 }
 
+/** An HTML page's sections on the outline the frame measured (#6619): the owner reads the source,
+ * the frame lists only visible headings, so each section takes the next heading with its level and
+ * title, and one the frame does not show is left out. */
+export function htmlOutlineSections(
+  sections: readonly SectionSummary[],
+  headings: readonly { id: string; title: string; level: number }[],
+): SectionSummary[] {
+  const out: SectionSummary[] = [];
+  let next = 0;
+  for (const section of sections) {
+    const at = headings.findIndex(
+      (heading, index) =>
+        index >= next && heading.level === section.level && heading.title === section.title,
+    );
+    if (at < 0) continue;
+    out.push({ ...section, id: headings[at]!.id });
+    next = at + 1;
+  }
+  return out;
+}
+
 /** Done sections over counted sections, the page's one section number. */
 export function sectionTotals(sections: readonly SectionSummary[]) {
   return {

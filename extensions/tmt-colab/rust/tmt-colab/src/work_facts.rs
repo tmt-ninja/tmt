@@ -59,7 +59,7 @@ impl PullLink {
     }
 }
 
-fn text_urls(text: &str, out: &mut Vec<String>) {
+pub(crate) fn text_urls(text: &str, out: &mut Vec<String>) {
     for tail in text.split("https://github.com/").skip(1) {
         let path: String = tail
             .chars()
@@ -105,7 +105,7 @@ fn block_candidates(block: &Value, out: &mut Vec<String>) {
 }
 
 /// The distinct pull request links among `candidates`, or `None` past the page's bound.
-fn pulls(candidates: Vec<String>) -> Option<Vec<PullLink>> {
+pub(crate) fn pulls(candidates: Vec<String>) -> Option<Vec<PullLink>> {
     let mut found = Vec::new();
     for candidate in candidates {
         let canonical = candidate.split(['?', '#']).next()?.trim_end_matches('/');

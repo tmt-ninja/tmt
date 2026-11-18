@@ -245,10 +245,18 @@ fn fold_details(
     } else {
         Vec::new()
     };
-    let (sections, sections_omitted) = if active {
+    let (sections, sections_omitted) = if !active {
+        (Vec::new(), false)
+    } else if folded.blocks.is_some() {
         crate::sections::sections(folded.blocks.as_ref())
     } else {
-        (Vec::new(), false)
+        // An HTML page: its questions still waiting are the pending answers.
+        let open = pending
+            .iter()
+            .filter(|item| item.kind == "answer")
+            .map(|item| item.id.as_str())
+            .collect();
+        crate::sections::html_sections(&folded.source, &open)
     };
     let todo_items = todos
         .iter()

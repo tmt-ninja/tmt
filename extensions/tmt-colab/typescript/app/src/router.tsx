@@ -3,7 +3,7 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageStateMenu, PageWorkBand } from './work-band-live.js';
-import { sectionTotals } from './section-view.js';
+import { htmlOutlineSections, sectionTotals } from './section-view.js';
 import { MobileWorkTitle, WorkPullChips } from './work-band.js';
 import { PageOutline } from './page-outline.js';
 import { AskTodoContext, askTodoProgress } from './ask-todo-line.js';
@@ -2394,6 +2394,10 @@ function OpenPage({
     [frameOutline],
   );
   const hasHtmlOutline = htmlHeadings.length >= 3;
+  const htmlSections = useMemo(
+    () => htmlOutlineSections(view.workFacts?.sections ?? [], htmlHeadings),
+    [view.workFacts?.sections, htmlHeadings],
+  );
   // Each comment thread's to-do (#6474): the line under an Ask's comment.
   const askTodos = useMemo(
     () => askTodoProgress(view.blocks, view.todoNumbers, view.asks ?? []),
@@ -3321,6 +3325,7 @@ function OpenPage({
                 headings={htmlHeadings}
                 locate={locateHtmlHeading}
                 compact={!htmlGutter}
+                sections={htmlSections}
               />
             </div>
           )}

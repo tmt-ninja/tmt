@@ -3,9 +3,10 @@
 //! A section counts as progress when it holds a to-do, a pull request link or a waiting question,
 //! unless its heading says otherwise (`progress`: `done` or `off`). Its status uses the page
 //! status's vocabulary and order (`work_index::computed_state`); display only, never authority.
-use crate::work_facts::{PullLink, block_links};
+use crate::work_facts::{PullLink, block_links, pulls, text_urls};
 use crate::work_index::{OwnerActivity, PullRequestFact, computed_state};
 use serde_json::{Map, Value};
+use std::collections::BTreeSet;
 
 /// At most this many sections are summarised; a page with more says so.
 pub const SECTIONS: usize = 64;
@@ -94,6 +95,67 @@ pub fn sections(blocks: Option<&Value>) -> (Vec<Section>, bool) {
             for link in &links {
                 if !section.pulls.contains(link) {
                     section.pulls.push(link.clone());
+                }
+            }
+        }
+    }
+    (found, omitted)
+}
+
+/// An HTML page's sections (#6619): each `h2` and `h3` the outline lists, keyed `h1`, `h2`, ... by
+/// its order, counting the questions in it still waiting (`open`) and the pull requests it links.
+/// HTML has no to-dos and no manual setting.
+pub fn html_sections(source: &str, open: &BTreeSet<&str>) -> (Vec<Section>, bool) {
+    use crate::page_check::Part;
+    let Some(parts) = crate::page_check::parts(source) else {
+        return (Vec::new(), false);
+    };
+    let mut found: Vec<Section> = Vec::new();
+    let mut inside: Vec<usize> = Vec::new();
+    let mut omitted = false;
+    for part in parts {
+        let mut candidates = Vec::new();
+        match part {
+            Part::Heading(level, title) => {
+                while inside.last().is_some_and(|&at| found[at].level >= level) {
+                    inside.pop();
+                }
+                if found.len() >= SECTIONS {
+                    omitted = true;
+                    continue;
+                }
+                found.push(Section {
+                    id: format!("h{}", found.len() + 1),
+                    title: cut(&title),
+                    level,
+                    done: 0,
+                    total: 0,
+                    open_questions: 0,
+                    blocked: false,
+                    pulls: Vec::new(),
+                    manual: None,
+                });
+                inside.push(found.len() - 1);
+                continue;
+            }
+            Part::Question(id) => {
+                if open.contains(id.as_str()) {
+                    for &at in &inside {
+                        found[at].open_questions += 1;
+                    }
+                }
+                continue;
+            }
+            Part::Link(href) => candidates.push(href),
+            Part::Text(text) => text_urls(&text, &mut candidates),
+        }
+        if candidates.is_empty() || inside.is_empty() {
+            continue;
+        }
+        for link in pulls(candidates).unwrap_or_default() {
+            for &at in &inside {
+                if !found[at].pulls.contains(&link) {
+                    found[at].pulls.push(link.clone());
                 }
             }
         }
@@ -388,6 +450,39 @@ mod tests {
         );
         // The manual done keeps the real count visible.
         assert_eq!((found[2].done, found[2].total), (1, 2));
+    }
+
+    #[test]
+    fn an_html_page_has_sections_from_its_outline_headings() {
+        let source = r#"<h1>Plan</h1><h2>Build <em>it</em></h2>
+<p>See https://github.com/o/r/pull/7 now.</p>
+<h3>Ask</h3><div><tmt-question data-id="q1"><h2>Not a section</h2></tmt-question></div>
+<div hidden><h2>Hidden</h2></div>
+<h2>Ship</h2><p><a href="https://github.com/o/r/pull/8">#8</a></p><tmt-question data-id="q2"></tmt-question>"#;
+        let (found, omitted) = html_sections(source, &BTreeSet::from(["q1"]));
+        assert!(!omitted);
+        let rows: Vec<_> = found
+            .iter()
+            .map(|s| {
+                (
+                    s.id.as_str(),
+                    s.title.as_str(),
+                    s.level,
+                    s.open_questions,
+                    s.pulls.len(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("h1", "Build it", 2, 1, 1),
+                ("h2", "Ask", 3, 1, 0),
+                ("h3", "Ship", 2, 0, 1)
+            ]
+        );
+        assert!(found.iter().all(Section::counted));
+        assert_eq!(found[1].state(Some(&[]), 0), "needs-you");
     }
 
     #[test]

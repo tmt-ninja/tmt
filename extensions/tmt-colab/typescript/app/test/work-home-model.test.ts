@@ -8,7 +8,13 @@ import {
   recentlyDone,
   workItems,
 } from '../src/work-home-model.js';
-import { sectionMark, sectionTotals, segmentState, stuckSection } from '../src/section-view.js';
+import {
+  htmlOutlineSections,
+  sectionMark,
+  sectionTotals,
+  segmentState,
+  stuckSection,
+} from '../src/section-view.js';
 
 const DAY = 86_400_000;
 const now = new Date(2026, 10, 17, 15, 0).getTime();
@@ -110,6 +116,21 @@ it('carries the counted sections of a page as its one number, bar and stuck sect
     ['ring', '0/2'],
   ]);
   expect(stuckSection(item.sections!)?.title).toBe('Ask');
+  // An HTML page's sections take the frame's visible headings in order; one it hides is left out.
+  expect(
+    htmlOutlineSections(
+      [
+        { id: 'h1', title: 'Plan', level: 2, done: 0, total: 0, state: 'needs-you' },
+        { id: 'h2', title: 'Hidden', level: 2, done: 0, total: 0, state: 'working' },
+        { id: 'h3', title: 'Plan', level: 3, done: 0, total: 0, state: 'working' },
+      ],
+      [
+        { id: '0', title: 'Plan', level: 2 },
+        { id: '1', title: 'Intro', level: 3 },
+        { id: '2', title: 'Plan', level: 3 },
+      ],
+    ).map((section) => section.id),
+  ).toEqual(['0', '2']);
   // A page without counted sections carries none.
   expect(workItems([page('working')])[0].sections).toBeUndefined();
 });
