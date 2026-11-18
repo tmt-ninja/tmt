@@ -925,7 +925,7 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     let show = pilot.call(&["show", PAGE, "--json"]);
     assert_eq!(list["pages"][0]["title"], "Encrypted π [31m");
     assert_eq!(show["page"]["title"], "Encrypted π\u{1b}[31m");
-    // ls uses display titles and omits layout. The remaining verified metadata is the same.
+    // Plain ls and show expose the same metadata after accounting for display differences.
     let mut listed = list["pages"][0].clone();
     for key in ["path", "link", "shortLink"] {
         listed.as_object_mut().unwrap().remove(key);
@@ -10881,7 +10881,10 @@ fn a_large_cached_list_reads_metadata_without_opening_page_content() {
         child
             .wait_until(started + Duration::from_secs(30))
             .unwrap()
-            .success()
+            .success(),
+        "stdout: {}; stderr: {}",
+        fs::read_to_string(&stdout).unwrap(),
+        fs::read_to_string(&stderr).unwrap(),
     );
     let elapsed = started.elapsed();
     assert!(fs::read(stderr).unwrap().is_empty());
@@ -13471,6 +13474,129 @@ fn structured_todo_keeps_its_number_after_edit_delete_and_restore() {
     pilot.call(&["block", "delete", page, block, "--json"]);
     pilot.call(&["block", "restore", page, block, "--json"]);
     assert_eq!(number().as_deref(), Some("COLAB-2"));
+}
+
+fn owner_list_request(pilot: &Pilot, method: &str, path: &str, context: &Value) -> String {
+    let mut socket = UnixStream::connect(pilot.socket()).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    write!(
+        socket,
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\ntmt-device-context: {context}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    socket.shutdown(std::net::Shutdown::Write).unwrap();
+    let mut reply = String::new();
+    socket.read_to_string(&mut reply).unwrap();
+    reply
+}
+
+fn owner_list_context(pilot: &Pilot) -> Value {
+    json!({
+        "deviceId": "30000000-0000-4000-8000-000000000001",
+        "kind": "browser", "origin": "http://localhost", "name": "Fixture browser",
+        "publicKey": pilot.owner_root(), "owner": true, "grantRevision": 1,
+    })
+}
+
+#[test]
+fn work_home_local_list_refuses_forwarded_owner_context() {
+    let mut pilot = Pilot::new(None);
+    pilot.start();
+    let reply = owner_list_request(
+        &pilot,
+        "POST",
+        "/.tmt/colab/local/page-list",
+        &owner_list_context(&pilot),
+    );
+    assert!(reply.starts_with("HTTP/1.1 403"), "{reply}");
+    pilot.stop();
+}
+
+#[test]
+fn work_home_cli_and_browser_share_the_owner_list_summary() {
+    let mut pilot = Pilot::new(None);
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Work",
+        "--project",
+        "Colab",
+        "--no-open",
+        "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    pilot.call(&[
+        "page",
+        "set",
+        page,
+        "--owner",
+        "50000000-0000-1000-8000-000000000001",
+        "--priority",
+        "high",
+        "--next",
+        "Review",
+        "--blocked",
+        "Waiting",
+        "--json",
+    ]);
+    pilot.call(&[
+        "block",
+        "insert",
+        page,
+        "--type",
+        "todo",
+        "--text",
+        "Ship",
+        "--props",
+        r#"{"assignee":"Fixture agent"}"#,
+        "--json",
+    ]);
+    let list_summary = |catalog: Value| {
+        catalog["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["pageId"] == page)
+            .unwrap()["summary"]
+            .clone()
+    };
+    let plain = || pilot.call(&["ls", "--json"]);
+    assert!(list_summary(plain()).is_null());
+    let offline = list_summary(pilot.call(&["ls", "--json", "--work"]));
+    assert_eq!(offline["status"], "blocked");
+    assert!(offline.get("blockedSinceMs").is_none());
+    pilot.start();
+    assert!(list_summary(pilot.call(&["ls", "--json"])).is_null());
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let local = loop {
+        let summary = list_summary(pilot.call(&["ls", "--json", "--work"]));
+        if summary.is_object() {
+            break summary;
+        }
+        assert!(Instant::now() < deadline, "serve did not fold the page");
+        thread::sleep(Duration::from_millis(20));
+    };
+    assert!(local["blockedSinceMs"].as_u64().is_some(), "{local}");
+    let browser = owner_list_request(&pilot, "GET", "/api/pages", &owner_list_context(&pilot));
+    assert!(browser.starts_with("HTTP/1.1 200"), "{browser}");
+    assert_eq!(
+        local,
+        list_summary(serde_json::from_str(browser.split_once("\r\n\r\n").unwrap().1).unwrap())
+    );
+    assert_eq!(
+        local["fields"]["owner"]["id"],
+        "50000000-0000-1000-8000-000000000001"
+    );
+    assert_eq!(local["fields"]["priority"], "high");
+    assert_eq!(local["fields"]["next"], "Review");
+    assert_eq!(local["fields"]["blocked"], "Waiting");
+    assert_eq!(local["todos"][0]["number"], "COLAB-2");
+    assert_eq!(local["todos"][0]["assignee"], "Fixture agent");
+    pilot.stop();
+    assert_eq!(list_summary(pilot.call(&["ls", "--json", "--work"])), local);
 }
 
 #[test]

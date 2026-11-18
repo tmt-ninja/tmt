@@ -6686,6 +6686,9 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   as in progress or to do by its other statuses, and by its manual state when it is `unknown`,
   `unchecked` or absent. Display only, never authority.
 - Work home data (#6474), all display only and owner-local:
+  - `tmt colab ls --json --work` opts into the same `summary`: a running serve uses its owner-list
+    read, including retained activity and observation stamps, while an offline read folds the
+    local store, uses fold-only status, and reports retained times without stamping them.
   - `doneAtMs` and `blockedSinceMs` are the page's last admitted activity (`lastUpdateAtMs`, never
     later than the read) when an owner list read first saw its status `done` or a non-empty
     `blocked` field, so work already done when the list first sees it keeps the time of its last
@@ -6722,6 +6725,15 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     page outline lists them, keyed `h1`, `h2`, ... in order; they count waiting questions and pull
     request links only (no to-dos, no manual setting). Omitted for a read-only page. Display only:
     it never authorizes anything.
+  - Work home includes active pages with a fresh summary and to-dos with a work number and an
+    assignee. Checked to-dos are `done`; open to-dos are `needs-you` for that Ask state,
+    `working` for another Ask state, and `discussing` without one.
+  - Within a project, order open work by `blocked`, `possibly-stalled`, `needs-you`, `working`,
+    `waiting-ci` and `waiting-release` together, then all other states. Within each group, show
+    high priority first, then most recent activity first, then item key in locale order.
+  - The overview counts open items in the order `working`, `waiting` (CI and release combined),
+    `needs-you`, `blocked`, `possibly-stalled`, `discussing`, and `unchecked` (including
+    `unknown`). Show `discussing` and `unchecked` only when nonzero.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the

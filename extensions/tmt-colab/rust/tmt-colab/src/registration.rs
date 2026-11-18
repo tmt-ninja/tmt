@@ -94,6 +94,11 @@ pub(crate) const WORK_FACTS_PATH: &str = "/api/work-facts";
 /// Work home's owner-activity batch (#6474).
 pub(crate) const WORK_ACTIVITY_PATH: &str = "/api/work-activity";
 
+pub mod ipc {
+    /// Root-local owner-list read, admitted by the private socket.
+    pub const PAGE_LIST_PATH: &str = "/.tmt/colab/local/page-list";
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct WorkNumbersRequest {
@@ -395,13 +400,44 @@ impl Registration {
     /// its parent are resolved here across the fresh pages, never cached: they change when another
     /// page does.
     pub fn pages(&self, context: Option<&str>) -> std::result::Result<Vec<u8>, Code> {
+        Context::parse(context)?;
+        self.local_pages()
+    }
+
+    pub(crate) fn local_pages(&self) -> std::result::Result<Vec<u8>, Code> {
+        self.project_pages(true)
+    }
+
+    /// The native caller holds the owner lifecycle lock and opens a read-only source.
+    pub fn offline_pages(
+        mut source: crate::page::save::Source,
+        decoder_program: std::path::PathBuf,
+    ) -> Result<Vec<u8>> {
+        let (catalog, fingerprints) = source.store.owner_read(
+            &source.keyring.space_id,
+            &source.keyring.owner_public(),
+            |tx| Ok((tx.page_list()?, tx.page_fingerprints()?)),
+        )?;
+        let cache = std::sync::Arc::new(crate::summary::SummaryCache::default());
+        let order = crate::summary::recent_first(&catalog, &fingerprints);
+        crate::summary::run(&cache, &order, |page, _| {
+            crate::summary::summarize_details(&mut source, page)
+        });
+        let mut service = Self::new(source.store, source.keyring, decoder_program)?;
+        service.summaries = cache;
+        service
+            .project_pages(false)
+            .map_err(|code| std::io::Error::other(code.text()).into())
+    }
+
+    fn project_pages(&self, serving: bool) -> std::result::Result<Vec<u8>, Code> {
         let CatalogRead {
             mut catalog,
             fingerprints,
             titles,
             revisions,
             progress,
-        } = self.page_catalog_fingerprinted(context)?;
+        } = self.page_catalog_fingerprinted(serving)?;
         let fresh: std::collections::BTreeMap<String, crate::summary::Summary> = catalog["pages"]
             .as_array()
             .into_iter()
@@ -420,7 +456,7 @@ impl Registration {
         let parents = graph.parents();
         let archived = crate::inspection::catalog_archived_ids(&catalog);
         let now = now_ms()?;
-        let listed = self.list_statuses(fresh.keys(), &fingerprints, now);
+        let listed = self.list_statuses(fresh.keys(), &fingerprints, now, serving);
         let statuses: std::collections::BTreeMap<String, String> = listed
             .iter()
             .map(|(id, (state, _))| (id.clone(), state.clone()))
@@ -456,7 +492,7 @@ impl Registration {
                 page["summary"]["parent"] = serde_json::json!({"page": parent, "index": index});
             }
         }
-        let todos = self.observe_work(&mut catalog, &fresh, &fingerprints, &statuses, now);
+        let todos = self.observe_work(&mut catalog, &fresh, &fingerprints, &statuses, now, serving);
         if let Some(open) = &self.summary_source {
             // Every page without a fresh summary is folded in the background, newest first, so the
             // next read has more of them; this read never waits for it.
@@ -557,6 +593,7 @@ impl Registration {
         fingerprints: &std::collections::BTreeMap<String, String>,
         statuses: &std::collections::BTreeMap<String, String>,
         now: u64,
+        serving: bool,
     ) -> std::collections::BTreeMap<String, Vec<serde_json::Value>> {
         let items: std::collections::BTreeMap<_, _> = fresh
             .keys()
@@ -622,6 +659,13 @@ impl Registration {
                 complete.push((id.clone(), std::collections::HashSet::new()));
             }
         }
+        if !serving {
+            // Observe unknowns to retrieve retained times without inserting or clearing any.
+            for (_, _, present, _) in &mut observed {
+                *present = None;
+            }
+            complete.clear();
+        }
         let times = self
             .store
             .observe_work(&observed, &complete)
@@ -678,6 +722,7 @@ impl Registration {
         pages: impl Iterator<Item = &'a String>,
         fingerprints: &std::collections::BTreeMap<String, String>,
         now: u64,
+        serving: bool,
     ) -> std::collections::BTreeMap<String, (String, Option<String>)> {
         pages
             .filter_map(|id| {
@@ -700,8 +745,9 @@ impl Registration {
                             .flatten()
                     })
                 });
-                let retained =
-                    retained.and_then(|status| status["state"].as_str().map(str::to_owned));
+                let retained = retained
+                    .filter(|_| serving)
+                    .and_then(|status| status["state"].as_str().map(str::to_owned));
                 let state = retained.or_else(|| {
                     self.summaries
                         .derived_state(id, fingerprints.get(id)?, now, &|owner| {
@@ -888,7 +934,7 @@ impl Registration {
                 let current = fingerprints.get(page) == Some(&fingerprint);
                 let state = current.then(|| graph.page_state(page)).flatten();
                 // The work panel counts sub-pages as the list row does (#6474).
-                let statuses = self.list_statuses(found.keys(), &fingerprints, now_ms()?);
+                let statuses = self.list_statuses(found.keys(), &fingerprints, now_ms()?, true);
                 let status = |child: &str| statuses.get(child).map(|(state, _)| state.clone());
                 let progress = current
                     .then(|| graph.progress_by(page, &archived, &status))
@@ -929,18 +975,20 @@ impl Registration {
     /// valid for their page, all in one store transaction.
     fn page_catalog_fingerprinted(
         &self,
-        context: Option<&str>,
+        include_revisions: bool,
     ) -> std::result::Result<CatalogRead, Code> {
-        Context::parse(context)?;
         self.store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
                 let catalog = tx.page_list()?;
                 let mut revisions = std::collections::BTreeMap::new();
-                for page in catalog["pages"].as_array().into_iter().flatten() {
-                    if let Some(id) = page["pageId"].as_str()
-                        && let Some(revision) = crate::page::listed_token(tx, &self.keyring, id)?
-                    {
-                        revisions.insert(id.to_owned(), revision);
+                if include_revisions {
+                    for page in catalog["pages"].as_array().into_iter().flatten() {
+                        if let Some(id) = page["pageId"].as_str()
+                            && let Some(revision) =
+                                crate::page::listed_token(tx, &self.keyring, id)?
+                        {
+                            revisions.insert(id.to_owned(), revision);
+                        }
                     }
                 }
                 Ok(CatalogRead {

@@ -837,6 +837,30 @@ fn serve(
         }
         return;
     }
+    if request.path == registration::ipc::PAGE_LIST_PATH {
+        let result = if local_denied(&request) {
+            Err(registration::Code::Denied)
+        } else if request.method != "POST" || request.upgrade || !request.body.is_empty() {
+            Err(registration::Code::Invalid)
+        } else {
+            registration
+                .ok_or(registration::Code::Unavailable)
+                .and_then(|s| {
+                    s.lock()
+                        .map_err(|_| registration::Code::Unavailable)?
+                        .local_pages()
+                })
+        };
+        match result {
+            Ok(bytes) => {
+                let _ = response_as(&mut socket, 200, &bytes, "application/json");
+            }
+            Err(code) => {
+                let _ = response(&mut socket, code.status(), code.text().as_bytes(), false);
+            }
+        }
+        return;
+    }
     if request.path == "/.tmt" || request.path.starts_with("/.tmt/") {
         let _ = response(&mut socket, 404, b"NOT FOUND", false);
         return;
@@ -2156,6 +2180,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | "/api/session"
             | "/api/serve-release"
             | "/api/pages"
+            | registration::ipc::PAGE_LIST_PATH
             | registration::WORK_NUMBERS_PATH
             | registration::WORK_FACTS_PATH
             | registration::WORK_ACTIVITY_PATH

@@ -525,6 +525,14 @@ fn ready(socket: &UnixStream, flags: nix::poll::PollFlags, deadline: Instant) ->
     }
 }
 fn ipc(layout: &Layout, body: &[u8]) -> Result<Vec<u8>> {
+    ipc_post(
+        layout,
+        management::LOCAL_PATH,
+        body,
+        crate::IPC_RESPONSE_BYTES,
+    )
+}
+fn ipc_post(layout: &Layout, route: &str, body: &[u8], response_limit: usize) -> Result<Vec<u8>> {
     let path = layout.directory.join(tmt_colab::socket::SOCKET);
     let m = std::fs::symlink_metadata(&path)?;
     if !m.file_type().is_socket()
@@ -539,8 +547,7 @@ fn ipc(layout: &Layout, body: &[u8]) -> Result<Vec<u8>> {
     let mut socket = UnixStream::connect(path)?;
     let deadline = Instant::now() + Duration::from_secs(4);
     let header = format!(
-        "POST {} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        management::LOCAL_PATH,
+        "POST {route} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     socket.set_nonblocking(true)?;
@@ -568,7 +575,7 @@ fn ipc(layout: &Layout, body: &[u8]) -> Result<Vec<u8>> {
                 Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted) => continue,
                 Err(e) => return Err(e.into()),
             }
-            if response.len() > crate::IPC_RESPONSE_BYTES { return Err(input("IPC response exceeds its bound.")); }
+            if response.len() > response_limit { return Err(input("IPC response exceeds its bound.")); }
         }
         Ok(response)
     })().map_err(|cause| fail("COLAB_OUTCOME_UNKNOWN", &format!("Management IPC interrupted ({cause}); effects may have committed. Inspect state before retrying the same ID, revision and selections.")))?;
@@ -622,6 +629,49 @@ fn ipc(layout: &Layout, body: &[u8]) -> Result<Vec<u8>> {
         return Err(management_error(code.text()));
     }
     Ok(exchange[offset..].to_vec())
+}
+const WORK_HOME_IPC_RESPONSE_BYTES: usize =
+    tmt_colab::limits::DISCOVERY_BYTES + crate::IPC_RESPONSE_BYTES;
+
+fn work_home_summaries(root: &Path, layout: &Layout, catalog: &mut Value) -> Result<()> {
+    let bytes = match layout.serve_lock() {
+        Ok(_lock) => {
+            let program = std::env::current_exe()?;
+            let source = tmt_colab::page::save::open_source(
+                root,
+                tmt_colab::decoder::Config::new(program.clone()),
+            )?;
+            Registration::offline_pages(source, program)?
+        }
+        Err(error) if error.downcast_ref::<StateFault>() == Some(&StateFault::AlreadyServing) => {
+            ipc_post(
+                layout,
+                tmt_colab::registration::ipc::PAGE_LIST_PATH,
+                &[],
+                WORK_HOME_IPC_RESPONSE_BYTES,
+            )?
+        }
+        Err(error) => return Err(error),
+    };
+    let projected: Value = serde_json::from_slice(&bytes)?;
+    let revision = catalog["membershipHead"]["revision"]
+        .as_str()
+        .unwrap_or("0");
+    if projected["revision"] != revision || projected["spaceId"] != catalog["spaceId"] {
+        return Err(management_error("STALE_HEAD"));
+    }
+    let mut summaries: std::collections::BTreeMap<_, _> = projected["pages"]
+        .as_array()
+        .ok_or_else(|| input("Invalid owner page list."))?
+        .iter()
+        .filter_map(|page| Some((page["pageId"].as_str()?, page.get("summary")?)))
+        .collect();
+    for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+        if let Some(summary) = page["pageId"].as_str().and_then(|id| summaries.remove(id)) {
+            page["summary"] = summary.clone();
+        }
+    }
+    Ok(())
 }
 fn management_error(code: &str) -> Box<dyn std::error::Error + Send + Sync> {
     if code == "TEMPLATE_CHANGED" {
@@ -1063,6 +1113,27 @@ fn attach_migration_warning(graph: &tmt_colab::work_links::Graph<'_>, page: &mut
 }
 
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
+    let include_work = command == "ls" && json_output && args.get_flag("work");
+    let result = run_once(command, args, root, json_output, include_work);
+    if include_work
+        && result.as_ref().err().is_some_and(|error| {
+            error
+                .downcast_ref::<ManagementFault>()
+                .is_some_and(|fault| fault.code == "COLAB_STALE_HEAD")
+        })
+    {
+        return run_once(command, args, root, json_output, include_work);
+    }
+    result
+}
+
+fn run_once(
+    command: &str,
+    args: &ArgMatches,
+    root: &Path,
+    json_output: bool,
+    include_work: bool,
+) -> Result<()> {
     let layout = Layout::existing(root)?;
     let Some(layout) = layout else {
         if command == "ls" {
@@ -1243,6 +1314,9 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
         let listed = catalog["pages"].as_array().is_some_and(|p| !p.is_empty());
         if json_output {
+            if include_work {
+                work_home_summaries(root, &layout, &mut catalog)?;
+            }
             let mut facts = json!({});
             reach.annotate(&mut facts, "");
             catalog["paired"] = facts["paired"].take();

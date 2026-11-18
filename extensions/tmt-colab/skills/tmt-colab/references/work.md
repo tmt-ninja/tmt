@@ -10,6 +10,8 @@ state and progress buckets. The browser shows them in the compact panel below th
 for the sub-page list. A shared reader shows the verified state with progress unavailable.
 `tmt colab ls` shows only current cached work and parent links; missing/stale entries are omitted
 without reading page content. Use `subpage ls PAGE` for freshly folded work.
+Use `tmt colab ls --json --work` for Work home summaries. It reads the owner list from a running
+serve or folds pages from the local store when Colab is offline.
 
 A request from a Colab comment on a block page can end with a to-do it became: `To-do: TEXT` and
 `Check it when done: tmt colab block props PAGE BLOCK --set checked=true`. Run that command when the
