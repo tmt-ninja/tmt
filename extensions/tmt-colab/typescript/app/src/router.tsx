@@ -146,6 +146,7 @@ import {
 } from './thread-records.js';
 import { Home, validateHomeSearch } from './home.js';
 import { WorkHome } from './work-home.js';
+import { validateWorkSearch } from './work-home-model.js';
 import { HomeReadFailure, isOrdinaryListReadFailure } from './home-load-error.js';
 import { ColdPageList } from './home-cold.js';
 import { PageListError, PageListLoading } from '@tmt/browser-ui/data-table';
@@ -1026,6 +1027,7 @@ const home = createRoute({
 const work = createRoute({
   getParentRoute: () => root,
   path: '/work',
+  validateSearch: validateWorkSearch,
   // Ages and periods are measured from when this list was read, so a render stays pure.
   loader: async (options) => ({ ...(await loadSpaceHome(options)), readAt: Date.now() }),
   component: WorkHome,
@@ -4051,6 +4053,10 @@ export function createAppRouter(
       designPage,
     ]),
     history,
+    // Back and Forward return to where a list was scrolled (#6612). Each history entry has its own
+    // place, so a new visit to the same address starts at the top as before.
+    scrollRestoration: true,
+    getScrollRestorationKey: (location) => location.state.__TSR_key ?? location.href,
     // In the TMT app the router's paths sit under /colab/, or at the root when the shell mounted
     // this module for Design at /design/ (#5873), where its /design routes match as they are.
     ...(inShell() ? { basepath: designBase() === '/design' ? '/' : '/colab' } : {}),

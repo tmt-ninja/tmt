@@ -1,5 +1,6 @@
 import type { ListStatus, TodoAsk } from './bootstrap.js';
 import { text } from './strings.js';
+import { projectNameError } from './projects.js';
 import type { PageSummary } from './transport.js';
 
 /**
@@ -43,6 +44,44 @@ export const OVERVIEW = [
 export type OverviewStatus = (typeof OVERVIEW)[number];
 /** Shown only when non-zero: the spec's overview counts five statuses (#6574 review). */
 export const HIDDEN_WHEN_ZERO: ReadonlySet<OverviewStatus> = new Set(['discussing', 'unchecked']);
+
+/**
+ * Work home's view in its URL (#6612), so Back, Forward, a reload and a pasted link open the same
+ * view: the project, the done period (`week` is the absence of the key), the overview status the
+ * sections are narrowed to, the done-chart cell (its start time) and the expanded sections (`''`
+ * names the section of work in no project). A value it cannot read is dropped: the default view.
+ */
+export interface WorkSearch {
+  project?: string;
+  period?: 'today' | 'month';
+  status?: OverviewStatus;
+  day?: number;
+  more?: string[];
+}
+const projectName = (name: unknown): name is string =>
+  typeof name === 'string' && projectNameError(name) === undefined;
+/** Every key is named, so one it cannot read replaces the raw value rather than reaching the page. */
+export function validateWorkSearch(search: Record<string, unknown>): WorkSearch {
+  const out: WorkSearch = {
+    project: undefined,
+    period: undefined,
+    status: undefined,
+    day: undefined,
+    more: undefined,
+  };
+  if (projectName(search.project)) out.project = search.project;
+  if (search.period === 'today' || search.period === 'month') out.period = search.period;
+  out.status = OVERVIEW.find((status) => status === search.status);
+  const day = Number(search.day);
+  if (Number.isSafeInteger(day) && day > 0) out.day = day;
+  if (Array.isArray(search.more)) {
+    const names = [
+      ...new Set(search.more.filter((name) => name === '' || projectName(name))),
+    ].slice(0, 32) as string[];
+    if (names.length) out.more = names;
+  }
+  return out;
+}
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;

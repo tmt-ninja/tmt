@@ -172,7 +172,7 @@ export function Home() {
   const currentShortcut = shortcuts.items.find((item) => item.id === search.shortcut);
   function savedShortcut(item: Shortcut) {
     setShortcutDialog(undefined);
-    void navigate({ search: { ...item.search, shortcut: item.id }, replace: true });
+    void navigate({ search: { ...item.search, shortcut: item.id } });
   }
 
   // The owner folds summaries in the background: while an active page has none the list reads
@@ -296,8 +296,10 @@ export function Home() {
   useEffect(() => setNow(Date.now()), [space.pages, archived]);
   useSpaceTitle(space.title, text.product);
 
+  // Each applied change is a history entry, so Back and Forward restore the filters (#6612); the
+  // search text applies on Enter, never per keystroke.
   function setSearch(patch: Partial<HomeSearch>) {
-    void navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
+    void navigate({ search: (previous) => ({ ...previous, ...patch }) });
   }
   /** The choice is the default the next visit opens on; All pages removes it. */
   // The side menu lists shortcuts, not projects: the owner's explicit pinned projects become

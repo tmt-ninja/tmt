@@ -3,7 +3,7 @@ import './work-home.css';
 import { BrowserAvatar } from '@tmt/browser-ui/react';
 import { Popover, PopoverContent, PopoverTrigger, UiTheme } from '@tmt/browser-ui/ui';
 import { getTheme, subscribeTheme } from './theme.js';
-import { getRouteApi, Link, useRouter } from '@tanstack/react-router';
+import { getRouteApi, Link, useLocation, useRouter } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppHeader } from './app-header.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
@@ -25,8 +25,12 @@ import {
   type OverviewStatus,
   type Period,
   type WorkItem,
+  type WorkSearch,
   workItems,
 } from './work-home-model.js';
+
+/** Set on a Work home entry whose URL is its whole view (#6612). */
+type WorkEntry = { workView?: true };
 
 const rootRoute = getRouteApi('__root__');
 const workRoute = getRouteApi('/work');
@@ -55,27 +59,21 @@ const doneLabel = (at: number, now: number) => {
     : `${dateLabel(at)} ${time}`;
 };
 
-/** The chosen project, remembered in this browser only. */
-function useProject(): [string | undefined, (project: string | undefined) => void] {
-  const [project, setProject] = useState<string | undefined>(() => {
-    try {
-      return localStorage.getItem(PROJECT_KEY) ?? undefined;
-    } catch {
-      return undefined;
-    }
-  });
-  return [
-    project,
-    (next) => {
-      setProject(next);
-      try {
-        if (next === undefined) localStorage.removeItem(PROJECT_KEY);
-        else localStorage.setItem(PROJECT_KEY, next);
-      } catch {
-        // A browser without storage keeps the choice for this visit only.
-      }
-    },
-  ];
+/** The project this browser remembers; the URL's choice comes first (#6612). */
+function storedProject(): string | undefined {
+  try {
+    return localStorage.getItem(PROJECT_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+function storeProject(project: string | undefined) {
+  try {
+    if (project === undefined) localStorage.removeItem(PROJECT_KEY);
+    else localStorage.setItem(PROJECT_KEY, project);
+  } catch {
+    // A browser without storage keeps the choice in the URL only.
+  }
 }
 
 /**
@@ -273,11 +271,34 @@ export function WorkHome() {
   const router = useRouter();
   const { pages } = useHomeSpace(space);
   const now = space.readAt;
-  const [project, setProject] = useProject();
-  const [period, setPeriod] = useState<Period>('week');
-  const [only, setOnly] = useState<OverviewStatus>();
-  const [cell, setCell] = useState<number>();
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  // The view is the URL (#6612): each change is a history entry, so Back and Forward restore it.
+  const search = workRoute.useSearch();
+  const navigate = workRoute.useNavigate();
+  const entry = useLocation({ select: (location) => (location.state as WorkEntry).workView });
+  const go = (patch: Partial<WorkSearch>, replace = false) => {
+    const same = (Object.keys(patch) as (keyof WorkSearch)[]).every(
+      (key) => JSON.stringify(patch[key]) === JSON.stringify(search[key]),
+    );
+    if (same) return;
+    void navigate({
+      search: (previous) => ({ ...previous, ...patch }),
+      state: (previous) => ({ ...previous, workView: true }) as typeof previous,
+      replace,
+      resetScroll: false,
+    });
+  };
+  // The remembered project applies only to an entry whose URL names none and that no choice here
+  // made: an entry reached by Back after choosing All stays All.
+  const remembered = !entry && search.project === undefined ? storedProject() : undefined;
+  useEffect(() => {
+    if (remembered !== undefined) go({ project: remembered }, true);
+    // `go` is rebuilt each render; the remembered name is the whole dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remembered]);
+  const project = search.project ?? remembered;
+  const period: Period = search.period ?? 'week';
+  const only = search.status;
+  const expanded = new Set(search.more);
   const [newPage, setNewPage] = useState(false);
   useSpaceTitle(t.title, 'Colab');
   const all = useMemo(() => workItems(pages), [pages]);
@@ -298,7 +319,10 @@ export function WorkHome() {
   const sections = projectSections(items, scope === undefined ? projectNames : [scope], now).filter(
     (section) => scope === undefined || section.name === scope,
   );
-  const chosen = cell === undefined ? undefined : chart.cells[cell];
+  // A day from another period or an older reading names no cell: the whole recent list.
+  const cell =
+    search.day === undefined ? -1 : chart.cells.findIndex((entry) => entry.from === search.day);
+  const chosen = cell < 0 ? undefined : chart.cells[cell];
   const recent = recentlyDone(items, 10, chosen);
   const doneToday = doneChart(items, 'today', now).total;
   const openIn = (name: string | undefined) =>
@@ -358,8 +382,8 @@ export function WorkHome() {
                 className="work-home-project"
                 aria-pressed={scope === name}
                 onClick={() => {
-                  setProject(name);
-                  setCell(undefined);
+                  storeProject(name);
+                  go({ project: name, day: undefined, more: undefined });
                 }}
               >
                 {name ?? t.all}
@@ -386,7 +410,7 @@ export function WorkHome() {
                     aria-pressed={only === status}
                     aria-label={`${now7.counts[status]} ${t.status[status]}`}
                     data-zero={now7.counts[status] === 0 ? '' : undefined}
-                    onClick={() => setOnly(only === status ? undefined : status)}
+                    onClick={() => go({ status: only === status ? undefined : status })}
                   >
                     <span className="tmt-ui-work-count-number">{now7.counts[status]}</span>
                     <span className="tmt-ui-work-count-label">
@@ -445,10 +469,9 @@ export function WorkHome() {
                     key={choice}
                     type="button"
                     aria-pressed={period === choice}
-                    onClick={() => {
-                      setPeriod(choice);
-                      setCell(undefined);
-                    }}
+                    onClick={() =>
+                      go({ period: choice === 'week' ? undefined : choice, day: undefined })
+                    }
                   >
                     {t.periods[choice]}
                   </button>
@@ -467,7 +490,7 @@ export function WorkHome() {
                     aria-label={t.doneCell(cellLabel(index), entry.count)}
                     aria-pressed={cell === index}
                     data-current={entry.current ? '' : undefined}
-                    onClick={() => setCell(cell === index ? undefined : index)}
+                    onClick={() => go({ day: cell === index ? undefined : entry.from })}
                   >
                     <span className="tmt-ui-work-done-track">
                       <span aria-hidden="true">{entry.count || ''}</span>
@@ -491,7 +514,11 @@ export function WorkHome() {
         <h2 className="work-home-heading">
           {t.projects} <span>{sections.filter((section) => section.name).length}</span>
           {only ? (
-            <button type="button" className="work-home-clear" onClick={() => setOnly(undefined)}>
+            <button
+              type="button"
+              className="work-home-clear"
+              onClick={() => go({ status: undefined })}
+            >
               {t.showAll}
             </button>
           ) : null}
@@ -545,14 +572,12 @@ export function WorkHome() {
                   type="button"
                   className="work-home-more"
                   aria-expanded={open}
-                  onClick={() =>
-                    setExpanded((previous) => {
-                      const next = new Set(previous);
-                      if (open) next.delete(key);
-                      else next.add(key);
-                      return next;
-                    })
-                  }
+                  onClick={() => {
+                    const next = new Set(expanded);
+                    if (open) next.delete(key);
+                    else next.add(key);
+                    go({ more: next.size ? [...next] : undefined });
+                  }}
                 >
                   {open ? t.showFewer : t.showMore(rows.length - SHOWN)}
                 </button>
@@ -562,10 +587,14 @@ export function WorkHome() {
         })}
 
         <h2 className="work-home-heading">
-          {chosen ? t.recentIn(cellLabel(cell!)) : t.recent}{' '}
+          {chosen ? t.recentIn(cellLabel(cell)) : t.recent}{' '}
           {!chosen ? <span>{t.recentCount(doneToday)}</span> : null}
           {chosen ? (
-            <button type="button" className="work-home-clear" onClick={() => setCell(undefined)}>
+            <button
+              type="button"
+              className="work-home-clear"
+              onClick={() => go({ day: undefined })}
+            >
               {t.clearDay}
             </button>
           ) : null}
