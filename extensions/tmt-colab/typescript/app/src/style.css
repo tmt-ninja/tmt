@@ -575,6 +575,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .structured-page-stage .tmt-block-doc-body {
   --tmt-block-gutter: var(--colab-block-inset);
 }
+/* The text a new block annotation quotes stays marked while its window is open (#6611). */
+::highlight(colab-annotating) {
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 16%, transparent);
+  color: inherit;
+}
 .structured-page-stage[data-annotation-mode] .tmt-block {
   cursor: crosshair;
 }

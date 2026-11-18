@@ -2137,12 +2137,17 @@ function OpenPage({
   };
   const selectBlockRef = useRef(selectBlock);
   selectBlockRef.current = selectBlock;
+  // The text a block selection quotes, and the whole-block annotations from Selection mode, which
+  // title their window "Annotate the block"; a text selection's says "Annotate the selection".
+  const blockQuote = useRef<Range | null>(null);
+  const wholeBlocks = useRef(new Set<string>());
   // A block page's text is its editor, in the parent document: a text selection in one block
   // offers the same Annotate control an HTML page's selection does, without Selection mode (#6611).
   const blockPage = view.pageType === 'blocks';
   useEffect(() => {
     if (!blockPage || !canSelect || selectionMode) return;
     let reported = false;
+    blockQuote.current = null;
     const change = () => {
       // An open window moves focus to its composer; that is not a new selection.
       if (annotationRef.current) return;
@@ -2159,6 +2164,7 @@ function OpenPage({
       const value = own?.toString().trim();
       if (own && !own.collapsed && value && block && stage?.contains(block)) {
         reported = selectBlockRef.current(value, block, own.getBoundingClientRect());
+        if (reported) blockQuote.current = own;
       } else if (reported) {
         reported = false;
         onSelection(null, null);
@@ -2171,6 +2177,17 @@ function OpenPage({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onSelection only sets state
   }, [blockPage, canSelect, selectionMode, annotationRef]);
+  // The composer takes focus from the editor, which drops the selection; a decoration keeps the
+  // quoted text marked while its window is open, as an HTML page's frame keeps its selection.
+  const quoting = !!annotation && !annotation.thread && blockPage;
+  useEffect(() => {
+    const range = blockQuote.current;
+    if (!quoting || !range || range.collapsed || typeof Highlight === 'undefined') return;
+    CSS.highlights.set('colab-annotating', new Highlight(range));
+    return () => {
+      CSS.highlights.delete('colab-annotating');
+    };
+  }, [quoting, annotation?.key]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       const target = event.target;
@@ -3318,8 +3335,12 @@ function OpenPage({
                       );
                       if (thread) openThread(thread.ref, { revealInPage: false });
                     }}
-                    onAnnotateBlock={(value, block) => {
-                      if (selectBlock(value, block, block.getBoundingClientRect())) annotate();
+                    onAnnotateBlock={(value, block, whole) => {
+                      blockQuote.current = null;
+                      if (!selectBlock(value, block, block.getBoundingClientRect())) return;
+                      if (whole && currentSelector.current)
+                        wholeBlocks.current.add(JSON.stringify(currentSelector.current));
+                      annotate();
                     }}
                     binding={liveError || archived ? undefined : snapshot.binding}
                     workSource={workSource}
@@ -3655,6 +3676,9 @@ function OpenPage({
                       : undefined
                   }
                   anchor={item.selector ?? undefined}
+                  wholeBlock={
+                    !!item.selector && wholeBlocks.current.has(JSON.stringify(item.selector))
+                  }
                   layout="anchored"
                   attached={
                     view.pageType === 'blocks' && !item.thread

@@ -173,6 +173,14 @@ test('a comment on a structured block survives reopening', async () => {
     for (const _ of 'launch.') await page.keyboard.press('Shift+ArrowLeft');
     await page.getByRole('button', { name: 'Annotate', exact: true }).click();
     const annotation = page.locator('.annotation-popover');
+    // Titled and marked as an HTML page's selection: the quoted text stays marked while it is open.
+    await expect(annotation.getByText('Annotate the selection', { exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(() => {
+        const marked = [...(CSS.highlights.get('colab-annotating') ?? [])];
+        return marked.map((range) => range.toString());
+      }),
+    ).toEqual(['launch.']);
     await annotation.getByRole('combobox', { name: 'Message' }).fill('Please check this block.');
     await annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     await expect(page.getByText('Please check this block.', { exact: true })).toBeVisible();
@@ -191,6 +199,7 @@ test('a comment on a structured block survives reopening', async () => {
     const preview = page.locator(`[data-block-id="${mockup}"]`);
     await preview.locator('.tmt-block-mockup-viewport').click();
     const mockupComment = page.locator('.annotation-popover');
+    await expect(mockupComment.getByText('Annotate the block', { exact: true })).toBeVisible();
     await mockupComment.getByRole('combobox', { name: 'Message' }).fill('Review this mockup.');
     await mockupComment.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     await expect(preview.getByRole('button', { name: 'Open comment 2' })).toBeAttached();

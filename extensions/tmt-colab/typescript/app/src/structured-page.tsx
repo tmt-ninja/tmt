@@ -110,7 +110,8 @@ export interface StructuredPageProps {
   todoNumbers?: Readonly<Record<string, string>>;
   /** Selection mode annotates the block instead of starting an edit. */
   annotationMode?: boolean;
-  onAnnotateBlock?(text: string | undefined, block: HTMLElement): void;
+  /** `whole` when no text in the block was selected: the block itself is annotated. */
+  onAnnotateBlock?(text: string | undefined, block: HTMLElement, whole: boolean): void;
   annotations?: ReadonlyMap<string, readonly { id: string; ordinal: number; open: boolean }[]>;
   onOpenAnnotation?(id: string): void;
   /** The focused text block's (or table cell's, by row and `column`) text while it is edited, and
@@ -544,7 +545,7 @@ function Blocks({
               ? selection.toString().trim()
               : '';
           const text = selected || block.text?.trim();
-          rest.onAnnotateBlock?.(text || undefined, event.currentTarget);
+          rest.onAnnotateBlock?.(text || undefined, event.currentTarget, !selected);
           return;
         }
         if (!rest.readonly && TEXT_TYPES.has(block.type)) rest.onFocus?.(block.id);
