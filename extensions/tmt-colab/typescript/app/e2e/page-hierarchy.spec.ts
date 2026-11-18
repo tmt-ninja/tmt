@@ -31,7 +31,9 @@ for (const width of [1440, 1100, 800, 390])
     await page.setViewportSize({ width, height: 900 });
     await mount(page, 'work-fields');
     const work = page.getByRole('region', { name: 'Work on this page' });
-    await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-128');
+    // The number shows in the page's title and again in the top bar (#6611).
+    await expect(page.locator('.page-mobile-title h1 .colab-work-number')).toHaveText('COLAB-128');
+    await expect(page.locator('.tmt-ui-topbar:visible .colab-work-number')).toHaveText('COLAB-128');
     await expect(work.locator('.work-head').getByLabel('Priority high')).toBeVisible();
     await expect(work.locator('.work-owner-chip')).toBeVisible();
     await expect(

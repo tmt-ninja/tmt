@@ -508,7 +508,9 @@ test('one-row fitting retains full labels, stable content and compact action aut
   const titleHandle = await heading.elementHandle();
   for (const width of [800, 640, 390, 320, 1440]) {
     await page.setViewportSize({ width, height: 900 });
-    await expect(header.locator('.tmt-ui-caption'))[width <= 900 ? 'toBeHidden' : 'toBeVisible']();
+    // The status stays beside the title at every width; the bar names no author (#6611).
+    await expect(header.locator('.page-bar-status')).toBeVisible();
+    await expect(header.locator('.tmt-ui-caption')).toHaveCount(0);
     // The shell carries the mark at every width (the rail, or the phone's menu button), not the bar.
     await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
     await expect(
