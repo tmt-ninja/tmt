@@ -11,6 +11,7 @@ pub(in crate::board) struct Info<'a> {
     /// The new-line key the board names, the same source as the footer caption.
     pub newline: crate::board::app::NewlineKey,
     pub checklist: bool,
+    pub checklist_reference: bool,
     pub unread: Count,
     pub open: Option<usize>,
     pub context: Option<ContextUsage>,
@@ -133,6 +134,14 @@ impl Info<'_> {
                 },
             )
         };
+        let with_reference = format!("{right}  # item");
+        let right = if self.checklist_reference
+            && left.width() + with_reference.width() + 2 <= usize::from(line.width)
+        {
+            &with_reference
+        } else {
+            right
+        };
         let width = right.width().min(usize::from(line.width)) as u16;
         let right_area = Rect::new(line.right() - width, line.y, width, 1);
         // The short Checklist label needs only one separator cell, so it fits
@@ -190,6 +199,7 @@ mod tests {
                 name: "worker",
                 shell: None,
                 checklist: true,
+                checklist_reference: true,
                 newline,
                 unread: Count::default(),
                 open: Some(0),
@@ -202,7 +212,9 @@ mod tests {
             let left = info.left(true, true, Look::default()).width();
             let original = format!("⏎ send  {glyph} new line  @ mention");
             assert_eq!(left + 1 + short.width(), left + 2 + original.width() + 3);
+            let with_reference = format!("{full}  # item");
             for (width, hint) in [
+                (left + 2 + with_reference.width(), with_reference.as_str()),
                 (left + 2 + full.width(), full.as_str()),
                 (left + 1 + short.width(), short.as_str()),
                 (30, keys.as_str()),
@@ -230,6 +242,7 @@ mod tests {
             name: "worker",
             shell: None,
             checklist: false,
+            checklist_reference: false,
             newline: crate::board::app::NewlineKey::Alt,
             unread: Count::default(),
             open: Some(0),
@@ -271,6 +284,7 @@ mod tests {
                 name: "worker-1",
                 shell: None,
                 checklist: false,
+                checklist_reference: false,
                 newline: key,
                 unread: Count::default(),
                 open: Some(0),
@@ -302,6 +316,7 @@ mod tests {
                 name: "worker",
                 shell: None,
                 checklist: false,
+                checklist_reference: false,
                 newline: key,
                 unread: Count::default(),
                 open: Some(0),

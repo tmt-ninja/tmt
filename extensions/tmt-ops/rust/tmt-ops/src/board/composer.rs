@@ -159,6 +159,7 @@ impl App {
                 && !self.modal_open()
                 && !self.bindings().contains_key("ctrl-l")
                 && self.conversation_checklist_key().is_some(),
+            checklist_reference: projection.focused && self.checklist_reference_key().is_some(),
             unread: identity.map_or_else(Default::default, |id| self.unread_count(id)),
             open: row
                 .and_then(|row| row["waitingOnYou"].as_array())

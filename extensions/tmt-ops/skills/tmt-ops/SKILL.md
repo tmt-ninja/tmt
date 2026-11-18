@@ -1709,8 +1709,13 @@ least three rows, a blank padding row above and below the text, growing upward
 without moving its info line. Focus changes only the fill, never the height.
 Terminals under 28 rows give the padding up and keep the one-row box. The line below
 shows the recipient, acquired unread/open-request counts, optional running-session
-context usage and `⏎ send  Alt+⏎ new line  @ mention`; narrow widths shorten the
-words before dropping keys. Unknown context is omitted, not estimated.
+context usage and `⏎ send  Alt+⏎ new line  @ mention`. When Talk has a member
+Checklist, the hint adds `# item` where it fits. Type `#` to pick an item from that
+member's list. Enter or Tab inserts `#Title (id)` as one editable unit. In the
+Checklist page, `r` quotes the selected item into Talk. A resolved reference in the
+transcript opens a menu with `Open in checklist`, which selects the item.
+Narrow widths shorten the existing hints before dropping keys. Unknown context
+is omitted, not estimated.
 Default Enter or a click focuses it; list actions remain available while idle.
 At eight terminal rows, the Agents composer fills the body and member rows are
 hidden. Esc leaves typing with the draft kept; ↑/↓ still change the selected target.

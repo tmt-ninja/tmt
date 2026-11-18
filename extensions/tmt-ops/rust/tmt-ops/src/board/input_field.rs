@@ -69,13 +69,13 @@ pub(in crate::board) fn rows(
 
 #[derive(Clone, Copy)]
 pub(in crate::board) enum Caption<'a> {
-    Message(&'a str),
+    Message { to: &'a str, checklist: bool },
     Note { to: &'a str },
 }
 impl Caption<'_> {
     fn recipient(self) -> String {
         super::notes::single_line(match self {
-            Self::Message(to) | Self::Note { to, .. } => to,
+            Self::Message { to, .. } | Self::Note { to, .. } => to,
         })
     }
 }
@@ -149,9 +149,35 @@ pub(in crate::board) fn paint(
         box_area.height - 2 * pad,
     );
     if draft_rows.is_none() && !editor.is_empty() {
+        use ratatui::text::Span;
+        let muted = muted_style(look, focused);
+        let key = base.add_modifier(Modifier::BOLD);
         let placeholder = match caption {
-            Caption::Message(_) => format!("{start} to message {}", caption.recipient()),
-            Caption::Note { .. } => format!("{start} note to {}", caption.recipient()),
+            Caption::Message { checklist, .. } => {
+                let mut line = Line::from(vec![
+                    Span::styled(start, key),
+                    Span::styled(format!(" to message {}", caption.recipient()), muted),
+                ]);
+                for (symbol, description) in [
+                    ("@", " mention an agent"),
+                    ("#", " reference a checklist item"),
+                ] {
+                    if (symbol == "#" && !checklist)
+                        || line.width() + description.len() + 4 > usize::from(editor.width)
+                    {
+                        break;
+                    }
+                    line.spans.extend([
+                        Span::styled(" · ", muted),
+                        Span::styled(symbol, key),
+                        Span::styled(description, muted),
+                    ]);
+                }
+                line
+            }
+            Caption::Note { .. } => {
+                Line::styled(format!("{start} note to {}", caption.recipient()), muted)
+            }
         };
         strip::paint_left(
             buffer,
@@ -159,7 +185,7 @@ pub(in crate::board) fn paint(
                 height: 1,
                 ..editor
             },
-            Line::styled(placeholder, muted_style(look, focused)),
+            placeholder,
         );
     }
     editor
@@ -227,12 +253,15 @@ mod tests {
                     theme: Theme::new(base),
                     depth,
                 };
-                let area = Rect::new(0, 0, 60, MAX_BOX_ROWS + 1);
+                let area = Rect::new(0, 0, 120, MAX_BOX_ROWS + 1);
                 let mut buffer = Buffer::empty(area);
                 let editor = paint(
                     &mut buffer,
                     area,
-                    Caption::Message("worker"),
+                    Caption::Message {
+                        to: "worker",
+                        checklist: true,
+                    },
                     "⏎",
                     focused,
                     Shape {
@@ -246,7 +275,21 @@ mod tests {
                     background(&buffer[(area.right() - 1, editor.y)]),
                     "{base:?}/{depth:?}, focused={focused}: a muted placeholder must not change the box fill"
                 );
-                let placeholder = &buffer[(editor.x, editor.y)];
+                let text: String = (editor.x..editor.right())
+                    .map(|x| buffer[(x, editor.y)].symbol())
+                    .collect();
+                let expected =
+                    "⏎ to message worker · @ mention an agent · # reference a checklist item";
+                assert_eq!(text.trim_end(), expected);
+                for (offset, character) in expected.chars().enumerate() {
+                    assert_eq!(
+                        buffer[(editor.x + offset as u16, editor.y)]
+                            .modifier
+                            .contains(Modifier::BOLD),
+                        matches!(character, '⏎' | '@' | '#'),
+                    );
+                }
+                let placeholder = &buffer[(editor.x + 2, editor.y)];
                 let padding = &buffer[(area.right() - 1, editor.y)];
                 if padding.modifier.contains(Modifier::REVERSED) {
                     assert_eq!(placeholder.bg, padding.bg, "keep the inverted text ink");
@@ -275,7 +318,10 @@ mod tests {
             let editor = paint(
                 &mut buffer,
                 area,
-                Caption::Message("worker"),
+                Caption::Message {
+                    to: "worker",
+                    checklist: true,
+                },
                 "⏎",
                 focused,
                 Shape {
@@ -327,7 +373,10 @@ mod tests {
         let editor = paint(
             &mut buffer,
             area,
-            Caption::Message("worker"),
+            Caption::Message {
+                to: "worker",
+                checklist: true,
+            },
             "⏎",
             true,
             Shape {
@@ -343,7 +392,10 @@ mod tests {
         let editor = paint(
             &mut buffer,
             area,
-            Caption::Message("worker"),
+            Caption::Message {
+                to: "worker",
+                checklist: true,
+            },
             "⏎",
             true,
             Shape {
@@ -436,7 +488,10 @@ mod viewport_tests {
                     let editor = paint(
                         &mut buffer,
                         area,
-                        Caption::Message("worker"),
+                        Caption::Message {
+                            to: "worker",
+                            checklist: true,
+                        },
                         "⏎",
                         focused,
                         Shape {

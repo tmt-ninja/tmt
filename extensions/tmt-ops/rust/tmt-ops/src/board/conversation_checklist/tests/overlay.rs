@@ -1864,3 +1864,76 @@ fn reopen_keeps_the_focused_field_when_the_discard_line_appears() {
         "Enter saves; it never discards"
     );
 }
+
+#[test]
+fn talk_completes_a_member_item_and_checklist_r_quotes_it() {
+    let item = todo(1);
+    let reference = format!("#item 1 ({})", item.item.id.short_in([&item.item.id]));
+    let (mut app, _) = read_with(vec![item]);
+    press(&mut app, KeyCode::Enter);
+    type_text(&mut app, "#item");
+    assert_eq!(app.mentions.completion.matches.len(), 1);
+    press(&mut app, KeyCode::Tab);
+    let editor = &app.input.as_ref().unwrap().text;
+    assert_eq!(editor.as_str(), format!("{reference} "));
+    assert!(!editor.folds()[0].expanded);
+    press(&mut app, KeyCode::Backspace);
+    press(&mut app, KeyCode::Backspace);
+    assert!(app.input.as_ref().unwrap().text.is_empty());
+    type_text(&mut app, "draft");
+    press_with(&mut app, KeyCode::Char('l'), KeyModifiers::CONTROL);
+    press(&mut app, KeyCode::Char('r'));
+    assert!(app.notes_overlay.is_none());
+    let text = app.input.as_ref().unwrap().text.as_str();
+    assert!(
+        text.contains("draft") && text.contains(&reference),
+        "{text:?}"
+    );
+}
+
+#[test]
+fn transcript_reference_only_offers_to_open_its_item() {
+    let second = todo(2);
+    let reference = format!(
+        "#item 2 ({})",
+        second.item.id.short_in([&todo(1).item.id, &second.item.id])
+    );
+    let (mut app, _) = read_with(vec![todo(1), second]);
+    app.focus = 1;
+    let source = format!("{reference}, #missing (deadbeef), and `{reference}`");
+    let mapped =
+        crate::board::markdown::render_conversation_with_members(&source, 100, app.look(), None);
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|frame| {
+            app.member_links.borrow_mut().begin_frame(frame.area());
+            crate::board::member_links::paint_hits(
+                frame,
+                &app,
+                frame.area(),
+                0,
+                mapped.lines.len(),
+                &mapped.mentions,
+                crate::board::member_links::Paint {
+                    reader: true,
+                    role: tmt_cli_style::Role::Text,
+                },
+            );
+        })
+        .unwrap();
+
+    assert!(
+        app.member_link_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
+            .is_some()
+    );
+    assert!(
+        app.member_link_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            .is_some()
+    );
+    let entries = &app.menu.as_ref().expect("reference menu").entries;
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].label, "Open in checklist");
+    press(&mut app, KeyCode::Enter);
+    let controller = app.notes_overlay.as_ref().expect("Checklist page");
+    assert_eq!(controller.reveal.borrow().as_ref(), Some(&todo(2).item.id));
+}

@@ -218,6 +218,25 @@ impl Controller {
                 }
                 KeyCode::Char('a') if plain(key) => return self.begin(app, Draft::add()),
                 KeyCode::Char('e') if plain(key) => return self.edit(app, &items),
+                KeyCode::Char('r') if plain(key) && self.can_reference(app) => {
+                    let Some((current, item)) = self.reference_selection(&app.notes) else {
+                        return Effect::None;
+                    };
+                    let text = super::reference_text(current, item);
+                    let previous_len = app
+                        .input
+                        .as_ref()
+                        .map_or(0, |input| input.text.as_str().len());
+                    let effect = app.add_chat_quote("Checklist".into(), text);
+                    if app
+                        .input
+                        .as_ref()
+                        .is_some_and(|input| input.text.as_str().len() > previous_len)
+                    {
+                        self.closed = true;
+                    }
+                    return effect;
+                }
                 KeyCode::Char('d') if plain(key) => {
                     if let Some(row) = self.selected(&items) {
                         self.notice = None;
@@ -269,6 +288,35 @@ impl Controller {
             .find(|row| row.id.as_str() == id)
             .and_then(|row| row.reference.as_deref())
             .map_or(Effect::None, |link| Self::open(app, link))
+    }
+
+    fn can_reference(&self, app: &App) -> bool {
+        app.shell.tab == crate::board::shell::OpsTab::Agents
+            && app.conversation_checklist_key().as_ref() == Some(&self.key)
+            && (app.input.is_none() || app.checklist_reference_key().is_some())
+    }
+
+    pub(in crate::board) fn selected_can_reference(&self, app: &App) -> bool {
+        matches!(self.mode, Mode::List)
+            && self.can_reference(app)
+            && self.reference_selection(&app.notes).is_some()
+    }
+
+    fn reference_selection<'a>(
+        &self,
+        notes: &'a State,
+    ) -> Option<(
+        &'a crate::checklist::Current,
+        &'a crate::checklist::ItemView,
+    )> {
+        let current = &notes.preview(&self.key)?.current;
+        let ui = self.ui.borrow();
+        let id = ui.picker.list.selected()?;
+        let item = current
+            .items
+            .iter()
+            .find(|view| !view.item.archived && view.item.id.as_str() == id)?;
+        Some((current, item))
     }
 
     pub(in crate::board) fn selected_has_link(&self, notes: &State) -> bool {
@@ -586,6 +634,20 @@ impl App {
         Effect::None
     }
 
+    pub(in crate::board) fn open_checklist_item(&mut self, key: &Key, id: Id) -> Effect {
+        if !self
+            .checklist_item_reference(id.as_str())
+            .is_some_and(|(current, _)| &current == key)
+        {
+            return self.say("This checklist item is unavailable.");
+        }
+        let effect = self.open_notes_from_input();
+        if let Some(controller) = &self.notes_overlay {
+            *controller.reveal.borrow_mut() = Some(id);
+        }
+        effect
+    }
+
     /// The checklist of `key`, opened straight into a new item: the member frame's `+ Add item`.
     pub(in crate::board) fn open_notes_adding(&mut self, key: super::Key) -> Effect {
         if self.input.is_some() || self.searching || self.modal_open() && self.menu.is_none() {
@@ -693,6 +755,9 @@ impl App {
             && controller.key == written.key
         {
             controller.written(&self.notes, &written);
+        }
+        if self.mentions.checklist {
+            self.update_mentions();
         }
     }
 }
