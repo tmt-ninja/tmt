@@ -345,6 +345,7 @@ pub(crate) fn message_state_label(item: &Value) -> Option<String> {
         Some("sent") => "○ ",
         Some("batched") => "◌ ",
         Some("delivered") => "✓ ",
+        Some("answered") => "↩ ",
         Some("working") => "⠹ ",
         Some("unconfirmed") => "? ",
         Some("not_sent") => "✗ ",
@@ -417,6 +418,46 @@ mod tests {
             Some("future words".into())
         );
         assert_eq!(message_state_label(&json!({})), None);
+    }
+
+    #[test]
+    fn terminal_message_states_keep_cores_words_with_distinct_marks() {
+        for (state, code, words, mark) in [
+            ("answered", "answered_by_reply", "answered", "↩"),
+            (
+                "answered",
+                "answered_by_turn",
+                "answered, the agent's turn ended with this reply",
+                "↩",
+            ),
+            (
+                "answered",
+                "answered_by_folded_turn",
+                "answered together with the earlier message: it was typed into the running turn",
+                "↩",
+            ),
+            (
+                "unconfirmed",
+                "no_turn_started",
+                "no answer captured: no turn started with this text, the agent may have taken it into a running turn",
+                "?",
+            ),
+            (
+                "unconfirmed",
+                "turn_ended_without_answer",
+                "no answer captured: the agent's turn ended without a final message",
+                "?",
+            ),
+        ] {
+            let item = json!({
+                "messageState": {"state": state, "reason": {"code": code, "text": words}}
+            });
+            assert_eq!(
+                message_state_label(&item),
+                Some(format!("{mark} {words}")),
+                "{code}"
+            );
+        }
     }
 
     #[test]
