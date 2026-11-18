@@ -313,9 +313,9 @@ Boards started before this behavior shipped need one manual restart.
 ## Board appearance
 
 The board opens one `OPS / UI` shell with `1 Agents`, `2 Work`, `3 Digest` and
-`4 Orchestration`. Work shows the Colab owner list. Use `p` for the project,
-`d` for the Done period, `c` for recent completions, and Enter to open the
-selected page when a link is available.
+`4 Orchestration`. Work shows the owner list from Colab 0.1.0-alpha.478 or
+later. Use `p` for project, `d` for the Done period, `c` for recent
+completions, and Enter to open the selected page when a link is available.
 Shortcut caps precede tab and filter labels and show effective configured keys;
 unbound actions have no cap. Selected tabs use a brighter neutral cap.
 Agents holds the whole workspace: a full-width Usage band (global usage and provider

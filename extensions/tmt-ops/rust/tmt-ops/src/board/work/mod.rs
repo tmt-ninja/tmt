@@ -98,9 +98,8 @@ impl State {
     }
 }
 
-/// Versions below the shared owner-list projection. Pin the containing release
-/// once it ships; a development build can still prove support by its wire shape.
-const LAST_UNSUPPORTED: &str = "0.1.0-alpha.472";
+/// Colab 0.1.0-alpha.478 first carries the opt-in Work owner summaries.
+const LAST_UNSUPPORTED: &str = "0.1.0-alpha.477";
 
 #[derive(Debug)]
 pub(super) enum ReadFailure {

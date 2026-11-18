@@ -65,7 +65,12 @@ fn owner_list(now: u64) -> Value {
 
 #[test]
 fn colab_work_preserves_published_status_sanitizes_and_ranks_items() {
-    let list = List::decode(&owner_list(1_800_000_000_000)).unwrap();
+    let mut document = owner_list(1_800_000_000_000);
+    document["pages"][0]["summary"]["sections"] = json!([
+        {"id":"h1","title":"Plan","level":2,"done":0,"total":2,"state":"not-started"}
+    ]);
+    document["pages"][2]["summary"]["sectionsOmitted"] = json!(true);
+    let list = List::decode_output(&serde_json::to_vec(&document).unwrap()).unwrap();
     let open: Vec<_> = list
         .items
         .iter()
