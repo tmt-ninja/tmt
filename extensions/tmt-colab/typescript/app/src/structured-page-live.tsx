@@ -9,7 +9,7 @@ import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import type { BlockEntry } from './blocks.js';
 import type { ParentPageViewSource } from './parent-page-view.js';
 import type { QuestionPage } from './structured-question.js';
-import type { MountMockup } from './structured-page.js';
+import type { MountMockup, StructuredPageProps } from './structured-page.js';
 import { StructuredPage } from './structured-page.js';
 import { resendStale } from './save.js';
 import type { PageBinding } from './transport.js';
@@ -39,6 +39,7 @@ export function LiveStructuredPage({
   mentionPages,
   blockPageHref,
   annotationMode,
+  sections,
   onAnnotateBlock,
   annotations,
   onOpenAnnotation,
@@ -68,6 +69,7 @@ export function LiveStructuredPage({
   /** Where a block on another page is, for its chip. */
   blockPageHref?(page: string, block: string): string;
   annotationMode?: boolean;
+  sections?: StructuredPageProps['sections'];
   onAnnotateBlock?(text: string | undefined, block: HTMLElement, whole: boolean): void;
   annotations?: ReadonlyMap<string, readonly { id: string; ordinal: number; open: boolean }[]>;
   onOpenAnnotation?(id: string): void;
@@ -166,6 +168,7 @@ export function LiveStructuredPage({
       tree={tree}
       todoNumbers={todoNumbers}
       annotationMode={annotationMode}
+      sections={sections}
       onAnnotateBlock={onAnnotateBlock}
       annotations={annotations}
       onOpenAnnotation={onOpenAnnotation}

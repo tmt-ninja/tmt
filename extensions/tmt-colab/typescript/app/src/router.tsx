@@ -3,6 +3,7 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageStateMenu, PageWorkBand } from './work-band-live.js';
+import { sectionTotals } from './section-view.js';
 import { MobileWorkTitle, WorkPullChips } from './work-band.js';
 import { PageOutline } from './page-outline.js';
 import { AskTodoContext, askTodoProgress } from './ask-todo-line.js';
@@ -2488,6 +2489,10 @@ function OpenPage({
     () => (view.pageType === 'blocks' && view.blocks ? blockTree(view.blocks).tree.flat() : []),
     [view.pageType, view.blocks],
   );
+  const sectionsById = useMemo(
+    () => new Map((view.workFacts?.sections ?? []).map((section) => [section.id, section])),
+    [view.workFacts?.sections],
+  );
   const outlineHeadings = useMemo(
     () =>
       structuredBlocks.flatMap((block) =>
@@ -2761,6 +2766,14 @@ function OpenPage({
       }}
     />
   ) : undefined;
+  // The page's section progress beside its status (#6619): done sections over counted ones.
+  const pageSections = view.workFacts?.sections;
+  const pageSectionTotals = pageSections?.length ? sectionTotals(pageSections) : undefined;
+  const sectionTotalsChip = pageSectionTotals && (
+    <span className={`page-section-totals ${ui.countChip}`}>
+      {text.sections.summary(pageSectionTotals.done, pageSectionTotals.total)}
+    </span>
+  );
   const projectControls = (
     <PageProjects
       transport={transport}
@@ -3220,6 +3233,7 @@ function OpenPage({
             facts={view.workFacts}
           >
             {workControls}
+            {sectionTotalsChip}
             {projectControls}
           </MobileWorkTitle>
         )}
@@ -3317,7 +3331,11 @@ function OpenPage({
               data-outline={outlineHeadings.length >= 3 || undefined}
             >
               <Suspense fallback={null}>
-                <PageOutline headings={outlineHeadings} locate={locateStructuredHeading} />
+                <PageOutline
+                  headings={outlineHeadings}
+                  locate={locateStructuredHeading}
+                  sections={view.workFacts?.sections}
+                />
                 <div
                   className="structured-page-stage"
                   ref={structuredStage}
@@ -3329,6 +3347,7 @@ function OpenPage({
                     todoNumbers={view.todoNumbers}
                     seq={view.seq}
                     annotationMode={canSelect && selectionMode}
+                    sections={sectionsById}
                     annotations={blockAnchors}
                     onOpenAnnotation={(id) => {
                       const thread = latest.current.threads?.find(

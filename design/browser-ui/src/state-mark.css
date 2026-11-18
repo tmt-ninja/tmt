@@ -21,18 +21,6 @@
   border: 1.5px dashed currentColor;
   border-radius: var(--tmt-ui-radius-pill);
 }
-/* A ring half filled: work under way (#6619 sections). */
-.tmt-ui-state-mark[data-shape='half'] {
-  border: 1.5px solid currentColor;
-  border-radius: var(--tmt-ui-radius-pill);
-  background: linear-gradient(90deg, currentColor 50%, transparent 50%);
-}
-/* A ring around a dot: waiting on a person or blocked (#6619 sections). */
-.tmt-ui-state-mark[data-shape='target'] {
-  border: 1.5px solid currentColor;
-  border-radius: var(--tmt-ui-radius-pill);
-  background: radial-gradient(circle, currentColor 0 2px, transparent 2.5px);
-}
 /* A ring with two hands: the clock of an idle alert and of a timer. */
 .tmt-ui-state-mark[data-shape='clock'] {
   border: 1.5px solid currentColor;

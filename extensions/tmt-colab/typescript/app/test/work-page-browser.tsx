@@ -233,6 +233,29 @@ export function mountWorkPage(
         observedAtMs: 10000000,
       },
       lastActivityAtMs: 9880000,
+      // Sections are progress (#6619): the starter's two headings, one with a question waiting.
+      ...(scenario === 'work-fields'
+        ? {
+            sections: [
+              {
+                id: id(201),
+                title: 'Requirements',
+                level: 2,
+                done: 2,
+                total: 3,
+                state: 'working' as const,
+              },
+              {
+                id: id(203),
+                title: 'Decisions',
+                level: 2,
+                done: 0,
+                total: 1,
+                state: 'needs-you' as const,
+              },
+            ],
+          }
+        : {}),
       asOfMs: 10000000,
     },
     ...(scenario === 'work-fields'

@@ -1,6 +1,6 @@
 import '@tmt/browser-ui/work.css';
 import './work-home.css';
-import { BrowserAvatar } from '@tmt/browser-ui/react';
+import { BrowserAvatar, BrowserSegments } from '@tmt/browser-ui/react';
 import { Popover, PopoverContent, PopoverTrigger, UiTheme } from '@tmt/browser-ui/ui';
 import { getTheme, subscribeTheme } from './theme.js';
 import { getRouteApi, Link, useLocation, useRouter } from '@tanstack/react-router';
@@ -12,6 +12,14 @@ import { text } from './strings.js';
 import type { PageTransport } from './transport.js';
 import type { WorkFactView } from './reading-details.js';
 import { StatusDetailsBody } from './work-band-live.js';
+import type { SectionSummary } from './bootstrap.js';
+import {
+  sectionMark,
+  sectionTotals,
+  sectionWord,
+  segmentState,
+  stuckSection,
+} from './section-view.js';
 import {
   activityOwners,
   doneChart,
@@ -190,11 +198,14 @@ function RowStatus({ item, transport }: { item: WorkItem; transport: PageTranspo
           {facts === 'reading' ? (
             <p>{t.statusReading}</p>
           ) : (
-            <StatusDetailsBody
-              state={state}
-              {...(view ? { facts: view } : {})}
-              {...(item.status === 'blocked' && item.next ? { blocked: item.next } : {})}
-            />
+            <>
+              <StatusDetailsBody
+                state={state}
+                {...(view ? { facts: view } : {})}
+                {...(item.status === 'blocked' && item.next ? { blocked: item.next } : {})}
+              />
+              <SectionDetails sections={view?.sections ?? item.sections} />
+            </>
           )}
         </PopoverContent>
       </Popover>
@@ -229,6 +240,48 @@ function OwnerCell({ owner }: { owner: NonNullable<WorkItem['owner']> }) {
   );
 }
 
+/** A page's sections as one bar and one number (#6619): a segment per section, done over counted. */
+function RowSections({ sections }: { sections: readonly SectionSummary[] }) {
+  const { done, total } = sectionTotals(sections);
+  return (
+    <span className="work-home-sections">
+      <BrowserSegments
+        label={text.sections.summaryLabel(done, total)}
+        states={sections.map((section) => segmentState(section.state))}
+      />
+      <span aria-hidden="true">{text.sections.count(done, total)}</span>
+    </span>
+  );
+}
+
+/** The status detail names the section that is stuck, then lists every counted section. */
+function SectionDetails({ sections }: { sections?: readonly SectionSummary[] }) {
+  if (!sections?.length) return null;
+  const stuck = stuckSection(sections);
+  return (
+    <div className="work-home-section-details">
+      {stuck && <p>{text.sections.stuck(sectionWord(stuck.state), stuck.title)}</p>}
+      <ul>
+        {sections.map((section) => {
+          const view = sectionMark(section);
+          return (
+            <li key={section.id} data-level={section.level}>
+              <span
+                className="tmt-ui-state-mark"
+                data-shape={view.shape}
+                data-tone={view.tone}
+                aria-hidden="true"
+              />
+              <span>{section.title}</span>
+              <span>{view.count}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function WorkRow({
   item,
   now,
@@ -258,6 +311,7 @@ function WorkRow({
       <span className="tmt-ui-work-next">
         {item.status === 'blocked' && item.next ? `Blocked: ${item.next}` : (item.next ?? '')}
       </span>
+      {item.sections ? <RowSections sections={item.sections} /> : null}
       {item.owner ? <OwnerCell owner={item.owner} /> : null}
       <span className="tmt-ui-work-time">{age(item.lastMs, now)}</span>
     </div>

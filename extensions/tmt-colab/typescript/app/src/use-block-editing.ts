@@ -105,7 +105,23 @@ function activeMention(entries: readonly MentionEntry[], active?: string): strin
 /** The block menu's actions this editor runs, in the design system's catalog order (Move to…, copy
  * link and @ this block come with their own steps). */
 export const BLOCK_MENU_ACTIONS = ['move-up', 'move-down', 'duplicate', 'delete'] as const;
-export type BlockMenuAction = (typeof BLOCK_MENU_ACTIONS)[number];
+/** A heading's section setting (#6619): done by hand, not progress, or counted automatically. */
+export const HEADING_MENU_ACTIONS = ['progress-done', 'progress-off', 'progress-auto'] as const;
+export type BlockMenuAction =
+  | (typeof BLOCK_MENU_ACTIONS)[number]
+  | (typeof HEADING_MENU_ACTIONS)[number];
+/** The block menu's items for a block: a heading adds the section settings it is not on. */
+export function blockMenuActions(block?: {
+  type: string;
+  props: Record<string, unknown>;
+}): readonly BlockMenuAction[] {
+  if (block?.type !== 'heading') return BLOCK_MENU_ACTIONS;
+  const current =
+    block.props.progress === 'done' || block.props.progress === 'off'
+      ? `progress-${block.props.progress}`
+      : 'progress-auto';
+  return [...BLOCK_MENU_ACTIONS, ...HEADING_MENU_ACTIONS.filter((action) => action !== current)];
+}
 
 /** How long the status line after a delete stays. */
 export const TOAST_MS = 6000;
@@ -1260,6 +1276,16 @@ export function useBlockEditing(
       setBlockMenu(undefined);
       const tree = treeRef.current;
       if (action === 'delete') return deleteIds([id]);
+      if (action.startsWith('progress-')) {
+        const value = action.slice('progress-'.length);
+        gesture([
+          value === 'auto'
+            ? { op: 'props', id, set: {}, unset: ['progress'] }
+            : { op: 'props', id, set: { progress: value }, unset: [] },
+        ]);
+        setSelection(selectBlock(id));
+        return;
+      }
       if (action === 'move-up' || action === 'move-down') {
         gesture(nudgeBlock(tree, id, action === 'move-up' ? 'up' : 'down'));
         setSelection(selectBlock(id));
@@ -1345,7 +1371,11 @@ export function useBlockEditing(
         if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
           setBlockMenu({
             ...menuOn,
-            active: nextBlockMenuItem(BLOCK_MENU_ACTIONS, menuOn.active, event.key),
+            active: nextBlockMenuItem(
+              blockMenuActions(treeRef.current.get(menuOn.id)),
+              menuOn.active,
+              event.key,
+            ),
           });
           return true;
         }

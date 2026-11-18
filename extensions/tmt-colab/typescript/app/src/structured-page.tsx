@@ -1,5 +1,8 @@
 // The parts draw on the design system's UI layer (buttons, selects, chips), as the router's do.
 import '@tmt/browser-ui/ui.css';
+import type { SectionSummary } from './bootstrap.js';
+import { sectionMark } from './section-view.js';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import {
   useCallback,
   useEffect,
@@ -75,6 +78,7 @@ import { text as strings } from './strings.js';
 import { type Drag, useBlockDrag } from './use-block-drag.js';
 import {
   BLOCK_MENU_ACTIONS,
+  blockMenuActions,
   type BlockMenuAction,
   type BlockUpload,
   type DeleteToast,
@@ -110,6 +114,8 @@ export interface StructuredPageProps {
   todoNumbers?: Readonly<Record<string, string>>;
   /** Selection mode annotates the block instead of starting an edit. */
   annotationMode?: boolean;
+  /** Counted sections by heading block ID (#6619): a mark before each heading and its count. */
+  sections?: ReadonlyMap<string, SectionSummary>;
   /** `whole` when no text in the block was selected: the block itself is annotated. */
   onAnnotateBlock?(text: string | undefined, block: HTMLElement, whole: boolean): void;
   annotations?: ReadonlyMap<string, readonly { id: string; ordinal: number; open: boolean }[]>;
@@ -723,6 +729,27 @@ function ActionsPopover({
             {action.label}
           </BlockMenuItem>
         ))}
+        {/* A heading's section setting (#6619), after the block's own actions. */}
+        {blockMenuActions(block)
+          .filter((id) => id.startsWith('progress-'))
+          .map((id) => (
+            <BlockMenuItem
+              key={id}
+              id={`block-action-${id}`}
+              active={id === active}
+              onMouseEnter={() => onHoverAction?.(id)}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                onAction?.(id, block.id);
+              }}
+            >
+              {id === 'progress-done'
+                ? strings.sections.markDone
+                : id === 'progress-off'
+                  ? strings.sections.notProgress
+                  : strings.sections.automatic}
+            </BlockMenuItem>
+          ))}
       </BlockMenu>
     </div>
   );
@@ -1239,12 +1266,31 @@ function Content({
     block.text
   );
   switch (block.type) {
-    case 'heading':
-      return (
+    case 'heading': {
+      const heading = (
         <HeadingBlock level={headingLevel(block)} placeholder="" editing={typing}>
           {text}
         </HeadingBlock>
       );
+      const section = rest.sections?.get(block.id);
+      if (!section) return heading;
+      const view = sectionMark(section);
+      // The mark and the count sit beside the heading, never in its text or its editor.
+      return (
+        <div className="structured-section-heading" data-level={headingLevel(block)}>
+          <span
+            className="tmt-ui-state-mark structured-section-mark"
+            data-shape={view.shape}
+            data-tone={view.tone}
+            aria-hidden="true"
+          />
+          {heading}
+          <span className={`structured-section-count ${ui.countChip}`} contentEditable={false}>
+            {view.count}
+          </span>
+        </div>
+      );
+    }
     case 'list': {
       const numbered = block.props.style === 'number';
       return (

@@ -125,3 +125,35 @@
     margin-block: 0 var(--tmt-ui-space-s);
   }
 }
+
+/* Sections are progress (#6619): a row is its mark, its title and its count. */
+.page-outline-list button {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}
+.page-outline-mark {
+  width: 10px;
+  height: 10px;
+}
+.page-outline-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page-outline-list:has(.page-outline-mark)
+  button:not(:has(.page-outline-mark))
+  .page-outline-title {
+  padding-inline-start: calc(10px + var(--tmt-ui-space-s));
+}
+.page-outline-section-count {
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.page-outline-progress {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 400;
+}

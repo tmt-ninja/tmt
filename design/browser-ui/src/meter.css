@@ -1,32 +1,3 @@
-/* One segment per part, in order, each drawn by its state (#6619 sections): done full, under way
-   at half strength, not started faint, waiting or blocked in their tones. Read-only; the caller
-   names the whole. */
-.tmt-ui-segments {
-  display: inline-flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-}
-.tmt-ui-segments > span {
-  flex: 0 1 14px;
-  min-width: 4px;
-  height: 6px;
-  border-radius: var(--tmt-ui-radius-pill);
-  background: color-mix(in srgb, var(--tmt-ui-color-secondary) 30%, transparent);
-}
-.tmt-ui-segments > [data-state='done'] {
-  background: var(--tmt-ui-color-text);
-}
-.tmt-ui-segments > [data-state='working'] {
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 55%, transparent);
-}
-.tmt-ui-segments > [data-state='waiting'] {
-  background: var(--tmt-ui-color-waiting);
-}
-.tmt-ui-segments > [data-state='blocked'] {
-  background: var(--tmt-ui-color-blocked);
-}
 /* A read-only measure: a track and a fill of `--tmt-ui-meter-fill` percent. The fill takes its
    colour from a chart series class, so it matches the series it stands for. */
 .tmt-ui-meter {

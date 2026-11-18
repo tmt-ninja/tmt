@@ -3,6 +3,8 @@ import { ChevronDown, List } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { text } from './strings.js';
 import { useMedia } from './use-media.js';
+import type { SectionSummary } from './bootstrap.js';
+import { sectionMark, sectionTotals } from './section-view.js';
 
 /** A page's visible headings (structured blocks or HTML), kept in the trusted parent; the page view
  * and the shared reader (#6470) render it. */
@@ -10,11 +12,17 @@ export function PageOutline({
   headings,
   locate,
   compact = false,
+  sections,
 }: {
   headings: readonly { id: string; title: string; level: number }[];
   locate(id: string): { top(): number; scrollTo(): void } | undefined;
   compact?: boolean;
+  /** The page's counted sections by heading ID (#6619): a mark and count beside each, and the
+   * total in the title row. A heading without one is an explanatory heading and gets no mark. */
+  sections?: readonly SectionSummary[];
 }) {
+  const bySection = new Map((sections ?? []).map((section) => [section.id, section]));
+  const totals = sections?.length ? sectionTotals(sections) : undefined;
   const phone = useMedia('(max-width: 640px)');
   const [preference, setPreference] = useState<boolean | undefined>(() => {
     try {
@@ -123,7 +131,15 @@ export function PageOutline({
         }}
       >
         <List className="page-outline-icon" aria-hidden="true" />
-        <span className="page-outline-desktop">{text.outline}</span>
+        <span className="page-outline-desktop">
+          {text.outline}
+          {totals && (
+            <span className="page-outline-progress">
+              {' · '}
+              {text.sections.summary(totals.done, totals.total)}
+            </span>
+          )}
+        </span>
         <span className="page-outline-phone">{headings[current]?.title}</span>
         <span className="page-outline-count">
           {current + 1} / {headings.length}
@@ -156,12 +172,31 @@ export function PageOutline({
                   } else target?.scrollTo();
                 }}
               >
-                {heading.title}
+                <OutlineRow title={heading.title} section={bySection.get(heading.id)} />
               </button>
             </li>
           ))}
         </ol>
       )}
     </nav>
+  );
+}
+
+/** One outline row: the section's mark, its title and its count; a plain heading has only its
+ * title, indented as if it had a mark so titles line up. */
+function OutlineRow({ title, section }: { title: string; section?: SectionSummary }) {
+  if (!section) return <span className="page-outline-title">{title}</span>;
+  const view = sectionMark(section);
+  return (
+    <>
+      <span
+        className="tmt-ui-state-mark page-outline-mark"
+        data-shape={view.shape}
+        data-tone={view.tone}
+        aria-hidden="true"
+      />
+      <span className="page-outline-title">{title}</span>
+      <span className="page-outline-section-count">{view.count}</span>
+    </>
   );
 }

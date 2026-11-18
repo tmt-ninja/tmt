@@ -389,3 +389,47 @@
   max-width: min(360px, calc(100vw - 32px));
   white-space: normal;
 }
+
+/* Sections are progress (#6619): the row's bar and number, and the status detail's list. A row with
+   sections gives them a column before its owner; under the compact width, a line under the next step. */
+.work-home-row:has(.work-home-sections) {
+  grid-template: 'dot number title next sections owner time' / 8px 104px 1.1fr 1fr auto 150px 84px;
+}
+@media (max-width: 760px) {
+  .work-home-row:has(.work-home-sections) {
+    grid-template:
+      'dot title title title'
+      '. next next next'
+      '. sections sections sections'
+      '. number owner time' / 8px auto auto 1fr;
+  }
+}
+.work-home-sections {
+  grid-area: sections;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  color: var(--tmt-ui-color-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.work-home-section-details ul {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  margin: var(--tmt-ui-space-s) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.work-home-section-details li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}
+.work-home-section-details li[data-level='3'] {
+  padding-inline-start: var(--tmt-ui-space-m);
+}
+.work-home-section-details li > :last-child {
+  color: var(--tmt-ui-color-secondary);
+  font-variant-numeric: tabular-nums;
+}

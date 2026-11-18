@@ -770,6 +770,27 @@ export const text = {
     subpages: (count: number) => (count === 1 ? '1 sub-page' : `${count} sub-pages`),
   },
   chatUnsent: 'Your Chat message was not sent.',
+  /** Sections are progress (#6619). */
+  sections: {
+    count: (done: number, total: number) => `${done}/${total}`,
+    summary: (done: number, total: number) => `${done}/${total} sections done`,
+    summaryLabel: (done: number, total: number) =>
+      `${done} of ${total} ${total === 1 ? 'section' : 'sections'} done`,
+    stuck: (word: string, title: string) => `${word}: stuck at the section “${title}”.`,
+    state: {
+      done: 'Done',
+      blocked: 'Blocked',
+      'needs-you': 'Needs you',
+      'waiting-ci': 'Waiting for CI',
+      'waiting-release': 'Waiting for release',
+      working: 'In progress',
+      'not-started': 'Not started',
+      unchecked: 'Not checked yet',
+    },
+    markDone: 'Mark as done',
+    notProgress: 'Not progress',
+    automatic: 'Count automatically',
+  },
   workBand: {
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',

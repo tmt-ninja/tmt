@@ -2690,3 +2690,22 @@ button.discussion-quote:focus-visible {
   padding: var(--tmt-ui-notice-padding);
   border: var(--tmt-ui-notice-border-width) solid var(--tmt-ui-surface-rule);
 }
+
+/* Sections are progress (#6619): a counted heading sits between its mark and its count. */
+.structured-section-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}
+.structured-section-heading > .tmt-block-heading {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.structured-section-mark {
+  margin-inline-start: calc(-12px - var(--tmt-ui-space-s));
+}
+.structured-section-count {
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+  font-variant-numeric: tabular-nums;
+}

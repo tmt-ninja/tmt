@@ -430,6 +430,36 @@ export async function mount(
             },
           },
     }),
+    // Sections are progress (#6619): Overview done, Details (under it) in progress, Decisions
+    // waiting on a person.
+    ...(options.structuredOutline && {
+      workFacts: {
+        state: 'working' as const,
+        known: true,
+        pulls: [],
+        activity: null,
+        asOfMs: 1,
+        sections: [
+          {
+            id: id(101),
+            title: 'Overview',
+            level: 2,
+            done: 3,
+            total: 4,
+            state: 'working' as const,
+          },
+          { id: id(103), title: 'Details', level: 3, done: 2, total: 2, state: 'done' as const },
+          {
+            id: id(105),
+            title: 'Decisions',
+            level: 2,
+            done: 0,
+            total: 1,
+            state: 'needs-you' as const,
+          },
+        ],
+      },
+    }),
     title: 'Live shared page',
     own: options.persistAttention
       ? JSON.parse(sessionStorage.getItem('test:attention-own') ?? '{}')
