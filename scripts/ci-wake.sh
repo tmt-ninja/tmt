@@ -12,12 +12,11 @@
 # at most and by default 7200 s.
 #
 # Final states, the first one wins:
-# - `--until checks` (the default): at least one workflow run exists for the
-#   head and every one has completed, so early checks or a matrix that adds jobs
-#   late cannot read as done; every check run is completed and no commit status
-#   is pending. The outcome is `green (N checks)`, or `failed: <names>` for a
-#   check concluded failure, cancelled, timed_out or action_required, or a
-#   status failure or error.
+# - Checks mode wakes on a failure, cancelled, timed_out or action_required check
+#   conclusion, or a failure/error commit status. If checks are still pending,
+#   it reports `failed so far: <names>; <N> checks still running`.
+#   Green requires at least one workflow and one check or commit status, all
+#   workflows and checks completed, and no pending commit status.
 # - `--until merged`: the PR merged.
 # - Either mode: the PR merged or closed, its head changed, or the cap.
 # The log (under ${TMPDIR:-/tmp}/ci-wake, owner-only) is removed after a
@@ -92,6 +91,21 @@ anonymous() {
     ${XDG_CONFIG_HOME:+XDG_CONFIG_HOME="$XDG_CONFIG_HOME"} "$@"
 }
 
+uuid_identity() {
+  [ "$self" != 00000000-0000-0000-0000-000000000000 ] &&
+    printf '%s\n' "$self" | LC_ALL=C grep -Eq '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+}
+
+uuid_name() {
+  prefix='{"identity":{"id":"'"$self"'","name":"'
+  case $1 in
+    "$prefix"*)
+      printf '%s\n' "${1#"$prefix"}" | LC_ALL=C sed -n \
+        '1s/^\([A-Za-z0-9][A-Za-z0-9._-]\{0,63\}\)"[,}].*$/\1/p'
+      ;;
+  esac
+}
+
 if [ -z "$run" ]; then
   if [ -z "$foreground" ]; then
     seat=
@@ -103,8 +117,12 @@ if [ -z "$run" ]; then
     fi
   fi
   # Refuse at once, in the seat's own turn, when there is nobody to wake.
-  if ! anonymous "$TMT" identity show "$self" --json >/dev/null 2>&1; then
+  if ! identity=$(anonymous "$TMT" identity show "$self" --json 2>/dev/null); then
     printf 'ci-wake: identity %s cannot be resolved; nothing started.\n' "$self" >&2
+    exit 3
+  fi
+  if uuid_identity && [ -z "$(uuid_name "$identity")" ]; then
+    printf 'ci-wake: identity %s has no usable local name; nothing started.\n' "$self" >&2
     exit 3
   fi
   umask 077
@@ -152,19 +170,11 @@ wake() {
   text="ci-wake #$pr ${head%"${head#????????????}"}: $1"
   note "$text"
   target=$self
-  if [ "$self" != 00000000-0000-0000-0000-000000000000 ] &&
-     printf '%s\n' "$self" | LC_ALL=C grep -Eq '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'; then
+  if uuid_identity; then
     # Local talk accepts only names. Re-resolve before sending so a rename
     # during the wait does not send to the previous holder of that name.
     identity=$(anonymous "$TMT" identity show "$self" --json 2>/dev/null) || identity=
-    prefix='{"identity":{"id":"'"$self"'","name":"'
-    target=
-    case $identity in
-      "$prefix"*)
-        target=$(printf '%s\n' "${identity#"$prefix"}" | LC_ALL=C sed -n \
-          '1s/^\([A-Za-z0-9][A-Za-z0-9._-]\{0,63\}\)"[,}].*$/\1/p')
-        ;;
-    esac
+    target=$(uuid_name "$identity")
     if [ -z "$target" ]; then
       note "wake could not resolve $self to a safe local name; not sent"
       exit 3
@@ -227,25 +237,29 @@ EOF
     total=$(printf '%s\n%s\n' "$runs" "$statuses" | grep -c . || true)
     pending=$(
       {
-        printf '%s\n' "$workflows" | awk 'NF && $1 != "completed"'
         printf '%s\n' "$runs" | awk -F '\t' 'NF && $1 != "completed"'
         printf '%s\n' "$statuses" | awk -F '\t' 'NF && $1 == "pending"'
       } | grep -c . || true
     )
     started_runs=$(printf '%s\n' "$workflows" | grep -c . || true)
-    if [ "$started_runs" -gt 0 ] && [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then
-      failed=$(
-        {
-          printf '%s\n' "$runs" | awk -F '\t' '$2 ~ /^(failure|cancelled|timed_out|action_required)$/ { print $3 }'
-          printf '%s\n' "$statuses" | awk -F '\t' '$1 ~ /^(failure|error)$/ { print $2 }'
-        } | sort -u | paste -sd ',' - | sed 's/,/, /g'
-      )
-      if [ -n "$failed" ]; then
-        wake "failed: $failed"
+    pending_workflows=$(printf '%s\n' "$workflows" | awk 'NF && $1 != "completed" { n++ } END { print n+0 }')
+    failed=$(
+      {
+        printf '%s\n' "$runs" | awk -F '\t' '$1 == "completed" && $2 ~ /^(failure|cancelled|timed_out|action_required)$/ { print $3 }'
+        printf '%s\n' "$statuses" | awk -F '\t' '$1 ~ /^(failure|error)$/ { print $2 }'
+      } | sort -u | paste -sd ',' - | sed 's/,/, /g'
+    )
+    if [ -n "$failed" ]; then
+      if [ "$pending" -gt 0 ]; then
+        wake "failed so far: $failed; $pending checks still running"
       fi
+      wake "failed: $failed"
+    fi
+    if [ "$started_runs" -gt 0 ] && [ "$total" -gt 0 ] &&
+       [ "$pending" -eq 0 ] && [ "$pending_workflows" -eq 0 ]; then
       wake "green ($total checks)"
     fi
-    note "pending $pending; $started_runs workflow runs, $total checks"
+    note "pending $pending checks and $pending_workflows workflows; $started_runs workflow runs, $total checks"
   else
     note "waiting for merge"
   fi

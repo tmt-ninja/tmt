@@ -59,7 +59,9 @@ esac`
   identity)
     [ ! -f "$HOME/no-identity" ] || exit 3
     printf '%s\\n' "$*" >> "$HOME/identity.log"
-    if [ -f "$HOME/pull-count" ] && [ -f "$HOME/identity-json" ]; then
+    if [ ! -f "$HOME/pull-count" ] && [ -f "$HOME/start-identity-json" ]; then
+      cat "$HOME/start-identity-json"
+    elif [ -f "$HOME/pull-count" ] && [ -f "$HOME/identity-json" ]; then
       cat "$HOME/identity-json"
     else
       printf '%s\\n' '{"identity":{"id":"${UUID}","name":"core-ops","canonicalName":"core-ops","lifetime":"saved"},"resume":null}'
@@ -185,6 +187,36 @@ describe('scripts/ci-wake.sh', () => {
     });
     expect(c.wait().status).toBe(0);
     expect(c.lines('talk.log')[0]).toContain(': green (2 checks) --detach');
+  });
+
+  it.each(['failure', 'cancelled', 'timed_out', 'action_required'])(
+    'wakes once for a %s check while checks and workflows are pending',
+    (conclusion) => {
+      const c = newCase([open], {
+        runs: tsv(check('completed', conclusion, 'rust'), check('queued', '', 'docs')),
+        statuses: tsv(['pending', 'ci/legacy'], ['error', 'ci/failing']),
+        workflows: 'in_progress\nin_progress\n',
+      });
+      expect(c.wait().status).toBe(0);
+      expect(c.lines('talk.log')).toEqual([
+        expect.stringContaining(
+          ': failed so far: ci/failing, rust; 2 checks still running --detach'
+        ),
+      ]);
+      expect(c.lines('sleeps.log')).toEqual([]);
+    }
+  );
+
+  it('wakes on a failed commit status before any workflow has appeared', () => {
+    const c = newCase([open], {
+      statuses: tsv(['failure', 'ci/legacy'], ['pending', 'ci/new']),
+      workflows: '',
+    });
+    expect(c.wait().status).toBe(0);
+    expect(c.lines('talk.log')).toEqual([
+      expect.stringContaining(': failed so far: ci/legacy; 1 checks still running --detach'),
+    ]);
+    expect(c.lines('sleeps.log')).toEqual([]);
   });
 
   it('keeps polling at the interval plus jitter while a check is pending', () => {
@@ -324,6 +356,18 @@ describe('scripts/ci-wake.sh', () => {
     const log = /; log (\S+)\n$/.exec(result.stdout)![1];
     expect(readFileSync(log, 'utf8')).toContain('to a safe local name; not sent');
     expect(c.lines('talk.log')).toEqual([]);
+  });
+
+  it('refuses a UUID with an unusable startup name before creating any waiter', () => {
+    const c = newCase([open], {
+      'start-identity-json': JSON.stringify({ identity: { id: UUID, name: 'name with spaces' } }),
+    });
+    const result = c.run(['42', '--identity', UUID, '--foreground']);
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain('has no usable local name; nothing started');
+    expect(c.lines('gh.log')).toEqual([]);
+    expect(c.lines('talk.log')).toEqual([]);
+    expect(existsSync(path.join(c.home, 'ci-wake'))).toBe(false);
   });
 
   it('starts one detached wait with an owner-only log and returns at once', () => {
