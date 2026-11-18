@@ -1533,13 +1533,13 @@ const NOW: u64 = 1_791_600_000_000;
 macro_rules! oracle_groups {
     ($group:ident, $styles:expr) => {
         $group!(0, 1856, base_frames($styles));
-        $group!(0, 160, chart_frames($styles));
+        $group!(0, 180, chart_frames($styles));
         $group!(1, 224, bindings_frames($styles));
         $group!(6, 80, settings_menu_frames($styles));
         $group!(7, 16, measure_frames($styles));
         $group!(7, 24, search_frames($styles));
         $group!(7, 36, measure_exchanges_frames($styles));
-        $group!(7, 180, agents_activity_frames($styles));
+        $group!(7, 156, agents_activity_frames($styles));
         $group!(7, 40, provider_form_frames($styles));
         $group!(7, 32, shell_composer_frames($styles));
         $group!(8, 228, paste_frames($styles));
