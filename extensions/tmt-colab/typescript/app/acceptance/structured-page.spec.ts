@@ -235,7 +235,7 @@ test('a comment on a structured block survives reopening', async () => {
 
 // #6611: an agent's edit never moves a person's typing out of the Chat composer, even with a
 // block selected on the page before they moved there.
-test('typing in Chat keeps focus while an agent edits the page', async () => {
+test('an agent edit keeps focus in Chat and never moves it into the page', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const browser = await pairBrowser(world, 'chat-focus', { talk: true });
@@ -292,6 +292,31 @@ test('typing in Chat keeps focus while an agent edits the page', async () => {
     await page.keyboard.type('there');
     await expect.poll(() => input.innerText()).toBe('hello there');
     await expect(page.locator('[data-block-id]')).toHaveText(['Second block.']);
+    // Focus the person left on the empty page is not taken by the selected block either: a key
+    // after the agent's next edit changes nothing on the page.
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    await block.getByText('Second block.').click();
+    await page.keyboard.press('Escape');
+    await expect(block).toBeFocused();
+    const empty = (await page.locator('.structured-page-stage').boundingBox())!;
+    await page.mouse.click(empty.x + empty.width / 2, empty.y + empty.height + 120);
+    await expect(block).not.toBeFocused();
+    run(world, colab, [
+      'block',
+      'text',
+      created.pageId,
+      id,
+      '--find',
+      'Second',
+      '--replace',
+      'Third',
+      '--json',
+    ]);
+    await expect(block).toContainText('Third block.');
+    await expect(block).not.toBeFocused();
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('x');
+    await expect(page.locator('[data-block-id]')).toHaveText(['Third block.']);
   });
 });
 

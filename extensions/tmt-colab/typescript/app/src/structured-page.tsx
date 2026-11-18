@@ -238,6 +238,18 @@ interface Pointer {
   drag?: Drag;
   startDrag(id: string, event: React.PointerEvent<HTMLButtonElement>): void;
   wasDrag(): boolean;
+  /** Whether a redraw may focus the selected block (#6611). */
+  focus: FocusRestore;
+}
+
+/** A selected block focuses itself once, on the local selection, and again on a redraw only when
+ * the person's focus was in the page's blocks just before it: a remounted block lost it under the
+ * caret. Focus the person put anywhere else (Chat, a reply, the empty page) stays there. */
+interface FocusRestore {
+  /** The selected block that has already been focused. */
+  applied?: string;
+  /** The person's last focus or press was inside the page's blocks. */
+  inBlocks: boolean;
 }
 
 /**
@@ -278,7 +290,24 @@ export function StructuredPage(props: StructuredPageProps) {
     picker.current.value = '';
     picker.current.click();
   }, [choosing]);
-  const pointer: Pointer = { hovered, drag, startDrag: start, wasDrag };
+  const focus = useRef<FocusRestore>({ inBlocks: false }).current;
+  useEffect(() => {
+    const note = (event: Event) => {
+      const target = event.target;
+      focus.inBlocks =
+        target instanceof Element &&
+        !!root.current?.contains(target) &&
+        !!target.closest('[data-block-id]');
+    };
+    document.addEventListener('focusin', note, true);
+    document.addEventListener('pointerdown', note, true);
+    return () => {
+      document.removeEventListener('focusin', note, true);
+      document.removeEventListener('pointerdown', note, true);
+    };
+  }, [focus]);
+  if (!props.selectionFocus) focus.applied = undefined;
+  const pointer: Pointer = { hovered, drag, startDrag: start, wasDrag, focus };
   return (
     <>
       <BlockDocument
@@ -477,19 +506,19 @@ function Blocks({
       }
       state={drag?.id === block.id ? 'dragging' : undefined}
       // A selected block takes keyboard focus, so Delete, the arrows and ⌘Z reach the page; focus
-      // already inside it (a table's menu or column name field) stays where it is. Focus outside the
-      // page's blocks (the Chat composer, a comment reply) stays too: this runs on every redraw,
-      // and an agent's edit must never move a person's typing into the page (#6611).
+      // already inside it (a table's menu or column name field) stays where it is. This runs on
+      // every redraw, and an agent's edit must never move a person's focus into the page (#6611):
+      // see `FocusRestore`.
       tabIndex={rest.selected?.includes(block.id) ? -1 : undefined}
       ref={(node: HTMLDivElement | null) => {
+        if (!node || rest.selectionFocus !== block.id || node.contains(document.activeElement))
+          return;
         const active = document.activeElement;
-        if (
-          node &&
-          rest.selectionFocus === block.id &&
-          !node.contains(active) &&
-          (!active || active === document.body || !!active.closest('[data-block-id]'))
-        )
+        const lost = !active || active === document.body;
+        if (pointer.focus.applied !== block.id || (lost && pointer.focus.inBlocks)) {
+          pointer.focus.applied = block.id;
           node.focus();
+        }
       }}
       readonly={rest.readonly}
       onClick={(event) => {

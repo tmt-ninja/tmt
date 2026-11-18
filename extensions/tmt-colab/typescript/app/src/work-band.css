@@ -308,6 +308,14 @@ a.work-row-title:hover {
     padding-inline-start: calc(
       var(--tmt-ui-header-padding-inline) + var(--colab-block-inset) + 188px + 40px
     );
+    transition: padding-inline-start var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+  }
+  /* A closed outline gives its column back to the title as well (#6611). */
+  .workspace:has(.structured-layout[data-outline] .page-outline-toggle[aria-expanded='false'])
+    > .page-mobile-title {
+    padding-inline-start: calc(
+      var(--tmt-ui-header-padding-inline) + var(--colab-block-inset) + 34px + 40px
+    );
   }
 }
 .page-mobile-title h1 {

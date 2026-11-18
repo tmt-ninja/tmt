@@ -803,9 +803,15 @@ for (const width of [1440, 390])
       expect(Math.abs(control.y - title.y)).toBeLessThanOrEqual(4);
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-      // Collapsing moves neither the content nor the toggle, so the same place expands it again.
-      expect(await stage.boundingBox()).toEqual(expanded);
-      expect(await toggle.boundingBox()).toEqual(control);
+      // Collapsing slides the column shut to the left (#6611): the content and the title take its
+      // room back, and the toggle keeps its place as an icon, so the same place expands it again.
+      await expect.poll(async () => (await stage.boundingBox())!.x).toBe(expanded.x - (188 - 34));
+      expect((await stage.boundingBox())!.width).toBe(expanded.width + 188 - 34);
+      const closed = (await toggle.boundingBox())!;
+      expect([closed.x, closed.y, closed.width]).toEqual([control.x, control.y, 34]);
+      await expect(toggle).toHaveAccessibleName('Outline');
+      const titleX = (await page.locator('.page-mobile-title h1').boundingBox())!.x;
+      expect(titleX).toBe(title.x - (188 - 34));
       // A click draws no focus frame, even after a key press such as a shortcut's modifier.
       await page.keyboard.press('Shift');
       await expect(toggle).toHaveCSS('outline-style', 'none');
@@ -813,7 +819,7 @@ for (const width of [1440, 390])
       await expect(toggle).toBeInViewport();
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-      expect((await stage.boundingBox())!.width).toBe(expanded.width);
+      await expect.poll(async () => (await stage.boundingBox())!.width).toBe(expanded.width);
     }
     if (width === 390) await toggle.click();
     await expect(outline.getByRole('button', { name: 'Details' })).toBeVisible();
