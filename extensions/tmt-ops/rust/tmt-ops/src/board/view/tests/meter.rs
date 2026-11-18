@@ -108,7 +108,7 @@ fn meter_pointer_targets_retain_geometry_and_modal_keyboard_isolation() {
     let bar = event(MouseEventKind::Moved, area.right() - 1, area.y);
     assert!(app.move_pointer(bar));
     assert_eq!(app.meter_hover, Some(Some(7)));
-    terminal.draw(|frame| render(frame, &app)).unwrap();
+    crate::status::with_now_instant(now, || terminal.draw(|frame| render(frame, &app)).unwrap());
     assert_eq!(meter_region(&app, Rect::new(0, 1, 100, 1)).unwrap().0, area);
     let text: String = (area.x..area.right())
         .map(|x| terminal.backend().buffer()[(x, area.y)].symbol())

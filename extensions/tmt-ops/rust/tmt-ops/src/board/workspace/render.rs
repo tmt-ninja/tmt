@@ -130,7 +130,7 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
     )
 }
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
-    let now = std::time::Instant::now();
+    let now = crate::status::now_instant();
     let now_ms = crate::status::now_ms();
     app.agents_live.begin(app, now);
     if matches!(app.shell.tab, OpsTab::Agents) {

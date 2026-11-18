@@ -5367,7 +5367,9 @@ fn painted_activity_records_its_stale_deadline_and_ages_without_rescanning_rows(
             .iter()
             .all(|row| row.activity.is_none())
     );
-    crate::status::with_now_ms(61_000, || paint(&app, 160, 36));
+    crate::status::with_now_instant(read, || {
+        crate::status::with_now_ms(61_000, || paint(&app, 160, 36));
+    });
     // The loading line's own delay gate is not what this test measures.
     app.frame_clocks
         .borrow_mut()
@@ -5394,16 +5396,17 @@ fn painted_activity_records_its_stale_deadline_and_ages_without_rescanning_rows(
         "the minute age moves"
     );
     // The stale switch follows the recorded deadline alone.
-    *app.frame_clocks.borrow_mut() = vec![ClockSurface::ActivityStale(
-        Instant::now()
-            .checked_sub(Duration::from_millis(1))
-            .unwrap(),
-    )];
-    assert_eq!(crate::board::view::time_marks(&app, 0), ["true"]);
-    *app.frame_clocks.borrow_mut() = vec![ClockSurface::ActivityStale(
-        Instant::now() + Duration::from_secs(3600),
-    )];
-    assert_eq!(crate::board::view::time_marks(&app, 0), ["false"]);
+    *app.frame_clocks.borrow_mut() = vec![ClockSurface::ActivityStale(deadline)];
+    assert_eq!(
+        crate::status::with_now_instant(deadline + Duration::from_millis(1), || {
+            crate::board::view::time_marks(&app, 0)
+        }),
+        ["true"]
+    );
+    assert_eq!(
+        crate::status::with_now_instant(read, || crate::board::view::time_marks(&app, 0)),
+        ["false"]
+    );
 }
 
 #[test]
@@ -5429,19 +5432,23 @@ fn counters_state_and_status_turn_stale_together() {
         app.shell.tab = OpsTab::Agents;
         (screen, summary)
     };
+    let now = Instant::now();
     for (case, at, observation) in [
-        ("fresh", Some(Instant::now()), OpsObservation::Complete),
+        ("fresh", Some(now), OpsObservation::Complete),
         (
             "aged",
-            Instant::now().checked_sub(Duration::from_secs(16)),
+            now.checked_sub(Duration::from_secs(16)),
             OpsObservation::Complete,
         ),
-        ("failed", Some(Instant::now()), OpsObservation::Stale),
+        ("failed", Some(now), OpsObservation::Stale),
     ] {
         read(&mut app, at, observation);
-        let (screen, summary) = overview(&mut app);
-        let row = painted_member_row(&app, 160, 36);
-        let header = painted_conversation_header(&app);
+        let (screen, summary, row, header) = crate::status::with_now_instant(now, || {
+            let (screen, summary) = overview(&mut app);
+            let row = painted_member_row(&app, 160, 36);
+            let header = painted_conversation_header(&app);
+            (screen, summary, row, header)
+        });
         // The TEAM glyph is the counter this frame shows for the member.
         let team = screen
             .lines()
@@ -5593,14 +5600,11 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
 #[test]
 fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
     use std::time::{Duration, Instant};
+    let now = Instant::now();
     let look = crate::look::Look::default();
     for (read, glyph, state) in [
-        (Some(Instant::now()), "●", "working"),
-        (
-            Instant::now().checked_sub(Duration::from_secs(16)),
-            "?",
-            "stale",
-        ),
+        (Some(now), "●", "working"),
+        (now.checked_sub(Duration::from_secs(16)), "?", "stale"),
     ] {
         let mut app = disagreeing_board(false, look);
         app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
@@ -5614,7 +5618,7 @@ fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
             .read_at = read;
         app.shell.tab = OpsTab::Agents;
 
-        let screen = paint(&app, 160, 36).join("\n");
+        let screen = crate::status::with_now_instant(now, || paint(&app, 160, 36)).join("\n");
         let team = screen
             .lines()
             .find(|line| line.contains("▾ product"))

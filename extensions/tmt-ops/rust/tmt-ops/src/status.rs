@@ -101,6 +101,7 @@ pub(crate) fn compare_values(
 #[cfg(test)]
 std::thread_local! {
     static TEST_NOW_MS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+    static TEST_NOW_INSTANT: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
 }
 
 /// Freeze only this test thread's integrated draw; workers retain their clock.
@@ -114,6 +115,27 @@ pub(crate) fn with_now_ms<T>(now: u64, draw: impl FnOnce() -> T) -> T {
     }
     let _restore = Restore(TEST_NOW_MS.with(|clock| clock.replace(Some(now))));
     draw()
+}
+
+/// Freeze monotonic paint time on the current test thread.
+#[cfg(test)]
+pub(crate) fn with_now_instant<T>(now: std::time::Instant, draw: impl FnOnce() -> T) -> T {
+    struct Restore(Option<std::time::Instant>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_NOW_INSTANT.with(|clock| clock.set(self.0));
+        }
+    }
+    let _restore = Restore(TEST_NOW_INSTANT.with(|clock| clock.replace(Some(now))));
+    draw()
+}
+
+pub(crate) fn now_instant() -> std::time::Instant {
+    #[cfg(test)]
+    if let Some(now) = TEST_NOW_INSTANT.with(std::cell::Cell::get) {
+        return now;
+    }
+    std::time::Instant::now()
 }
 
 pub(crate) fn now_ms() -> u64 {

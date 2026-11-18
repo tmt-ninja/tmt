@@ -462,17 +462,18 @@ fn activity_refresh_keeps_the_move_confirmation_but_session_changes_fence_it() {
             .last_ms = Some(last_ms);
         app.apply(snapshot);
     }
-    let now = crate::status::now_ms();
-    let mut app = remembered();
+    let now = 1_791_600_000_000;
+    let mut app = crate::status::with_now_ms(now, remembered);
+    let paint_at = |app: &App| crate::status::with_now_ms(now, || paint(app, 160, 36));
     load(&mut app);
-    assert!(paint(&app, 160, 36).contains("Last activity: 1h ago"));
+    assert!(paint_at(&app).contains("Last activity: 1h ago"));
     refresh(&mut app, now - 60_000);
     assert!(
         matches!(app.member_session.as_ref().unwrap().loaded, Some(Ok(_))),
         "ordinary activity refresh must keep the loaded observation"
     );
     assert!(
-        paint(&app, 160, 36).contains("Last activity: 1m ago"),
+        paint_at(&app).contains("Last activity: 1m ago"),
         "activity is painted from the current snapshot, not the held task"
     );
     key(&mut app, KeyCode::Down);
@@ -480,7 +481,7 @@ fn activity_refresh_keeps_the_move_confirmation_but_session_changes_fence_it() {
     key(&mut app, KeyCode::Enter);
     for elapsed in [30_000, 10_000, 0] {
         refresh(&mut app, now - elapsed);
-        paint(&app, 160, 36);
+        paint_at(&app);
         let c = app.member_session.as_ref().unwrap();
         assert!(
             c.confirmation.is_some() && c.readable.get(),
@@ -498,12 +499,12 @@ fn activity_refresh_keeps_the_move_confirmation_but_session_changes_fence_it() {
         ("driver", json!("claude")),
         ("staleAtMs", json!(now)),
     ] {
-        let mut app = remembered();
+        let mut app = crate::status::with_now_ms(now, remembered);
         load(&mut app);
         key(&mut app, KeyCode::Down);
         key(&mut app, KeyCode::Down);
         key(&mut app, KeyCode::Enter);
-        paint(&app, 160, 36);
+        paint_at(&app);
         app.references.agents.get_mut(MEMBER).unwrap().parameters["resume"][field] = value;
         refresh(&mut app, now);
         let c = app.member_session.as_ref().unwrap();

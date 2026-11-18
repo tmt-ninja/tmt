@@ -628,7 +628,7 @@ fn only_the_newest_finals_are_kept_and_each_is_read_once() {
 fn a_held_reply_shows_its_true_age_instead_of_the_one_it_was_built_with() {
     use crate::board::app::workspace::tests::{MEMBER, board};
     let mut app = board();
-    let now = crate::status::now_ms();
+    let now = 1_791_600_000_000;
     app.home_leads.test_results(
         ACTOR,
         json!({"items":[final_item("old", MEMBER, now - 1_500_000)],"nextBefore":null}),
@@ -644,7 +644,7 @@ fn a_held_reply_shows_its_true_age_instead_of_the_one_it_was_built_with() {
     draw(&app, 148, 51);
     // The string the held reply was built with is stale (it once read "1m").
     crate::board::conversation::tests::set_built_age(&app, "1m");
-    let buffer = draw(&app, 148, 51);
+    let buffer = crate::status::with_now_ms(now, || draw(&app, 148, 51));
     let screen = text(&buffer);
     assert!(
         screen.contains("OLD body") && screen.contains("new output"),
@@ -672,7 +672,7 @@ fn a_held_reply_shows_its_true_age_instead_of_the_one_it_was_built_with() {
 #[test]
 fn finals_arrive_from_storage_alone_when_the_originator_has_no_live_pane() {
     use crate::board::app::workspace::tests::{MEMBER, board};
-    let now = crate::status::now_ms();
+    let now = 1_791_600_000_000;
     let directory =
         std::env::temp_dir().join(format!("ops-finals-core-{}", crate::id::new_v4().unwrap()));
     std::fs::create_dir(&directory).unwrap();
@@ -718,7 +718,7 @@ fn finals_arrive_from_storage_alone_when_the_originator_has_no_live_pane() {
     // The same storage-backed result is a separate rendered message. Drawing
     // cannot fall back to notifications or another storage acquisition.
     let _no_reads = crate::runner::forbid_commands();
-    let buffer = draw(&app, 148, 51);
+    let buffer = crate::status::with_now_ms(now, || draw(&app, 148, 51));
     let rows: Vec<_> = buffer
         .content
         .chunks(148)

@@ -430,7 +430,7 @@ impl Session {
         let observation = projected
             .as_ref()
             .and_then(|row| row.activity.as_ref())
-            .filter(|_| !stale && !app.activity_stale(std::time::Instant::now()))
+            .filter(|_| !stale && !app.activity_stale(crate::status::now_instant()))
             .map(|member| member.activity);
         self.observe_progress(
             name,
