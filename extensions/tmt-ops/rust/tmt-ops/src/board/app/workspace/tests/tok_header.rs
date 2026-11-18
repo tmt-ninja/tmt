@@ -199,7 +199,7 @@ fn accented(app: &App, buffer: &Buffer, x: u16, y: u16) -> bool {
 const LISTS: [&str; 1] = ["squads"];
 
 #[test]
-fn row_flash_preserves_the_activity_cells_grey_scale() {
+fn row_flash_tints_activity_background_and_preserves_its_glyphs() {
     use crate::board::{agents_live::AgentsLiveUsage, workspace::OpsTarget};
     use std::time::Duration;
     let mut app = open(SavingsUnit::Tokens);
@@ -248,12 +248,27 @@ fn row_flash_preserves_the_activity_cells_grey_scale() {
         .row_flash(key.clone(), false, false, 0, true, future);
     app.agents_live.row_flash(key, true, false, 0, true, future);
     let after = frame(&app, 160);
+    let flash = app.look().selection().bg.unwrap();
+    let text_ink = app.look().role(tmt_cli_style::Role::Text).fg.unwrap();
+    let dim_ink = app.look().role(tmt_cli_style::Role::Dim).fg.unwrap();
+    assert_eq!(before[(header.x, y)].symbol(), "▁");
     for x in header.x..header.right() {
+        let before_cell = &before[(x, y)];
+        let after_cell = &after[(x, y)];
+        assert_eq!(before_cell.symbol(), after_cell.symbol(), "glyph at x={x}");
+        let resting_ink = if x == header.x { dim_ink } else { text_ink };
+        assert_eq!(before_cell.fg, resting_ink, "resting foreground at x={x}");
+        assert_eq!(after_cell.fg, text_ink, "flash foreground at x={x}");
         assert_eq!(
-            before[(x, y)].bg,
-            after[(x, y)].bg,
-            "activity background at x={x}"
+            before_cell.modifier, after_cell.modifier,
+            "modifiers at x={x}"
         );
+        assert_eq!(
+            before_cell.bg,
+            before[(0, y)].bg,
+            "resting row background at x={x}"
+        );
+        assert_eq!(after_cell.bg, flash, "flash background at x={x}");
     }
     let state_x = (0..before.area.height)
         .find_map(|row| {
@@ -758,7 +773,7 @@ fn consecutive_row_flash_stages_only_diff_the_flashing_row_background() {
 }
 
 #[test]
-fn empty_activity_uses_lowest_grey_and_missing_activity_uses_unknown_dot() {
+fn measured_zero_and_missing_activity_have_distinct_glyphs_on_the_row_background() {
     use crate::board::agents_live::AgentsLiveUsage;
     let mut app = open(SavingsUnit::Tokens);
     app.view.as_mut().unwrap().look = crate::look::Look {
@@ -791,12 +806,14 @@ fn empty_activity_uses_lowest_grey_and_missing_activity_uses_unknown_dot() {
                 .contains("└ worker")
         })
         .unwrap();
-    assert_eq!(
-        actual[(area.x, y)].bg,
-        ratatui::style::Color::Rgb(56, 56, 56)
-    );
-    assert_eq!(actual[(area.x + 1, y)].symbol(), "·");
-    assert_ne!(actual[(area.x + 1, y)].bg, actual[(area.x, y)].bg);
+    let selection = app.look().selection().bg.unwrap();
+    let dim_ink = app.look().role(tmt_cli_style::Role::Muted).fg.unwrap();
+    for (x, glyph) in [(area.x, "▁"), (area.x + 1, "·")] {
+        let cell = &actual[(x, y)];
+        assert_eq!(cell.symbol(), glyph);
+        assert_eq!(cell.fg, dim_ink);
+        assert_eq!(cell.bg, selection);
+    }
     app.agents_live.usage.borrow_mut().insert(
         MEMBER.into(),
         AgentsLiveUsage {
