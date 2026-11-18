@@ -1704,36 +1704,30 @@ last page says `older answers not kept`, with Core's time when supplied. If Core
 reports capture disabled, the board says `answers are not captured for this agent:
 run tmt setup` and keeps any retained answers. The board never runs setup for you.
 
-The composer stays at the conversation bottom when an agent is shown: a box of at
-least three rows, a blank padding row above and below the text, growing upward
-without moving its info line. Focus changes only the fill, never the height.
-Terminals under 28 rows give the padding up and keep the one-row box. The line below
-shows the recipient, acquired unread/open-request counts, optional running-session
-context usage and `⏎ send  Alt+⏎ new line  @ mention`. When Talk has a member
-Checklist, the hint adds `# item` where it fits. Type `#` to pick an item from that
-member's list. Enter or Tab inserts `#Title (id)` as one editable unit. In the
-Checklist page, `r` quotes the selected item into Talk. A resolved reference in the
-transcript opens a menu with `Open in checklist`, which selects the item.
-Narrow widths shorten the existing hints before dropping keys. Unknown context
-is omitted, not estimated.
-Default Enter or a click focuses it; list actions remain available while idle.
-At eight terminal rows, the Agents composer fills the body and member rows are
-hidden. Esc leaves typing with the draft kept; ↑/↓ still change the selected target.
-With list focus, default Home selects Common pool and restores the group tree.
-Select a member to return to its retained draft, or enlarge the terminal to show
-more of the list.
-Talk, reply and annotation use a multiline editor. Left/Right and Home/End move the
-caret; Shift with movement selects; Backspace/Delete remove selected text or a
-grapheme. Click places the caret and drag selects. Enter submits. Shift+Enter inserts
-a newline when enhanced keyboard reporting is active; Alt+Enter and Ctrl+J work
-without it, and Ctrl+N remains available. The input box grows with its content up to
-six text rows (plus the padding rows), then scrolls; the info line and footer stay in place. The info line and the
-footer name Shift+Enter when the terminal reports it and Alt+Enter otherwise
-(Alt+Enter and Ctrl+J always work). Shift+Enter inside tmux needs
-`set -g extended-keys on` (or `always`) and `set -g extended-keys-format csi-u`
-(tmux 3.5 or later); Ops reads these two options once at start, asks the terminal for
-the extended keys only when both are set, and releases them on exit. Ops never
-changes tmux settings.
+The member composer grows upward, with a blank row above and below the text
+(no padding under 28 terminal rows). Focus changes its fill only. At eight rows
+it fills the Agents body. Enter or click focuses it; Esc keeps the draft.
+With list focus, actions stay available, ↑/↓ change the target, and Home restores
+the Common pool tree. Select a member to retrieve its draft, or enlarge the
+terminal to reveal more of the list.
+
+The info line shows the recipient, unread and open-request counts, context usage
+when known, and key hints. Narrow widths shorten hint words before dropping keys.
+Talk adds `# item` when the member has a Checklist and the hint fits. Type `#` to
+pick from that list. Enter or Tab inserts `#Title (id)` as one unit. On the Checklist
+page, `r` quotes the selected item into Talk. A resolved transcript reference
+offers `Open in checklist`, which selects the item.
+
+In Talk, reply and annotation, Left/Right, Home/End and click place the caret.
+Hold Shift while moving or drag to select. Backspace/Delete remove the selection
+or one grapheme.
+Enter submits. Alt+Enter, Ctrl+J and Ctrl+N insert a newline. The hints show
+Shift+Enter when enhanced keyboard reporting is active and Alt+Enter otherwise.
+Input scrolls after six text rows; the info line and footer stay in place.
+Shift+Enter in tmux 3.5 or later needs `set -g extended-keys on` (or `always`)
+and `set -g extended-keys-format csi-u`. Ops reads both once at startup and
+requests extended keys only when both are set. It releases them on exit and
+never changes tmux settings.
 Esc leaves input without sending. Direct-message drafts and their quote/paste
 attachments are session-only: they survive view/layout/resize and membership changes,
 but do not survive restarting the TUI. An accepted request clears only the submitted
