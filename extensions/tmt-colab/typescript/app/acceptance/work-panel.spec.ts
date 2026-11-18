@@ -168,7 +168,11 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     const door = await startDoor(world);
     const browser = await pairBrowser(world, 'work-fields-owner');
     const page = await openPage(door, browser, created);
-    await expect(page.locator('.colab-work-number:visible')).toHaveText('COLAB-1');
+    // The page's heading and its top bar both carry the number (#6611).
+    await expect(page.getByRole('heading').locator('.colab-work-number')).toHaveText('COLAB-1');
+    await expect(page.getByRole('banner').locator('.colab-work-number:visible')).toHaveText(
+      'COLAB-1',
+    );
     await expect(page.getByLabel('Priority high', { exact: true })).toBeVisible();
     await expect(page.locator('.work-owner-chip')).toBeVisible();
     await expect(page.locator('.work-owner-chip')).toHaveAttribute(
