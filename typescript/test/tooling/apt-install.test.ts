@@ -105,6 +105,8 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 // Literal endpoint/priority bytes from runner-images ubuntu24/20261004.327
 // configure-apt-sources.sh; these expectations are independent of the action.
 const azure = 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n';
+const ec2Url = 'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/';
+const ec2 = `${ec2Url}\tpriority:1\n`;
 const remainingMirrors =
   'https://archive.ubuntu.com/ubuntu/\tpriority:2\n' +
   'https://security.ubuntu.com/ubuntu/\tpriority:3\n';
@@ -112,6 +114,36 @@ const mirrors = azure + remainingMirrors;
 const sourcesFor = (list: string) =>
   `Types: deb\nURIs: mirror+file:${list}\nSuites: noble noble-updates noble-backports\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\n` +
   `Types: deb\nURIs: mirror+file:${list}\nSuites: noble-security\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n`;
+
+// Stanza bytes printed by jobs 134548223979 (noble) and 134547841168 (resolute).
+const ec2Sources = {
+  noble:
+    'Types: deb\n' +
+    'URIs: mirror+file:/etc/apt/apt-mirrors.txt\n' +
+    'Suites: noble noble-updates noble-backports\n' +
+    'Components: main universe restricted multiverse\n' +
+    'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' +
+    '\n' +
+    'Types: deb\n' +
+    'URIs: http://security.ubuntu.com/ubuntu\n' +
+    'Suites: noble-security\n' +
+    'Components: main universe restricted multiverse\n' +
+    'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n',
+  resolute:
+    'Types: deb\n' +
+    'URIs: mirror+file:/etc/apt/apt-mirrors.txt\n' +
+    'Suites: resolute resolute-updates resolute-backports\n' +
+    'Components: main universe restricted multiverse\n' +
+    'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' +
+    '\n' +
+    'Types: deb\n' +
+    'URIs: http://security.ubuntu.com/ubuntu\n' +
+    'Suites: resolute-security\n' +
+    'Components: main universe restricted multiverse\n' +
+    'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n',
+};
+const ec2SourcesFor = (source: string, list: string) =>
+  source.replace('/etc/apt/apt-mirrors.txt', list);
 
 function run(
   failPhase = '',
@@ -170,7 +202,16 @@ function run(
     readFileSync(path.join(dir, `mirrors-${attempt}`), 'utf8');
   const beforeUpdate = (attempt: number) =>
     readFileSync(path.join(dir, `update-mirrors-${attempt}`), 'utf8');
-  return { result, lines, mirrorBytes, beforeInstall, beforeUpdate, list, originalMirrors };
+  return {
+    result,
+    lines,
+    mirrorBytes,
+    beforeInstall,
+    beforeUpdate,
+    list,
+    originalMirrors,
+    originalSources,
+  };
 }
 
 const options = '-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30';
@@ -188,13 +229,15 @@ describe('apt-install composite action', () => {
   });
 
   it('leaves the list unchanged on a healthy first install', () => {
-    const { result, lines, mirrorBytes, beforeInstall } = run();
+    const { result, lines, mirrorBytes, beforeInstall, originalSources } = run();
     expect(result.status).toBe(0);
     expect(mirrorBytes()).toBe(mirrors);
     expect(beforeInstall(1)).toBe(mirrors);
     expect(lines('mirror-edits')).toEqual([]);
     expect(lines('dpkg')).toEqual([]);
-    expect(result.stdout).not.toContain('apt-install:');
+    expect(result.stdout).toBe(
+      `apt-install: initial mirror list:\n${mirrors}apt-install: initial ubuntu.sources:\n${originalSources}`
+    );
   });
 
   it.each(['1', '2'])(
@@ -211,6 +254,25 @@ describe('apt-install composite action', () => {
         `removed http://azure.archive.ubuntu.com/ubuntu/ from ${list}`
       );
       expect(lines('apt')).toEqual([update, download, unpack]);
+    }
+  );
+
+  it.each(Object.entries(ec2Sources))(
+    'removes the EC2 mirror for %s before the second download',
+    (_, source) => {
+      const original = ec2 + remainingMirrors;
+      const { result, lines, mirrorBytes, beforeInstall, list } = run('download', '1', {
+        mirrors: original,
+        sources: (list) => ec2SourcesFor(source, list),
+      });
+      expect(result.status).toBe(0);
+      expect(beforeInstall(1)).toBe(original);
+      expect(beforeInstall(2)).toBe(remainingMirrors);
+      expect(mirrorBytes()).toBe(remainingMirrors);
+      expect(lines('mirror-edits')).toEqual([`-i 1d ${list}`]);
+      expect(result.stdout.startsWith(`apt-install: initial mirror list:\n${original}`)).toBe(true);
+      expect(result.stdout.match(/apt-install: initial mirror list:/g)).toHaveLength(1);
+      expect(result.stdout).toContain(`removed ${ec2Url} from ${list}`);
     }
   );
 
@@ -313,10 +375,42 @@ describe('apt-install composite action', () => {
 
   it.each([
     ['missing sources', { missingSources: true }],
+    [
+      'direct security on Azure',
+      { sources: (list: string) => ec2SourcesFor(ec2Sources.noble, list) },
+    ],
+    [
+      'unexpected EC2 security suite',
+      {
+        mirrors: ec2 + remainingMirrors,
+        sources: (list: string) =>
+          ec2SourcesFor(ec2Sources.noble, list).replace('noble-security', 'noble-updates'),
+      },
+    ],
+    [
+      'unexpected EC2 security URI',
+      {
+        mirrors: ec2 + remainingMirrors,
+        sources: (list: string) =>
+          ec2SourcesFor(ec2Sources.noble, list).replace(
+            'http://security.ubuntu.com',
+            'https://security.ubuntu.com'
+          ),
+      },
+    ],
     ['source reader failure', { awkFailure: '13' }],
     ['absent list', { mirrors: null }],
     ['empty list', { mirrors: '' }],
     ['no archive candidate', { mirrors: azure }],
+    [
+      'unknown first host',
+      { mirrors: ec2.replace('ubuntu.com', 'ubuntu.com.example') + remainingMirrors },
+    ],
+    ['fourth line', { mirrors: ec2 + remainingMirrors + azure }],
+    [
+      'different first priority',
+      { mirrors: ec2.replace('priority:1', 'priority:4') + remainingMirrors },
+    ],
     ['custom priority', { mirrors: mirrors.replace('priority:2', 'priority:9') }],
     ['ports mirror', { mirrors: 'http://ports.ubuntu.com/ubuntu-ports/\tpriority:1\n' }],
     [
@@ -351,11 +445,17 @@ describe('apt-install composite action', () => {
   ] as const)(
     'reports an explicit no-op for %s and preserves bytes/status/retry policy',
     (_, input) => {
-      const { result, lines, mirrorBytes, originalMirrors } = run('download', '99', input);
+      const { result, lines, mirrorBytes, originalMirrors, originalSources } = run(
+        'download',
+        '99',
+        input
+      );
       expect(result.status).toBe(124);
       expect(mirrorBytes()).toBe(originalMirrors);
       expect(lines('mirror-edits')).toEqual([]);
       expect(result.stderr.match(/apt-install: mirror fallback no-op:/g)).toHaveLength(1);
+      if (originalMirrors !== null)
+        expect(result.stderr).toContain(`apt-install: mirror list contents:\n${originalMirrors}`);
       expect(lines('download')).toHaveLength(3);
       expect(lines('sleeps')).toEqual(['5', '10']);
     }

@@ -24,6 +24,14 @@ runs:
         for source in $(grep -l dl.google.com /etc/apt/sources.list.d/* 2>/dev/null || true); do
           sudo rm -f "$source"
         done
+        if [ -f "$APT_MIRRORS" ] && [ ! -L "$APT_MIRRORS" ] && [ -r "$APT_MIRRORS" ]; then
+          printf 'apt-install: initial mirror list:\n'
+          cat "$APT_MIRRORS" || true
+        fi
+        if [ -f "$APT_SOURCES" ] && [ ! -L "$APT_SOURCES" ] && [ -r "$APT_SOURCES" ]; then
+          printf 'apt-install: initial ubuntu.sources:\n'
+          cat "$APT_SOURCES" || true
+        fi
         retry="$GITHUB_WORKSPACE/scripts/retry-command.sh"
         # The network steps (update, download) have short bounds and retry; a kill
         # there changes no dpkg state. The unpack step is local and has a longer
@@ -37,33 +45,72 @@ runs:
         unpack_state=$(mktemp)
         trap '/bin/rm -f "$update_state" "$download_state" "$unpack_state"' EXIT
         # Runs one network attempt. After the phase's first attempt times out, the
-        # next attempt first removes Azure from the runner image's mirror list; a
-        # phase that finds Azure already removed changes nothing.
+        # next attempt first removes the regional mirror from the runner image's
+        # list; a phase that finds it already removed changes nothing.
         with_mirror_fallback='
           state=$1; sources=$2; mirrors=$3; shift 3
           previous=$(cat "$state")
           if [ "$previous" = 124 ]; then
             # Admit only the pinned runner-image mirror+file layout.
+            refusal=
             if [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ] &&
                cmp -s "$mirrors" <(printf "%s\t%s\n" \
                  https://archive.ubuntu.com/ubuntu/ priority:2 \
                  https://security.ubuntu.com/ubuntu/ priority:3); then
               :
-            elif [ -f "$sources" ] && [ ! -L "$sources" ] && [ -r "$sources" ] &&
-               [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ] &&
-               awk -v uri="mirror+file:$mirrors" '"'"'
-                 tolower($0) ~ /^uris:/ { seen++; if ($0 != "URIs: " uri) bad=1 }
-                 /^[ \t]/ { bad=1 }
-                 END { exit(!seen || bad) }
-               '"'"' "$sources" &&
+            elif [ ! -f "$sources" ] || [ -L "$sources" ] || [ ! -r "$sources" ]; then
+              refusal="sources file is not a readable regular file or is a symlink"
+            elif [ ! -f "$mirrors" ] || [ -L "$mirrors" ] || [ ! -r "$mirrors" ]; then
+              refusal="mirror list is not a readable regular file or is a symlink"
+            elif ! { IFS= read -r first < "$mirrors" &&
+               tab=$(printf "\t") &&
+               regional=${first%%"$tab"*} &&
+               [[ "$regional" = http://azure.archive.ubuntu.com/ubuntu/ ||
+                  "$regional" =~ ^http://[abcdefghijklmnopqrstuvwxyz0123456789-]+[.]ec2[.]archive[.]ubuntu[.]com/ubuntu/$ ]] &&
                cmp -s "$mirrors" <(printf "%s\t%s\n" \
-                 http://azure.archive.ubuntu.com/ubuntu/ priority:1 \
+                 "$regional" priority:1 \
                  https://archive.ubuntu.com/ubuntu/ priority:2 \
-                 https://security.ubuntu.com/ubuntu/ priority:3); then
-              sudo sed -i "1d" "$mirrors"
-              printf "apt-install: removed http://azure.archive.ubuntu.com/ubuntu/ from %s; archive/security retained.\n" "$mirrors"
+                 https://security.ubuntu.com/ubuntu/ priority:3); }; then
+              refusal="unexpected mirror list bytes"
+            elif ! awk -v uri="mirror+file:$mirrors" -v regional="$regional" '"'"'
+                 tolower($0) ~ /^uris:/ { seen++; if ($0 != "URIs: " uri) different=1 }
+                 /^[ \t]/ { indented=1 }
+                 /^$/ && n { separator="\n" }
+                 !/^#/ && NF {
+                   n++
+                   if (n == 3 && $0 == "Suites: resolute resolute-updates resolute-backports")
+                     suite="resolute"
+                   fields=fields separator $0 "\n"
+                   separator=""
+                 }
+                 END {
+                   if (!seen || indented) exit 1
+                   if (!different) exit 0
+                   # Observed EC2 images use the list for distribution and a
+                   # direct URI for the paired security stanza.
+                   if (regional == "http://azure.archive.ubuntu.com/ubuntu/") exit 1
+                   if (!suite) suite="noble"
+                   shared="\nComponents: main universe restricted multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+                   expected="Types: deb\nURIs: " uri "\nSuites: " suite " " suite "-updates " suite "-backports" shared \
+                     "\nTypes: deb\nURIs: http://security.ubuntu.com/ubuntu\nSuites: " suite "-security" shared
+                   exit(fields != expected)
+                 }
+               '"'"' "$sources"; then
+              refusal="unexpected sources shape"
             else
-              printf "apt-install: mirror fallback no-op: unreadable or unexpected sources/list: %s / %s.\n" "$sources" "$mirrors" >&2
+              sudo sed -i "1d" "$mirrors"
+              printf "apt-install: removed %s from %s; archive/security retained.\n" "$regional" "$mirrors"
+            fi
+            if [ -n "$refusal" ]; then
+              printf "apt-install: mirror fallback no-op: %s: %s / %s.\n" "$refusal" "$sources" "$mirrors" >&2
+              if [ -f "$sources" ] && [ ! -L "$sources" ] && [ -r "$sources" ]; then
+                printf "apt-install: ubuntu.sources contents:\n" >&2
+                cat "$sources" >&2 || true
+              fi
+              if [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ]; then
+                printf "apt-install: mirror list contents:\n" >&2
+                cat "$mirrors" >&2 || true
+              fi
             fi
           fi
           status=0
