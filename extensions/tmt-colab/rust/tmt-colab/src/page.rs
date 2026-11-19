@@ -43,6 +43,8 @@ pub enum Fault {
     NotStructured,
     /// A block op names a block the page does not have (never added, or purged by compaction).
     BlockNotFound,
+    ThreadNotFound,
+    AttachmentNotFound,
     /// `after` names a block that is not a child of `parent`.
     BlockBadAfter,
     BlockTextNotFound,
@@ -57,9 +59,9 @@ impl Fault {
     pub fn code(&self) -> &'static str {
         match self {
             Self::StaleBase => "COLAB_STALE_BASE",
-            Self::Invalid => "COLAB_INPUT_INVALID",
+            Self::Invalid | Self::ThreadNotFound => "COLAB_INPUT_INVALID",
             Self::Capacity => "COLAB_CAPACITY",
-            Self::Missing => "COLAB_STATE_MISSING",
+            Self::Missing | Self::AttachmentNotFound => "COLAB_STATE_MISSING",
             Self::Inactive => "COLAB_PAGE_INACTIVE",
             Self::Denied => "COLAB_DENIED",
             Self::Unavailable | Self::AttachmentsUnavailable => "COLAB_UNAVAILABLE",
@@ -92,6 +94,8 @@ impl std::fmt::Display for Fault {
                     size(crate::decoder::WRITE_TAIL_BYTES)
                 );
             }
+            Self::ThreadNotFound => "Thread not found on this page.",
+            Self::AttachmentNotFound => "Attachment not found on this page.",
             Self::Missing => "Existing Colab state is required.",
             Self::Inactive => "Archived or deleted pages cannot be written.",
             Self::Denied => {
@@ -110,7 +114,7 @@ impl std::fmt::Display for Fault {
                 "The running Colab server and this CLI are different builds that cannot write pages together. Nothing was written. Run `tmt colab stop`, then start `tmt colab serve` again so the server runs the installed build (or upgrade the CLI if the server is newer)."
             }
             Self::StructuredPage => {
-                "This page is made of blocks, so it has no HTML source to write or patch. Change it with `tmt colab block` (ls, get, insert, props, text, move, delete, restore, table, batch). Nothing was written."
+                "Read this page with `tmt colab block ls PAGE --json`, then `tmt colab block get PAGE BLOCK --json` for one block. This page has no editable HTML source. Use block commands to change it."
             }
             Self::NotStructured => {
                 "This page is HTML, not blocks. Read and change it with `tmt colab page read` and `page patch`; `tmt colab block` works on pages made with `page create --structured`."

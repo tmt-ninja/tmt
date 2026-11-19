@@ -528,7 +528,16 @@ impl Bundle {
         }
         // The user-selected parent may have aliases (including macOS /tmp).
         // Resolve once; every created entry is still admitted without following links.
-        let path = std::fs::canonicalize(path)?;
+        let path = std::fs::canonicalize(&path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                std::io::Error::new(
+                    error.kind(),
+                    format!("Output directory {} must already exist.", path.display()),
+                )
+            } else {
+                error
+            }
+        })?;
         let parent = directory(&path)?;
         let stage_name = format!(".tmt-colab-export-{id}");
         let mut stage = Staging::new(&parent, &stage_name)?;
