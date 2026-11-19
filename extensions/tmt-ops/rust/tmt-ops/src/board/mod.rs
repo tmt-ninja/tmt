@@ -1995,24 +1995,25 @@ pub fn run(
         launch_scope(&core, &names, resume.is_some())
     })?;
     // Cold launch names resolve before admission; a reload uses carried UUIDs.
-    // Once admitted, paint the placeholder before configuration, worker setup
+    // Once admitted, paint the opening chrome before configuration, worker setup
     // and the terminal background query. A later failure drops the guard and
     // restores the terminal before the error is reported.
     let mut guard = terminal::Guard::enter(terminal::Crossterm::default()).map_err(failed)?;
     let links = hyperlinks::Links::default();
     let mut screen = Terminal::new(terminal::Backend::with_links(io::stdout(), links.clone()))
         .map_err(failed)?;
+    let opening_tab = resume.as_ref().map(|state| state.shell).or_else(|| {
+        view_state::startup_destination(startup_tab, crate::config::StartupTab::Last, false)
+    });
+    // Use the terminal's own palette before the background query. Look::new
+    // would initialize the background signal before that query could set it.
+    let opening_look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Terminal),
+        depth: tmt_cli_style::Depth::from_env(std::env::var_os("NO_COLOR").is_none()),
+    };
     timing::measure(startup.as_ref(), "startup.placeholder", || {
-        screen.draw(|frame| {
-            let area = ratatui::layout::Rect {
-                height: 1,
-                ..frame.area()
-            };
-            tmt_tui::components::strip::paint_left(
-                frame.buffer_mut(),
-                area,
-                ratatui::text::Line::from(" Opening…"),
-            );
+        terminal::present(&mut screen, false, |frame| {
+            view::opening(frame, opening_look, opening_tab);
         })
     })
     .map_err(failed)?;

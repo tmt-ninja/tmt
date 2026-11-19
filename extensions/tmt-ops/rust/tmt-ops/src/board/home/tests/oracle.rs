@@ -1396,6 +1396,42 @@ fn orchestration_frames(styles: &mut Styles) -> Vec<Value> {
     frames
 }
 
+fn opening_frames(styles: &mut Styles) -> Vec<Value> {
+    use crate::board::shell::OpsTab;
+    use tmt_cli_style::{Base, Depth, Theme};
+
+    let mut frames = Vec::new();
+    for (name, depth) in [("terminal", Depth::Ansi16), ("NO_COLOR", Depth::None)] {
+        let look = crate::look::Look {
+            theme: Theme::new(Base::Terminal),
+            depth,
+        };
+        for (state, tab) in [
+            ("opening-cold", None),
+            ("opening-reload", Some(OpsTab::Work)),
+        ] {
+            for (width, height) in [(160, 36), (100, 24), (60, 8)] {
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::opening(frame, look, tab))
+                    .unwrap();
+                let mut frame = buffer_json(terminal.backend().buffer(), styles);
+                frame["state"] = json!(state);
+                frame["look"] = json!(name);
+                frame["width"] = json!(width);
+                frame["height"] = json!(height);
+                // Opening takes no App and cannot publish any interactive regions.
+                frame["hits"] = json!("[]");
+                frame["tabs"] = json!("[]");
+                frame["actions"] = json!("[]");
+                frame["input"] = json!("None");
+                frames.push(frame);
+            }
+        }
+    }
+    frames
+}
+
 fn work_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
@@ -1699,6 +1735,7 @@ macro_rules! oracle_groups {
         $group!(7, 32, visibility_frames($styles));
         $group!(7, 608, orchestration_frames($styles));
         $group!(7, 60, work_frames($styles));
+        $group!(7, 12, opening_frames($styles));
     };
 }
 

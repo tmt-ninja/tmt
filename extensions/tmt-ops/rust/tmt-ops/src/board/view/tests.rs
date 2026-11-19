@@ -89,6 +89,61 @@ fn buffer_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
 }
 
 #[test]
+fn the_first_admitted_frame_shows_board_chrome_without_live_data() {
+    let _guard = crate::runner::forbid_commands();
+    for width in [60, 100, 160] {
+        let mut terminal = Terminal::new(TestBackend::new(width, 20)).unwrap();
+        terminal
+            .draw(|frame| opening(frame, crate::look::Look::default(), Some(OpsTab::Work)))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let lines = buffer_text(buffer);
+        assert!(
+            lines.first().is_some_and(|line| line.contains("OPS / UI")),
+            "missing board header at {width} columns: {lines:?}"
+        );
+        let tabs = &lines[1];
+        for label in ["Agents", "Work", "Digest", "Orchestration"] {
+            assert!(
+                tabs.contains(label),
+                "missing tab at {width} columns: {tabs}"
+            );
+        }
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.contains("◌ Loading work…"))
+                .count(),
+            1,
+            "one marked loading row"
+        );
+        assert!(
+            (0..width).any(|x| buffer[(x, 19)].symbol() != " "),
+            "missing footer chrome"
+        );
+        let text = lines.join("\n");
+        for live in [
+            " online",
+            " todo",
+            " blocked",
+            "open page",
+            "Snapshots",
+            "q quit",
+        ] {
+            assert!(!text.contains(live), "early frame shows {live:?}");
+        }
+    }
+    let mut terminal = Terminal::new(TestBackend::new(20, 1)).unwrap();
+    terminal
+        .draw(|frame| opening(frame, crate::look::Look::default(), None))
+        .unwrap();
+    assert_eq!(
+        buffer_text(terminal.backend().buffer()),
+        [" ◌ Loading squads…"]
+    );
+}
+
+#[test]
 fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = workspace_board();
