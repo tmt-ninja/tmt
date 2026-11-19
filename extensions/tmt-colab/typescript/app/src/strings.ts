@@ -27,6 +27,8 @@ const pairCommand = 'tmt remote pair';
 const frameLimit =
   'A page’s scripts can open another address inside the page’s own frame, which can pass along what the page can read. Colab cannot fully prevent that.';
 
+const waitingOnPr = 'Waiting on a PR';
+
 export const text = {
   pageOutline: 'Page outline',
   outline: 'Outline',
@@ -802,7 +804,7 @@ export const text = {
       done: 'Done',
       blocked: 'Blocked',
       'needs-you': 'Needs you',
-      'waiting-ci': 'Waiting for CI',
+      'waiting-ci': waitingOnPr,
       'waiting-release': 'Waiting for release',
       working: 'In progress',
       'not-started': 'Not started',
@@ -874,11 +876,15 @@ export const text = {
       ERROR: 'CI error',
       EXPECTED: 'CI expected',
     },
+    waitingForCi: 'Waiting for CI',
+    waitingToMerge: 'Waiting to merge',
+    openChecksPassed: (pr: string) => `PR #${pr} is open and its checks passed.`,
+    openChecksFailed: (pr: string) => `PR #${pr} has failed checks.`,
     computedState: {
       done: 'Done',
       blocked: 'Blocked',
       'needs-you': 'Needs you',
-      'waiting-ci': 'Waiting for CI',
+      'waiting-ci': waitingOnPr,
       'waiting-release': 'Waiting for release',
       working: 'In progress',
       'possibly-stalled': 'Possibly stalled',

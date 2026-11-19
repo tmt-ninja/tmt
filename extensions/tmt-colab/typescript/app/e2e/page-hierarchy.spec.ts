@@ -59,6 +59,15 @@ for (const width of [1440, 1100, 800, 390])
         (await import(path)).mountWorkPage(true, 'work-fields', false, 'unknown');
       });
       await expect(barStatus.locator('.page-bar-status-label')).toHaveText('Status unknown');
+      await page.evaluate(async () => {
+        const path = '/test/work-page-browser.tsx';
+        (await import(path)).mountWorkPage(true, 'work-fields', false, 'waiting-ci');
+      });
+      await expect(barStatus).toHaveAccessibleName('Waiting to merge, show status details');
+      await expect(barStatus).toHaveAttribute('data-state', 'waiting-ci');
+      await expect((await openDetails(page)).locator('.page-status-headline')).toContainText(
+        'PR #42 is open and its checks passed.',
+      );
       await mount(page, 'work-fields');
     }
     if (width === 390) {

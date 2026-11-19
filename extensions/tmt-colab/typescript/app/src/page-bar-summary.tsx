@@ -50,7 +50,7 @@ export function PageBarSummary({
 }) {
   const state = facts?.state ?? 'unknown';
   // The same word as the page's own status chip just under the bar.
-  const label = computedLabel(state);
+  const label = computedLabel(state, facts);
   const shown = labels.slice(0, LABELS);
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   // The bar keeps only its status dot up to 900px (its labels leave first): the details open as a
