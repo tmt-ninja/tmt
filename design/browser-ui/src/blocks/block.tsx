@@ -87,7 +87,12 @@ export interface BlockHandleProps {
   menuOpen?: boolean;
   insertLabel?: string;
   menuLabel?: string;
+  /** The menu button's accessible description: how the keyboard opens the same menu (#6665). */
+  menuDescription?: string;
 }
+
+/** The keys `blockKeyAction` maps to 'menu', in the order the description names them. */
+const MENU_KEYS = 'Shift+F10 ContextMenu Meta+/ Control+/';
 
 /**
  * The editor's one handle. Render it once, inside the hovered or keyboard-focused block; it sits
@@ -101,6 +106,7 @@ export function BlockHandle({
   menuOpen,
   insertLabel = 'Insert block',
   menuLabel = 'Block actions',
+  menuDescription = 'From the focused block, press Shift+F10, the Context Menu key, or ⌘/ (Ctrl+/ on Windows and Linux) to open Block actions.',
 }: BlockHandleProps) {
   return (
     <div data-slot="block-handle" className="tmt-block-handle">
@@ -119,6 +125,8 @@ export function BlockHandle({
         className="tmt-block-handle-button"
         data-grip=""
         aria-label={menuLabel}
+        aria-description={menuDescription}
+        aria-keyshortcuts={MENU_KEYS}
         aria-haspopup="menu"
         aria-expanded={menuOpen ? 'true' : 'false'}
         onClick={onMenu}

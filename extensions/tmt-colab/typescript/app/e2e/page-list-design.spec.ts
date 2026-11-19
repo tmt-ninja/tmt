@@ -1,11 +1,88 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
+
+/** How many characters of a title, from the text node starting with `start`, show before the
+ * nearest clipping box cuts them. */
+const shownChars = (title: Locator, start: string) =>
+  title.evaluate((element, start) => {
+    let clip = element.getBoundingClientRect().right;
+    for (
+      let at: Element | null = element;
+      at && at.getAttribute('role') !== 'row';
+      at = at.parentElement
+    )
+      if (getComputedStyle(at).overflowX !== 'visible')
+        clip = Math.min(clip, at.getBoundingClientRect().right);
+    const text =
+      [...element.childNodes].find((node) => node.textContent?.startsWith(start)) ?? element;
+    const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+    let count = 0;
+    for (let node = walker.nextNode(); node; node = walker.nextNode())
+      for (let i = 0; i < node.textContent!.length; i++) {
+        const range = document.createRange();
+        range.setStart(node, i);
+        range.setEnd(node, i + 1);
+        if (range.getBoundingClientRect().right > clip + 0.5) return count;
+        count++;
+      }
+    return count;
+  }, start);
+
+/**
+ * The page list's column layout in pixels (#6665): each fitted column's width beside what its
+ * widest content (or header) needs, the title track, and the width the other tracks leave it.
+ */
+const titleLayout = (root: Locator) =>
+  root.locator('.tmt-data-table-grid').evaluate((table) => {
+    const head = table.querySelector('.tmt-data-table-head')!;
+    const headers = [...head.querySelectorAll('[role="columnheader"]')];
+    const rows = [...table.querySelectorAll('.tmt-data-table-row')];
+    /** What a cell's content needs: its content's right edge plus the end padding. */
+    const needs = (cell: Element | undefined) => {
+      if (!cell) return 0;
+      const range = document.createRange();
+      range.selectNodeContents(cell);
+      const content = range.getBoundingClientRect();
+      if (!content.width) return 0;
+      return (
+        content.right -
+        cell.getBoundingClientRect().left +
+        Number.parseFloat(getComputedStyle(cell).paddingRight)
+      );
+    };
+    const fitted = headers
+      .filter((header) => header.hasAttribute('data-fit'))
+      .map((header) => ({
+        name: header.textContent,
+        width: header.getBoundingClientRect().width,
+        // Each fitted column of the page list has its own role.
+        needs: Math.max(
+          needs(header),
+          ...rows.map((row) =>
+            needs(
+              row.querySelector(
+                `[role="gridcell"][data-role="${header.getAttribute('data-role')}"]`,
+              ) ?? undefined,
+            ),
+          ),
+        ),
+      }));
+    const title = headers.find((header) => header.getAttribute('data-role') === 'primary')!;
+    const others = headers
+      .filter((header) => header !== title)
+      .reduce((sum, header) => sum + header.getBoundingClientRect().width, 0);
+    return {
+      fitted,
+      title: title.getBoundingClientRect().width,
+      rest: head.getBoundingClientRect().width - others,
+    };
+  });
 
 async function mount(
   page: Page,
   width: number,
   theme: 'light' | 'dark',
-  size: 'work' | 'work-pinned' | 'none' | 'unmanaged' = 'work-pinned',
+  size: 'work' | 'work-pinned' | 'none' | 'unmanaged' | 'titles' = 'work-pinned',
   hash = '/',
 ) {
   await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
@@ -71,31 +148,7 @@ for (const width of [390, 1440])
         // The title column gives way last (#6646): at 1280 the long title beside its work number
         // shows at least its first 24 characters before the ellipsis.
         await page.setViewportSize({ width: 1280, height: 900 });
-        const shown = await long.locator('.tmt-ui-list-title').evaluate((element) => {
-          let clip = element.getBoundingClientRect().right;
-          for (
-            let at: Element | null = element;
-            at && at.getAttribute('role') !== 'row';
-            at = at.parentElement
-          )
-            if (getComputedStyle(at).overflowX !== 'visible')
-              clip = Math.min(clip, at.getBoundingClientRect().right);
-          const text =
-            [...element.childNodes].find((node) =>
-              node.textContent?.startsWith('A deliberately'),
-            ) ?? element;
-          const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
-          let count = 0;
-          for (let node = walker.nextNode(); node; node = walker.nextNode())
-            for (let i = 0; i < node.textContent!.length; i++) {
-              const range = document.createRange();
-              range.setStart(node, i);
-              range.setEnd(node, i + 1);
-              if (range.getBoundingClientRect().right > clip + 0.5) return count;
-              count++;
-            }
-          return count;
-        });
+        const shown = await shownChars(long.locator('.tmt-ui-list-title'), 'A deliberately');
         expect(shown).toBeGreaterThanOrEqual(24);
         await page.setViewportSize({ width, height: 900 });
       }
@@ -145,6 +198,38 @@ for (const width of [390, 1440])
       await root.getByRole('checkbox', { name: 'Select Review 2', exact: true }).check();
       await expect(root.getByRole('region', { name: 'Bulk actions' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`5972-selected-${width}-${theme}.png`) });
+      if (width === 1440) {
+        // The other columns take only what their content needs, the title the rest (#6665). In
+        // pixels, so it holds on any runner's fonts: on a list of sixty real-looking titles each
+        // fitted column is no wider than its widest cell content or its header, and the title
+        // track is everything else.
+        await mount(page, width, theme, 'titles');
+        const author = root.getByRole('columnheader', { name: 'Author' });
+        expect(
+          await author.evaluate((node) => {
+            const label = node.querySelector('.tmt-data-table-text')!;
+            return label.scrollWidth <= label.clientWidth;
+          }),
+        ).toBe(true);
+        for (const at of [1440, 1280]) {
+          await page.setViewportSize({ width: at, height: 900 });
+          const layout = await titleLayout(root);
+          expect(layout.fitted.map((column) => column.name)).toEqual([
+            'Project',
+            'Stage',
+            'Updated',
+            'Author',
+            'Access',
+          ]);
+          for (const column of layout.fitted)
+            expect(column.width, `${column.name} at ${at}`).toBeLessThanOrEqual(column.needs + 2);
+          expect(Math.abs(layout.title - layout.rest)).toBeLessThanOrEqual(2);
+          // On main the title track here is 320px at 1440, its #6646 ideal, while the other
+          // columns grow to their caps; with this change it is about 530px on macOS Chromium.
+          if (at === 1440) expect(layout.title).toBeGreaterThanOrEqual(450);
+        }
+        await page.setViewportSize({ width, height: 900 });
+      }
       await mount(page, width, theme, 'none');
       await expect(root.getByText('No pages yet', { exact: true })).toBeVisible();
       await page.screenshot({ path: await capturePath(`5972-empty-${width}-${theme}.png`) });

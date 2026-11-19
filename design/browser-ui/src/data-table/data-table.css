@@ -69,6 +69,10 @@
   padding: 0 var(--tmt-data-table-pad);
   overflow: hidden;
 }
+/* A fitted column's floor (#6665): its header label is never cut. */
+.tmt-data-table-cell[data-fit] {
+  min-width: max-content;
+}
 .tmt-data-table-cell[data-align='end'] {
   justify-content: flex-end;
 }
