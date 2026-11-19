@@ -133,6 +133,14 @@ fn the_first_admitted_frame_shows_board_chrome_without_live_data() {
             assert!(!text.contains(live), "early frame shows {live:?}");
         }
     }
+    let mut terminal = Terminal::new(TestBackend::new(20, 1)).unwrap();
+    terminal
+        .draw(|frame| opening(frame, crate::look::Look::default(), None))
+        .unwrap();
+    assert_eq!(
+        buffer_text(terminal.backend().buffer()),
+        [" ◌ Loading squads…"]
+    );
 }
 
 #[test]
