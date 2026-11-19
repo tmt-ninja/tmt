@@ -248,6 +248,7 @@ export function PageListRowMenu({
   pinned,
   onOpenInNewTab,
   onPin,
+  onRename,
   onManage,
   onProjects,
   onArchive,
@@ -260,6 +261,8 @@ export function PageListRowMenu({
   pinned?: boolean;
   onOpenInNewTab(): void;
   onPin?(): void;
+  /** Opens the page with its title in edit; absent where the viewer cannot rename it. */
+  onRename?(): void;
   onManage(): void;
   onProjects(): void;
   onArchive(): void;
@@ -284,6 +287,7 @@ export function PageListRowMenu({
         {pinned ? 'Unpin' : 'Pin'}
       </TrustedMenuItem>
       <DropdownMenuSeparator />
+      {onRename && <TrustedMenuItem onSelect={onRename}>Rename…</TrustedMenuItem>}
       <TrustedMenuItem
         disabled={readOnly}
         title={reason}

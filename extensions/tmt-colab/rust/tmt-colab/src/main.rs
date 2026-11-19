@@ -450,6 +450,7 @@ fn grammar() -> Command {
                     .subcommand(cli_layout::command())
                     .subcommand(cli_metadata::creator_command())
                     .subcommand(cli_metadata::state_command())
+                    .subcommand(cli_metadata::title_command())
                     .subcommand(cli_metadata::set_command()),
             )
             .subcommand(
@@ -995,7 +996,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     if command == "reclaim" {
         return cli_storage::page(root, args);
     }
-    if command == "creator" || command == "state" || command == "set" {
+    if matches!(command, "creator" | "state" | "set" | "title") {
         return cli_metadata::run(root, command, args);
     }
     if command == "create" && !args.get_flag("html") {

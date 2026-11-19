@@ -1,3 +1,4 @@
+import { renameOnOpen } from './work-band.js';
 import { useOwnerActivity } from './use-owner-activity.js';
 import { workItems } from './work-home-model.js';
 import { useShortcuts } from './use-shortcuts.js';
@@ -1080,6 +1081,18 @@ export function Home() {
                     pinned={page.pinned}
                     onOpenInNewTab={() => openInNewTab(page.id)}
                     onPin={port && !page.archived ? () => void togglePin(page) : undefined}
+                    onRename={
+                      port && !page.archived
+                        ? () => {
+                            renameOnOpen.page = page.id;
+                            void router.navigate({
+                              to: '/pages/$pageId',
+                              params: { pageId: page.id },
+                              ...(scope === undefined ? {} : { state: { scope } as never }),
+                            });
+                          }
+                        : undefined
+                    }
                     onManage={() => {
                       const row = [
                         ...(section.current?.querySelectorAll<HTMLElement>('[data-page-id]') ?? []),

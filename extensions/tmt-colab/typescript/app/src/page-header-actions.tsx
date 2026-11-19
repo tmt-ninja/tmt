@@ -20,6 +20,7 @@ import {
   X,
   CircleDot,
   ListTree,
+  PencilLine,
 } from 'lucide-react';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
@@ -41,6 +42,7 @@ export type PageHeaderAction =
   | 'put-under'
   | 'add-subpage'
   | 'page-state'
+  | 'rename'
   | 'open-parent'
   | 'subpages'
   | 'template-save'
@@ -80,6 +82,7 @@ export function PageHeaderActions({
   canMove = false,
   canAddSubpage = false,
   canSetPageState = false,
+  canRename = false,
   parentTitle,
   subpageCount,
   onConvert,
@@ -101,6 +104,8 @@ export function PageHeaderActions({
   canMove?: boolean;
   canAddSubpage?: boolean;
   canSetPageState?: boolean;
+  /** The owner can rename the page in its title row (#6709). */
+  canRename?: boolean;
   parentTitle?: string;
   /** A phone viewer's sub-pages (#6652): the owner has them in the status details, a wider
    * viewer's bar has its own chip. */
@@ -148,6 +153,7 @@ export function PageHeaderActions({
       ),
       disabled: !canManage,
     },
+    ...(canRename ? [{ key: 'rename', label: text.rename.item }] : []),
     ...(canProjects ? [{ key: 'projects', label: text.projectsItem }] : []),
     ...(pinItem ? [pinItem] : []),
     ...templateItems.map((item, index) => ({
@@ -198,6 +204,9 @@ export function PageHeaderActions({
     {
       heading: text.moreGroups.organize,
       items: [
+        ...(canRename
+          ? [{ key: 'rename', label: text.rename.item, leadingIcon: <PencilLine /> }]
+          : []),
         ...(canProjects
           ? [{ key: 'projects', label: text.projectsItem, leadingIcon: <Folder /> }]
           : []),
@@ -311,6 +320,7 @@ export function PageHeaderActions({
         key === 'put-under' ||
         key === 'add-subpage' ||
         key === 'page-state' ||
+        key === 'rename' ||
         key === 'open-parent' ||
         key === 'subpages' ||
         key === 'agents' ||

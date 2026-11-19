@@ -14175,7 +14175,7 @@ fn page_work_fields_and_number_survive_edits_and_conflicts() {
 }
 
 #[test]
-fn page_state_commands_read_filter_and_never_auto_complete() {
+fn page_state_and_title_commands_read_filter_and_never_auto_complete() {
     fn call(pilot: &Pilot, args: &[&str]) -> Value {
         let out = pilot
             .command()
@@ -14263,8 +14263,64 @@ fn page_state_commands_read_filter_and_never_auto_complete() {
                 .iter()
                 .any(|row| row["pageId"] == shell)
         );
-        call(&pilot, &["page", "state", &page, "done", "--json"]);
+        let stale = call(&pilot, &["page", "state", &page, "done", "--json"])["revision"]
+            .as_str()
+            .unwrap()
+            .to_owned();
         assert_eq!(show()["page"]["state"], "done");
+
+        // A rename (#6709) changes the title `show` and `ls` read, and never the page's text.
+        let source = call(&pilot, &["page", "read", &page, "--json"])["source"].clone();
+        assert!(source.is_string());
+        let renamed = call(&pilot, &["page", "title", &page, "Launch plan", "--json"]);
+        assert_eq!(renamed["changed"], true);
+        assert_eq!(show()["page"]["title"], "Launch plan");
+        assert_eq!(
+            call(&pilot, &["page", "read", &page, "--json"])["source"],
+            source
+        );
+        assert!(
+            call(&pilot, &["ls", "--json"])["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["pageId"] == page && row["title"] == "Launch plan")
+        );
+        // The same title again changes nothing.
+        let again = call(&pilot, &["page", "title", &page, "Launch plan", "--json"]);
+        assert_eq!(again["changed"], false);
+        // A dashboard is renamed the same way.
+        call(&pilot, &["page", "title", &shell, "Team board", "--json"]);
+        assert_eq!(
+            call(&pilot, &["show", &shell, "--json"])["page"]["title"],
+            "Team board"
+        );
+        // A stale revision, an empty, padded or multi-line title, and an archived page write nothing.
+        let refused = |args: &[&str]| {
+            let output = pilot
+                .command()
+                .env("TMT_AGENT", "1")
+                .env("BROWSER", "/usr/bin/true")
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(!output.status.success(), "{args:?}");
+        };
+        refused(&[
+            "page",
+            "title",
+            &page,
+            "Old base",
+            "--expected-revision",
+            &stale,
+            "--json",
+        ]);
+        for bad in ["", "   ", " Launch", "Two\nlines"] {
+            refused(&["page", "title", &page, bad, "--json"]);
+        }
+        assert_eq!(show()["page"]["title"], "Launch plan");
+        call(&pilot, &["archive", &child, "--json"]);
+        refused(&["page", "title", &child, "Later", "--json"]);
     }
 }
 

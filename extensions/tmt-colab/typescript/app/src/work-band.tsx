@@ -73,16 +73,143 @@ export interface WorkBandProps {
   onAdd?(): void;
 }
 
+/** The page the list's Rename… opened, whose title starts in edit once the page can be renamed. */
+export const renameOnOpen: { page?: string } = {};
+
+/** The owner's rename of a page in its title row (#6709). */
+export interface TitleRename {
+  editing: boolean;
+  onEditing(editing: boolean): void;
+  /** Saves the title; resolves to the reason it was not saved, or nothing once it was. */
+  onSave(title: string): Promise<string | undefined>;
+}
+
+/** The title row's title, or its editor: Enter or leaving saves, Escape restores. */
+function TitleRow({
+  title,
+  workNumber,
+  rename,
+}: {
+  title: string;
+  workNumber?: string;
+  rename?: TitleRename;
+}) {
+  const [draft, setDraft] = useState(title);
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const done = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
+  const errorId = useId();
+  const editing = rename?.editing ?? false;
+  // Each edit starts from the title shown, however it was opened (the title or More's Rename…),
+  // with the row in view.
+  useLayoutEffect(() => {
+    if (!editing) return;
+    setDraft(title);
+    setError(undefined);
+    done.current = false;
+    const node = input.current;
+    if (node?.checkVisibility()) {
+      node.scrollIntoView({ block: 'nearest' });
+      node.focus();
+      node.select();
+    }
+    // The title shown while editing is not the draft's starting point again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+  const number = workNumber && (
+    <>
+      <span className="colab-work-number">{workNumber}</span>{' '}
+    </>
+  );
+  if (!rename)
+    return (
+      <h1>
+        {number}
+        {title}
+      </h1>
+    );
+  if (!editing)
+    return (
+      <h1>
+        {number}
+        <button
+          type="button"
+          className="page-title-rename"
+          // The heading keeps the title as its name; the button says what it does beside it.
+          aria-description={text.rename.hint}
+          title={text.rename.hint}
+          onClick={() => rename.onEditing(true)}
+        >
+          {title}
+        </button>
+      </h1>
+    );
+  const finish = async (save: boolean) => {
+    if (done.current || busy) return;
+    if (!save || draft === title) {
+      done.current = true;
+      setError(undefined);
+      rename.onEditing(false);
+      return;
+    }
+    setBusy(true);
+    const reason = await rename.onSave(draft);
+    setBusy(false);
+    if (reason === undefined) {
+      done.current = true;
+      setError(undefined);
+      rename.onEditing(false);
+    } else setError(reason);
+  };
+  return (
+    <div className="page-title-edit">
+      <input
+        ref={input}
+        className="page-title-input"
+        aria-label={text.rename.field}
+        aria-invalid={error !== undefined}
+        aria-describedby={error === undefined ? undefined : errorId}
+        value={draft}
+        readOnly={busy}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setError(undefined);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            void finish(true);
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            void finish(false);
+          }
+        }}
+        onBlur={() => void finish(true)}
+      />
+      {error !== undefined && (
+        <p className="page-title-error" id={errorId} role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** The page title and work controls scroll together as one content block. */
 export function MobileWorkTitle({
   title,
   workNumber,
   onSize,
+  rename,
   children,
 }: {
   title: string;
   workNumber?: string;
   onSize(height: number): void;
+  /** The owner renames the page here (#6709). */
+  rename?: TitleRename;
   /** The reader's work band; the owner's page has its details in the top bar (#6652). */
   children?: ReactNode;
 }) {
@@ -101,14 +228,7 @@ export function MobileWorkTitle({
   }, [onSize]);
   return (
     <div className="page-mobile-title" ref={element}>
-      <h1>
-        {workNumber && (
-          <>
-            <span className="colab-work-number">{workNumber}</span>{' '}
-          </>
-        )}
-        {title}
-      </h1>
+      <TitleRow title={title} workNumber={workNumber} rename={rename} />
       {children && <div className="page-mobile-title-chips">{children}</div>}
     </div>
   );

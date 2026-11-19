@@ -1640,6 +1640,17 @@ export const text = {
   source: 'Source',
   convertStructured: 'Convert to structured page…',
   revertStructured: 'Switch back to HTML…',
+  /** Renaming a page in its title row (#6709). */
+  rename: {
+    item: 'Rename…',
+    field: 'Page title',
+    hint: 'Rename the page',
+    empty: 'Give the page a title.',
+    oneLine: 'A title is one line of text.',
+    tooLong: 'That title is too long.',
+    changed: 'The page changed on another device. Its title is shown again; rename it once more.',
+    failed: 'The title could not be saved.',
+  },
   conversion: {
     title: 'Convert to a structured page?',
     body: "This page becomes an empty structured page. The old HTML is kept with the page; you can read it or switch back at any time. The current page's layout is removed.",

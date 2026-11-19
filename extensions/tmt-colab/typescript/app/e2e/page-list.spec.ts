@@ -709,6 +709,15 @@ test('deleting from the menu names the page, says it cannot be undone, and remov
     { operation: 'page.delete', pageId: 'c0000004-1111-4111-8111-000000000001' },
   ]);
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes']);
+  // Rename… opens the page with its title in edit, the one place a title is edited (#6709).
+  await rows(page)
+    .filter({ hasText: 'Beta review' })
+    .getByRole('button', { name: 'More for Beta review' })
+    .click();
+  await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  await expect.poll(() => new URL(page.url()).hash).toContain('/pages/');
+  await expect(page.getByRole('textbox', { name: 'Page title' })).toBeFocused();
+  await expect(page.getByRole('textbox', { name: 'Page title' })).toHaveValue('Beta review');
 });
 
 test('an archived row offers Restore and Delete while keeping archive unavailable', async ({

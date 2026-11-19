@@ -114,7 +114,7 @@ tmt colab page patch PAGE --find 'quoted text' --replace 'new text' --json
 [editing](references/editing.md) (`tmt colab skill editing`) for lock/unlock and page hints.
 On `COLAB_PATCH_CONFLICT`, reread and rebuild the patch. Existing pages use `page patch`;
 `page write` refuses them. Repeat `--find/--replace` pairs for several non-overlapping changes
-against the original source in one revision. Patches replacing over half the source warn. Use `page create --html --file` for a new page.
+against the original source in one revision. Patches replacing over half the source warn. `page title PAGE TITLE` renames; text stays.
 
 `revision` is opaque; use the returned token. `update` reports cost (`count`, `bytes`);
 title and discussion stay. On `COLAB_STALE_BASE`, reread, merge and use

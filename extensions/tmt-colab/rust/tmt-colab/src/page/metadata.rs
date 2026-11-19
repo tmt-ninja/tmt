@@ -52,6 +52,10 @@ pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
             crate::page_state::validate_action(action, body).map_err(|_| invalid())?;
             Ok(StructuredKind::PageState)
         }
+        "page.title" => {
+            crate::page_state::validate_title(action, body).map_err(|_| invalid())?;
+            Ok(StructuredKind::Title)
+        }
         "page.set" => {
             let mut checked = body.clone();
             if let Some(owner) = body.get("owner") {
