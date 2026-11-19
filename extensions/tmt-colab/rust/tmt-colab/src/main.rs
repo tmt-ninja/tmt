@@ -257,7 +257,7 @@ fn grammar() -> Command {
             note: "Create a private UUID-named export directory",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html, conversations.json, conversations.md, manifest.json and an attachments/ directory in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. The conversations files hold the page's verified threads, comments and Ask conversations for the current epoch (names and times are labels). The manifest lists every attachment of the page; each file is read through the running serve under current access, so an attachment that cannot be read is listed as missing or unavailable with its reason and nothing of it is written. Without tmt colab serve every attachment is unavailable. Archived or deleted pages cannot be exported yet.",
+        details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html, conversations.json, conversations.md, manifest.json and an attachments/ directory in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. The conversations files hold the page's verified threads, comments and Ask conversations for the current epoch (names and times are labels). The manifest lists every attachment of the page; each file is read through the running serve under current access, so an attachment that cannot be read is listed as missing or unavailable with its reason and nothing of it is written. Without tmt colab serve every attachment is unavailable. For a standalone copy of a page following a space design system draft, export from the browser or lock the page to a published release and export again. Archived or deleted pages cannot be exported yet.",
     };
     const PAGE: CommandSpec = CommandSpec {
         name: "page",
@@ -714,6 +714,11 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
         let mut value = serde_json::to_value(&published)?;
+        use tmt_colab::export::standalone::{DESIGN_DRAFT_UNAVAILABLE, explanation};
+        if published.standalone.and_then(|outcome| outcome.reason) == Some(DESIGN_DRAFT_UNAVAILABLE)
+        {
+            value["standalone"]["message"] = json!(explanation(DESIGN_DRAFT_UNAVAILABLE));
+        }
         value["pageId"] = json!(page_id);
         writeln!(output, "{value}")?;
     } else {

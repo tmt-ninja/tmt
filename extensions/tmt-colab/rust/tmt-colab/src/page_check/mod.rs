@@ -8,6 +8,7 @@
 //! and uses no clock. Owner-summary quote projection is separately bounded by a deadline.
 
 mod anchors;
+mod design;
 mod group;
 mod hints;
 mod image;
@@ -459,6 +460,7 @@ fn inspect(tree: &tree::Tree) -> Report {
         .collect();
     image::check(tree, &images, &mut report);
     ui::check(tree, &ordinals, &mut report);
+    design::check(tree, &ordinals, &mut report);
     for &(id, ordinal) in &ordinals {
         if tree.name(id) != "tmt-thread-ref" {
             continue;

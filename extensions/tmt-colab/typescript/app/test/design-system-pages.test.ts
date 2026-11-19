@@ -1615,6 +1615,21 @@ describe('the built-in tmt GUI in Design (#6060)', () => {
 });
 
 describe('the design-system page check on a Colab page (#6062)', () => {
+  it('agrees with the CLI on shipped component examples', async () => {
+    const bundle = (await import('../../../../../design/systems/tmt-gui/generated/bundle.json'))
+      .default as unknown as Bundle;
+    const vectors = (await import('../../../contracts/vectors/design-component-check-v1.json'))
+      .default;
+    for (const { tag, attrs, codes } of vectors) {
+      expect(
+        checkPageElements(
+          [{ tag, attrs: attrs as Record<string, string> }],
+          { system: 'tmt-gui' },
+          bundle,
+        ).map((f) => f.code),
+      ).toEqual(codes);
+    }
+  });
   it('skips every Colab page element and still reports a foreign tag', async () => {
     const bundle = (await import('../../../../../design/systems/tmt-gui/generated/bundle.json'))
       .default as unknown as Bundle;

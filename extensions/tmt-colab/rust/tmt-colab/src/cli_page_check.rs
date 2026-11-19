@@ -86,6 +86,11 @@ fn message(code: &str) -> String {
         return reason.into();
     }
     match code {
+        "multiple-ds-pins" => "The page names more than one design system.".into(),
+        "unknown-ds-release" => "This build does not carry the pinned release.".into(),
+        "ds-prefix-mismatch" => "The tag belongs to another design system.".into(),
+        "unknown-ds-component" => "The pinned system has no component with this tag.".into(),
+        "invalid-ds-prop" => "The component does not accept this attribute or value.".into(),
         "page-too-deep" => format!(
             "The page nests deeper than {PAGE_DEPTH} elements, where a browser stops nesting; nothing after this element was checked."
         ),

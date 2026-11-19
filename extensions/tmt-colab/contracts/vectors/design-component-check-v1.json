@@ -1,0 +1,40 @@
+[
+  {
+    "tag": "other-button",
+    "attrs": {},
+    "codes": [
+      "ds-prefix-mismatch"
+    ]
+  },
+  {
+    "tag": "tmt-ui-missing",
+    "attrs": {},
+    "codes": [
+      "unknown-ds-component"
+    ]
+  },
+  {
+    "tag": "tmt-ui-button",
+    "attrs": {
+      "variant": "nonsense"
+    },
+    "codes": [
+      "invalid-ds-prop"
+    ]
+  },
+  {
+    "tag": "tmt-ui-button",
+    "attrs": {
+      "variant": "default",
+      "aria-label": "Go"
+    },
+    "codes": []
+  },
+  {
+    "tag": "div",
+    "attrs": {
+      "title": "Title"
+    },
+    "codes": []
+  }
+]

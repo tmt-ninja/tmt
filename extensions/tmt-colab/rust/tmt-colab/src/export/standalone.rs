@@ -255,7 +255,7 @@ pub struct Derived {
     pub file: Option<Vec<u8>>,
 }
 
-/// One sentence for the human output; the JSON carries only the code.
+/// Explain why the standalone copy could not be produced.
 #[must_use]
 pub fn explanation(reason: &str) -> &'static str {
     match reason {
@@ -273,7 +273,7 @@ pub fn explanation(reason: &str) -> &'static str {
             "the page's design system release could not be read; run tmt colab serve and export again"
         }
         DESIGN_DRAFT_UNAVAILABLE => {
-            "the page follows a design system draft; export its copy from the browser"
+            "This page follows a design system draft. Export from the browser or lock the page to a published release and export again."
         }
         _ => "unknown reason",
     }
