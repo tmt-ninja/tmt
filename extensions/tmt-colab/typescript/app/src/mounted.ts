@@ -20,6 +20,7 @@ import { verifyRegistration } from './registration.js';
 import { clearRecovery, recoverSession } from './session-recovery.js';
 import { text } from './strings.js';
 import { LocalDraftStore } from './draft-store.js';
+import { blockDraftStore } from './block-drafts.js';
 import { TitleCache } from './title-cache.js';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
@@ -417,6 +418,7 @@ export async function mountedTransport(
         return current.registration.deviceName;
       },
       drafts,
+      blockDrafts: blockDraftStore(bootstrap.space, registration.deviceId),
       get orderAgents() {
         return current.remote ?? undefined;
       },

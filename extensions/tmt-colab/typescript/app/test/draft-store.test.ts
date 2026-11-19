@@ -358,3 +358,15 @@ it('keeps an edited pending creator reference without losing an existing v1 pair
     mentions: [{ key: { agent: 'creator-id' }, range: { start: 0, end: 8 } }],
   });
 });
+
+it('the existing reader rejects a whole composer record containing a typed block entry', async () => {
+  const { seal } = await import('../src/local-seal.js');
+  const entries = [
+    { target: 'chat', edit: { value: 'keep this chat' } },
+    { target: 'block:id', edit: { base: 'Plan', value: '', generation: 'edit-1' } },
+  ];
+  stored.set(RECORD, await seal(await draftKey('device'),
+    ['tmt-colab-drafts-v1', 'space', 'device', 'page'],
+    new TextEncoder().encode(JSON.stringify({v: 1, drafts: entries}))));
+  expect(await store().load('page')).toEqual(new Map());
+});

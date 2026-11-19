@@ -34,7 +34,8 @@ import {
   selectedIds,
   settleSelection,
 } from './block-selection.js';
-import { BlockTextSync, type Shown, type TableCell, TEXT_FLUSH_MS } from './block-text-sync.js';
+import type { BlockDraftSession } from './block-drafts.js';
+import { BlockTextSync, type Shown, type TableCell, TEXT_FLUSH_MS, TEXT_MAX_WAIT_MS } from './block-text-sync.js';
 import { marked, typedMarks } from './block-marks.js';
 import { indentBlock } from './block-ops.js';
 import type { TextRange } from './block-text-editor.js';
@@ -248,6 +249,7 @@ export function useBlockEditing(
   agents: readonly string[] = [],
   /** Other pages an @ can name, under the page list's authority (#6208); absent without it. */
   pages?: MentionPages,
+  recovery?: BlockDraftSession,
 ) {
   /** This tab's batches on their way: the page draws them at once and drops each when the page's
    * view shows it (`shownAt`: the view order of its commit), or when it was refused (#6249). A
@@ -296,6 +298,7 @@ export function useBlockEditing(
   const sync = useRef<BlockTextSync | undefined>(undefined);
   const caret = useRef(0);
   const version = useRef(0);
+  const firstUnsent = useRef<number | undefined>(undefined);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** The send on its way; a structural gesture waits for it. */
   const inflight = useRef<Promise<void>>(Promise.resolve());
@@ -442,6 +445,7 @@ export function useBlockEditing(
       stored?: readonly StoredAttachment[],
       report = stored === undefined,
     ): Promise<boolean> => {
+      const captured = current && recovery?.matching(current.id, current.cell, current.text);
       const key = ++batchKey.current;
       setPending((now) => [...now, { key, ops }]);
       // This tab's batches commit in the order it made them (a column's rename after its add): each
@@ -475,6 +479,7 @@ export function useBlockEditing(
       }, drop);
       inflight.current = sent.then(
         (at) => {
+          if (captured) recovery?.admitted(captured);
           if (current)
             showRef.current(
               current,
@@ -503,7 +508,7 @@ export function useBlockEditing(
       lastBatch.current = settled;
       return settled;
     },
-    [],
+    [recovery],
   );
   /** The typing not sent yet, with the marks its new characters take from the text they were
    * typed into (as the editor draws them). */
@@ -521,6 +526,7 @@ export function useBlockEditing(
     const current = sync.current;
     const ops = current ? typedOps(current) : [];
     if (!current || !ops.length) return;
+    firstUnsent.current = undefined;
     void out(current, ops, undefined, false);
   }, [out, typedOps]);
   /** Flush the active editor and wait until its latest batch is admitted or refused. */
@@ -738,6 +744,7 @@ export function useBlockEditing(
         return;
       }
       current.typed(text);
+      recovery?.remember(id, current.cell, current.base, text);
       caret.current = at;
       const menu = menuRef.current;
       if (menu?.id === id) setMenuAt(text.startsWith('/') ? { ...menu, query: text } : undefined);
@@ -754,9 +761,10 @@ export function useBlockEditing(
           : undefined,
       );
       clearTimeout(timer.current);
-      timer.current = setTimeout(flush, TEXT_FLUSH_MS);
+      firstUnsent.current ??= performance.now();
+      timer.current = setTimeout(flush, Math.min(TEXT_FLUSH_MS, Math.max(0, firstUnsent.current + TEXT_MAX_WAIT_MS - performance.now())));
     },
-    [flush],
+    [flush, recovery],
   );
 
   /** The person focused a table cell: its text is edited as a block's is, and goes out as
