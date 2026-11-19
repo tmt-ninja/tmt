@@ -62,6 +62,54 @@ test('an open linked PR supplies the owner page status', async () => {
   });
 });
 
+test('an owner can ignore and restore a title-bound PR', async () => {
+  await withWorld(async (world) => {
+    world.linkExtensions();
+    const cli = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const created = cli([
+      'page',
+      'create',
+      '--title',
+      'Release review',
+      '--project',
+      'Atlas',
+      '--no-open',
+    ]);
+    cli(['project', 'set', 'Atlas', '--repo', 'example/project']);
+    const rows = JSON.stringify([
+      { number: 42, title: 'Ship [atlas-1]' },
+      { number: 43, title: 'ATLAS-10 is separate' },
+    ]);
+    const facts = JSON.stringify({
+      data: {
+        repository: { pullRequest: { state: 'OPEN', mergeCommit: null, commits: { nodes: [] } } },
+      },
+    });
+    writeFileSync(
+      join(world.root, 'wrap', 'gh'),
+      `#!/bin/sh
+case "$1" in
+ pr) printf '%s\n' '${rows}' ;;
+ api) printf '%s\n' '${facts}' ;;
+ *) exit 1 ;;
+esac
+`,
+      { mode: 0o700 },
+    );
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'title-match-owner');
+    const page = await openPage(door, browser, created);
+    await page.getByRole('button', { name: 'Waiting for CI, show status details' }).click();
+    await expect(page.getByText(/PR #42.*Title matches ATLAS-1/)).toBeVisible();
+    await expect(page.getByText(/PR #43/)).toHaveCount(0);
+    await page.getByRole('button', { name: 'Ignore title match' }).click();
+    await expect(page.getByText(/PR #42.*Title match ignored/)).toBeVisible();
+    await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Ignore title match' })).toBeVisible();
+  });
+});
+
 test('a released HTML page with no to-dos is done', async () => {
   await withWorld(async (world) => {
     const merged = JSON.stringify({

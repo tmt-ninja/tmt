@@ -482,7 +482,11 @@ export class Live implements PageBinding {
         if (this.#workFactsDirty) {
           this.#workFactsDirty = false;
           this.#refreshWorkFacts();
-        } else if (this.#workFacts?.pulls.length) {
+        } else if (
+          this.#workFacts?.pulls.length ||
+          (this.#workFacts?.titleDiscovery &&
+            this.#workFacts.titleDiscovery.state !== 'unconfigured')
+        ) {
           this.#workFactsTimer = setTimeout(() => this.#refreshWorkFacts(), 60_000);
         }
       });

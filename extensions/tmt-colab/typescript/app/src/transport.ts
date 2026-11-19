@@ -222,6 +222,7 @@ export interface PageTransport {
   workFacts?(
     pageId: string,
     signal: AbortSignal,
+    options?: import('./reading-details.js').WorkFactOptions,
   ): Promise<import('./reading-details.js').WorkFactView>;
   /** Optional, owner-only cached reading metadata. No page subscription, fold or publication. */
   readingDetails?(id: string, signal: AbortSignal): Promise<ReadingDetails>;

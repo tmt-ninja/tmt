@@ -32,6 +32,11 @@ pub enum Change {
         name: String,
         prefix: String,
     },
+    /// Optional owner-local GitHub repository for work-number searches.
+    Repository {
+        name: String,
+        repo: Option<String>,
+    },
     /// Optional owner-local filter for release tags; absent means any tag.
     ReleaseTagPrefix {
         name: String,
@@ -39,6 +44,27 @@ pub enum Change {
     },
     /// Replaces the owner's whole pinned-project list: ordered, no repeats, each an existing project.
     Pins(Vec<String>),
+}
+
+/// GitHub repository accepted as a single OWNER/REPO argument.
+pub fn valid_repository(value: &str) -> bool {
+    let Some((owner, repo)) = value.split_once('/') else {
+        return false;
+    };
+    !owner.is_empty()
+        && owner.len() <= 39
+        && !owner.starts_with('-')
+        && !owner.ends_with('-')
+        && owner
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        && !repo.is_empty()
+        && repo.len() <= 100
+        && !matches!(repo, "." | "..")
+        && !repo.starts_with('-')
+        && repo
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 }
 
 /// A bounded literal tag prefix, never an argument interpreted by a shell.

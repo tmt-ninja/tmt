@@ -128,14 +128,16 @@ function RowStatus({ item, transport }: { item: WorkItem; transport: PageTranspo
   const reading = useRef<AbortController>(undefined);
   useEffect(() => () => reading.current?.abort(), []);
   const open = (next: boolean) => {
-    if (!next || item.blockId || !transport.workFacts || facts === 'reading') return;
+    if (!next || !transport.workFacts || facts === 'reading') return;
     reading.current?.abort();
     const controller = new AbortController();
     reading.current = controller;
     setFacts('reading');
-    transport.workFacts(item.pageId, controller.signal).then(setFacts, () => {
-      if (!controller.signal.aborted) setFacts('failed');
-    });
+    transport
+      .workFacts(item.pageId, controller.signal, { blockId: item.blockId })
+      .then(setFacts, () => {
+        if (!controller.signal.aborted) setFacts('failed');
+      });
   };
   const view = typeof facts === 'object' ? facts : undefined;
   const state = view?.state ?? factState(item.status);
@@ -161,6 +163,14 @@ function RowStatus({ item, transport }: { item: WorkItem; transport: PageTranspo
               <SectionDetails sections={view?.sections ?? item.sections} />
               <StatusDetailsBody
                 state={state}
+                change={
+                  transport.workFacts &&
+                  ((url, ignore) =>
+                    transport.workFacts!(item.pageId, new AbortController().signal, {
+                      blockId: item.blockId,
+                      exclusion: { url, ignore },
+                    }))
+                }
                 {...(view ? { facts: view } : {})}
                 {...(item.status === 'blocked' && item.next ? { blocked: item.next } : {})}
               />

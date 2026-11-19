@@ -797,6 +797,17 @@ export const text = {
     automatic: 'Count automatically',
   },
   workBand: {
+    ignoreMatch: 'Ignore title match',
+    ignoredMatch: 'Title match ignored',
+    restoreMatch: 'Restore',
+    bindingFailed: 'Could not update the title match.',
+    titleDiscovery: {
+      unconfigured: 'Set a project repository to find PRs by work number.',
+      unknown: 'Title matches unknown.',
+      partial: 'Partial title matches.',
+      complete: '',
+    },
+    titleMatch: (number: string) => `Title matches ${number}`,
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',
     expandPanel: 'Expand work panel',

@@ -54,6 +54,11 @@ impl PullLink {
             self.owner, self.repo, self.number
         )
     }
+    pub fn same_pull(&self, other: &Self) -> bool {
+        self.number == other.number
+            && self.owner.eq_ignore_ascii_case(&other.owner)
+            && self.repo.eq_ignore_ascii_case(&other.repo)
+    }
     fn repo_key(&self) -> String {
         format!("{}/{}", self.owner, self.repo)
     }
@@ -154,10 +159,187 @@ pub struct Fact {
     pub observed_at_ms: u64,
 }
 impl Fact {
+    pub fn status(&self) -> crate::work_index::PullRequestFact {
+        use crate::work_index::PullRequestFact;
+        match self.state.as_str() {
+            "open" => PullRequestFact::Open,
+            "merged" => PullRequestFact::Merged {
+                released: self.released,
+            },
+            "closed" => PullRequestFact::Closed,
+            _ => PullRequestFact::Unknown,
+        }
+    }
     pub fn json(&self) -> Value {
         json!({"state":self.state,"checks":self.checks,"released":self.released,"tag":self.tag,"observedAtMs":self.observed_at_ms})
     }
 }
+#[derive(Clone)]
+struct TitleSearch {
+    observed: Instant,
+    links: Vec<PullLink>,
+    state: &'static str,
+}
+
+fn work_token(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
+}
+
+fn title_matches(title: &str, number: &str) -> bool {
+    title
+        .as_bytes()
+        .split(|b| !work_token(*b))
+        .any(|token| token.eq_ignore_ascii_case(number.as_bytes()))
+}
+
+impl Facts {
+    /// Shares the same lock and cancellation boundary as explicit PR and release reads.
+    /// One search per service per minute also bounds a burst of simultaneous page opens.
+    pub fn discover(
+        &self,
+        repo: &str,
+        numbers: &[String],
+        stop: &AtomicBool,
+        open: &dyn Fn() -> bool,
+    ) -> crate::Result<Vec<(String, Vec<PullLink>, &'static str)>> {
+        self.discover_with(repo, numbers, stop, open, &gh)
+    }
+
+    fn discover_with(
+        &self,
+        repo: &str,
+        numbers: &[String],
+        stop: &AtomicBool,
+        open: &dyn Fn() -> bool,
+        call: &GhCall<'_>,
+    ) -> crate::Result<Vec<(String, Vec<PullLink>, &'static str)>> {
+        if !crate::projects::valid_repository(repo)
+            || numbers
+                .iter()
+                .any(|n| n.is_empty() || n.len() > 64 || !n.bytes().all(work_token))
+        {
+            return Err("Invalid GitHub repository or work number".into());
+        }
+        let Ok(mut state) = self.state.try_lock() else {
+            return Ok(numbers
+                .iter()
+                .map(|n| (n.clone(), Vec::new(), "unknown"))
+                .collect());
+        };
+        let now = Instant::now();
+        let due = Duration::from_secs(60);
+        let oldest = numbers
+            .iter()
+            .filter(|n| {
+                state
+                    .searches
+                    .get(&(repo.to_owned(), n.to_string()))
+                    .is_none_or(|s| now.duration_since(s.observed) >= due)
+            })
+            .min_by_key(|n| {
+                state
+                    .searches
+                    .get(&(repo.to_owned(), n.to_string()))
+                    .map(|s| s.observed)
+            });
+        if let Some(number) = oldest
+            && state.next_search.is_none_or(|t| t <= now)
+            && open()
+        {
+            let args = [
+                "pr",
+                "list",
+                "--repo",
+                repo,
+                "--state",
+                "all",
+                "--limit",
+                "21",
+                "--json",
+                "number,title",
+                "--search",
+                &format!("\"{number}\" in:title"),
+            ]
+            .map(str::to_owned);
+            let found = call(&args, stop, open)
+                .and_then(|v| v.as_array().cloned())
+                .filter(|rows| rows.len() <= 21);
+            let mut links = Vec::new();
+            let mut status = "unknown";
+            if let Some(rows) = found {
+                status = if rows.len() > 20 {
+                    "partial"
+                } else {
+                    "complete"
+                };
+                for row in rows.iter().take(20) {
+                    let (Some(title), Some(pr)) = (
+                        row["title"].as_str(),
+                        row["number"].as_u64().filter(|n| *n > 0),
+                    ) else {
+                        status = "partial";
+                        continue;
+                    };
+                    if title_matches(title, number)
+                        && let Some(link) =
+                            PullLink::parse(&format!("https://github.com/{repo}/pull/{pr}"))
+                    {
+                        links.push(link);
+                    }
+                }
+            }
+            // Errors include rate limiting. Back off for all failures without interpreting stderr.
+            state.next_search = Some(
+                now + if status == "unknown" {
+                    Duration::from_secs(300)
+                } else {
+                    due
+                },
+            );
+            let key = (repo.to_owned(), number.clone());
+            if status == "unknown"
+                && let Some(old) = state.searches.get(&key)
+                && !old.links.is_empty()
+            {
+                links.clone_from(&old.links);
+                status = "partial";
+            }
+            if state.searches.len() >= 1024
+                && !state.searches.contains_key(&key)
+                && let Some(oldest) = state
+                    .searches
+                    .iter()
+                    .min_by_key(|(_, s)| s.observed)
+                    .map(|(k, _)| k.clone())
+            {
+                state.searches.remove(&oldest);
+            }
+            state.searches.insert(
+                key,
+                TitleSearch {
+                    observed: now,
+                    links,
+                    state: status,
+                },
+            );
+        }
+        Ok(numbers
+            .iter()
+            .map(|n| {
+                let Some(hit) = state.searches.get(&(repo.to_owned(), n.clone())) else {
+                    return (n.clone(), Vec::new(), "unknown");
+                };
+                let status = if hit.state != "unknown" && now.duration_since(hit.observed) >= due {
+                    "partial"
+                } else {
+                    hit.state
+                };
+                (n.clone(), hit.links.clone(), status)
+            })
+            .collect())
+    }
+}
+
 struct PrEntry {
     due: Instant,
     fact: Option<Fact>,
@@ -170,6 +352,8 @@ struct ReleaseEntry {
 }
 #[derive(Default)]
 struct State {
+    searches: HashMap<(String, String), TitleSearch>,
+    next_search: Option<Instant>,
     prs: HashMap<String, PrEntry>,
     releases: HashMap<String, ReleaseEntry>,
     comparisons: HashMap<(String, String, String), bool>,
@@ -421,10 +605,12 @@ fn gh(args: &[String], stop: &AtomicBool, open: &dyn Fn() -> bool) -> Option<Val
     let path = std::env::var_os("PATH")?;
     let executable: PathBuf = tmt_invoke::find_executable(OsStr::new("gh"), &path)?;
     let mut args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    args.splice(
-        1..1,
-        [OsString::from("--hostname"), OsString::from("github.com")],
-    );
+    if args.first().is_some_and(|arg| arg == "api") {
+        args.splice(
+            1..1,
+            [OsString::from("--hostname"), OsString::from("github.com")],
+        );
+    }
     // Only the user's gh login/config is available; token-bearing environment variables are
     // deliberately not inherited by the child.
     let allowed: Vec<OsString> = [
@@ -888,6 +1074,63 @@ impl Facts {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn title_discovery_is_bounded_and_unavailable_gh_stays_unknown() {
+        let numbers = ["COLAB-128".to_owned()];
+        let stop = AtomicBool::new(false);
+        let data = |args: &[String], _: &AtomicBool, _: &dyn Fn() -> bool| {
+            assert_eq!(
+                args,
+                [
+                    "pr",
+                    "list",
+                    "--repo",
+                    "example/project",
+                    "--state",
+                    "all",
+                    "--limit",
+                    "21",
+                    "--json",
+                    "number,title",
+                    "--search",
+                    "\"COLAB-128\" in:title"
+                ]
+            );
+            Some(json!(
+                (1..=21)
+                    .map(|n| json!({"title":"Fix colab-128","number":n}))
+                    .collect::<Vec<_>>()
+            ))
+        };
+        let found = Facts::default()
+            .discover_with("example/project", &numbers, &stop, &|| true, &data)
+            .unwrap();
+        assert_eq!(found[0].1.len(), 20);
+        assert_eq!(found[0].2, "partial");
+        let explicit = PullLink::parse("https://github.com/Example/PROJECT/pull/1").unwrap();
+        assert!(found[0].1[0].same_pull(&explicit));
+        let missing = Facts::default()
+            .discover_with("example/project", &numbers, &stop, &|| true, &|_, _, _| {
+                None
+            })
+            .unwrap();
+        assert_eq!(missing[0].2, "unknown");
+        assert!(missing[0].1.is_empty());
+    }
+
+    #[test]
+    fn title_work_number_is_an_entire_ascii_token() {
+        assert!(super::title_matches("Fix [colab-128]: ready", "COLAB-128"));
+        for near in [
+            "COLAB-1280",
+            "pre-COLAB-128",
+            "COLAB-128_more",
+            "XCOLAB-128",
+        ] {
+            assert!(!super::title_matches(near, "COLAB-128"));
+        }
+    }
+
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 

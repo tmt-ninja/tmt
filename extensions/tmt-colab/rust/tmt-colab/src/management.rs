@@ -439,6 +439,29 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
                     prefix: value.prefix,
                 }));
             }
+            if tag.action == "repository" {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Repository {
+                    action: String,
+                    name: String,
+                    repo: Option<String>,
+                }
+                let value: Repository = typed(bytes)?;
+                if value.action != "repository"
+                    || !valid(&value.name)
+                    || value
+                        .repo
+                        .as_deref()
+                        .is_some_and(|v| !crate::projects::valid_repository(v))
+                {
+                    return Err(tmt_colab_model::Invalid);
+                }
+                return Ok(Action::Project(Change::Repository {
+                    name: value.name,
+                    repo: value.repo,
+                }));
+            }
             if tag.action == "release-tag-prefix" {
                 let value: ProjectPrefix = typed(bytes)?;
                 if !valid(&value.name)

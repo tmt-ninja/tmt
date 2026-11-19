@@ -622,6 +622,20 @@ impl OwnerTransaction<'_> {
                 }
                 super::work_numbers::set_prefix(self.tx, name, prefix)?;
             }
+            Change::Repository { name, repo } => {
+                if !exists(name)?
+                    || repo
+                        .as_deref()
+                        .is_some_and(|v| !crate::projects::valid_repository(v))
+                {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                self.tx.execute("DELETE FROM work_status_cache WHERE (CASE WHEN instr(page,':')>0 THEN substr(page,1,instr(page,':')-1) ELSE page END) IN (SELECT page FROM page_projects WHERE project=?)",[name])?;
+                self.tx.execute(
+                    "UPDATE project_meta SET repository=? WHERE name=?",
+                    rusqlite::params![repo, name],
+                )?;
+            }
             Change::ReleaseTagPrefix { name, prefix } => {
                 if !exists(name)?
                     || prefix

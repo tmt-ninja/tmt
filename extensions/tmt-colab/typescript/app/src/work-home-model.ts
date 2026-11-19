@@ -147,7 +147,7 @@ export function workItems(
         number: todo.number,
         title: todo.text || page.title,
         // Done when checked; otherwise the state of the Ask it came from, else in discussion.
-        status: todo.checked ? 'done' : todoStatus(todo.ask),
+        status: todo.pullStatus ?? (todo.checked ? 'done' : todoStatus(todo.ask)),
         high: false,
         next: !todo.checked && todo.ask === 'answered' ? text.workHome.answered : page.title,
         ...(todo.assignee ? { owner: { name: todo.assignee } } : {}),

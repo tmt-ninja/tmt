@@ -985,6 +985,12 @@ fn serve(
                 never_written,
                 last_activity_at_ms,
                 prefix,
+                repository,
+                numbers,
+                numbered_blocks,
+                exclusion,
+                block,
+                number,
                 fingerprint,
             } = service
                 .lock()
@@ -1032,33 +1038,158 @@ fn serve(
                 None => crate::work_index::OwnerActivity::Unknown,
             };
             let known = projection.pr_links.is_some();
-            let links = projection.pr_links.clone().unwrap_or_default();
+            let todo = block
+                .as_deref()
+                .and_then(|id| projection.todo_items.iter().find(|todo| todo.id == id));
+            let mut links = if let Some(todo) = todo {
+                let mut urls = Vec::new();
+                crate::work_facts::text_urls(&todo.text, &mut urls);
+                crate::work_facts::pulls(urls).unwrap_or_default()
+            } else {
+                projection.pr_links.unwrap_or_default()
+            };
+            let explicit = links.len();
             let mut pulls = Vec::new();
             let mut statuses = Vec::new();
             // A page may link many PRs; keep one refresh bounded even when every provider is slow.
             let fact_deadline = Instant::now() + Duration::from_secs(30);
-            for link in projection.pr_links.unwrap_or_default() {
+            let item = block
+                .as_ref()
+                .map_or_else(|| page.clone(), |id| format!("{page}:{id}"));
+            let mut ignored_urls = Vec::new();
+            let mut todo_statuses = Vec::new();
+            if exclusion.is_some() && (number.is_none() || repository.is_none()) {
+                return Err(registration::Code::Invalid);
+            }
+            let mut discovery = "unconfigured";
+            if let (Some(repo), Some(number)) = (&repository, &number) {
+                let repo_key = repo.to_ascii_lowercase();
+                let store = if exclusion.is_some() {
+                    Store::write_existing(&browser.layout)
+                } else {
+                    Store::read(&browser.layout)
+                }
+                .map_err(|_| registration::Code::Unavailable)?;
+                if let Some(change) = exclusion {
+                    let link = crate::work_facts::PullLink::parse(&change.url)
+                        .ok_or(registration::Code::Invalid)?;
+                    let pr = i64::try_from(link.number).map_err(|_| registration::Code::Invalid)?;
+                    if !repo.eq_ignore_ascii_case(&format!("{}/{}", link.owner, link.repo))
+                        || stop.load(Ordering::Acquire)
+                    {
+                        return Err(registration::Code::Invalid);
+                    }
+                    store
+                        .set_title_exclusion(&item, &repo_key, pr, change.ignore)
+                        .map_err(|_| registration::Code::Unavailable)?;
+                }
+                let ignored = store
+                    .title_exclusions(&item, &repo_key)
+                    .map_err(|_| registration::Code::Unavailable)?;
+                ignored_urls.extend(
+                    ignored
+                        .iter()
+                        .map(|n| format!("https://github.com/{repo}/pull/{n}")),
+                );
+                for (matched_number, matches, status) in browser
+                    .work_facts
+                    .discover(repo, &numbers, &stop, &|| {
+                        !stop.load(Ordering::Acquire) && Instant::now() < fact_deadline
+                    })
+                    .map_err(|_| registration::Code::Invalid)?
+                {
+                    if &matched_number != number {
+                        if block.is_none()
+                            && !matches.is_empty()
+                            && let Some(id) = numbered_blocks.get(&matched_number)
+                            && let Some(todo) = projection.todo_items.iter().find(|t| &t.id == id)
+                        {
+                            let key = format!("{page}:{id}");
+                            let ignored = store
+                                .title_exclusions(&key, &repo_key)
+                                .map_err(|_| registration::Code::Unavailable)?;
+                            let mut facts = Vec::new();
+                            let mut urls = Vec::new();
+                            for link in matches
+                                .iter()
+                                .filter(|l| !ignored.contains(&(l.number as i64)))
+                            {
+                                let read = browser.work_facts.observe(
+                                    &browser.layout,
+                                    link,
+                                    prefix.as_deref(),
+                                    &stop,
+                                    || {
+                                        !stop.load(Ordering::Acquire)
+                                            && Instant::now() < fact_deadline
+                                    },
+                                );
+                                facts.push(
+                                    read.fact
+                                        .as_ref()
+                                        .map_or(crate::work_index::PullRequestFact::Unknown, |f| {
+                                            f.status()
+                                        }),
+                                );
+                                urls.push(link.url());
+                            }
+                            if status != "complete" {
+                                for fact in &mut facts {
+                                    if matches!(
+                                        fact,
+                                        crate::work_index::PullRequestFact::Merged { .. }
+                                    ) {
+                                        *fact = crate::work_index::PullRequestFact::Unknown;
+                                    }
+                                }
+                                facts.push(crate::work_index::PullRequestFact::Unknown);
+                            }
+                            let at = registration::now_ms()?;
+                            let state = crate::work_index::computed_state(
+                                Some((usize::from(todo.checked), 1)),
+                                false,
+                                todo.ask == Some("needs-you"),
+                                Some(&facts),
+                                crate::work_index::OwnerActivity::Other,
+                                at,
+                            );
+                            todo_statuses.push((
+                                key,
+                                serde_json::json!({"state":state,"asOfMs":at,"pulls":urls}),
+                            ));
+                        }
+                        continue;
+                    }
+                    discovery = status;
+                    for link in matches {
+                        if ignored.contains(&(link.number as i64)) {
+                            continue;
+                        }
+                        if links.iter().any(|l| l.same_pull(&link)) {
+                            continue;
+                        }
+                        if links.len() == 20 {
+                            discovery = "partial";
+                            break;
+                        }
+                        links.push(link);
+                    }
+                }
+            }
+            for link in &links {
                 let observed = browser.work_facts.observe(
                     &browser.layout,
-                    &link,
+                    link,
                     prefix.as_deref(),
                     &stop,
                     || !stop.load(Ordering::Acquire) && Instant::now() < fact_deadline,
                 );
                 busy_unknown |= observed.busy_unknown;
                 let fact = observed.fact;
-                statuses.push(match fact.as_ref() {
-                    Some(fact) if fact.state == "open" => crate::work_index::PullRequestFact::Open,
-                    Some(fact) if fact.state == "merged" => {
-                        crate::work_index::PullRequestFact::Merged {
-                            released: fact.released,
-                        }
-                    }
-                    Some(fact) if fact.state == "closed" => {
-                        crate::work_index::PullRequestFact::Closed
-                    }
-                    _ => crate::work_index::PullRequestFact::Unknown,
-                });
+                statuses.push(
+                    fact.as_ref()
+                        .map_or(crate::work_index::PullRequestFact::Unknown, |f| f.status()),
+                );
                 pulls.push(
                     serde_json::json!({"url":link.url(),"fact":fact.map(|fact| fact.json())}),
                 );
@@ -1066,13 +1197,22 @@ fn serve(
             if stop.load(Ordering::Acquire) {
                 return Err(registration::Code::Denied);
             }
+            if links.len() > explicit && discovery != "complete" {
+                for fact in &mut statuses[explicit..] {
+                    if matches!(fact, crate::work_index::PullRequestFact::Merged { .. }) {
+                        *fact = crate::work_index::PullRequestFact::Unknown;
+                    }
+                }
+                statuses.push(crate::work_index::PullRequestFact::Unknown);
+            }
             let blocked = fields
                 .and_then(|fields| fields.get("blocked"))
                 .and_then(serde_json::Value::as_str)
                 .is_some_and(|reason| !reason.is_empty());
             let as_of = registration::now_ms()?;
             let state = crate::work_index::computed_state(
-                projection.todo_counts,
+                todo.map(|t| (usize::from(t.checked), 1))
+                    .or(projection.todo_counts),
                 blocked,
                 projection.summary.waiting,
                 known.then_some(statuses.as_slice()),
@@ -1099,19 +1239,28 @@ fn serve(
                 section.state(facts.as_deref(), as_of)
             });
             let mut result = serde_json::json!({"pageId":page,"known":known,"pulls":pulls,"state":state,"activity":activity,"lastActivityAtMs":last_activity_at_ms,"asOfMs":as_of,"sections":sections});
+            if number.is_some() {
+                result["titleDiscovery"] = serde_json::json!({"state":discovery,"number":number,"explicitCount":explicit,"ignored":ignored_urls});
+            }
             if projection.sections_omitted {
                 result["sectionsOmitted"] = serde_json::json!(true);
             }
             let current = service
                 .lock()
                 .map_err(|_| registration::Code::Unavailable)?
-                .work_facts_input(request.context.as_deref(), &request.body)?
-                .fingerprint;
-            if current != fingerprint || stop.load(Ordering::Acquire) {
+                .work_facts_input(request.context.as_deref(), &request.body)?;
+            if current.fingerprint != fingerprint
+                || current.repository != repository
+                || current.number != number
+                || stop.load(Ordering::Acquire)
+            {
                 return Err(registration::Code::Unavailable);
             }
             if !busy_unknown && let Ok(store) = Store::write_existing(&browser.layout) {
-                let _ = store.remember_work_status(&page, &fingerprint, &result);
+                let _ = store.remember_work_status(&item, &fingerprint, &result);
+                for (key, status) in todo_statuses {
+                    let _ = store.remember_work_status(&key, &fingerprint, &status);
+                }
             }
             if stop.load(Ordering::Acquire) {
                 return Err(registration::Code::Denied);

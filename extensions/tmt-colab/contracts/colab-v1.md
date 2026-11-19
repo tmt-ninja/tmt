@@ -6441,8 +6441,23 @@ its merge commit is an ancestor of an eligible GitHub release tag from its repos
 tag; an empty release list, a failed read or an unavailable `gh` means unknown, not released.
 
 The owner service derives computed work status as unsigned, owner-local display data. It may call
-the user's logged-in `gh` executable, never reading, storing or forwarding a token. PRs are keyed
-only by explicit GitHub PR URLs in the admitted page, not a number guessed from a title. An owner
+the user's logged-in `gh` executable, never reading, storing or forwarding a token. An owner work item binds explicit GitHub PR URLs and PRs in its configured project repository
+whose titles contain its complete work number, case-insensitively. Letters, digits, underscores
+and hyphens are token characters. Each repository and PR number contributes facts once. An
+owner may ignore or restore a title match. An explicit URL continues to bind independently.
+
+The owner configures the repository with `tmt colab project set NAME --repo OWNER/REPO` and
+removes it with `--clear-repo`. The first canonical project with a repository supplies it for
+the page and its numbered to-dos. A project without one still uses explicit links. Repository
+settings, title observations and exclusions are owner-local and excluded from share reads,
+non-owner Remote views and standalone exports.
+
+Title discovery shares the open-page reader, its single in-flight slot, cancellation and
+deadlines. It searches at most one work number per page per 60 seconds and one per serve-wide
+refresh interval. A validated repository and quoted work number are separate gh arguments.
+Twenty matches are considered, with a 21st result marking discovery partial. Failed searches
+back off, including on rate limits. Missing gh or credentials leave discovery unknown.
+Stale or capped observations remain partial and cannot establish completion from title matches. An owner
 page must be open on its admitted sync connection for a read; closing it or moving its content
 cancels its in-flight request. At most one GitHub read is in flight per owner service. Open PRs
 are read at most once per 60 seconds; each command has a five-second deadline, and a page refresh

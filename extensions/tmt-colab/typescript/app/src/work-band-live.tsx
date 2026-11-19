@@ -108,7 +108,17 @@ export function PageWorkBand({
   }, [transport, space]);
   const owner = showsComputedStatus(binding);
   const stateControl = owner ? (
-    <ComputedStatus facts={workFacts} blocked={blockedReason} />
+    <ComputedStatus
+      facts={workFacts}
+      blocked={blockedReason}
+      change={
+        transport.workFacts &&
+        ((url, ignore) =>
+          transport.workFacts!(pageId, new AbortController().signal, {
+            exclusion: { url, ignore },
+          }))
+      }
+    />
   ) : (
     <PageStateMenu binding={binding} state={band.pageState} />
   );
@@ -202,11 +212,18 @@ export function computedTone(state: string): 'blocked' | 'working' | 'waiting' |
         : 'muted';
 }
 
+type ChangeBinding = (
+  url: string,
+  ignore: boolean,
+) => Promise<import('./reading-details.js').WorkFactView>;
+
 function ComputedStatus({
+  change,
   facts,
   blocked,
 }: {
   facts?: import('./reading-details.js').WorkFactView;
+  change?: ChangeBinding;
   blocked?: string;
 }) {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
@@ -242,7 +259,7 @@ function ComputedStatus({
             restoredOnEscape.current = false;
           }}
         >
-          <StatusDetailsBody state={state} facts={facts} blocked={blocked} />
+          <StatusDetailsBody state={state} facts={facts} blocked={blocked} change={change} />
         </PopoverContent>
       </Popover>
     </UiTheme>
@@ -381,14 +398,36 @@ export function PageStateMenu({
 /** The status popover's body (#6474): one reason sentence, the owner's activity and each PR's
  * facts. The page's status chip and a Work home row show the same details. */
 export function StatusDetailsBody({
-  state,
-  facts,
+  state: originalState,
+  facts: originalFacts,
+  change,
   blocked,
 }: {
   state: import('./reading-details.js').WorkFactView['state'];
   facts?: import('./reading-details.js').WorkFactView;
+  change?: ChangeBinding;
   blocked?: string;
 }) {
+  const [updated, setUpdated] = useState<{
+    base: typeof originalFacts;
+    view: NonNullable<typeof originalFacts>;
+  }>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const facts = updated && updated.base === originalFacts ? updated.view : originalFacts;
+  const state = facts?.state ?? originalState;
+  async function setIgnored(url: string, ignore: boolean) {
+    if (!change || busy) return;
+    setBusy(true);
+    setError(false);
+    try {
+      setUpdated({ base: originalFacts, view: await change(url, ignore) });
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
   const label = t.computedState[state];
   // The PR that decides the status: an open one, or a merged one not yet in a release.
   const prNumber = (wanted: 'open' | 'merged') =>
@@ -415,15 +454,37 @@ export function StatusDetailsBody({
           {t.factAge(relativeTime(facts.activity.observedAtMs, facts.asOfMs))}
         </p>
       )}
-      {facts?.pulls.map(({ url, fact }) => (
+      {facts?.titleDiscovery && facts.titleDiscovery.state !== 'complete' && (
+        <small>{t.titleDiscovery[facts.titleDiscovery.state]}</small>
+      )}
+      {facts?.pulls.map(({ url, fact }, index) => (
         <p key={url}>
           PR #{url.split('/').at(-1)} ·{' '}
           {fact?.tag ? t.releasedIn(fact.tag) : fact ? t.pullState[fact.state] : t.unknown}
+          {facts.titleDiscovery && index >= facts.titleDiscovery.explicitCount && (
+            <> · {t.titleMatch(facts.titleDiscovery.number)}</>
+          )}
+          {change && facts.titleDiscovery && index >= facts.titleDiscovery.explicitCount && (
+            <button disabled={busy} onClick={() => void setIgnored(url, true)}>
+              {t.ignoreMatch}
+            </button>
+          )}
           {fact?.checks && <> · {t.checks[fact.checks]}</>}
           {fact?.state === 'open' && !fact.checks && <> · {t.checksUnavailable}</>}
           {fact && <> · {t.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>}
         </p>
       ))}
+      {facts?.titleDiscovery?.ignored.map((url) => (
+        <p key={url}>
+          PR #{url.split('/').at(-1)} · {t.ignoredMatch}{' '}
+          {change && (
+            <button disabled={busy} onClick={() => void setIgnored(url, false)}>
+              {t.restoreMatch}
+            </button>
+          )}
+        </p>
+      ))}
+      {error && <p role="alert">{t.bindingFailed}</p>}
       {!facts && <p>{t.statusUnavailable}</p>}
     </>
   );
