@@ -61,6 +61,24 @@ impl<'a> WorkMembership<'a> {
         )
     }
 
+    pub fn label(&self, item: &str) -> serde_json::Value {
+        let (page, block) = item
+            .split_once(':')
+            .map_or((item, None), |(p, b)| (p, Some(b)));
+        let Some(row) = self.0.get(page) else {
+            return serde_json::json!({"id":item,"number":null,"title":null});
+        };
+        if let Some(id) = block {
+            let todo = row["summary"]["todos"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|todo| todo["id"] == id);
+            return serde_json::json!({"id":item, "number":todo.map(|t| &t["number"]), "title":todo.map(|t| &t["text"])});
+        }
+        serde_json::json!({"id":item,"number":row["workNumber"],"title":row["title"]})
+    }
+
     pub fn classify(&self, project: &str, item: &str) -> Membership {
         let (page, block) = item
             .split_once(':')
@@ -139,6 +157,10 @@ pub(super) fn move_item(
     if membership(item) != Membership::Open {
         return Err(Fault::Invalid);
     }
+    if matches!(position, Position::Before(anchor) if anchor == item && previous.items.iter().any(|key| key == item))
+    {
+        return Ok(MoveOutcome::Saved(previous.visible(&membership)));
+    }
     let mut items: Vec<_> = previous
         .items
         .iter()
@@ -180,6 +202,14 @@ pub(super) fn move_item(
 }
 
 impl super::Store {
+    pub fn has_project(&self, name: &str) -> StoreResult<bool> {
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM project_meta WHERE name=? AND name<>'')",
+            [name],
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn project_order(&self, name: &str) -> StoreResult<ProjectOrder> {
         load(&self.connection, name)
     }
@@ -207,6 +237,18 @@ impl super::Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_catalog_row_keeps_the_item_id_without_labels() {
+        let catalog = serde_json::json!({"pages":[]});
+        let membership = WorkMembership::from_catalog(&catalog);
+        for id in ["missing", "missing:block"] {
+            assert_eq!(
+                membership.label(id),
+                serde_json::json!({"id":id,"number":null,"title":null})
+            );
+        }
+    }
 
     #[test]
     fn moves_refuse_stale_revisions_and_prune_done_items_on_write() {

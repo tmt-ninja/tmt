@@ -743,6 +743,15 @@ fn offline(
     Ok(bytes)
 }
 pub(crate) fn mutate(layout: &Layout, space: &str, body: &[u8]) -> Result<Vec<u8>> {
+    mutate_with_limit(layout, space, body, crate::IPC_RESPONSE_BYTES)
+}
+
+pub(crate) fn mutate_with_limit(
+    layout: &Layout,
+    space: &str,
+    body: &[u8],
+    response_limit: usize,
+) -> Result<Vec<u8>> {
     match layout.serve_lock() {
         Ok(_lock) => {
             let key = Keyring::read(layout)?;
@@ -750,7 +759,7 @@ pub(crate) fn mutate(layout: &Layout, space: &str, body: &[u8]) -> Result<Vec<u8
             offline(layout, store, key, space, body)
         }
         Err(e) if e.downcast_ref::<StateFault>() == Some(&StateFault::AlreadyServing) => {
-            ipc(layout, body)
+            ipc_post(layout, management::LOCAL_PATH, body, response_limit)
         }
         Err(e) => Err(e),
     }

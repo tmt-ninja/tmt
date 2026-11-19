@@ -776,11 +776,13 @@ fn apply(
         return default_template(service, &command, template.as_deref());
     }
     if let Action::OrderShow(name) = &command.action {
-        let order = service.show_work_order(name).map_err(|_| Code::Invalid)?;
-        let body = serde_json::to_vec(
-            &serde_json::json!({"operationId":command.operation_id,"projectOrder":order}),
-        )
-        .map_err(|_| Code::Unavailable)?;
+        let (order, labels) = service.show_work_order(name).map_err(|_| Code::Invalid)?;
+        let mut reply =
+            serde_json::json!({"operationId":command.operation_id,"projectOrder":order});
+        if !scoped {
+            reply["itemDetails"] = serde_json::Value::Array(labels);
+        }
+        let body = serde_json::to_vec(&reply).map_err(|_| Code::Unavailable)?;
         return Ok(Applied {
             body,
             resync_page: None,

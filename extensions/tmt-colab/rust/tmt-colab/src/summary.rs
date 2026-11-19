@@ -304,7 +304,7 @@ fn fold_details(
 
 /// One page at its fingerprint for a worker: the fold, checked against the page not having moved
 /// before or after it, and the page's verified title recorded from the same fold (best effort).
-fn summarize_current(
+pub(crate) fn summarize_current(
     source: &mut Source,
     titles: &mut crate::page_titles::TitleWriter,
     page: &str,

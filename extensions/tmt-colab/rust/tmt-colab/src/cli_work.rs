@@ -724,15 +724,31 @@ pub fn order_command() -> Command {
     .subcommand(order)
 }
 
+#[derive(Debug)]
+pub struct OrderConflict(pub Value);
+
+impl std::fmt::Display for OrderConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("The project order changed. Read the current order before moving the item.")
+    }
+}
+impl std::error::Error for OrderConflict {}
+
 pub fn run_order(root: &Path, args: &ArgMatches) -> Result<()> {
     let (_, order) = args.subcommand().expect("required order");
     let (action, args) = order.subcommand().expect("required action");
     let name = args.get_one::<String>("project").expect("required project");
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
+    let store = Store::read(&layout)?;
+    if !store.has_project(name)? {
+        return Err(fail(
+            "COLAB_PROJECT_NOT_FOUND",
+            &format!("Project {name:?} was not found."),
+        ));
+    }
     let mut payload = json!({"action":"order-show","name":name});
     if action == "move" {
-        let store = Store::read(&layout)?;
         let numbers = store.work_numbers()?;
         let resolve = |input: &str| -> Result<String> {
             numbers
@@ -763,12 +779,14 @@ pub fn run_order(root: &Path, args: &ArgMatches) -> Result<()> {
         "project.manage",
         &payload,
     )?;
-    let current = &reply["projectOrder"];
+    let mut current = reply["projectOrder"].clone();
     if reply["conflict"] == true {
-        return Err(fail(
-            "COLAB_ORDER_CONFLICT",
-            &format!("The project order changed. Current order: {current}"),
-        ));
+        return Err(Box::new(OrderConflict(current)));
+    }
+    if action == "show" {
+        current["itemDetails"] = reply["itemDetails"].clone();
+    } else if current["revision"] == payload["revision"] {
+        current["changed"] = json!(false);
     }
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
@@ -789,8 +807,23 @@ pub fn run_order(root: &Path, args: &ArgMatches) -> Result<()> {
     {
         rows.push((
             "item",
-            format!("{}. {}", index + 1, item.as_str().unwrap_or_default()),
+            if action == "show" {
+                let detail = &current["itemDetails"][index];
+                format!(
+                    "{}. {} {}",
+                    index + 1,
+                    detail["number"]
+                        .as_str()
+                        .unwrap_or_else(|| item.as_str().unwrap_or_default()),
+                    detail["title"].as_str().unwrap_or_default()
+                )
+            } else {
+                format!("{}. {}", index + 1, item.as_str().unwrap_or_default())
+            },
         ));
+    }
+    if current["changed"] == false {
+        rows.push(("result", "Order unchanged.".into()));
     }
     tmt_cli_style::detail::write(&mut output, terminal, "WORK ORDER", &rows)?;
     Ok(())

@@ -506,6 +506,7 @@ impl Registration {
                     tx.page_fingerprints()
                 })?;
         let mut source = None;
+        let mut title_writer = None;
         for page in ids {
             let Some(fingerprint) = fingerprints.get(page) else {
                 continue;
@@ -517,15 +518,9 @@ impl Registration {
                 Some(source) => source,
                 slot @ None => slot.insert(open()?),
             };
-            let projection = crate::summary::summarize_details(read, page)?;
-            let after = read.store.owner_read(
-                &read.keyring.space_id,
-                &read.keyring.owner_public(),
-                |tx| tx.page_fingerprint(page),
-            )?;
-            if after.as_ref() != Some(fingerprint) {
-                return Err(crate::store::Fault::Conflict.into());
-            }
+            let titles = title_writer
+                .get_or_insert_with(|| crate::page_titles::TitleWriter::new(&read.layout));
+            let projection = crate::summary::summarize_current(read, titles, page, fingerprint)?;
             self.summaries.put(page, fingerprint, Some(projection));
         }
         Ok(())
@@ -534,16 +529,21 @@ impl Registration {
     pub(crate) fn show_work_order(
         &self,
         name: &str,
-    ) -> Result<crate::store::project_orders::ProjectOrder> {
+    ) -> Result<(
+        crate::store::project_orders::ProjectOrder,
+        Vec<serde_json::Value>,
+    )> {
         self.prepare_order(name, &[])?;
         let catalog = self
             .work_catalog(false, self.order_source.is_none())
             .map_err(|code| std::io::Error::other(code.text()))?;
         let membership = crate::store::project_orders::WorkMembership::from_catalog(&catalog);
-        Ok(self
+        let order = self
             .store
             .project_order(name)?
-            .visible(&|key| membership.classify(name, key)))
+            .visible(&|key| membership.classify(name, key));
+        let labels = order.items.iter().map(|id| membership.label(id)).collect();
+        Ok((order, labels))
     }
 
     pub(crate) fn change_work_order(
@@ -667,7 +667,15 @@ impl Registration {
             }
         }
         catalog["listToken"] = serde_json::json!(list_token(&fingerprints)?);
-        crate::page_titles::attach_to_catalog(&mut catalog, &titles);
+        if bounded {
+            crate::page_titles::attach_to_catalog(&mut catalog, &titles);
+        } else {
+            for row in catalog["pages"].as_array_mut().into_iter().flatten() {
+                if let Some(title) = row["pageId"].as_str().and_then(|id| titles.get(id)) {
+                    row["title"] = serde_json::json!(title);
+                }
+            }
+        }
         // Work fields are optional display data. Keep the complete catalog within the existing
         // discovery bound even when every page has the longest allowed notes.
         if bounded {

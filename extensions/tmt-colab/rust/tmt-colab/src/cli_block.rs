@@ -328,15 +328,34 @@ fn ops_for(verb: &str, args: &ArgMatches) -> Result<Value> {
         "props" => {
             let mut op = json!({"op": "props", "id": id});
             let mut set = Map::new();
+            let mut unset: Vec<&str> = args
+                .get_many::<String>("unset")
+                .into_iter()
+                .flatten()
+                .map(String::as_str)
+                .collect();
             for pair in args.get_many::<String>("set").into_iter().flatten() {
                 let (key, value) = split_pair(pair, "--set")?;
-                set.insert(key.into(), parse_value(value));
+                let parsed = parse_value(value);
+                if key == "progress" {
+                    if value.is_empty() {
+                        unset.push(key);
+                        continue;
+                    }
+                    if !matches!(parsed.as_str(), Some("off" | "done")) {
+                        return Err(fail(
+                            "COLAB_INPUT_INVALID",
+                            "Heading progress accepts done or off. Use --unset progress or --set progress= to clear it.",
+                        ));
+                    }
+                }
+                set.insert(key.into(), parsed);
             }
             if !set.is_empty() {
                 op["set"] = Value::Object(set);
             }
-            if let Some(keys) = args.get_many::<String>("unset") {
-                op["unset"] = json!(keys.collect::<Vec<_>>());
+            if !unset.is_empty() {
+                op["unset"] = json!(unset);
             }
             json!([op])
         }

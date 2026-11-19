@@ -1371,6 +1371,9 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
     if let Some(refusal) = error.downcast_ref::<tmt_colab::template_catalog::Refusal>() {
         return refusal.code();
     }
+    if error.is::<cli_work::OrderConflict>() {
+        return "COLAB_ORDER_CONFLICT";
+    }
     if error.is::<supervisor::CleanupUnconfirmed>() {
         return "COLAB_OUTCOME_UNKNOWN";
     }
@@ -1516,6 +1519,9 @@ fn main() -> ExitCode {
                     .map(|e| e.correlation.clone())
                     .unwrap_or_else(|| json!({}));
                 value["error"] = json!({"code":code,"message":reported_error.to_string()});
+                if let Some(conflict) = error.downcast_ref::<cli_work::OrderConflict>() {
+                    value["error"]["current"] = conflict.0.clone();
+                }
                 if let Some(reason) = tmt_colab::work_admission::reason(error) {
                     value["error"]["reason"] = json!(reason);
                 }
