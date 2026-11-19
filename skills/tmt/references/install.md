@@ -34,9 +34,11 @@ Plugin settings are never modified.
 Native `tmt upgrade` refreshes recorded managed skills. For a manual binary
 replacement, run `tmt install` again. Reload or restart the agent afterwards.
 For an existing conversation, run `tmt learn --skill` and read its complete output
-before using remembered commands. Pi can load `/skill:tmt`; OpenCode uses
-its `skill` tool. Installation does not bypass provider permissions or guarantee
-that a running conversation has refreshed its instructions.
+before using remembered commands. Pi exposes `/tmt` and `/tmt-inbox` via
+`tmt run` and can load `/skill:tmt` and `/skill:tmt-inbox` from installed
+skills; OpenCode uses its `skill` tool. Installation does not bypass provider
+permissions or guarantee that a running conversation has refreshed its
+instructions.
 
 ### View and install the bundled skill
 

@@ -1,5 +1,6 @@
 // Target: @earendil-works/pi-coding-agent >= 1.3.0
-// Session, turn, prompt, and model lifecycle bridge for TMT (`tmt __hook pi`).
+// Session, turn, prompt, and model lifecycle bridge (`tmt __hook pi`) plus `/`
+// command bindings (`tmt`, `tmt-inbox`) for TMT.
 // Intentionally omits `tool_execution_end`, `turn_end`, and `agent_end` to avoid
 // per-tool subprocess cost and duplicate turn-end events; `before_agent_start`..
 // `agent_settled` plus `ui_prompt_start`/`ui_prompt_end` drive working, waiting, and idle.
@@ -21,6 +22,74 @@ const EVENTS = [
   'model_select',
   'session_shutdown',
 ];
+
+const SKILL_COMMANDS = [
+  {
+    name: 'tmt',
+    description:
+      'Coordinate local agents with TMT (`tmt talk`, `tmt result`, `tmt reply`)',
+  },
+  {
+    name: 'tmt-inbox',
+    description:
+      'Receive and process bounded local TMT identity inbox batches',
+  },
+];
+
+function stripFrontmatter(text) {
+  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(text);
+  const body = match ? text.slice(match[0].length) : text;
+  return body.trim();
+}
+
+function notifyError(ctx, message) {
+  try {
+    ctx?.ui?.notify?.(message, 'error');
+  } catch {
+    // Never break Pi on notification failures.
+  }
+}
+
+async function runSkillCommand(pi, name, args, ctx) {
+  if (!HOOK_BIN) {
+    notifyError(ctx, `/${name}: tmt binary path is unavailable.`);
+    return;
+  }
+  if (typeof pi?.exec !== 'function' || typeof pi?.sendUserMessage !== 'function') {
+    notifyError(ctx, `/${name}: Pi command runtime is unavailable.`);
+    return;
+  }
+  let result;
+  try {
+    result = await pi.exec(HOOK_BIN, ['learn', '--skill', name], { timeout: 5000 });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    notifyError(ctx, `Failed to load /${name} skill: ${detail}`);
+    return;
+  }
+  if (!result || result.code !== 0 || result.killed) {
+    const detail =
+      typeof result?.stderr === 'string' && result.stderr.trim()
+        ? result.stderr.trim()
+        : `exit ${result?.code ?? 'unknown'}`;
+    notifyError(ctx, `Failed to load /${name} skill (${detail}).`);
+    return;
+  }
+  const body = stripFrontmatter(typeof result.stdout === 'string' ? result.stdout : '');
+  if (!body) {
+    notifyError(ctx, `Failed to load /${name} skill: empty output.`);
+    return;
+  }
+  const extra = typeof args === 'string' ? args.trim() : '';
+  const message = extra ? `${body}\n\n${extra}` : body;
+  try {
+    const options = ctx?.isIdle?.() === false ? { deliverAs: 'followUp' } : undefined;
+    await Promise.resolve(pi.sendUserMessage(message, options));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    notifyError(ctx, `Failed to send /${name}: ${detail}`);
+  }
+}
 
 function normalizeModel(raw) {
   if (typeof raw !== 'string') return null;
@@ -151,8 +220,18 @@ function sendHook(eventName, event, ctx) {
 }
 
 export default function (pi) {
-  if (!pi || typeof pi.on !== 'function') return;
-  for (const name of EVENTS) {
-    pi.on(name, (event, ctx) => sendHook(name, event, ctx));
+  if (!pi) return;
+  if (typeof pi.on === 'function') {
+    for (const name of EVENTS) {
+      pi.on(name, (event, ctx) => sendHook(name, event, ctx));
+    }
+  }
+  if (typeof pi.registerCommand === 'function') {
+    for (const command of SKILL_COMMANDS) {
+      pi.registerCommand(command.name, {
+        description: command.description,
+        handler: (args, ctx) => runSkillCommand(pi, command.name, args, ctx),
+      });
+    }
   }
 }
