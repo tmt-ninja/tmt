@@ -1,4 +1,6 @@
 import { MobileWorkTitle, WorkBand } from './work-band.js';
+import { PageBarSummary } from './page-bar-summary.js';
+import { PageStatusDetails } from './page-status-details.js';
 import { useMedia } from './use-media.js';
 import { subpageTree } from './work-tree.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
@@ -212,6 +214,46 @@ export function ReaderApp({
         compact
       />
     ) : undefined;
+  // The page's status as its owner's bar shows it (#6679), from what the share carries: the manual
+  // state and the owner's own fields. The computed status is owner-local and never reaches a link
+  // reader. No stored state and no field: no mark.
+  const view = state.kind === 'ready' && !shell ? state.view : undefined;
+  const subpages = view
+    ? subpageTree((state.kind === 'ready' && state.pageId) || 'reader', view.work, undefined).top
+    : [];
+  const hasStatus =
+    !!view &&
+    (view.pageState !== undefined ||
+      !!view.owner ||
+      (!!view.priority && view.priority !== 'normal') ||
+      !!view.next ||
+      !!view.blocked ||
+      subpages.length > 0);
+  const barSummary = view && (
+    <PageBarSummary
+      status={hasStatus}
+      manual={{ state: view.pageState ?? 'todo', blocked: view.blocked || undefined }}
+      labels={[]}
+      details={() => (
+        <PageStatusDetails
+          manual={{ state: view.pageState ?? 'todo', blocked: view.blocked || undefined }}
+          owner={view.owner}
+          priority={view.priority}
+          next={view.next}
+          links={
+            subpages.length > 0 ? (
+              <WorkBand
+                owner={view.owner}
+                priority={view.priority}
+                subpages={subpages}
+                pageState={view.pageState ?? 'todo'}
+              />
+            ) : undefined
+          }
+        />
+      )}
+    />
+  );
   return (
     <>
       {pageLinkBar}
@@ -219,20 +261,10 @@ export function ReaderApp({
       <ColabHeader
         reader
         headingSuffix={
-          state.kind === 'ready' && !shell && !phone ? (
+          view ? (
             <>
-              {outlineNode && <span className="reader-outline-bar">{outlineNode}</span>}
-              <WorkBand
-                onSize={setWorkBandSize}
-                owner={state.view.owner}
-                priority={state.view.priority}
-                subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
-                pageState={
-                  state.view.state === undefined
-                    ? (state.view.pageState ?? 'todo')
-                    : state.view.state
-                }
-              />
+              {!phone && outlineNode && <span className="reader-outline-bar">{outlineNode}</span>}
+              {barSummary}
             </>
           ) : undefined
         }
@@ -346,18 +378,7 @@ export function ReaderApp({
           <section className="page">
             <div className="workspace">
               {phone && (
-                <MobileWorkTitle title={title || text.unknownPageTitle} onSize={setWorkBandSize}>
-                  <WorkBand
-                    owner={state.view.owner}
-                    priority={state.view.priority}
-                    subpages={subpageTree(state.pageId ?? 'reader', state.view.work, undefined).top}
-                    pageState={
-                      state.view.state === undefined
-                        ? (state.view.pageState ?? 'todo')
-                        : state.view.state
-                    }
-                  />
-                </MobileWorkTitle>
+                <MobileWorkTitle title={title || text.unknownPageTitle} onSize={setWorkBandSize} />
               )}
               <div className="canvas">
                 {phone && outlineNode && <div className="reader-outline">{outlineNode}</div>}

@@ -51,9 +51,33 @@
   flex: none;
 }
 
+/* A link reader's bar (#6679) is the page header, not the shell's top bar: on a phone its chip keeps
+   only the dot, beside the truncated title. */
+@container tmt-ui-header (max-width: 640px) {
+  .tmt-ui-heading-suffix .page-bar-status-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .tmt-ui-heading-suffix .page-bar-status {
+    padding-inline: var(--tmt-ui-space-xs);
+  }
+}
+
 /* The status chip opens the page's details (#6652): a popover beside it, a sheet on a phone. */
 .page-bar-details {
   width: min(26rem, calc(100vw - 2 * var(--tmt-ui-space-m)));
+}
+/* A link reader's bar is the page header (#6679): its heading's one-line title type is not the
+   details' own, so they set body text that wraps. */
+.page-bar-details,
+.page-bar-sheet {
+  font-weight: normal;
+  line-height: 1.5;
+  white-space: normal;
 }
 .page-bar-sheet {
   max-height: 85dvh;

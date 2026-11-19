@@ -305,6 +305,9 @@ export const text = {
     editProjects: 'Edit',
     addProject: 'Add',
     details: 'Status and details',
+    /** A link reader's chip (#6679): the page's manual state, never a computed status. */
+    pageState: 'Page state',
+    pageStateDetails: (state: string) => `Page state: ${state}, show details`,
     subpagesItem: (count: number) => `Sub-pages (${count})`,
     editLabels: (names: string) => `Projects: ${names}. Edit projects`,
     moreLabels: (count: number) => `${count} more ${count === 1 ? 'project' : 'projects'}`,
