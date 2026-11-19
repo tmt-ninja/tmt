@@ -436,7 +436,7 @@ fn background_publication_does_not_become_an_action_or_repaint() {
         || Ok(()),
         || Ok(()),
         Some(&mut state),
-        |app| {
+        |app, _| {
             assert_eq!(app.in_flight, 0);
             assert!(app.notice.is_none());
             paints.set(paints.get() + 1);
@@ -1140,7 +1140,7 @@ fn late_hint_after_navigation(paint: bool, explicit: bool, query: &str) {
         || Ok(()),
         || Ok(()),
         Some(&mut state),
-        |app| {
+        |app, _| {
             if app.search.as_str() == "worker"
                 && !app.searching
                 && app.workspace.selected == expected
@@ -1543,7 +1543,7 @@ fn navigation_trace_records_the_saved_hint_at_the_view_state_tick() {
         || Ok(()),
         || Ok(()),
         Some(&mut state),
-        |_| Ok(()),
+        |_, _| Ok(()),
         |_| {},
         || {},
     )

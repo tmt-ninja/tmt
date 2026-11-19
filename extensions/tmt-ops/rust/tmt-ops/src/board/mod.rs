@@ -801,7 +801,7 @@ fn session(
     mut suspend: impl FnMut() -> io::Result<()>,
     mut reassert_mouse: impl FnMut() -> io::Result<()>,
     mut state: Option<&mut view_state::Session>,
-    mut draw: impl FnMut(&mut App) -> io::Result<()>,
+    mut draw: impl FnMut(&mut App, bool) -> io::Result<()>,
     history_read: impl Fn(refresh::HistoryJob),
     work_read: impl Fn(),
 ) -> io::Result<Option<i32>> {
@@ -812,6 +812,7 @@ fn session(
     app.selected_request = refresh::SelectedRequest::Ready(None);
     let mut refreshed = Instant::now();
     let mut dirty = true;
+    let mut display_invalidated = false;
     let mut marks = view::time_marks(app, crate::status::now_ms());
     let mut spinner = view::spinner_frame(app, Instant::now());
     let mut last_input = Instant::now();
@@ -872,6 +873,7 @@ fn session(
                 return Ok(i32::try_from(signal).ok());
             }
             suspend()?;
+            display_invalidated = true;
             dirty = true;
             continue;
         }
@@ -1021,7 +1023,12 @@ fn session(
             submit(app, lane::Job::WorkOrder(job));
         }
         if dirty {
-            observe_navigation(app, (), |_| Some("Paint"), |app, ()| draw(app))?;
+            observe_navigation(
+                app,
+                (),
+                |_| Some("Paint"),
+                |app, ()| draw(app, std::mem::take(&mut display_invalidated)),
+            )?;
             // The frame just recorded the screen's area: a zoom or resize asks for it now, not
             // on the next wake.
             app.terminal.fit_window();
@@ -1639,7 +1646,9 @@ fn session(
                         if key.kind == KeyEventKind::Press {
                             dirty = true;
                             view_state::input(state.as_deref_mut(), app, Some(key.code), |app| {
-                                app.key(key)
+                                let (effect, repaint) = app.key_with_repaint(key);
+                                display_invalidated |= repaint;
+                                effect
                             })
                         } else {
                             app.trace_key("key_ignored", key, None);
@@ -2162,7 +2171,6 @@ pub fn run(
     if let Some(task) = app.offline_resume_start() {
         lane.submit(lane::Job::OfflineResume(task));
     }
-    let resumed = std::cell::Cell::new(false);
     let result = session(
         &mut app,
         &stop,
@@ -2177,15 +2185,11 @@ pub fn run(
             }
         },
         |want| usage_wants.set(want),
-        || {
-            guard.suspend(|| signal_hook::low_level::raise(signal_hook::consts::SIGSTOP))?;
-            resumed.set(true);
-            Ok(())
-        },
+        || guard.suspend(|| signal_hook::low_level::raise(signal_hook::consts::SIGSTOP)),
         || terminal::reassert_mouse(&mut io::stdout()),
         view_state.as_mut(),
-        |app| {
-            terminal::present(&mut screen, resumed.replace(false), |frame| {
+        |app, display_invalidated| {
+            terminal::present(&mut screen, display_invalidated, |frame| {
                 // The vertical board bands, including its body, occupy the full width.
                 view::prepare(app, frame.area());
                 view::render(frame, app);
@@ -2293,7 +2297,7 @@ mod tests {
         selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
         checklist: impl Fn(checklist::load::Task),
         io: impl Fn(lane::Job),
-        draw: impl FnMut(&mut App) -> io::Result<()>,
+        mut draw: impl FnMut(&mut App) -> io::Result<()>,
         history: impl Fn(refresh::HistoryJob),
     ) -> io::Result<Option<i32>> {
         let expired = std::sync::atomic::AtomicBool::new(false);
@@ -2321,7 +2325,7 @@ mod tests {
                 || Ok(()),
                 || Ok(()),
                 None,
-                draw,
+                |app, _| draw(app),
                 history,
                 || {},
             );
@@ -3299,7 +3303,7 @@ print(json.dumps(out))
             || Ok(()),
             || Ok(()),
             None,
-            |_| Ok(()),
+            |_, _| Ok(()),
             |_| {},
             || {},
         )
@@ -3491,7 +3495,7 @@ print(json.dumps(out))
             },
             || Ok(()),
             None,
-            |_| {
+            |_, _| {
                 paints.set(paints.get() + 1);
                 Ok(())
             },
@@ -3791,7 +3795,7 @@ print(json.dumps(out))
                 || Ok(()),
                 || Ok(()),
                 None,
-                |app| {
+                |app, _| {
                     painted
                         .send((app.selected, app.view.as_ref().unwrap().document.clone()))
                         .unwrap();
@@ -3855,7 +3859,7 @@ print(json.dumps(out))
                 || Ok(()),
                 || Ok(()),
                 None,
-                |app| {
+                |app, _| {
                     *app.hits.borrow_mut() = vec![app::Hit {
                         y: 1,
                         x: 40,
@@ -3921,7 +3925,7 @@ print(json.dumps(out))
                     || Ok(()),
                     || Ok(()),
                     None,
-                    |_| {
+                    |_, _| {
                         painted.send(()).unwrap();
                         Ok(())
                     },
@@ -3970,7 +3974,7 @@ print(json.dumps(out))
                 || Ok(()),
                 || Ok(()),
                 None,
-                |_| {
+                |_, _| {
                     painted.send(()).unwrap();
                     Ok(())
                 },
@@ -4402,7 +4406,7 @@ print(json.dumps(out))
                         Ok(())
                     },
                     None,
-                    |app| {
+                    |app, _| {
                         frames.set(frames.get() + 1);
                         overlay_seen.set(overlay_seen.get() | app.modal_open());
                         Ok(())
@@ -4579,7 +4583,7 @@ print(json.dumps(out))
             || Ok(()),
             || Ok(()),
             None,
-            |_| {
+            |_, _| {
                 frames.set(frames.get() + 1);
                 Ok(())
             },

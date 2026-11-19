@@ -301,6 +301,12 @@ impl Request {
     }
 }
 
+/// What owns a key intercepted by a member terminal surface.
+pub(in crate::board) enum TerminalKeyOwner {
+    Board,
+    Child,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Effect {
     None,
@@ -4454,14 +4460,22 @@ impl App {
             })}));
     }
 
+    #[cfg(test)]
     pub fn key(&mut self, key: KeyEvent) -> Effect {
-        self.trace_key("key_before", key, None);
-        let effect = self.key_effect(key);
-        self.trace_key("key_after", key, Some(&effect));
-        effect
+        self.key_with_repaint(key).0
     }
 
-    fn key_effect(&mut self, key: KeyEvent) -> Effect {
+    pub(super) fn key_with_repaint(&mut self, key: KeyEvent) -> (Effect, bool) {
+        self.trace_key("key_before", key, None);
+        let mut repaint = key.kind == ratatui::crossterm::event::KeyEventKind::Press
+            && key.code == KeyCode::Char('l')
+            && key.modifiers == KeyModifiers::CONTROL;
+        let effect = self.key_effect(key, &mut repaint);
+        self.trace_key("key_after", key, Some(&effect));
+        (effect, repaint)
+    }
+
+    fn key_effect(&mut self, key: KeyEvent, repaint: &mut bool) -> Effect {
         self.buttons.clear_hover();
         self.meter_hover = None;
         self.header_hover = None;
@@ -4475,10 +4489,18 @@ impl App {
             self.invalidate_frame_geometry();
             return Effect::None;
         }
-        if let Some(effect) = self.frame_key(key) {
-            return effect;
-        }
-        if let Some(effect) = self.terminal_typing_key(key) {
+        if let Some((effect, owner)) = self
+            .frame_key(key)
+            .or_else(|| self.terminal_typing_key(key))
+        {
+            if matches!(owner, TerminalKeyOwner::Child) {
+                *repaint = false;
+                if let Some(bytes) =
+                    tmt_tui::components::terminal::key_bytes(&key, self.terminal.modes())
+                {
+                    self.terminal.send(&bytes);
+                }
+            }
             return effect;
         }
         self.set_notice(None, false);

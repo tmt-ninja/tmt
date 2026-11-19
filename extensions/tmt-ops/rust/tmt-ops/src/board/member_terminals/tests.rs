@@ -814,7 +814,9 @@ mod board {
         }
         press(&mut app, KeyCode::Enter);
         assert!(app.terminals.typing().is_some());
-        app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        let (_, repaint) =
+            app.key_with_repaint(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        assert!(!repaint, "the child owns Ctrl-L");
         assert_eq!(socket.expect(), ClientMessage::Input(vec![0x0c]));
         app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
         assert_eq!(socket.expect(), ClientMessage::Input(vec![0x03]));
@@ -841,7 +843,9 @@ mod board {
             },
             std::time::Instant::now(),
         );
-        app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        let (_, repaint) =
+            app.key_with_repaint(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        assert!(!repaint, "the child owns Ctrl-L");
         assert_eq!(socket.expect(), ClientMessage::Input(vec![0x0c]));
     }
 
