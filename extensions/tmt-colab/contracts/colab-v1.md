@@ -126,7 +126,8 @@ archive ends that page's open sync connections with
 Writes, Ask, upload and thread status actions are removed; native admission still
 refuses their stale captures. Retained unsent drafts remain selectable with Copy.
 Archived export stays refused. An owner can restore an archived, non-deleted page with
-`page.unarchive`. Restore preserves the page ID, source, history, epochs, keys, recipients and
+`tmt colab unarchive PAGE`, which invokes the same owner action (`page.unarchive`) as the browser.
+An ordinary restore of an active page reports `changed:false` without advancing the owner head. Restore preserves the page ID, source, history, epochs, keys, recipients and
 sharing policy; deletion remains terminal. It restarts the retention clock by atomically
 updating `pages.last_activity_at_ms` with the signed statement, page projection and operation receipt.
 `pages.last_update_at_ms` remains the content-edit time; restoration does not change it.

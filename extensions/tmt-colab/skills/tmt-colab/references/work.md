@@ -26,6 +26,7 @@ tmt colab summary set PAGE --line1 'Release plan' --line2 'Read before the relea
 ```
 
 The owner's list counts direct children by computed status, falling back to manual state when status is unavailable.
+Use `tmt colab archive PAGE` to freeze writes and `tmt colab unarchive PAGE --json` to restore them.
 Archiving a sub-page keeps its link: `subpage ls` still lists it with `"archived": true` (state
 column `archived`), so you can see and detach it, but it leaves the progress, the list row's count
 and the browser's work panel until it is unarchived. The

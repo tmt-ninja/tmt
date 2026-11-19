@@ -1458,9 +1458,6 @@ fn command_refusal(error: clap::Error, words: &[String]) -> clap::Error {
         .map(String::as_str)
         .filter(|word| *word != "--json");
     let hint = match (args.next(), args.next(), error.kind()) {
-        (Some("unarchive"), _, ErrorKind::InvalidSubcommand) => {
-            "To restore a page, open All pages in the browser, select Archived, then choose Restore for the page. There is no CLI restore command."
-        }
         (Some("page"), Some("create"), ErrorKind::UnknownArgument) if matches!(error.get(ContextKind::InvalidArg), Some(ContextValue::String(arg)) if arg == "--parent") => {
             "To create a child page, use `tmt colab subpage create PARENT --title TITLE`. Add --html for an HTML page."
         }

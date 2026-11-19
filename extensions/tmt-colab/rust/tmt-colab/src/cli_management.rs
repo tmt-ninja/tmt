@@ -462,6 +462,7 @@ fn selection(
             };
             ("retention.set", json!({"pageId":id,"days":days}), None)
         }
+        "unarchive" => ("page.unarchive", json!({"pageId":id}), None),
         "archive" => ("page.archive", json!({"pageId":id}), None),
         "delete" => (
             "page.delete",
@@ -1464,6 +1465,16 @@ fn run_once(
         .to_owned();
     values::decimal(&revision, false)
         .map_err(|_| input("Expected a positive canonical owner revision."))?;
+    if command == "unarchive"
+        && args.get_one::<String>("operation-id").is_none()
+        && detail["membershipHead"]["revision"] == revision
+        && page["archived"] == false
+    {
+        return output(
+            &json!({"pageId":id,"membershipHead":detail["membershipHead"],"changed":false}),
+            json_output,
+        );
+    }
     store.close()?;
     let mut rebuilt = false;
     let outcome = loop {
@@ -1494,6 +1505,7 @@ fn run_once(
         let mut value = json!({"pageId":id,"operationId":ack.operation_id,
             "membershipHead":{"revision":ack.membership_head.revision,"statementHash":ack.membership_head.statement_hash}});
         value["expectedRevision"] = json!(revision);
+        if operation == "page.unarchive" { value["changed"] = json!(true); }
         if operation == "page.delete" {
             value["storage"] = json!(ack.storage.unwrap_or(management::Storage::Unknown));
             if let Some(hint) = ack.storage_hint { value["storageHint"] = json!(hint); }
@@ -1550,6 +1562,12 @@ fn run_once(
                 let detail = inspection::detail(&fresh, &key, page)?;
                 if catalog["membershipHead"] != detail["membershipHead"] {
                     return Err(management_error("STALE_HEAD"));
+                }
+                if command == "unarchive" && page["archived"] == false {
+                    return output(
+                        &json!({"pageId":id,"membershipHead":detail["membershipHead"],"changed":false}),
+                        json_output,
+                    );
                 }
                 let selected = selection(command, args, page, &detail)?
                     .ok_or_else(|| input("Management intent is no longer available."))?;

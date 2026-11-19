@@ -15642,16 +15642,35 @@ fn lifecycle_parent_option_points_to_subpage_create() {
     assert!(message.contains("subpage create PARENT --title TITLE") && !message.contains("--open"));
 }
 #[test]
-fn lifecycle_unarchive_points_to_browser_restore() {
+fn lifecycle_unarchive_restores_the_page_and_preserves_the_active_head() {
     let pilot = Pilot::new(None);
-    let result = failure(
-        &pilot,
-        &["unarchive", CHECK_ID, "--json"],
-        "COLAB_INPUT_INVALID",
+    let page = diagnostic_page(&pilot);
+    let archive = pilot.call(&["archive", &page, "--json"]);
+    assert_eq!(
+        pilot.call(&["show", &page, "--json"])["page"]["archived"],
+        true
     );
-    let message = result["error"]["message"].as_str().unwrap();
-    assert!(
-        message.contains("Archived, then choose Restore")
-            && !message.contains("similar subcommand")
+    let restored = pilot.call(&["unarchive", &page, "--json"]);
+    assert_eq!(restored["changed"], true);
+    assert_eq!(
+        restored["expectedRevision"],
+        archive["membershipHead"]["revision"]
     );
+    assert_eq!(
+        pilot.call(&["show", &page, "--json"])["page"]["archived"],
+        false
+    );
+    let replay = pilot.call(&[
+        "unarchive",
+        &page,
+        "--operation-id",
+        restored["operationId"].as_str().unwrap(),
+        "--expected-revision",
+        restored["expectedRevision"].as_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(replay, restored);
+    let again = pilot.call(&["unarchive", &page, "--json"]);
+    assert_eq!(again["changed"], false);
+    assert_eq!(again["membershipHead"], restored["membershipHead"]);
 }
