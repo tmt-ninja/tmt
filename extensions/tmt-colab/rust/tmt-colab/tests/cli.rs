@@ -15715,3 +15715,80 @@ fn lifecycle_unarchive_restores_the_page_and_preserves_the_active_head() {
     assert_eq!(again["changed"], false);
     assert_eq!(again["membershipHead"], restored["membershipHead"]);
 }
+
+#[test]
+fn space_design_checker_reads_the_current_component_page_only_while_serving() {
+    let mut pilot = Pilot::new(None);
+    let fixture = pilot.root.join("design.html");
+    let create = |pilot: &Pilot, title: &str, source: &str| {
+        fs::write(&fixture, source).unwrap();
+        pilot.call(&[
+            "page",
+            "create",
+            "--no-open",
+            "--html",
+            "--title",
+            title,
+            "--layout",
+            "column",
+            "--file",
+            fixture.to_str().unwrap(),
+            "--json",
+        ])["pageId"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let component = create(
+        &pilot,
+        "Button",
+        r#"<script type="application/json" data-tmt-ds="component">{"tag":"button","props":{"size":{"enum":["small"]}}}</script>"#,
+    );
+    let root = create(
+        &pilot,
+        "Space design",
+        &format!(
+            r#"<script type="application/json" data-tmt-ds="design-system">{{"name":"Studio","prefix":"studio","components":[{{"tag":"button","page":"{component}"}}],"releases":[]}}</script>"#
+        ),
+    );
+    fs::write(
+        &fixture,
+        format!(
+            r#"<meta name="tmt-ds" content="{root}"><studio-button size="small"></studio-button>"#
+        ),
+    )
+    .unwrap();
+    let check = ["page", "check", fixture.to_str().unwrap(), "--json"];
+    let skipped = |result: &Value| {
+        result["hints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|h| h["code"] == "space-design-unchecked")
+            .count()
+    };
+    assert_eq!(skipped(&pilot.call(&check)), 1);
+    pilot.start();
+    let result = pilot.call(&check);
+    assert_eq!(skipped(&result), 0);
+    assert_eq!(result["findings"], json!([]));
+    pilot.call(&[
+        "page",
+        "patch",
+        &component,
+        "--find",
+        "small",
+        "--replace",
+        "large",
+        "--json",
+    ]);
+    let output = pilot.command().args(check).output().unwrap();
+    assert!(!output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        report.to_string().contains("invalid-ds-prop") && report.to_string().contains("large"),
+        "{report}"
+    );
+    pilot.stop();
+    assert_eq!(skipped(&pilot.call(&check)), 1);
+}

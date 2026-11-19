@@ -508,8 +508,8 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         output.flush()?;
         return Ok(());
     }
-    // `page check` is a pure function of its file: it needs no data root, core or local state,
-    // unless --page asks it to resolve attachment references in the store.
+    // Ordinary markup needs no core or local store. The checker resolves a space design pin
+    // on demand; --page additionally needs the current attachment and question registry.
     if command == "page"
         && let Some(("check", check)) = args.subcommand()
         && check.get_one::<String>("page").is_none()
@@ -915,6 +915,7 @@ fn commit_source(
 fn print_receipt(
     receipt: tmt_colab::page::Receipt,
     warnings: &[tmt_colab::page_check::Finding],
+    hints: &[tmt_colab::page_check::Hint],
     json_output: bool,
     written: &str,
     lock_release: Option<&cli_edit_locks::PatchRelease>,
@@ -930,6 +931,9 @@ fn print_receipt(
     if json_output {
         let mut value = serde_json::to_value(&receipt)?;
         value["warnings"] = cli_page_check::warnings_json(warnings);
+        if !hints.is_empty() {
+            value["hints"] = cli_page_check::hints_json(hints);
+        }
         if let Some(message) = &large_patch {
             value["warnings"]
                 .as_array_mut()
@@ -966,6 +970,7 @@ fn print_receipt(
             &rows,
         )?;
         cli_page_check::print_warnings(warnings)?;
+        cli_page_check::print_hints(hints)?;
         if let Some(message) = &large_patch {
             let mut err = tmt_cli_style::stream::stderr();
             let terminal = err.terminal();

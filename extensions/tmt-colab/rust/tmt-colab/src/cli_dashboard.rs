@@ -243,6 +243,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     crate::print_receipt(
         receipt,
         &[],
+        &[],
         args.get_flag("json"),
         "DASHBOARD UPDATED",
         None,

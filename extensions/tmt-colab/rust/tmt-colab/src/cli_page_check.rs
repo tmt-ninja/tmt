@@ -34,7 +34,7 @@ const CHECK: CommandSpec = CommandSpec {
         note: "Report ignored question blocks and other markup problems with a line and a reason code",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Offline and fast: reads one file (or - for bounded UTF-8 stdin) and needs no running serve and no local state. Reports every block the browser ignores (question blocks, with a reason code and line), data: images that make the page heavy and colab-attachment: references that cannot show. Exits 1 when it finds anything. With --page, references are resolved against current document attachments and authored questions are compared with the page registry and creator. Registry mismatches always refuse publication; --strict applies to ordinary markup findings. page create and page patch print ordinary markup findings as warnings; registry findings have blocking severity. Hints are advice that blocks nothing: they come in a separate hints array ({code, message}), never refuse under --strict and never change the exit code; page check and page create show them.",
+    details: "Reads one file (or - for bounded UTF-8 stdin). Ordinary markup and built-in design components are checked offline. Space design components need a running owner serve; a hint names a skipped check. Reports every block the browser ignores (question blocks, with a reason code and line), data: images that make the page heavy and colab-attachment: references that cannot show. Exits 1 when it finds anything. With --page, references are resolved against current document attachments and authored questions are compared with the page registry and creator. Registry mismatches always refuse publication; --strict applies to ordinary markup findings. page create and page patch print ordinary markup findings as warnings; registry findings have blocking severity. Hints are advice that blocks nothing: they come in a separate hints array ({code, message}), never refuse under --strict and never change the exit code; page check and page create show them.",
 };
 
 /// Where `page check` and its siblings look for the attachments a reference names.
@@ -186,6 +186,9 @@ fn hint_message(code: &str) -> &'static str {
         "block-ops-input" => {
             "This command checks HTML. Apply block operations with tmt colab block batch PAGE --file FILE."
         }
+        "space-design-unchecked" => {
+            "Component checks were skipped. Run tmt colab serve and make sure the pinned draft or release is readable."
+        }
         "own-style-only" => {
             "This page styles itself and carries neither the starter nor the design system. Start from a template (tmt colab template ls) or the starter (tmt colab skill page-style), and ask the reader to decide with tmt-question, not in prose (tmt colab skill questions)."
         }
@@ -318,6 +321,22 @@ fn inspect_checked(
     attachments: Attachments<'_>,
 ) -> Result<Report> {
     let mut report = checked.report().clone();
+    if let Ok(Some(pin)) = page_check::design_pin(checked.source()) {
+        let pin = pin.trim();
+        let system = pin.split('@').next().unwrap_or_default();
+        if !system.is_empty() && system != "tmt-gui" {
+            match crate::cli_design::rules_for_pin(pin) {
+                Some(bundle) => report.findings.extend(page_check::space_findings(
+                    checked.source(),
+                    system,
+                    &bundle,
+                )),
+                None => report.hints.push(Hint {
+                    code: "space-design-unchecked",
+                }),
+            }
+        }
+    }
     let tokens: Vec<String> = report.references.iter().map(|r| r.token.clone()).collect();
     match attachments {
         Attachments::Unchecked => {}
@@ -350,10 +369,17 @@ pub fn gate(
     checked: &page_check::Checked<'_>,
     args: &ArgMatches,
     attachments: Attachments<'_>,
-) -> Result<Vec<Finding>> {
+) -> Result<(Vec<Finding>, Vec<Hint>)> {
     let report = inspect_checked(checked, attachments)?;
     refuse_strict(&report, checked.source(), args)?;
-    Ok(report.findings)
+    Ok((
+        report.findings,
+        report
+            .hints
+            .into_iter()
+            .filter(|hint| hint.code == "space-design-unchecked")
+            .collect(),
+    ))
 }
 
 fn refuse_strict(report: &Report, source: &str, args: &ArgMatches) -> Result<()> {

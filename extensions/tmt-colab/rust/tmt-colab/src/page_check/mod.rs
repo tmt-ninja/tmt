@@ -9,6 +9,7 @@
 
 mod anchors;
 mod design;
+pub use design::space_findings;
 mod group;
 mod hints;
 mod image;
@@ -378,7 +379,7 @@ pub(crate) fn runtime_marker(source: &str) -> Result<Option<String>, TooDeep> {
 
 /// The `content` of the first `<meta name="tmt-ds">` in document order, found as
 /// [`runtime_marker`] finds its marker (#6157); `Ok(Some(""))` when it has none.
-pub(crate) fn design_pin(source: &str) -> Result<Option<String>, TooDeep> {
+pub fn design_pin(source: &str) -> Result<Option<String>, TooDeep> {
     if !source.contains("tmt-ds") {
         return Ok(None);
     }

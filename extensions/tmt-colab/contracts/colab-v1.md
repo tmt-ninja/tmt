@@ -1216,7 +1216,7 @@ An empty
 `data-agent` is valid without a creator. An explicit value must equal the assigned registered
 ID/name, or the current creator for an unassigned registration. Existing markup findings still describe
 ignored shapes; the parser's depth and page limits do not become an unbounded second parse.
-`page check FILE` remains markup-only/offline; `--page PAGE` adds this registry comparison.
+Ordinary markup checks run offline; `--page PAGE` adds this registry comparison.
 Nonblocking `hints` remain separate from findings. Native and browser Needs-you count each registered
 open question, including registrations whose markup has been removed. Multiple questions in a group
 remain separate targets. Browser discussion that is still being verified supplies no answer projection;
@@ -7739,10 +7739,11 @@ recovery/fold barriers and gzip parity remain unintegrated.
 ## Page markup check (#2753)
 
 `tmt colab page check <file|-> [--page <page>] [--json]` reports what is wrong with an
-agent-written page source before anyone opens it. It is a pure function of the source: it
-reads one file (or bounded stdin, with the page-write reader's 2 MiB UTF-8 limit and
-five-second EOF deadline) and needs no running serve, no local state, no core and no data
-root. `--page` additionally resolves `colab-attachment:` references against that page's current
+agent-written page source before anyone opens it. It reads one file (or bounded stdin, with the page-write reader's 2 MiB UTF-8 limit and
+five-second EOF deadline). Ordinary markup and the shipped built-in component catalog are checked offline.
+A space design pin uses the local owner read path while serve is running. Following pins use current
+component pages; locked pins require the recorded version and verified bundle hash. When the rules
+are unavailable, `space-design-unchecked` reports the skipped check once. `--page` additionally resolves `colab-attachment:` references against that page's current
 document attachments in the local store (read only; it starts nothing).
 
 The source is parsed with the HTML tree-construction algorithm in a `template` fragment
