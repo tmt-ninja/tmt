@@ -96,6 +96,31 @@ for (const width of [1440, 390])
       });
     });
 
+test('a phone held sideways gives the list the whole height below the bar (#6731)', async ({
+  page,
+}) => {
+  await mount(page, 844, 'light');
+  await page.setViewportSize({ width: 844, height: 390 });
+  const gap = () =>
+    app(page)
+      .locator('.home[data-page-list]')
+      .evaluate((node) => Math.round(innerHeight - node.getBoundingClientRect().bottom));
+  const list = app(page).locator('.home[data-page-list]');
+  // The main holding the list has no footer after it (a paired owner's list): none is kept
+  // clear, and the list ends at the viewport.
+  expect(await list.evaluate((node) => node.closest('main')?.nextElementSibling?.tagName)).not.toBe(
+    'FOOTER',
+  );
+  await expect.poll(gap).toBe(0);
+  // Where the shell draws its one-line footer after that main, the list keeps the line clear.
+  await list.evaluate((node) => {
+    const footer = document.createElement('footer');
+    footer.textContent = 'Sample pages';
+    node.closest('main')!.after(footer);
+  });
+  await expect.poll(gap).toBe(57);
+});
+
 test('Needs you is a tab: it lists the pages waiting on you and leaves with another tab', async ({
   page,
 }) => {

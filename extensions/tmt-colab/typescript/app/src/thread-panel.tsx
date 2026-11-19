@@ -4,7 +4,15 @@ import { compactRelativeTime } from './display-time.js';
 import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreatorTarget } from './creator-default.js';
-import { Check, ChevronUp, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
+import {
+  Check,
+  ChevronUp,
+  CircleCheck,
+  CircleDot,
+  MessagesSquare,
+  RotateCcw,
+  X,
+} from 'lucide-react';
 import { createPortal } from 'react-dom';
 import {
   BrowserAction,
@@ -1069,7 +1077,8 @@ export function ThreadPanel({
     <aside className="comments-panel" aria-label={text.comments} data-testid="comments-panel">
       {!hideHeader && <h2>{text.comments}</h2>}
       <div className="comments-empty" data-testid="comments-empty">
-        <Check aria-hidden />
+        {/* The check means caught up; a page with no thread yet shows the comments mark (#6731). */}
+        {threads.length ? <Check aria-hidden /> : <MessagesSquare aria-hidden data-none />}
         <h3>{threads.length ? text.commentsEmptyTitle : text.commentsEmptyNone}</h3>
         <p>
           {!threads.length

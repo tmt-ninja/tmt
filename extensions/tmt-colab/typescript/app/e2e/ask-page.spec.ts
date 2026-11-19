@@ -1710,6 +1710,32 @@ for (const width of [1440, 390])
     expect((await run(page, 'proof')).sends).toEqual([]);
   });
 
+test('on a phone the annotation window leaves its quote in view (#6731)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(
+    page,
+    'change',
+    '<div style="height:560px"></div><p id="selected">Exact selected text</p><div style="height:1200px"></div>',
+  );
+  const target = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
+  await expect(target).toBeVisible();
+  await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+  await target.click();
+  const popover = page.locator('.annotation-popover');
+  await expect(popover.getByRole('combobox', { name: 'Message' })).toBeFocused();
+  // The window opens over the page's lower part; the page moves the quote just above it.
+  await expect
+    .poll(async () => {
+      const quote = (await target.boundingBox())!;
+      const window = (await popover.boundingBox())!;
+      return quote.y + quote.height <= window.y;
+    })
+    .toBe(true);
+  expect((await target.boundingBox())!.y).toBeGreaterThan(0);
+});
+
 for (const ending of [
   'Escape',
   'blur',

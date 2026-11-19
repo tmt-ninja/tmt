@@ -163,8 +163,16 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   color: var(--c-muted);
   font: 11px var(--f-mono);
 }
+/* A footer line (57px) is kept clear only when the shell draws one: a paired owner's list has none,
+   and its height is the list's (#6731; a phone held sideways lost a third of its rows to it). */
 main {
-  min-height: calc(100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) - 57px);
+  min-height: calc(
+    100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) -
+      var(--colab-footer-height, 0px)
+  );
+}
+main:has(+ footer) {
+  --colab-footer-height: 57px;
 }
 footer {
   padding: 16px 32px;
@@ -2089,6 +2097,9 @@ button.discussion-quote:focus-visible {
   margin: 0 auto 14px;
   color: var(--tmt-ui-color-accent);
 }
+.comments-empty > svg[data-none] {
+  color: var(--tmt-ui-color-secondary);
+}
 .comments-empty h3 {
   margin: 0;
   font-size: 14px;
@@ -2296,7 +2307,9 @@ button.discussion-quote:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: var(--tmt-ui-space-xs);
-  font: var(--tmt-ui-type-caption-size) var(--tmt-ui-font-mono);
+  /* A count beside an icon, in the body face with even digits (#6731). */
+  font: var(--tmt-ui-type-caption-size) var(--tmt-ui-font-body);
+  font-variant-numeric: tabular-nums;
 }
 .dock-count[data-pending] {
   min-width: 1ch;
@@ -2701,17 +2714,25 @@ button.discussion-quote:focus-visible {
   border: var(--tmt-ui-notice-border-width) solid var(--tmt-ui-surface-rule);
 }
 
-/* Sections are progress (#6619): a counted heading sits between its mark and its count. */
+/* Sections are progress (#6619): a counted heading sits between its mark and its count. A heading
+   that wraps keeps both on its first line (#6731): the count shares that line's baseline, and the
+   mark is centred on that line's box (the heading's size times its 1.3 line height). */
 .structured-section-heading {
+  --structured-section-line: calc(22px * 1.3);
   display: flex;
-  align-items: center;
+  align-items: first baseline;
   gap: var(--tmt-ui-space-s);
+}
+.structured-section-heading[data-level='3'] {
+  --structured-section-line: calc(17px * 1.3);
 }
 .structured-section-heading > .tmt-block-heading {
   flex: 0 1 auto;
   min-width: 0;
 }
 .structured-section-mark {
+  align-self: flex-start;
+  margin-block-start: calc((var(--structured-section-line) - 12px) / 2);
   margin-inline-start: calc(-12px - var(--tmt-ui-space-s));
 }
 /* The phone's page gutter has no room beside the heading: the mark moves into its line. */
