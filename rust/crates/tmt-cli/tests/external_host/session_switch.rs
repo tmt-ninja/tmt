@@ -95,6 +95,73 @@ fn in_new_session(name: &str) -> Value {
     event
 }
 
+/// Nextest gives each test its own process group. Inspect only members of
+/// that group after reaping the provider, including reparented children.
+#[cfg(target_os = "linux")]
+fn report_capture_writers() {
+    use nix::{
+        libc::{O_ACCMODE, O_RDWR, O_WRONLY},
+        unistd::{Pid, getpgid, getpgrp, getpid},
+    };
+
+    let group = getpgrp();
+    if group != getpid() || std::env::var_os("NEXTEST").is_none() {
+        return;
+    }
+    let captures = [1, 2].map(|fd| {
+        fs::read_link(format!("/proc/self/fd/{fd}"))
+            .ok()
+            .filter(|target| target.as_os_str().as_encoded_bytes().starts_with(b"pipe:["))
+    });
+    if captures.iter().all(Option::is_none) {
+        return;
+    }
+
+    let Ok(processes) = fs::read_dir("/proc") else {
+        return;
+    };
+    for process in processes.flatten() {
+        let Some(raw_pid) = process
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse().ok())
+        else {
+            continue;
+        };
+        let pid = Pid::from_raw(raw_pid);
+        if pid == group || getpgid(Some(pid)) != Ok(group) {
+            continue;
+        }
+        let path = process.path();
+        let Ok(fds) = fs::read_dir(path.join("fd")) else {
+            continue;
+        };
+        for fd in fds.flatten() {
+            let Ok(pipe) = fs::read_link(fd.path()) else {
+                continue;
+            };
+            let stdout = captures[0].as_ref() == Some(&pipe);
+            let stderr = captures[1].as_ref() == Some(&pipe);
+            if !stdout && !stderr {
+                continue;
+            }
+            let Ok(info) = fs::read_to_string(path.join("fdinfo").join(fd.file_name())) else {
+                continue;
+            };
+            let flags = info
+                .lines()
+                .find_map(|line| i32::from_str_radix(line.strip_prefix("flags:")?.trim(), 8).ok());
+            if flags.is_some_and(|flags| matches!(flags & O_ACCMODE, O_WRONLY | O_RDWR)) {
+                let exe = fs::read_link(path.join("exe")).ok();
+                eprintln!(
+                    "session-switch capture writer after provider teardown: pid={raw_pid} exe={exe:?} fd={:?} pipe={pipe:?} stdout={stdout} stderr={stderr}",
+                    fd.file_name(),
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn a_cleared_member_whose_start_was_lost_continues_on_its_next_stop_and_gets_its_digest() {
     let (fixture, mut provider) = cleared_member("switch-lost-start", true);
@@ -116,6 +183,9 @@ fn a_cleared_member_whose_start_was_lost_continues_on_its_next_stop_and_gets_its
             .contains("Core decision item"),
         "{feedback:#}"
     );
+    drop(provider);
+    #[cfg(target_os = "linux")]
+    report_capture_writers();
 }
 
 #[test]
@@ -140,6 +210,9 @@ fn a_clear_start_that_beats_its_end_is_held_until_the_process_names_its_session(
         ("running", "s-2"),
         "{after:?}"
     );
+    drop(provider);
+    #[cfg(target_os = "linux")]
+    report_capture_writers();
 }
 
 #[test]
