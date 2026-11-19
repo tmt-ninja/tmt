@@ -1,3 +1,5 @@
+import { builtIn, BUILT_IN_SYSTEM } from './design-system.js';
+export { BUILT_IN_SYSTEM } from './design-system.js';
 import type { attachment } from '@tmt/colab-client';
 import {
   buildBundle,
@@ -135,14 +137,6 @@ async function readyFiles(page: Snapshot) {
   return files;
 }
 
-/** The built-in system's ID in a pin: `tmt-gui`, no page behind it. */
-export const BUILT_IN_SYSTEM = 'tmt-gui';
-/** The built-in tmt GUI release ships with the app: every install can use it (#5921). Its draft is
- * that release: it has no pages to edit. */
-const builtIn = () =>
-  import('../../../../../design/systems/tmt-gui/generated/bundle.json').then(
-    ({ default: bundle }) => bundle as unknown as DesignSystemBundle,
-  );
 /** Component pages a draft compile reads at once: with a follow's root and the shown page, a tab
  * stays well inside the door's 16 page tunnels (colab-v1 Live page list). */
 export const DRAFT_READS = 6;
