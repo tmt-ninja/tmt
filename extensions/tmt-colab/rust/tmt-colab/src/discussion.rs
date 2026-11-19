@@ -91,6 +91,9 @@ pub fn prepare_status(
     let folded = snapshot.materialize(key, page, decoder)?;
     let view = project(key, page, &snapshot, &folded);
     let matches: Vec<_> = view.threads.iter().filter(|row| row.id == thread).collect();
+    if matches.is_empty() {
+        return Err(Fault::ThreadNotFound.into());
+    }
     if matches.len() != 1 {
         return Err(Fault::Invalid.into());
     }

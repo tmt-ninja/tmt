@@ -208,7 +208,16 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             now,
         );
         let closed = store.close();
-        let prepared = prepared?;
+        let prepared = prepared.map_err(|error| {
+            if error.downcast_ref::<Fault>() == Some(&Fault::ThreadNotFound) {
+                crate::cli_management::fail(
+                    Fault::ThreadNotFound.code(),
+                    &format!("Thread {thread} was not found on page {page_id}. List its threads with `tmt colab threads {page_id} --json`."),
+                )
+            } else {
+                    error
+                }
+        })?;
         closed?;
         let changed = prepared.is_some();
         let (action, operation_id) = if let Some((frozen, action)) = prepared {

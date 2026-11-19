@@ -143,7 +143,16 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 id,
                 &mut decoder,
                 deadline,
-            ))
+            ).map_err(|error| {
+                if error.downcast_ref::<Fault>() == Some(&Fault::AttachmentNotFound) {
+                    crate::cli_management::fail(
+                        Fault::AttachmentNotFound.code(),
+                        &format!("Attachment {id} was not found on page {page}. List message attachments with `tmt colab threads {page} --json`. For page files, see attachments in the export manifest."),
+                    )
+                } else {
+                    error
+                }
+            }))
         }
         _ => None,
     };

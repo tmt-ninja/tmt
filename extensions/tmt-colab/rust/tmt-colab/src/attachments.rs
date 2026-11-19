@@ -624,7 +624,7 @@ pub fn resolve(
         }
     }
     match found.len() {
-        0 => Err(Fault::Missing.into()),
+        0 => Err(Fault::AttachmentNotFound.into()),
         1 => Ok(found.remove(0)),
         _ => Err(Fault::Invalid.into()),
     }

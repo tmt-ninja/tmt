@@ -15461,3 +15461,122 @@ fn conversion_keeps_legacy_and_revert_requires_confirmation_for_blocks() {
         source.replace("café", "Café")
     );
 }
+
+fn diagnostic_page(pilot: &Pilot) -> String {
+    pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Diagnostics",
+        "--no-open",
+        "--json",
+    ])["pageId"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+#[test]
+fn diagnostic_unknown_thread_points_to_its_page_threads() {
+    let pilot = Pilot::new(None);
+    let page = diagnostic_page(&pilot);
+    let id = "20000000-0000-4000-8000-000000000001";
+    for action in ["resolve", "reopen"] {
+        let result = failure(
+            &pilot,
+            &["threads", action, &page, id, "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+        let text = result["error"]["message"].as_str().unwrap();
+        assert!(
+            text.contains(id) && text.contains(&format!("tmt colab threads {page} --json")),
+            "{text}"
+        );
+    }
+}
+#[test]
+fn diagnostic_unknown_attachment_names_page_and_listing() {
+    let pilot = Pilot::new(None);
+    let page = diagnostic_page(&pilot);
+    let result = failure(
+        &pilot,
+        &["attachment", "read", &page, "deadbeef", "--json"],
+        "COLAB_STATE_MISSING",
+    );
+    let text = result["error"]["message"].as_str().unwrap();
+    assert!(
+        text.contains("deadbeef")
+            && text.contains(&format!("tmt colab threads {page} --json"))
+            && text.contains("export manifest"),
+        "{text}"
+    );
+}
+#[test]
+fn diagnostic_export_names_missing_directory() {
+    let pilot = Pilot::new(None);
+    let page = diagnostic_page(&pilot);
+    let dir = pilot.root.join("absent-directory");
+    let result = failure(
+        &pilot,
+        &["export", &page, "--dir", dir.to_str().unwrap(), "--json"],
+        "COLAB_UNAVAILABLE",
+    );
+    assert_eq!(
+        result["error"]["message"],
+        format!("Output directory {} must already exist.", dir.display())
+    );
+}
+#[test]
+fn diagnostic_block_page_read_names_block_ls() {
+    let pilot = Pilot::new(None);
+    let page = diagnostic_page(&pilot);
+    let result = failure(
+        &pilot,
+        &["page", "read", &page, "--json"],
+        "COLAB_STRUCTURED_PAGE",
+    );
+    assert!(
+        result["error"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Read this page with `tmt colab block ls")
+    );
+}
+#[test]
+fn diagnostic_split_question_groups_explain_each_rule() {
+    let pilot = Pilot::new(None);
+    let group = "20000000-0000-4000-8000-000000000001";
+    let question = |i: usize, group: &str| {
+        format!(
+            r#"<tmt-question data-id="10000000-0000-4000-8000-{i:012}" data-group="{group}" data-kind="short"><p data-question>Ready?</p></tmt-question>"#
+        )
+    };
+    let mut html = format!(
+        r#"<tmt-questions data-id="{group}"><p data-title>Decisions</p>{}</tmt-questions>{}"#,
+        question(1, group),
+        question(2, "invalid")
+    );
+    for i in 3..3 + tmt_colab::limits::GROUP_QUESTIONS + 1 {
+        html.push_str(&question(i, "30000000-0000-4000-8000-000000000001"));
+    }
+    let file = pilot.root.join("groups.html");
+    fs::write(&file, html).unwrap();
+    let report = failure(
+        &pilot,
+        &["page", "check", file.to_str().unwrap(), "--json"],
+        "COLAB_PAGE_CHECK",
+    );
+    for (code, rule) in [
+        ("question-group-conflict", "Remove data-group"),
+        ("question-group-id-invalid", "lowercase UUID"),
+        ("question-group-limit", "split the rest"),
+    ] {
+        assert!(
+            report["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["code"] == code && f["message"].as_str().unwrap().contains(rule)),
+            "{report}"
+        );
+    }
+}
