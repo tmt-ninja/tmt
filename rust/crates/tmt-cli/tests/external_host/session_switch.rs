@@ -153,7 +153,10 @@ fn report_capture_writers() {
                 .find_map(|line| i32::from_str_radix(line.strip_prefix("flags:")?.trim(), 8).ok());
             if flags.is_some_and(|flags| matches!(flags & O_ACCMODE, O_WRONLY | O_RDWR)) {
                 let exe = fs::read_link(path.join("exe")).ok();
-                eprintln!(
+                // Write to Nextest's capture pipe directly. Libtest hides
+                // captured macros when the Rust assertions pass.
+                let _ = writeln!(
+                    std::io::stderr().lock(),
                     "session-switch capture writer after provider teardown: pid={raw_pid} exe={exe:?} fd={:?} pipe={pipe:?} stdout={stdout} stderr={stderr}",
                     fd.file_name(),
                 );
