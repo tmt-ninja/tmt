@@ -157,13 +157,13 @@ fn stage_outcome(input: &Command, stage: Stage<'_>, result: Result<Value, Remote
             )
         }
         Err(error) if matches!(stage, Stage::Open) && error.code == "TERMINAL_OPEN_UNCONFIRMED" => {
-            let terminal = error
-                .message
-                .strip_prefix("Terminal ")
-                .and_then(|message| message.split_once(' '))
-                .map(|(id, _)| id)
-                .filter(|id| canonical::terminal_id(id));
-            outcome(id, "unconfirmed", "open", terminal, None)
+            outcome(
+                id,
+                "unconfirmed",
+                "open",
+                error.unconfirmed_terminal_id(),
+                None,
+            )
         }
         _ => outcome(id, "unconfirmed", stage.name(), stage.terminal(), None),
     };
@@ -363,6 +363,27 @@ impl Store {
 mod tests {
     use super::*;
     use crate::{state::Layout, store::uuid_v4, wire::SignedMessage};
+
+    #[test]
+    fn a_legacy_unconfirmed_open_does_not_infer_an_id_from_its_message() {
+        let input = Command {
+            operation_id: "fixture".into(),
+            identity_id: "member".into(),
+            target: Target::New,
+            command: "pwd".into(),
+        };
+        let refusal = RemoteError::new(
+            "TERMINAL_OPEN_UNCONFIRMED",
+            "Terminal term_11111111111111111111111111111111 may be running.",
+        );
+        let Effect::Outcome(value) = stage_outcome(&input, Stage::Open, Err(refusal)) else {
+            panic!("an unconfirmed open cannot authorize Run");
+        };
+        assert_eq!(
+            value,
+            json!({"operationId":"fixture","state":"unconfirmed","stage":"open"})
+        );
+    }
 
     #[test]
     fn confirmed_open_does_not_authorize_run_after_designation_is_removed() {
