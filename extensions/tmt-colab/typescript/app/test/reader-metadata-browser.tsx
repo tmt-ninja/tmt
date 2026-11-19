@@ -222,3 +222,28 @@ export function layout(next: PageView['layout']) {
     paint();
   });
 }
+
+/** The page's work fields a link reader sees (#6679): the manual state and the owner's own fields,
+ * never the owner-local computed status. `filled` matches the owner's `long` work page; `manual`
+ * has only a stored state; `none` has no field at all. */
+export function status(kind: 'filled' | 'manual' | 'none') {
+  const { pageState: _state, owner: _owner, priority: _priority, ...rest } = view;
+  const { next: _next, blocked: _blocked, work: _work, ...base } = rest;
+  view =
+    kind === 'none'
+      ? base
+      : kind === 'manual'
+        ? { ...base, pageState: 'in-progress' }
+        : {
+            ...base,
+            title: 'Release plan for the hosted reader and pairing',
+            pageState: 'todo',
+            owner: { id: id(88), name: 'gui-3' },
+            priority: 'high',
+            next: 'Review the mockup',
+            blocked:
+              'Waiting for Core to decide whether the reader keeps its own session, and for Remote to publish the paired door that carries it',
+            work: { version: 2, order: [id(201), id(202), id(203), id(204)] },
+          };
+  paint();
+}

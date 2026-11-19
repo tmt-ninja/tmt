@@ -15,6 +15,7 @@ import { getTheme, subscribeTheme } from './theme.js';
 import type { WorkFactView } from './reading-details.js';
 import { text } from './strings.js';
 import { computedLabel, computedTone } from './work-band-live.js';
+import type { ManualStatus } from './page-status-details.js';
 import { projectTone } from './projects.js';
 import './page-projects.css';
 import './page-bar-summary.css';
@@ -30,6 +31,7 @@ const LABELS = 3;
  */
 export function PageBarSummary({
   facts,
+  manual,
   status,
   labels,
   details,
@@ -37,6 +39,9 @@ export function PageBarSummary({
   subpages,
 }: {
   facts?: WorkFactView;
+  /** A link reader's status (#6679), used without `facts`: "Blocked" when the page has a blocked
+   * reason, otherwise its manual state, named as the page state. */
+  manual?: ManualStatus;
   /** What the status chip opens (#6652): a popover, or on a phone a sheet that also lists the
    * page's projects (`sheet` true). `close` shuts it, for a control inside that opens a window. */
   details?(sheet: boolean, close: () => void): ReactNode;
@@ -48,9 +53,20 @@ export function PageBarSummary({
   status: boolean;
   labels: readonly string[];
 }) {
-  const state = facts?.state ?? 'unknown';
-  // The same word as the page's own status chip just under the bar.
-  const label = computedLabel(state, facts);
+  const manualState = !facts && manual ? (manual.blocked ? 'blocked' : manual.state) : undefined;
+  const state = manualState === undefined ? (facts?.state ?? 'unknown') : manualState;
+  // The same word as the page's own status chip just under the bar; a reader's manual state in the
+  // task words.
+  const label =
+    manualState === undefined
+      ? computedLabel(facts?.state ?? 'unknown', facts)
+      : manualState === 'blocked'
+        ? computedLabel('blocked')
+        : text.workBand.taskState[manualState];
+  const named =
+    manualState === undefined || manualState === 'blocked'
+      ? text.workBand.statusDetails(label)
+      : text.pageBar.pageStateDetails(label);
   const shown = labels.slice(0, LABELS);
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   // The bar keeps only its status dot up to 900px (its labels leave first): the details open as a
@@ -74,7 +90,7 @@ export function PageBarSummary({
       <span
         className={ui.stateMark}
         data-shape="dot"
-        data-tone={computedTone(state)}
+        data-tone={computedTone(manualState === 'in-progress' ? 'working' : state)}
         aria-hidden="true"
       />
       <span className="page-bar-status-label">{label}</span>
@@ -86,7 +102,7 @@ export function PageBarSummary({
       className={`page-bar-status ${ui.countChip}`}
       title={label}
       data-state={state}
-      aria-label={text.workBand.statusDetails(label)}
+      aria-label={named}
     >
       {chip}
     </button>

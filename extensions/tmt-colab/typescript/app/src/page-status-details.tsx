@@ -10,6 +10,13 @@ import './page-status-details.css';
 
 const t = text.pageBar;
 
+/** What a link reader knows of a page's status (#6679): its manual state and the owner's blocked
+ * reason. The computed status, PRs, activity and sections are owner-local. */
+export interface ManualStatus {
+  state: 'todo' | 'in-progress' | 'done';
+  blocked?: string;
+}
+
 /**
  * What the row under the page title used to show, now held by the top bar's status chip (#6652):
  * the status and its reason, the page's read-only fields, one line per PR, then its parent and
@@ -17,6 +24,7 @@ const t = text.pageBar;
  */
 export function PageStatusDetails({
   facts,
+  manual,
   blocked,
   owner,
   priority,
@@ -28,6 +36,9 @@ export function PageStatusDetails({
   change,
 }: {
   facts?: WorkFactView;
+  /** A link reader's status, used without `facts` (#6679): the headline says Blocked and its reason,
+   * or the page state; nothing owner-local is shown, not even as unknown. */
+  manual?: ManualStatus;
   blocked?: string;
   owner?: { id: string; name: string };
   priority?: 'high' | 'normal' | 'low';
@@ -46,8 +57,26 @@ export function PageStatusDetails({
   return (
     <div className="page-status-details">
       <p className="page-status-headline">
-        <strong>{computedLabel(state, facts)}</strong>
-        <span>{facts ? statusReason(state, facts, blocked) : text.workBand.statusUnavailable}</span>
+        {!facts && manual ? (
+          manual.blocked ? (
+            <>
+              <strong>{computedLabel('blocked')}</strong>
+              <span>{manual.blocked}</span>
+            </>
+          ) : (
+            <>
+              <strong>{t.pageState}</strong>
+              <span>{text.workBand.taskState[manual.state]}</span>
+            </>
+          )
+        ) : (
+          <>
+            <strong>{computedLabel(state, facts)}</strong>
+            <span>
+              {facts ? statusReason(state, facts, blocked) : text.workBand.statusUnavailable}
+            </span>
+          </>
+        )}
       </p>
       <dl className={`${ui.facts} page-status-fields`}>
         {owner && (
@@ -71,7 +100,7 @@ export function PageStatusDetails({
           </>
         )}
         {/* A blocked status already says its reason in the headline. */}
-        {blocked && state !== 'blocked' && (
+        {blocked && state !== 'blocked' && !manual?.blocked && (
           <>
             <dt>{t.blocked}</dt>
             <dd>{blocked}</dd>

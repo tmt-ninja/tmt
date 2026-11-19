@@ -386,8 +386,13 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     colab(['share', 'mode', created.pageId, 'link', '--yes']);
     const link = colab(['share', 'link', 'add', created.pageId, '--yes']);
     const reader = await openReaderLink(world, door, link.readerPath, 'work-fields-reader');
-    await expect(reader.page.getByLabel('Priority high', { exact: true })).toBeVisible();
-    await expect(reader.page.locator('.work-owner-chip')).toBeVisible();
+    // A reader's bar mark opens the owner's own fields (#6679).
+    await reader.page.getByRole('banner').locator('.page-bar-status').click();
+    const details = reader.page.locator('.page-status-details:visible');
+    await expect(details.locator('.page-status-fields')).toContainText('↑ High');
+    await expect(details.locator('.page-status-fields')).toContainText(
+      'release-coordination-agent',
+    );
     await expect(reader.page.locator('.colab-work-number:visible')).toHaveCount(0);
   });
 });
@@ -441,12 +446,15 @@ test('manual state persists, an empty page offers Add to the owner only, and sha
     colab(['share', 'mode', created.pageId, 'link', '--yes']);
     const link = colab(['share', 'link', 'add', created.pageId, '--yes']);
     const reader = await openReaderLink(world, door, link.readerPath, 'status-reader');
-    const shared = reader.page.getByRole('region', { name: 'Work on this page' });
-    await expect(shared.locator('.work-page-state')).toHaveText('Done');
+    // The reader names the manual state as the page state (#6679); it offers no control over it.
+    const mark = reader.page.getByRole('banner').locator('.page-bar-status');
+    await expect(mark).toHaveAccessibleName('Page state: Done, show details');
+    await mark.click();
+    const shared = reader.page.locator('.page-status-details:visible');
+    await expect(shared.locator('.page-status-headline')).toHaveText(/^Page state\s*Done$/);
     await expect(shared.locator('.work-toggle')).toHaveCount(0);
     await expect(shared.getByRole('button', { name: /Page state/ })).toHaveCount(0);
     await expect(shared.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
-    await expect(shared.locator('.work-toggle')).toHaveCount(0);
     expect(
       reader.requests.filter((request) => /summary-details|api\/space/.test(request.url)),
     ).toEqual([]);
@@ -454,7 +462,9 @@ test('manual state persists, an empty page offers Add to the owner only, and sha
       for (const width of [390, 1440])
         for (const theme of ['light', 'dark']) {
           await reader.page.setViewportSize({ width, height: 900 });
-          await panelTheme(reader.page, shared.locator('.work-page-state'), theme);
+          await reader.page.evaluate((value) => {
+            document.documentElement.dataset.theme = value;
+          }, theme);
           await reader.page.screenshot({
             path: `${captures}/status-reader-null-${width}-${theme}.png`,
           });

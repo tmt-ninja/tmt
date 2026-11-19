@@ -92,3 +92,74 @@ for (const width of [390, 1440])
         .getByRole('heading', { name: 'Note 12' }),
     ).toBeInViewport();
   });
+
+// A link reader's page status follows the owner's bar (#6679): one status mark in the bar that opens
+// the details, nothing under the title, and only what the share carries — the manual state and the
+// owner's own fields, never the owner-local computed status, PRs, activity or sections.
+const status = (page: Page, kind: 'filled' | 'manual' | 'none') =>
+  page.evaluate(async ({ fixture, kind }) => (await import(fixture)).status(kind), {
+    fixture,
+    kind,
+  });
+const readerField = (details: import('@playwright/test').Locator, name: string) =>
+  details
+    .locator('.page-status-fields dt')
+    .filter({ hasText: new RegExp(`^${name}$`) })
+    .locator('xpath=following-sibling::dd[1]');
+
+for (const width of [1440, 390, 320])
+  test(`a reader's status mark opens the page's own fields at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await mount(page);
+    await status(page, 'filled');
+    const bar = page.getByRole('banner');
+    const mark = bar.locator('.page-bar-status');
+    // The dot stays in the bar at every width (#6677); the long title gives way.
+    await expect(mark).toBeVisible();
+    await expect(mark).toHaveAccessibleName('Blocked, show status details');
+    const box = (await mark.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(await bar.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    // Nothing under the title: no summary row, at any width.
+    await expect(page.locator('.work-band:visible')).toHaveCount(0);
+    await mark.click();
+    const details = page.locator('.page-status-details:visible');
+    await expect(details.locator('.page-status-headline')).toContainText(
+      /^Blocked\s*Waiting for Core to decide/,
+    );
+    await expect(readerField(details, 'Owner')).toHaveText(/gui-3$/);
+    await expect(readerField(details, 'Priority')).toHaveText('↑ High');
+    await expect(readerField(details, 'Next')).toHaveText('Review the mockup');
+    await expect(details.getByRole('button', { name: '4 sub-pages' })).toBeVisible();
+    // Owner-local facts never show, not even as "unknown".
+    for (const name of ['Sections', 'Last activity', 'Owner activity'])
+      await expect(readerField(details, name)).toHaveCount(0);
+    await expect(details.locator('.page-status-pulls')).toHaveCount(0);
+    await expect(details.locator('.page-status-projects')).toHaveCount(0);
+    // The details set body text that wraps, not the header's one-line title type.
+    expect(await details.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const sheet = (await details.boundingBox())!;
+    expect(sheet.x).toBeGreaterThanOrEqual(0);
+    expect(sheet.x + sheet.width).toBeLessThanOrEqual(width);
+  });
+
+test('a reader sees the manual state labelled as the page state, and no mark without fields', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mount(page);
+  await status(page, 'manual');
+  const mark = page.getByRole('banner').locator('.page-bar-status');
+  await expect(mark).toHaveAccessibleName('Page state: In progress, show details');
+  await expect(mark).toContainText('In progress');
+  await mark.click();
+  await expect(page.locator('.page-status-details:visible .page-status-headline')).toHaveText(
+    /^Page state\s*In progress$/,
+  );
+  await page.keyboard.press('Escape');
+  await expect(mark).toBeFocused();
+  // No stored state and no field: no mark at all.
+  await status(page, 'none');
+  await expect(page.locator('.page-bar-status')).toHaveCount(0);
+  await expect(page.locator('.work-band')).toHaveCount(0);
+});
