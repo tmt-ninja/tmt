@@ -1140,6 +1140,7 @@ impl Registration {
         &self,
         context: Option<&str>,
         page: &str,
+        include_answer_bindings: bool,
     ) -> std::result::Result<Vec<u8>, Code> {
         Context::parse(context)?;
         values::generated_id(page).map_err(|_| Code::Invalid)?;
@@ -1183,6 +1184,9 @@ impl Registration {
                     "needs":projection.needs});
                 if let Some(latest) = &projection.latest {
                     ready["latest"] = serde_json::json!(latest);
+                }
+                if include_answer_bindings && !projection.answer_bindings.is_empty() {
+                    ready["answerBindings"] = serde_json::json!(projection.answer_bindings);
                 }
                 ready
             }
@@ -2735,9 +2739,12 @@ mod describe_tests {
         assert_eq!(list[top]["state"], "todo");
         assert!(list[top].get("progress").is_none());
         assert_eq!(list[leaf]["state"], "done");
-        let details: serde_json::Value =
-            serde_json::from_slice(&service.page_summary_details(Some(&context), top).unwrap())
-                .unwrap();
+        let details: serde_json::Value = serde_json::from_slice(
+            &service
+                .page_summary_details(Some(&context), top, false)
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(details["pageState"], "todo");
         assert_eq!(
             details["progress"],
@@ -2851,9 +2858,12 @@ mod describe_tests {
         assert_eq!(list[top]["summary"]["work"]["done"], 0);
         assert!(list[leaf].get("summary").is_none());
         assert!(list[top].get("progress").is_none());
-        let details: serde_json::Value =
-            serde_json::from_slice(&service.page_summary_details(Some(&context), top).unwrap())
-                .unwrap();
+        let details: serde_json::Value = serde_json::from_slice(
+            &service
+                .page_summary_details(Some(&context), top, false)
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             details["progress"],
             json!({"done":0,"inProgress":0,"todo":0,"unknown":1,"total":1})

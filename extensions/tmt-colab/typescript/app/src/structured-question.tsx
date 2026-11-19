@@ -5,13 +5,15 @@ import { QuestionRecipientPicker } from './question-recipient-picker.js';
 import { useQuestionRecipient } from './use-question-recipient.js';
 import type { PageBinding, PageView } from './transport.js';
 import type { BlockRecord } from './block-model.js';
-import { QUESTION_CHOICES, QUESTION_KINDS, type QuestionEdit } from './block-ops.js';
+import { QUESTION_CHOICES, type QuestionEdit } from './block-ops.js';
 import {
   questionCreator,
   type RegisteredQuestion,
   verifiedQuestionStates,
 } from './question-registry.js';
-import { answerOf, type Question, type QuestionGroup } from './questions.js';
+import { answerOf, type QuestionGroup } from './questions.js';
+import { blockQuestion } from './question-form.js';
+export { blockQuestion } from './question-form.js';
 import { text } from './strings.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { ThreadView } from './thread-records.js';
@@ -36,24 +38,6 @@ export interface QuestionPage {
   /** What a question's recipient is chosen through (the owner device's metadata frame): the page's
    * view and its live binding. Absent, the editor shows the recipient and offers no choice. */
   metadata?: { view: PageView; binding: PageBinding };
-}
-
-/** A question block's question, read from its untrusted props as plain values. */
-export function blockQuestion(block: BlockRecord): Question {
-  const kind = QUESTION_KINDS.find((value) => value === block.props.kind) ?? 'single';
-  const choices = Array.isArray(block.props.choices)
-    ? block.props.choices.filter((choice): choice is string => typeof choice === 'string')
-    : [];
-  return {
-    id: block.id,
-    title: block.text ?? '',
-    kind,
-    choices: kind === 'short' ? [] : choices.slice(0, 20).map((label) => ({ label })),
-    other: kind !== 'short' && block.props.other === true,
-    agent: typeof block.props.agent === 'string' ? block.props.agent : '',
-    group: null,
-    label: null,
-  };
 }
 
 /**
@@ -98,7 +82,7 @@ export function StructuredQuestion({
     [question.id, question.title],
   );
   const creator = questionCreator(page, text.unknownAuthor);
-  const states = verifiedQuestionStates(page);
+  const states = verifiedQuestionStates(page, members);
   const answers = useQuestionAnswers({
     group,
     members,
@@ -127,64 +111,72 @@ export function StructuredQuestion({
     void send();
   }, [sendNext, row.eligible, send]);
   const entry = page.questions?.find((value) => value.id === question.id);
-  const state = states?.find((value) => value.id === question.id)?.state;
+  const effective = states?.find((value) => value.id === question.id);
+  const state = effective?.state;
   const answered =
     row.echo ?? (row.answer ? (answerOf(question, row.answer.body) ?? row.answer.body) : undefined);
   // The answer goes to the registry's agent, else the page's creator (the serve registered the
   // block with no agent of its own). With neither, nothing can be asked: an error, never a blank.
   const recipient = answers.recipients[0]?.agentName ?? entry?.agent?.name ?? creator?.name;
   return (
-    <QuestionBlock
-      title={question.title}
-      agent={recipient ?? text.questionNoAgent}
-      kind={question.kind === 'long' ? 'short' : question.kind}
-      choices={question.choices.map(({ label }) => label)}
-      other={question.other}
-      state={
-        state === 'handled'
-          ? 'dismissed'
-          : answered !== undefined && !row.draft.changing
-            ? 'answered'
-            : 'waiting'
-      }
-      answer={answered}
-      busy={answers.sending.includes(question.id) || answers.resolvingDefaults}
-      error={
-        recipient === undefined
-          ? text.questionNoRecipient
-          : row.draft.failed
-            ? 'Could not confirm this answer. Your draft is kept for the next Send.'
-            : answers.error
-      }
-      onSend={
-        recipient === undefined || answers.disabled || !answers.decision.allowed
-          ? undefined
-          : (answer) => {
-              answers.setDrafts((previous) => ({
-                ...previous,
-                [question.id]: {
-                  ...(previous[question.id] ?? emptyDraft()),
-                  choices: answer.choices,
-                  other: answer.other !== undefined,
-                  value: answer.other ?? answer.text ?? '',
-                  failed: false,
-                },
-              }));
-              setSendNext(true);
-            }
-      }
-      onRetry={row.draft.failed ? () => void send() : undefined}
-      onEdit={onEdit}
-      onFollowUp={
-        answered !== undefined
-          ? () =>
-              answers.setDrafts((previous) => ({
-                ...previous,
-                [question.id]: { ...(previous[question.id] ?? emptyDraft()), changing: true },
-              }))
-          : undefined
-      }
-    />
+    <>
+      {state === 'open' && effective?.earlierAnswer && (
+        <p className="question-history" title={effective.earlierAnswer.prompt}>
+          {text.questionEarlierVersion(effective.earlierAnswer.selection)}
+        </p>
+      )}
+      <QuestionBlock
+        title={question.title}
+        agent={recipient ?? text.questionNoAgent}
+        kind={question.kind === 'long' ? 'short' : question.kind}
+        choices={question.choices.map(({ label }) => label)}
+        other={question.other}
+        state={
+          state === 'handled'
+            ? 'dismissed'
+            : answered !== undefined && !row.draft.changing
+              ? 'answered'
+              : 'waiting'
+        }
+        answer={answered}
+        busy={answers.sending.includes(question.id) || answers.resolvingDefaults}
+        error={
+          recipient === undefined
+            ? text.questionNoRecipient
+            : row.draft.failed
+              ? 'Could not confirm this answer. Your draft is kept for the next Send.'
+              : answers.error
+        }
+        onSend={
+          recipient === undefined || answers.disabled || !answers.decision.allowed
+            ? undefined
+            : (answer) => {
+                answers.setDrafts((previous) => ({
+                  ...previous,
+                  [question.id]: {
+                    ...(previous[question.id] ?? emptyDraft()),
+                    choices: answer.choices,
+                    other: answer.other !== undefined,
+                    value: answer.other ?? answer.text ?? '',
+                    failed: false,
+                  },
+                }));
+                setSendNext(true);
+              }
+        }
+        onRetry={row.draft.failed ? () => void send() : undefined}
+        onEdit={onEdit}
+        onFollowUp={
+          answered !== undefined
+            ? () =>
+                answers.setDrafts((previous) => ({
+                  ...previous,
+                  [question.id]: { ...(previous[question.id] ?? emptyDraft()), changing: true },
+                }))
+            : undefined
+        }
+      />
+    </>
   );
 }
 

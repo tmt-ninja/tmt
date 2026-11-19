@@ -891,6 +891,7 @@ fn commit_source(
             )?;
             let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
             receipt.scale = frozen.scale();
+            receipt.reopened_questions = frozen.reopened_questions;
             // A write's combine can move the revision after its outcome was retained. The
             // revision read by the writer that excluded every other writer is the one a next
             // `--expected-revision` must carry; a lost reply leaves the committed one.
@@ -913,6 +914,15 @@ fn commit_source(
     Ok(receipt)
 }
 /// The result of `page patch`: JSON, or one detail block and the warnings.
+fn reopened_question_hint(receipt: &tmt_colab::page::Receipt) -> Option<String> {
+    (!receipt.reopened_questions.is_empty()).then(|| {
+        format!(
+            "A fresh answer is needed for {}. The previous answer applies to an earlier version.",
+            receipt.reopened_questions.join(", ")
+        )
+    })
+}
+
 fn print_receipt(
     receipt: tmt_colab::page::Receipt,
     warnings: &[tmt_colab::page_check::Finding],
@@ -931,6 +941,9 @@ fn print_receipt(
     let off_guidance = cli_edit_hint::reason(warnings.len(), &receipt.update, receipt.scale);
     if json_output {
         let mut value = serde_json::to_value(&receipt)?;
+        if let Some(message) = reopened_question_hint(&receipt) {
+            value["questionHint"] = json!(message);
+        }
         value["warnings"] = cli_page_check::warnings_json(warnings);
         if !hints.is_empty() {
             value["hints"] = cli_page_check::hints_json(hints);
@@ -957,6 +970,9 @@ fn print_receipt(
             ("update", receipt.update.to_string()),
         ];
         // Quiet until the page is nearly full: the full numbers are in `page read --json`.
+        if let Some(message) = reopened_question_hint(&receipt) {
+            rows.push(("questions", message));
+        }
         if let Some(usage) = receipt.usage.filter(|usage| usage.percent >= 80) {
             rows.push(("usage", cli_compact::nearly_full(&usage, &receipt.page_id)));
         }
@@ -1155,6 +1171,7 @@ fn publish_structured_owned(
             if let Some(revision) = published.revision {
                 receipt.revision = revision;
             }
+            receipt.reopened_questions = frozen.reopened_questions;
             receipt
         }
     })

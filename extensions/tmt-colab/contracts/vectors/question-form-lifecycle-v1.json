@@ -1,0 +1,6 @@
+[
+  {"name":"absent at upgrade then introduced","legacy":true,"atUpgrade":null,"current":[null,"A"],"answered":[true,false]},
+  {"name":"present at upgrade then edited","legacy":true,"atUpgrade":"A","current":["A","B"],"answered":[true,false]},
+  {"name":"restored original form after upgrade","legacy":false,"atSend":"A","current":["A",null,"A"],"answered":[true,true,true]},
+  {"name":"different form after removal","legacy":false,"atSend":"A","current":["A",null,"B"],"answered":[true,true,false]}
+]

@@ -231,6 +231,51 @@ impl OwnerTransaction<'_> {
     pub(crate) fn page_progress(&self) -> Result<std::collections::BTreeMap<String, String>> {
         self.selected_page_fingerprints(None, false)
     }
+    pub(crate) fn answer_forms(
+        &self,
+        page: &str,
+    ) -> Result<crate::question_registry::form::AnswerForms> {
+        let mut query = self
+            .tx
+            .prepare("SELECT writer,message,form FROM answer_forms WHERE page=?1")?;
+        let rows = query.query_map([page], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        let mut forms = crate::question_registry::form::AnswerForms::new();
+        for row in rows {
+            let (writer, id, form) = row?;
+            forms.insert(
+                (writer, id),
+                form.as_deref().map(serde_json::from_str).transpose()?,
+            );
+        }
+        Ok(forms)
+    }
+
+    pub(crate) fn bind_answer_forms(
+        &mut self,
+        page: &str,
+        fingerprint: &str,
+        forms: &crate::question_registry::form::AnswerForms,
+    ) -> Result<()> {
+        if self.page_fingerprint(page)?.as_deref() != Some(fingerprint) {
+            return Err(OwnerFault::StaleHead.into());
+        }
+        let mut insert = self.tx.prepare("INSERT INTO answer_forms(page,writer,message,form) VALUES (?1,?2,?3,?4) ON CONFLICT(page,writer,message) DO NOTHING")?;
+        for ((writer, id), form) in forms {
+            insert.execute(params![
+                page,
+                writer,
+                id,
+                form.as_ref().map(serde_json::to_string).transpose()?
+            ])?;
+        }
+        Ok(())
+    }
     /// The owner's local plaintext title of a page, display-only projection state (#4218). It is
     /// stored only while `expected` is still the page's fingerprint: the one the verified fold that
     /// produced `title` started from, so a page that changed meanwhile (an edit, a membership change,

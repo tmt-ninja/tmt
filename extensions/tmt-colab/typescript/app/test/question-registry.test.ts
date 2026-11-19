@@ -74,6 +74,48 @@ test('question bindings on ordinary signed comments use the existing question UU
 });
 
 import { verifiedQuestionStates } from '../src/question-registry.js';
+import { formDigest, askedForm } from '../src/question-form.js';
+import type { Question } from '../src/questions.js';
+
+test('editing one group member preserves the other answer and restoring its wording restores its answer', () => {
+  const registry = answers.cases[0].registry;
+  const forms: Question[] = registry.map((entry) => ({
+    id: entry.id,
+    title: entry.title!,
+    kind: 'single',
+    choices: [{ label: 'Beta' }],
+    other: false,
+    agent: '',
+    group: entry.group!,
+    label: null,
+  }));
+  const threads = forms.map((form) => ({
+    deleted: false,
+    comments: [
+      {
+        questionId: form.id,
+        deviceAuthor: true,
+        deleted: false,
+        sequence: '1',
+        revision: '1',
+        ref: { writer: registry[0].attribution.writerId, id: form.id },
+        body: 'Beta',
+        formBinding: { digest: formDigest(askedForm(form)), prompt: form.title },
+      },
+    ],
+  })) as ThreadView[];
+  const edited = [{ ...forms[0], title: 'Where should this ship?' }, forms[1]];
+  const [first, second] = questionStates(registry, threads, edited);
+  expect(first.state).toBe('open');
+  expect(first.answer).toBeUndefined();
+  expect(first.earlierAnswer?.prompt).toBe(forms[0].title);
+  expect(second).toMatchObject({ state: 'answered', answer: 'Beta' });
+  expect(questionStates(registry, threads, forms)[0]).toMatchObject({
+    state: 'answered',
+    answer: 'Beta',
+  });
+});
+
 test('unknown discussion never projects unanswered registrations, including removed source', () => {
   const registry = answers.cases[0].registry;
   expect(verifiedQuestionStates({ questions: registry })).toBeUndefined();

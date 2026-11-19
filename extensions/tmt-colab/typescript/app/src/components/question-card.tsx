@@ -13,6 +13,7 @@ import { CommentExchange } from '../thread-panel.js';
 import type { PageAsk, AskBinding, AskRetryInput } from '../ask-panel.js';
 import type { ThreadBinding } from '../thread-store.js';
 import type { ThreadView } from '../thread-records.js';
+import type { QuestionState } from '../question-registry.js';
 import { AnnotationInput, ArchivedDraft } from '../annotation-input.js';
 import type { CreatorTarget } from '../creator-default.js';
 import { attachmentInputHandlers } from '../attachment-drop.js';
@@ -32,6 +33,7 @@ export interface QuestionDraft {
 /** Controlled answer/conversation presentation. The admitted group owns drafts and all effects. */
 export function QuestionCard({
   question,
+  earlierAnswer,
   draft,
   onDraft,
   threads,
@@ -56,6 +58,7 @@ export function QuestionCard({
   followUpRecipient,
 }: {
   question: Question;
+  earlierAnswer?: QuestionState['earlierAnswer'];
   draft: QuestionDraft;
   onDraft(patch: Partial<QuestionDraft>): void;
   threads: readonly ThreadView[];
@@ -140,6 +143,11 @@ export function QuestionCard({
       }}
     >
       <div className="question-controls">
+        {compose && earlierAnswer !== undefined && (
+          <p className="question-history" title={earlierAnswer.prompt}>
+            {text.questionEarlierVersion(earlierAnswer.selection)}
+          </p>
+        )}
         {readOnly && compose && body && <ArchivedDraft value={body} />}
         {!readOnly && compose && (
           <>

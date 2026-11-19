@@ -447,7 +447,7 @@ fn verified_own_answers_change_registry_state_without_content_or_ask_publication
         page,
         store::Store,
     };
-    let pilot = Pilot::new(None);
+    let mut pilot = Pilot::new(None);
     let id = new_page(&pilot);
     add(&pilot, &id);
     let initial = pilot.call(&["page", "read", &id, "--json"]);
@@ -455,7 +455,7 @@ fn verified_own_answers_change_registry_state_without_content_or_ask_publication
     let message = "10000000-0000-4000-8000-000000000003";
     // A genuine root-local own publication exercises signatures, fold provenance and the
     // production read projection. No Ask/intents/replies record is supplied.
-    let answer = |revision: &str, body: &str, deleted: bool| {
+    let answer = |pilot: &Pilot, revision: &str, body: &str, deleted: bool| {
         let layout = Layout::existing(&pilot.root.join("selected"))
             .unwrap()
             .unwrap();
@@ -509,19 +509,96 @@ fn verified_own_answers_change_registry_state_without_content_or_ask_publication
         .unwrap();
         store.close().unwrap();
     };
-    answer("1", "The first answer", false);
+    answer(&pilot, "1", "The first answer", false);
     let first = pilot.call(&["page", "read", &id, "--json"]);
     assert_eq!(first["source"], initial["source"]);
     assert_eq!(first["questions"], initial["questions"]);
     assert_eq!(first["questionStates"][0]["state"], "answered");
     assert_eq!(first["questionStates"][0]["answer"], "The first answer");
     assert_eq!(first["questionStates"][0]["answerRef"]["id"], message);
-    answer("2", "The changed answer", false);
+    let db = pilot.root.join("selected/colab/space.db");
+    let detail = || format!("/api/pages/{id}/summary-details/answer-bindings");
+    // Observe a newly published answer on a current store before repeating the upgrade case.
+    let new_answer_start = Instant::now();
+    pilot.start();
+    let deadline = new_answer_start + Duration::from_secs(15);
+    loop {
+        let reply = owner_list_request(&pilot, "GET", &detail(), &owner_list_context(&pilot));
+        let value: Value = serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
+        if value["state"] == "ready" {
+            assert_eq!(value["answerBindings"][0][1], message);
+            let original = owner_list_request(
+                &pilot,
+                "GET",
+                &format!("/api/pages/{id}/summary-details"),
+                &owner_list_context(&pilot),
+            );
+            let plain: Value =
+                serde_json::from_str(original.split_once("\r\n\r\n").unwrap().1).unwrap();
+            assert_eq!(plain["state"], "ready");
+            assert!(plain.get("answerBindings").is_none());
+            let binding: Option<String> = rusqlite::Connection::open(&db)
+                .unwrap()
+                .query_row(
+                    "SELECT form FROM answer_forms WHERE page=?1 AND message=?2",
+                    [&id[..], message],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(
+                binding.is_none(),
+                "the question is absent on the first fold"
+            );
+            eprintln!(
+                "publication already committed; serve startup to first bound summary: {:?}",
+                new_answer_start.elapsed()
+            );
+            break;
+        }
+        assert!(Instant::now() < deadline, "{value}");
+        thread::sleep(Duration::from_millis(20));
+    }
+    pilot.stop();
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch("DROP TABLE answer_forms; PRAGMA user_version=27;")
+        .unwrap();
+    pilot.start();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let reply = owner_list_request(&pilot, "GET", &detail(), &owner_list_context(&pilot));
+        let value: Value = serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
+        if value["state"] == "ready" {
+            assert_eq!(value["summary"]["needsYou"], 0);
+            assert_eq!(value["answerBindings"][0][1], message);
+            assert!(value["answerBindings"][0][2].is_null());
+            break;
+        }
+        assert!(Instant::now() < deadline, "{value}");
+        thread::sleep(Duration::from_millis(20));
+    }
+    pilot.stop();
+    pilot.start();
+    assert_eq!(
+        pilot.call(&["question", "ls", &id, "--json"])["questions"][0]["state"],
+        "answered"
+    );
+    let file = pilot.root.join("introduced.html");
+    fs::write(&file,format!(r#"<tmt-question data-id="{QUESTION}" data-kind="short"><p data-question>First question</p></tmt-question>"#)).unwrap();
+    let edit = pilot.patch_call(&id, &["--file", file.to_str().unwrap(), "--json"]);
+    assert_eq!(edit["reopenedQuestions"], json!([QUESTION]));
+    let questions = pilot.call(&["question", "ls", &id, "--json"]);
+    assert_eq!(questions["questions"][0]["state"], "open");
+    assert!(questions["questions"][0]["earlierAnswer"]["prompt"].is_null());
+    fs::write(&file, initial["source"].as_str().unwrap()).unwrap();
+    pilot.patch_call(&id, &["--file", file.to_str().unwrap(), "--json"]);
+    pilot.stop();
+    answer(&pilot, "2", "The changed answer", false);
     let changed = pilot.call(&["question", "ls", &id, "--json"]);
     assert_eq!(changed["questions"][0]["answer"], "The changed answer");
     assert_eq!(changed["questions"][0]["answerRef"]["revision"], "2");
     pilot.call(&["question", "handle", &id, QUESTION, "--json"]);
-    answer("3", "", true);
+    answer(&pilot, "3", "", true);
     assert_eq!(
         pilot.call(&["question", "ls", &id, "--json"])["questions"][0]["state"],
         "handled"

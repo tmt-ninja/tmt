@@ -88,6 +88,8 @@ fn count(conversations: &Conversations, meta: &Value, needs_you: u32) -> Summary
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SummaryProjection {
     pub summary: Summary,
+    /// Verified answer references selected as current or historical, at most two per registration.
+    pub answer_bindings: Vec<(String, String, Option<String>, Option<String>)>,
     pub readings: Vec<crate::summary_readings::ReadingDescriptor>,
     /// The pending items by rank, at most [`crate::limits::NEEDS_PASSAGES`].
     pub needs: Vec<crate::summary_passages::Need>,
@@ -147,6 +149,7 @@ impl From<Summary> for SummaryProjection {
         Self {
             summary,
             readings: Vec::new(),
+            answer_bindings: Vec::new(),
             needs: Vec::new(),
             latest: None,
             pr_links: None,
@@ -189,16 +192,68 @@ fn fold_details(
     source: &mut Source,
     page: &str,
 ) -> Result<(SummaryProjection, Option<String>, Vec<String>)> {
+    let owner = source.keyring.owner_public();
+    let space = &source.keyring.space_id;
+    let fingerprint = source
+        .store
+        .owner_read(space, &owner, |tx| tx.page_fingerprint(page))?;
     let snapshot = page::snapshot(&source.store, &source.keyring, page, false)?;
     let active = snapshot.authority.policy.writable();
     let folded = snapshot.materialize(&source.keyring, page, &mut source.decoder)?;
     let conversations = discussion::project(&source.keyring, page, &snapshot, &folded);
     let (report, anchors) = crate::page_check::summary(&folded.source, &conversations.threads)
         .map_err(std::io::Error::other)?;
+    let forms = if folded.blocks.is_some() {
+        crate::question_registry::form::Form::page_forms(&folded.source, folded.blocks.as_ref())
+    } else {
+        report
+            .questions
+            .iter()
+            .map(|question| {
+                (
+                    question.id.clone(),
+                    crate::question_registry::form::Form::from(question),
+                )
+            })
+            .collect()
+    };
+    let mut bindings = source
+        .store
+        .owner_read(space, &owner, |tx| tx.answer_forms(page))?;
+    let mut missing = crate::question_registry::form::AnswerForms::new();
+    for comment in conversations
+        .threads
+        .iter()
+        .filter(|thread| !thread.deleted)
+        .flat_map(|thread| &thread.comments)
+    {
+        if let Some(id) = &comment.question_id
+            && !comment.deleted
+            && folded.status_writers.contains(&comment.writer)
+        {
+            let key = (comment.writer.clone(), comment.id.clone());
+            if !bindings.contains_key(&key) {
+                missing.insert(key, forms.get(id).cloned());
+            }
+        }
+    }
+    if !missing.is_empty() && source.layout.running()? {
+        let mut writer = crate::store::Store::write_existing(&source.layout)?;
+        bindings = writer.project_transaction(space, &owner, |tx| {
+            tx.bind_answer_forms(
+                page,
+                fingerprint.as_deref().ok_or(page::Fault::Missing)?,
+                &missing,
+            )?;
+            tx.answer_forms(page)
+        })?;
+    }
     let questions = crate::question_registry::answers::project(
         folded.meta.get("questions").unwrap_or(&json!([])),
         &conversations,
         &folded.status_writers,
+        &forms,
+        &bindings,
     )
     .map_err(|_| page::Fault::Invalid)?;
     let pending = crate::summary_pending::items(
@@ -290,6 +345,29 @@ fn fold_details(
     Ok((
         SummaryProjection {
             summary,
+            answer_bindings: questions
+                .iter()
+                .flat_map(|question| {
+                    [
+                        &question["answerRef"],
+                        &question["earlierAnswer"]["answerRef"],
+                    ]
+                })
+                .filter_map(|reference| {
+                    let key = (
+                        reference["writer"].as_str()?.to_owned(),
+                        reference["id"].as_str()?.to_owned(),
+                    );
+                    let form = bindings.get(&key)?;
+                    Some((
+                        key.0,
+                        key.1,
+                        form.as_ref()
+                            .map(crate::question_registry::form::Form::digest),
+                        form.as_ref().map(|f| f.prompt().to_owned()),
+                    ))
+                })
+                .collect(),
             readings,
             needs: crate::summary_passages::needs(&report, &pending, &questions),
             latest: crate::summary_passages::latest(&conversations),

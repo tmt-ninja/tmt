@@ -1254,8 +1254,13 @@ template page without a name or such a page is refused, and nothing is created.
 An ordinary comment may carry optional `questionId`, using the same UUID grammar. It is
 immutable across revisions, like its thread reference and Lamport sequence. This is an inert
 binding, not a new comment kind or authority. Effective question state consumes only current,
-nondeleted question-bound comments from verified owner-member devices in nondeleted,
-threads. Stable comment order (sequence, writer, message ID) chooses the latest;
+nondeleted question-bound comments from verified owner-member devices in nondeleted
+threads. The comment keeps its existing shape. The owner records the form locally. Its digest is
+the lowercase SHA-256 of compact UTF-8 JSON encoding
+`[1,prompt,mode,[[choice,description-or-null],...]]` in display order.
+Each group member has its own form. Rust and the browser share the
+[form vectors](vectors/question-form-v1.json). Among answers matching the current form,
+stable comment order (sequence, writer, message ID) chooses the latest;
 clocks and Ask results never choose it. An open entry with such an answer projects `answered`,
 a whitespace-normalized summary of at most 200 code points in `answer`, display-only
 `answeredAt` and `answerRef:{writer,id,revision}`. Deleting the last answer returns it to open;
@@ -1266,6 +1271,21 @@ Native Needs-you counts each registered open question, including entries whose m
 removed, while preserving other pending kinds. Browser controls/routing/count adoption is
 tracked separately by #5146; the strict browser metadata and own-record codecs already
 preserve these values without granting a commenter content authority.
+
+On the first owner-serve projection of each verified answer, each owner's device records
+the question's current form or its absence in its own store. An edit that lands after Send
+and before this first projection binds the answer to the edited form. This applies to new
+answers and to existing answers on upgrade. While the question is absent it stays answered;
+when its ID returns, only the recorded form counts. The newest earlier answer remains in
+`earlierAnswer` with its comment reference. The owner app requests the
+`summary-details/answer-bindings` variant to receive `answerBindings`,
+at most two selected comment references per registration, as
+`[writer,id,digest-or-null,prompt-or-null]` for the browser's history line.
+
+When a page patch or block edit reopens answered questions, the CLI receipt names their IDs
+in `reopenedQuestions` and explains in `questionHint` that a fresh answer is needed.
+Editing alone sends no Ask. A card whose form changed before submission asks the person
+to review the current form and retains choices still present.
 
 Owner Save refusals keep the existing short message and add optional bounded
 `findings:[{code,line,fix}]` only on a rejected result. Up to 50 first repairs fit inside the

@@ -257,6 +257,7 @@ export type ReadingDetails =
       /** The first pending items by rank (review, question, reading); the count stays `summary.needsYou`. */
       needs: NeedDescriptor[];
       latest?: LatestComment;
+      answerBindings?: [string, string, string | null, string | null][];
     }
   | { pageId: string; state: 'pending' | 'unavailable' };
 
@@ -331,7 +332,22 @@ function completeDetails(value: unknown, pageId: string): ReadingDetails {
     ...('pageState' in value ? ['pageState'] : []),
     ...('progress' in value ? ['progress'] : []),
     ...('latest' in value ? ['latest'] : []),
+    ...('answerBindings' in value ? ['answerBindings'] : []),
   ]);
+  const answerBindings: [string, string, string | null, string | null][] = [];
+  if ('answerBindings' in value) {
+    requireValue(Array.isArray(value.answerBindings) && value.answerBindings.length <= 100);
+    for (const entry of value.answerBindings) {
+      requireValue(Array.isArray(entry) && entry.length === 4);
+      const [writer, message, digest, prompt] = entry;
+      requireValue(prompt === null || typeof prompt === 'string');
+      requireValue(validReadingId(writer) && validReadingId(message));
+      requireValue(
+        digest === null || (typeof digest === 'string' && /^[0-9a-f]{64}$/.test(digest)),
+      );
+      answerBindings.push([writer, message, digest, prompt]);
+    }
+  }
   requireValue(typeof value.fingerprint === 'string' && /^[0-9a-f]{64}$/.test(value.fingerprint));
   activity(value.summary);
   requireValue('pageState' in value === 'progress' in value);
@@ -381,6 +397,7 @@ function completeDetails(value: unknown, pageId: string): ReadingDetails {
     readings,
     needs,
     ...('latest' in value ? { latest: latestComment(value.latest) } : {}),
+    ...(answerBindings.length ? { answerBindings } : {}),
   };
 }
 
@@ -389,10 +406,13 @@ export async function readReadingDetails(
   mount: URL,
   pageId: string,
   signal: AbortSignal,
+  includeAnswerBindings = false,
 ): Promise<ReadingDetails> {
   requireValue(validReadingId(pageId));
   signal.throwIfAborted();
-  const response = await fetch(new URL(`api/pages/${pageId}/summary-details`, mount), {
+  const url = new URL(`api/pages/${pageId}/summary-details`, mount);
+  if (includeAnswerBindings) url.pathname += '/answer-bindings';
+  const response = await fetch(url, {
     credentials: 'same-origin',
     cache: 'no-store',
     signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),

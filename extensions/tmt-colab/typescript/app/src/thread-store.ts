@@ -1,3 +1,4 @@
+import { StaleQuestionFormError } from './question-form.js';
 import {
   readNeedsYouAcknowledgements,
   validateNeedsYouAcknowledgement,
@@ -90,6 +91,7 @@ export interface ThreadBinding {
     anchor: ThreadAnchor | null,
     attach?: MessageAttachments,
     questionId?: string,
+    expectedFormDigest?: string,
   ): Promise<CommentContext>;
   createChat(body: string, attach?: MessageAttachments): Promise<CommentContext>;
   reply(
@@ -98,6 +100,7 @@ export interface ThreadBinding {
     expectedRevision?: string,
     attach?: MessageAttachments,
     questionId?: string,
+    expectedFormDigest?: string,
   ): Promise<CommentContext>;
   edit(message: DiscussionRef, revision: string, body: string): Promise<void>;
   deleteComment(message: DiscussionRef, revision: string): Promise<void>;
@@ -137,6 +140,7 @@ export interface ThreadStoreOptions extends DiscussionScope {
   available(): boolean;
   /** Block anchors are accepted only while the admitted page is structured. */
   blockAnchors?(): boolean;
+  currentQuestionForm?(id: string): string | undefined;
   sharing: string;
   scope?(): string;
 }
@@ -273,11 +277,12 @@ export class ThreadStore implements ThreadBinding {
     anchor: ThreadAnchor | null,
     attach?: MessageAttachments,
     questionId?: string,
+    expectedFormDigest?: string,
   ) {
     if (anchor && 'block' in anchor) requireValue(this.options.blockAnchors?.() === true);
     const threadId = crypto.randomUUID();
     requireValue(threadId !== this.deviceId);
-    return this.#create(body, anchor, threadId, attach, questionId);
+    return this.#create(body, anchor, threadId, attach, questionId, expectedFormDigest);
   }
   async createChat(body: string, attach?: MessageAttachments) {
     return this.#create(body, null, this.deviceId, attach);
@@ -308,12 +313,19 @@ export class ThreadStore implements ThreadBinding {
     threadId: string,
     attach?: MessageAttachments,
     questionId?: string,
+    expectedFormDigest?: string,
   ) {
     const captured = structuredClone(anchor),
       messageId = attach?.messageId ?? crypto.randomUUID();
     await this.#exclusive(async (c) => {
       if (captured && 'block' in captured) requireValue(this.options.blockAnchors?.() === true);
       const attached = await this.#attached(attach);
+      if (
+        expectedFormDigest &&
+        questionId &&
+        this.options.currentQuestionForm?.(questionId) !== expectedFormDigest
+      )
+        throw new StaleQuestionFormError();
       requireValue(
         !this.#views(c).some(
           (thread) => thread.ref.writer === this.deviceId && thread.threadId === threadId,
@@ -359,6 +371,7 @@ export class ThreadStore implements ThreadBinding {
     expectedRevision?: string,
     attach?: MessageAttachments,
     questionId?: string,
+    expectedFormDigest?: string,
   ) {
     const ref = structuredClone(thread),
       messageId = attach?.messageId ?? crypto.randomUUID();
@@ -368,6 +381,12 @@ export class ThreadStore implements ThreadBinding {
       revision = view.revision;
       requireValue(expectedRevision === undefined || revision === expectedRevision);
       const attached = await this.#attached(attach);
+      if (
+        expectedFormDigest &&
+        questionId &&
+        this.options.currentQuestionForm?.(questionId) !== expectedFormDigest
+      )
+        throw new StaleQuestionFormError();
       await this.#write(
         [
           {

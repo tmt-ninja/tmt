@@ -772,6 +772,9 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         value["ops"] = blocks["ops"].clone();
         value["droppedHunks"] = blocks["droppedHunks"].clone();
         value["blockIds"] = json!(inserted);
+        if let Some(message) = crate::reopened_question_hint(&receipt) {
+            value["questionHint"] = json!(message);
+        }
         if blocks.get("attachments").is_some() {
             value["attachments"] = blocks["attachments"].clone();
         }
@@ -797,6 +800,9 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 .join(" "),
         ),
     ];
+    if let Some(message) = crate::reopened_question_hint(&receipt) {
+        rows.push(("questions", message));
+    }
     if !inserted.is_empty() {
         rows.push(("block", inserted.join(" ")));
     }

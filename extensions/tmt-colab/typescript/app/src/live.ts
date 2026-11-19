@@ -1,3 +1,4 @@
+import { waitReadmitDelay } from './readmit.js';
 import {
   ProgressReads,
   readReadingDetails,
@@ -13,6 +14,7 @@ import { LiveDocumentFiles, type DocumentFiles } from './document-files.js';
 import { shortPageId } from './short-links.js';
 import { commentsForAnswerBatch } from './answer-batch.js';
 import { inspectQuestions } from './questions.js';
+import { askedForm, blockQuestion, formDigest } from './question-form.js';
 import { ThreadStore, askedComment, commentForAsk, conversationForAsk } from './thread-store.js';
 import type { ThreadView } from './thread-records.js';
 import { readThreads, type DiscussionRef } from './thread-records.js';
@@ -125,6 +127,8 @@ export class Live implements PageBinding {
   readonly status: ThreadStatusCoordinator;
   readonly files: DocumentFiles;
   #progressReads: ProgressReads;
+  #answerRefs = '';
+  #answerBindings?: [string, string, string | null, string | null][];
   #progressKey?: string;
   #progressSource?: string;
   #progress: PageView['progress'] = null;
@@ -177,7 +181,21 @@ export class Live implements PageBinding {
     private sessionOwner?: LiveSessionOwner,
   ) {
     this.#progressReads = new ProgressReads(
-      (signal) => readReadingDetails(this.mount, this.page.pageId, signal),
+      async (signal) => {
+        const includeBindings = this.#answerRefs !== '' && this.#answerRefs !== '[]';
+        let details = await readReadingDetails(
+          this.mount,
+          this.page.pageId,
+          signal,
+          includeBindings,
+        );
+        for (const delay of [100, 250, 500, 1000, 2000]) {
+          if (details.state !== 'pending' || !includeBindings) break;
+          await waitReadmitDelay(delay, signal);
+          details = await readReadingDetails(this.mount, this.page.pageId, signal, true);
+        }
+        return details;
+      },
       (detail) => {
         if (this.#closed || this.#error) return;
         if (detail?.state === 'ready' && (!this.#workFacts?.known || this.#workFactsPending))
@@ -186,7 +204,13 @@ export class Live implements PageBinding {
           detail?.state === 'ready' && detail.pageState === this.#admitted.state
             ? (detail.progress ?? null)
             : null;
-        if (canonical(progress) !== canonical(this.#progress)) {
+        const bindings =
+          detail?.state === 'ready' && this.#answerRefs && this.#answerRefs !== '[]'
+            ? (detail.answerBindings ?? [])
+            : this.#answerBindings;
+        const bindingsChanged = JSON.stringify(bindings) !== JSON.stringify(this.#answerBindings);
+        if (bindingsChanged || canonical(progress) !== canonical(this.#progress)) {
+          this.#answerBindings = bindings;
           this.#progress = progress;
           this.#publish();
         }
@@ -206,6 +230,18 @@ export class Live implements PageBinding {
       deviceId: () => this.registration.deviceId,
       deviceName: () => this.registration.deviceName ?? '',
       blockAnchors: () => this.#admitted.pageType === 'blocks',
+      currentQuestionForm: (id) => {
+        const blocks = this.#admitted.blocks;
+        const block = blocks?.[id];
+        const question = blocks
+          ? block?.type === 'question' &&
+            block.deleted === undefined &&
+            blocks[block.parent]?.deleted === undefined
+            ? blockQuestion({ id, props: block.props, text: block.text?.s })
+            : undefined
+          : inspectQuestions(this.#admitted.source).questions.find((item) => item.id === id);
+        return question && formDigest(askedForm(question));
+      },
       own: () => this.#admitted.own ?? {},
       views: (connection) =>
         connection === this.#threadProjection?.connection &&
@@ -381,12 +417,29 @@ export class Live implements PageBinding {
       this.#projection.source === this.#progressSource &&
       canonical({ work: this.#projection.work, state: this.#projection.state }) ===
         this.#progressKey;
-    return structuredClone({
+    const view = structuredClone({
       ...this.#projection,
       workFacts: this.#workFacts,
       todoNumbers: this.#todoNumbers,
       progress: current ? this.#progress : null,
     });
+    if (this.#answerBindings) {
+      const bindings = new Map(
+        this.#answerBindings.map(([writer, id, digest, prompt]) => [
+          writer + ':' + id,
+          { digest, prompt: prompt ?? undefined },
+        ]),
+      );
+      for (const thread of view.threads ?? []) {
+        for (const comment of thread.comments) {
+          if (comment.deviceAuthor && comment.questionId) {
+            comment.formBinding =
+              bindings.get(comment.ref.writer + ':' + comment.ref.id) ?? 'superseded';
+          }
+        }
+      }
+    }
+    return view;
   }
   #todoIds(value: PageView) {
     return Object.entries(value.blocks ?? {})
@@ -684,6 +737,21 @@ export class Live implements PageBinding {
             (writer) => connection.objects.ownSigningKey(writer),
             (writer) => connection.objects.statusWriter(writer),
           );
+          const answerRefs = JSON.stringify(
+            threads.flatMap((thread) =>
+              thread.deleted
+                ? []
+                : thread.comments
+                    .filter(
+                      (comment) => !comment.deleted && comment.deviceAuthor && comment.questionId,
+                    )
+                    .map((comment) => [comment.ref.writer, comment.ref.id, comment.revision]),
+            ),
+          );
+          if (this.#answerRefs !== answerRefs) {
+            this.#answerRefs = answerRefs;
+            if (answerRefs !== '[]') void this.#progressReads.refresh();
+          }
           if (value.archived) {
             this.#observation?.abort();
             this.#observation = null;

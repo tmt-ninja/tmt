@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+fn question_answer_keeps_the_previous_discussion_projection_shape() {
+    let vector: Value = serde_json::from_str(include_str!(
+        "../../../../contracts/vectors/discussion-v1.json"
+    ))
+    .unwrap();
+    let mut answer = vector["comment"].clone();
+    answer["questionId"] = vector["thread"]["threadId"].clone();
+    answer["sequence"] = serde_json::json!("2");
+    answer["messageId"] = serde_json::json!("00000000-0000-4000-8000-000000000009");
+    let mut roots = serde_json::json!({"threads":{},"messages":{},"intents":{},"replies":{}});
+    roots["messages"][format!("{}:1", vector["comment"]["messageId"].as_str().unwrap())] =
+        vector["comment"].clone();
+    let key = format!("{}:1", answer["messageId"].as_str().unwrap());
+    roots["messages"][&key] = answer;
+    validate_projection(Namespace::Own, &roots).unwrap();
+    roots["messages"][&key]["answeredForm"] = serde_json::json!({});
+    assert!(matches!(
+        validate_projection(Namespace::Own, &roots),
+        Err(DecodeFault::InvalidOutput)
+    ));
+}
+
+#[test]
 fn review_existing_questions_allow_unrelated_edits_but_not_new_or_retargeted_blocks() {
     let id = "00000000-0000-0000-0000-000000000001";
     let block = format!(

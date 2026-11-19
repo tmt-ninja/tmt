@@ -13,6 +13,7 @@ import { AttachmentStaleError } from '../src/attachment-service.js';
 import type { PrepareResult } from '../src/attachment-draft.js';
 import type { AgentDestination } from '../src/live-ask.js';
 import type { Question } from '../src/questions.js';
+import { StaleQuestionFormError } from '../src/question-form.js';
 import type { CommentView, DiscussionRef, ThreadView } from '../src/thread-records.js';
 import {
   asksAbout,
@@ -274,6 +275,24 @@ const recipients = (...names: string[]): AgentDestination[] =>
   names.map((name, index) => ({ ...destination(), agent: id(40 + index), agentName: name }));
 const group = page.groups[0];
 const base = { group, title: 'Doc', url: 'https://example.test/x/colab/' };
+
+it('a changed form is reported for review and never sent to the agent', async () => {
+  const { binding, calls } = discussion();
+  vi.spyOn(binding, 'create').mockRejectedValueOnce(new StaleQuestionFormError());
+  const { prepared, binding: ask } = asker(() => 'adopted');
+  const result = await sendAnswers(
+    { discussion: binding, ask },
+    {
+      ...base,
+      answers: answers(threads()).slice(0, 1),
+      recipients: recipients('alpha'),
+    },
+    [],
+  );
+  expect(result).toMatchObject({ answers: [{ question: 'q1', state: 'failed', staleForm: true }] });
+  expect(calls).toHaveLength(0);
+  expect(prepared).toHaveLength(0);
+});
 
 it('a Send publishes one comment per answered question in tab order, then one Ask per recipient over them', async () => {
   const { calls, binding } = discussion();

@@ -1,5 +1,7 @@
 import { type SetStateAction, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { AnswerFiles } from './answer-files.js';
+import { text } from './strings.js';
+import { askedForm } from './question-form.js';
 import { sendAnswers, type BatchAnswer } from './answer-batch.js';
 import type { AskAgainInput } from './ask-again.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
@@ -137,6 +139,34 @@ export function useQuestionAnswers({
   const recipients = recipientState.recipients;
   const error = block.error;
   const setError = (value: SetStateAction<string | undefined>) => updateBlock('error', value);
+  const displayed = JSON.stringify(members.map((question) => [question.id, askedForm(question)]));
+  const [lastDisplayed, setLastDisplayed] = useState(displayed);
+  if (lastDisplayed !== displayed) {
+    setLastDisplayed(displayed);
+    const earlier = new Map<string, unknown>(JSON.parse(lastDisplayed));
+    const changed = members.filter(
+      (question) =>
+        drafts[question.id] &&
+        JSON.stringify(earlier.get(question.id)) !== JSON.stringify(askedForm(question)),
+    );
+    if (changed.length) {
+      setError(text.questionFormChanged);
+      setDrafts((previous) => {
+        const next = { ...previous };
+        for (const question of changed) {
+          const draft = next[question.id];
+          next[question.id] = {
+            ...draft,
+            choices: draft.choices.filter((label) =>
+              question.choices.some((choice) => choice.label === label),
+            ),
+            other: draft.other && question.other,
+          };
+        }
+        return next;
+      });
+    }
+  }
   const failures = block.failures;
   const setFailures = (value: SetStateAction<MessageSendFailure[]>) =>
     updateBlock('failures', value);
@@ -308,13 +338,14 @@ export function useQuestionAnswers({
         setError('These answers are too long to send together. Send fewer answers.');
         return;
       }
+      if (result.answers.some((outcome) => outcome.staleForm)) setError(text.questionFormChanged);
       setDrafts((previous) => {
         const next = { ...previous };
         for (const outcome of result.answers)
           next[outcome.question] = {
             ...(previous[outcome.question] ?? emptyDraft()),
             pending: outcome.state === 'recorded' ? outcome.context : undefined,
-            failed: outcome.state === 'failed',
+            failed: outcome.state === 'failed' && !outcome.staleForm,
             ...(outcome.state === 'failed' ? { changing: true } : {}),
           };
         return next;

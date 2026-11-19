@@ -1,4 +1,5 @@
 import { validQuestionId } from './question-id.js';
+import { askedForm, commentApplies, formDigest } from './question-form.js';
 import {
   COMMENT_BYTES,
   compareCommentOrder,
@@ -755,14 +756,15 @@ export function draftOf(
   return rest ? { choices: [], other: false, value: '' } : { choices, other: false, value: '' };
 }
 
-/** Bound answers survive title/quote changes. Unbound legacy display history still uses the
- * resolved quote and fixed answer prefix. Another question's binding never matches by text. */
+/** A versioned answer applies to the form the person saw when submitting it. */
 export function currentAnswer(question: Question, comments: readonly CommentView[]) {
+  const digest = formDigest(askedForm(question));
   return comments
     .filter(
       (comment) =>
         comment.deviceAuthor === true &&
         !comment.deleted &&
+        commentApplies(comment, digest) &&
         (comment.questionId === question.id ||
           (comment.questionId === undefined && comment.body.startsWith(answerPrefix(question)))),
     )

@@ -90,6 +90,8 @@ export type DiscussionRecord =
   | ThreadStatusRecord
   | ThreadNotificationRecord;
 export interface CommentView extends CommentRecord {
+  /** Owner-local projection, never a field of the comment record. */
+  formBinding?: { digest: string | null; prompt?: string } | 'superseded';
   /** Projection only: authenticated device provenance, never an author-supplied record field. */
   readonly deviceAuthor?: boolean;
   ref: DiscussionRef;
