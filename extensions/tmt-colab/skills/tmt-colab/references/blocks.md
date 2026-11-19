@@ -36,6 +36,14 @@ URLs: a link mark and a file's `href` take `https://`, `http://` or `mailto:`, a
 digits or a full attachment ID). A `javascript:` or `data:` URL, a relative one or one with a space
 refuses the whole batch.
 
+## Section progress
+
+A level 2 or 3 heading starts a section through the next heading of equal or higher rank.
+Its progress includes nested sections. A to-do, PR link or waiting question makes it count
+automatically. Use `block props PAGE HEADING --set progress=done` to mark the section done
+while preserving its actual checked and total counts. Use `--set progress=off` to exclude
+the section or `--unset progress` to resume automatic tracking.
+
 ## Images and files
 
 An image or file block keeps an upload only through the page's attachment list. Attach the file
