@@ -20,13 +20,17 @@ static TEXTS: LazyLock<Value> = LazyLock::new(|| {
 fn fill(mut template: &str, fields: &[(&str, &str)]) -> String {
     let mut result = String::new();
     while let Some((before, rest)) = template.split_once('{') {
-        let (name, after) = rest.split_once('}').expect("closed finding placeholder");
-        let (_, value) = fields
-            .iter()
-            .find(|(key, _)| *key == name)
-            .expect("known finding placeholder");
+        let Some((name, after)) = rest.split_once('}') else {
+            break;
+        };
         result.push_str(before);
-        result.push_str(value);
+        if let Some((_, value)) = fields.iter().find(|(key, _)| *key == name) {
+            result.push_str(value);
+        } else {
+            result.push('{');
+            result.push_str(name);
+            result.push('}');
+        }
         template = after;
     }
     result.push_str(template);
@@ -44,7 +48,7 @@ fn fix(code: &str, variant: &str, fields: &[(&str, &str)]) -> String {
     fill(
         TEXTS["codes"][code]["fix"][variant]
             .as_str()
-            .expect("design finding fix"),
+            .unwrap_or("Check the component definition with tmt colab design show."),
         fields,
     )
 }
@@ -312,6 +316,42 @@ fn components(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unknown_and_unclosed_placeholders_remain_visible() {
+        assert_eq!(
+            fill("{future}/{tag}/{tail", &[("tag", "button")]),
+            "{future}/button/{tail"
+        );
+    }
+
+    #[test]
+    fn shared_templates_use_only_fields_supplied_by_their_callers() {
+        assert_eq!(
+            fix("invalid-ds-prop", "missing", &[]),
+            "Check the component definition with tmt colab design show."
+        );
+        for (code, entry) in TEXTS["codes"].as_object().unwrap() {
+            let message = design_message(code, "sample").unwrap();
+            assert!(!message.contains(['{', '}']), "{code}: {message}");
+            for variant in entry["fix"].as_object().unwrap().keys() {
+                let names: &[&str] = match (code.as_str(), variant.as_str()) {
+                    ("unknown-ds-release", "lock") => &["system"],
+                    ("ds-prefix-mismatch" | "unknown-ds-component", "list") => &["tag", "system"],
+                    ("ds-prefix-mismatch" | "unknown-ds-component", "near") => &["near"],
+                    ("invalid-ds-prop", "unknown") => &["prop", "tag", "system"],
+                    ("invalid-ds-prop", "allowed") => &["tag", "prop", "value", "allowed"],
+                    ("invalid-ds-prop", "boolean") => &["tag", "prop", "value"],
+                    _ => panic!("Check the caller fields for {code}/{variant}"),
+                };
+                let fields: Vec<_> = names.iter().map(|&name| (name, "sample")).collect();
+                let rendered = fix(code, variant, &fields);
+                assert!(
+                    !rendered.contains(['{', '}']),
+                    "{code}/{variant}: {rendered}"
+                );
+            }
+        }
+    }
     #[test]
     fn nearest_tag_matches_the_frame_vectors() {
         let cases: Vec<Value> = serde_json::from_str(include_str!(
