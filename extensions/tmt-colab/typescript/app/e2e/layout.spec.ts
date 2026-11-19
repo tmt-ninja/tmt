@@ -537,6 +537,14 @@ test('one-row fitting retains full labels, stable content and compact action aut
     // remains reachable before Agent status, Source and Export page.
     await expect(actions.getByRole('menuitem', { name: /^Share…/ })).toBeDisabled();
     await expect(actions.getByRole('menuitem', { name: /^Files/ })).toHaveCount(0);
+    // A compact bar without a status chip lists the page's sub-pages first (#6652); a wider bar
+    // has them as its own chip.
+    if (width <= 900) {
+      await expect(
+        actions.getByRole('menuitem', { name: 'Sub-pages (1)', exact: true }),
+      ).toBeFocused();
+      await page.keyboard.press('ArrowDown');
+    } else await expect(bar.locator('.page-bar-subpages')).toContainText('1 sub-page');
     await expect(actions.getByRole('menuitem', { name: 'Questions…', exact: true })).toBeFocused();
     await page.keyboard.press('ArrowDown');
     await expect(actions.getByRole('menuitem', { name: 'Creator', exact: true })).toBeFocused();

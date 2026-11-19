@@ -10,22 +10,23 @@ const views = [
   { width: 1440, height: 900 },
 ] as const;
 
-async function openWorkBand(page: Page, tall = false) {
+async function openWorkBand(page: Page) {
   await page.goto('/');
-  await page.evaluate(async (tall) => {
+  await page.evaluate(async () => {
     const path = '/test/work-page-browser.tsx';
-    (await import(path)).mountWorkPage(true, 'tree', tall);
-  }, tall);
-  const band = page.getByRole('region', { name: 'Work on this page' });
+    (await import(path)).mountWorkPage(true, 'tree');
+  });
+  // The band is in the status details the bar's chip opens (#6652).
+  await page.locator('.tmt-ui-topbar:visible .page-bar-status').click();
+  const band = page
+    .locator('.page-status-details:visible')
+    .getByRole('region', { name: 'Work on this page' });
   await band.locator('.work-toggle').click();
   await band.getByRole('button', { name: 'Expand Remote pages v2' }).click();
   await expect(
     band.locator('.work-add-row').getByRole('button', { name: 'Add', exact: true }),
   ).toBeVisible();
-  // On a page taller than the viewport the open band can fill the room under the bar; the group
-  // then hides rather than covering anything.
-  if (!tall)
-    await expect(page.locator('.page-floating-actions button:visible').first()).toBeVisible();
+  await expect(page.locator('.page-floating-actions button:visible').first()).toBeVisible();
 }
 
 /** The controls of the page chrome that the floating group covers right now. */
@@ -86,17 +87,6 @@ for (const { width, height } of views) {
       });
     });
     await openWorkBand(page);
-    await expect.poll(() => covered(page)).toEqual([]);
-  });
-
-  test(`the last control at the page end is clear of the floating actions at ${width}`, async ({
-    page,
-  }) => {
-    // Keep this case about reaching the page end by scrolling a page taller than the viewport.
-    await page.setViewportSize({ width, height: 480 });
-    await openWorkBand(page, true);
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-    await expect.poll(() => page.evaluate(() => Math.round(scrollY))).toBeGreaterThan(0);
     await expect.poll(() => covered(page)).toEqual([]);
   });
 }

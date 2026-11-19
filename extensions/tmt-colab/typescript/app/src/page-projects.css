@@ -1,12 +1,12 @@
 /* A single host-owned group opens the admitted picker; More remains another entry. */
+/* The page's project picker host under the title (#6652): a block that takes no room until its
+   failure mark shows, so the owner's page starts its body where a viewer's does. */
 .page-header-projects {
   position: relative;
-  display: inline-flex;
-  flex: 0 1 auto;
+  display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  margin-inline-start: calc(9px - var(--tmt-ui-header-gap));
 }
 .page-header-project-add,
 .page-row-project-picker {
@@ -123,32 +123,6 @@
   height: 100%;
   visibility: hidden;
   pointer-events: none;
-}
-.page-header-pin {
-  --tmt-ui-host-icon-action-size: 28px;
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  flex: none;
-}
-/* A phone bar (≤900px) keeps only the title: the leaf hides the chips slot, but the page's picker,
-   New project dialog and failure notice still open from More, so the slot stays laid out and only
-   the group, the pin and the other chips (Template, sub-pages, the caption) are hidden (#6359).
-   Name each chip: the dialog is a sibling in the slot. Stacked phone rows retain their project
-   disclosure. */
-@media (max-width: 900px) {
-  .tmt-ui-topbar-title .tmt-ui-topbar-title-chips:has(.page-header-projects) {
-    display: contents;
-  }
-  .tmt-ui-topbar-title-chips :is(.page-project-group[data-location='header'], .page-header-pin),
-  .tmt-ui-topbar-title-chips:has(.page-header-projects) :is(.template-badge, .tmt-ui-caption) {
-    display: none;
-  }
-  /* The hidden group's anchor takes no room in the title; More's anchor is fixed and the picker
-     and dialog open in the top layer, so neither is clipped. */
-  .tmt-ui-topbar-title-chips .page-header-projects {
-    overflow: hidden;
-  }
 }
 /* When an update row shares the shell bar, the refusal follows it in the same flow. */
 .tmt-ui-shell-bar > .page-pin-notice {

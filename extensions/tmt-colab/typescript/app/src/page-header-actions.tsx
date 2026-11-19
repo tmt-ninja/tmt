@@ -19,12 +19,12 @@ import {
   LayoutTemplate,
   X,
   CircleDot,
+  ListTree,
 } from 'lucide-react';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
 import { pinMenuItem, type PagePinState } from './pins.js';
 import { SharedTopBar } from './shared-top-bar.js';
-import { useMedia } from './use-media.js';
 
 export type PageHeaderAction =
   | 'chat'
@@ -42,6 +42,7 @@ export type PageHeaderAction =
   | 'add-subpage'
   | 'page-state'
   | 'open-parent'
+  | 'subpages'
   | 'template-save'
   | 'template-settings'
   | 'template-remove';
@@ -80,6 +81,7 @@ export function PageHeaderActions({
   canAddSubpage = false,
   canSetPageState = false,
   parentTitle,
+  subpageCount,
   onConvert,
   onRevert,
   showSource = true,
@@ -100,6 +102,9 @@ export function PageHeaderActions({
   canAddSubpage?: boolean;
   canSetPageState?: boolean;
   parentTitle?: string;
+  /** A phone viewer's sub-pages (#6652): the owner has them in the status details, a wider
+   * viewer's bar has its own chip. */
+  subpageCount?: number;
   onConvert?(): void;
   onRevert?(): void;
   showSource?: boolean;
@@ -116,9 +121,7 @@ export function PageHeaderActions({
   // The shared top bar owns Theme and the Remote link; the menu keeps neither.
   const sharedBar = useContext(SharedTopBar);
   const remoteAvailable = useRemoteHeaderSource() && !sharedBar;
-  // The bar hides the page's chips and pin up to 900px; More offers the pin there instead.
-  const compact = useMedia('(max-width: 900px)');
-  const pinItem = pinMenuItem(pin, compact, canProjects, readOnly);
+  const pinItem = pinMenuItem(pin, canProjects, readOnly);
   // After Pin and before About, set apart (#5077).
   const templateItems: BrowserMenuItem[] =
     template === 'save'
@@ -155,6 +158,7 @@ export function PageHeaderActions({
     ...(canMove ? [{ key: 'put-under', label: text.workBand.putUnder }] : []),
     ...(canAddSubpage ? [{ key: 'add-subpage', label: text.workBand.addSubpage }] : []),
     ...(canSetPageState ? [{ key: 'page-state', label: text.workBand.manualPageState }] : []),
+    ...(subpageCount ? [{ key: 'subpages', label: text.pageBar.subpagesItem(subpageCount) }] : []),
     { key: 'questions', label: text.metadata.questionsItem },
     { key: 'creator', label: text.metadata.creatorItem(creatorLabel) },
     ...(!readOnly ? [{ key: 'agents', label: text.agentStatus }] : []),
@@ -225,6 +229,15 @@ export function PageHeaderActions({
                 key: 'open-parent',
                 label: text.pageHierarchy.back(parentTitle),
                 leadingIcon: <CornerDownRight />,
+              },
+            ]
+          : []),
+        ...(subpageCount
+          ? [
+              {
+                key: 'subpages',
+                label: text.pageBar.subpagesItem(subpageCount),
+                leadingIcon: <ListTree />,
               },
             ]
           : []),
@@ -299,6 +312,7 @@ export function PageHeaderActions({
         key === 'add-subpage' ||
         key === 'page-state' ||
         key === 'open-parent' ||
+        key === 'subpages' ||
         key === 'agents' ||
         key === 'manage' ||
         key === 'about' ||

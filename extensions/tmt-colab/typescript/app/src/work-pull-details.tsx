@@ -23,13 +23,24 @@ export function WorkPullDetails({
   return (
     <div className="work-pull-details">
       <p>
-        PR #{url.split('/').at(-1)}
+        {/* The only way to the PR from the page since the chip under the title left (#6652). */}
+        <a href={url} target="_blank" rel="noreferrer">
+          PR #{url.split('/').at(-1)}
+        </a>
         {fact !== undefined && (
           <> · {fact?.tag ? t.releasedIn(fact.tag) : fact ? t.pullState[fact.state] : t.unknown}</>
         )}
         {fact?.checks && <> · {t.checks[fact.checks]}</>}
         {fact?.state === 'open' && !fact.checks && <> · {t.checksUnavailable}</>}
-        {fact && <> · {t.factAge(relativeTime(fact.observedAtMs, asOfMs))}</>}
+        {fact && (
+          <>
+            {' '}
+            · {/* The observed age wraps as one piece, never leaving "ago" alone (#6652). */}
+            <span className="work-pull-age">
+              {t.factAge(relativeTime(fact.observedAtMs, asOfMs))}
+            </span>
+          </>
+        )}
       </p>
       {provenance && (
         <small>

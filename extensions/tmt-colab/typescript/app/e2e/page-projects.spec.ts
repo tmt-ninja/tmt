@@ -5,9 +5,9 @@ import { backToPageList } from '../test/home-list.js';
 import { pageAction } from '../test/page-actions.js';
 
 /**
- * The page's own projects (#4116): the current ones are one button of small chips after the title,
- * which opens the list row's picker. The + remains visible with no projects and on a phone;
- * More → Projects… remains another entry to the same owner.
+ * The page's own projects (#4116): since #6652 the top bar's labels are the one button that opens
+ * the list row's picker; More → Projects… is the other entry to the same owner, and the only one
+ * with no project or on a phone (where the status sheet lists them too). Pin is in More.
  */
 const fixture = '/test/ask-page-browser.tsx';
 const run = (page: Page, method: string, argument?: unknown) =>
@@ -67,11 +67,12 @@ async function open(
   await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
   return page.locator('#ask-page-fixture');
 }
-const chips = (header: ReturnType<Page['locator']>) =>
-  header.getByRole('button', { name: /^Projects for Live shared page: / });
-/** The chips where they show; More → Projects… with no project and on a phone. */
-async function openPicker(page: Page, header: ReturnType<Page['locator']>) {
-  if (await chips(header).isVisible()) await chips(header).click();
+/** The bar's project labels: one button that opens the picker (#6652). */
+const labels = (page: Page) => page.locator('.tmt-ui-topbar:visible button.page-bar-labels');
+const labelNames = (page: Page) => labels(page).locator('.page-bar-label');
+/** The labels where they show; More → Projects… with no project and on a phone. */
+async function openPicker(page: Page) {
+  if (await labels(page).isVisible()) await labels(page).click();
   else await (await pageAction(page.locator('#ask-page-fixture'), 'Projects…')).click();
   await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
 }
@@ -81,134 +82,112 @@ const capture = async (page: Page, name: string) => {
 const noOverflow = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 
-// A phone (≤900px) hides the chips with the title's prefix; it reaches Projects through More.
-for (const width of [1440])
-  for (const theme of ['light', 'dark'] as const) {
-    test(`project chips share their picker with the visible + at ${width} ${theme}`, async ({
-      page,
-    }) => {
-      const header = await open(page, width, theme);
-      await expect(chips(header).locator('.page-project-group-chip')).toHaveText(['alpha', 'beta']);
-      await expect(chips(header)).toHaveAttribute('aria-haspopup', 'menu');
-      // The leaf anchor stays hidden; the admitted + remains visible.
-      await expect(header.locator('.page-header-projects-anchor button')).toBeHidden();
-      await expect(chips(header)).toBeVisible();
-      await expect(header.locator('.page-project-group')).toHaveCount(1);
-      expect(await noOverflow(page)).toBe(true);
-      await capture(page, `projects-two-chips-${width}-${theme}.png`);
-      await openPicker(page, header);
-      const rows = page.getByRole('menuitemcheckbox');
-      // A checked row ends in its check mark.
-      await expect(rows).toHaveText(['alpha✓', 'beta✓', 'gamma']);
-      await expect(rows.nth(0)).toHaveAttribute('aria-checked', 'true');
-      await expect(rows.nth(2)).toHaveAttribute('aria-checked', 'false');
-      await expect(
-        page.getByRole('menuitem', { name: text.pageList.newProjectItem }),
-      ).toBeVisible();
-      await capture(page, `projects-picker-${width}-${theme}.png`);
-    });
+for (const theme of ['light', 'dark'] as const) {
+  test(`the bar's project labels open the picker under them at 1440 ${theme}`, async ({ page }) => {
+    const header = await open(page, 1440, theme);
+    await expect(labelNames(page)).toHaveText(['alpha', 'beta']);
+    await expect(labels(page)).toHaveAccessibleName('Projects: alpha, beta. Edit projects');
+    // No project chips under the title any more (#6652); the leaf anchor stays hidden.
+    await expect(header.locator('.page-project-group')).toHaveCount(0);
+    await expect(header.locator('.page-header-projects-anchor button')).toBeHidden();
+    expect(await noOverflow(page)).toBe(true);
+    await capture(page, `projects-two-labels-1440-${theme}.png`);
+    await openPicker(page);
+    const rows = page.getByRole('menuitemcheckbox');
+    // A checked row ends in its check mark.
+    await expect(rows).toHaveText(['alpha✓', 'beta✓', 'gamma']);
+    await expect(rows.nth(0)).toHaveAttribute('aria-checked', 'true');
+    await expect(rows.nth(2)).toHaveAttribute('aria-checked', 'false');
+    await expect(page.getByRole('menuitem', { name: text.pageList.newProjectItem })).toBeVisible();
+    const picker = (await page
+      .locator('dialog[open]:has([role="menuitemcheckbox"])')
+      .boundingBox())!;
+    const bar = (await labels(page).boundingBox())!;
+    expect(picker.y).toBeGreaterThanOrEqual(bar.y + bar.height - 2);
+    await capture(page, `projects-picker-1440-${theme}.png`);
+  });
 
-    test(`a page in no project keeps its + and still assigns through More at ${width} ${theme}`, async ({
-      page,
-    }) => {
-      const header = await open(page, width, theme, { current: [] });
-      await expect(chips(header)).toHaveCount(0);
-      await expect(
-        header.getByRole('button', { name: 'Add to project', exact: true }),
-      ).toBeVisible();
-      await expect(header.locator('.page-project-group-chip')).toHaveCount(0);
-      expect(await noOverflow(page)).toBe(true);
-      await capture(page, `projects-none-${width}-${theme}.png`);
-      await openPicker(page, header);
-      await page.getByRole('menuitemcheckbox', { name: 'gamma' }).click();
-      await expect(header.locator('.page-project-group-chip')).toHaveText(['gamma']);
-      expect((await requests(page)).map((request) => request.projects)).toEqual([['gamma']]);
-    });
+  test(`a page in no project shows no labels and still assigns through More at 1440 ${theme}`, async ({
+    page,
+  }) => {
+    await open(page, 1440, theme, { current: [] });
+    await expect(labels(page)).toHaveCount(0);
+    expect(await noOverflow(page)).toBe(true);
+    await openPicker(page);
+    await page.getByRole('menuitemcheckbox', { name: 'gamma' }).click();
+    await expect(labelNames(page)).toHaveText(['gamma']);
+    expect((await requests(page)).map((request) => request.projects)).toEqual([['gamma']]);
+  });
 
-    test(`a failed write shows a mark with the failure words only while it holds at ${width} ${theme}`, async ({
-      page,
-    }) => {
-      const header = await open(page, width, theme, { fail: true });
-      await openPicker(page, header);
-      await page.getByRole('menuitemcheckbox', { name: 'gamma' }).click();
-      const mark = header.locator('.page-attention[data-attention="projects"]');
-      await expect(mark).toContainText(text.pageList.failures.UNKNOWN);
-      await expect(mark).toHaveAttribute('role', 'alert');
-      // The chips are what the page holds: nothing was written.
-      expect(await requests(page)).toEqual([]);
-      expect(await noOverflow(page)).toBe(true);
-      await capture(page, `projects-failure-${width}-${theme}.png`);
-    });
-  }
+  test(`a failed write shows a mark with the failure words only while it holds at 1440 ${theme}`, async ({
+    page,
+  }) => {
+    const header = await open(page, 1440, theme, { fail: true });
+    await openPicker(page);
+    await page.getByRole('menuitemcheckbox', { name: 'gamma' }).click();
+    const mark = header.locator('.page-attention[data-attention="projects"]');
+    await expect(mark).toContainText(text.pageList.failures.UNKNOWN);
+    await expect(mark).toHaveAttribute('role', 'alert');
+    // The labels are what the page holds: nothing was written.
+    await expect(labelNames(page)).toHaveText(['alpha', 'beta']);
+    expect(await requests(page)).toEqual([]);
+    expect(await noOverflow(page)).toBe(true);
+    await capture(page, `projects-failure-1440-${theme}.png`);
+  });
+}
 
-test('choosing a project writes the page set and updates the chips; unchecking removes it', async ({
+test('choosing a project writes the page set and updates the labels; unchecking removes it', async ({
   page,
 }) => {
   const header = await open(page);
-  await openPicker(page, header);
+  await openPicker(page);
   await page.getByRole('menuitemcheckbox', { name: 'gamma' }).click();
-  await expect(header.locator('.page-project-group-chip')).toHaveText(['alpha', 'beta', 'gamma']);
+  await expect(labelNames(page)).toHaveText(['alpha', 'beta', 'gamma']);
   expect((await requests(page)).map((request) => request.projects)).toEqual([
     ['alpha', 'beta', 'gamma'],
   ]);
   await expect(header.locator('.page-header-projects-status')).toHaveText(text.pageList.saved);
-  await openPicker(page, header);
+  await openPicker(page);
   await page.getByRole('menuitemcheckbox', { name: 'alpha' }).click();
-  await expect(header.locator('.page-project-group-chip')).toHaveText(['beta', 'gamma']);
+  await expect(labelNames(page)).toHaveText(['beta', 'gamma']);
   expect((await requests(page)).at(-1)!.projects).toEqual(['beta', 'gamma']);
 });
 
-test('the header pins the page and unpins it, and a refusal is told beside the control', async ({
-  page,
-}) => {
-  const header = await open(page);
-  const pin = header.getByRole('button', { name: /^Pin Live shared page/ });
-  await expect(pin).toHaveAttribute('aria-pressed', 'false');
-  await pin.click();
-  const unpin = header.getByRole('button', { name: /^Unpin Live shared page/ });
-  await expect(unpin).toHaveAttribute('aria-pressed', 'true');
-  expect(await pins(page)).toEqual([{ pageId: expect.any(String), pinned: true }]);
-  await unpin.click();
-  await expect(pin).toHaveAttribute('aria-pressed', 'false');
-  expect((await pins(page)).map((request) => request.pinned)).toEqual([true, false]);
-});
-
-for (const theme of ['light', 'dark'] as const)
-  test(`the page header shows its pin beside the chips at 1440 ${theme}`, async ({ page }) => {
-    const header = await open(page, 1440, theme);
-    await header.getByRole('button', { name: /^Pin Live shared page/ }).click();
-    await expect(header.getByRole('button', { name: /^Unpin Live shared page/ })).toBeVisible();
-    expect(await noOverflow(page)).toBe(true);
-    await capture(page, `4356-header-pinned-1440-${theme}.png`);
-  });
-
-test('a phone keeps its title and project controls readable in the content', async ({ page }) => {
-  const header = await open(page, 390);
-  await expect(header.locator('.page-project-group')).toBeVisible();
-  await expect(header.getByRole('button', { name: /^Pin Live shared page/ })).toBeVisible();
-  await expect(header.locator('.page-mobile-title h1')).toHaveText('Live shared page');
-  expect(await noOverflow(page)).toBe(true);
-});
-
-test('the header says why a pin was refused and keeps the page unpinned', async ({ page }) => {
-  const header = await open(page, 1440, 'light', { pinFail: 'CAPACITY' });
-  await header.getByRole('button', { name: /^Pin Live shared page/ }).click();
-  await expect(header.getByRole('alert')).toContainText('At most 20 pages can be pinned');
-  await expect(header.getByRole('button', { name: /^Pin Live shared page/ })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  );
-});
-
-test('the chips and Projects… in More open the same picker', async ({ page }) => {
-  const header = await open(page);
-  await chips(header).click();
+test('the labels and Projects… in More open the same picker', async ({ page }) => {
+  await open(page);
+  await labels(page).click();
   await expect(page.getByRole('menuitemcheckbox')).toHaveCount(3);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menuitemcheckbox')).toHaveCount(0);
+  await expect(labels(page)).toBeFocused();
   await (await pageAction(page.locator('#ask-page-fixture'), 'Projects…')).click();
   await expect(page.getByRole('menuitemcheckbox')).toHaveCount(3);
 });
+
+for (const current of [['alpha'], ['alpha', 'beta', 'gamma', 'delta']])
+  test(`the labels open the picker from the keyboard and take focus back: ${current.length}`, async ({
+    page,
+  }) => {
+    await open(page, 1440, 'light', { current, all: [...current, 'extra'] });
+    await expect(labels(page)).toHaveAccessibleName(
+      `Projects: ${current.join(', ')}. Edit projects`,
+    );
+    await expect(labelNames(page)).toHaveText(
+      current.length === 1 ? current : [...current.slice(0, 3), '+1'],
+    );
+    for (const key of ['Enter', 'Space']) {
+      await labels(page).focus();
+      await labels(page).press(key);
+      await expect(page.getByRole('menuitemcheckbox')).toHaveCount(current.length + 1);
+      await page.keyboard.press('Escape');
+      await expect(labels(page)).toBeFocused();
+    }
+    await labels(page).click();
+    await page.getByRole('menuitem', { name: text.pageList.newProjectItem }).click();
+    const dialog = page.getByRole('dialog', { name: text.pageList.newProject });
+    await expect(dialog.getByRole('textbox', { name: text.pageList.nameField })).toBeFocused();
+    expect(await requests(page)).toEqual([]);
+  });
 
 for (const width of [1440, 390])
   test(`the picker opened from More → Projects… sits right-aligned under More at ${width}`, async ({
@@ -232,111 +211,104 @@ for (const width of [1440, 390])
 
 test('a page in eight projects cannot take a ninth or a new one', async ({ page }) => {
   const eight = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'];
-  const header = await open(page, 1440, 'light', { current: eight, all: [...eight, 'p9'] });
-  // Three chips and a count of the rest.
-  await expect(header.locator('.page-project-group-chip')).toHaveText(['p1', 'p2', 'p3', '+5']);
-  // The top bar names the same labels after the page's status, the rest as a count (#6611).
-  const bar = page.locator('.tmt-ui-topbar:visible .page-bar-summary');
-  await expect(bar.locator('.page-bar-label')).toHaveText(['p1', 'p2', 'p3', '+5']);
-  await expect(bar.locator('.page-bar-label').last()).toHaveAccessibleName('5 more projects');
-  await openPicker(page, header);
+  await open(page, 1440, 'light', { current: eight, all: [...eight, 'p9'] });
+  // The bar names three labels after the page's status, the rest as a count (#6611).
+  await expect(labelNames(page)).toHaveText(['p1', 'p2', 'p3', '+5']);
+  await expect(labelNames(page).last()).toHaveAccessibleName('5 more projects');
+  await openPicker(page);
   await expect(page.getByRole('menuitemcheckbox', { name: 'p9' })).toBeDisabled();
   await expect(page.getByRole('menuitem', { name: text.pageList.newProjectItem })).toBeDisabled();
 });
 
 test('New project… names a project and puts this page in it', async ({ page }) => {
-  const header = await open(page);
-  await openPicker(page, header);
+  await open(page);
+  await openPicker(page);
   await page.getByRole('menuitem', { name: text.pageList.newProjectItem }).click();
   const dialog = page.getByRole('dialog', { name: text.pageList.newProject });
   await dialog.getByLabel(text.pageList.nameField).fill('delta');
   await expect(dialog.getByRole('checkbox')).toBeChecked();
   await dialog.getByRole('button', { name: text.pageList.create, exact: true }).click();
   await expect(dialog).toBeHidden();
-  await expect(header.locator('.page-project-group-chip')).toHaveText(['alpha', 'beta', 'delta']);
+  await expect(labelNames(page)).toHaveText(['alpha', 'beta', 'delta']);
   expect((await requests(page)).at(-1)!.projects).toEqual(['alpha', 'beta', 'delta']);
 });
 
-test('a page opened by a link reads the list once and then shows its chips', async ({ page }) => {
-  const header = await open(page, 1440, 'light', { deepLink: true });
-  await expect(chips(header).locator('.page-project-group-chip')).toHaveText(['alpha', 'beta']);
+test('a page opened by a link reads the list once and then shows its labels', async ({ page }) => {
+  await open(page, 1440, 'light', { deepLink: true });
+  await expect(labelNames(page)).toHaveText(['alpha', 'beta']);
   expect(await reads(page)).toBe(1);
-  await openPicker(page, header);
+  await openPicker(page);
   // The picker opens at once on what is known, with this page's projects checked.
   await expect(page.getByRole('menuitemcheckbox')).toHaveText(['alpha✓', 'beta✓', 'gamma']);
   await expect.poll(() => reads(page)).toBe(2);
 });
 
-test('a page opened by a link in a strict tree still shows its chips, with no read left running', async ({
+test('a page opened by a link in a strict tree still shows its labels, with no read left running', async ({
   page,
 }) => {
-  const header = await open(page, 1440, 'light', { deepLink: true, strict: true });
-  await expect(chips(header).locator('.page-project-group-chip')).toHaveText(['alpha', 'beta']);
+  await open(page, 1440, 'light', { deepLink: true, strict: true });
+  await expect(labelNames(page)).toHaveText(['alpha', 'beta']);
   const { spaceHomeReads, spaceHomeRunning } = await proof(page);
   expect(spaceHomeReads).toBeLessThanOrEqual(2);
   expect(spaceHomeRunning).toBe(0);
 });
 
 test('leaving a page while its list read waits cancels that read', async ({ page }) => {
-  const header = await open(page, 1440, 'light', { deepLink: true, slowRead: true });
+  await open(page, 1440, 'light', { deepLink: true, slowRead: true });
   await expect.poll(async () => (await proof(page)).spaceHomeRunning).toBe(1);
-  await expect(chips(header)).toHaveCount(0);
+  await expect(labels(page)).toHaveCount(0);
   await backToPageList(page);
   await expect.poll(async () => (await proof(page)).spaceHomeAborted).toBe(1);
   expect((await proof(page)).spaceHomeRunning).toBe(0);
 });
 
-test('arriving from the list shows the chips with no read, and the picker refreshes behind what it shows', async ({
+test('arriving from the list shows the labels with no read, and the picker refreshes behind what it shows', async ({
   page,
 }) => {
-  const header = await open(page);
-  await expect(chips(header).locator('.page-project-group-chip')).toHaveText(['alpha', 'beta']);
+  await open(page);
+  await expect(labelNames(page)).toHaveText(['alpha', 'beta']);
   expect(await reads(page)).toBe(0);
-  await openPicker(page, header);
+  await openPicker(page);
   await expect.poll(() => reads(page)).toBe(1);
 });
 
-test('a viewer who cannot write projects sees neither chips nor Projects…', async ({ page }) => {
+test('a viewer who cannot write projects sees no labels, Projects… or Pin', async ({ page }) => {
   await page.goto('/');
   await run(page, 'mount', {});
   await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
-  const header = page.locator('#ask-page-fixture');
-  await expect(chips(header)).toHaveCount(0);
-  await expect(header.getByRole('button', { name: 'Add to project', exact: true })).toHaveCount(0);
-  await expect(header.locator('.page-project-group-chip')).toHaveCount(0);
+  await expect(labels(page)).toHaveCount(0);
   await page.getByRole('button', { name: 'More', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'Projects…' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: /^(Pin to top|Unpin)$/ })).toHaveCount(0);
 });
 
-test('at 390px More pins and unpins, hides archived/read-only actions, and keeps a refused pin unchanged', async ({
+for (const width of [1440, 390])
+  test(`More pins and unpins the page at ${width}`, async ({ page }) => {
+    const header = await open(page, width);
+    // Pin left the page header for the page menu (#6652).
+    await expect(header.locator('.page-header-pin')).toHaveCount(0);
+    await (await pageAction(header, text.pageList.pinItem)).click();
+    await expect
+      .poll(async () => (await pins(page)).map((request) => request.pinned))
+      .toEqual([true]);
+    await (await pageAction(header, text.pageList.unpinItem)).click();
+    await expect
+      .poll(async () => (await pins(page)).map((request) => request.pinned))
+      .toEqual([true, false]);
+    expect(await noOverflow(page)).toBe(true);
+  });
+
+test('a phone keeps its title readable', async ({ page }) => {
+  const header = await open(page, 390);
+  await expect(header.locator('.page-mobile-title h1')).toHaveText('Live shared page');
+  expect(await noOverflow(page)).toBe(true);
+});
+
+test('More says why a pin was refused, keeps the page unpinned, and hides Pin when archived', async ({
   page,
 }) => {
-  await open(page, 390);
   const host = page.locator('#ask-page-fixture');
-  await (await pageAction(host, text.pageList.pinItem)).click();
-  await expect
-    .poll(async () => (await pins(page)).map((request) => request.pinned))
-    .toEqual([true]);
-  await (await pageAction(host, text.pageList.unpinItem)).click();
-  await expect
-    .poll(async () => (await pins(page)).map((request) => request.pinned))
-    .toEqual([true, false]);
-
-  await page.setViewportSize({ width: 1024, height: 900 });
-  await pageAction(host, text.projectsItem);
-  await expect(page.getByRole('menuitem', { name: /^(Pin to top|Unpin)$/ })).toHaveCount(0);
-  await page.keyboard.press('Escape');
-  await expect(
-    page.locator('#ask-page-fixture').getByRole('button', { name: /^Pin Live shared page/ }),
-  ).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 900 });
-
-  await run(page, 'archive');
-  await page.getByRole('button', { name: 'More', exact: true }).click();
-  await expect(page.getByRole('menuitem', { name: /^(Pin to top|Unpin)$/ })).toHaveCount(0);
-  expect((await pins(page)).map((request) => request.pinned)).toEqual([true, false]);
-
-  const header = await open(page, 390, 'light', { pinFail: 'CAPACITY' });
+  await open(page, 390, 'light', { pinFail: 'CAPACITY' });
   const layout = () =>
     page.evaluate(() => {
       const frame = document.querySelector('#ask-page-fixture iframe');
@@ -358,7 +330,11 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
   // The phone child tree lives in the closed drawer, not a content-offset tab strip.
   expect(beforeNotice.menuHeight).toBe(0);
   expect(withNotice.menuHeight).toBe(0);
-  expect(withNotice.frame).toBeCloseTo(beforeNotice.frame + noticeBox!.height);
+  // The page moves down by the notice and by the projects' failure mark under the title, which
+  // holds the same words without the alert role; nothing covers the page (#6652).
+  const mark = page.locator('.page-attention[data-attention="projects"]');
+  const markBox = (await mark.boundingBox())!;
+  expect(withNotice.frame).toBeCloseTo(beforeNotice.frame + noticeBox!.height + markBox.height, 0);
   await expect(page.getByRole('alert')).toHaveCount(1);
   await expect(page.locator('.page-attention[data-attention="projects"]')).not.toHaveAttribute(
     'role',
@@ -382,7 +358,7 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
   await expect(notice).toBeVisible();
   await notice.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(notice).toHaveCount(0);
-  await expect(header.locator('.page-attention[data-attention="projects"]')).toHaveCount(0);
+  await expect(host.locator('.page-attention[data-attention="projects"]')).toHaveCount(0);
   expect(await layout()).toEqual(beforeNotice);
 
   await open(page, 390, 'light', { pinFail: 'CAPACITY' });
@@ -391,88 +367,8 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
   await run(page, 'navigateHome');
   await expect(notice).toHaveCount(0);
 
-  await page.goto('/');
-  await run(page, 'mount', {});
-  await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
+  await open(page, 1440);
+  await run(page, 'archive');
   await page.getByRole('button', { name: 'More', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: /^(Pin to top|Unpin)$/ })).toHaveCount(0);
 });
-
-for (const width of [1440])
-  test(`direct Projects entry opens an empty header picker and returns focus at ${width}`, async ({
-    page,
-  }) => {
-    const header = await open(page, width, 'light', { current: [] });
-    const add = header.getByRole('button', { name: 'Add to project', exact: true });
-    await expect(add).toBeVisible();
-    await add.click();
-    await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
-    expect(await requests(page)).toEqual([]);
-    await page.keyboard.press('Escape');
-    await expect(add).toBeFocused();
-    await add.click();
-    await page.getByRole('menuitemcheckbox', { name: 'gamma' }).click();
-    expect((await requests(page)).map((request) => request.projects)).toEqual([['gamma']]);
-    expect(await noOverflow(page)).toBe(true);
-  });
-
-for (const width of [1440])
-  for (const theme of ['light', 'dark'] as const)
-    for (const current of [['alpha'], ['alpha', 'beta', 'gamma', 'delta']])
-      test(`one header project group retains disclosure and keyboard focus: ${current.length} at ${width} ${theme}`, async ({
-        page,
-      }) => {
-        const header = await open(page, width, theme, { current, all: [...current, 'extra'] });
-        const group = header.locator('.page-project-group');
-        await expect(group).toHaveAttribute(
-          'aria-label',
-          `Projects for Live shared page: ${current.join(', ')}`,
-        );
-        await expect(group).toHaveAttribute(
-          'title',
-          `Projects for Live shared page: ${current.join(', ')}`,
-        );
-        await expect(group).toHaveAttribute('aria-expanded', 'false');
-        await expect(group).toHaveCount(1);
-        const pills = group.locator('.page-project-group-chip');
-        await expect(pills).toHaveText(
-          current.length === 1 ? current : [...current.slice(0, 3), '+1'],
-        );
-        const metrics = await pills.first().evaluate((node) => {
-          const style = getComputedStyle(node);
-          return {
-            height: node.getBoundingClientRect().height,
-            font: style.fontSize,
-            weight: style.fontWeight,
-            start: style.paddingLeft,
-            end: style.paddingRight,
-          };
-        });
-        expect(metrics).toEqual({
-          height: 22,
-          font: '12px',
-          weight: '500',
-          start: '9px',
-          end: '9px',
-        });
-        const groupBox = (await group.boundingBox())!;
-        const pin = (await header.locator('.page-header-pin').boundingBox())!;
-        expect(pin.x - groupBox.x - groupBox.width).toBeCloseTo(8);
-        expect(pin.height).toBe(28);
-        for (const key of ['Enter', 'Space']) {
-          await group.focus();
-          await group.press(key);
-          await expect(group).toHaveAttribute('aria-expanded', 'true');
-          await expect(page.getByRole('menuitemcheckbox')).toHaveCount(current.length + 1);
-          await page.keyboard.press('Escape');
-          await expect(group).toBeFocused();
-          await expect(group).toHaveAttribute('aria-expanded', 'false');
-        }
-        await group.click();
-        await page.getByRole('menuitem', { name: text.pageList.newProjectItem }).click();
-        const dialog = page.getByRole('dialog', { name: text.pageList.newProject });
-        await expect(dialog).toBeVisible();
-        await expect(dialog.getByRole('textbox', { name: text.pageList.nameField })).toBeFocused();
-        expect(await requests(page)).toEqual([]);
-        expect(await noOverflow(page)).toBe(true);
-      });

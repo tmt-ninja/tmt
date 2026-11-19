@@ -253,19 +253,15 @@ a.work-row-title:hover {
   min-width: 0;
   color: var(--tmt-ui-color-secondary);
 }
-.page-work-notes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  padding-top: 0.5rem;
-  color: var(--tmt-ui-color-secondary);
-}
 .work-status-details {
   max-width: min(24rem, calc(100vw - 2rem));
   overflow-wrap: anywhere;
 }
 .work-status-details p {
   margin: var(--tmt-ui-space-xs) 0 0;
+}
+.work-pull-age {
+  white-space: nowrap;
 }
 .work-pull-details small {
   color: var(--tmt-ui-color-secondary);
@@ -343,16 +339,6 @@ a.work-row-title:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--tmt-ui-space-s);
-}
-.page-mobile-title .page-hierarchy-parent {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tmt-ui-space-xs);
-  max-width: 100%;
-}
-.page-mobile-title .page-hierarchy-icon,
-.page-mobile-title .page-hierarchy-name {
-  display: inline-block;
 }
 
 /* Intermediate widths keep the title and compact controls in the bar. */

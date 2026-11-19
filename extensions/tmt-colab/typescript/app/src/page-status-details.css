@@ -1,0 +1,77 @@
+/* The bar's status popover and phone sheet (#6652): the status popover's body size throughout. */
+.page-status-details {
+  display: grid;
+  gap: var(--tmt-ui-space-m);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.page-status-headline {
+  display: grid;
+  gap: var(--tmt-ui-space-2xs);
+  margin: 0;
+}
+.page-status-fields {
+  gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-l);
+}
+.page-status-fields dd {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  min-width: 0;
+}
+.page-status-pulls {
+  display: grid;
+  gap: var(--tmt-ui-space-2xs);
+}
+.page-status-pulls p {
+  margin: 0;
+}
+.page-status-links .work-band,
+.page-bar-subpages .work-band {
+  margin: 0;
+}
+/* The status and fields are said elsewhere (or not at all for a viewer): the band keeps only its
+   parent link and sub-pages toggle. */
+.page-status-links .work-head-chip,
+.page-status-links .work-field-chip,
+.page-bar-subpages .work-head-chip,
+.page-bar-subpages .work-field-chip {
+  display: none;
+}
+/* In a sheet the list is part of the sheet, not a popover hanging from the toggle. */
+.page-bar-sheet .work-band {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.page-bar-sheet .work-body {
+  max-height: none;
+}
+.page-bar-sheet .work-body-transition {
+  position: static;
+  width: auto;
+  margin-top: var(--tmt-ui-space-s);
+  border: 0;
+  box-shadow: none;
+}
+.page-status-projects {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+}
+.page-status-projects-label {
+  margin-inline-end: var(--tmt-ui-space-xs);
+  color: var(--tmt-ui-color-secondary);
+}
+/* The parent keeps its name here at every width; the compact bar hides it only in the bar. */
+.page-status-links .page-hierarchy-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+  max-width: 100%;
+}
+.page-status-links .page-hierarchy-icon,
+.page-status-links .page-hierarchy-name {
+  display: inline-block;
+}
