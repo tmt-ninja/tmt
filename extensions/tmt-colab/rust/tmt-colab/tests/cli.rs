@@ -6417,6 +6417,35 @@ fn one_stop_during_release_handoff_stops_the_replacement_and_its_door() {
 }
 
 #[test]
+fn replacement_serve_lock_releases_while_its_remote_child_is_alive() {
+    let pilot = Pilot::new(None);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    let (mut serving, lib) = installed_service(&pilot, core, true);
+    assert_eq!(serving.ready()["door"], "started");
+    let first_door = pilot.serve_pid().unwrap();
+    select_replacement(&pilot, &lib, false, "");
+    assert_eq!(replacement_ready(&serving)["door"], "started");
+    let door = pilot.serve_pid().unwrap();
+    assert_ne!(door, first_door);
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    assert!(layout.running().unwrap());
+    // Bypass orderly shutdown: only the kernel can release this process's flock.
+    kill(Pid::from_raw(serving.child.id() as i32), Signal::SIGKILL).unwrap();
+    assert!(
+        !serving
+            .child
+            .wait_until(Instant::now() + Duration::from_secs(10))
+            .unwrap()
+            .success()
+    );
+    let _acquired = layout.serve_lock().unwrap();
+    assert_eq!(kill(door, None), Ok(()));
+    // Pilot owns and cleans up the surviving private Remote process.
+}
+
+#[test]
 fn stop_reports_replacement_if_the_locked_listener_never_returns() {
     let pilot = Pilot::new(None);
     let layout = tmt_colab::keyring::Layout::open(&pilot.root.join("selected")).unwrap();

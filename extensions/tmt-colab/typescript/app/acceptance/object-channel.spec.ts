@@ -154,7 +154,7 @@ test('object channel: a refused first setup recovers once Remote can be found (#
       '--no-open',
     ]);
     await colab.event((value) => value.state === 'mounted');
-    world.recordColabServe();
+    await world.recordColabServe();
     const channel = () =>
       (
         JSON.parse(run(world, world.binaries.remote, ['status', '--objects', '--json'])) as {

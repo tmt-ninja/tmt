@@ -497,11 +497,26 @@ export class AcceptanceWorld {
   }
 
   /** The private root's open serve lock attests ownership even across a new process group. */
-  recordColabServe(): void {
+  async recordColabServe(): Promise<void> {
     this.live('record Colab serve ownership');
     const lock = path.join(this.dataRoot, 'colab', 'serve.lock');
-    const found = serveLockOwners(lock);
-    if (found.size !== 1) throw new Error('Private Colab serve lock has no unique owner');
+    let found = new Set<number>();
+    let lastMismatch = '';
+    await until(
+      () => {
+        const rows: string[] = [];
+        found = serveLockOwners(lock, (row) => rows.push(row));
+        if (found.size === 1) return true;
+        const mismatch = `Private Colab serve lock has ${found.size} holders: ${rows.join('\n') || '(no rows)'}`;
+        if (lastMismatch !== mismatch) console.warn(mismatch);
+        lastMismatch = mismatch;
+        return false;
+      },
+      'private Colab serve lock owner',
+      3000,
+    ).catch((cause: unknown) => {
+      throw new Error(lastMismatch || 'Could not inspect private Colab serve lock', { cause });
+    });
     for (const pid of found) this.servePids.add(pid);
     this.lifecycle('serve-owned');
   }
