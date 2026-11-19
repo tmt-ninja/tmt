@@ -829,26 +829,55 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       const first = start(f, 'HookModel', true, {
         MOCK_HOOK_MODEL: 'fixture-first-model',
         MOCK_ACTIVITY_HOOKS: '1',
+        TMT_HOOK_DEBUG: '1',
       });
       await ready(f, first);
       const original = records(f)[0].record.ready.thread;
       const trace = installTmuxTrace(f);
-      const exerciseHook = async (s: Session, model: string) => {
+      const exerciseHook = async (s: Session, phase: 'initial' | 'resume', model: string) => {
         const [{ record }] = records(f);
         const foreground = record.foreground.process!;
         trace.clear();
         expect((await talk(f, 'HookModel', 'observe hook model')).code).toBe(0);
-        await f.waitFor(
-          () => events(s, 'hook').length === 1,
-          10000,
-          'real enrolled lifecycle hook'
-        );
-        const result = events(s, 'hook')[0];
-        expect(result.ok).toBe(true);
-        expect(result.stderr).toBe('');
-        expect(JSON.parse(result.stdout as string).hookSpecificOutput.additionalContext).toContain(
-          'HookModel'
-        );
+        let result: Event | undefined;
+        try {
+          await f.waitFor(
+            () => events(s, 'hook').length === 1,
+            10000,
+            'real enrolled lifecycle hook'
+          );
+          result = events(s, 'hook')[0];
+          expect(result.ok).toBe(true);
+          expect(result.stderr).toBe('');
+          expect(
+            JSON.parse(result.stdout as string).hookSpecificOutput.additionalContext
+          ).toContain('HookModel');
+        } catch (error) {
+          try {
+            console.error(
+              'Codex SessionStart failure evidence:',
+              JSON.stringify({
+                phase,
+                binding: record.bindingId,
+                launchOwner: record.launchOwner,
+                foreground,
+                thread: original,
+                hookArrived: events(s, 'hook-arrived').length,
+                hook: result && {
+                  ok: result.ok,
+                  elapsedMs: result.elapsedMs,
+                  stdout: String(result.stdout).slice(0, 4096),
+                  stderr: String(result.stderr).slice(0, 4096),
+                },
+                preference: preference(),
+                learning: sessionLearning(f).slice(-4),
+              })
+            );
+          } catch (captureError) {
+            console.error('Could not capture Codex SessionStart failure evidence:', captureError);
+          }
+          throw error;
+        }
         const saved = preference();
         expect(saved.runtime_pid).toBe(foreground.pid);
         expect(saved.runtime_start_identity).toBe(foreground.start);
@@ -868,12 +897,16 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           'hook scenario owned app-server and enrollment gone'
         );
       };
-      await exerciseHook(first, 'fixture-first-model');
+      await exerciseHook(first, 'initial', 'fixture-first-model');
       const resumed = start(
         f,
         'HookModel',
         true,
-        { MOCK_HOOK_MODEL: 'fixture-resumed-model', MOCK_ACTIVITY_HOOKS: '1' },
+        {
+          MOCK_HOOK_MODEL: 'fixture-resumed-model',
+          MOCK_ACTIVITY_HOOKS: '1',
+          TMT_HOOK_DEBUG: '1',
+        },
         first.pane,
         true
       );
@@ -893,7 +926,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         'fixture-first-model',
       ]);
       expect(argv.at(-1)).toBe(original);
-      await exerciseHook(resumed, 'fixture-resumed-model');
+      await exerciseHook(resumed, 'resume', 'fixture-resumed-model');
     });
   }, 60000);
 

@@ -361,6 +361,7 @@ for (const provider of providers) {
         `HOME=${home}`,
         `TMT_HOME=${fixture.globalDir}`,
         `TMT_TEST_HOOK_TRACE=${trace}`,
+        ...(provider.name === 'claude' ? ['TMT_HOOK_DEBUG=1'] : []),
         fixture.executables.cli.executable,
         ...fixture.executables.cli.args,
         'run',
@@ -394,8 +395,12 @@ for (const provider of providers) {
       try {
         expect(fs.existsSync(report)).toBe(false);
         observe('before append', database.prepare('SELECT * FROM consumption_sources').all());
+        observe('append started');
         fs.appendFileSync(transcript, provider.appended);
-        observe('transcript appended', { bytes: fs.statSync(transcript).size });
+        observe('transcript appended', {
+          bytes: fs.statSync(transcript).size,
+          expectedOutputTokens: provider.updated.outputTokens,
+        });
         let previous: string | undefined;
         const latest = () => {
           const row = database

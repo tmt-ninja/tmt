@@ -3577,20 +3577,25 @@ fn agy_first_prompt_admission_resume_turn_started_and_session_start_first() {
                     }),
                     &[],
                 );
-                let hook_diagnostic = || stderr.chars().take(4096).collect::<String>();
-                assert_eq!(
-                    status,
-                    0,
-                    "agy PreInvocation(1): stderr={:?}",
-                    hook_diagnostic()
-                );
+                let hook_diagnostic = || {
+                    let calls = fixture.calls();
+                    let hook_calls: Vec<_> = calls.iter().skip(calls_before).take(16).collect();
+                    let stdout = stdout.chars().take(4096).collect::<String>();
+                    let stderr = stderr.chars().take(4096).collect::<String>();
+                    format!(
+                        "agy PreInvocation(1) after launcher={} and provider={pid} reached Running: exit={status}, stdout={stdout:?}, stderr={stderr:?}, driver calls={hook_calls:?}, prior session={before:#}",
+                        peer.child.id()
+                    )
+                };
+                assert_eq!(status, 0, "{}", hook_diagnostic());
                 if let Some(prior_session) = prior_session {
-                    assert_eq!(stdout, "{}");
-                    assert_eq!(stderr, HOOK_UNAVAILABLE);
+                    assert_eq!(stdout, "{}", "{}", hook_diagnostic());
+                    assert_eq!(stderr, HOOK_UNAVAILABLE, "{}", hook_diagnostic());
                     let calls = fixture.calls();
                     assert!(
                         calls[calls_before..].iter().any(|call| call == "snapshot"),
-                        "PreInvocation(1) must reach the unavailable pane snapshot: {calls:?}"
+                        "PreInvocation(1) must reach the unavailable pane snapshot: {}",
+                        hook_diagnostic()
                     );
                     fs::remove_file(unavailable).unwrap();
                     assert_eq!(session_state(&fixture), prior_session);
@@ -3605,11 +3610,7 @@ fn agy_first_prompt_admission_resume_turn_started_and_session_start_first() {
                     return;
                 }
 
-                assert!(
-                    stderr.is_empty(),
-                    "agy PreInvocation(1) after exact Running row {before:#}: exit={status}, stdout={stdout:?}, stderr={:?}",
-                    hook_diagnostic()
-                );
+                assert!(stderr.is_empty(), "{}", hook_diagnostic());
                 let out: Value = serde_json::from_str(&stdout).unwrap();
                 assert!(
                     out["injectSteps"][0]["systemMessage"]["systemMessage"]
