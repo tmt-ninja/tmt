@@ -478,7 +478,10 @@ fn deleting_the_page_settles_its_pending_reference_map_without_another_save() {
         .store(flow.published() + 3, Ordering::SeqCst);
     assert_eq!(flow.rekey().waiting, 1);
     let id = flow.slots.repairs(PAGE).unwrap().pop().unwrap();
-    flow.world.state.apply(OwnerAction::Delete { page: PAGE });
+    flow.world.state.apply(OwnerAction::Delete {
+        page: PAGE,
+        by: crate::transitions::DeleteActor::Cli(None),
+    });
     let before = flow.published();
     assert_eq!(flow.rekey(), Pass::default());
     assert_eq!(flow.published(), before);

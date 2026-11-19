@@ -63,6 +63,8 @@ pub(super) struct PageRequest<'a> {
     pub expected_revision: u64,
     pub page: &'a str,
     pub action: PageAction,
+    /// A delete's actor, recorded with it.
+    pub deleted_by: Option<super::DeleteActor<'a>>,
 }
 struct Plan {
     authority: Authority,
