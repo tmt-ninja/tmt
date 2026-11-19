@@ -59,11 +59,12 @@ fn saved_shows_range_counts_and_keeps_missing_evidence_distinct_from_partial() {
         }),
     );
     let shown = paint(&mut app, 160, 50);
+    assert!(shown.contains("≈ $12.4 at list price"), "{shown}");
     assert!(
-        shown.contains("at list price · 6 messages → 3 batches"),
+        shown.contains("6 messages → 3 batches · ◐\u{a0}partial"),
         "{shown}"
     );
-    assert!(shown.contains("◐\u{a0}partial"), "{shown}");
+    assert!(!shown.contains("at list price ·"), "{shown}");
     assert!(shown.contains("(2 → 1)"), "{shown}");
     app.labels
         .set_settled(DigestWindow::Day, &serde_json::Value::Null);
