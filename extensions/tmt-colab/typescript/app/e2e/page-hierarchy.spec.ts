@@ -59,6 +59,9 @@ for (const width of [1440, 1100, 800, 390])
         (await import(path)).mountWorkPage(true, 'work-fields', false, 'unknown');
       });
       await expect(barStatus.locator('.page-bar-status-label')).toHaveText('Status unknown');
+      // An activity never observed has no observed age beside it (#6675).
+      await expect(field(await openDetails(page), 'Owner activity')).toHaveText('Unknown');
+      await page.keyboard.press('Escape');
       await page.evaluate(async () => {
         const path = '/test/work-page-browser.tsx';
         (await import(path)).mountWorkPage(true, 'work-fields', false, 'waiting-ci');
@@ -69,11 +72,6 @@ for (const width of [1440, 1100, 800, 390])
         'PR #42 is open and its checks passed.',
       );
       await mount(page, 'work-fields');
-    }
-    if (width === 390) {
-      await page.setViewportSize({ width: 320, height: 900 });
-      await expect(barStatus).toBeHidden();
-      await page.setViewportSize({ width, height: 900 });
     }
     // Sections are progress (#6619): each counted heading has its mark and count beside it, the
     // state word added when the count does not say it.
@@ -167,6 +165,41 @@ test('parts that do not apply are absent', async ({ page }) => {
   // This page still has its parent.
   await expect(details.locator('.page-hierarchy-parent')).toHaveCount(1);
 });
+
+// The status dot is the last thing to leave the bar (#6675): it is the only way into the details,
+// so a shared page with a long title keeps it at phone widths, and the Shared mark leaves first.
+for (const width of [390, 320])
+  test(`a shared page with a long title keeps its status dot at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/');
+    await page.evaluate(async () => {
+      const path = '/test/work-page-browser.tsx';
+      (await import(path)).mountWorkPage(true, 'work-fields', false, undefined, 'long');
+    });
+    const bar = page.locator('.tmt-ui-topbar:visible');
+    const status = bar.locator('.page-bar-status');
+    await expect(status).toBeVisible();
+    await expect(bar.locator('.page-attention[data-attention="shared"]')).toBeHidden();
+    // The title gives way: it ends in an ellipsis, and the dot stays inside the bar.
+    const title = bar.locator('.tmt-ui-topbar-title-current');
+    expect(await title.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+    const dot = (await status.boundingBox())!;
+    expect(dot.width).toBeGreaterThan(0);
+    expect(dot.x + dot.width).toBeLessThanOrEqual(width);
+    expect(await bar.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const sheet = await openDetails(page);
+    await expect(sheet.locator('.page-status-projects')).toContainText('Colab');
+    await sheet.locator('.page-status-projects').getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByRole('menuitemcheckbox', { name: 'Core' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    if (!(await page.locator('.page-status-details:visible').count())) await openDetails(page);
+    await page.screenshot({ path: capturePath(`shared-long-title-sheet-${width}.png`) });
+    await page.keyboard.press('Escape');
+    await bar.getByRole('button', { name: 'More', exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: /^(Pin to top|Unpin)$/ })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.screenshot({ path: capturePath(`shared-long-title-bar-${width}.png`) });
+  });
 
 test('phone keeps the state and sub-page count, with parent navigation in More', async ({
   page,

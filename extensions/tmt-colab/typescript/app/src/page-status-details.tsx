@@ -93,8 +93,14 @@ export function PageStatusDetails({
           <>
             <dt>{t.ownerActivity}</dt>
             <dd>
-              {text.workBand.activityState[activity.state]} ·{' '}
-              {text.workBand.factAge(relativeTime(activity.observedAtMs, facts.asOfMs))}
+              {text.workBand.activityState[activity.state]}
+              {/* An unknown activity was never observed: no age beside it (#6675). */}
+              {activity.state !== 'unknown' && (
+                <>
+                  {' · '}
+                  {text.workBand.factAge(relativeTime(activity.observedAtMs, facts.asOfMs))}
+                </>
+              )}
             </dd>
           </>
         )}

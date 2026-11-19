@@ -308,6 +308,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-waiting);
 }
 @media (max-width: 479px) {
+  /* The Shared mark leaves a phone bar that holds the page's status dot, the only way into the
+     page's details (#6675); More → Share… still names the page's sharing. */
+  .tmt-ui-topbar:has(.page-bar-status) .page-attention[data-attention='shared'] {
+    display: none;
+  }
   .page-attention-word {
     position: absolute;
     inline-size: 1px;
