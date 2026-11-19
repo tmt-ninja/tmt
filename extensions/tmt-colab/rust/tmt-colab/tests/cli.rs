@@ -15580,3 +15580,78 @@ fn diagnostic_split_question_groups_explain_each_rule() {
         );
     }
 }
+
+#[test]
+fn lifecycle_block_template_names_supported_page_type() {
+    let pilot = Pilot::new(None);
+    let page = diagnostic_page(&pilot);
+    let result = failure(
+        &pilot,
+        &["template", "save", &page, "--name", "release", "--json"],
+        "COLAB_TEMPLATE_UNSUPPORTED",
+    );
+    assert_eq!(
+        result["error"]["message"],
+        "A block page cannot be saved as a template. Save an HTML page instead."
+    );
+}
+#[test]
+fn lifecycle_summary_refusal_names_the_overlong_field() {
+    let pilot = Pilot::new(None);
+    let page = diagnostic_page(&pilot);
+    for (first, second, field, limit) in [
+        ("界".repeat(25), "ok".into(), "line1", 24),
+        ("ok".into(), "界".repeat(61), "line2", 60),
+    ] {
+        let result = failure(
+            &pilot,
+            &[
+                "summary", "set", &page, "--line1", &first, "--line2", &second, "--json",
+            ],
+            "COLAB_INPUT_INVALID",
+        );
+        assert!(
+            result["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("--{field} allows at most {limit} characters"))
+        );
+    }
+    pilot.call(&[
+        "summary",
+        "set",
+        &page,
+        "--line1",
+        &"界".repeat(24),
+        "--line2",
+        &"界".repeat(60),
+        "--json",
+    ]);
+}
+#[test]
+fn lifecycle_parent_option_points_to_subpage_create() {
+    let pilot = Pilot::new(None);
+    let result = failure(
+        &pilot,
+        &[
+            "page", "create", "--title", "Child", "--parent", CHECK_ID, "--json",
+        ],
+        "COLAB_INPUT_INVALID",
+    );
+    let message = result["error"]["message"].as_str().unwrap();
+    assert!(message.contains("subpage create PARENT --title TITLE") && !message.contains("--open"));
+}
+#[test]
+fn lifecycle_unarchive_points_to_browser_restore() {
+    let pilot = Pilot::new(None);
+    let result = failure(
+        &pilot,
+        &["unarchive", CHECK_ID, "--json"],
+        "COLAB_INPUT_INVALID",
+    );
+    let message = result["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("Archived, then choose Restore")
+            && !message.contains("similar subcommand")
+    );
+}

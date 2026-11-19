@@ -325,7 +325,16 @@ pub fn read_page(
     if view.meta.get("pageType").is_some() {
         return Err(Refusal::new(
             "COLAB_TEMPLATE_UNSUPPORTED",
-            "A dashboard cannot be a template".to_owned(),
+            match view.meta["pageType"].as_str() {
+                Some("blocks") => {
+                    "A block page cannot be saved as a template. Save an HTML page instead."
+                }
+                Some("shell") => {
+                    "A dashboard cannot be saved as a template. Save an HTML page instead."
+                }
+                _ => "Only HTML pages can be saved as templates.",
+            }
+            .to_owned(),
             None,
         ));
     }
