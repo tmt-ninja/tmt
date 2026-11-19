@@ -134,7 +134,20 @@ pub fn subpage_command() -> Command {
     )
 }
 
+fn summary_line(name: &'static str, help: &'static str, limit: usize) -> Arg {
+    text_arg(name, help)
+        .required(true)
+        .value_parser(move |value: &str| {
+            if value.chars().count() > limit {
+                Err(format!("--{name} allows at most {limit} characters."))
+            } else {
+                Ok(value.to_owned())
+            }
+        })
+}
+
 pub fn summary_command() -> Command {
+    use tmt_colab::limits::{SUMMARY_LINE1_POINTS, SUMMARY_LINE2_POINTS};
     spec(
         "summary",
         "Set or clear a page's two summary lines",
@@ -151,8 +164,8 @@ pub fn summary_command() -> Command {
         )
         .arg(crate::cli_grammar::page())
         .arg(revision_arg())
-        .arg(text_arg("line1", "The first line, at most 24 characters").required(true))
-        .arg(text_arg("line2", "The second line, at most 60 characters").required(true)),
+        .arg(summary_line("line1", "The first line, at most 24 characters", SUMMARY_LINE1_POINTS))
+        .arg(summary_line("line2", "The second line, at most 60 characters", SUMMARY_LINE2_POINTS)),
     )
     .subcommand(
         spec(

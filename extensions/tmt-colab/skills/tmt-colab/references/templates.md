@@ -1,7 +1,7 @@
 ## Templates
 
 A template is a starting page: TMT's own (`starter`, `report`, `review`, `compare`, `board`,
-`gallery`) or a page of this space that someone saved. `tmt colab template ls` lists both and marks
+`gallery`) or an HTML page of this space that someone saved. `tmt colab template ls` lists both and marks
 the default. An HTML create (`--html`) that names no template, layout or file copies the space default
 (`starter` until `template default` says otherwise). A create without `--html` starts a
 structured page instead.

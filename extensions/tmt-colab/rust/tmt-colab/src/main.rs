@@ -1451,6 +1451,21 @@ fn schema_fault<'a>(
     }
     None
 }
+fn command_refusal(error: clap::Error, words: &[String]) -> clap::Error {
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+    let mut args = words
+        .iter()
+        .map(String::as_str)
+        .filter(|word| *word != "--json");
+    let hint = match (args.next(), args.next(), error.kind()) {
+        (Some("page"), Some("create"), ErrorKind::UnknownArgument) if matches!(error.get(ContextKind::InvalidArg), Some(ContextValue::String(arg)) if arg == "--parent") => {
+            "To create a child page, use `tmt colab subpage create PARENT --title TITLE`. Add --html for an HTML page."
+        }
+        _ => return error,
+    };
+    clap::Error::raw(error.kind(), hint)
+}
+
 fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("__decoder") {
         return tmt_colab::decoder::child_main();
@@ -1469,6 +1484,7 @@ fn main() -> ExitCode {
     let matches = match command.try_get_matches() {
         Ok(m) => m,
         Err(e) => {
+            let e = command_refusal(e, &words);
             let help = matches!(
                 e.kind(),
                 clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion

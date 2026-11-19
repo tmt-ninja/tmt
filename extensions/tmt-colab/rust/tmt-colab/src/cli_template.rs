@@ -120,7 +120,7 @@ const SAVE: CommandSpec = CommandSpec {
         note: "Save the page as weekly-review",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Marks the page as a template; its template ID is the page's ID. The name is 1 to 40 lowercase letters, digits and hyphens, unique in the space and not a TMT template name. Saving a page again under its own template renames it or changes its description. The page stays an ordinary page (it can be commented on and edited); only a person who can edit it can save or remove it. Its questions must be registered, as for a write. A dashboard cannot be a template.",
+    details: "Marks the page as a template; its template ID is the page's ID. The name is 1 to 40 lowercase letters, digits and hyphens, unique in the space and not a TMT template name. Saving a page again under its own template renames it or changes its description. The page stays an ordinary page (it can be commented on and edited); only a person who can edit it can save or remove it. Its questions must be registered, as for a write. Only HTML pages can be saved as templates.",
 };
 
 const REMOVE: CommandSpec = CommandSpec {
