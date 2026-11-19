@@ -1,6 +1,7 @@
 {
   "$comment": [
     "Stress estimates in seconds for the real-binary acceptance suite (#6596). For each current case take the largest passing duration from main run 43879047537 and PR runs 44244674237, 44381078985 (both attempts), and 44393406004. Sum by file and round up.",
+    "The shortened page-compaction-large.spec.ts took 361.978 seconds in passing CI run 44419446511 (shard 1), rounded up to 362 seconds.",
     "Setup is the largest observed job-start to suite-step interval across those jobs. Overhead allows for runner startup and reporter rounding. All shards use the same figures."
   ],
   "defaultSeconds": 16,
@@ -34,7 +35,7 @@
     "page-compact.spec.ts": 11,
     "page-compact-own.spec.ts": 17,
     "page-compaction.spec.ts": 301,
-    "page-compaction-large.spec.ts": 690,
+    "page-compaction-large.spec.ts": 362,
     "page-conversion.spec.ts": 27,
     "page-reentry.spec.ts": 11,
     "page-revision-parity.spec.ts": 24,
