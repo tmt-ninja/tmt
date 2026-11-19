@@ -6,6 +6,134 @@ use crate::config::DigestWindow;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+pub(super) fn configured(sources: &[String]) -> bool {
+    sources.iter().any(|source| source == "digest")
+}
+
+pub(super) fn read_settled(
+    core: &crate::core::Core,
+    window: DigestWindow,
+    deadline: std::time::Duration,
+) -> Option<SettledReport> {
+    let document = core
+        .json_within(
+            &[
+                "digest",
+                "decisions",
+                "--report",
+                "--since",
+                window.argument(),
+            ],
+            deadline,
+        )
+        .ok()?;
+    SettledReport::from_document(window, &document)
+}
+
+/// Digest decisions report evidence for the board's three supported windows.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct SettledReports {
+    windows: [Option<SettledReport>; 3],
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SettledReport {
+    members: BTreeMap<String, SettledCounts>,
+    pub(crate) stale: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SettledCounts {
+    messages: u64,
+    batches: u64,
+    complete: bool,
+}
+
+impl SettledReports {
+    pub(crate) fn get(&self, window: DigestWindow) -> Option<&SettledReport> {
+        self.windows[settled_index(window)].as_ref()
+    }
+
+    pub(super) fn replace(&mut self, window: DigestWindow, report: Option<SettledReport>) {
+        let slot = &mut self.windows[settled_index(window)];
+        if let Some(report) = report {
+            *slot = Some(report);
+        } else if let Some(previous) = slot {
+            previous.stale = true;
+        }
+    }
+}
+
+pub(super) fn settled_index(window: DigestWindow) -> usize {
+    match window {
+        DigestWindow::Day => 0,
+        DigestWindow::Week => 1,
+        DigestWindow::Month => 2,
+    }
+}
+
+impl SettledReport {
+    pub(crate) fn from_document(window: DigestWindow, document: &Value) -> Option<Self> {
+        if document["version"].as_u64() != Some(1)
+            || document["since"].as_str()? != window.argument()
+            || number(&document["fromMs"])? > number(&document["throughMs"])?
+        {
+            return None;
+        }
+        let mut members = BTreeMap::new();
+        for row in document["members"].as_array()? {
+            let Some(id) = identity(&row["id"]) else {
+                continue;
+            };
+            let (Some(messages), Some(batches)) = (
+                number(&row["messages"]),
+                number(&row["actual"]["deliveries"]),
+            ) else {
+                continue;
+            };
+            if batches > messages {
+                continue;
+            }
+            let complete = row["coverage"]["complete"].as_bool() == Some(true)
+                && row["excluded"]["incomplete"].as_u64() == Some(0)
+                && row["excluded"]["clock"].as_u64() == Some(0);
+            if members
+                .insert(
+                    id.to_owned(),
+                    SettledCounts {
+                        messages,
+                        batches,
+                        complete,
+                    },
+                )
+                .is_some()
+            {
+                return None;
+            }
+        }
+        Some(Self {
+            members,
+            stale: false,
+        })
+    }
+
+    /// A scoped aggregate sums only admitted member IDs. Missing rows reduce coverage.
+    pub(crate) fn counts(&self, ids: &[&str]) -> Option<(u128, u128, bool)> {
+        let ids: BTreeSet<_> = ids.iter().copied().collect();
+        let mut observed = 0;
+        let mut messages = 0;
+        let mut batches = 0;
+        let mut complete = true;
+        for counts in ids.iter().filter_map(|id| self.members.get(*id)) {
+            observed += 1;
+            messages += u128::from(counts.messages);
+            batches += u128::from(counts.batches);
+            complete &= counts.complete;
+        }
+        (observed > 0).then_some((messages, batches, complete && observed == ids.len()))
+    }
+}
+
 const SAFE: u64 = 9_007_199_254_740_991;
 const MAX_TEXT: usize = 512;
 const MAX_PRICED_MODELS: usize = 64;

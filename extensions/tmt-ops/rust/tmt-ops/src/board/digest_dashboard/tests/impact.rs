@@ -33,7 +33,19 @@ pub(in crate::board) fn capture_case(
     look: crate::look::Look,
 ) -> crate::board::app::App {
     if scene == "digest-spec" {
-        return spec_fixture(look);
+        let mut app = spec_fixture(look);
+        app.labels.set_settled(
+            DigestWindow::Day,
+            &serde_json::json!({
+                "version": 1, "since": "24h",
+                "fromMs": 1_791_513_600_000u64, "throughMs": 1_791_600_000_000u64,
+                "members": [{
+                    "id": MEMBER, "messages": 24, "actual": {"deliveries": 6},
+                    "coverage": {"complete": false}, "excluded": {"incomplete": 0, "clock": 0}
+                }]
+            }),
+        );
+        return app;
     }
     let mut app = super::layout::fixture();
     // Oracle clocks use the same fixed zone as the neighboring Digest captures.

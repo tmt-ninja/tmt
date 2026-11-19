@@ -228,7 +228,7 @@ fn a_changed_answer_is_delivered_again() {
     write_status(&scratch, &vectors()["status"][2]["response"]);
     let second = next(&received);
     assert_ne!(first, second);
-    assert!(second.0[0].1.rows.is_empty());
+    assert!(second.sources[0].1.rows.is_empty());
     assert!(second.digest().unwrap().0.members.is_empty());
 }
 
@@ -259,7 +259,7 @@ fn one_read_supplies_labels_and_typed_status_and_numeric_changes_are_delivered()
         second.digest().unwrap().0.observed_at_ms,
         status.observed_at_ms + 1
     );
-    assert_eq!(first.0[0].1.rows, second.0[0].1.rows);
+    assert_eq!(first.sources[0].1.rows, second.sources[0].1.rows);
     assert!(
         recorded_calls(&scratch)
             .iter()
@@ -477,7 +477,10 @@ fn a_savings_window_change_reuses_the_one_reader_and_its_source_argv() {
     let (reader, received) = reader(&fake_core(&scratch, &before), timing);
     let first = next(&received);
     assert_eq!(recorded_calls(&scratch).len(), 1);
-    reader.refresher().window(crate::config::DigestWindow::Week);
+    reader.refresher().scope(Scope {
+        window: DigestWindow::Week,
+        digest_visible: false,
+    });
     eventually("one read after the selected window changes", || {
         recorded_calls(&scratch).len() >= 2
     });
@@ -551,7 +554,10 @@ fi
     eventually("old-window read reached its barrier", || {
         scratch.join("started").exists()
     });
-    reader.refresher().window(crate::config::DigestWindow::Week);
+    reader.refresher().scope(Scope {
+        window: DigestWindow::Week,
+        digest_visible: false,
+    });
     fs::write(scratch.join("release"), "").unwrap();
     let next = next(&received);
     let savings = next
@@ -570,6 +576,58 @@ fi
         (crate::config::DigestWindow::Week, Some(42))
     );
     drop(reader);
+}
+
+#[test]
+fn settled_report_is_read_for_visible_digest_and_keeps_scoped_counts_distinct_from_empty() {
+    let scratch = Scratch::new("labels");
+    write_status(&scratch, &status_document());
+    let member = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    let absent = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let wire = json!({
+        "version": 1, "since": "24h", "fromMs": 0, "throughMs": 120_000,
+        "members": [
+            {"id": member, "messages": 12, "actual": {"deliveries": 4},
+                "coverage": {"complete": true}, "excluded": {"incomplete": 0, "clock": 0}},
+            {"id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+                "messages": 99, "actual": {"deliveries": 8}}
+        ],
+        "total": {"messages": 111, "actual": {"deliveries": 12}}
+    });
+    fs::write(scratch.join("decisions.json"), wire.to_string()).unwrap();
+    let before = format!(
+        "if [ \"$*\" = 'digest decisions --report --since 24h --json' ]; then cat '{}'; exit 0; fi",
+        scratch.join("decisions.json").display()
+    );
+    let (reader, received) = reader(
+        &fake_core(&scratch, &before),
+        Timing {
+            every: Duration::from_secs(3600),
+            ..quick()
+        },
+    );
+    assert!(next(&received).settled(DigestWindow::Day).is_none());
+    assert_eq!(recorded_calls(&scratch).len(), 1);
+    reader.refresher().scope(Scope {
+        window: DigestWindow::Day,
+        digest_visible: true,
+    });
+    let supplied = next(&received);
+    let settled = supplied.settled(DigestWindow::Day).unwrap();
+    assert_eq!(settled.counts(&[member]), Some((12, 4, true)));
+    assert_eq!(
+        settled.counts(&[member, member, absent]),
+        Some((12, 4, false))
+    );
+    assert_eq!(settled.counts(&[absent]), None);
+    assert!(supplied.settled(DigestWindow::Week).is_none());
+    let empty = digest::SettledReport::from_document(
+        DigestWindow::Day,
+        &json!({"version": 1, "since": "24h", "fromMs": 0, "throughMs": 120_000, "members": []}),
+    )
+    .unwrap();
+    assert_eq!(empty.counts(&[member]), None);
+    assert!(!settled.stale);
 }
 
 #[test]

@@ -109,6 +109,27 @@ fn zone(app: &App) -> jiff::tz::TimeZone {
     app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC)
 }
 
+fn settled_counts(app: &App, ids: &[&str]) -> String {
+    let Some((report, (messages, batches, complete))) = app
+        .labels
+        .settled(app.digest_window())
+        .and_then(|report| Some((report, report.counts(ids)?)))
+    else {
+        return "messages/batches unavailable".into();
+    };
+    let message_word = if messages == 1 { "message" } else { "messages" };
+    let batch_word = if batches == 1 { "batch" } else { "batches" };
+    let mut text = format!("{messages} {message_word} → {batches} {batch_word}");
+    // Keep the mark and state word together through the detail panel's wrapping.
+    if !complete {
+        text.push_str(" · ◐\u{a0}partial");
+    }
+    if report.stale {
+        text.push_str(" · ↻\u{a0}stale");
+    }
+    text
+}
+
 /// The pane title: what the tab describes and over which window.
 pub(super) fn title(app: &App) -> String {
     let rows = app.workspace_rows();
@@ -468,8 +489,9 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<PanelRow
         ));
     }
     lines.push(format!(
-        "{} at list price · messages/batches unavailable",
-        super::table::saved(&sum, crate::config::SavingsUnit::Cost).replace("≈$", "≈ $")
+        "{} at list price · {}",
+        super::table::saved(&sum, crate::config::SavingsUnit::Cost).replace("≈$", "≈ $"),
+        settled_counts(app, &selected.ids)
     ));
     lines.row(PanelRow::Rule {
         title: format!("Models · {}", app.digest_window().label()),
