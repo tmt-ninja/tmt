@@ -1,0 +1,55 @@
+[
+  {
+    "tag": "tmt-ui-button",
+    "attrs": {"role":"button","data-test":"yes","aria-description":"Submit"},
+    "codes": []
+  },
+  {
+    "tag": "tmt-ui-button",
+    "attrs": {"aria-":"missing suffix"},
+    "codes": ["invalid-ds-prop"]
+  },
+  {
+    "tag": "tmt-ui-button",
+    "attrs": {"colour":"green"},
+    "codes": ["invalid-ds-prop"]
+  },
+  {
+    "tag": "other-button",
+    "attrs": {},
+    "codes": [
+      "ds-prefix-mismatch"
+    ]
+  },
+  {
+    "tag": "tmt-ui-missing",
+    "attrs": {},
+    "codes": [
+      "unknown-ds-component"
+    ]
+  },
+  {
+    "tag": "tmt-ui-button",
+    "attrs": {
+      "variant": "nonsense"
+    },
+    "codes": [
+      "invalid-ds-prop"
+    ]
+  },
+  {
+    "tag": "tmt-ui-button",
+    "attrs": {
+      "variant": "default",
+      "aria-label": "Go"
+    },
+    "codes": []
+  },
+  {
+    "tag": "div",
+    "attrs": {
+      "title": "Title"
+    },
+    "codes": []
+  }
+]

@@ -168,3 +168,9 @@ Unknown attachment bytes are null in JSON.
   into the source.
 - Make anchor text stable and unique: unique headings and marker lines that never repeat and do
   not change on every generation (no timestamps in an anchor), so `--find` matches once.
+
+For a page pinned to the built-in tmt GUI, `page check FILE` checks the shipped component
+catalog offline. `multiple-ds-pins` means keep one pin. For `unknown-ds-release`, copy
+`lockMeta` from `design show tmt-gui`. For `ds-prefix-mismatch` or `unknown-ds-component`,
+choose a listed tag. For `invalid-ds-prop`, remove the unknown prop or use the value in the
+finding’s fix. Create and write report these warnings; `--strict` refuses the change.

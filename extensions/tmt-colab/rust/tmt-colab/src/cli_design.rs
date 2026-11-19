@@ -116,7 +116,7 @@ fn systems(store: &Store, key: &Keyring) -> Result<Vec<System>> {
 fn not_found(operand: &str) -> Box<dyn std::error::Error + Send + Sync> {
     fail(
         "COLAB_DESIGN_SYSTEM_NOT_FOUND",
-        &format!("No design system is {operand}. Run `tmt colab design ls` to see them."),
+        &format!("No design system matches {operand:?}. Run `tmt colab design ls` to see them."),
     )
 }
 
