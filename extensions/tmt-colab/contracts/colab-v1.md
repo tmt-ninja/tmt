@@ -6170,6 +6170,7 @@ Command names precede operands, following the shared CLI style audit (the lead's
 
 ```text
 ls [--archived] [--expiring]
+ls --deleted --json
 show <page>
 share mode <page> <private|link|public>
 share link list <page>
@@ -6190,6 +6191,11 @@ project remove <page> <name>...
 project rename <name> <to>
 project delete <name>
 ```
+
+`ls --deleted --json` (#6739) reads the verified owner log only. It lists every `page.delete` in log
+order as `{pageId, revision}`, where `revision` is the statement's own, plus the log's `membershipHead`
+and `spaceId`. A delete statement carries no time, device or title, and the delete erases the title
+with the page's data, so none is listed. It takes no other list filter and has no human form.
 
 All commands support human output and one `--json` document. Human retention
 reads show a day count or forever and omit policy fields absent from that view.

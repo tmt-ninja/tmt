@@ -5370,6 +5370,18 @@ fn full_management_cli_serving_and_stopped_commits_policy_and_replays_after_rest
                     pilot.call(&["ls", "--archived", "--json"])["pages"],
                     json!([])
                 );
+                // The delete is listed from the signed log: the page ID and the revision of its
+                // statement, which is the head it made (#6739).
+                let deleted = pilot.call(&["ls", "--deleted", "--json"]);
+                assert_eq!(
+                    deleted["deleted"],
+                    json!([{"pageId": PAGE, "revision": committed["membershipHead"]["revision"]}]),
+                    "{deleted}"
+                );
+                assert_eq!(
+                    deleted["membershipHead"], committed["membershipHead"],
+                    "{deleted}"
+                );
                 failure(
                     &pilot,
                     &["delete", PAGE, "--yes", "--json"],
