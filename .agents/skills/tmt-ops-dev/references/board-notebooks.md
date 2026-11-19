@@ -26,7 +26,9 @@ spaces. Shared Markdown renders headings, lists, underlined links,
 filled code and quote gutters; tables use a boxed grid that shrinks the widest
 columns and wraps their cells to fit the pane (inside quotes and lists too), and
 fall back to source only when even two-cell columns cannot fit. Unsupported HTML, images and footnotes remain
-literal. Code lines clip without wrapping, and inline code adds no padding. The retained `NotesCursor` anchors response source lines and wrapped
+literal. Code lines wrap within the filled block, with a dim `↪` where it fits.
+Continuation rows keep their original source line and byte ranges for copy.
+Inline code adds no padding. The retained `NotesCursor` anchors response source lines and wrapped
 continuations; it reconciles nearest duplicates and clamps deleted lines.
 Conversation Scrolls owns the viewport, independently of that source anchor.
 Openable links (`effects::openable`: `http`, `https`, `mailto`) are recorded by the
