@@ -403,8 +403,21 @@ export async function mountPageList(
     pages: PageSummary[];
     projects: Set<string>;
     pins?: { chosen: boolean; names: string[] };
+    /** Work number prefixes (#6688): every project has one, as the owner list gives; the ones with
+     * issued numbers are fixed. */
+    prefixes?: Record<string, { prefix: string; issued: boolean }>;
   } = {
-    projects: new Set(),
+    ...(size === 'work-order'
+      ? {
+          prefixes: {
+            Colab: { prefix: 'COLAB', issued: true },
+            Core: { prefix: 'CORE', issued: true },
+            Design: { prefix: 'DESIGN', issued: false },
+            'Web Ops': { prefix: 'OPS', issued: true },
+          },
+        }
+      : {}),
+    projects: new Set(size === 'work-order' ? ['Design'] : []),
     pages:
       size === 'stages'
         ? [
@@ -737,6 +750,10 @@ export async function mountPageList(
         state.pins = { chosen: true, names: [...change.names] };
         return;
       }
+      if (change.action === 'prefix') {
+        if (state.prefixes) state.prefixes[change.name] = { prefix: change.prefix, issued: false };
+        return;
+      }
       // The owner moves a pin with a rename, and a delete takes it out.
       if (state.pins && change.action !== 'create')
         state.pins.names =
@@ -871,6 +888,7 @@ export async function mountPageList(
       return {
         title: 'Studio pages',
         ...(size === 'work-order' ? { projectOrders: {}, projectOrdersOmitted: ['Colab'] } : {}),
+        ...(state.prefixes ? { projectPrefixes: structuredClone(state.prefixes) } : {}),
         projects: [...state.projects].sort(),
         ...(state.pins
           ? {

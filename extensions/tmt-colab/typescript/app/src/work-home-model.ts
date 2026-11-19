@@ -103,7 +103,11 @@ export function overviewStatus(status: ListStatus): OverviewStatus | undefined {
   }
 }
 
-/** Every work item the list holds: each active page with a fresh summary, and each assigned numbered to-do. */
+/**
+ * Every work item the list holds: each active page with a fresh summary, and each assigned numbered
+ * to-do. The order view (`includeUnassignedTodos`) also takes the unassigned ones, to rank and
+ * assign them (contract "Work home's work items", #6688).
+ */
 export function workItems(
   pages: readonly PageSummary[],
   includeUnassignedTodos = false,

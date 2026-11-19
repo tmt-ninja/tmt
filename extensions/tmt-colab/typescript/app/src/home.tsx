@@ -44,6 +44,7 @@ import {
   filterPages,
   projectCounts,
   withProject,
+  type PageFilter,
   type PageSort,
   type ProjectChange,
 } from './projects.js';
@@ -204,7 +205,12 @@ export function Home() {
         ? (search.stage ?? DEFAULT_VIEW)
         : 'all';
   const sort: PageSort = search.sort ?? 'updated';
-  const filter = pageListFilter({ ...search, ...(!port ? { stage: undefined } : {}) });
+  const routeFilter = pageListFilter({ ...search, ...(!port ? { stage: undefined } : {}) });
+  // The list follows the search as it is typed (#6688): the draft's text, projects and creators
+  // filter at once, while the route (and so Back and Forward) takes them on Enter or when the field
+  // loses focus.
+  const [live, setLive] = useState<Pick<PageFilter, 'projects' | 'authors' | 'text'>>();
+  const filter: PageFilter = live ? { ...routeFilter, ...live } : routeFilter;
   const shown = homePages.filter((p) =>
     archived ? Boolean(p.archived) : search.includeArchived || !p.archived,
   );
@@ -309,7 +315,7 @@ export function Home() {
   useSpaceTitle(space.title, text.product);
 
   // Each applied change is a history entry, so Back and Forward restore the filters (#6612); the
-  // search text applies on Enter, never per keystroke.
+  // search text filters as it is typed and becomes an entry on Enter or blur, never per keystroke.
   function setSearch(patch: Partial<HomeSearch>) {
     void navigate({ search: (previous) => ({ ...previous, ...patch }), resetScroll: false });
   }
@@ -355,17 +361,41 @@ export function Home() {
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
   // Compared in the editor's own shape, so applying a draft does not reset the editor under it.
   const applied = JSON.stringify(
-    editFromSearch(filter.projects, filter.text, filter.authors, conditions),
+    editFromSearch(routeFilter.projects, routeFilter.text, routeFilter.authors, conditions),
   );
   const lastApplied = useRef(applied);
-  const [edit, setEdit] = useState(() =>
-    editFromSearch(filter.projects, filter.text, filter.authors, conditions),
+  const [edit, setEditState] = useState(() =>
+    editFromSearch(routeFilter.projects, routeFilter.text, routeFilter.authors, conditions),
   );
+  /** A draft change: the list filters by it at once. */
+  function setEdit(next: SearchEdit) {
+    setEditState(next);
+    const typed = searchFromEdit(next);
+    // A `project:`, `by:` or `stage:` word still being typed is a token on its way, not text.
+    const text = takeStage(typed.q)
+      .q.replace(/(^|\s)(project|by|stage|state):\S*/g, '$1')
+      .trim();
+    setLive({ projects: typed.projects, authors: typed.authors, text });
+  }
   const [resetKey, setResetKey] = useState(0);
+  // Once the route holds what the draft shows, the draft gives way to it. Cleared any sooner, the
+  // list would draw the old route for a frame and lose its scroll position.
+  const caughtUp =
+    live !== undefined &&
+    live.text === routeFilter.text &&
+    JSON.stringify([live.projects, live.authors]) ===
+      JSON.stringify([routeFilter.projects, routeFilter.authors]);
+  useEffect(() => {
+    if (caughtUp) setLive(undefined);
+  }, [caughtUp]);
   useEffect(() => {
     if (applied === lastApplied.current) return;
+    // A change from outside the field (Back, a chip, a shortcut) replaces the draft.
     lastApplied.current = applied;
-    setEdit(editFromSearch(filter.projects, filter.text, filter.authors, conditions));
+    setLive(undefined);
+    setEditState(
+      editFromSearch(routeFilter.projects, routeFilter.text, routeFilter.authors, conditions),
+    );
     setResetKey((key) => key + 1);
     // `applied` is the whole dependency: it is the serialized filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -384,7 +414,7 @@ export function Home() {
       ...conditionSearch(projects, held),
     });
     if (stage) {
-      setEdit(editFromSearch(projects, q, authors, held));
+      setEditState(editFromSearch(projects, q, authors, held));
       setResetKey((key) => key + 1);
     }
   }
@@ -652,7 +682,24 @@ export function Home() {
         stuck={compact}
         search={
           <div className="page-list-search">
-            <div className="page-list-search-box">
+            <div
+              className="page-list-search-box"
+              onBlur={(event) => {
+                // Focus leaving the field and its suggestions applies the draft as Enter does.
+                const to = event.relatedTarget as Node | null;
+                if (
+                  to &&
+                  (event.currentTarget.contains(to) ||
+                    (to instanceof Element && to.closest('[role="listbox"]')))
+                )
+                  return;
+                // What the list shows already is what the address holds: nothing to apply.
+                if (!live || caughtUp) return;
+                // A token word left half typed is not applied as text.
+                const typed = searchFromEdit(edit);
+                apply(editFromSearch(live.projects, live.text, live.authors, typed.conditions));
+              }}
+            >
               <SharedPageListSearch
                 placeholder="Search pages, or type project:"
                 edit={edit}

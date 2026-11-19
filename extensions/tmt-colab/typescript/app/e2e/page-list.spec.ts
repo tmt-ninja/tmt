@@ -11,7 +11,8 @@ async function mount(
     | 'long'
     | 'full'
     | 'shells'
-    | 'owner-activity' = 'few',
+    | 'owner-activity'
+    | 'work-order' = 'few',
   hash = '/',
   remembered?: string,
 ) {
@@ -301,12 +302,24 @@ test('typing project: suggests names, Enter takes one, Enter again applies free 
   await expect(
     app(page).locator('[data-kind=project]').filter({ hasText: 'project:design' }),
   ).toBeVisible();
-  // The token alone is a draft until Enter applies it.
-  await expect(titles(page)).toHaveCount(4);
+  // The list follows the draft as it is typed (#6688); the address takes it on Enter only.
+  await expect(titles(page)).toHaveCount(2);
   await page.keyboard.type('beta');
+  await expect(titles(page)).toHaveText(['Beta review']);
+  expect(new URL(page.url()).hash).not.toContain('q=');
   await page.keyboard.press('Enter');
   await expect(titles(page)).toHaveText(['Beta review']);
   expect(new URL(page.url()).hash).toContain('q=beta');
+  // Leaving the field applies a draft as Enter does, so Back returns to the list before it.
+  await page.keyboard.press('End');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Backspace');
+  await expect(titles(page)).toHaveCount(2);
+  expect(new URL(page.url()).hash).toContain('q=beta');
+  await page.locator('body').click({ position: { x: 5, y: 5 } });
+  await expect.poll(() => new URL(page.url()).hash).not.toContain('q=');
+  await page.goBack();
+  await expect.poll(() => new URL(page.url()).hash).toContain('q=beta');
+  await expect(titles(page)).toHaveText(['Beta review']);
   await search(page).focus();
   await page.keyboard.press('Escape');
   await expect(titles(page)).toHaveCount(4);
@@ -989,6 +1002,8 @@ test('list keys move, select, archive and open menus, and stay out of text field
   await expect(search(page)).toBeFocused();
   await page.keyboard.type('xj');
   await expect(bulkBar(page)).toHaveCount(0);
+  // The list follows the typed text (#6688); cleared, every row is as it was.
+  await page.keyboard.press('Escape');
   await expect(selectRow(page, 'Gamma notes')).not.toBeChecked();
 });
 
@@ -2155,3 +2170,47 @@ for (const width of [390, 1440])
       await page.keyboard.press('Escape');
       await expect(actions.getByRole('button', { name: 'New page', exact: true })).toBeFocused();
     });
+
+test('a project prefix is a design-system field that names its rule (#6688)', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mount(page, 'work-order');
+  await fromScopeMenu(page, 'All projects…');
+  const dialog = app(page).getByRole('dialog', { name: 'Manage projects' });
+  // An issued prefix is read-only and says why; it has no Save.
+  const fixed = dialog.locator('li', { hasText: 'Colab' }).getByRole('textbox', {
+    name: 'Work number prefix',
+  });
+  await expect(fixed).toHaveAttribute('readonly', '');
+  await expect(fixed).toHaveAccessibleDescription(
+    'This prefix is fixed because a work number has been issued.',
+  );
+  await expect(dialog.getByRole('button', { name: 'Save prefix for Colab' })).toHaveCount(0);
+  // Every project shows its prefix; the help reads at the label's size, not the body's.
+  await expect(dialog.getByRole('textbox', { name: 'Work number prefix' })).toHaveCount(4);
+  const size = (selector: string) =>
+    dialog
+      .locator('li', { hasText: 'Colab' })
+      .locator(selector)
+      .evaluate((node) => getComputedStyle(node).fontSize);
+  expect(await size('.tmt-ui-field-description')).toBe(await size('.tmt-ui-field-label'));
+  const card = dialog.locator('li', { hasText: 'Design' });
+  const field = card.getByRole('textbox', { name: 'Work number prefix' });
+  const save = card.getByRole('button', { name: 'Save prefix for Design' });
+  // The field and Save take the design system's control look, not the browser's.
+  await expect(field).toHaveClass(/tmt-ui-field-control/);
+  await expect(save).toHaveClass(/tmt-ui-action/);
+  // A value that breaks the rule names it under the field; nothing is sent.
+  await field.fill('bad1');
+  await expect(field).toHaveValue('BAD1');
+  await expect(field).toHaveAttribute('aria-invalid', 'true');
+  await expect(field).toHaveAccessibleDescription('Use 1 to 6 capital letters, A to Z.');
+  await save.click();
+  expect(await manageRequests(page)).toEqual([]);
+  await field.fill('dsgn');
+  await expect(field).not.toHaveAttribute('aria-invalid', 'true');
+  await save.click();
+  await expect(dialog.getByRole('status')).toHaveText('Project updated.');
+  expect(await manageRequests(page)).toEqual([
+    { action: 'prefix', name: 'Design', prefix: 'DSGN' },
+  ]);
+});

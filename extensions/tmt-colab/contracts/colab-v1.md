@@ -6485,7 +6485,9 @@ The serve answers only for ids some page with a fresh fold names as its owner, a
 `{owners:{<id>:{state,lastActivityMs,observedAtMs}}}`. An owner the read cannot report keeps its
 earlier observation; the list answer never waits for this read, and the calling view reads the list again
 when an owner's activity state changed (a newer activity time alone does not). The activity read serves display only and fetches no GitHub facts.
-Work home's work items are the pages with a fresh summary and the numbered to-dos that name an assignee. When Remote's describe request names the `home` feature,
+Work home's work items are the pages with a fresh summary and the numbered to-dos that name an assignee.
+A selected project's order view also lists its open numbered to-dos with no assignee, under No preference unless
+ranked, so they can be ranked and assigned there (#6688); the counts and the overview do not include them. When Remote's describe request names the `home` feature,
 Colab's description claims Home with `homePage: "/work"`.
 
 The owner browser may POST `{pageId}` to `/api/work-facts` only while its owner sync connection

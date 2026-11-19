@@ -7,6 +7,7 @@
   --tmt-ui-host-field-padding: 10px 12px;
 }
 .project-manage-actions,
+.project-prefix,
 .project-footer {
   --tmt-ui-host-action-size: 11px;
   --tmt-ui-host-action-padding: 7px 10px;
@@ -127,4 +128,30 @@
   .project-manage-row {
     flex-wrap: wrap;
   }
+}
+
+/* A project's work number prefix (#6688): the field under the project's name, with its rule or
+   lock reason under it and Save below, so an error line never pushes Save off the input's line. */
+.project-prefix {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--tmt-ui-surface-rule-soft);
+}
+.project-prefix > :first-child {
+  justify-self: stretch;
+  min-width: 0;
+}
+/* An issued prefix reads as fixed, not as a field waiting for input. */
+.project-prefix input[readonly] {
+  background: transparent;
+  color: var(--tmt-ui-color-secondary);
+}
+/* The field's help and error read at its label's size, not the drawer's body size: BrowserField
+   gives them colour only. */
+.project-prefix :is(.tmt-ui-field-description, .tmt-ui-field-error) {
+  font: var(--tmt-ui-host-field-label-weight) var(--tmt-ui-host-field-label-size) /
+    var(--tmt-ui-host-field-label-line-height) var(--tmt-ui-host-field-label-font);
 }
