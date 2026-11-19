@@ -37,7 +37,7 @@ impl Drop for Fixture {
 }
 
 /// A store left at the schema before the current one, as an older Colab saved it: the current
-/// step adds the title repository and exclusions, so removing those additions recreates that store.
+/// step adds the grandfathered answer table, so removing it recreates that store.
 fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     let store = layout.directory.join("space.db");
     Store::open(layout).unwrap().close().unwrap();
@@ -45,8 +45,7 @@ fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE work_title_exclusions;
-             ALTER TABLE project_meta DROP COLUMN repository; PRAGMA user_version={previous}"
+            "DROP TABLE grandfathered_answers; PRAGMA user_version={previous}"
         ))
         .unwrap();
     (store, previous)
@@ -60,6 +59,37 @@ fn names(layout: &Layout) -> Vec<String> {
         .collect();
     found.sort();
     found
+}
+
+#[test]
+fn schema_28_commit_failure_rolls_back_table_and_version_before_reopen() {
+    let fixture = Fixture::new();
+    let layout = fixture.layout();
+    let (store, previous) = previous_schema(&layout);
+    assert_eq!(previous, 27);
+    let reader = Connection::open(&store).unwrap();
+    // With a rollback journal a reader permits BEGIN IMMEDIATE and schema writes,
+    // but prevents the writer from acquiring the exclusive lock needed to commit.
+    reader
+        .execute_batch("BEGIN; SELECT count(*) FROM sqlite_schema;")
+        .unwrap();
+    let failure = Store::open(&layout).err().expect("reader prevents commit");
+    assert!(
+        matches!(failure.downcast_ref::<Fault>(), Some(Fault::Sql(rusqlite::Error::SqliteFailure(error, _)))
+        if error.code == rusqlite::ErrorCode::DatabaseBusy)
+    );
+    drop(reader);
+    let has_table = || {
+        Connection::open(&store)
+            .unwrap()
+            .table_exists(None, "grandfathered_answers")
+            .unwrap()
+    };
+    assert_eq!(version(&store), 27);
+    assert!(!has_table());
+    Store::open(&layout).unwrap().close().unwrap();
+    assert_eq!(version(&store), 28);
+    assert!(has_table());
 }
 
 fn version(store: &Path) -> u32 {
@@ -237,8 +267,7 @@ fn a_second_upgrade_from_the_same_schema_replaces_the_copy() {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE work_title_exclusions;
-             ALTER TABLE project_meta DROP COLUMN repository; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
+            "DROP TABLE grandfathered_answers; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
         ))
         .unwrap();
     let second = fs::read(&store).unwrap();
