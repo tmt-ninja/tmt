@@ -473,9 +473,44 @@ mod board {
 
     #[test]
     fn enter_types_into_the_panel_until_the_back_key_and_z_shows_it_full_screen() {
+        use crate::board::terminal_tab::stream::StreamEvent;
+        use std::sync::Arc;
+        use tmt_tui::components::terminal::Screen;
+
         let (mut app, member) = listed_board();
         select(&mut app, &member, 1);
-        assert!(app.terminal_sync(), "the selected terminal's stream opens");
+        let selected = app.workspace.selected.clone();
+        for _ in 0..2 {
+            press(&mut app, KeyCode::Enter);
+            assert_eq!(app.focus, 0);
+            assert_eq!(app.terminals.typing(), None);
+            assert_eq!(app.workspace.selected, selected);
+            assert_eq!(app.notice.as_deref(), Some("Connecting…"));
+            app.terminal_sync();
+        }
+
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let id = terminal(1, 0, false).id;
+        app.terminals
+            .drew_panel(&id, ratatui::layout::Rect::new(5, 5, 20, 5));
+        app.set_notice(None, false);
+        assert!(
+            app.terminal_panel_focus(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 6,
+                row: 6,
+                modifiers: KeyModifiers::NONE,
+            })
+            .is_some()
+        );
+        assert_eq!(app.focus, 0);
+        assert_eq!(app.terminals.typing(), None);
+        assert_eq!(app.notice.as_deref(), Some("Connecting…"));
+
+        let screen = Screen::new(40, 6);
+        assert!(app.apply_terminal(1, StreamEvent::Screen(Arc::new(screen.frame()))));
+        assert_eq!(app.focus, 0, "a screen must not enter typing");
+        assert_eq!(app.terminals.typing(), None);
         press(&mut app, KeyCode::Enter);
         assert_eq!(
             app.terminals.typing(),

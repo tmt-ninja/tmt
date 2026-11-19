@@ -2,11 +2,12 @@
 //! the right panel, `z` shows it full screen, `x` closes it (asking first while a program runs),
 //! and the back key (Ctrl-g) returns to the list. Each one only changes board state or queues a
 //! lane task; nothing here calls Core.
+use super::Row;
 use crate::{
     action::OpsUiAction,
     board::{
         app::{App, Choice, Effect},
-        terminal_tab::discovery::Address,
+        terminal_tab::{discovery::Address, tab::Condition},
         workspace::OpsTarget,
     },
 };
@@ -19,6 +20,14 @@ pub(in crate::board) fn is_terminal_key(key: &str) -> bool {
 }
 
 impl App {
+    pub(in crate::board) fn can_type_in_terminal(&self, row: &Row) -> bool {
+        !row.ended
+            && self
+                .terminal
+                .view(&row.id)
+                .is_some_and(|view| view.condition == Condition::Live)
+    }
+
     /// A press on the selected terminal panel focuses it without changing the viewport.
     pub(in crate::board) fn terminal_panel_focus(&mut self, event: MouseEvent) -> Option<Effect> {
         if self.framed() || event.kind != MouseEventKind::Down(MouseButton::Left) {
@@ -51,6 +60,9 @@ impl App {
                 };
                 if row.ended {
                     return self.say("This terminal has ended; x removes it.");
+                }
+                if !self.can_type_in_terminal(row) {
+                    return self.say("Connecting…");
                 }
                 let id = row.id.clone();
                 self.terminals.set_typing(Some(&id));
