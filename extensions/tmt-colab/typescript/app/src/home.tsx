@@ -371,6 +371,18 @@ export function Home() {
   function setEdit(next: SearchEdit) {
     setEditState(next);
     const typed = searchFromEdit(next);
+    // A draft that holds what is applied is no draft: the list shows the route. The editor reports
+    // its unchanged text again after Enter, and that must not hold an applied word back (#6711).
+    const sameNames = (a: readonly string[], b: readonly string[]) =>
+      a.length === b.length && a.every((name, i) => name === b[i]);
+    if (
+      takeStage(typed.q).q === routeFilter.text &&
+      sameNames(typed.projects, routeFilter.projects) &&
+      sameNames(typed.authors, routeFilter.authors)
+    ) {
+      setLive(undefined);
+      return;
+    }
     // A `project:`, `by:` or `stage:` word still being typed is a token on its way, not text.
     const text = takeStage(typed.q)
       .q.replace(/(^|\s)(project|by|stage|state):\S*/g, '$1')
@@ -407,6 +419,9 @@ export function Home() {
     const { projects, authors } = typed;
     const held = stage ? viewConditions(typed.conditions, stage) : typed.conditions;
     lastApplied.current = JSON.stringify(editFromSearch(projects, q, authors, held));
+    // The list shows what is applied from now on, a word the draft held back included (a `by:`
+    // naming no creator is text once applied); the route catching up then clears it.
+    setLive({ projects, authors, text: q });
     setSearch({
       by: authors.length ? authors : undefined,
       q: q || undefined,
