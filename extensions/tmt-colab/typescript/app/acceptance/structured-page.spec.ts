@@ -1368,3 +1368,61 @@ for (const task of ['heading actions', 'annotation'] as const)
       }
     });
   });
+
+test('remote deletion preserves typing until the person keeps or discards the draft', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const { page } = await pairBrowser(world, 'concurrent-editor');
+    const cli = (...args: string[]) => run(world, world.binaries.colab, [...args, '--json']);
+    const created = JSON.parse(
+      cli('page', 'create', '--title', 'Release checklist', '--structured', '--no-open'),
+    );
+    const insert = (text: string): string =>
+      JSON.parse(cli('block', 'insert', created.pageId, '--type', 'paragraph', '--text', text))
+        .blockIds[0];
+    const first = insert('Review launch notes');
+    const second = insert('Review rollback plan');
+    await page.goto(new URL(created.path, door.address).href);
+    const notice = page.getByText('This block was deleted while you were editing it.', {
+      exact: true,
+    });
+    for (const [id, action] of [
+      [first, 'Keep as a new block'],
+      [second, 'Discard'],
+    ] as const) {
+      const block = page.locator(`[data-block-id="${id}"]`);
+      await block.click();
+      const editor = block.locator('[contenteditable=true]');
+      await editor.press('End');
+      await page.keyboard.type(' today');
+      cli('block', 'delete', created.pageId, id);
+      await expect(notice).toBeVisible();
+      await expect(editor).toBeFocused();
+      await page.keyboard.type(' before noon');
+      await expect(editor).toContainText(' today before noon');
+      await page.getByRole('button', { name: action, exact: true }).click();
+      await expect(notice).toHaveCount(0);
+      await expect(block).toHaveCount(0);
+      if (action === 'Keep as a new block') {
+        const kept = page
+          .locator('[contenteditable=true]')
+          .filter({ hasText: 'Review launch notes today before noon' });
+        await expect(kept).toBeFocused();
+        await page.keyboard.type('.');
+        const newId = await kept.evaluate((el) =>
+          el.closest('[data-block-id]')!.getAttribute('data-block-id')!,
+        );
+        await expect
+          .poll(() => JSON.parse(cli('block', 'get', created.pageId, newId)).block.base)
+          .toBe('Review launch notes today before noon.');
+      } else {
+        await expect(page.locator('body')).not.toBeFocused();
+        await page.reload();
+        await expect(
+          page.getByText('Review launch notes today before noon.', { exact: true }),
+        ).toBeVisible();
+        await expect(page.getByText('Review rollback plan today before noon')).toHaveCount(0);
+      }
+    }
+  });
+});
