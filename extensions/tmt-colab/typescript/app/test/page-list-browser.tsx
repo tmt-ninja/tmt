@@ -243,7 +243,7 @@ function workHomePages(withOrder = false): PageSummary[] {
       'Web Ops',
       'OPS-33',
       'waiting-ci',
-      { owner: agent('gui-2'), next: 'Waiting for CI · PR #6461' },
+      { owner: agent('gui-2'), next: 'Review PR #6461' },
       20,
     ),
     item(

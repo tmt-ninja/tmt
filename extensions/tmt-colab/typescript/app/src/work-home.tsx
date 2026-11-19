@@ -282,7 +282,13 @@ function WorkRow({
           {item.title}
         </Link>
       }
-      next={item.status === 'blocked' && item.next ? 'Blocked: ' + item.next : item.next}
+      next={
+        item.status === 'waiting-ci'
+          ? [openPrStatus().label, item.next].filter(Boolean).join(' · ')
+          : item.status === 'blocked' && item.next
+            ? 'Blocked: ' + item.next
+            : item.next
+      }
       sections={item.sections ? <RowSections sections={item.sections} /> : undefined}
       ownerControl={item.owner ? <OwnerCell owner={item.owner} /> : undefined}
       time={age(item.lastMs, now)}
