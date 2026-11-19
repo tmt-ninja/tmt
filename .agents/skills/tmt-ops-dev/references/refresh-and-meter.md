@@ -253,9 +253,13 @@ publication, capacity and effective-state rules are in
 ## Load timing trace
 
 `TMT_OPS_TIMING_TRACE` enables board-only diagnostic JSON Lines. Unset, empty or
-`0` disables it; `1` writes to stderr; any other value names an append-only regular
-file (created with mode 0600, symlinks refused). An unusable sink reports once and
-disables tracing; it does not fail the board. Trace records never go to stdout.
+`0` disables it. `1` appends to `tmt-ops/board/timing.jsonl` under the Ops cache
+root (`$XDG_CACHE_HOME`, otherwise `~/.cache`). The default admits one writer at a
+time and stops before exceeding 8 MiB. Move or remove the file with its writer
+closed to start a new log. Any other value names an append-only regular file
+without the default size cap. Trace files are created with mode 0600 and symlinks
+are refused. A sink failure disables that trace without failing the board. One
+failure line is reported on stderr after the board restores the terminal.
 Disabled tracing performs no timing clock reads, record formatting, sink operations
 or extra Core reads; the runtime opt-in requires one startup env check and branches.
 
