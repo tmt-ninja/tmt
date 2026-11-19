@@ -1260,7 +1260,7 @@ clocks and Ask results never choose it. An open entry with such an answer projec
 a whitespace-normalized summary of at most 200 code points in `answer`, display-only
 `answeredAt` and `answerRef:{writer,id,revision}`. Deleting the last answer returns it to open;
 handled remains terminal until an editor reopens it. Raw content cannot assert answered state,
-summary, time or answer reference. `question ls` returns this effective projection;
+summary, time or answer reference. `question ls` returns this effective projection, using the current question block text as its title on structured pages;
 `page read` keeps raw `questions` beside read-only `questionStates` when nonempty.
 Native Needs-you counts each registered open question, including entries whose markup was
 removed, while preserving other pending kinds. Browser controls/routing/count adoption is
@@ -3219,21 +3219,21 @@ below; any other key, type or shape is refused.
 A deleted block, with everything under it, is hidden; its descendants keep their own state and come
 back with it on `restore`.
 
-| Type          | Text  | Props (all optional unless noted)                                                                                                                            |
-| ------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `paragraph`   | rich  | `tone` `default\|muted`                                                                                                                                      |
-| `heading`     | rich  | `level` 2 or 3, `progress` `done\|off` (absent: its section counts automatically, #6619)                                                                     |
-| `list`        | rich  | `style` `bullet\|number`, `indent` 0-2                                                                                                                       |
-| `todo`        | rich  | `checked`, `assignee` (128 bytes), `due` (`YYYY-MM-DD`), `thread` (the comment thread whose Ask made it, #6474), `indent` 0-2                                |
-| `table`       | none  | `label`, `columns` (at most 32 of `{id, name, width?, hideNarrow?}`; column IDs are stable), `header`, `density` `roomy\|compact`                            |
-| `card`        | none  | `variant` `card\|section`, `title`, `meta`, `collapsible`, `collapsed`                                                                                       |
-| `question`    | plain | `kind` `single\|multiple\|short`, `agent`, `choices` (at most 20), `other`, `otherMax`, `state` `waiting\|answered\|dismissed`, `answer`                     |
-| `callout`     | rich  | `tone` `working\|waiting\|review\|blocked`, `label`, `heading`                                                                                               |
-| `code`        | plain | `language`, `filename`                                                                                                                                       |
-| `image`       | none  | `images` (at most 100 of `{src, alt?, caption?, tag?, filename?, status?}`), `files`, `layout` `carousel\|grid\|single`, `size` `s\|m\|l`, `variant`         |
-| `mockup`      | none  | `markup` (required, 64 KiB), `system`, `lock`, `preset` `390\|1440\|custom`, `width`, `height`, `toolbarLabels`                                              |
-| `work-bundle` | none  | `page` (required page ID), `number`, `work`, `editable`, `tickets` (at most 20, `https://github.com/` links only)                                            |
-| `page-view`   | none  | `label`, `rows` (at most 200, 24 KiB), `filters`, `columns`, `sort` `updated\|title`, `limit` 1-200, `groupBy`, `state`, `density`, `selected`, `selectable` |
+| Type          | Text  | Props (all optional unless noted)                                                                                                                              |
+| ------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paragraph`   | rich  | `tone` `default\|muted`                                                                                                                                        |
+| `heading`     | rich  | `level` 2 or 3, `progress` `done\|off` (absent: its section counts automatically, #6619)                                                                       |
+| `list`        | rich  | `style` `bullet\|number`, `indent` 0-2                                                                                                                         |
+| `todo`        | rich  | `checked`, `assignee` (128 bytes), `due` (`YYYY-MM-DD`), `thread` (the comment thread whose Ask made it, #6474), `indent` 0-2                                  |
+| `table`       | none  | `label`, `columns` (at most 32 of `{id, name, width?, hideNarrow?}`; column IDs are stable), `header`, `density` `roomy\|compact`                              |
+| `card`        | none  | `variant` `card\|section`, `title`, `meta`, `collapsible`, `collapsed`                                                                                         |
+| `question`    | plain | `kind` `single\|multiple\|short`, `agent` (ignored for routing), `choices` (at most 20), `other`, `otherMax`, `state` `waiting\|answered\|dismissed`, `answer` |
+| `callout`     | rich  | `tone` `working\|waiting\|review\|blocked`, `label`, `heading`                                                                                                 |
+| `code`        | plain | `language`, `filename`                                                                                                                                         |
+| `image`       | none  | `images` (at most 100 of `{src, alt?, caption?, tag?, filename?, status?}`), `files`, `layout` `carousel\|grid\|single`, `size` `s\|m\|l`, `variant`           |
+| `mockup`      | none  | `markup` (required, 64 KiB), `system`, `lock`, `preset` `390\|1440\|custom`, `width`, `height`, `toolbarLabels`                                                |
+| `work-bundle` | none  | `page` (required page ID), `number`, `work`, `editable`, `tickets` (at most 20, `https://github.com/` links only)                                              |
+| `page-view`   | none  | `label`, `rows` (at most 200, 24 KiB), `filters`, `columns`, `sort` `updated\|title`, `limit` 1-200, `groupBy`, `state`, `density`, `selected`, `selectable`   |
 
 Rich text carries the marks `bold`, `italic` and `code` (value `true`), `link` (an `http://`,
 `https://` or `mailto:` target of at most 2048 bytes without whitespace), `agent` (a label of at most
@@ -7774,7 +7774,8 @@ A hint is advice about how the page was started, not a defect in it: `{code, mes
 no severity; `message` may change, `code` is stable). `page check` reports them as `hints` (`[]`
 when none) and prints each as a `hint:` line on stderr; `page create` reports the same array as
 `hints` in its JSON result and prints the lines after its warnings. A hint never changes the exit
-code, never counts as a finding and `--strict` ignores it. The only code is `own-style-only`: the
+code, never counts as a finding and `--strict` ignores it. For a JSON block batch, `page check` returns the `block-ops-input` hint explaining that it checks HTML.
+The `own-style-only` hint means the
 page styles itself (a `<style>` element or a `style` attribute) and carries neither the page-style
 starter (`tmt-starter`, or both `--ink:` and `--paper:` of its earlier form) nor a design-system
 marker (`tmt-ui-`, `<tmt-icon`). Its message points at `tmt colab template ls`, the starter

@@ -37,12 +37,12 @@ tmt colab block batch PAGE --file ops.json --json      # all or nothing
   {"op":"insert","id":"UUID","type":"heading","props":{"level":2},"text":"Plan"},
   {"op":"insert","id":"UUID","type":"paragraph","text":"What ships this week."},
   {"op":"insert","id":"UUID","type":"question","text":"Which option?",
-   "props":{"kind":"single","agent":"Your name","choices":["First","Second"]}}
+   "props":{"kind":"single","choices":["First","Second"]}}
 ]
 ```
 
 Each `id` is a fresh UUID; one bad op refuses all (`COLAB_INPUT_INVALID`). Ask with a `question`
-block, never prose; the page's creator gets the answer. Use `page create --html` only for a template
+block, never prose; answers go to the registry assignee or the page creator. Use `page create --html` only for a template
 ([templates](references/templates.md), `tmt colab skill templates`), a canvas or React page, or a
 look blocks cannot express; a mockup is a `mockup` block. HTML pages ask with `tmt-question`
 ([questions](references/questions.md)).

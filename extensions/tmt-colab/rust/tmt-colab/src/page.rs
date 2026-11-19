@@ -47,6 +47,7 @@ pub enum Fault {
     AttachmentNotFound,
     /// `after` names a block that is not a child of `parent`.
     BlockBadAfter,
+    QuestionGroup,
     BlockTextNotFound,
     BlockTextAmbiguous,
     /// A mockup block's markup does not pass the page check.
@@ -71,6 +72,7 @@ impl Fault {
             Self::NotStructured => "COLAB_NOT_STRUCTURED",
             Self::BlockNotFound => "COLAB_BLOCK_NOT_FOUND",
             Self::BlockBadAfter => "COLAB_BLOCK_BAD_AFTER",
+            Self::QuestionGroup => "COLAB_INPUT_INVALID",
             Self::BlockTextNotFound => "COLAB_BLOCK_TEXT_NOT_FOUND",
             Self::BlockTextAmbiguous => "COLAB_BLOCK_TEXT_AMBIGUOUS",
             Self::BlockMarkup => "COLAB_BLOCK_MARKUP",
@@ -122,6 +124,7 @@ impl std::fmt::Display for Fault {
             Self::BlockNotFound => {
                 "A block named in the request is not on the page; it was never added, or compaction removed it after it was deleted. Run `tmt colab block ls`. Nothing was written."
             }
+            Self::QuestionGroup => "Question blocks do not support the group prop. Use individual blocks or group questions on an HTML page.",
             Self::BlockBadAfter => {
                 "`after` must name a block that is a child of `parent` (or be null for the first place). Nothing was written."
             }
@@ -618,8 +621,23 @@ fn read_with_meta(
     }
     let question_states = if let Some(registry) = view.meta.get("questions") {
         let conversations = crate::discussion::project(key, page, &s, &view);
-        crate::question_registry::answers::project(registry, &conversations, &view.status_writers)
-            .map_err(|_| Fault::Invalid)?
+        let mut states = crate::question_registry::answers::project(
+            registry,
+            &conversations,
+            &view.status_writers,
+        )
+        .map_err(|_| Fault::Invalid)?;
+        if let Some(blocks) = &view.blocks {
+            for entry in &mut states {
+                if let Some(block) = entry["id"].as_str().and_then(|id| blocks.get(id))
+                    && block["type"] == "question"
+                    && let Some(prompt) = block["text"]["s"].as_str()
+                {
+                    entry["title"] = serde_json::json!(prompt);
+                }
+            }
+        }
+        states
     } else {
         Vec::new()
     };
@@ -995,6 +1013,7 @@ impl From<crate::blocks::ops::Refusal> for Fault {
             Refusal::Invalid => Self::Invalid,
             Refusal::NotFound => Self::BlockNotFound,
             Refusal::BadAfter => Self::BlockBadAfter,
+            Refusal::QuestionGroup => Self::QuestionGroup,
             Refusal::TextNotFound => Self::BlockTextNotFound,
             Refusal::TextAmbiguous => Self::BlockTextAmbiguous,
             Refusal::Capacity => Self::Capacity,

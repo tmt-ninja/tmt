@@ -24,6 +24,7 @@ pub enum Refusal {
     NotFound,
     /// `after` names a block that is not a child of `parent`.
     BadAfter,
+    QuestionGroup,
     TextNotFound,
     TextAmbiguous,
     Capacity,
@@ -199,6 +200,9 @@ impl Editing {
         let position = self.place(parent, &after_of(op)?, None)?;
         let props = op.get("props").cloned().unwrap_or_else(|| json!({}));
         object(&props)?;
+        if block_type == "question" && props.get("group").is_some() {
+            return Err(Refusal::QuestionGroup);
+        }
         let mut block =
             json!({"type": block_type, "parent": parent, "pos": position, "props": props});
         match (schema::has_text(block_type), op.get("text")) {
@@ -253,6 +257,9 @@ impl Editing {
         let set = op
             .get("set")
             .map_or(Ok(Map::new()), |v| object(v).cloned())?;
+        if block_type == "question" && set.contains_key("group") {
+            return Err(Refusal::QuestionGroup);
+        }
         let unset: Vec<&str> = match op.get("unset") {
             None => Vec::new(),
             Some(value) => value

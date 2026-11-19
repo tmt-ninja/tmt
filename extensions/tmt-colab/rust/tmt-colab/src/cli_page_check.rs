@@ -178,6 +178,9 @@ fn message(code: &str) -> String {
 /// the commands, not the templates or styles they list, which are the commands' to say.
 fn hint_message(code: &str) -> &'static str {
     match code {
+        "block-ops-input" => {
+            "This command checks HTML. Apply block operations with tmt colab block batch PAGE --file FILE."
+        }
         "own-style-only" => {
             "This page styles itself and carries neither the starter nor the design system. Start from a template (tmt colab template ls) or the starter (tmt colab skill page-style), and ask the reader to decide with tmt-question, not in prose (tmt colab skill questions)."
         }
@@ -386,11 +389,27 @@ pub fn warnings_json(findings: &[Finding]) -> Value {
     findings_json(findings)
 }
 
+fn is_block_batch(source: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(source) else {
+        return false;
+    };
+    let ops = value
+        .as_array()
+        .or_else(|| value.get("ops").and_then(Value::as_array));
+    ops.is_some_and(|ops| ops.iter().all(|op| op["op"].is_string()))
+}
+
 /// `tmt colab page check`; `store` is the local state, present only when `--page` needs it.
 pub fn run(state: Option<(&Store, &Keyring, &str, &mut Decoder)>, args: &ArgMatches) -> Result<()> {
     let file = args.get_one::<PathBuf>("file").expect("required file");
     let source = crate::page_source(file)?;
     let report = match state {
+        _ if is_block_batch(&source) => Report {
+            hints: vec![Hint {
+                code: "block-ops-input",
+            }],
+            ..Report::default()
+        },
         Some((store, key, page, decoder)) => {
             let mut report = inspect(
                 &source,

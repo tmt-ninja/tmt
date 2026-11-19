@@ -9988,6 +9988,27 @@ fn page_check_is_offline_and_names_every_ignored_block_with_its_line() {
     assert!(!pilot.root.join("selected").exists());
 }
 #[test]
+fn page_check_explains_block_batch_input() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("ops.json");
+    for ops in [
+        json!([{"op":"insert","text":"<tmt-question>"}]),
+        json!({"ops":[]}),
+    ] {
+        fs::write(&file, ops.to_string()).unwrap();
+        let output = pilot
+            .command()
+            .args(["page", "check", file.to_str().unwrap(), "--json"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(report["findings"], json!([]));
+        assert_eq!(report["hints"][0]["code"], "block-ops-input");
+    }
+}
+
+#[test]
 fn page_check_hints_at_a_self_styled_page_without_failing_it_and_stays_quiet_otherwise() {
     let pilot = Pilot::new(None);
     let file = pilot.root.join("styled.html");
@@ -14829,6 +14850,22 @@ fn a_question_block_registers_with_its_publication_offline_and_serving() {
         assert_eq!(entries.len(), 1, "{registry}");
         assert_eq!(entries[0]["id"], id);
         assert_eq!(entries[0]["state"], "open");
+        assert_eq!(entries[0]["title"], "Ship it?");
+        let refused = pilot
+            .command()
+            .args(["block", "props", page, id, "--set", "group=one", "--json"])
+            .output()
+            .unwrap();
+        assert!(!refused.status.success());
+        let refusal: Value = serde_json::from_slice(&refused.stdout).unwrap();
+        assert_eq!(refusal["error"]["code"], "COLAB_INPUT_INVALID");
+        assert!(
+            refusal["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("group prop"),
+            "{refusal}"
+        );
         // Editing and deleting the block leave its one entry.
         run(&[
             "block",
@@ -14841,6 +14878,10 @@ fn a_question_block_registers_with_its_publication_offline_and_serving() {
             "Release",
             "--json",
         ]);
+        assert_eq!(
+            run(&["question", "ls", page, "--json"])["questions"][0]["title"],
+            "Release it?"
+        );
         run(&["block", "delete", page, id, "--json"]);
         let after = run(&["question", "ls", page, "--json"]);
         assert_eq!(after["questions"].as_array().unwrap().len(), 1, "{after}");
