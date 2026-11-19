@@ -231,15 +231,18 @@ fn wrapper_exit_does_not_end_a_live_or_stopped_native_or_stale_its_resume() {
         session::{HarnessId, ProviderSessionId, RuntimeMode},
     };
     use tmt_core::identity::IdentityReader;
-    for (resuming, stopped, wrapper_exits) in [
-        (false, false, false),
-        (false, false, true),
-        (false, true, true),
-        (true, false, true),
-        (true, true, true),
+    for (resuming, stopped, wrapper_exits, invalid_package) in [
+        (false, false, false, false),
+        (false, false, true, false),
+        (false, true, true, false),
+        (true, false, true, false),
+        (true, true, true, false),
+        (false, false, false, true),
     ] {
         register();
-        let fixture = Fixture::new(&format!("npm-exit-{resuming}-{stopped}-{wrapper_exits}"));
+        let fixture = Fixture::new(&format!(
+            "npm-exit-{resuming}-{stopped}-{wrapper_exits}-{invalid_package}"
+        ));
         fixture.approve();
         let native = fixture.root.join("native/codex");
         fs::create_dir(native.parent().unwrap()).unwrap();
@@ -251,9 +254,16 @@ fn wrapper_exit_does_not_end_a_live_or_stopped_native_or_stale_its_resume() {
         .unwrap();
         let package = fixture.root.join("node_modules/@openai/codex");
         fs::create_dir_all(package.join("bin")).unwrap();
+        let package_name = if invalid_package {
+            // The same launcher and native child run, but the selected package
+            // cannot prove it owns the Codex npm shim.
+            "different-package"
+        } else {
+            "@openai/codex"
+        };
         fs::write(
             package.join("package.json"),
-            br#"{"name":"@openai/codex","bin":{"codex":"bin/codex.js"}}"#,
+            serde_json::json!({"name":package_name,"bin":{"codex":"bin/codex.js"}}).to_string(),
         )
         .unwrap();
         let script = format!(
@@ -325,26 +335,58 @@ child.on('exit', (code, signal) => {{ if (signal) process.kill(process.pid,signa
         super::driver_switch::wait_with_launch_diagnostics(
             &fixture,
             owner_pid,
-            "the exact native foreground is admitted",
+            if invalid_package {
+                "the launcher records a foreground verification refusal"
+            } else {
+                "the exact native foreground is admitted"
+            },
             format_args!(
-                "provider=codex, resuming={resuming}, stopped={stopped}, wrapper_exits={wrapper_exits}, expected native PID={native_pid}, launch to native.pid={launch_to_pid:?}"
+                "provider=codex, resuming={resuming}, stopped={stopped}, wrapper_exits={wrapper_exits}, invalid_package={invalid_package}, expected native PID={native_pid}, launch to native.pid={launch_to_pid:?}"
             ),
             || {
                 let stored = row(&fixture);
-                if stored.as_ref().is_some_and(|r| {
-                    r.state == "running" && r.runtime_pid == Some(native_pid as i64)
-                }) {
-                    None
-                } else {
-                    Some(stored)
+                if !invalid_package
+                    && stored.as_ref().is_some_and(|r| {
+                        r.state == "running"
+                            && r.runtime_pid == Some(native_pid as i64)
+                            && r.owner_pid == Some(owner_pid as i64)
+                    })
+                {
+                    return None;
                 }
+                // This native peer never runs a hook. Once the exact launch
+                // owner records the refusal, no later hook can admit it.
+                let unverified = super::driver_switch::launch_observation(&fixture, owner_pid)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|observation| observation.foreground_unverified());
+                if unverified {
+                    assert!(
+                        invalid_package,
+                        "launcher refused to admit its native child: {stored:?}"
+                    );
+                    let stored = stored.expect("the worker binding remains present");
+                    assert_eq!(stored.state, "unknown");
+                    assert_eq!(stored.runtime_pid, None);
+                    assert_eq!(stored.owner_pid, None);
+                    return None;
+                }
+                Some(stored)
             },
         );
         let baseline = row(&fixture);
         if !wrapper_exits {
             let (status, stderr) = run.finish();
             assert_eq!(status, Some(7), "{stderr}");
-            assert_eq!(row(&fixture).unwrap().state, "ended");
+            if invalid_package {
+                assert_eq!(
+                    row(&fixture),
+                    baseline,
+                    "unverified child must not update the binding"
+                );
+            } else {
+                assert_eq!(row(&fixture).unwrap().state, "ended");
+            }
             continue;
         }
         if stopped {
