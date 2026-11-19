@@ -365,7 +365,7 @@ export function renderBlocks(blocks: unknown, surface: Surface = 'export'): stri
     // so its left edge matches the title in the outer document.
     return (
       STARTER +
-      '<style>body{box-sizing:border-box;width:min(1280px,calc(100vw - 32px));margin-inline:max(16px,calc((100vw - 1280px)/2)) 0}table{width:100%}</style>' +
+      '<style>body{box-sizing:border-box;width:min(1280px,calc(100vw - 32px));margin-inline:max(16px,calc((100vw - 1280px)/2)) 0}table{display:table;width:100%;table-layout:fixed}th,td{min-width:0;overflow-wrap:anywhere}</style>' +
       body
     );
   }

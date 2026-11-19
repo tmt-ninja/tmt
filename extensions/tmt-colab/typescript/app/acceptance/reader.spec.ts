@@ -1002,42 +1002,57 @@ test('a structured share link renders admitted blocks and follows owner edits', 
     await expect(body.locator('code')).toHaveText('tmt colab ls --json');
     colab(world, ['block', 'insert', pageId, '--type', 'paragraph', '--text', 'Ready for review.']);
     await expect(body.getByText('Ready for review.')).toBeVisible();
-    for (const width of [1440, 390]) {
-      await reader.page.setViewportSize({ width, height: 900 });
-      const title = reader.page
-        .getByRole('heading', { name: 'Release checklist', exact: true })
-        .last();
-      const heading = body.getByRole('heading', { name: 'Release handoff' });
-      const bounds = await title.boundingBox();
-      expect(bounds).not.toBeNull();
-      const left = Math.max(16, (width - 1280) / 2);
-      await expect.poll(async () => (await heading.boundingBox())?.x).toBe(left);
-      expect(bounds!.x).toBe(left);
-      if (width === 390)
-        expect((await body.getByRole('table').boundingBox())?.width).toBe(width - 32);
-    }
     const captures = process.env.COLAB_READER_CAPTURE_DIR;
-    if (captures) {
+    const owner = captures ? await pairBrowser(world, 'structured-owner') : undefined;
+    if (captures && owner) {
       await mkdir(captures, { recursive: true });
-      const owner = await pairBrowser(world, 'structured-owner');
       await owner.page.goto(new URL(String(created.path), door.address).href);
       await expect(
         owner.page.getByText('Ready for review.', { exact: true }).first(),
       ).toBeVisible();
-      for (const width of [1440, 390])
-        for (const theme of ['light', 'dark'] as const) {
-          for (const [name, page] of [
-            ['owner', owner.page],
-            ['reader', reader.page],
-          ] as const) {
-            await page.setViewportSize({ width, height: 900 });
-            await page.emulateMedia({ colorScheme: theme });
-            await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
-            if (name === 'reader')
-              await expect.poll(() => body.locator('html').getAttribute('data-theme')).toBe(theme);
-            await page.screenshot({ path: path.join(captures, `${name}-${width}-${theme}.png`) });
-          }
+    }
+    for (const width of [1440, 390]) {
+      for (const theme of ['light', 'dark'] as const) {
+        for (const page of [reader.page, ...(owner ? [owner.page] : [])]) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.emulateMedia({ colorScheme: theme });
+          await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
         }
+        const dark = theme === 'dark';
+        await expect(body.locator('body')).toHaveCSS(
+          'background-color',
+          dark ? 'rgb(10, 10, 10)' : 'rgb(255, 255, 255)',
+        );
+        await expect(body.getByText('Ready for review.')).toHaveCSS(
+          'color',
+          dark ? 'rgb(242, 239, 233)' : 'rgb(20, 20, 20)',
+        );
+        const title = await reader.page.locator('.page-mobile-title h1').boundingBox();
+        const left = Math.max(16, (width - 1280) / 2);
+        expect(title?.x).toBe(left);
+        const heading = body.getByRole('heading', { name: 'Release handoff' });
+        expect((await heading.boundingBox())?.x).toBe(left);
+        for (const row of [
+          body.getByRole('table'),
+          body.getByRole('row').first(),
+          body.getByRole('cell', { name: 'Verification' }),
+        ]) {
+          const box = await row.boundingBox();
+          expect(box?.x).toBe(left);
+          expect(box?.width).toBe(title!.width);
+        }
+        if (captures && owner) {
+          await reader.page.screenshot({
+            path: path.join(captures, `reader-${width}-${theme}.png`),
+          });
+          await owner.page.screenshot({ path: path.join(captures, `owner-${width}-${theme}.png`) });
+          if (width === 390 && dark)
+            await owner.page
+              .locator('.structured-section-heading')
+              .first()
+              .screenshot({ path: path.join(captures, 'owner-section-dark.png') });
+        }
+      }
     }
   });
 });
