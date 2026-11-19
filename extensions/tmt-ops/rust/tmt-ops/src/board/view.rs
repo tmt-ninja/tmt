@@ -64,10 +64,15 @@ pub(super) fn opening(frame: &mut Frame<'_>, look: crate::look::Look, tab: Optio
     } else {
         body.y
     };
+    let loading = if tab == Some(OpsTab::Work) {
+        " ◌ Loading work…"
+    } else {
+        " ◌ Loading squads…"
+    };
     strip::paint_left(
         frame.buffer_mut(),
         row(status_y),
-        ratatui::text::Line::styled(" ◌ Loading squads…", look.role(Role::Muted)),
+        ratatui::text::Line::styled(loading, look.role(Role::Muted)),
     );
     if area.height >= 4 {
         strip::paint_left(

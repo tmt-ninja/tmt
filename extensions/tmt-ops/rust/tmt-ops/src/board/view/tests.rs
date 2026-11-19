@@ -112,7 +112,7 @@ fn the_first_admitted_frame_shows_board_chrome_without_live_data() {
         assert_eq!(
             lines
                 .iter()
-                .filter(|line| line.contains("◌ Loading"))
+                .filter(|line| line.contains("◌ Loading work…"))
                 .count(),
             1,
             "one marked loading row"
