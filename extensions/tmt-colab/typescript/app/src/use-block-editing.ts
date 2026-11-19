@@ -1309,18 +1309,23 @@ export function useBlockEditing(
     [gesture],
   );
 
-  /** Open the block menu on `id` (the handle's ⋯, or the menu key); the block is selected so the
-   * menu's keys reach the page. */
-  const openBlockMenu = useCallback(
+  /** Leave editing before the focused block starts taking selection and menu keys. */
+  const selectForKeyboard = useCallback(
     (id: string) => {
       flush();
       sync.current = undefined;
       setEditing(undefined);
       setMenuAt(undefined);
       setSelection(selectBlock(id));
-      setBlockMenu({ id, active: BLOCK_MENU_ACTIONS[0] });
     },
     [flush],
+  );
+  const openBlockMenu = useCallback(
+    (id: string) => {
+      selectForKeyboard(id);
+      setBlockMenu({ id, active: BLOCK_MENU_ACTIONS[0] });
+    },
+    [selectForKeyboard],
   );
 
   /** Insert a paragraph and move the one editor to it while the batch settles. */
@@ -1524,6 +1529,7 @@ export function useBlockEditing(
     closeMenu,
     selected,
     selectionFocus: selection?.focus,
+    selectForKeyboard,
     selectionRequest: selection,
     pageKey,
     blockMenu,

@@ -1241,3 +1241,90 @@ test('a comment that asks an agent becomes a to-do the agent checks', async () =
     expect(agent.received()).toHaveLength(1);
   });
 });
+
+async function tabTo(
+  page: import('@playwright/test').Page,
+  target: import('@playwright/test').Locator,
+) {
+  await target.waitFor({ state: 'visible' });
+  for (let i = 0; i < 100; i++) {
+    if (await target.evaluate((node) => node === document.activeElement)) return;
+    await page.keyboard.press('Tab');
+  }
+  await expect(target).toBeFocused();
+}
+
+for (const task of ['heading actions', 'annotation'] as const)
+  test(`keyboard-only structured page: ${task}`, async () => {
+    await withWorld(async (world) => {
+      const door = await startDoor(world, await freePort());
+      const browser = await pairBrowser(world, 'block-keyboard');
+      world.linkExtensions();
+      const cli = (args: string[]) =>
+        JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+      const created = cli(['page', 'create', '--title', 'Keyboard review', '--no-open']);
+      for (const title of ['Overview', 'Details', 'Decisions'])
+        cli(['block', 'insert', created.pageId, '--type', 'heading', '--text', title]);
+      const paragraph = cli([
+        'block',
+        'insert',
+        created.pageId,
+        '--type',
+        'paragraph',
+        '--text',
+        'Review the checklist.',
+      ]).blockIds[0];
+      const page = await browser.context.newPage();
+      await page.goto(new URL(created.path, door.address).href);
+      if (task === 'heading actions') {
+        const nav = page.getByRole('navigation', { name: 'Page outline' });
+        const toggle = nav.locator('.page-outline-toggle');
+        await tabTo(page, toggle);
+        if ((await toggle.getAttribute('aria-expanded')) === 'false')
+          await page.keyboard.press('Enter');
+        await tabTo(page, nav.getByRole('button', { name: 'Details', exact: true }));
+        await page.keyboard.press('Enter');
+        const heading = page
+          .locator('[data-block-id]')
+          .filter({ has: page.getByRole('heading', { name: 'Details', exact: true }) });
+        await expect(heading).toBeFocused();
+        await page.keyboard.press('Shift+F10');
+        await expect(page.getByRole('menuitem', { name: 'Mark as done' })).toBeVisible();
+        await page.keyboard.press('End');
+        const menu = page.getByRole('menu', { name: 'Block actions' });
+        for (
+          let i = 0;
+          i < 20 && !(await menu.getAttribute('aria-activedescendant'))?.endsWith('progress-done');
+          i++
+        )
+          await page.keyboard.press('ArrowUp');
+        await expect(menu).toHaveAttribute('aria-activedescendant', /progress-done$/);
+        await page.keyboard.press('Enter');
+        const id = await heading.getAttribute('data-block-id');
+        await expect
+          .poll(() => cli(['block', 'get', created.pageId, id!]).block.props.progress)
+          .toBe('done');
+      } else {
+        const select = page.getByRole('button', { name: 'Selection mode', exact: true });
+        await tabTo(page, select);
+        await page.keyboard.press('Enter');
+        const block = page.locator(`[data-block-id="${paragraph}"]`);
+        await tabTo(page, block);
+        await page.keyboard.press('Enter');
+        const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
+        await expect(dialog.getByText('Annotate the block', { exact: true })).toBeVisible();
+        await expect(dialog.locator('.annotation-quote')).toContainText('Review the checklist.');
+        await page.keyboard.press('Escape');
+        await expect(block).toBeFocused();
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('End');
+        for (const _ of 'checklist.') await page.keyboard.press('Shift+ArrowLeft');
+        const annotate = page.getByRole('button', { name: 'Annotate', exact: true });
+        await expect(annotate).toBeVisible();
+        await page.keyboard.press('Tab');
+        await expect(annotate).toBeFocused();
+        await page.keyboard.press('Enter');
+        await expect(dialog.locator('.annotation-quote')).toHaveText('checklist.');
+      }
+    });
+  });
