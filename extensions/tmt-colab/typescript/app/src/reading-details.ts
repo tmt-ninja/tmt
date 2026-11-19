@@ -257,7 +257,7 @@ export type ReadingDetails =
       /** The first pending items by rank (review, question, reading); the count stays `summary.needsYou`. */
       needs: NeedDescriptor[];
       latest?: LatestComment;
-      legacyAnswers?: [string, string, string | null][];
+      answerBindings?: [string, string, string | null, string | null][];
     }
   | { pageId: string; state: 'pending' | 'unavailable' };
 
@@ -332,19 +332,20 @@ function completeDetails(value: unknown, pageId: string): ReadingDetails {
     ...('pageState' in value ? ['pageState'] : []),
     ...('progress' in value ? ['progress'] : []),
     ...('latest' in value ? ['latest'] : []),
-    ...('legacyAnswers' in value ? ['legacyAnswers'] : []),
+    ...('answerBindings' in value ? ['answerBindings'] : []),
   ]);
-  const legacyAnswers: [string, string, string | null][] = [];
-  if ('legacyAnswers' in value) {
-    requireValue(Array.isArray(value.legacyAnswers) && value.legacyAnswers.length <= 100);
-    for (const entry of value.legacyAnswers) {
-      requireValue(Array.isArray(entry) && entry.length === 3);
-      const [writer, message, digest] = entry;
+  const answerBindings: [string, string, string | null, string | null][] = [];
+  if ('answerBindings' in value) {
+    requireValue(Array.isArray(value.answerBindings) && value.answerBindings.length <= 100);
+    for (const entry of value.answerBindings) {
+      requireValue(Array.isArray(entry) && entry.length === 4);
+      const [writer, message, digest, prompt] = entry;
+      requireValue(prompt === null || typeof prompt === 'string');
       requireValue(validReadingId(writer) && validReadingId(message));
       requireValue(
         digest === null || (typeof digest === 'string' && /^[0-9a-f]{64}$/.test(digest)),
       );
-      legacyAnswers.push([writer, message, digest]);
+      answerBindings.push([writer, message, digest, prompt]);
     }
   }
   requireValue(typeof value.fingerprint === 'string' && /^[0-9a-f]{64}$/.test(value.fingerprint));
@@ -396,7 +397,7 @@ function completeDetails(value: unknown, pageId: string): ReadingDetails {
     readings,
     needs,
     ...('latest' in value ? { latest: latestComment(value.latest) } : {}),
-    ...(legacyAnswers.length ? { legacyAnswers } : {}),
+    ...(answerBindings.length ? { answerBindings } : {}),
   };
 }
 
@@ -405,10 +406,13 @@ export async function readReadingDetails(
   mount: URL,
   pageId: string,
   signal: AbortSignal,
+  includeAnswerBindings = false,
 ): Promise<ReadingDetails> {
   requireValue(validReadingId(pageId));
   signal.throwIfAborted();
-  const response = await fetch(new URL(`api/pages/${pageId}/summary-details`, mount), {
+  const url = new URL(`api/pages/${pageId}/summary-details`, mount);
+  if (includeAnswerBindings) url.pathname += '/answer-bindings';
+  const response = await fetch(url, {
     credentials: 'same-origin',
     cache: 'no-store',
     signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),

@@ -1,4 +1,4 @@
-import { type AnsweredForm, StaleQuestionFormError } from './question-form.js';
+import { StaleQuestionFormError } from './question-form.js';
 import {
   readNeedsYouAcknowledgements,
   validateNeedsYouAcknowledgement,
@@ -91,7 +91,7 @@ export interface ThreadBinding {
     anchor: ThreadAnchor | null,
     attach?: MessageAttachments,
     questionId?: string,
-    answeredForm?: AnsweredForm,
+    expectedFormDigest?: string,
   ): Promise<CommentContext>;
   createChat(body: string, attach?: MessageAttachments): Promise<CommentContext>;
   reply(
@@ -100,7 +100,7 @@ export interface ThreadBinding {
     expectedRevision?: string,
     attach?: MessageAttachments,
     questionId?: string,
-    answeredForm?: AnsweredForm,
+    expectedFormDigest?: string,
   ): Promise<CommentContext>;
   edit(message: DiscussionRef, revision: string, body: string): Promise<void>;
   deleteComment(message: DiscussionRef, revision: string): Promise<void>;
@@ -277,12 +277,12 @@ export class ThreadStore implements ThreadBinding {
     anchor: ThreadAnchor | null,
     attach?: MessageAttachments,
     questionId?: string,
-    answeredForm?: AnsweredForm,
+    expectedFormDigest?: string,
   ) {
     if (anchor && 'block' in anchor) requireValue(this.options.blockAnchors?.() === true);
     const threadId = crypto.randomUUID();
     requireValue(threadId !== this.deviceId);
-    return this.#create(body, anchor, threadId, attach, questionId, answeredForm);
+    return this.#create(body, anchor, threadId, attach, questionId, expectedFormDigest);
   }
   async createChat(body: string, attach?: MessageAttachments) {
     return this.#create(body, null, this.deviceId, attach);
@@ -313,7 +313,7 @@ export class ThreadStore implements ThreadBinding {
     threadId: string,
     attach?: MessageAttachments,
     questionId?: string,
-    answeredForm?: AnsweredForm,
+    expectedFormDigest?: string,
   ) {
     const captured = structuredClone(anchor),
       messageId = attach?.messageId ?? crypto.randomUUID();
@@ -321,9 +321,9 @@ export class ThreadStore implements ThreadBinding {
       if (captured && 'block' in captured) requireValue(this.options.blockAnchors?.() === true);
       const attached = await this.#attached(attach);
       if (
-        answeredForm &&
+        expectedFormDigest &&
         questionId &&
-        this.options.currentQuestionForm?.(questionId) !== answeredForm.digest
+        this.options.currentQuestionForm?.(questionId) !== expectedFormDigest
       )
         throw new StaleQuestionFormError();
       requireValue(
@@ -346,7 +346,6 @@ export class ThreadStore implements ThreadBinding {
             ...this.#scope(),
             kind: 'comment',
             ...(questionId === undefined ? {} : { questionId }),
-            ...(answeredForm === undefined ? {} : { answeredForm }),
             messageId,
             revision: '1',
             thread: { writer: this.deviceId, id: threadId },
@@ -372,7 +371,7 @@ export class ThreadStore implements ThreadBinding {
     expectedRevision?: string,
     attach?: MessageAttachments,
     questionId?: string,
-    answeredForm?: AnsweredForm,
+    expectedFormDigest?: string,
   ) {
     const ref = structuredClone(thread),
       messageId = attach?.messageId ?? crypto.randomUUID();
@@ -383,9 +382,9 @@ export class ThreadStore implements ThreadBinding {
       requireValue(expectedRevision === undefined || revision === expectedRevision);
       const attached = await this.#attached(attach);
       if (
-        answeredForm &&
+        expectedFormDigest &&
         questionId &&
-        this.options.currentQuestionForm?.(questionId) !== answeredForm.digest
+        this.options.currentQuestionForm?.(questionId) !== expectedFormDigest
       )
         throw new StaleQuestionFormError();
       await this.#write(
@@ -394,7 +393,6 @@ export class ThreadStore implements ThreadBinding {
             ...this.#scope(),
             kind: 'comment',
             ...(questionId === undefined ? {} : { questionId }),
-            ...(answeredForm === undefined ? {} : { answeredForm }),
             messageId,
             revision: '1',
             thread: ref,

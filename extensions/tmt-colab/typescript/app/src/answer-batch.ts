@@ -8,7 +8,7 @@ import { ASK_MESSAGE_BYTES } from './ask-records.js';
 import { sendCommentAsks, type MessageSendFailure } from './comment-send.js';
 import type { AgentDestination } from './live-ask.js';
 import { answerOf, type Question, type QuestionGroup } from './questions.js';
-import { answerToForm, StaleQuestionFormError } from './question-form.js';
+import { formDigest, askedForm, StaleQuestionFormError } from './question-form.js';
 import { anchorQuote, type QuoteSelector, type ThreadView } from './thread-records.js';
 import {
   captureConversation,
@@ -183,7 +183,7 @@ export async function sendAnswers(
       const attach = prepared?.attach;
       const selection = answerOf(answer.question, answer.body);
       requireValue(selection !== undefined);
-      const form = answerToForm(answer.question, selection);
+      const form = formDigest(askedForm(answer.question));
       const context = answer.thread
         ? await bindings.discussion.reply(
             answer.thread.ref,

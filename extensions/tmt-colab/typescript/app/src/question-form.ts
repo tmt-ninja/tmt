@@ -33,44 +33,8 @@ export function answerApplies(recorded: string | null, current: string | null): 
 }
 
 export function commentApplies(comment: CommentView, current: string | null): boolean {
-  if (comment.answeredForm) return answerApplies(comment.answeredForm.digest, current);
-  if (comment.legacyBinding === 'superseded') return false;
-  return !comment.legacyBinding || answerApplies(comment.legacyBinding.digest, current);
-}
-
-export interface AnsweredForm {
-  form: QuestionForm;
-  digest: string;
-  selection: string;
-}
-
-export function answerToForm(question: Question, selection: string): AnsweredForm {
-  const form = askedForm(question);
-  return { form, digest: formDigest(form), selection };
-}
-
-export function validAnsweredForm(value: unknown): value is AnsweredForm {
-  if (typeof value !== 'object' || value === null || Object.keys(value).length !== 3) return false;
-  const { form, digest, selection } = value as Partial<AnsweredForm>;
-  return (
-    Array.isArray(form) &&
-    form.length === 4 &&
-    form[0] === 1 &&
-    typeof form[1] === 'string' &&
-    ['short', 'long', 'single', 'multiple'].includes(form[2]) &&
-    Array.isArray(form[3]) &&
-    form[3].length <= 20 &&
-    form[3].every(
-      (choice) =>
-        Array.isArray(choice) &&
-        choice.length === 2 &&
-        typeof choice[0] === 'string' &&
-        (choice[1] === null || typeof choice[1] === 'string'),
-    ) &&
-    typeof selection === 'string' &&
-    typeof digest === 'string' &&
-    digest === formDigest(form)
-  );
+  if (comment.formBinding === 'superseded') return false;
+  return !comment.formBinding || answerApplies(comment.formBinding.digest, current);
 }
 
 export function askedForm(question: Question): QuestionForm {

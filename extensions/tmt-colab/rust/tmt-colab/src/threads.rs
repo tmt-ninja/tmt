@@ -94,8 +94,6 @@ struct CommentRecord {
     message_id: String,
     #[serde(default)]
     question_id: Option<String>,
-    #[serde(default)]
-    answered_form: Option<crate::question_registry::form::AnsweredForm>,
     thread: ThreadRef,
     body: String,
     #[serde(default)]
@@ -221,9 +219,6 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
             values::generated_id(&v.message_id)?;
             if let Some(id) = &v.question_id {
                 require(crate::page_check::valid_question_id(id))?;
-            }
-            if let Some(form) = &v.answered_form {
-                require(v.question_id.is_some() && form.valid())?;
             }
             values::generated_id(&v.thread.writer)?;
             values::generated_id(&v.thread.id)?;

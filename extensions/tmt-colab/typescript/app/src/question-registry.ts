@@ -3,18 +3,13 @@
 import { coreIdentity, id, keys, nonempty, plain, requireValue } from './closed.js';
 import { validateAttribution, type Attribution } from './summary-lines.js';
 import {
+  answerOf,
   QUESTION_LIMIT,
   QUESTION_TITLE_POINTS,
   readQuestions,
   type Question,
 } from './questions.js';
-import {
-  commentApplies,
-  askedForm,
-  blockQuestion,
-  formDigest,
-  type AnsweredForm,
-} from './question-form.js';
+import { commentApplies, askedForm, blockQuestion, formDigest } from './question-form.js';
 import type { BlockEntry } from './blocks.js';
 import { validQuestionId } from './question-id.js';
 import { compareCommentOrder, type ThreadView } from './thread-records.js';
@@ -87,7 +82,7 @@ export type QuestionState = Omit<RegisteredQuestion, 'state'> & {
   answeredAt?: string;
   answerRef?: { writer: string; id: string; revision: string };
   earlierAnswer?: {
-    answeredForm?: AnsweredForm;
+    prompt?: string;
     selection: string;
     answerRef: { writer: string; id: string; revision: string };
   };
@@ -119,13 +114,17 @@ export function questionStates(
     comments.reverse();
     const answer = comments.find(matches);
     const earlier = comments.find(
-      (comment) => comment.legacyBinding !== 'superseded' && !matches(comment),
+      (comment) => comment.formBinding !== 'superseded' && !matches(comment),
     );
+    const prompt =
+      typeof earlier?.formBinding === 'object' ? earlier.formBinding.prompt : undefined;
     const history = earlier
       ? {
           earlierAnswer: {
-            answeredForm: earlier.answeredForm,
-            selection: earlier.answeredForm?.selection ?? earlier.body,
+            prompt,
+            selection: prompt
+              ? (answerOf({ title: prompt }, earlier.body) ?? earlier.body)
+              : earlier.body,
             answerRef: { ...earlier.ref, revision: earlier.revision },
           },
         }
@@ -136,7 +135,7 @@ export function questionStates(
       ...history,
       state: entry.state === 'handled' ? 'handled' : 'answered',
       answer: [
-        ...(answer.answeredForm?.selection ?? answer.body)
+        ...(question ? (answerOf(question, answer.body) ?? answer.body) : answer.body)
           .replace(/\p{Cc}/gu, ' ')
           .split(/\p{White_Space}+/u)
           .filter(Boolean)

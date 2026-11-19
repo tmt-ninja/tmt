@@ -10,7 +10,7 @@ pub(crate) fn project(
     view: &Conversations,
     device_writers: &BTreeSet<String>,
     forms: &BTreeMap<String, Form>,
-    legacy: &super::form::LegacyForms,
+    bindings: &super::form::AnswerForms,
 ) -> Result<Vec<Value>> {
     super::validate(registry)?;
     Ok(registry
@@ -32,12 +32,8 @@ pub(crate) fn project(
             let mut answer = None;
             let mut previous = None;
             for comment in comments {
-                let recorded = legacy.get(&(comment.writer.clone(), comment.id.clone()));
-                let matches = match (&comment.answered_form, recorded) {
-                    (Some(record), _) => applies(Some(&record.digest), current.as_deref()),
-                    (None, Some(record)) => applies(record.as_ref().map(Form::digest).as_deref(), current.as_deref()),
-                    (None, None) => true,
-                };
+                let recorded = bindings.get(&(comment.writer.clone(), comment.id.clone()));
+                let matches = recorded.is_none_or(|record| applies(record.as_ref().map(Form::digest).as_deref(), current.as_deref()));
                 let slot = if matches { &mut answer } else { &mut previous };
                 let order = |c: &crate::export::conversations::Comment| (c.sequence.parse::<u64>().unwrap_or(0), c.writer.clone(), c.id.clone());
                 if slot.is_none_or(|older| order(older) < order(comment)) {
@@ -46,19 +42,15 @@ pub(crate) fn project(
             }
             let mut effective = entry.clone();
             if let Some(comment) = previous {
-                effective["earlierAnswer"] = json!({"answeredForm":comment.answered_form,"answerRef":{"writer":comment.writer,"id":comment.id,"revision":comment.revision}});
-                if comment.answered_form.is_none() {
-                    effective["earlierAnswer"]["grandfathered"] = json!(true);
-                    effective["earlierAnswer"]["form"] = json!(legacy.get(&(comment.writer.clone(),comment.id.clone())));
-                    effective["earlierAnswer"]["answer"] = json!(crate::summary_passages::excerpt(&comment.body,crate::limits::QUESTION_ANSWER_POINTS));
-                }
+                let form = bindings.get(&(comment.writer.clone(), comment.id.clone())).and_then(Option::as_ref);
+                effective["earlierAnswer"] = json!({"prompt":form.map(Form::prompt),"answer":crate::summary_passages::excerpt(form.map_or(comment.body.as_str(), |f| f.selection(&comment.body)),crate::limits::QUESTION_ANSWER_POINTS),"answerRef":{"writer":comment.writer,"id":comment.id,"revision":comment.revision}});
             }
             if let Some(answer) = answer {
                 if effective["state"] == "open" {
                     effective["state"] = json!("answered");
                 }
                 let summary = crate::summary_passages::excerpt(
-                    answer.answered_form.as_ref().map_or(answer.body.as_str(), |record| record.selection.as_str()),
+                    bindings.get(&(answer.writer.clone(),answer.id.clone())).and_then(Option::as_ref).map_or(answer.body.as_str(), |f| f.selection(&answer.body)),
                     crate::limits::QUESTION_ANSWER_POINTS,
                 );
                 effective["answer"] = json!(summary);
@@ -113,7 +105,7 @@ mod tests {
         .unwrap();
         assert_eq!(restored[0]["state"], "open");
         assert!(restored[0].get("answer").is_none());
-        assert_eq!(restored[0]["earlierAnswer"]["grandfathered"], true);
+        assert!(restored[0]["earlierAnswer"]["prompt"].is_null());
         assert_eq!(
             restored[0]["earlierAnswer"]["answerRef"],
             absent[0]["answerRef"]

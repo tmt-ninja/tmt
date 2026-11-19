@@ -1003,7 +1003,7 @@ fn serve(
             let projection = match projection {
                 Some(projection) => projection,
                 None if never_written => crate::summary::SummaryProjection {
-                    legacy_answers: Vec::new(),
+                    answer_bindings: Vec::new(),
                     summary: crate::summary::Summary {
                         comments: 0,
                         waiting: false,
@@ -1280,7 +1280,7 @@ fn serve(
     }
     if request.method == "GET"
         && !request.upgrade
-        && let Some(page) = summary_details_page(&request.path)
+        && let Some((page, include_answer_bindings)) = summary_details_page(&request.path)
     {
         let result = if !request.body.is_empty() {
             Err(registration::Code::Invalid)
@@ -1291,7 +1291,11 @@ fn serve(
                     service
                         .lock()
                         .map_err(|_| registration::Code::Unavailable)?
-                        .page_summary_details(request.context.as_deref(), page)
+                        .page_summary_details(
+                            request.context.as_deref(),
+                            page,
+                            include_answer_bindings,
+                        )
                 })
         };
         let (status, body) = match result {
@@ -2430,11 +2434,14 @@ fn client_closed(client: &UnixStream) -> bool {
         Err(_) => true,
     }
 }
-fn summary_details_page(path: &str) -> Option<&str> {
+fn summary_details_page(path: &str) -> Option<(&str, bool)> {
+    let (path, include_bindings) = path
+        .strip_suffix("/answer-bindings")
+        .map_or((path, false), |base| (base, true));
     let page = path
         .strip_prefix("/api/pages/")?
         .strip_suffix("/summary-details")?;
-    (!page.is_empty() && !page.contains('/')).then_some(page)
+    (!page.is_empty() && !page.contains('/')).then_some((page, include_bindings))
 }
 /// The owner device name from the remote door's context; anything other than
 /// an owner context with a device ID and name is malformed.

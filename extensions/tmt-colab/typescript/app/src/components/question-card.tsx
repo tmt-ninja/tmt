@@ -144,7 +144,7 @@ export function QuestionCard({
     >
       <div className="question-controls">
         {compose && earlierAnswer !== undefined && (
-          <p className="question-history" title={earlierAnswer.answeredForm?.form[1]}>
+          <p className="question-history" title={earlierAnswer.prompt}>
             {text.questionEarlierVersion(earlierAnswer.selection)}
           </p>
         )}

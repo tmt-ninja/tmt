@@ -70,8 +70,6 @@ pub struct AttachmentRow {
 pub struct Comment {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub question_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub answered_form: Option<crate::question_registry::form::AnsweredForm>,
     pub writer: String,
     pub id: String,
     pub revision: String,
@@ -219,8 +217,7 @@ fn latest(mut records: Vec<&Value>) -> Option<&Value> {
             && text(previous, "kind") == Some("comment")
             && (pair(&record["thread"]) != pair(&previous["thread"])
                 || sequence(record) != sequence(previous)
-                || record.get("questionId") != previous.get("questionId")
-                || record.get("answeredForm") != previous.get("answeredForm"))
+                || record.get("questionId") != previous.get("questionId"))
         {
             return None;
         }
@@ -359,9 +356,6 @@ pub(crate) fn threads(
                     format!("{tw}:{ti}"),
                     Comment {
                         question_id: owned(record, "questionId"),
-                        answered_form: record
-                            .get("answeredForm")
-                            .and_then(|value| serde_json::from_value(value.clone()).ok()),
                         writer: writer.clone(),
                         id,
                         revision: rev,

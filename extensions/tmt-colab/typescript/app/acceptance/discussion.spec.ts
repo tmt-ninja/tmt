@@ -912,7 +912,7 @@ test('answer blocks publish verified normal annotations and keep changes and age
     expect(receipt.questionHint).toContain('A fresh answer is needed');
     const reopened = metadata().questionStates[0];
     expect(reopened.state).toBe('open');
-    expect(reopened.earlierAnswer.answeredForm.selection).toBe('Change it');
+    expect(reopened.earlierAnswer.answer).toBe('Change it');
     await expect(
       card.getByText(text.questionEarlierVersion('Change it'), { exact: true }),
     ).toBeVisible();

@@ -6,32 +6,12 @@ use sha2::{Digest, Sha256};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Form(u8, String, String, Vec<(String, Option<String>)>);
 
-pub(crate) type LegacyForms = std::collections::BTreeMap<(String, String), Option<Form>>;
+pub(crate) type AnswerForms = std::collections::BTreeMap<(String, String), Option<Form>>;
 
 /// An absent current form preserves the registration's answer while its controls are removed.
 /// An absent recorded form is the explicit grandfathered absence, never a wildcard.
 pub fn applies(recorded: Option<&str>, current: Option<&str>) -> bool {
     current.is_none() || recorded == current
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AnsweredForm {
-    pub form: Form,
-    pub digest: String,
-    pub selection: String,
-}
-
-impl AnsweredForm {
-    pub fn valid(&self) -> bool {
-        self.form.0 == 1
-            && matches!(
-                self.form.2.as_str(),
-                "single" | "multiple" | "short" | "long"
-            )
-            && self.form.3.len() <= crate::limits::QUESTION_CHOICES
-            && self.form.digest() == self.digest
-    }
 }
 
 impl From<&Question> for Form {
@@ -50,6 +30,20 @@ impl From<&Question> for Form {
 }
 
 impl Form {
+    pub fn prompt(&self) -> &str {
+        &self.1
+    }
+
+    pub fn selection<'a>(&self, body: &'a str) -> &'a str {
+        let prefix = format!("Answer to “{}”: ", self.prompt());
+        body.strip_prefix(&prefix)
+            .map(|text| {
+                text.rsplit_once("\nPage: ")
+                    .map_or(text, |(answer, _)| answer)
+            })
+            .unwrap_or(body)
+    }
+
     pub fn page_forms(
         source: &str,
         blocks: Option<&serde_json::Value>,

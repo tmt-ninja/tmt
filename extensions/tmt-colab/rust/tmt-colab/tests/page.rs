@@ -6301,7 +6301,7 @@ fn owner_chapter_details_are_complete_at_one_fingerprint_and_reject_nonowners() 
     let read = || -> Value {
         serde_json::from_slice(
             &registration
-                .page_summary_details(Some(&context), PAGE)
+                .page_summary_details(Some(&context), PAGE, false)
                 .unwrap(),
         )
         .unwrap()
@@ -6355,23 +6355,29 @@ fn owner_chapter_details_are_complete_at_one_fingerprint_and_reject_nonowners() 
     denied["owner"] = json!(false);
     assert_eq!(
         registration
-            .page_summary_details(Some(&denied.to_string()), PAGE)
+            .page_summary_details(Some(&denied.to_string()), PAGE, false)
             .unwrap_err(),
         Code::Denied
     );
     assert_eq!(
-        registration.page_summary_details(None, PAGE).unwrap_err(),
+        registration
+            .page_summary_details(None, PAGE, false)
+            .unwrap_err(),
         Code::Denied
     );
     assert_eq!(
         registration
-            .page_summary_details(Some(&context), "not-a-page")
+            .page_summary_details(Some(&context), "not-a-page", false)
             .unwrap_err(),
         Code::Invalid
     );
     assert_eq!(
         registration
-            .page_summary_details(Some(&context), "20000000-0000-4000-8000-000000000099")
+            .page_summary_details(
+                Some(&context),
+                "20000000-0000-4000-8000-000000000099",
+                false
+            )
             .unwrap_err(),
         Code::Denied
     );

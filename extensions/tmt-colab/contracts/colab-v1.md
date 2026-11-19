@@ -1255,7 +1255,7 @@ An ordinary comment may carry optional `questionId`, using the same UUID grammar
 immutable across revisions, like its thread reference and Lamport sequence. This is an inert
 binding, not a new comment kind or authority. Effective question state consumes only current,
 nondeleted question-bound comments from verified owner-member devices in nondeleted
-threads. Each new answer records the selection and the form the person saw. Its digest is
+threads. The comment keeps its existing shape. The owner records the form locally. Its digest is
 the lowercase SHA-256 of compact UTF-8 JSON encoding
 `[1,prompt,mode,[[choice,description-or-null],...]]` in display order.
 Each group member has its own form. Rust and the browser share the
@@ -1272,14 +1272,15 @@ removed, while preserving other pending kinds. Browser controls/routing/count ad
 tracked separately by #5146; the strict browser metadata and own-record codecs already
 preserve these values without granting a commenter content authority.
 
-At its first projection after upgrade, the owner serve records the current form or its absence
-for each verified legacy answer. While a question is absent it stays answered. When its ID
-appears again, only an answer bound to that form counts. The same rule applies to answers
-recorded after upgrade. The newest earlier answer remains available through `earlierAnswer`
-with its comment reference. A legacy answer carries `grandfathered: true` in that history.
-The owner summary-details read may include `legacyAnswers`, at most two selected legacy
-comment references per registration, encoded as `[writer,id,digest-or-null]`. It allows a
-browser to match already verified comments to the owner's persisted baseline.
+On the first owner-serve projection of each verified answer, each owner's device records
+the question's current form or its absence in its own store. An edit that lands after Send
+and before this first projection binds the answer to the edited form. This applies to new
+answers and to existing answers on upgrade. While the question is absent it stays answered;
+when its ID returns, only the recorded form counts. The newest earlier answer remains in
+`earlierAnswer` with its comment reference. The owner app requests the
+`summary-details/answer-bindings` variant to receive `answerBindings`,
+at most two selected comment references per registration, as
+`[writer,id,digest-or-null,prompt-or-null]` for the browser's history line.
 
 When a page patch or block edit reopens answered questions, the CLI receipt names their IDs
 in `reopenedQuestions` and explains in `questionHint` that a fresh answer is needed.

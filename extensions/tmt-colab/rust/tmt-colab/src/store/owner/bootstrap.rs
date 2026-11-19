@@ -231,13 +231,13 @@ impl OwnerTransaction<'_> {
     pub(crate) fn page_progress(&self) -> Result<std::collections::BTreeMap<String, String>> {
         self.selected_page_fingerprints(None, false)
     }
-    pub(crate) fn grandfathered_answers(
+    pub(crate) fn answer_forms(
         &self,
         page: &str,
-    ) -> Result<crate::question_registry::form::LegacyForms> {
+    ) -> Result<crate::question_registry::form::AnswerForms> {
         let mut query = self
             .tx
-            .prepare("SELECT writer,message,form FROM grandfathered_answers WHERE page=?1")?;
+            .prepare("SELECT writer,message,form FROM answer_forms WHERE page=?1")?;
         let rows = query.query_map([page], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -245,7 +245,7 @@ impl OwnerTransaction<'_> {
                 row.get::<_, Option<String>>(2)?,
             ))
         })?;
-        let mut forms = crate::question_registry::form::LegacyForms::new();
+        let mut forms = crate::question_registry::form::AnswerForms::new();
         for row in rows {
             let (writer, id, form) = row?;
             forms.insert(
@@ -256,16 +256,16 @@ impl OwnerTransaction<'_> {
         Ok(forms)
     }
 
-    pub(crate) fn grandfather_answers(
+    pub(crate) fn bind_answer_forms(
         &mut self,
         page: &str,
         fingerprint: &str,
-        forms: &crate::question_registry::form::LegacyForms,
+        forms: &crate::question_registry::form::AnswerForms,
     ) -> Result<()> {
         if self.page_fingerprint(page)?.as_deref() != Some(fingerprint) {
             return Err(OwnerFault::StaleHead.into());
         }
-        let mut insert = self.tx.prepare("INSERT INTO grandfathered_answers(page,writer,message,form) VALUES (?1,?2,?3,?4) ON CONFLICT(page,writer,message) DO NOTHING")?;
+        let mut insert = self.tx.prepare("INSERT INTO answer_forms(page,writer,message,form) VALUES (?1,?2,?3,?4) ON CONFLICT(page,writer,message) DO NOTHING")?;
         for ((writer, id), form) in forms {
             insert.execute(params![
                 page,

@@ -517,20 +517,61 @@ fn verified_own_answers_change_registry_state_without_content_or_ask_publication
     assert_eq!(first["questionStates"][0]["answer"], "The first answer");
     assert_eq!(first["questionStates"][0]["answerRef"]["id"], message);
     let db = pilot.root.join("selected/colab/space.db");
+    let detail = || format!("/api/pages/{id}/summary-details/answer-bindings");
+    // Observe a newly published answer on a current store before repeating the upgrade case.
+    let new_answer_start = Instant::now();
+    pilot.start();
+    let deadline = new_answer_start + Duration::from_secs(15);
+    loop {
+        let reply = owner_list_request(&pilot, "GET", &detail(), &owner_list_context(&pilot));
+        let value: Value = serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
+        if value["state"] == "ready" {
+            assert_eq!(value["answerBindings"][0][1], message);
+            let original = owner_list_request(
+                &pilot,
+                "GET",
+                &format!("/api/pages/{id}/summary-details"),
+                &owner_list_context(&pilot),
+            );
+            let plain: Value =
+                serde_json::from_str(original.split_once("\r\n\r\n").unwrap().1).unwrap();
+            assert_eq!(plain["state"], "ready");
+            assert!(plain.get("answerBindings").is_none());
+            let binding: Option<String> = rusqlite::Connection::open(&db)
+                .unwrap()
+                .query_row(
+                    "SELECT form FROM answer_forms WHERE page=?1 AND message=?2",
+                    [&id[..], message],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(
+                binding.is_none(),
+                "the question is absent on the first fold"
+            );
+            eprintln!(
+                "publication already committed; serve startup to first bound summary: {:?}",
+                new_answer_start.elapsed()
+            );
+            break;
+        }
+        assert!(Instant::now() < deadline, "{value}");
+        thread::sleep(Duration::from_millis(20));
+    }
+    pilot.stop();
     rusqlite::Connection::open(&db)
         .unwrap()
-        .execute_batch("DROP TABLE grandfathered_answers; PRAGMA user_version=27;")
+        .execute_batch("DROP TABLE answer_forms; PRAGMA user_version=27;")
         .unwrap();
     pilot.start();
-    let detail = || format!("/api/pages/{id}/summary-details");
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         let reply = owner_list_request(&pilot, "GET", &detail(), &owner_list_context(&pilot));
         let value: Value = serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
         if value["state"] == "ready" {
             assert_eq!(value["summary"]["needsYou"], 0);
-            assert_eq!(value["legacyAnswers"][0][1], message);
-            assert!(value["legacyAnswers"][0][2].is_null());
+            assert_eq!(value["answerBindings"][0][1], message);
+            assert!(value["answerBindings"][0][2].is_null());
             break;
         }
         assert!(Instant::now() < deadline, "{value}");
@@ -548,10 +589,7 @@ fn verified_own_answers_change_registry_state_without_content_or_ask_publication
     assert_eq!(edit["reopenedQuestions"], json!([QUESTION]));
     let questions = pilot.call(&["question", "ls", &id, "--json"]);
     assert_eq!(questions["questions"][0]["state"], "open");
-    assert_eq!(
-        questions["questions"][0]["earlierAnswer"]["grandfathered"],
-        true
-    );
+    assert!(questions["questions"][0]["earlierAnswer"]["prompt"].is_null());
     fs::write(&file, initial["source"].as_str().unwrap()).unwrap();
     pilot.patch_call(&id, &["--file", file.to_str().unwrap(), "--json"]);
     pilot.stop();

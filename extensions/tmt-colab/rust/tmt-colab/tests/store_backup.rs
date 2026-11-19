@@ -45,7 +45,7 @@ fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE grandfathered_answers; PRAGMA user_version={previous}"
+            "DROP TABLE answer_forms; PRAGMA user_version={previous}"
         ))
         .unwrap();
     (store, previous)
@@ -82,7 +82,7 @@ fn schema_28_commit_failure_rolls_back_table_and_version_before_reopen() {
     let has_table = || {
         Connection::open(&store)
             .unwrap()
-            .table_exists(None, "grandfathered_answers")
+            .table_exists(None, "answer_forms")
             .unwrap()
     };
     assert_eq!(version(&store), 27);
@@ -267,7 +267,7 @@ fn a_second_upgrade_from_the_same_schema_replaces_the_copy() {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE grandfathered_answers; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
+            "DROP TABLE answer_forms; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
         ))
         .unwrap();
     let second = fs::read(&store).unwrap();

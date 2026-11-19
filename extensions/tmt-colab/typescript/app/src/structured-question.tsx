@@ -121,7 +121,7 @@ export function StructuredQuestion({
   return (
     <>
       {state === 'open' && effective?.earlierAnswer && (
-        <p className="question-history" title={effective.earlierAnswer.answeredForm?.form[1]}>
+        <p className="question-history" title={effective.earlierAnswer.prompt}>
           {text.questionEarlierVersion(effective.earlierAnswer.selection)}
         </p>
       )}

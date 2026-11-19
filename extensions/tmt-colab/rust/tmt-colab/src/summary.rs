@@ -88,8 +88,8 @@ fn count(conversations: &Conversations, meta: &Value, needs_you: u32) -> Summary
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SummaryProjection {
     pub summary: Summary,
-    /// Legacy comment references selected as current or historical, at most two per registration.
-    pub legacy_answers: Vec<(String, String, Option<String>)>,
+    /// Verified answer references selected as current or historical, at most two per registration.
+    pub answer_bindings: Vec<(String, String, Option<String>, Option<String>)>,
     pub readings: Vec<crate::summary_readings::ReadingDescriptor>,
     /// The pending items by rank, at most [`crate::limits::NEEDS_PASSAGES`].
     pub needs: Vec<crate::summary_passages::Need>,
@@ -148,7 +148,7 @@ impl From<Summary> for SummaryProjection {
         Self {
             summary,
             readings: Vec::new(),
-            legacy_answers: Vec::new(),
+            answer_bindings: Vec::new(),
             needs: Vec::new(),
             latest: None,
             pr_links: None,
@@ -216,10 +216,10 @@ fn fold_details(
             })
             .collect()
     };
-    let mut legacy = source
+    let mut bindings = source
         .store
-        .owner_read(space, &owner, |tx| tx.grandfathered_answers(page))?;
-    let mut missing = crate::question_registry::form::LegacyForms::new();
+        .owner_read(space, &owner, |tx| tx.answer_forms(page))?;
+    let mut missing = crate::question_registry::form::AnswerForms::new();
     for comment in conversations
         .threads
         .iter()
@@ -228,27 +228,23 @@ fn fold_details(
     {
         if let Some(id) = &comment.question_id
             && !comment.deleted
-            && comment.answered_form.is_none()
             && folded.status_writers.contains(&comment.writer)
-            && folded.meta["questions"]
-                .as_array()
-                .is_some_and(|entries| entries.iter().any(|entry| entry["id"].as_str() == Some(id)))
         {
             let key = (comment.writer.clone(), comment.id.clone());
-            if !legacy.contains_key(&key) {
+            if !bindings.contains_key(&key) {
                 missing.insert(key, forms.get(id).cloned());
             }
         }
     }
     if !missing.is_empty() && source.layout.running()? {
         let mut writer = crate::store::Store::write_existing(&source.layout)?;
-        legacy = writer.project_transaction(space, &owner, |tx| {
-            tx.grandfather_answers(
+        bindings = writer.project_transaction(space, &owner, |tx| {
+            tx.bind_answer_forms(
                 page,
                 fingerprint.as_deref().ok_or(page::Fault::Missing)?,
                 &missing,
             )?;
-            tx.grandfathered_answers(page)
+            tx.answer_forms(page)
         })?;
     }
     let questions = crate::question_registry::answers::project(
@@ -256,7 +252,7 @@ fn fold_details(
         &conversations,
         &folded.status_writers,
         &forms,
-        &legacy,
+        &bindings,
     )
     .map_err(|_| page::Fault::Invalid)?;
     let pending = crate::summary_pending::items(
@@ -347,7 +343,7 @@ fn fold_details(
     Ok((
         SummaryProjection {
             summary,
-            legacy_answers: questions
+            answer_bindings: questions
                 .iter()
                 .flat_map(|question| {
                     [
@@ -360,12 +356,13 @@ fn fold_details(
                         reference["writer"].as_str()?.to_owned(),
                         reference["id"].as_str()?.to_owned(),
                     );
-                    let form = legacy.get(&key)?;
+                    let form = bindings.get(&key)?;
                     Some((
                         key.0,
                         key.1,
                         form.as_ref()
                             .map(crate::question_registry::form::Form::digest),
+                        form.as_ref().map(|f| f.prompt().to_owned()),
                     ))
                 })
                 .collect(),
@@ -839,7 +836,6 @@ mod tests {
     fn comment(id: &str, deleted: bool, body: &str) -> Comment {
         Comment {
             question_id: None,
-            answered_form: None,
             writer: "w".into(),
             id: id.into(),
             revision: "1".into(),

@@ -224,7 +224,13 @@ it('projects revisions and terminal tombstones but rejects changed references, m
   });
   expect(read()[0].comments).toEqual([]);
 });
-function storeFixture(options: { admitted?(): void; blockAnchors?(): boolean } = {}) {
+function storeFixture(
+  options: {
+    admitted?(): void;
+    blockAnchors?(): boolean;
+    currentQuestionForm?(id: string): string;
+  } = {},
+) {
   let connections = 0;
   let device = a,
     denied = false,
@@ -266,6 +272,7 @@ function storeFixture(options: { admitted?(): void; blockAnchors?(): boolean } =
     own: () => own,
     available: () => true,
     blockAnchors: options.blockAnchors,
+    currentQuestionForm: options.currentQuestionForm,
     connection: async () => {
       connections++;
       return c;
@@ -1175,6 +1182,32 @@ it('keeps a question binding immutable across comment revisions', () => {
   expect(read()[0]).toMatchObject({ body: 'Changed answer', questionId: first.questionId });
   put(own, { ...first, revision: '2', questionId: '00000000-0000-0000-0000-000000000002' });
   expect(read()).toEqual([]);
+});
+
+it('publishes form-checked answers with the previous comment key set', async () => {
+  const digest = '66dc5dd419d87c0ed5331084f79a443bcb8ca753d118db9e57b5b578739a58af';
+  let current = digest;
+  const f = storeFixture({ currentQuestionForm: () => current });
+  const question = fixture.thread.threadId;
+  const first = await f.store.create('First answer', null, undefined, question, digest);
+  await f.store.reply(
+    first.thread,
+    'Second answer',
+    first.threadRevision,
+    undefined,
+    question,
+    digest,
+  );
+  const previous = [...Object.keys(fixture.comment), 'questionId', 'sequence'].sort();
+  for (const comment of Object.values(f.own[a].messages))
+    expect(Object.keys(comment as object).sort()).toEqual(previous);
+  expect(() => validateOwn(f.own)).not.toThrow();
+  current = '0'.repeat(64);
+  const before = structuredClone(f.own);
+  await expect(
+    f.store.reply(first.thread, 'Stale answer', first.threadRevision, undefined, question, digest),
+  ).rejects.toThrow();
+  expect(f.own).toEqual(before);
 });
 
 it('question answers bind the ID before publication and preserve it through edits and deletion', async () => {

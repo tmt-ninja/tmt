@@ -8,7 +8,6 @@ fn vectors() -> Value {
 fn comment(id: &str, at: &str, body: &str, deleted: bool) -> Comment {
     Comment {
         question_id: None,
-        answered_form: None,
         writer: "10000000-0000-4000-8000-000000000101".into(),
         id: id.into(),
         revision: "1".into(),

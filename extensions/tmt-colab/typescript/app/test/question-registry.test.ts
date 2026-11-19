@@ -74,7 +74,7 @@ test('question bindings on ordinary signed comments use the existing question UU
 });
 
 import { verifiedQuestionStates } from '../src/question-registry.js';
-import { answerToForm } from '../src/question-form.js';
+import { formDigest, askedForm } from '../src/question-form.js';
 import type { Question } from '../src/questions.js';
 
 test('editing one group member preserves the other answer and restoring its wording restores its answer', () => {
@@ -99,7 +99,8 @@ test('editing one group member preserves the other answer and restoring its word
         sequence: '1',
         revision: '1',
         ref: { writer: registry[0].attribution.writerId, id: form.id },
-        answeredForm: answerToForm(form, 'Beta'),
+        body: 'Beta',
+        formBinding: { digest: formDigest(askedForm(form)), prompt: form.title },
       },
     ],
   })) as ThreadView[];
@@ -107,7 +108,7 @@ test('editing one group member preserves the other answer and restoring its word
   const [first, second] = questionStates(registry, threads, edited);
   expect(first.state).toBe('open');
   expect(first.answer).toBeUndefined();
-  expect(first.earlierAnswer?.answeredForm).toEqual(answerToForm(forms[0], 'Beta'));
+  expect(first.earlierAnswer?.prompt).toBe(forms[0].title);
   expect(second).toMatchObject({ state: 'answered', answer: 'Beta' });
   expect(questionStates(registry, threads, forms)[0]).toMatchObject({
     state: 'answered',

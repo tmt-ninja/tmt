@@ -632,7 +632,7 @@ fn read_with_meta(
             &view.status_writers,
             &forms,
             &store.owner_read(&key.space_id, &key.owner_public(), |tx| {
-                tx.grandfathered_answers(page)
+                tx.answer_forms(page)
             })?,
         )
         .map_err(|_| Fault::Invalid)?;
@@ -1184,7 +1184,7 @@ fn reopened_questions(
     }
     let conversations = crate::discussion::project(key, page, snapshot, &view);
     let legacy = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
-        tx.grandfathered_answers(page)
+        tx.answer_forms(page)
     })?;
     let states = |forms| {
         answers::project(

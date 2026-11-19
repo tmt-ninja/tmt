@@ -1,3 +1,4 @@
+import { waitReadmitDelay } from './readmit.js';
 import {
   ProgressReads,
   readReadingDetails,
@@ -124,7 +125,8 @@ export class Live implements PageBinding {
   readonly status: ThreadStatusCoordinator;
   readonly files: DocumentFiles;
   #progressReads: ProgressReads;
-  #legacyAnswers?: [string, string, string | null][];
+  #answerRefs = '';
+  #answerBindings?: [string, string, string | null, string | null][];
   #progressKey?: string;
   #progressSource?: string;
   #progress: PageView['progress'] = null;
@@ -177,7 +179,15 @@ export class Live implements PageBinding {
     private sessionOwner?: LiveSessionOwner,
   ) {
     this.#progressReads = new ProgressReads(
-      (signal) => readReadingDetails(this.mount, this.page.pageId, signal),
+      async (signal) => {
+        let details = await readReadingDetails(this.mount, this.page.pageId, signal, true);
+        for (const delay of [100, 250, 500, 1000, 2000]) {
+          if (details.state !== 'pending' || !this.#answerRefs || this.#answerRefs === '[]') break;
+          await waitReadmitDelay(delay, signal);
+          details = await readReadingDetails(this.mount, this.page.pageId, signal, true);
+        }
+        return details;
+      },
       (detail) => {
         if (this.#closed || this.#error) return;
         if (detail?.state === 'ready' && (!this.#workFacts?.known || this.#workFactsPending))
@@ -186,11 +196,11 @@ export class Live implements PageBinding {
           detail?.state === 'ready' && detail.pageState === this.#admitted.state
             ? (detail.progress ?? null)
             : null;
-        const legacy =
-          detail?.state === 'ready' ? (detail.legacyAnswers ?? []) : this.#legacyAnswers;
-        const legacyChanged = JSON.stringify(legacy) !== JSON.stringify(this.#legacyAnswers);
-        if (legacyChanged || canonical(progress) !== canonical(this.#progress)) {
-          this.#legacyAnswers = legacy;
+        const bindings =
+          detail?.state === 'ready' ? (detail.answerBindings ?? []) : this.#answerBindings;
+        const bindingsChanged = JSON.stringify(bindings) !== JSON.stringify(this.#answerBindings);
+        if (bindingsChanged || canonical(progress) !== canonical(this.#progress)) {
+          this.#answerBindings = bindings;
           this.#progress = progress;
           this.#publish();
         }
@@ -403,14 +413,17 @@ export class Live implements PageBinding {
       todoNumbers: this.#todoNumbers,
       progress: current ? this.#progress : null,
     });
-    if (this.#legacyAnswers) {
+    if (this.#answerBindings) {
       const bindings = new Map(
-        this.#legacyAnswers.map(([writer, id, digest]) => [writer + ':' + id, { digest }]),
+        this.#answerBindings.map(([writer, id, digest, prompt]) => [
+          writer + ':' + id,
+          { digest, prompt: prompt ?? undefined },
+        ]),
       );
       for (const thread of view.threads ?? []) {
         for (const comment of thread.comments) {
-          if (comment.deviceAuthor && comment.questionId && !comment.answeredForm) {
-            comment.legacyBinding =
+          if (comment.deviceAuthor && comment.questionId) {
+            comment.formBinding =
               bindings.get(comment.ref.writer + ':' + comment.ref.id) ?? 'superseded';
           }
         }
@@ -714,6 +727,21 @@ export class Live implements PageBinding {
             (writer) => connection.objects.ownSigningKey(writer),
             (writer) => connection.objects.statusWriter(writer),
           );
+          const answerRefs = JSON.stringify(
+            threads.flatMap((thread) =>
+              thread.deleted
+                ? []
+                : thread.comments
+                    .filter(
+                      (comment) => !comment.deleted && comment.deviceAuthor && comment.questionId,
+                    )
+                    .map((comment) => [comment.ref.writer, comment.ref.id, comment.revision]),
+            ),
+          );
+          if (this.#answerRefs !== answerRefs) {
+            this.#answerRefs = answerRefs;
+            if (answerRefs !== '[]') void this.#progressReads.refresh();
+          }
           if (value.archived) {
             this.#observation?.abort();
             this.#observation = null;
