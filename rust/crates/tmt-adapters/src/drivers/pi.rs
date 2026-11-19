@@ -446,7 +446,9 @@ fn transcript_usage(line: &str) -> Option<u64> {
         .checked_add(cache_write)
 }
 
-fn transcript_final_text(line: &str) -> Option<tmt_core::responses::FinalText> {
+/// Outer `Some` marks the newest assistant message even when it carries no text
+/// so tool-only or empty turns never resurrect an older turn's final response.
+fn transcript_final_text(line: &str) -> Option<Option<tmt_core::responses::FinalText>> {
     let entry: serde_json::Value = serde_json::from_str(line).ok()?;
     if entry.get("type").and_then(serde_json::Value::as_str) != Some("message") {
         return None;
@@ -455,22 +457,25 @@ fn transcript_final_text(line: &str) -> Option<tmt_core::responses::FinalText> {
     if message.get("role").and_then(serde_json::Value::as_str) != Some("assistant") {
         return None;
     }
-    let blocks = message.get("content")?.as_array()?;
-    let mut joined = String::new();
-    for block in blocks {
-        if block.get("type").and_then(serde_json::Value::as_str) == Some("text")
-            && let Some(text) = block.get("text").and_then(serde_json::Value::as_str)
-            && !text.is_empty()
-        {
-            if !joined.is_empty() {
-                joined.push('\n');
+    let text = (|| {
+        let blocks = message.get("content")?.as_array()?;
+        let mut joined = String::new();
+        for block in blocks {
+            if block.get("type").and_then(serde_json::Value::as_str) == Some("text")
+                && let Some(text) = block.get("text").and_then(serde_json::Value::as_str)
+                && !text.is_empty()
+            {
+                if !joined.is_empty() {
+                    joined.push('\n');
+                }
+                joined.push_str(text);
             }
-            joined.push_str(text);
         }
-    }
-    (!joined.is_empty())
-        .then(|| tmt_core::responses::FinalText::new(&joined))
-        .flatten()
+        (!joined.is_empty())
+            .then(|| tmt_core::responses::FinalText::new(&joined))
+            .flatten()
+    })();
+    Some(text)
 }
 
 fn find_session_file(root: &Path, session: &ProviderSessionId) -> Option<PathBuf> {
@@ -902,7 +907,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
         });
         crate::runtime::lifecycle::TurnObservation {
             state: crate::runtime::driver_state::after_observation(usage, consumption, previous),
-            final_text: turn.final_text.clone().or(final_text),
+            final_text: turn.final_text.clone().or(final_text.flatten()),
         }
     }
 
@@ -1250,7 +1255,7 @@ mod tests {
         assert_eq!(transcript_usage(&assistant_line), Some(170));
         assert_eq!(
             transcript_final_text(&assistant_line),
-            tmt_core::responses::FinalText::new("Done!")
+            Some(tmt_core::responses::FinalText::new("Done!"))
         );
     }
 
@@ -1570,5 +1575,138 @@ mod tests {
                 "decode_digest_turn must return None while encode_digest_turn is None"
             );
         }
+    }
+
+    #[test]
+    fn tool_only_or_empty_assistant_record_does_not_resurrect_earlier_final() {
+        let dir = TestDirectory::new();
+        let session_id = "33333333-3333-4333-8333-333333333333";
+        let sessions = dir.path.join(".pi/agent/sessions/project");
+        fs::create_dir_all(&sessions).unwrap();
+        let session_file = sessions.join(format!("2026-11-19T00-00-00-000Z_{session_id}.jsonl"));
+        let earlier = json!({
+            "type": "message",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Earlier turn answer"}],
+                "usage": {"totalTokens": 10}
+            }
+        });
+        let tool_only = json!({
+            "type": "message",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "toolCall", "id": "call_1", "name": "bash", "arguments": {}}],
+                "usage": {"totalTokens": 25}
+            }
+        });
+        assert_eq!(transcript_final_text(&tool_only.to_string()), Some(None));
+        fs::write(&session_file, format!("{earlier}\n{tool_only}\n")).unwrap();
+
+        let env = ProviderEnvironment::from_parts(&dir.path, &dir.path, vec![], []);
+        let turn = crate::runtime::lifecycle::TurnEnd {
+            session: ProviderSessionId::new(session_id).unwrap(),
+            transcript: Some(session_file),
+            final_text: None,
+            interrupted: false,
+        };
+        let observation = PiLifecycle.turn_observation(
+            &turn,
+            &env,
+            None,
+            1_795_000_000_000,
+            Instant::now() + Duration::from_secs(2),
+        );
+        assert_eq!(observation.final_text, None);
+        assert_eq!(
+            PiLifecycle
+                .state_usage(&observation.state.unwrap())
+                .unwrap()
+                .tokens,
+            25
+        );
+    }
+
+    #[test]
+    fn extension_scans_backward_past_trailing_entries_and_stops_at_user_turn() {
+        let dir = TestDirectory::new();
+        let hook = dir.path.join("hook.sh");
+        let log = dir.path.join("hooks.jsonl");
+        fs::write(
+            &hook,
+            format!(
+                "#!/bin/sh\ncat >> '{}'\nprintf '\\n' >> '{}'\n",
+                log.display(),
+                log.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let ext_path = dir.path.join(EXTENSION_FILE_NAME);
+        let rendered = render_extension(hook.to_str().unwrap(), false).unwrap();
+        fs::write(&ext_path, rendered).unwrap();
+
+        let driver_path = dir.path.join("driver.mjs");
+        let driver = r#"
+import { pathToFileURL } from 'node:url';
+const [extFile] = process.argv.slice(2);
+const handlers = new Map();
+const pi = { on(name, fn) { handlers.set(name, fn); } };
+const mod = await import(pathToFileURL(extFile).href);
+mod.default(pi);
+const runCase = (branch) => {
+  const ctx = {
+    mode: 'tui',
+    isIdle: () => true,
+    sessionManager: {
+      getSessionId: () => '33333333-3333-4333-8333-333333333333',
+      getSessionFile: () => '/tmp/session.jsonl',
+      getBranch: () => branch,
+    },
+  };
+  handlers.get('agent_settled')({ type: 'agent_settled', aborted: false }, ctx);
+};
+runCase([
+  { type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'first' }] } },
+  { type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'old answer' }] } },
+  { type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'second' }] } },
+  { type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'turn reply' }] } },
+  { type: 'custom_message', customType: 'note', content: 'trailing', display: false },
+]);
+runCase([
+  { type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'first' }] } },
+  { type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'old answer' }] } },
+  { type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'second' }] } },
+  { type: 'custom_message', customType: 'note', content: 'trailing', display: false },
+]);
+runCase([
+  { type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'first' }] } },
+  { type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'old answer' }] } },
+  { type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'second' }] } },
+  { type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'c1', name: 'bash' }] } },
+  { type: 'custom_message', customType: 'note', content: 'trailing', display: false },
+]);
+"#;
+        fs::write(&driver_path, driver).unwrap();
+        let output = std::process::Command::new("node")
+            .args([driver_path.to_str().unwrap(), ext_path.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "node extension driver failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let captured: Vec<serde_json::Value> = fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(captured.len(), 3);
+        assert_eq!(captured[0]["final_text"], "turn reply");
+        assert!(captured[1].get("final_text").is_none());
+        assert!(captured[2].get("final_text").is_none());
     }
 }
