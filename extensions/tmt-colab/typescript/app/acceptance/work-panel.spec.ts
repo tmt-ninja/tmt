@@ -101,12 +101,16 @@ esac
     const browser = await pairBrowser(world, 'title-match-owner');
     const page = await openPage(door, browser, created);
     await page.getByRole('button', { name: 'Waiting for CI, show status details' }).click();
-    await expect(page.getByText(/PR #42.*Title matches ATLAS-1/)).toBeVisible();
+    await expect(page.locator('.work-pull-details').filter({ hasText: 'PR #42' })).toContainText(
+      'Matched by title: ATLAS-1',
+    );
     await expect(page.getByText(/PR #43/)).toHaveCount(0);
-    await page.getByRole('button', { name: 'Ignore title match' }).click();
-    await expect(page.getByText(/PR #42.*Title match ignored/)).toBeVisible();
+    await page.getByRole('button', { name: 'Ignore', exact: true }).click();
+    await expect(page.locator('.work-pull-details').filter({ hasText: 'PR #42' })).toContainText(
+      'Ignored',
+    );
     await page.getByRole('button', { name: 'Restore', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Ignore title match' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Ignore', exact: true })).toBeVisible();
   });
 });
 

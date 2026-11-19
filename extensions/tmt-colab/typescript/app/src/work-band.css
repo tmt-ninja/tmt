@@ -267,6 +267,18 @@ a.work-row-title:hover {
 .work-status-details p {
   margin: var(--tmt-ui-space-xs) 0 0;
 }
+.work-pull-details small {
+  color: var(--tmt-ui-color-secondary);
+}
+.work-pull-details small button {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
 .work-row-state {
   display: flex;
   min-width: 0;

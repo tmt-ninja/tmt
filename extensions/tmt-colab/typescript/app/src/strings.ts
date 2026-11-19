@@ -797,8 +797,8 @@ export const text = {
     automatic: 'Count automatically',
   },
   workBand: {
-    ignoreMatch: 'Ignore title match',
-    ignoredMatch: 'Title match ignored',
+    ignoreMatch: 'Ignore',
+    ignoredMatch: 'Ignored',
     restoreMatch: 'Restore',
     bindingFailed: 'Could not update the title match.',
     titleDiscovery: {
@@ -807,7 +807,7 @@ export const text = {
       partial: 'Partial title matches.',
       complete: '',
     },
-    titleMatch: (number: string) => `Title matches ${number}`,
+    titleMatch: (number: string) => `Matched by title: ${number}`,
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',
     expandPanel: 'Expand work panel',

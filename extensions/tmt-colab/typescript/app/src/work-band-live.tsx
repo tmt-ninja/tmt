@@ -1,3 +1,4 @@
+import { WorkPullDetails } from './work-pull-details.js';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { BrowserMenu } from '@tmt/browser-ui/react';
 import { Popover, PopoverContent, PopoverTrigger, UiTheme } from '@tmt/browser-ui/ui';
@@ -457,32 +458,32 @@ export function StatusDetailsBody({
       {facts?.titleDiscovery && facts.titleDiscovery.state !== 'complete' && (
         <small>{t.titleDiscovery[facts.titleDiscovery.state]}</small>
       )}
-      {facts?.pulls.map(({ url, fact }, index) => (
-        <p key={url}>
-          PR #{url.split('/').at(-1)} ·{' '}
-          {fact?.tag ? t.releasedIn(fact.tag) : fact ? t.pullState[fact.state] : t.unknown}
-          {facts.titleDiscovery && index >= facts.titleDiscovery.explicitCount && (
-            <> · {t.titleMatch(facts.titleDiscovery.number)}</>
-          )}
-          {change && facts.titleDiscovery && index >= facts.titleDiscovery.explicitCount && (
-            <button disabled={busy} onClick={() => void setIgnored(url, true)}>
-              {t.ignoreMatch}
-            </button>
-          )}
-          {fact?.checks && <> · {t.checks[fact.checks]}</>}
-          {fact?.state === 'open' && !fact.checks && <> · {t.checksUnavailable}</>}
-          {fact && <> · {t.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>}
-        </p>
+      {facts?.pulls.map((pull, index) => (
+        <WorkPullDetails
+          key={pull.url}
+          url={pull.url}
+          fact={pull.fact}
+          asOfMs={facts.asOfMs}
+          provenance={
+            facts.titleDiscovery && index >= facts.titleDiscovery.explicitCount
+              ? t.titleMatch(facts.titleDiscovery.number)
+              : undefined
+          }
+          action={t.ignoreMatch}
+          disabled={busy}
+          onAction={change && (() => void setIgnored(pull.url, true))}
+        />
       ))}
       {facts?.titleDiscovery?.ignored.map((url) => (
-        <p key={url}>
-          PR #{url.split('/').at(-1)} · {t.ignoredMatch}{' '}
-          {change && (
-            <button disabled={busy} onClick={() => void setIgnored(url, false)}>
-              {t.restoreMatch}
-            </button>
-          )}
-        </p>
+        <WorkPullDetails
+          key={url}
+          url={url}
+          asOfMs={facts.asOfMs}
+          provenance={t.ignoredMatch}
+          action={t.restoreMatch}
+          disabled={busy}
+          onAction={change && (() => void setIgnored(url, false))}
+        />
       ))}
       {error && <p role="alert">{t.bindingFailed}</p>}
       {!facts && <p>{t.statusUnavailable}</p>}
