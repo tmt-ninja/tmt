@@ -39,17 +39,16 @@
     padding-inline: var(--tmt-ui-space-xs);
   }
 }
-/* Narrower, the title keeps about 96px of text: the work number leaves next, then the dot. The
-   page's own title row still shows both. Leaving order: labels, chip to dot, number, dot. */
+/* Narrower, the work number leaves next. The status dot never leaves: it is the only way into the
+   page's details (#6675), so the title truncates further instead. Leaving order: labels, chip to
+   dot, number, the Shared mark on a phone (style.css); the dot stays. */
 @container tmt-ui-topbar-title (width < 160px) {
   .tmt-ui-topbar-title-current .colab-work-number {
     display: none;
   }
 }
-@container tmt-ui-topbar-title (width < 120px) {
-  .page-bar-summary {
-    display: none;
-  }
+.page-bar-summary:has(.page-bar-status) {
+  flex: none;
 }
 
 /* The status chip opens the page's details (#6652): a popover beside it, a sheet on a phone. */

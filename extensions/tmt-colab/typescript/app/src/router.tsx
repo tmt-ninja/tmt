@@ -219,6 +219,7 @@ function PageFloatingActions({
   canSelect,
   selectPending,
   slots,
+  backToPage,
 }: {
   slots: readonly AnchorPosition[];
   host: HTMLDivElement | null;
@@ -239,6 +240,8 @@ function PageFloatingActions({
   canSelect: boolean;
   /** The button's place while the threads are unverified: fenced, not greyed. */
   selectPending: boolean;
+  /** Shift+Tab from the Selection mode button: focus the page's last block; false when none. */
+  backToPage?(): boolean;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const dock = useRef<HTMLDivElement>(null);
@@ -373,7 +376,21 @@ function PageFloatingActions({
       {enabled && !discussionOpen && (
         <p className="selection-mode-hint">{text.selectionModeHint}</p>
       )}
-      <div className="page-floating-actions" ref={dock}>
+      <div
+        className="page-floating-actions"
+        ref={dock}
+        onKeyDown={(event) => {
+          // In Selection mode the page's blocks come right before this button (#6675).
+          if (
+            enabled &&
+            event.key === 'Tab' &&
+            event.shiftKey &&
+            event.target === dock.current?.querySelector('button') &&
+            backToPage?.()
+          )
+            event.preventDefault();
+        }}
+      >
         {(canSelect || selectPending) && (
           <BrowserIconAction
             type="button"
@@ -1909,6 +1926,12 @@ function OpenPage({
   const host = useRef<HTMLDivElement>(null);
   const structuredStage = useRef<HTMLDivElement>(null);
   const selectionLayer = useRef<HTMLDivElement>(null);
+  /** The blocks Selection mode reaches by Tab, in page order. */
+  const annotationBlocks = () => [
+    ...(structuredStage.current?.querySelectorAll<HTMLElement>(
+      '[data-slot="block"][tabindex="0"]',
+    ) ?? []),
+  ];
   useLayoutEffect(() => {
     if (!design) return;
     const bar = host.current
@@ -3440,6 +3463,31 @@ function OpenPage({
                   className="structured-page-stage"
                   ref={structuredStage}
                   onKeyDownCapture={(event) => {
+                    // Selection mode: Tab moves from block to block, never into a block's own
+                    // controls (a to-do's checkbox), and past the last block to the mode's button
+                    // (#6675).
+                    const target = event.target as HTMLElement;
+                    if (
+                      event.key === 'Tab' &&
+                      canSelect &&
+                      selectionMode &&
+                      target.matches('[data-slot="block"]')
+                    ) {
+                      const blocks = annotationBlocks();
+                      const next = blocks[blocks.indexOf(target) + (event.shiftKey ? -1 : 1)] as
+                        | HTMLElement
+                        | undefined;
+                      const to =
+                        next ??
+                        (event.shiftKey
+                          ? undefined
+                          : document.querySelector<HTMLElement>('.page-floating-actions button'));
+                      if (to) {
+                        event.preventDefault();
+                        to.focus();
+                      }
+                      return;
+                    }
                     if (
                       event.key !== 'Tab' ||
                       event.shiftKey ||
@@ -3717,6 +3765,11 @@ function OpenPage({
           }
           slots={inlineSlots.positions}
           enabled={selectionMode}
+          backToPage={() => {
+            const last = annotationBlocks().at(-1);
+            last?.focus();
+            return !!last;
+          }}
           discussionOpen={!!annotation}
           panel={panel}
           toggle={() => toggleSelectionMode.current()}

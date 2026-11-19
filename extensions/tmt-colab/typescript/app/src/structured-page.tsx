@@ -514,9 +514,11 @@ function Blocks({
       kind={KIND[block.type]}
       level={block.type === 'heading' ? headingLevel(block) : undefined}
       depth={parent === PAGE_PARENT ? 0 : 1}
+      // Selection mode marks only what is being annotated: an earlier block selection (the outline,
+      // the menu) is not drawn there (#6675).
       selected={
-        rest.editing?.id === block.id ||
-        rest.selected?.includes(block.id) ||
+        (!rest.annotationMode &&
+          (rest.editing?.id === block.id || rest.selected?.includes(block.id))) ||
         // A card a drag would drop into takes the selection tint.
         drag?.target?.into === block.id
       }
@@ -548,7 +550,12 @@ function Blocks({
         rest.onAnnotateBlock?.(block.text?.trim() || undefined, event.currentTarget, true);
       }}
       ref={(node: HTMLDivElement | null) => {
-        if (!node || rest.selectionFocus !== block.id || node.contains(document.activeElement))
+        if (
+          !node ||
+          rest.annotationMode ||
+          rest.selectionFocus !== block.id ||
+          node.contains(document.activeElement)
+        )
           return;
         const active = document.activeElement;
         const lost = !active || active === document.body;

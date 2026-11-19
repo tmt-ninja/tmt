@@ -1274,10 +1274,19 @@ for (const task of ['heading actions', 'annotation'] as const)
         '--text',
         'Review the checklist.',
       ]).blockIds[0];
+      const todo = cli([
+        'block',
+        'insert',
+        created.pageId,
+        '--type',
+        'todo',
+        '--text',
+        'Send the summary',
+      ]).blockIds[0];
       const page = await browser.context.newPage();
       await page.goto(new URL(created.path, door.address).href);
+      const nav = page.getByRole('navigation', { name: 'Page outline' });
       if (task === 'heading actions') {
-        const nav = page.getByRole('navigation', { name: 'Page outline' });
         const toggle = nav.locator('.page-outline-toggle');
         await tabTo(page, toggle);
         if ((await toggle.getAttribute('aria-expanded')) === 'false')
@@ -1305,11 +1314,31 @@ for (const task of ['heading actions', 'annotation'] as const)
           .poll(() => cli(['block', 'get', created.pageId, id!]).block.props.progress)
           .toBe('done');
       } else {
+        // A heading selected from the outline first: Selection mode does not draw it (#6675).
+        const outlineToggle = nav.locator('.page-outline-toggle');
+        await tabTo(page, outlineToggle);
+        if ((await outlineToggle.getAttribute('aria-expanded')) === 'false')
+          await page.keyboard.press('Enter');
+        await tabTo(page, nav.getByRole('button', { name: 'Details', exact: true }));
+        await page.keyboard.press('Enter');
+        await expect(page.locator('[data-selected]')).toHaveCount(1);
         const select = page.getByRole('button', { name: 'Selection mode', exact: true });
         await tabTo(page, select);
         await page.keyboard.press('Enter');
+        await expect(page.locator('[data-selected]')).toHaveCount(0);
+        // Back from the button: the last block, then block by block, a to-do one stop (#6675).
+        await expect(select).toBeFocused();
+        await page.keyboard.press('Shift+Tab');
+        await expect(page.locator(`[data-block-id="${todo}"]`)).toBeFocused();
+        await page.keyboard.press('Shift+Tab');
         const block = page.locator(`[data-block-id="${paragraph}"]`);
-        await tabTo(page, block);
+        await expect(block).toBeFocused();
+        await page.keyboard.press('Tab');
+        await page.keyboard.press('Tab');
+        await expect(select).toBeFocused();
+        await page.keyboard.press('Shift+Tab');
+        await page.keyboard.press('Shift+Tab');
+        await expect(block).toBeFocused();
         await page.keyboard.press('Enter');
         const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
         await expect(dialog.getByText('Annotate the block', { exact: true })).toBeVisible();
@@ -1317,8 +1346,19 @@ for (const task of ['heading actions', 'annotation'] as const)
         await page.keyboard.press('Escape');
         await expect(block).toBeFocused();
         await page.keyboard.press('Enter');
+        // The editor opens on the block before the caret keys reach it.
+        await expect(block.locator('[contenteditable="true"]')).toBeFocused();
         await page.keyboard.press('End');
         for (const _ of 'checklist.') await page.keyboard.press('Shift+ArrowLeft');
+        // The page reads the selection on its selectionchange task: let the last one run before
+        // Tab leaves the editor, as a person's next key would (it fails 3 in 5 on main without).
+        await expect
+          .poll(() =>
+            page.evaluate(
+              () => new Promise((done) => setTimeout(() => done(getSelection()?.toString()), 0)),
+            ),
+          )
+          .toBe('checklist.');
         const annotate = page.getByRole('button', { name: 'Annotate', exact: true });
         await expect(annotate).toBeVisible();
         await page.keyboard.press('Tab');

@@ -152,7 +152,11 @@ export function mountWorkPage(
   pageTitle =
     scenario === 'filled'
       ? 'Release plan for the hosted reader, device pairing and the November sharing rollout'
-      : 'Release plan';
+      : fill === 'long'
+        ? 'Release plan for the hosted reader and pairing'
+        : 'Release plan';
+  /** A filled page is shared: the bar holds its Shared mark beside the long title (#6675). */
+  const sharing = fill === 'long' ? ('link' as const) : ('private' as const);
   if (scenario === 'filled') {
     const row = (page: string) => list.find((value) => value.id === page)!;
     Object.assign(row(PAGES.launch), {
@@ -246,7 +250,7 @@ export function mountWorkPage(
               ]
             : [],
       activity: {
-        state: 'working',
+        state: activityState === 'unknown' ? ('unknown' as const) : ('working' as const),
         lastActivityMs: activityState === 'possibly-stalled' ? 1000000 : 9880000,
         observedAtMs: 10000000,
       },
@@ -328,7 +332,7 @@ export function mountWorkPage(
       id: THIS,
       title: pageTitle,
       state: manualState,
-      sharing: 'private',
+      sharing,
       ...(scenario === 'work-fields'
         ? {
             projects:
@@ -449,7 +453,7 @@ export function mountWorkPage(
       id: THIS,
       title: pageTitle,
       source,
-      sharing: 'private',
+      sharing,
       binding,
       ...(scenario === 'work-fields'
         ? {
