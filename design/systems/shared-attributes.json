@@ -1,0 +1,4 @@
+{
+  "names": ["class", "id", "style", "slot", "title", "lang", "dir", "hidden", "tabindex", "role"],
+  "prefixes": ["data-", "aria-"]
+}

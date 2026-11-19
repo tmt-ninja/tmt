@@ -6,6 +6,8 @@ export const DATA_CAPABILITIES: readonly string[];
 export const UI_PARTS: readonly string[];
 export const BLOCK_UI_PARTS: readonly string[];
 export const SKELETON: readonly string[];
+/** Attributes any component element may carry besides its props (#6713). */
+export const SHARED_ATTRIBUTES: { readonly names: readonly string[]; readonly prefixes: readonly string[] };
 export class DesignSystemError extends Error {}
 export interface PropSpec {
   enum?: string[];
