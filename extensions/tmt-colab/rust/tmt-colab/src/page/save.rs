@@ -250,6 +250,10 @@ pub struct SaveResult {
     /// could not apply because the page's own edit overlapped them), on the reply to the batch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt: Option<serde_json::Value>,
+    /// A committed block batch, to a peer that offered `colab-commit-position-v1` only: the
+    /// writer stream and final content sequence it applied through (#6735).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub applied_through: Option<crate::sync::AppliedThrough>,
 }
 impl SaveResult {
     fn state(operation_id: &str, state: &'static str) -> Self {
@@ -266,11 +270,25 @@ impl SaveResult {
             conflicts: None,
             child_page: None,
             receipt: None,
+            applied_through: None,
         }
     }
     /// The receipt of a block batch, on every outcome the batch reached.
     pub fn with_receipt(self, receipt: Option<serde_json::Value>) -> Self {
         Self { receipt, ..self }
+    }
+    pub(crate) fn with_applied_through(self, through: crate::sync::AppliedThrough) -> Self {
+        Self {
+            applied_through: Some(through),
+            ..self
+        }
+    }
+    /// The same result for a tab that did not offer `colab-commit-position-v1`.
+    pub(crate) fn without_applied_through(self) -> Self {
+        Self {
+            applied_through: None,
+            ..self
+        }
     }
     /// The page a create operation made, when it made one.
     pub fn with_child(self, child_page: Option<String>) -> Self {
@@ -338,9 +356,18 @@ impl SaveResult {
     pub fn recorded(operation_id: &str, record: Option<PublicationRecord>) -> crate::Result<Self> {
         Ok(match record.map(|record| record.outcome) {
             None => Self::absent(operation_id),
+            // The position rides only to a tab that asked for positions; `sync` strips it otherwise.
             Some(Outcome::Committed {
-                committed_revision, ..
-            }) => Self::committed(operation_id, committed_revision),
+                committed_revision,
+                key,
+                final_position,
+                ..
+            }) => Self::committed(operation_id, committed_revision).with_applied_through(
+                crate::sync::AppliedThrough {
+                    stream_id: key.stream_id,
+                    seq: final_position.seq,
+                },
+            ),
             Some(Outcome::Rejected { code, .. }) => Self {
                 code: Some(Fault::from(code).code()),
                 ..Self::state(operation_id, "rejected")

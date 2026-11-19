@@ -375,6 +375,50 @@ it('a block batch reply carries its receipt, and nothing else beyond a save repl
     ).toThrow();
 });
 
+it('a committed block batch names what it applied through, only to a tab that asked (#6735)', () => {
+  const through = { streamId: 'serve-writer', seq: '41' };
+  const committed: Record<string, unknown> = frame({
+    type: 'blocksresult',
+    state: 'committed',
+    revision: 'v1:a',
+    appliedThrough: through,
+  });
+  expect(blocksResult(committed, 'o')).toEqual({
+    operationId: 'o',
+    state: 'committed',
+    revision: 'v1:a',
+    appliedThrough: { streamId: 'serve-writer', seq: 41n },
+  });
+  // A status reply after a lost reply carries it too, so a recovered batch waits the same way.
+  expect(saveResult({ ...committed, type: 'saveresult' }, 'o').appliedThrough).toEqual({
+    streamId: 'serve-writer',
+    seq: 41n,
+  });
+  // An older serve sends none: the reply reads as before.
+  const { appliedThrough: _, ...older } = committed;
+  expect(blocksResult(older, 'o')).not.toHaveProperty('appliedThrough');
+  for (const bad of [
+    { ...through, seq: '0' },
+    { ...through, seq: 41 },
+    { ...through, seq: '041' },
+    { ...through, streamId: '' },
+    { ...through, hash: 'a' },
+  ])
+    expect(() => blocksResult({ ...committed, appliedThrough: bad }, 'o')).toThrow();
+  // Only a commit applies through anything: an unchanged batch waits for nothing.
+  expect(() =>
+    blocksResult(
+      frame({
+        type: 'blocksresult',
+        state: 'unchanged',
+        revision: 'v1:a',
+        appliedThrough: through,
+      }),
+      'o',
+    ),
+  ).toThrow();
+});
+
 // #6220: a block batch the page moved under (the serve's stale refusal, nothing written) is sent
 // again; nothing else is.
 const stale = () => new SaveRefused('COLAB_STALE_BASE', 'Page changed since the editing base.');

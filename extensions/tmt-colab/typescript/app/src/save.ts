@@ -27,6 +27,9 @@ export interface SaveResult {
   operationId: string;
   state: SaveState;
   revision?: string;
+  /** Committed only, to a tab that offered `COMMIT_POSITION_PROTOCOL`: on a block batch's reply
+   * and on any `savestatus` reply (#6735). */
+  appliedThrough?: AppliedThrough;
   /** Committed only: the page had changed since the editor opened it and the edit was merged. */
   merged?: true;
   /** Merged only: the digest of the source the commit holds, which the editor never had. */
@@ -56,6 +59,17 @@ export interface SubpageBatchResult extends SaveResult {
 /** A block batch's reply (contract: Blocks): the save outcome plus, once the batch reached the
  * page, its receipt: the ops it applied, the typed hunks a whole-text op could not apply, and the
  * attachment IDs a batch with an attachment change listed and removed (#6190). */
+/** The writer stream and final content sequence a committed block batch applied through (#6735):
+ * this tab holds the commit once its objects hold `streamId` at `seq` or later, from the update
+ * or an admitted checkpoint covering it. Sent only to a tab that offered
+ * `COMMIT_POSITION_PROTOCOL`. */
+export interface AppliedThrough {
+  streamId: string;
+  seq: bigint;
+}
+/** Offered beside `colab-sync-v2` so the serve names a block batch's commit position; an older
+ * serve ignores it and answers without one. */
+export const COMMIT_POSITION_PROTOCOL = 'colab-commit-position-v1';
 export interface BlocksResult extends SaveResult {
   receipt?: {
     ops: { op: string; id: string }[];
@@ -192,8 +206,21 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
     ...(state === 'rejected' && Object.hasOwn(frame, 'conflicts') ? ['conflicts'] : []),
     ...(state === 'rejected' && Object.hasOwn(frame, 'findings') ? ['findings'] : []),
     ...(Object.hasOwn(frame, 'childPage') ? ['childPage'] : []),
+    ...(state === 'committed' && Object.hasOwn(frame, 'appliedThrough') ? ['appliedThrough'] : []),
   ]);
   requireValue(frame.operationId === operationId);
+  let appliedThrough: AppliedThrough | undefined;
+  if (frame.appliedThrough !== undefined) {
+    exactKeys(frame.appliedThrough, ['streamId', 'seq']);
+    const { streamId, seq } = frame.appliedThrough as Record<string, unknown>;
+    requireValue(
+      typeof streamId === 'string' &&
+        /^[\x21-\x7e]{1,128}$/.test(streamId) &&
+        typeof seq === 'string' &&
+        /^[1-9][0-9]{0,19}$/.test(seq),
+    );
+    appliedThrough = { streamId, seq: BigInt(seq) };
+  }
   if (state === 'committed' || state === 'unchanged')
     // The revision is opaque (`v1:<hash>`): compared for equality, never parsed.
     requireValue(typeof frame.revision === 'string' && /^[\x21-\x7e]{1,128}$/.test(frame.revision));
@@ -275,6 +302,7 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
     ...(Array.isArray(conflicts) ? { conflicts: conflicts as number[] } : {}),
     ...(Array.isArray(findings) ? { findings: findings as unknown as QuestionWriteFinding[] } : {}),
     ...(typeof frame.childPage === 'string' ? { childPage: frame.childPage } : {}),
+    ...(appliedThrough && { appliedThrough }),
   };
 }
 export function workResult(frame: Record<string, unknown>, operationId: string): WorkResult {

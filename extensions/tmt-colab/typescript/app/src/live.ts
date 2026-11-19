@@ -43,6 +43,8 @@ import { Connection, SAVE_REPLY_MS } from './connection.js';
 import { Writer, type OwnCompaction } from './writer.js';
 import {
   SAVE_REOPEN_MS,
+  COMMIT_POSITION_PROTOCOL,
+  type AppliedThrough,
   SaveNotApplied,
   SaveOutcomeUnknown,
   SaveRefused,
@@ -614,7 +616,7 @@ export class Live implements PageBinding {
         (error) => {
           if (this.#owns(open) && open.connection === c) this.#failed(error);
         },
-        ['colab-sync-v2'],
+        ['colab-sync-v2', COMMIT_POSITION_PROTOCOL],
         true,
       );
       this.#connection = open.connection = c;
@@ -1229,7 +1231,10 @@ export class Live implements PageBinding {
       result = await this.#settleLost(c, operationId);
     }
     settled(result);
-    await this.#showsRevision(result.revision);
+    // A serve that names what the batch applied through (#6735) ends the wait when this tab holds
+    // it; one that does not (an older serve, or a status reply) is waited out by revision.
+    if (result.appliedThrough) await this.#holds(result.appliedThrough, operationId);
+    else await this.#showsRevision(result.revision);
     // The objects show the commit once it is admitted; its content may still be folding.
     await c.applied();
     if (this.canWork()) this.#retryTodoNumbers();
@@ -1318,7 +1323,7 @@ export class Live implements PageBinding {
       this.page.sharing,
       () => {},
       () => {},
-      ['colab-sync-v2'],
+      ['colab-sync-v2', COMMIT_POSITION_PROTOCOL],
       true,
     );
     try {
@@ -1476,6 +1481,30 @@ export class Live implements PageBinding {
     while (!(await shown()) && !this.#closed && !this.#error) {
       if (Date.now() >= deadline) return;
       await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+  /** Until this tab's objects hold `through`'s stream at or past its sequence, from the update
+   * itself or an admitted checkpoint covering it, or the page stops. A combine changes the page
+   * revision but not that position, so no deadline is needed. When the serve has announced a
+   * checkpoint covering it that this tab only noted (the update was pruned before it arrived),
+   * the existing catch-up admits that checkpoint: the notice alone never completes the wait. One
+   * catch-up that still leaves the head behind settles the batch as not confirmed, so the status
+   * line says so and the queue moves on. */
+  async #holds(through: AppliedThrough, operationId: string) {
+    for (;;) {
+      if (this.#closed || this.#error) return;
+      const c = this.#connection;
+      if (c && c.objects.head(through.streamId).seq >= through.seq) return;
+      if (!c?.objects.noticeCovers(through.streamId, through.seq)) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        continue;
+      }
+      // One catch-up, never a loop: the caught-up connection holds the commit or it is reported.
+      const next = await this.#settled();
+      if (this.#closed || this.#error) return;
+      if (next.objects.head(through.streamId).seq < through.seq)
+        throw new SaveOutcomeUnknown(operationId);
+      return;
     }
   }
   async #showsRevision(revision: string | undefined) {

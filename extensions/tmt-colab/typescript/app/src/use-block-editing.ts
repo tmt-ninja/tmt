@@ -128,6 +128,9 @@ export const TOAST_MS = 6000;
 /** How long a settled batch stays drawn while the page's view has not yet reached its commit (the
  * view comes after the commit is admitted; a view that never does must not pin the batch). */
 const VIEW_WAIT_MS = 5000;
+/** After this long a batch still waiting for its commit (or behind one that is) says so in the
+ * status line, so a write is never pending unseen (#6735). */
+export const SAVE_SLOW_MS = 2000;
 
 /** The format keys with ⌘ (Ctrl elsewhere) on a selected range: each toggles its mark. */
 const FORMAT_KEYS: Readonly<Record<string, 'bold' | 'italic' | 'code'>> = {
@@ -304,6 +307,8 @@ export function useBlockEditing(
   const history = useRef(new BlockHistory());
   const [selection, setSelection] = useState<BlockSelection>();
   const [toast, setToast] = useState<DeleteToast>();
+  /** Batches waiting longer than `SAVE_SLOW_MS`; while any does, the status line says so. */
+  const [slow, setSlow] = useState(0);
   /** The block menu open on a block, and its active action. */
   const [blockMenu, setBlockMenu] = useState<{ id: string; active?: string }>();
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -447,6 +452,16 @@ export function useBlockEditing(
         () => {},
         () => {},
       );
+      let late = false;
+      const slowTimer = setTimeout(() => {
+        late = true;
+        setSlow((now) => now + 1);
+      }, SAVE_SLOW_MS);
+      const landed = () => {
+        clearTimeout(slowTimer);
+        if (late) setSlow((now) => now - 1);
+      };
+      sent.then(landed, landed);
       const drop = () => setPending((now) => now.filter((batch) => batch.key !== key));
       // The live page resolves a batch when its commit is admitted, a little before the view that
       // shows it reaches `records`: dropping the batch then would take its block away and bring it
@@ -1672,7 +1687,10 @@ export function useBlockEditing(
     closeBlockMenu: () => setBlockMenu(undefined),
     hoverBlockMenu: (action: string) =>
       setBlockMenu((now) => (now ? { ...now, active: action } : now)),
-    toast: toast ?? shownRefusal(refusals[0], retryRefused),
+    toast:
+      toast ??
+      shownRefusal(refusals[0], retryRefused) ??
+      (slow > 0 ? { count: 0, notice: strings.blockEdit.saving, id: 0 } : undefined),
     undo,
     attach,
     refuseFiles,

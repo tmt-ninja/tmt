@@ -3283,6 +3283,24 @@ same tab waits until it settles, so a retry never lands behind a newer one. A ba
 keeps its own recovery. After the last refusal the page says the change was not saved and offers
 Retry; a batch whose outcome is in doubt is said to be, with no Retry.
 
+A tab learns that its committed batch has reached it from the batch's position, not from the page
+revision (#6735): a combine after the commit changes the revision but keeps the position as covered
+history. The browser's page connection offers `colab-commit-position-v1` beside `colab-sync-v2` (the
+two tokens and no others); the serve still answers exactly one `Sec-WebSocket-Protocol: colab-sync-v2`
+line. A serve that saw the token adds `appliedThrough: {streamId, seq}` to a committed `blocksresult`:
+the writer stream and final content sequence of the batch's publication, also on a replay; a
+committed `savestatus` reply to that tab names it too, so a batch recovered after a lost reply
+waits the same way. An
+unchanged or refused batch, and every reply to a tab that did not offer the token, carry none, so a
+bundle from before the token never sees the field. The batch is complete once the tab's objects hold
+`streamId` at `seq` or later, from the verified update or from an admitted content checkpoint of the
+same stream covering it, and its content is applied. A checkpoint notice alone does not complete it:
+when the tab holds a notice covering the position and not the position itself, it reopens once so
+catch-up admits that checkpoint, and if the caught-up view still does not hold it the batch is in
+doubt. Without `appliedThrough` (an older serve) the tab waits for the reply's
+revision as before. A batch that has not completed after 2 s, or waits behind one that has not, says
+so in the page's status line until it does.
+
 | Op                  | Shape                                                                                                                                                                                           |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `insert`            | `{id, type, parent?, after?, props?, text?}`; `parent` defaults to `root`; `after` absent = last, `null` = first, else a child of `parent`; `row` is never insertable                           |
@@ -4583,6 +4601,8 @@ upgrade cannot establish authorship. Removed access terminates live subscription
 An upgrade that offers only `colab-sync-v1` (a tab loaded before #5876) is accepted under that
 protocol only to send `{"type":"error","code":"upgradeRequired"}` and close; nothing of the space
 is read or sent, and reloading the tab loads the current app.
+A page connection may also offer `colab-commit-position-v1`, which is never selected: it only asks
+for block batch positions ([One batch entry](#one-batch-entry), #6735).
 `colab-sync-v2` uses strict typed JSON control frames with version `1`, type,
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:

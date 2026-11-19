@@ -136,6 +136,7 @@ export const text = {
     unknown:
       'Your last change may not have been saved. Reload the page to check before you make it again.',
     failed: 'Your last change was not saved.',
+    saving: 'Saving your change…',
   },
   blockFiles: {
     full: (limit: number) =>
