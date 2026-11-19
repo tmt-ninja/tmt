@@ -15,7 +15,7 @@ export function PageOutline({
   sections,
 }: {
   headings: readonly { id: string; title: string; level: number }[];
-  locate(id: string): { top(): number; scrollTo(): void } | undefined;
+  locate(id: string): { top(): number; scrollTo(keyboard: boolean): void } | undefined;
   compact?: boolean;
   /** The page's counted sections by heading ID (#6619): a mark and count beside each, and the
    * total in the title row. A heading without one is an explanatory heading and gets no mark. */
@@ -153,13 +153,14 @@ export function PageOutline({
               <button
                 type="button"
                 aria-current={index === current ? 'location' : undefined}
-                onClick={() => {
+                onClick={(event) => {
+                  const keyboard = event.detail === 0;
                   const target = locate(heading.id);
                   setCurrent(index);
                   if (menu) {
                     setMenuOpen(false);
                     toggle.current?.focus();
-                    target?.scrollTo();
+                    target?.scrollTo(keyboard);
                   } else if (innerWidth <= 640) {
                     setPreference(false);
                     try {
@@ -168,8 +169,8 @@ export function PageOutline({
                       /* Optional preference. */
                     }
                     // Closing the phone list changes the target's position in the page.
-                    requestAnimationFrame(() => target?.scrollTo());
-                  } else target?.scrollTo();
+                    requestAnimationFrame(() => target?.scrollTo(keyboard));
+                  } else target?.scrollTo(keyboard);
                 }}
               >
                 <OutlineRow title={heading.title} section={bySection.get(heading.id)} />

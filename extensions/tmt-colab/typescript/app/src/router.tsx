@@ -456,6 +456,7 @@ function PageFloatingActions({
 }
 
 function SelectionAnnotation({
+  element,
   host,
   structured,
   rectangle,
@@ -469,6 +470,7 @@ function SelectionAnnotation({
   arrivals,
   children,
 }: {
+  element: React.RefObject<HTMLDivElement | null>;
   host: HTMLDivElement | null;
   /** Structured pages are rendered in the parent rather than an author iframe. */
   structured?: boolean;
@@ -487,7 +489,6 @@ function SelectionAnnotation({
   /** Every annotation window: the shown one, and hidden ones whose send still runs (#5816). */
   children?: React.ReactNode;
 }) {
-  const element = useRef<HTMLDivElement>(null);
   // The lower edge a thread window keeps once a record arrives in it, relative to its anchor, and
   // the height and arrivals seen by the last placement.
   const rise = useRef<number | null>(null);
@@ -669,7 +670,17 @@ function SelectionAnnotation({
       window.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
     };
-  }, [host, structured, rectangle, inset, expanded, noticeVisible, toggleVisible, children]);
+  }, [
+    element,
+    host,
+    structured,
+    rectangle,
+    inset,
+    expanded,
+    noticeVisible,
+    toggleVisible,
+    children,
+  ]);
   return (
     <div
       ref={element}
@@ -1897,6 +1908,7 @@ function OpenPage({
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
   const structuredStage = useRef<HTMLDivElement>(null);
+  const selectionLayer = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!design) return;
     const bar = host.current
@@ -1946,6 +1958,7 @@ function OpenPage({
     binding,
     renderer,
     host,
+    structuredStage,
     panels: {
       clear,
       showThread,
@@ -2165,7 +2178,7 @@ function OpenPage({
     blockQuote.current = null;
     const change = () => {
       // An open window moves focus to its composer; that is not a new selection.
-      if (annotationRef.current) return;
+      if (annotationRef.current || document.activeElement?.closest('.selection-control')) return;
       const selection = document.getSelection();
       const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
       const stage = structuredStage.current;
@@ -2470,7 +2483,10 @@ function OpenPage({
     if (!node) return undefined;
     return {
       top: () => node.getBoundingClientRect().top,
-      scrollTo: () => node.scrollIntoView({ block: 'start', behavior: 'instant' }),
+      scrollTo: (keyboard: boolean) => {
+        node.scrollIntoView({ block: 'start', behavior: 'instant' });
+        if (keyboard) node.focus({ preventScroll: true });
+      },
     };
   }, []);
   const [htmlGutter, setHtmlGutter] = useState(false);
@@ -3423,6 +3439,22 @@ function OpenPage({
                 <div
                   className="structured-page-stage"
                   ref={structuredStage}
+                  onKeyDownCapture={(event) => {
+                    if (
+                      event.key !== 'Tab' ||
+                      event.shiftKey ||
+                      !annotationControl ||
+                      !blockQuote.current
+                    )
+                      return;
+                    const button =
+                      selectionLayer.current?.querySelector<HTMLButtonElement>('button');
+                    if (button) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      button.focus();
+                    }
+                  }}
                   data-annotation-mode={(canSelect && selectionMode) || undefined}
                 >
                   <LazyStructuredPage
@@ -3718,6 +3750,7 @@ function OpenPage({
       )}
       {pageBinding?.discussion && (annotations.length > 0 || annotationControl) && (
         <SelectionAnnotation
+          element={selectionLayer}
           host={
             view.pageType === 'blocks'
               ? (host.current?.parentElement as HTMLDivElement | null)

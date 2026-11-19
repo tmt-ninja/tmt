@@ -44,6 +44,7 @@ export function useAnnotations({
   binding,
   renderer,
   host,
+  structuredStage,
   panels,
 }: {
   snapshot: PageSnapshot;
@@ -51,6 +52,7 @@ export function useAnnotations({
   binding: RefObject<PageBinding | undefined>;
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   host: RefObject<HTMLDivElement | null>;
+  structuredStage: RefObject<HTMLDivElement | null>;
   panels: AnnotationPanels;
 }) {
   const environment = usePageEnvironment();
@@ -207,7 +209,21 @@ export function useAnnotations({
     annotationDraft.current = { value: '' };
     setVisibleKey(undefined);
     setRectangle(currentRectangle.current);
-    if (focusPage) queueMicrotask(() => host.current?.querySelector('iframe')?.focus());
+    if (focusPage) {
+      const block =
+        annotation.selector && 'block' in annotation.selector
+          ? annotation.selector.block
+          : undefined;
+      queueMicrotask(() => {
+        const target =
+          block &&
+          structuredStage.current?.querySelector<HTMLElement>(
+            `[data-block-id="${CSS.escape(block)}"]`,
+          );
+        if (target) target.focus();
+        else host.current?.querySelector('iframe')?.focus();
+      });
+    }
   }
   const retained = (key: string) => sending.current.has(key) || unsent.current.has(key);
   /** An annotation's composer reports its own send; a hidden one goes once nothing needs it. */

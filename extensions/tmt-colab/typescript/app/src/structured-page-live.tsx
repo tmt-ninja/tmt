@@ -137,6 +137,7 @@ export function LiveStructuredPage({
     selected,
     selectionFocus,
     selectionRequest,
+    selectForKeyboard,
     pageKey,
     toast,
     undo,
@@ -199,6 +200,7 @@ export function LiveStructuredPage({
       selected={selected}
       selectionFocus={selectionFocus}
       selectionRequest={selectionRequest}
+      onSelectBlock={write ? selectForKeyboard : undefined}
       onPageKey={pageKey}
       toast={toast}
       onUndo={undo}

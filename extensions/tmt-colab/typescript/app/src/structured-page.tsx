@@ -184,6 +184,7 @@ export interface StructuredPageProps {
   /** The selected blocks, and the one keyboard focus sits on. */
   selected?: readonly string[];
   selectionFocus?: string;
+  onSelectBlock?(id: string): void;
   /** Changes only when something selects a block on purpose (a menu action, a key, a click), not
    * on a render the page's other changes cause. */
   selectionRequest?: object;
@@ -524,7 +525,28 @@ function Blocks({
       // already inside it (a table's menu or column name field) stays where it is. This runs on
       // every redraw, and an agent's edit must never move a person's focus into the page (#6611):
       // see `FocusRestore`.
-      tabIndex={rest.selected?.includes(block.id) ? -1 : undefined}
+      tabIndex={rest.annotationMode ? 0 : -1}
+      onFocus={(event) => {
+        if (
+          event.target === event.currentTarget &&
+          event.currentTarget.matches(':focus-visible') &&
+          !rest.annotationMode &&
+          !rest.selected?.includes(block.id)
+        )
+          rest.onSelectBlock?.(block.id);
+      }}
+      onKeyDown={(event) => {
+        if (
+          !rest.annotationMode ||
+          event.target !== event.currentTarget ||
+          event.key !== 'Enter' ||
+          !event.isTrusted
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        rest.onAnnotateBlock?.(block.text?.trim() || undefined, event.currentTarget, true);
+      }}
       ref={(node: HTMLDivElement | null) => {
         if (!node || rest.selectionFocus !== block.id || node.contains(document.activeElement))
           return;
