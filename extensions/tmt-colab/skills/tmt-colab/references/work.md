@@ -1,17 +1,16 @@
 # Page work
 
-A page's work is its sub-pages: an ordered list of the pages directly under it, plus a two-line
-summary. Use them when a page drives work (a plan, a spec, a review that splits into parts): each
-part is a page of its own. A page with sub-pages is still an ordinary page, and there are no tasks
-or assignees. Its manual page state is independent of progress: use
-`tmt colab page state PAGE todo|in-progress|done --json` to change it. Progress counts the direct
-sub-pages by their own page state, never deeper levels; `tmt colab show PAGE --json` reads the
-state and progress buckets. The browser shows them in the compact panel below the nav; expand it
-for the sub-page list. A shared reader shows the verified state with progress unavailable.
-`tmt colab ls` shows only current cached work and parent links; missing/stale entries are omitted
-without reading page content. Use `subpage ls PAGE` for freshly folded work.
-Use `tmt colab ls --json --work` for Work home summaries. It reads the owner list from a running
-serve or folds pages from the local store when Colab is offline.
+A page can have a two-line summary and ordered sub-pages. Give each part its own page when it
+needs its own discussion or owner. To track work within one page, use [heading sections](blocks.md#section-progress).
+The page's manual state (`tmt colab page state PAGE todo|in-progress|done --json`) is separate
+from its computed status and progress. Open the status in the page top bar to see its details in the status popover.
+Use `subpage ls PAGE` for freshly folded sub-page work.
+
+Use `tmt colab ls --json --work` for owner Work home summaries, including each page’s counted `sections` and
+project orders. A running serve reads its owner list; an offline read folds the local store.
+Plain `ls --json` skips these extras. `sectionsOmitted` flags an incomplete section listing.
+The top-level `projectOrders` maps project names to revisions and ranked items. For a name in
+`projectOrdersOmitted`, use `tmt colab work order show PROJECT --json` for its complete order.
 
 A request from a Colab comment on a block page can end with a to-do it became: `To-do: TEXT` and
 `Check it when done: tmt colab block props PAGE BLOCK --set checked=true`. Run that command when the
@@ -26,7 +25,7 @@ tmt colab subpage ls PAGE --json
 tmt colab summary set PAGE --line1 'Release plan' --line2 'Read before the release' --json
 ```
 
-A sub-page's progress is its page state: set it with `page state` on the sub-page itself.
+The owner's list counts direct children by computed status, falling back to manual state when status is unavailable.
 Archiving a sub-page keeps its link: `subpage ls` still lists it with `"archived": true` (state
 column `archived`), so you can see and detach it, but it leaves the progress, the list row's count
 and the browser's work panel until it is unarchived. The

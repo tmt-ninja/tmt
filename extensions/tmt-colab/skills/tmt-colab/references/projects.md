@@ -35,6 +35,6 @@ Ben and leads reorder project work. Read the owner's current order with
 Use `--before ITEM` to insert before another ranked item or `--unrank` to remove the
 position. A stale revision returns the current order for review. Moving an item sends no message.
 
-The owner generates the work-number prefix from the project name. Set it before
-the first number is issued. After issuance the prefix stays fixed, including
+The owner generates the work-number prefix from the project name. Set it with
+`tmt colab project set NAME --prefix PREFIX` before the first number is issued. After issuance the prefix stays fixed, including
 when the numbered item is deleted.
