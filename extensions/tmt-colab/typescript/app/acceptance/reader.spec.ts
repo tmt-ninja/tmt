@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { openReaderLink, startDoor } from './harness/browser.js';
+import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import { text as copy } from '../src/strings.js';
 import { patchArgs, createPage, freePort, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -949,5 +949,110 @@ test('editor metadata: owner applies creator and handled/reopen requests, refuse
     ).toBeVisible({ timeout: 60000 });
     await expect(editor.page.locator('iframe')).toHaveCount(0);
     expect(read()).toMatchObject({ creator: { agent: { id: first.id } }, source });
+  });
+});
+
+test('a structured share link renders admitted blocks and follows owner edits', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const created = colab(world, [
+      'page',
+      'create',
+      '--structured',
+      '--title',
+      'Release checklist',
+      '--no-open',
+    ]);
+    const pageId = String(created.pageId);
+    const table = randomUUID();
+    const ops = [
+      { type: 'heading', text: 'Release handoff', props: { level: 2 } },
+      { type: 'paragraph', text: 'Review the candidate with the delivery team.' },
+      { type: 'todo', text: 'Confirm the smoke test' },
+      { type: 'code', text: 'tmt colab ls --json' },
+    ].map((block) => ({ op: 'insert', id: randomUUID(), ...block }));
+    colab(
+      world,
+      ['block', 'batch', pageId, '--file', '-'],
+      JSON.stringify([
+        ...ops,
+        {
+          op: 'insert',
+          id: table,
+          type: 'table',
+          props: { columns: [{ id: 'stage', name: 'Stage' }] },
+        },
+        {
+          op: 'table',
+          id: table,
+          action: 'add-row',
+          row: randomUUID(),
+          cells: { stage: 'Verification' },
+        },
+      ]),
+    );
+    colab(world, ['share', 'mode', pageId, 'link', '--yes']);
+    const link = colab(world, ['share', 'link', 'add', pageId, '--yes']);
+    const reader = await openReaderLink(world, door, String(link.readerPath), 'structured-reader');
+    const body = reader.page.frameLocator('iframe');
+    await expect(body.getByRole('heading', { name: 'Release handoff' })).toBeVisible();
+    await expect(body.getByText('Review the candidate with the delivery team.')).toBeVisible();
+    await expect(body.getByText('Confirm the smoke test')).toBeVisible();
+    await expect(body.getByRole('cell', { name: 'Verification' })).toBeVisible();
+    await expect(body.locator('code')).toHaveText('tmt colab ls --json');
+    colab(world, ['block', 'insert', pageId, '--type', 'paragraph', '--text', 'Ready for review.']);
+    await expect(body.getByText('Ready for review.')).toBeVisible();
+    const captures = process.env.COLAB_READER_CAPTURE_DIR;
+    const owner = captures ? await pairBrowser(world, 'structured-owner') : undefined;
+    if (captures && owner) {
+      await mkdir(captures, { recursive: true });
+      await owner.page.goto(new URL(String(created.path), door.address).href);
+      await expect(
+        owner.page.getByText('Ready for review.', { exact: true }).first(),
+      ).toBeVisible();
+    }
+    for (const width of [1440, 390]) {
+      for (const theme of ['light', 'dark'] as const) {
+        for (const page of [reader.page, ...(owner ? [owner.page] : [])]) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.emulateMedia({ colorScheme: theme });
+          await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+        }
+        const dark = theme === 'dark';
+        await expect(body.locator('body')).toHaveCSS(
+          'background-color',
+          dark ? 'rgb(10, 10, 10)' : 'rgb(255, 255, 255)',
+        );
+        await expect(body.getByText('Ready for review.')).toHaveCSS(
+          'color',
+          dark ? 'rgb(242, 239, 233)' : 'rgb(20, 20, 20)',
+        );
+        const title = await reader.page.locator('.page-mobile-title h1').boundingBox();
+        const left = Math.max(16, (width - 1280) / 2);
+        expect(title?.x).toBe(left);
+        const heading = body.getByRole('heading', { name: 'Release handoff' });
+        expect((await heading.boundingBox())?.x).toBe(left);
+        for (const row of [
+          body.getByRole('table'),
+          body.getByRole('row').first(),
+          body.getByRole('cell', { name: 'Verification' }),
+        ]) {
+          const box = await row.boundingBox();
+          expect(box?.x).toBe(left);
+          expect(box?.width).toBe(title!.width);
+        }
+        if (captures && owner) {
+          await reader.page.screenshot({
+            path: path.join(captures, `reader-${width}-${theme}.png`),
+          });
+          await owner.page.screenshot({ path: path.join(captures, `owner-${width}-${theme}.png`) });
+          if (width === 390 && dark)
+            await owner.page
+              .locator('.structured-section-heading')
+              .first()
+              .screenshot({ path: path.join(captures, 'owner-section-dark.png') });
+        }
+      }
+    }
   });
 });

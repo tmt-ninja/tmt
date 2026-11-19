@@ -3067,6 +3067,7 @@
               (v.theme === 'light' || v.theme === 'dark')
             ) {
               document.documentElement.dataset.theme = v.theme;
+              scheduleScheme();
               return;
             }
             // The visible band of a window-scrolled frame (#6090): cosmetic, it grants nothing.
