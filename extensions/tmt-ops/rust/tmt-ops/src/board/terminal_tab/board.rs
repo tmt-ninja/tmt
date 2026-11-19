@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     action::{OpsUiAction, Verb},
-    board::app::{App, CopyFeedback, Effect, Request, TerminalOp, event_name},
+    board::app::{App, CopyFeedback, Effect, Request, TerminalKey, TerminalOp, event_name},
 };
 use ratatui::{
     crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
@@ -17,7 +17,7 @@ use ratatui::{
 };
 use std::time::Duration;
 use tmt_pty_protocol::RelaunchKind;
-use tmt_tui::components::terminal::{MouseMode, key_bytes, paste_bytes, wheel_bytes};
+use tmt_tui::components::terminal::{MouseMode, paste_bytes, wheel_bytes};
 
 /// What a dialog over the frame asks about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -315,16 +315,16 @@ impl App {
 
     /// While the frame is up every key is the program's, byte for byte, except the back key; a
     /// dialog or a menu takes its own keys first.
-    pub(in crate::board) fn frame_key(&mut self, key: KeyEvent) -> Option<Effect> {
+    pub(in crate::board) fn frame_key(&mut self, key: KeyEvent) -> Option<TerminalKey> {
         self.terminal.framed()?;
         if self.back_key(key) {
-            return Some(self.close_member_frame());
+            return Some(TerminalKey::Board(self.close_member_frame()));
         }
         if let Some(dialog) = self.frame_dialog() {
-            return Some(self.dialog_key(dialog, key));
+            return Some(TerminalKey::Board(self.dialog_key(dialog, key)));
         }
         if let Some(menu) = self.terminal.menu() {
-            return Some(self.frame_menu_key(menu, key));
+            return Some(TerminalKey::Board(self.frame_menu_key(menu, key)));
         }
         if self
             .terminal_view()
@@ -333,12 +333,9 @@ impl App {
             if key.code == KeyCode::Enter {
                 self.terminal.reattach();
             }
-            return Some(Effect::None);
+            return Some(TerminalKey::Board(Effect::None));
         }
-        if let Some(bytes) = key_bytes(&key, self.terminal.modes()) {
-            self.terminal.send(&bytes);
-        }
-        Some(Effect::None)
+        Some(TerminalKey::Child)
     }
 
     fn dialog_key(&mut self, dialog: Dialog, key: KeyEvent) -> Effect {

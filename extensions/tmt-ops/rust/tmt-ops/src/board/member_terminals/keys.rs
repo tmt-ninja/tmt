@@ -6,13 +6,13 @@ use super::Row;
 use crate::{
     action::OpsUiAction,
     board::{
-        app::{App, Choice, Effect},
+        app::{App, Choice, Effect, TerminalKey},
         terminal_tab::{discovery::Address, tab::Condition},
         workspace::OpsTarget,
     },
 };
 use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
-use tmt_tui::components::terminal::{key_bytes, paste_bytes};
+use tmt_tui::components::terminal::paste_bytes;
 
 /// Whether a frame or stream key names one of these terminals rather than a member.
 pub(in crate::board) fn is_terminal_key(key: &str) -> bool {
@@ -159,7 +159,7 @@ impl App {
 
     /// While typing in the right panel every key is the terminal's, byte for byte, except the
     /// back key, which returns to the list.
-    pub(in crate::board) fn terminal_typing_key(&mut self, key: KeyEvent) -> Option<Effect> {
+    pub(in crate::board) fn terminal_typing_key(&mut self, key: KeyEvent) -> Option<TerminalKey> {
         if self.framed() {
             return None;
         }
@@ -167,12 +167,9 @@ impl App {
         if self.back_key(key) {
             self.terminals.set_typing(None);
             self.focus = 0;
-            return Some(Effect::None);
+            return Some(TerminalKey::Board(Effect::None));
         }
-        if let Some(bytes) = key_bytes(&key, self.terminal.modes()) {
-            self.terminal.send(&bytes);
-        }
-        Some(Effect::None)
+        Some(TerminalKey::Child)
     }
 
     pub(in crate::board) fn terminal_typing_paste(&mut self, text: &str) -> Option<Effect> {

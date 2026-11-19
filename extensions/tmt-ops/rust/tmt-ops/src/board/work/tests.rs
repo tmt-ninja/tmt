@@ -685,7 +685,7 @@ fn colab_work_reads_once_across_workspace_snapshot_applies() {
         || Ok(()),
         || Ok(()),
         None,
-        |_| Ok(()),
+        |_, _| Ok(()),
         |_| {},
         || work_reads.set(work_reads.get() + 1),
     )

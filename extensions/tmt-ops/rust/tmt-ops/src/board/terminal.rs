@@ -323,23 +323,23 @@ impl<W: io::Write> ratatui::backend::Backend for Backend<W> {
     }
 }
 
-/// Present a fullscreen board frame. A resume invalidates the physical display
-/// even if its dimensions are unchanged.
+/// Present a fullscreen board frame. A display invalidation forces a repaint
+/// even if the dimensions are unchanged.
 pub(super) fn present<W: io::Write>(
     terminal: &mut Terminal<Backend<W>>,
-    resumed: bool,
+    display_invalidated: bool,
     paint: impl FnOnce(&mut Frame<'_>),
 ) -> io::Result<()> {
-    present_at(terminal, terminal.size()?, resumed, paint)
+    present_at(terminal, terminal.size()?, display_invalidated, paint)
 }
 
 fn present_at<W: io::Write>(
     terminal: &mut Terminal<Backend<W>>,
     size: Size,
-    resumed: bool,
+    display_invalidated: bool,
     paint: impl FnOnce(&mut Frame<'_>),
 ) -> io::Result<()> {
-    if resumed || terminal.current_buffer_mut().area.as_size() != size {
+    if display_invalidated || terminal.current_buffer_mut().area.as_size() != size {
         terminal.backend_mut().resizing = true;
         let resized = terminal.resize(size.into());
         terminal.backend_mut().resizing = false;
@@ -626,6 +626,78 @@ mod tests {
             terminal.backend_mut().clear_region(ClearType::All).unwrap();
             assert_eq!(&*sink.0.borrow(), b"\x1b[2J");
         }
+    }
+
+    #[test]
+    fn ctrl_l_restores_erased_board_while_opening_the_checklist() {
+        use crate::board::{
+            BoardEvent, app::workspace::tests::board, session, view, workspace::OpsTarget,
+        };
+        use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+        use std::sync::mpsc::channel;
+        use tmt_tui::components::terminal::Screen as Display;
+
+        let mut app = board();
+        let member = app
+            .workspace_rows()
+            .iter()
+            .position(|row| matches!(row.target, OpsTarget::Member { .. }))
+            .unwrap();
+        app.select(member);
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        let size = Size::new(160, 36);
+        let sink = Sink::default();
+        let mut backend = Backend::new(sink.clone());
+        backend.frame_size = Some(size);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut display = Display::new(size.width, size.height);
+        let (events, input) = channel();
+        events
+            .send(BoardEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('l'),
+                KeyModifiers::CONTROL,
+            ))))
+            .unwrap();
+        events.send(BoardEvent::InputClosed).unwrap();
+        let mut first_frame = true;
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _, _| {},
+            |_, _| {},
+            |_| {},
+            |_| {},
+            |_| {},
+            |_| {},
+            || Ok(()),
+            || Ok(()),
+            None,
+            |app, invalidated| {
+                present_at(&mut terminal, size, invalidated, |frame| {
+                    view::prepare(app, frame.area());
+                    view::render(frame, app);
+                })?;
+                let bytes = std::mem::take(&mut *sink.0.borrow_mut());
+                assert!(!bytes.windows(4).any(|part| part == b"\x1b[2J"));
+                display.feed(&bytes);
+                if std::mem::take(&mut first_frame) {
+                    assert!(display.frame().row_text(0).contains("OPS"));
+                    display.feed(b"\x1b[2J");
+                    assert!(display.frame().row_text(0).is_empty());
+                }
+                Ok(())
+            },
+            |_| {},
+            || {},
+        )
+        .unwrap();
+        let displayed = display.frame();
+        assert!(displayed.row_text(0).contains("OPS / UI"));
+        assert!((0..size.height).any(|row| displayed.row_text(row).contains("SQUAD / AGENT")));
+        assert_eq!(app.right_tab, crate::board::shell::RightTab::Checklist);
+        assert!(app.input.is_some(), "the Talk draft stays open underneath");
     }
 
     /// Draws `text` in a 20x3 viewport with the caret at (2, 2) when `caret`.
