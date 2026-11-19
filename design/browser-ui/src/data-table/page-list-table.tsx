@@ -27,6 +27,7 @@ export interface PageListRow {
   needsYou?: boolean;
 }
 
+// The title takes every width the other columns' content leaves (#6665): each of them is `fit`.
 const columns: DataTableColumn<PageListRow>[] = [
   {
     id: 'title',
@@ -47,6 +48,7 @@ const columns: DataTableColumn<PageListRow>[] = [
     role: 'chips',
     min: 96,
     max: 200,
+    fit: true,
     maxChips: 1,
     phone: 'meta',
     cell: (page) => page.projectPicker,
@@ -76,6 +78,7 @@ const columns: DataTableColumn<PageListRow>[] = [
     role: 'status',
     min: 100,
     max: 140,
+    fit: true,
     phone: 'meta',
     cell: (page) =>
       page.stage ? <PageListStageChip stage={page.stage.id} label={page.stage.label} /> : null,
@@ -86,6 +89,7 @@ const columns: DataTableColumn<PageListRow>[] = [
     role: 'time',
     min: 88,
     max: 104,
+    fit: true,
     phone: 'meta',
     sortable: true,
     text: (page) => page.updated,
@@ -104,6 +108,7 @@ const columns: DataTableColumn<PageListRow>[] = [
     role: 'person',
     min: 72,
     max: 120,
+    fit: true,
     phone: 'menu',
     text: (page) => page.author,
   },
@@ -114,6 +119,7 @@ const columns: DataTableColumn<PageListRow>[] = [
     min: 70,
     // Wide enough for its icon and the longest label, "Read-only", at desktop widths (#6015).
     max: 116,
+    fit: true,
     phone: 'menu',
     text: (page) => page.access,
     cell: (page) => (

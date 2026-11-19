@@ -887,10 +887,13 @@ for (const width of [1440, 390])
         });
       expect(metrics.height).toBeGreaterThan(0);
       expect(metrics.height).toBeLessThanOrEqual(32);
+      // The column holds its group whole; it takes no more than that, the title the rest (#6665).
       if (width === 1440)
         expect(
-          (await alpha.locator('[data-role=chips]').boundingBox())!.width,
-        ).toBeGreaterThanOrEqual(150);
+          await alpha
+            .locator('[data-role=chips]')
+            .evaluate((node) => node.scrollWidth <= node.clientWidth),
+        ).toBe(true);
       await expect(rows(page)).toHaveCount(4);
       expect(await page.evaluate(() => window.__projectRequests)).toEqual([]);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

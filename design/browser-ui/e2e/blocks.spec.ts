@@ -70,6 +70,13 @@ test('the menu key, Shift+F10 and Cmd/Ctrl+/ open the block menu; Esc returns fo
 }) => {
   await open(page, 'part=editor');
   const block = page.locator('[data-block-id="b-2"]');
+  // The handle's menu button says these keys to a screen reader (#6665).
+  await block.hover();
+  const grip = block.getByRole('button', { name: 'Block actions' });
+  await expect(grip).toHaveAccessibleDescription(
+    'From the focused block, press Shift+F10, the Context Menu key, or ⌘/ (Ctrl+/ on Windows and Linux) to open Block actions.',
+  );
+  await expect(grip).toHaveAttribute('aria-keyshortcuts', 'Shift+F10 ContextMenu Meta+/ Control+/');
   for (const key of ['ContextMenu', 'Shift+F10', 'ControlOrMeta+/']) {
     await block.focus();
     await page.keyboard.press(key);

@@ -50,6 +50,11 @@ export interface DataTableColumn<Row> {
   ideal?: number;
   /** Widest width in px for a non-primary column; it stays between min and max. */
   max?: number;
+  /** Non-primary only: the column takes the width its content needs, from its header label's
+   * width up to `max`, and the primary column takes the rest; without it the column grows to `max`
+   * before the primary column gets any spare width (#6665). An empty column keeps its header's
+   * width. `min` still counts toward what the primary column's `ideal` may not take. */
+  fit?: boolean;
   align?: 'start' | 'center' | 'end';
   /** The cell's plain text: one line, truncated, with the full text in a tooltip when cut. */
   text?: (row: Row) => string;
@@ -290,7 +295,10 @@ export function DataTable<Row>({
     selectable && 'var(--tmt-data-table-select)',
     ...columns.map((column) => {
       if (column.role !== 'primary')
-        return `minmax(${column.min ?? 64}px, ${column.max ?? column.min ?? 160}px)`;
+        return column.fit
+          ? // Its header label is the floor (data-table.css), so the column never cuts its name.
+            `fit-content(${column.max ?? column.min ?? 160}px)`
+          : `minmax(${column.min ?? 64}px, ${column.max ?? column.min ?? 160}px)`;
       const min = column.min ?? 200;
       if (column.ideal === undefined) return `minmax(${min}px, 1fr)`;
       return `minmax(max(${min}px, min(${column.ideal}px, 100% - (${besidePrimary || '0px'}))), 1fr)`;
@@ -378,6 +386,7 @@ export function DataTable<Row>({
             data-align={column.align}
             data-phone={column.phone}
             aria-sort={column.sortable ? (direction ?? 'none') : undefined}
+            data-fit={column.fit ? '' : undefined}
           >
             {column.sortable && onSortChange ? (
               <button

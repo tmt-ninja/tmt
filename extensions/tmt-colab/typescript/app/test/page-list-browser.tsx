@@ -349,7 +349,12 @@ export async function mountPageList(
     | 'work-home'
     | 'work-order'
     /** Twenty-two projects of one page each; page n is n hours old, so Project 01 is the newest. */
-    | 'projects' = 'few',
+    | 'projects'
+    /**
+     * Sixty pages with real-looking titles of about 45 characters, every other one numbered; one
+     * page is in eight projects (#6665).
+     */
+    | 'titles' = 'few',
   hash = '/',
   /**
    * The owner's pinned projects. Left out, the source reports none (every project is in the menu);
@@ -426,125 +431,153 @@ export async function mountPageList(
           ]
         : size === 'work-home' || size === 'work-order'
           ? workHomePages(size === 'work-order')
-          : size === 'work' || size === 'work-pinned'
-            ? [
-                ...Array.from({ length: 75 }, (_, n) => {
-                  const stage = (['discussion', 'in-progress', 'done'] as const)[n % 3];
-                  return page(
-                    n + 1,
-                    // CJK is necessary fixture data for the requested mixed-script visual check.
-                    size === 'work-pinned' && n === 0
-                      ? '夜のレビュー：共有ページと進捗'
-                      : size === 'work-pinned' && n === 2
-                        ? 'A deliberately long page title that must truncate cleanly without pushing other columns outside the list'
-                        : `${['Spec', 'Review', 'Plan', 'Notes', 'Report'][n % 5]} ${n + 1}`,
-                    size === 'work-pinned' && n === 2
-                      ? ['pm', 'spec', 'blog']
-                      : n % 4
-                        ? [['spec', 'blog', 'pm'][n % 3]]
-                        : [],
-                    {
-                      ...(size === 'work-pinned' && n < 3 ? { pinned: true } : {}),
-                      ...(size === 'work-pinned' && n === 0 ? { sharing: 'link' as const } : {}),
-                      ...(size === 'work' && n === 0 ? { workNumber: 'COLAB-128' } : {}),
-                      // The long title beside a work number (#6646).
-                      ...(size === 'work-pinned' && n === 2 ? { workNumber: 'COLAB-119' } : {}),
-                      summary: {
-                        comments: n % 6,
-                        waiting: n === 1,
-                        needsYou: n === 1 ? (size === 'work-pinned' ? 3 : 1) : 0,
-                        author: n % 2 ? 'Ada' : 'feat-1',
-                        ...(size === 'work' && n === 0
-                          ? {
-                              fields: {
-                                owner: {
-                                  id: '20000000-0000-4000-8000-000000000088',
-                                  name: 'gui-3',
-                                },
-                                priority: 'high' as const,
-                                next: 'Review the mockup',
-                                blocked: 'Waiting for Core',
-                              },
-                            }
-                          : {}),
-                        ...(size === 'work-pinned' && (n === 0 || n === 2)
-                          ? {}
-                          : { work: work(stage, stage === 'done' ? 4 : n % 4, 4) }),
-                      },
+          : size === 'titles'
+            ? Array.from({ length: 60 }, (_, n) =>
+                page(
+                  n + 1,
+                  `${['Delta', 'Atlas', 'Orbit', 'Cedar'][n % 4]} ${60 - n} — ${
+                    [
+                      'Review unresolved comments on plan',
+                      'Ship the pairing flow to the beta',
+                      'Draft the release notes for v1.2',
+                    ][n % 3]
+                  }`,
+                  n === 0
+                    ? ['pm', 'spec', 'blog', 'design', 'docs', 'ops', 'web', 'core']
+                    : n % 3
+                      ? [['spec', 'blog', 'pm'][n % 3]!]
+                      : [],
+                  {
+                    ...(n % 2 ? {} : { workNumber: `COLAB-${200 + n}` }),
+                    summary: {
+                      comments: 0,
+                      waiting: false,
+                      needsYou: 0,
+                      // The real list's Author column is empty in every row (#6665).
+                      work: work((['discussion', 'in-progress', 'done'] as const)[n % 3]!, 1, 2),
                     },
-                  );
-                }),
-                page(76, 'Archived spec', ['spec'], { archived: true, summary: idle }),
-              ]
-            : size === 'quiet'
+                  },
+                ),
+              )
+            : size === 'work' || size === 'work-pinned'
               ? [
-                  page(1, 'Gamma notes', ['design'], { summary: idle }),
-                  page(2, 'Zeta notes', [], { summary: idle }),
-                ]
-              : size === 'cold'
-                ? [page(1, 'Gamma notes', ['design']), page(2, 'Zeta notes', [])]
-                : size === 'bulk'
-                  ? [
-                      ...Array.from({ length: 130 }, (_, n) =>
-                        page(n + 1, `Bulk ${String(n + 1).padStart(3, '0')}`, ['old']),
-                      ),
-                      page(131, 'Bulk archived', ['old', 'z'], { archived: true }),
-                    ]
-                  : size === 'none'
-                    ? []
-                    : [
-                        // The longest names the owner admits: 32 wide characters, 32 letters, a long creator.
-                        ...(size === 'long'
-                          ? [
-                              page(6, 'Long names', ['漢'.repeat(32), 'W'.repeat(32)], {
-                                summary: {
-                                  comments: 0,
-                                  waiting: false,
-                                  needsYou: 0,
-                                  author: 'W'.repeat(120),
+                  ...Array.from({ length: 75 }, (_, n) => {
+                    const stage = (['discussion', 'in-progress', 'done'] as const)[n % 3];
+                    return page(
+                      n + 1,
+                      // CJK is necessary fixture data for the requested mixed-script visual check.
+                      size === 'work-pinned' && n === 0
+                        ? '夜のレビュー：共有ページと進捗'
+                        : size === 'work-pinned' && n === 2
+                          ? 'A deliberately long page title that must truncate cleanly without pushing other columns outside the list'
+                          : `${['Spec', 'Review', 'Plan', 'Notes', 'Report'][n % 5]} ${n + 1}`,
+                      size === 'work-pinned' && n === 2
+                        ? ['pm', 'spec', 'blog']
+                        : n % 4
+                          ? [['spec', 'blog', 'pm'][n % 3]]
+                          : [],
+                      {
+                        ...(size === 'work-pinned' && n < 3 ? { pinned: true } : {}),
+                        ...(size === 'work-pinned' && n === 0 ? { sharing: 'link' as const } : {}),
+                        ...(size === 'work' && n === 0 ? { workNumber: 'COLAB-128' } : {}),
+                        // The long title beside a work number (#6646).
+                        ...(size === 'work-pinned' && n === 2 ? { workNumber: 'COLAB-119' } : {}),
+                        summary: {
+                          comments: n % 6,
+                          waiting: n === 1,
+                          needsYou: n === 1 ? (size === 'work-pinned' ? 3 : 1) : 0,
+                          author: n % 2 ? 'Ada' : 'feat-1',
+                          ...(size === 'work' && n === 0
+                            ? {
+                                fields: {
+                                  owner: {
+                                    id: '20000000-0000-4000-8000-000000000088',
+                                    name: 'gui-3',
+                                  },
+                                  priority: 'high' as const,
+                                  next: 'Review the mockup',
+                                  blocked: 'Waiting for Core',
                                 },
-                              }),
-                            ]
-                          : []),
-                        // A page already in the most projects it can be, and one project it is not in.
-                        ...(size === 'full'
-                          ? [
-                              page(
-                                7,
-                                'Full page',
-                                Array.from({ length: 8 }, (_, n) => `p${n + 1}`),
-                              ),
-                              page(8, 'Extra page', ['extra']),
-                            ]
-                          : []),
-                        ...(size === 'shells'
-                          ? [page(9, 'Reading shell', [], { pageType: 'shell' })]
-                          : []),
-                        page(
-                          1,
-                          'Alpha plan',
-                          size === 'groups'
-                            ? ['design', 'q4 plan', 'research', 'ops']
-                            : ['design', 'q4 plan'],
-                          {
-                            summary: {
-                              comments: 3,
-                              waiting: true,
-                              needsYou: 1,
-                              author: 'Studio agent',
-                            },
-                          },
+                              }
+                            : {}),
+                          ...(size === 'work-pinned' && (n === 0 || n === 2)
+                            ? {}
+                            : { work: work(stage, stage === 'done' ? 4 : n % 4, 4) }),
+                        },
+                      },
+                    );
+                  }),
+                  page(76, 'Archived spec', ['spec'], { archived: true, summary: idle }),
+                ]
+              : size === 'quiet'
+                ? [
+                    page(1, 'Gamma notes', ['design'], { summary: idle }),
+                    page(2, 'Zeta notes', [], { summary: idle }),
+                  ]
+                : size === 'cold'
+                  ? [page(1, 'Gamma notes', ['design']), page(2, 'Zeta notes', [])]
+                  : size === 'bulk'
+                    ? [
+                        ...Array.from({ length: 130 }, (_, n) =>
+                          page(n + 1, `Bulk ${String(n + 1).padStart(3, '0')}`, ['old']),
                         ),
-                        page(2, 'Beta review', ['design'], {
-                          summary: { comments: 1, waiting: false, needsYou: 0, author: 'Ada' },
-                        }),
-                        // No summary yet: the row shows only what the list already knows.
-                        page(3, 'Gamma notes', []),
-                        page(4, 'Delta ops', ['ops'], {
-                          summary: { comments: 0, waiting: false, needsYou: 0 },
-                        }),
-                        page(5, 'Archived spec', ['design'], { archived: true }),
-                      ],
+                        page(131, 'Bulk archived', ['old', 'z'], { archived: true }),
+                      ]
+                    : size === 'none'
+                      ? []
+                      : [
+                          // The longest names the owner admits: 32 wide characters, 32 letters, a long creator.
+                          ...(size === 'long'
+                            ? [
+                                page(6, 'Long names', ['漢'.repeat(32), 'W'.repeat(32)], {
+                                  summary: {
+                                    comments: 0,
+                                    waiting: false,
+                                    needsYou: 0,
+                                    author: 'W'.repeat(120),
+                                  },
+                                }),
+                              ]
+                            : []),
+                          // A page already in the most projects it can be, and one project it is not in.
+                          ...(size === 'full'
+                            ? [
+                                page(
+                                  7,
+                                  'Full page',
+                                  Array.from({ length: 8 }, (_, n) => `p${n + 1}`),
+                                ),
+                                page(8, 'Extra page', ['extra']),
+                              ]
+                            : []),
+                          ...(size === 'shells'
+                            ? [page(9, 'Reading shell', [], { pageType: 'shell' })]
+                            : []),
+                          page(
+                            1,
+                            'Alpha plan',
+                            size === 'groups'
+                              ? ['design', 'q4 plan', 'research', 'ops']
+                              : ['design', 'q4 plan'],
+                            {
+                              summary: {
+                                comments: 3,
+                                waiting: true,
+                                needsYou: 1,
+                                author: 'Studio agent',
+                              },
+                            },
+                          ),
+                          page(2, 'Beta review', ['design'], {
+                            summary: { comments: 1, waiting: false, needsYou: 0, author: 'Ada' },
+                          }),
+                          // No summary yet: the row shows only what the list already knows.
+                          page(3, 'Gamma notes', []),
+                          page(4, 'Delta ops', ['ops'], {
+                            summary: { comments: 0, waiting: false, needsYou: 0 },
+                          }),
+                          page(5, 'Archived spec', ['design'], { archived: true }),
+                        ],
   };
   window.__reportTasks = () => {
     state.pages = state.pages.map((p, index) =>
