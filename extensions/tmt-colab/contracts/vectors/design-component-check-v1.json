@@ -1,5 +1,20 @@
 [
   {
+    "tag": "tmt-ui-button",
+    "attrs": {"role":"button","data-test":"yes","aria-description":"Submit"},
+    "codes": []
+  },
+  {
+    "tag": "tmt-ui-button",
+    "attrs": {"aria-":"missing suffix"},
+    "codes": ["invalid-ds-prop"]
+  },
+  {
+    "tag": "tmt-ui-button",
+    "attrs": {"colour":"green"},
+    "codes": ["invalid-ds-prop"]
+  },
+  {
     "tag": "other-button",
     "attrs": {},
     "codes": [

@@ -40,10 +40,11 @@ impl SharedAttributes {
     }
 }
 
-static SHARED: LazyLock<Option<SharedAttributes>> = LazyLock::new(|| {
-    RELEASE.get("sharedAttributes").map(|table| {
-        serde_json::from_value(table.clone()).expect("generated shared attribute table")
-    })
+static SHARED: LazyLock<SharedAttributes> = LazyLock::new(|| {
+    serde_json::from_str(include_str!(
+        "../../../../../../design/systems/shared-attributes.json"
+    ))
+    .expect("design system shared attributes")
 });
 
 /// Suggest a unique nearest component within two single-character edits.
@@ -174,7 +175,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
         };
         for name in tree.attr_names(id) {
             let Some(prop) = component["props"].get(name) else {
-                if SHARED.as_ref().is_some_and(|table| !table.accepts(name)) {
+                if !SHARED.accepts(name) {
                     warn(
                         id,
                         ordinal,
