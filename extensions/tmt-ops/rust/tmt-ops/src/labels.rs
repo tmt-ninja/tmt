@@ -2,7 +2,7 @@
 //! `tmt <source> status --json` off the paint path and shows what comes back: it
 //! recalculates nothing a source decided. Typed projections share that same read. A source that
 //! is absent, slow, failing or malformed leaves its labels unavailable.
-use crate::{core::Core, runner::Cancellation};
+use crate::{config::DigestWindow, core::Core, runner::Cancellation};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -38,7 +38,10 @@ pub type Rows = BTreeMap<String, Vec<Label>>;
 
 /// The labels of every source that is currently available, in configuration order.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Supplied(Vec<(String, Snapshot)>);
+pub struct Supplied {
+    sources: Vec<(String, Snapshot)>,
+    settled: Arc<digest::SettledReports>,
+}
 
 /// Labels and optional typed evidence from one acquisition, with one lifetime.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -69,13 +72,16 @@ impl Supplied {
             return Self::default();
         };
         snapshot.stale = stale;
-        Self(vec![(source.into(), snapshot)])
+        Self {
+            sources: vec![(source.into(), snapshot)],
+            ..Self::default()
+        }
     }
 
     #[cfg(test)]
     pub fn from_rows(sources: Vec<(String, Rows)>) -> Self {
-        Self(
-            sources
+        Self {
+            sources: sources
                 .into_iter()
                 .map(|(source, rows)| {
                     (
@@ -87,12 +93,13 @@ impl Supplied {
                     )
                 })
                 .collect(),
-        )
+            ..Self::default()
+        }
     }
 
     /// An identity's labels, each with the source that supplied it.
     pub fn of<'a>(&'a self, identity: &'a str) -> impl Iterator<Item = (&'a str, &'a Label)> {
-        self.0.iter().flat_map(move |(source, snapshot)| {
+        self.sources.iter().flat_map(move |(source, snapshot)| {
             snapshot
                 .rows
                 .get(identity)
@@ -100,6 +107,19 @@ impl Supplied {
                 .flatten()
                 .map(move |label| (source.as_str(), label))
         })
+    }
+
+    /// Range-keyed settled delivery evidence, independent of live status.
+    pub(crate) fn settled(&self, window: DigestWindow) -> Option<&digest::SettledReport> {
+        self.settled.get(window)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_settled(&mut self, window: DigestWindow, document: &Value) {
+        Arc::make_mut(&mut self.settled).replace(
+            window,
+            digest::SettledReport::from_document(window, document),
+        );
     }
 
     /// The Digest projection and whether it is retained after a failed read.
@@ -111,7 +131,7 @@ impl Supplied {
 
     /// [`Self::digest`] with the shared status, whose pointer names one acquisition.
     pub fn digest_held(&self) -> Option<(&Arc<digest::Status>, bool)> {
-        self.0.iter().find_map(|(_, snapshot)| {
+        self.sources.iter().find_map(|(_, snapshot)| {
             snapshot
                 .digest
                 .as_ref()
@@ -188,10 +208,23 @@ impl Default for Timing {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReadDemand {
+    pub window: DigestWindow,
+    pub digest_visible: bool,
+}
+
 enum Signal {
     Read,
-    Window(crate::config::DigestWindow),
+    Scope(ReadDemand),
     Stop,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Wake {
+    Unchanged,
+    Refresh,
+    ChangedScope,
 }
 
 /// Coalesce read and selection requests in the one worker that owns acquisition.
@@ -199,21 +232,21 @@ enum Signal {
 fn pending(
     wake: &mpsc::Receiver<Signal>,
     first: Option<Signal>,
-    window: &mut crate::config::DigestWindow,
-) -> Option<bool> {
-    let mut again = false;
+    scope: &mut ReadDemand,
+) -> Option<Wake> {
+    let mut next = Wake::Unchanged;
     for signal in first.into_iter().chain(wake.try_iter()) {
         match signal {
             Signal::Stop => return None,
-            Signal::Read => again = true,
-            Signal::Window(value) if value != *window => {
-                *window = value;
-                again = true;
+            Signal::Read if next == Wake::Unchanged => next = Wake::Refresh,
+            Signal::Scope(value) if value != *scope => {
+                *scope = value;
+                next = Wake::ChangedScope;
             }
-            Signal::Window(_) => {}
+            Signal::Scope(_) | Signal::Read => {}
         }
     }
-    Some(again)
+    Some(next)
 }
 
 /// Asks the reader to read again at once, such as after the user changed what a
@@ -222,9 +255,9 @@ fn pending(
 pub struct Refresh(mpsc::Sender<Signal>);
 
 impl Refresh {
-    /// Select a supplier window and wake this same reader.
-    pub fn window(&self, window: crate::config::DigestWindow) {
-        let _ = self.0.send(Signal::Window(window));
+    /// Select the supplier window and whether the Digest panel needs settled counts.
+    pub(crate) fn scope(&self, scope: ReadDemand) {
+        let _ = self.0.send(Signal::Scope(scope));
     }
 
     pub fn now(&self) {
@@ -247,7 +280,7 @@ impl Reader {
         core: &Core,
         sources: Vec<String>,
         timing: Timing,
-        initial_window: crate::config::DigestWindow,
+        initial_window: DigestWindow,
         mut deliver: impl FnMut(Supplied) -> bool + Send + 'static,
     ) -> Option<Self> {
         if sources.is_empty() {
@@ -260,9 +293,15 @@ impl Reader {
             let mut last: Vec<Option<(Snapshot, Instant)>> = vec![None; sources.len()];
             let mut sent = Supplied::default();
             let mut wait = timing.every;
-            let mut window = initial_window;
+            let mut scope = ReadDemand {
+                window: initial_window,
+                digest_visible: false,
+            };
+            let digest_configured = digest::configured(&sources);
+            let mut settled = Arc::new(digest::SettledReports::default());
+            let mut next_settled = [None; 3];
             loop {
-                let read_window = window;
+                let read_window = scope.window;
                 let mut failed = false;
                 for (source, last) in sources.iter().zip(&mut last) {
                     let read = core
@@ -288,15 +327,15 @@ impl Reader {
                         }
                     }
                 }
-                let Some(again) = pending(&wake, None, &mut window) else {
+                let Some(woke) = pending(&wake, None, &mut scope) else {
                     return;
                 };
-                if window != read_window {
+                if scope.window != read_window {
                     wait = timing.every;
                     continue;
                 }
-                let supplied = Supplied(
-                    sources
+                let supplied = Supplied {
+                    sources: sources
                         .iter()
                         .zip(&last)
                         .filter_map(|(source, last)| {
@@ -304,11 +343,38 @@ impl Reader {
                                 .map(|(rows, _)| (source.clone(), rows.clone()))
                         })
                         .collect(),
-                );
+                    settled: Arc::clone(&settled),
+                };
                 if supplied != sent {
                     sent = supplied.clone();
                     if !deliver(supplied) {
                         return;
+                    }
+                }
+                let mut again = woke != Wake::Unchanged;
+                let window = scope.window;
+                let next = &mut next_settled[digest::settled_index(window)];
+                if digest_configured
+                    && scope.digest_visible
+                    && next.is_none_or(|at| Instant::now() >= at)
+                {
+                    // The full report may gather wake evidence. Pace it independently of
+                    // labels, which were already delivered above, and reuse this bounded lane.
+                    let report = digest::read_settled(&core, window, timing.deadline);
+                    let Some(woke) = pending(&wake, None, &mut scope) else {
+                        return;
+                    };
+                    again |= woke != Wake::Unchanged;
+                    if woke != Wake::ChangedScope {
+                        let interval = if report.is_some() { 60 } else { 120 };
+                        *next = Some(Instant::now() + Duration::from_secs(interval));
+                        Arc::make_mut(&mut settled).replace(window, report);
+                        if sent.settled != settled {
+                            sent.settled = Arc::clone(&settled);
+                            if !deliver(sent.clone()) {
+                                return;
+                            }
+                        }
                     }
                 }
                 wait = if failed {
@@ -324,10 +390,10 @@ impl Reader {
                 loop {
                     match wake.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                         Err(RecvTimeoutError::Timeout) => break,
-                        Ok(signal) => match pending(&wake, Some(signal), &mut window) {
+                        Ok(signal) => match pending(&wake, Some(signal), &mut scope) {
                             None => return,
-                            Some(false) => continue,
-                            Some(true) => {
+                            Some(Wake::Unchanged) => continue,
+                            Some(_) => {
                                 wait = timing.every;
                                 break;
                             }

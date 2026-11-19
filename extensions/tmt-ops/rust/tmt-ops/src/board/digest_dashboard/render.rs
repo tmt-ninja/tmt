@@ -428,11 +428,11 @@ fn detail(frame: &mut Frame, app: &App, area: Rect) {
                                 grid.text(area, &line.to_string(), Role::Text, None);
                             }
                         }
-                        PanelRow::Text(text) => {
+                        PanelRow::Text(_) | PanelRow::Saved { .. } => {
                             ds::Text::render(
                                 &ds::TextProps {
                                     spans: vec![ds::TextSpan {
-                                        text: text.clone(),
+                                        text: line.to_string(),
                                         role: ds::Token(Role::Text),
                                         bold: false,
                                     }],
@@ -619,9 +619,39 @@ pub(super) fn detail_lines(
                 };
                 wrapped.into_iter().map(PanelRow::Text).collect::<Vec<_>>()
             }
+            PanelRow::Saved { price, counts } => wrap_saved(price, counts, usize::from(width))
+                .into_iter()
+                .map(PanelRow::Text)
+                .collect(),
             other => vec![other],
         })
         .collect()
+}
+
+/// Prefer keeping the count and its status together. A separator belongs only
+/// between segments that share a line.
+fn wrap_saved(price: String, counts: String, width: usize) -> Vec<String> {
+    use crate::board::notes::wrap;
+    use unicode_width::UnicodeWidthStr;
+
+    let separator = " · ";
+    if price.width() + separator.width() + counts.width() <= width {
+        return vec![format!("{price}{separator}{counts}")];
+    }
+    let mut lines = wrap(&price, width);
+    let mut segments = counts.split(separator);
+    let mut line = segments.next().unwrap_or_default().to_owned();
+    for segment in segments {
+        if line.width() + separator.width() + segment.width() > width {
+            lines.extend(wrap(&line, width));
+            line = segment.to_owned();
+        } else {
+            line.push_str(separator);
+            line.push_str(segment);
+        }
+    }
+    lines.extend(wrap(&line, width));
+    lines
 }
 
 /// Put each section's first value in view, keeping the remainder scrollable.

@@ -799,7 +799,7 @@ fn session(
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
     checklist: impl Fn(checklist::load::Task),
     io: impl Fn(lane::Job),
-    labels_window: impl Fn(crate::config::DigestWindow),
+    labels_scope: impl Fn(crate::labels::ReadDemand),
     usage_wants: impl Fn(Option<usage_report::Request>),
     mut suspend: impl FnMut() -> io::Result<()>,
     mut reassert_mouse: impl FnMut() -> io::Result<()>,
@@ -827,7 +827,10 @@ fn session(
     let mut deferred: Option<BoardEvent> = None;
     let mut wanted: Option<usage_report::Request> = None;
     // The labels reader was started with the window the app opens with.
-    let mut labels_published = app.digest_window();
+    let mut labels_published = crate::labels::ReadDemand {
+        window: app.digest_window(),
+        digest_visible: false,
+    };
     let mut history_demand = None;
     let mut activity_window =
         (app.shell.tab == shell::OpsTab::Agents).then(|| app.activity_window());
@@ -958,10 +961,14 @@ fn session(
         dirty |= next_spinner != spinner || next_marks != marks;
         spinner = next_spinner;
         marks = next_marks;
-        // A window chosen, or restored by a later view, wakes the reader once.
-        if app.digest_window() != labels_published {
-            labels_published = app.digest_window();
-            labels_window(labels_published);
+        // Window or Digest visibility changes wake the same reader; member selection does not.
+        let labels_want = crate::labels::ReadDemand {
+            window: app.digest_window(),
+            digest_visible: app.shell.tab == shell::OpsTab::Digest,
+        };
+        if labels_want != labels_published {
+            labels_published = labels_want;
+            labels_scope(labels_want);
         }
         // The reader runs only while the panel is on screen, for its window.
         let want = app.usage_report_want();
@@ -2195,9 +2202,9 @@ pub fn run(
         |revision, identity| worker.selected(revision, identity),
         |task| worker.checklist(task),
         |job| lane.submit(job),
-        |window| {
+        |scope| {
             if let Some(labels) = &labels {
-                labels.refresher().window(window);
+                labels.refresher().scope(scope);
             }
         },
         |want| usage_wants.set(want),
@@ -3316,7 +3323,7 @@ print(json.dumps(out))
             |_, _| {},
             |_| {},
             no_io,
-            |window| windows.borrow_mut().push(window),
+            |scope| windows.borrow_mut().push(scope.window),
             |_| {},
             || Ok(()),
             || Ok(()),

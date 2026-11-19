@@ -1528,19 +1528,52 @@ fn digest_impact_frames(styles: &mut Styles) -> Vec<Value> {
                 &[(160, 50), (120, 40), (100, 32)]
             };
             for &(width, height) in sizes {
-                let mut app =
-                    crate::board::digest_dashboard::tests::impact::capture_case(scene, look);
-                if *scene == "impact-basis" {
-                    let _ = capture_frame(&app, scene, look_name, width, height, styles);
-                    app.choose(crate::board::app::Choice::DigestBasis);
-                }
-                let mut captured = capture_frame(&app, scene, look_name, width, height, styles);
-                captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()));
-                frames.push(captured);
+                frames.push(digest_impact_frame(
+                    scene, look_name, look, width, height, styles,
+                ));
             }
         }
     }
     frames
+}
+
+fn digest_impact_frame(
+    scene: &str,
+    look_name: &str,
+    look: crate::look::Look,
+    width: u16,
+    height: u16,
+    styles: &mut Styles,
+) -> Value {
+    let mut app = crate::board::digest_dashboard::tests::impact::capture_case(scene, look);
+    if scene == "impact-basis" {
+        let _ = capture_frame(&app, scene, look_name, width, height, styles);
+        app.choose(crate::board::app::Choice::DigestBasis);
+    }
+    let mut captured = capture_frame(&app, scene, look_name, width, height, styles);
+    captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()));
+    captured
+}
+
+#[test]
+#[ignore = "exports the four wide Digest spec looks to HOME_ORACLE_OUT without recording"]
+fn dump_digest_saved_wide() {
+    let document = crate::status::with_now_ms(NOW, || {
+        let mut styles = Styles::default();
+        let frames: Vec<_> = looks()
+            .into_iter()
+            .map(|(name, look)| {
+                digest_impact_frame("digest-spec", name, look, 160, 36, &mut styles)
+            })
+            .collect();
+        let styles: BTreeMap<_, _> = styles.0.into_iter().map(|(text, id)| (id, text)).collect();
+        json!({"styles": styles, "frames": frames})
+    });
+    fs::write(
+        std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path"),
+        serde_json::to_string_pretty(&document).unwrap() + "\n",
+    )
+    .unwrap();
 }
 
 fn answer_paging_frames(styles: &mut Styles) -> Vec<Value> {

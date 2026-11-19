@@ -39,6 +39,46 @@ fn digest() -> App {
 }
 
 #[test]
+fn saved_shows_range_counts_and_keeps_missing_evidence_distinct_from_partial() {
+    use crate::config::DigestWindow;
+
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = digest();
+    let mut document = valued_document();
+    document["members"][0]["lastDelivery"] =
+        serde_json::json!({"settledAtMs": 60_000, "messages": 2, "batches": 1});
+    app.labels = crate::labels::Supplied::from_document("digest", &document, false);
+    app.labels.set_settled(
+        DigestWindow::Day,
+        &serde_json::json!({
+            "version": 1, "since": "24h", "fromMs": 0, "throughMs": 121_000,
+            "members": [{
+                "id": super::MEMBER, "messages": 6, "actual": {"deliveries": 3},
+                "coverage": {"complete": false}, "excluded": {"incomplete": 0, "clock": 0}
+            }],
+        }),
+    );
+    let shown = paint(&mut app, 160, 50);
+    assert!(shown.contains("≈ $12.4 at list price"), "{shown}");
+    assert!(
+        shown.contains("6 messages → 3 batches · ◐\u{a0}partial"),
+        "{shown}"
+    );
+    assert!(!shown.contains("at list price ·"), "{shown}");
+    assert!(shown.contains("(2 → 1)"), "{shown}");
+    app.labels
+        .set_settled(DigestWindow::Day, &serde_json::Value::Null);
+    let shown = paint(&mut app, 160, 50);
+    for expected in ["6 messages → 3 batches", "◐\u{a0}partial", "↻\u{a0}stale"] {
+        assert!(shown.contains(expected), "{expected}: {shown}");
+    }
+    let selected = app.workspace.selected.clone();
+    key(&mut app, KeyCode::Char(']'));
+    assert_eq!(app.workspace.selected, selected);
+    assert!(paint(&mut app, 160, 50).contains("messages/batches unavailable"));
+}
+
+#[test]
 fn one_panel_keeps_delivery_totals_models_and_timers_and_range_keys_do_not_change_selection() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = digest();

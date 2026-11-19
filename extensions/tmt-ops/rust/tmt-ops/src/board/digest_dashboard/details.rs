@@ -36,6 +36,10 @@ pub(super) enum PanelRow {
         total: u128,
         partial: bool,
     },
+    Saved {
+        price: String,
+        counts: String,
+    },
     Text(String),
 }
 
@@ -48,6 +52,7 @@ impl std::fmt::Display for PanelRow {
                 note.as_ref().map_or(String::new(), |n| format!(" | {n}"))
             ),
             Self::ModeChips { text, .. } | Self::Text(text) => f.write_str(text),
+            Self::Saved { price, counts } => write!(f, "{price} · {counts}"),
             Self::Trend { saved, total } => {
                 write!(f, "{} trend {total}", if *saved { "saved" } else { "used" })
             }
@@ -107,6 +112,22 @@ fn selection<'a>(
 
 fn zone(app: &App) -> jiff::tz::TimeZone {
     app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC)
+}
+
+fn settled_counts(app: &App, ids: &[&str]) -> Option<String> {
+    let report = app.labels.settled(app.digest_window())?;
+    let (messages, batches, complete) = report.counts(ids)?;
+    let message_word = if messages == 1 { "message" } else { "messages" };
+    let batch_word = if batches == 1 { "batch" } else { "batches" };
+    let mut text = format!("{messages} {message_word} → {batches} {batch_word}");
+    // Keep the mark and state word together through the detail panel's wrapping.
+    if !complete {
+        text.push_str(" · ◐\u{a0}partial");
+    }
+    if report.stale {
+        text.push_str(" · ↻\u{a0}stale");
+    }
+    Some(text)
 }
 
 /// The pane title: what the tab describes and over which window.
@@ -467,10 +488,15 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<PanelRow
             sum.percent.included, sum.total
         ));
     }
-    lines.push(format!(
-        "{} at list price · messages/batches unavailable",
+    let price = format!(
+        "{} at list price",
         super::table::saved(&sum, crate::config::SavingsUnit::Cost).replace("≈$", "≈ $")
-    ));
+    );
+    if let Some(counts) = settled_counts(app, &selected.ids) {
+        lines.row(PanelRow::Saved { price, counts });
+    } else {
+        lines.push(format!("{price} · messages/batches unavailable"));
+    }
     lines.row(PanelRow::Rule {
         title: format!("Models · {}", app.digest_window().label()),
         note: Some("by TOK".into()),

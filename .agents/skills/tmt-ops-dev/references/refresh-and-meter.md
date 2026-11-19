@@ -85,6 +85,13 @@
   averaged; each unit keeps its own coverage and a `conflict` flag. The root `pricing`
   table (with its `origin`: fetched, cached or built-in) is read-only metadata for the
   Digest Estimate basis; the board never opens its sources and never fetches prices itself.
+  The selected Digest panel's Saved line uses the [decisions report](../../../../extensions/tmt-digest/contracts/digest-v1.md#delivery-report).
+  On the same bounded labels reader, the configured Digest source is asked for
+  settled counts only while the tab is visible. The reader keeps a separate
+  result and retry deadline per window (60 s after success, 120 s after failure).
+  Member selection projects held counts by UUID and starts no read. Missing
+  evidence is unavailable, partial coverage is marked, and a failed refresh
+  marks the last good counts stale.
   Details observation times use the shared relative-age wording plus local `HH:MM`;
   absent, zero, future or invalid instants show `unknown`, never a fabricated age.
   The Measure Digest table (`overview/summary.rs`) calls it over the visible roster, so
