@@ -3,6 +3,8 @@ import type { BlockOp } from './block-model.js';
 
 /** How long typing rests before its edit is sent (#6005): a burst is one op. */
 export const TEXT_FLUSH_MS = 300;
+/** Continuous input is sent in steps when the transport is available. */
+export const TEXT_MAX_WAIT_MS = 1000;
 
 /** A character no block text holds, marking the caret while a merge moves it. */
 const CARET = '﷐';

@@ -129,6 +129,9 @@ export const text = {
   },
   /** A batch of this tab the serve refused for good (#6220): said in the status line. */
   blockEdit: {
+    leaveUnsaved: 'Your latest text has not been saved. Leave this page?',
+    restored: 'Your unsaved text was restored',
+    keepRestored: 'Keep and continue',
     retry: 'Retry',
     stale: 'The page kept changing, so your last change was not saved.',
     refused: (reason: string) => `Your last change was not saved: ${reason}`,
