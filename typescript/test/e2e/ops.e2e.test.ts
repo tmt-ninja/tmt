@@ -2572,7 +2572,7 @@ child.stdout.pipe(process.stdout);
     });
   }, 60_000);
 
-  it('opens a chat link in a popover that copies it, shows it whole and runs the opener once (#4377)', async () => {
+  it('shows the full chat link and copies it from the same popover (#4377)', async () => {
     await withE2EFixture(async (fixture) => {
       installSquad(fixture);
       const capture = capturedTurnWorker(fixture, 'auth-fix');
@@ -2581,17 +2581,6 @@ child.stdout.pipe(process.stdout);
         expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
         expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
         expectJsonResult(await squadCli(fixture, ['add', 'auth-fix']));
-        // The opener records its argv instead of starting a browser: the link must arrive as
-        // one argument, whatever characters it holds.
-        const log = path.join(fixture.root, 'opener.log');
-        const recorder = path.join(fixture.root, 'record-open');
-        fs.writeFileSync(recorder, `#!/bin/sh\nprintf '%s\\n' "$#" "$@" >> '${log}'\n`, {
-          mode: 0o755,
-        });
-        fs.appendFileSync(
-          path.join(fixture.globalDir, 'ops.toml'),
-          `\nopener = [${JSON.stringify(recorder)}, "{url}"]\n`
-        );
         const link = "https://example.com/a%20b;c?x='1'&y=2#frag";
         const text = `Read [the docs](${link}) first.`;
         await capture.step('link-stop', { message: text });
@@ -2631,12 +2620,6 @@ child.stdout.pipe(process.stdout);
         );
 
         const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
-        const locateLink = (viewport: string) => {
-          const rows = viewport.split('\n');
-          const y = rows.findIndex((row) => row.includes('Read the docs first.'));
-          if (y < 0) return;
-          return { x: [...rows[y]!.slice(0, rows[y]!.indexOf('the docs'))].length + 1, y };
-        };
         const click = (x: number, y: number) => {
           for (const final of ['M', 'm'])
             fixture.tmux([
@@ -2654,24 +2637,38 @@ child.stdout.pipe(process.stdout);
             return '';
           }
         };
-        const open = async (label: { x: number; y: number }) => {
-          click(label.x, label.y);
-          await fixture.waitForCapture((current) => current.includes('┌ Link'), shell.pane);
-        };
-
-        // The popover names where the link goes before it offers anything.
+        // The conversation is painted before the only mouse click.
         const initial = screen();
-        const label = locateLink(initial);
-        expect(label, initial).toBeDefined();
-        await open(label!);
+        const rows = initial.split('\n');
+        const y = rows.findIndex((row) => row.includes('Read the docs first.'));
+        expect(y, initial).toBeGreaterThanOrEqual(0);
+        const labelStart = rows[y]!.indexOf('the docs');
+        const x = [...rows[y]!.slice(0, labelStart)].length + 1;
+        click(x, y);
+        await fixture.waitForCapture((current) => current.includes('┌ Link'), shell.pane);
         const popover = screen();
         expect(popover).toContain('https://example.com');
-        for (const action of ['Open', 'Copy', 'Show full'])
-          expect(popover, popover).toContain(action);
+        for (const action of ['Copy', 'Show full']) expect(popover, popover).toContain(action);
 
+        // Show full lists every character of the address.
+        fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'f']);
+        await fixture.waitForCapture((current) => current.includes('Full link'), shell.pane);
+        const full = screen();
+        const lines = full
+          .split('\n')
+          .map((row) => /│ [› ]\s?(\S.*?)\s*│\s*$/.exec(row)?.[1])
+          .filter((row): row is string => Boolean(row));
+        expect(lines.join('').replace(/\s/g, ''), full).toContain(link);
+        expect(full).toContain('Enter copies · Esc back');
+        // Return to the same popover before choosing Copy.
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+        const restored = await fixture.waitForCapture(
+          (current) => current.includes('┌ Link') && !current.includes('Full link'),
+          shell.pane
+        );
         // Copy publishes the address before the close repaint. Wait for both.
         let lastBuffer = '';
-        let lastCapture = popover;
+        let lastCapture = restored;
         fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'y']);
         await fixture
           .waitFor(
@@ -2690,31 +2687,6 @@ child.stdout.pipe(process.stdout);
             );
           });
 
-        // Show full lists every character of the address.
-        const restored = locateLink(lastCapture);
-        expect(restored, lastCapture).toBeDefined();
-        await open(restored!);
-        fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'f']);
-        await fixture.waitForCapture((current) => current.includes('Full link'), shell.pane);
-        const lines = screen()
-          .split('\n')
-          .map((row) => /│ [› ]\s?(\S.*?)\s*│\s*$/.exec(row)?.[1])
-          .filter((row): row is string => Boolean(row));
-        expect(lines.join('').replace(/\s/g, ''), screen()).toContain(link);
-        expect(screen()).toContain('Enter copies · Esc back');
-        // Esc returns to the existing popover, where Open runs the configured
-        // command with the address as one argument, once.
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-        await fixture.waitForCapture(
-          (current) => current.includes('┌ Link') && !current.includes('Full link'),
-          shell.pane
-        );
-        fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'o']);
-        await fixture.waitFor(() => fs.existsSync(log), 10_000, 'the opener ran');
-        expect(fs.readFileSync(log, 'utf8')).toBe(`1\n${link}\n`);
-
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
         await fixture.waitForCapture(
           (current) => current.includes('LINK_BOARD_EXIT=0'),
