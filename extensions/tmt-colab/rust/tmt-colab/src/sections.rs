@@ -522,4 +522,32 @@ mod tests {
         assert_eq!(found.len(), SECTIONS);
         assert_eq!(found[0].total, SECTIONS + 2);
     }
+
+    /// The shared vectors (`contracts/vectors/sections-v1.json`) the open page's `liveSections`
+    /// runs too (#6687): the serve's sections and their fold-only state, case by case.
+    #[test]
+    fn the_shared_vectors_agree() {
+        let file: Value =
+            serde_json::from_str(include_str!("../../../contracts/vectors/sections-v1.json"))
+                .unwrap();
+        for case in file["cases"].as_array().unwrap() {
+            let (found, omitted) = sections(Some(&case["blocks"]));
+            let got: Vec<Value> = found
+                .iter()
+                .map(|section| {
+                    let mut row = json!({
+                        "id": section.id, "title": section.title, "level": section.level,
+                        "done": section.done, "total": section.total,
+                        "state": section.folded_state(0),
+                    });
+                    if let Some(manual) = section.manual {
+                        row["manual"] = json!(manual);
+                    }
+                    row
+                })
+                .collect();
+            assert_eq!(Value::Array(got), case["sections"], "{}", case["name"]);
+            assert_eq!(json!(omitted), case["omitted"], "{}", case["name"]);
+        }
+    }
 }

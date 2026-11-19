@@ -141,6 +141,11 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* A long section title keeps two lines, then an ellipsis (#6687); the row's title names it whole. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 .page-outline-list:has(.page-outline-mark)
   button:not(:has(.page-outline-mark))

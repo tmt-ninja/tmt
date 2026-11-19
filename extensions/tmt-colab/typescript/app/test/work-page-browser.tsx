@@ -202,6 +202,22 @@ export function mountWorkPage(
       props: { level: 2 },
       text: { s: 'Decisions', marks: [] },
     },
+    // The sections' work (#6687): Requirements two of three to-dos checked, Decisions an open
+    // to-do and a waiting question, as `workFacts.sections` says.
+    ...Object.fromEntries(
+      (
+        [
+          ['B1', 'todo', { checked: true }, 'Confirm the scope'],
+          ['B2', 'todo', { checked: true }, 'List the risks'],
+          ['B3', 'todo', { checked: false }, 'Sign off the plan'],
+          ['D1', 'todo', { checked: false }, 'Pick the date'],
+          ['D2', 'question', { kind: 'short', state: 'waiting' }, 'Ship this week?'],
+        ] as const
+      ).map(([pos, type, props, s], index) => [
+        id(210 + index),
+        { type, parent: 'root', pos, props, text: { s, marks: [] } },
+      ]),
+    ),
     [id(204)]: {
       type: 'paragraph',
       parent: 'root',

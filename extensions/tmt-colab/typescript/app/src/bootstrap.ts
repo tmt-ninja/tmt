@@ -161,8 +161,8 @@ export interface SectionSummary {
   manual?: 'done';
 }
 /** Matches `SECTIONS` and `SECTION_TITLE` in the Rust sections module. */
-const SECTIONS = 64;
-const SECTION_TITLE = 256;
+export const SECTIONS = 64;
+export const SECTION_TITLE = 256;
 /** A bounded list of section summaries, as the owner list and the work-facts reply carry them. */
 export function sectionSummaries(value: unknown): void {
   requireValue(Array.isArray(value) && value.length <= SECTIONS);

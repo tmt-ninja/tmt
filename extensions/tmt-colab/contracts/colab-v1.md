@@ -6760,7 +6760,9 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     An HTML page's sections are its `h2` and `h3` outside questions and hidden subtrees, as the
     page outline lists them, keyed `h1`, `h2`, ... in order; they count waiting questions and pull
     request links only (no to-dos, no manual setting). Omitted for a read-only page. Display only:
-    it never authorizes anything.
+    it never authorizes anything. An open structured page counts its own sections live from the
+    blocks it draws (#6687), the serve from its fold; `vectors/sections-v1.json` holds both to the
+    same cases, and the page keeps the serve's state only where pull request facts decide it.
   - Work home includes active pages with a fresh summary and to-dos with a work number and an
     assignee. Checked to-dos are `done`; open to-dos are `needs-you` for that Ask state,
     `working` for another Ask state, and `discussing` without one.

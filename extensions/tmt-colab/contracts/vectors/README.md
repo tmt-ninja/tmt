@@ -33,6 +33,12 @@ references it may add and which descriptors it may remove, run by the native `bl
 native `blocks::html` writes it (`TMT_BLESS_VECTORS=1 cargo test -p tmt-colab blocks::html`) and the browser's
 `renderBlocks` must match it byte for byte.
 
+`sections-v1.json` holds structured pages' `blocks` with the counted sections they make (#6619,
+#6687): nesting by level, counted and uncounted headings, manual `done` and `off`, to-dos, waiting
+questions, blocked callouts, pull request links (decided by the fold alone, `unchecked` when their
+facts would change the answer), deleted and card blocks, the 256-byte title cut and the 64-section
+bound. The serve's `sections.rs` and the open page's `liveSections` both run every case.
+
 `block-text-merge-v1.json` holds hand-derived cases of the three-way text merge of one block
 (`diff` hunks, `merges` with overlap `remote`, `mergesBoth` with overlap `both`), and
 `block-text-merge-generated-v1.json` 500 seeded random triples merged under both modes. The native

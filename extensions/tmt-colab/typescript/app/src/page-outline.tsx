@@ -152,6 +152,7 @@ export function PageOutline({
             <li key={heading.id} data-level={heading.level}>
               <button
                 type="button"
+                title={heading.title}
                 aria-current={index === current ? 'location' : undefined}
                 onClick={(event) => {
                   const keyboard = event.detail === 0;

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { AttachmentInput, StoredAttachment } from './attachment-service.js';
 import type { BlockFiles } from './block-uploads.js';
 import type { DocumentImageInput } from './document-images.js';
-import type { BlockOp } from './block-model.js';
+import type { BlockOp, BlockRecord } from './block-model.js';
 import { blockRecords } from './block-projection.js';
 import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import type { BlockEntry } from './blocks.js';
@@ -43,6 +43,7 @@ export function LiveStructuredPage({
   onAnnotateBlock,
   annotations,
   onOpenAnnotation,
+  onDrawn,
 }: {
   blocks: Readonly<Record<string, BlockEntry>>;
   todoNumbers?: Readonly<Record<string, string>>;
@@ -73,6 +74,9 @@ export function LiveStructuredPage({
   onAnnotateBlock?(text: string | undefined, block: HTMLElement, whole: boolean): void;
   annotations?: ReadonlyMap<string, readonly { id: string; ordinal: number; open: boolean }[]>;
   onOpenAnnotation?(id: string): void;
+  /** The page as this tab draws it, its own changes on their way included (#6687): what the page
+   * counts its sections from, so a checked to-do shows in the outline at once. */
+  onDrawn?(blocks: readonly BlockRecord[] | undefined): void;
 }) {
   const hash = useRouterState({ select: (state) => state.location.hash });
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
@@ -163,6 +167,10 @@ export function LiveStructuredPage({
     pickMention,
     hoverMention,
   } = useBlockEditing(records, send, seq, files, agents, mentionPages);
+  useEffect(() => {
+    onDrawn?.(tree.flat());
+  }, [tree, onDrawn]);
+  useEffect(() => () => onDrawn?.(undefined), [onDrawn]);
   useEffect(() => {
     onSettle?.(settle);
     return () => onSettle?.(undefined);

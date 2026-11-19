@@ -1,4 +1,7 @@
 import { expect, it } from 'vite-plus/test';
+import sectionVectors from '../../../contracts/vectors/sections-v1.json';
+import { blockTree } from '../src/block-projection.js';
+import type { BlockEntry } from '../src/blocks.js';
 import type { PageSummary } from '../src/transport.js';
 import {
   activityOwners,
@@ -10,6 +13,7 @@ import {
 } from '../src/work-home-model.js';
 import {
   htmlOutlineSections,
+  liveSections,
   sectionMark,
   sectionTotals,
   segmentState,
@@ -111,8 +115,8 @@ it('carries the counted sections of a page as its one number, bar and stuck sect
     ['dot', '3/3'],
     ['half', '1/2 · Waiting on a PR'],
     ['target', '0/3 · Needs you'],
-    // A manual done keeps the real count.
-    ['dot', '1/4'],
+    // A heading marked done by hand says Done until its to-dos agree (#6687).
+    ['dot', 'Done'],
     ['ring', '0/2'],
   ]);
   expect(stuckSection(item.sections!)?.title).toBe('Ask');
@@ -195,4 +199,60 @@ it('counts done work per day against the period before, and lists the newest fir
   ]);
   const today = week.cells.at(-1)!;
   expect(recentlyDone(items, 10, today)).toHaveLength(1);
+});
+
+it('an open structured page counts its sections from the blocks it holds (#6687)', () => {
+  const block = (id: string, type: string, props: Record<string, unknown> = {}, text?: string) => ({
+    id,
+    type,
+    parent: 'root',
+    pos: id,
+    props,
+    ...(text === undefined ? {} : { text }),
+  });
+  const blocks = [
+    block('a', 'heading', { level: 2, progress: 'done' }, 'Plan'),
+    block('a1', 'todo', { checked: false }),
+    block('b', 'heading', { level: 2 }, 'Build'),
+    block('b1', 'todo', { checked: true }),
+    block('c', 'heading', { level: 3 }, 'Ship'),
+    block('c1', 'todo', { checked: false }),
+    block('c2', 'paragraph', {}, 'See https://github.com/example/project/pull/42.'),
+    block('d', 'heading', { level: 2, progress: 'off' }, 'Notes'),
+    block('d1', 'todo', { checked: false }),
+    block('e', 'heading', { level: 2 }, 'Ask'),
+    block('e1', 'question', { state: 'waiting' }),
+    block('f', 'heading', { level: 2 }, 'Prose'),
+  ] as unknown as Parameters<typeof liveSections>[0];
+  // The serve last saw Ship waiting on its PR; nothing else it said survives the blocks.
+  const served = [
+    { id: 'b', title: 'Build', level: 2, done: 0, total: 2, state: 'not-started' },
+    { id: 'c', title: 'Ship', level: 3, done: 0, total: 1, state: 'waiting-ci' },
+  ] as const;
+  expect(
+    liveSections(blocks, served).map(({ id, done, total, state, manual }) => [
+      id,
+      `${done}/${total}`,
+      state,
+      manual ?? '',
+    ]),
+  ).toEqual([
+    ['a', '0/1', 'done', 'done'],
+    // Build holds its sub-section Ship: one of two checked.
+    ['b', '1/2', 'working', ''],
+    ['c', '0/1', 'waiting-ci', ''],
+    ['e', '0/0', 'needs-you', ''],
+  ]);
+  // A section whose PR facts are not read yet is unchecked, not guessed.
+  expect(liveSections(blocks, undefined).find((section) => section.id === 'c')?.state).toBe(
+    'unchecked',
+  );
+});
+
+it('the open page counts the shared section vectors as the serve does (#6687)', () => {
+  for (const vector of sectionVectors.cases) {
+    const blocks = blockTree(vector.blocks as unknown as Record<string, BlockEntry>).tree.flat();
+    // No served facts: a section with a pull request is what the fold alone decides.
+    expect(liveSections(blocks, undefined), vector.name).toEqual(vector.sections);
+  }
 });
