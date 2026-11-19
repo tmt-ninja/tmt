@@ -210,6 +210,8 @@ pub struct Receipt {
     pub source_sha256: String,
     pub memory_limit: MemoryLimit,
     pub changed: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reopened_questions: Vec<String>,
     pub update: UpdateSize,
     /// How much of the existing source this write replaced. It sizes the editing hint and is not
     /// part of the receipt's JSON.
@@ -371,6 +373,7 @@ impl Receipt {
             source_sha256: hex(&crypto::digest(source.as_bytes())),
             memory_limit,
             changed: false,
+            reopened_questions: Vec::new(),
             update: UpdateSize::NONE,
             scale: crate::edit_scale::EditScale::NONE,
             usage: None,
@@ -628,6 +631,9 @@ fn read_with_meta(
             &conversations,
             &view.status_writers,
             &forms,
+            &store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+                tx.grandfathered_answers(page)
+            })?,
         )
         .map_err(|_| Fault::Invalid)?;
         if let Some(blocks) = &view.blocks {
@@ -871,6 +877,7 @@ pub enum PublicationPreparation {
 }
 /// Exact sealed bytes are frozen once. Authority is still checked by the commit owner.
 pub struct FrozenPublication {
+    pub reopened_questions: Vec<String>,
     job: Box<crate::publication::SignedJob>,
     packet: Vec<u8>,
     chain: Vec<u8>,
@@ -1005,6 +1012,14 @@ pub fn prepare_publication_with_clock<'a>(
         now,
     )?;
     Ok(PublicationPreparation::Write(FrozenPublication {
+        reopened_questions: reopened_questions(
+            store,
+            key,
+            page,
+            &s,
+            &prepared.projection,
+            decoder,
+        )?,
         scale: prepared.scale,
         ..frozen
     }))
@@ -1131,7 +1146,62 @@ fn prepare_structured(
         },
         now,
     )?;
-    Ok((PublicationPreparation::Write(frozen), receipt))
+    let reopened_questions =
+        reopened_questions(store, key, page, &s, &prepared.projection, decoder)?;
+    Ok((
+        PublicationPreparation::Write(FrozenPublication {
+            reopened_questions,
+            ..frozen
+        }),
+        receipt,
+    ))
+}
+
+/// Project both forms against the same verified answers and snapshot that owns the edit.
+fn reopened_questions(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    snapshot: &crate::fold::Snapshot,
+    after: &serde_json::Value,
+    decoder: &mut Decoder,
+) -> Result<Vec<String>> {
+    use crate::question_registry::{answers, form::Form};
+    let Some(registry) = after["meta"]
+        .get("questions")
+        .filter(|value| value.as_array().is_some_and(|entries| !entries.is_empty()))
+    else {
+        return Ok(Vec::new());
+    };
+    let view = snapshot.materialize(key, page, decoder)?;
+    let before = Form::page_forms(&view.source, view.blocks.as_ref());
+    let next = Form::page_forms(
+        after["html"].as_str().unwrap_or_default(),
+        after.get("blocks"),
+    );
+    if before == next {
+        return Ok(Vec::new());
+    }
+    let conversations = crate::discussion::project(key, page, snapshot, &view);
+    let legacy = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        tx.grandfathered_answers(page)
+    })?;
+    let states = |forms| {
+        answers::project(
+            registry,
+            &conversations,
+            &view.status_writers,
+            forms,
+            &legacy,
+        )
+        .map_err(|_| Fault::Invalid)
+    };
+    Ok(states(&before)?
+        .iter()
+        .zip(states(&next)?)
+        .filter(|(a, b)| a["state"] == "answered" && b["state"] == "open")
+        .filter_map(|(_, b)| b["id"].as_str().map(str::to_owned))
+        .collect())
 }
 /// One own-namespace update of the local writer's stream, frozen through the same
 /// signed publication as a content batch (status actions; the decoder prepared `update`).
@@ -1384,6 +1454,7 @@ fn freeze(
     job.verify_packet(&packet, &sign)?;
     Ok(FrozenPublication {
         job: Box::new(job),
+        reopened_questions: Vec::new(),
         packet,
         chain,
         scale: crate::edit_scale::EditScale::NONE,
@@ -1709,6 +1780,7 @@ pub fn publication_receipt(
                 changed: true,
                 update: UpdateSize::of(manifest),
                 scale: crate::edit_scale::EditScale::NONE,
+                reopened_questions: Vec::new(),
                 usage: None,
                 publication: Some(PublicationReceipt {
                     operation_id: key.operation_id.clone(),

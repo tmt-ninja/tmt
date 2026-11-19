@@ -13,6 +13,7 @@ import { LiveDocumentFiles, type DocumentFiles } from './document-files.js';
 import { shortPageId } from './short-links.js';
 import { commentsForAnswerBatch } from './answer-batch.js';
 import { inspectQuestions } from './questions.js';
+import { askedForm, blockQuestion, formDigest } from './question-form.js';
 import { ThreadStore, askedComment, commentForAsk, conversationForAsk } from './thread-store.js';
 import type { ThreadView } from './thread-records.js';
 import { readThreads, type DiscussionRef } from './thread-records.js';
@@ -123,6 +124,7 @@ export class Live implements PageBinding {
   readonly status: ThreadStatusCoordinator;
   readonly files: DocumentFiles;
   #progressReads: ProgressReads;
+  #legacyAnswers?: [string, string, string | null][];
   #progressKey?: string;
   #progressSource?: string;
   #progress: PageView['progress'] = null;
@@ -184,7 +186,11 @@ export class Live implements PageBinding {
           detail?.state === 'ready' && detail.pageState === this.#admitted.state
             ? (detail.progress ?? null)
             : null;
-        if (canonical(progress) !== canonical(this.#progress)) {
+        const legacy =
+          detail?.state === 'ready' ? (detail.legacyAnswers ?? []) : this.#legacyAnswers;
+        const legacyChanged = JSON.stringify(legacy) !== JSON.stringify(this.#legacyAnswers);
+        if (legacyChanged || canonical(progress) !== canonical(this.#progress)) {
+          this.#legacyAnswers = legacy;
           this.#progress = progress;
           this.#publish();
         }
@@ -204,6 +210,18 @@ export class Live implements PageBinding {
       deviceId: () => this.registration.deviceId,
       deviceName: () => this.registration.deviceName ?? '',
       blockAnchors: () => this.#admitted.pageType === 'blocks',
+      currentQuestionForm: (id) => {
+        const blocks = this.#admitted.blocks;
+        const block = blocks?.[id];
+        const question = blocks
+          ? block?.type === 'question' &&
+            block.deleted === undefined &&
+            blocks[block.parent]?.deleted === undefined
+            ? blockQuestion({ id, props: block.props, text: block.text?.s })
+            : undefined
+          : inspectQuestions(this.#admitted.source).questions.find((item) => item.id === id);
+        return question && formDigest(askedForm(question));
+      },
       own: () => this.#admitted.own ?? {},
       views: (connection) =>
         connection === this.#threadProjection?.connection &&
@@ -379,12 +397,26 @@ export class Live implements PageBinding {
       this.#projection.source === this.#progressSource &&
       canonical({ work: this.#projection.work, state: this.#projection.state }) ===
         this.#progressKey;
-    return structuredClone({
+    const view = structuredClone({
       ...this.#projection,
       workFacts: this.#workFacts,
       todoNumbers: this.#todoNumbers,
       progress: current ? this.#progress : null,
     });
+    if (this.#legacyAnswers) {
+      const bindings = new Map(
+        this.#legacyAnswers.map(([writer, id, digest]) => [writer + ':' + id, { digest }]),
+      );
+      for (const thread of view.threads ?? []) {
+        for (const comment of thread.comments) {
+          if (comment.deviceAuthor && comment.questionId && !comment.answeredForm) {
+            comment.legacyBinding =
+              bindings.get(comment.ref.writer + ':' + comment.ref.id) ?? 'superseded';
+          }
+        }
+      }
+    }
+    return view;
   }
   #todoIds(value: PageView) {
     return Object.entries(value.blocks ?? {})

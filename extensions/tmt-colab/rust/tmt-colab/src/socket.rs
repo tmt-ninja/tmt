@@ -1003,6 +1003,7 @@ fn serve(
             let projection = match projection {
                 Some(projection) => projection,
                 None if never_written => crate::summary::SummaryProjection {
+                    legacy_answers: Vec::new(),
                     summary: crate::summary::Summary {
                         comments: 0,
                         waiting: false,

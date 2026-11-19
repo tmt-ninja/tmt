@@ -893,6 +893,66 @@ test('answer blocks publish verified normal annotations and keep changes and age
       mkdirSync(captures, { recursive: true });
       await page.screenshot({ path: `${captures}/question-native-reloaded.png` });
     }
+    const previousSource = metadata().source as string;
+    const revised = previousSource.replace(
+      'Which heading should we use?',
+      'Which heading should we publish?',
+    );
+    expect(revised).not.toBe(previousSource);
+    const receipt = JSON.parse(
+      run(
+        world,
+        world.binaries.colab,
+        patchArgs(world, created.pageId, ['--file', '-', '--json']),
+        revised,
+        agent.pane,
+      ),
+    );
+    expect(receipt.reopenedQuestions).toEqual([initial[0].comments[0].questionId]);
+    expect(receipt.questionHint).toContain('A fresh answer is needed');
+    const reopened = metadata().questionStates[0];
+    expect(reopened.state).toBe('open');
+    expect(reopened.earlierAnswer.answeredForm.selection).toBe('Change it');
+    await expect(
+      card.getByText(text.questionEarlierVersion('Change it'), { exact: true }),
+    ).toBeVisible();
+    await expect(
+      card.getByText(text.questionEarlierVersion('Change it'), { exact: true }),
+    ).toHaveCSS('clip-path', 'none');
+    expect(agent.received()).toHaveLength(2);
+    await page.reload();
+    await expect(
+      card.getByText(text.questionEarlierVersion('Change it'), { exact: true }),
+    ).toBeVisible();
+    if (captures) {
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const theme of ['light', 'dark'] as const) {
+          await page.emulateMedia({ colorScheme: theme });
+          await page.evaluate((value) => localStorage.setItem('tmt-ui-theme', value), theme);
+          await page.reload();
+          const history = card.getByText(text.questionEarlierVersion('Change it'), { exact: true });
+          await expect(history).toBeVisible();
+          await expect(history).toHaveCSS('clip-path', 'none');
+          await expect(card.getByText('Checking for agents…', { exact: true })).toHaveCount(0);
+          await history.scrollIntoViewIfNeeded();
+          await page.screenshot({
+            path: `${captures}/earlier-answer-${width}-${theme}.png`,
+            animations: 'disabled',
+          });
+        }
+      }
+    }
+    run(
+      world,
+      world.binaries.colab,
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
+      previousSource,
+      agent.pane,
+    );
+    await expect(row.locator('.question-line-answer')).toHaveText('Change it');
+    expect(metadata().questionStates[0].answer).toBe('Change it');
+    expect(agent.received()).toHaveLength(2);
   });
 });
 

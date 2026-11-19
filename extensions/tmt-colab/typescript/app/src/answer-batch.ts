@@ -8,7 +8,7 @@ import { ASK_MESSAGE_BYTES } from './ask-records.js';
 import { sendCommentAsks, type MessageSendFailure } from './comment-send.js';
 import type { AgentDestination } from './live-ask.js';
 import { answerOf, type Question, type QuestionGroup } from './questions.js';
-import { answerToForm } from './question-form.js';
+import { answerToForm, StaleQuestionFormError } from './question-form.js';
 import { anchorQuote, type QuoteSelector, type ThreadView } from './thread-records.js';
 import {
   captureConversation,
@@ -126,6 +126,7 @@ export interface AnswerOutcome {
   question: string;
   state: 'recorded' | 'failed';
   context?: CommentContext;
+  staleForm?: boolean;
 }
 export type AnswerBatchResult =
   | { refused: 'too-large' }
@@ -204,7 +205,11 @@ export async function sendAnswers(
       recorded.push({ answer, context, conversation: index });
     } catch (failure) {
       if (failure instanceof AttachmentStaleError) answer.files?.stale(failure.attachmentIds);
-      states.push({ question: answer.question.id, state: 'failed' });
+      states.push({
+        question: answer.question.id,
+        state: 'failed',
+        ...(failure instanceof StaleQuestionFormError ? { staleForm: true } : {}),
+      });
     }
   }
   if (!recorded.length) return { answers: states, failures: [] };

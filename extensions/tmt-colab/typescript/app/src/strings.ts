@@ -325,7 +325,8 @@ export const text = {
   questionNoAgent: 'No agent',
   questionNoRecipient: 'No agent to answer: this page has no creator to ask.',
   questionEarlierVersion: (answer: string) => `Answered an earlier version: ${answer}`,
-  questionFormChanged: 'This question changed. Review the current wording and choices before sending.',
+  questionFormChanged:
+    'This question changed. Review the current wording and choices before sending.',
   latestPublisher: 'Latest publisher',
   authorAttributionNote:
     'Names are publisher-provided labels, not proof of identity or permission.',

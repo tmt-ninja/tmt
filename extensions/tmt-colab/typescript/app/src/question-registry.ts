@@ -2,8 +2,19 @@
  * a content field supplied by a commenter. Mirrors question_registry.rs. */
 import { coreIdentity, id, keys, nonempty, plain, requireValue } from './closed.js';
 import { validateAttribution, type Attribution } from './summary-lines.js';
-import { QUESTION_LIMIT, QUESTION_TITLE_POINTS, readQuestions, type Question } from './questions.js';
-import { answerApplies, askedForm, blockQuestion, formDigest, type AnsweredForm } from './question-form.js';
+import {
+  QUESTION_LIMIT,
+  QUESTION_TITLE_POINTS,
+  readQuestions,
+  type Question,
+} from './questions.js';
+import {
+  commentApplies,
+  askedForm,
+  blockQuestion,
+  formDigest,
+  type AnsweredForm,
+} from './question-form.js';
 import type { BlockEntry } from './blocks.js';
 import { validQuestionId } from './question-id.js';
 import { compareCommentOrder, type ThreadView } from './thread-records.js';
@@ -75,7 +86,11 @@ export type QuestionState = Omit<RegisteredQuestion, 'state'> & {
   answer?: string;
   answeredAt?: string;
   answerRef?: { writer: string; id: string; revision: string };
-  earlierAnswer?: { answeredForm: AnsweredForm; answerRef: { writer: string; id: string; revision: string } };
+  earlierAnswer?: {
+    answeredForm?: AnsweredForm;
+    selection: string;
+    answerRef: { writer: string; id: string; revision: string };
+  };
 };
 /** Consumes verified readThreads output only. Ask success and publisher labels grant nothing. */
 export function questionStates(
@@ -85,7 +100,7 @@ export function questionStates(
 ): QuestionState[] {
   validateQuestionRegistry(registry);
   return registry.map((entry) => {
-    const question = forms.find(form => form.id === entry.id);
+    const question = forms.find((form) => form.id === entry.id);
     const current = question ? formDigest(askedForm(question)) : null;
     const comments = threads
       .filter((thread) => !thread.deleted)
@@ -100,11 +115,21 @@ export function questionStates(
           { sequence: Number(b.sequence ?? '0'), writer: b.ref.writer, id: b.ref.id },
         ),
       );
-    const matches = (record: typeof comments[number]) => !record.answeredForm || answerApplies(record.answeredForm.digest, current);
+    const matches = (record: (typeof comments)[number]) => commentApplies(record, current);
     comments.reverse();
     const answer = comments.find(matches);
-    const earlier = comments.find(comment => !matches(comment));
-    const history = earlier?.answeredForm ? { earlierAnswer: { answeredForm: earlier.answeredForm, answerRef: {...earlier.ref, revision: earlier.revision} } } : {};
+    const earlier = comments.find(
+      (comment) => comment.legacyBinding !== 'superseded' && !matches(comment),
+    );
+    const history = earlier
+      ? {
+          earlierAnswer: {
+            answeredForm: earlier.answeredForm,
+            selection: earlier.answeredForm?.selection ?? earlier.body,
+            answerRef: { ...earlier.ref, revision: earlier.revision },
+          },
+        }
+      : {};
     if (!answer) return { ...entry, ...history };
     return {
       ...entry,
@@ -127,20 +152,33 @@ export function questionStates(
 }
 
 /** Missing discussion is still being verified; it must never become an unanswered projection. */
-export function verifiedQuestionStates(view: {
-  questions?: readonly RegisteredQuestion[];
-  threads?: readonly ThreadView[];
-  discussionPending?: boolean;
-  source?: string;
-  blocks?: Record<string, BlockEntry>;
-}, admitted?: readonly Question[]): QuestionState[] | undefined {
+export function verifiedQuestionStates(
+  view: {
+    questions?: readonly RegisteredQuestion[];
+    threads?: readonly ThreadView[];
+    discussionPending?: boolean;
+    source?: string;
+    blocks?: Record<string, BlockEntry>;
+  },
+  admitted?: readonly Question[],
+): QuestionState[] | undefined {
   if (view.questions === undefined || view.discussionPending || view.threads === undefined)
     return undefined;
   const blocks = view.blocks;
-  const forms = admitted ?? (blocks ? Object.entries(blocks)
-    .filter(([, block]) => block.type === 'question' && block.deleted === undefined && blocks[block.parent]?.deleted === undefined)
-    .map(([id, block]) => blockQuestion({id, props: block.props, text: block.text?.s}))
-    : view.source ? readQuestions(view.source) : []);
+  const forms =
+    admitted ??
+    (blocks
+      ? Object.entries(blocks)
+          .filter(
+            ([, block]) =>
+              block.type === 'question' &&
+              block.deleted === undefined &&
+              blocks[block.parent]?.deleted === undefined,
+          )
+          .map(([id, block]) => blockQuestion({ id, props: block.props, text: block.text?.s }))
+      : view.source
+        ? readQuestions(view.source)
+        : []);
   return questionStates(view.questions, view.threads, forms);
 }
 

@@ -1,3 +1,4 @@
+import { type AnsweredForm, StaleQuestionFormError } from './question-form.js';
 import {
   readNeedsYouAcknowledgements,
   validateNeedsYouAcknowledgement,
@@ -139,6 +140,7 @@ export interface ThreadStoreOptions extends DiscussionScope {
   available(): boolean;
   /** Block anchors are accepted only while the admitted page is structured. */
   blockAnchors?(): boolean;
+  currentQuestionForm?(id: string): string | undefined;
   sharing: string;
   scope?(): string;
 }
@@ -318,6 +320,12 @@ export class ThreadStore implements ThreadBinding {
     await this.#exclusive(async (c) => {
       if (captured && 'block' in captured) requireValue(this.options.blockAnchors?.() === true);
       const attached = await this.#attached(attach);
+      if (
+        answeredForm &&
+        questionId &&
+        this.options.currentQuestionForm?.(questionId) !== answeredForm.digest
+      )
+        throw new StaleQuestionFormError();
       requireValue(
         !this.#views(c).some(
           (thread) => thread.ref.writer === this.deviceId && thread.threadId === threadId,
@@ -374,6 +382,12 @@ export class ThreadStore implements ThreadBinding {
       revision = view.revision;
       requireValue(expectedRevision === undefined || revision === expectedRevision);
       const attached = await this.#attached(attach);
+      if (
+        answeredForm &&
+        questionId &&
+        this.options.currentQuestionForm?.(questionId) !== answeredForm.digest
+      )
+        throw new StaleQuestionFormError();
       await this.#write(
         [
           {
@@ -865,4 +879,3 @@ export function captureConversation(
       })),
   };
 }
-import type { AnsweredForm } from './question-form.js';

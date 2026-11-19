@@ -257,6 +257,7 @@ export type ReadingDetails =
       /** The first pending items by rank (review, question, reading); the count stays `summary.needsYou`. */
       needs: NeedDescriptor[];
       latest?: LatestComment;
+      legacyAnswers?: [string, string, string | null][];
     }
   | { pageId: string; state: 'pending' | 'unavailable' };
 
@@ -331,7 +332,21 @@ function completeDetails(value: unknown, pageId: string): ReadingDetails {
     ...('pageState' in value ? ['pageState'] : []),
     ...('progress' in value ? ['progress'] : []),
     ...('latest' in value ? ['latest'] : []),
+    ...('legacyAnswers' in value ? ['legacyAnswers'] : []),
   ]);
+  const legacyAnswers: [string, string, string | null][] = [];
+  if ('legacyAnswers' in value) {
+    requireValue(Array.isArray(value.legacyAnswers) && value.legacyAnswers.length <= 100);
+    for (const entry of value.legacyAnswers) {
+      requireValue(Array.isArray(entry) && entry.length === 3);
+      const [writer, message, digest] = entry;
+      requireValue(validReadingId(writer) && validReadingId(message));
+      requireValue(
+        digest === null || (typeof digest === 'string' && /^[0-9a-f]{64}$/.test(digest)),
+      );
+      legacyAnswers.push([writer, message, digest]);
+    }
+  }
   requireValue(typeof value.fingerprint === 'string' && /^[0-9a-f]{64}$/.test(value.fingerprint));
   activity(value.summary);
   requireValue('pageState' in value === 'progress' in value);
@@ -381,6 +396,7 @@ function completeDetails(value: unknown, pageId: string): ReadingDetails {
     readings,
     needs,
     ...('latest' in value ? { latest: latestComment(value.latest) } : {}),
+    ...(legacyAnswers.length ? { legacyAnswers } : {}),
   };
 }
 

@@ -1181,6 +1181,9 @@ impl Registration {
                 if let Some(latest) = &projection.latest {
                     ready["latest"] = serde_json::json!(latest);
                 }
+                if !projection.legacy_answers.is_empty() {
+                    ready["legacyAnswers"] = serde_json::json!(projection.legacy_answers);
+                }
                 ready
             }
             crate::summary::CachedDetails::Unavailable => {

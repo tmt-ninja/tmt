@@ -6,6 +6,8 @@ use sha2::{Digest, Sha256};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Form(u8, String, String, Vec<(String, Option<String>)>);
 
+pub(crate) type LegacyForms = std::collections::BTreeMap<(String, String), Option<Form>>;
+
 /// An absent current form preserves the registration's answer while its controls are removed.
 /// An absent recorded form is the explicit grandfathered absence, never a wildcard.
 pub fn applies(recorded: Option<&str>, current: Option<&str>) -> bool {
@@ -56,8 +58,11 @@ impl Form {
             return blocks
                 .iter()
                 .filter(|(_, block)| {
-                    block["type"] == "question" && block.get("deleted").is_none()
-                        && block["parent"].as_str().and_then(|id| blocks.get(id))
+                    block["type"] == "question"
+                        && block.get("deleted").is_none()
+                        && block["parent"]
+                            .as_str()
+                            .and_then(|id| blocks.get(id))
                             .is_none_or(|parent| parent.get("deleted").is_none())
                 })
                 .map(|(id, block)| {

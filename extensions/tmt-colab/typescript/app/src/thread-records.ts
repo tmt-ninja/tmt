@@ -92,6 +92,8 @@ export type DiscussionRecord =
   | ThreadStatusRecord
   | ThreadNotificationRecord;
 export interface CommentView extends CommentRecord {
+  /** Owner projection only. Null records absence at upgrade. */
+  legacyBinding?: { digest: string | null } | 'superseded';
   /** Projection only: authenticated device provenance, never an author-supplied record field. */
   readonly deviceAuthor?: boolean;
   ref: DiscussionRef;

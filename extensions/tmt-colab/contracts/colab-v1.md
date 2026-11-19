@@ -1254,8 +1254,13 @@ template page without a name or such a page is refused, and nothing is created.
 An ordinary comment may carry optional `questionId`, using the same UUID grammar. It is
 immutable across revisions, like its thread reference and Lamport sequence. This is an inert
 binding, not a new comment kind or authority. Effective question state consumes only current,
-nondeleted question-bound comments from verified owner-member devices in nondeleted,
-threads. Stable comment order (sequence, writer, message ID) chooses the latest;
+nondeleted question-bound comments from verified owner-member devices in nondeleted
+threads. Each new answer records the selection and the form the person saw. Its digest is
+the lowercase SHA-256 of compact UTF-8 JSON encoding
+`[1,prompt,mode,[[choice,description-or-null],...]]` in display order.
+Each group member has its own form. Rust and the browser share the
+[form vectors](vectors/question-form-v1.json). Among answers matching the current form,
+stable comment order (sequence, writer, message ID) chooses the latest;
 clocks and Ask results never choose it. An open entry with such an answer projects `answered`,
 a whitespace-normalized summary of at most 200 code points in `answer`, display-only
 `answeredAt` and `answerRef:{writer,id,revision}`. Deleting the last answer returns it to open;
@@ -1267,7 +1272,19 @@ removed, while preserving other pending kinds. Browser controls/routing/count ad
 tracked separately by #5146; the strict browser metadata and own-record codecs already
 preserve these values without granting a commenter content authority.
 
-At its first projection after upgrade the owner serve records the current form or its absence for a legacy answer: while the question is absent it stays answered, and when the ID appears again only an answer bound to that same form counts, including for answers recorded after upgrade; all other answers remain available as history.
+At its first projection after upgrade, the owner serve records the current form or its absence
+for each verified legacy answer. While a question is absent it stays answered. When its ID
+appears again, only an answer bound to that form counts. The same rule applies to answers
+recorded after upgrade. The newest earlier answer remains available through `earlierAnswer`
+with its comment reference. A legacy answer carries `grandfathered: true` in that history.
+The owner summary-details read may include `legacyAnswers`, at most two selected legacy
+comment references per registration, encoded as `[writer,id,digest-or-null]`. It allows a
+browser to match already verified comments to the owner's persisted baseline.
+
+When a page patch or block edit reopens answered questions, the CLI receipt names their IDs
+in `reopenedQuestions` and explains in `questionHint` that a fresh answer is needed.
+Editing alone sends no Ask. A card whose form changed before submission asks the person
+to review the current form and retains choices still present.
 
 Owner Save refusals keep the existing short message and add optional bounded
 `findings:[{code,line,fix}]` only on a rejected result. Up to 50 first repairs fit inside the

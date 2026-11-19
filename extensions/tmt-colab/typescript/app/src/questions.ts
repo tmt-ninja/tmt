@@ -1,5 +1,5 @@
 import { validQuestionId } from './question-id.js';
-import { askedForm, formDigest } from './question-form.js';
+import { askedForm, commentApplies, formDigest } from './question-form.js';
 import {
   COMMENT_BYTES,
   compareCommentOrder,
@@ -764,7 +764,7 @@ export function currentAnswer(question: Question, comments: readonly CommentView
       (comment) =>
         comment.deviceAuthor === true &&
         !comment.deleted &&
-        (!comment.answeredForm || comment.answeredForm.digest === digest) &&
+        commentApplies(comment, digest) &&
         (comment.questionId === question.id ||
           (comment.questionId === undefined && comment.body.startsWith(answerPrefix(question)))),
     )

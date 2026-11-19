@@ -40,7 +40,6 @@ export interface QuestionPage {
   metadata?: { view: PageView; binding: PageBinding };
 }
 
-
 /**
  * A question block on a page of blocks (#6005): DS `QuestionBlock` drawn over the same answer path
  * as an HTML page's question card (`useQuestionAnswers`). The serve registered the question when
@@ -121,58 +120,62 @@ export function StructuredQuestion({
   const recipient = answers.recipients[0]?.agentName ?? entry?.agent?.name ?? creator?.name;
   return (
     <>
-    {state === 'open' && effective?.earlierAnswer && <p className="question-kind">{text.questionEarlierVersion(effective.earlierAnswer.answeredForm.selection)}</p>}
-    <QuestionBlock
-      title={question.title}
-      agent={recipient ?? text.questionNoAgent}
-      kind={question.kind === 'long' ? 'short' : question.kind}
-      choices={question.choices.map(({ label }) => label)}
-      other={question.other}
-      state={
-        state === 'handled'
-          ? 'dismissed'
-          : answered !== undefined && !row.draft.changing
-            ? 'answered'
-            : 'waiting'
-      }
-      answer={answered}
-      busy={answers.sending.includes(question.id) || answers.resolvingDefaults}
-      error={
-        recipient === undefined
-          ? text.questionNoRecipient
-          : row.draft.failed
-            ? 'Could not confirm this answer. Your draft is kept for the next Send.'
-            : answers.error
-      }
-      onSend={
-        recipient === undefined || answers.disabled || !answers.decision.allowed
-          ? undefined
-          : (answer) => {
-              answers.setDrafts((previous) => ({
-                ...previous,
-                [question.id]: {
-                  ...(previous[question.id] ?? emptyDraft()),
-                  choices: answer.choices,
-                  other: answer.other !== undefined,
-                  value: answer.other ?? answer.text ?? '',
-                  failed: false,
-                },
-              }));
-              setSendNext(true);
-            }
-      }
-      onRetry={row.draft.failed ? () => void send() : undefined}
-      onEdit={onEdit}
-      onFollowUp={
-        answered !== undefined
-          ? () =>
-              answers.setDrafts((previous) => ({
-                ...previous,
-                [question.id]: { ...(previous[question.id] ?? emptyDraft()), changing: true },
-              }))
-          : undefined
-      }
-    />
+      {state === 'open' && effective?.earlierAnswer && (
+        <p className="question-history" title={effective.earlierAnswer.answeredForm?.form[1]}>
+          {text.questionEarlierVersion(effective.earlierAnswer.selection)}
+        </p>
+      )}
+      <QuestionBlock
+        title={question.title}
+        agent={recipient ?? text.questionNoAgent}
+        kind={question.kind === 'long' ? 'short' : question.kind}
+        choices={question.choices.map(({ label }) => label)}
+        other={question.other}
+        state={
+          state === 'handled'
+            ? 'dismissed'
+            : answered !== undefined && !row.draft.changing
+              ? 'answered'
+              : 'waiting'
+        }
+        answer={answered}
+        busy={answers.sending.includes(question.id) || answers.resolvingDefaults}
+        error={
+          recipient === undefined
+            ? text.questionNoRecipient
+            : row.draft.failed
+              ? 'Could not confirm this answer. Your draft is kept for the next Send.'
+              : answers.error
+        }
+        onSend={
+          recipient === undefined || answers.disabled || !answers.decision.allowed
+            ? undefined
+            : (answer) => {
+                answers.setDrafts((previous) => ({
+                  ...previous,
+                  [question.id]: {
+                    ...(previous[question.id] ?? emptyDraft()),
+                    choices: answer.choices,
+                    other: answer.other !== undefined,
+                    value: answer.other ?? answer.text ?? '',
+                    failed: false,
+                  },
+                }));
+                setSendNext(true);
+              }
+        }
+        onRetry={row.draft.failed ? () => void send() : undefined}
+        onEdit={onEdit}
+        onFollowUp={
+          answered !== undefined
+            ? () =>
+                answers.setDrafts((previous) => ({
+                  ...previous,
+                  [question.id]: { ...(previous[question.id] ?? emptyDraft()), changing: true },
+                }))
+            : undefined
+        }
+      />
     </>
   );
 }

@@ -221,6 +221,12 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE work_title_exclusions(item TEXT NOT NULL, repo TEXT NOT NULL, number INTEGER NOT NULL,
         PRIMARY KEY(item,repo,number)) WITHOUT ROWID;
     "#,
+    // Schema 28: the form observed on the owner's first projection of a verified legacy answer.
+    // SQL NULL records a question absent from the page at that observation.
+    r#"
+    CREATE TABLE grandfathered_answers(page TEXT NOT NULL, writer TEXT NOT NULL, message TEXT NOT NULL,
+        form TEXT, PRIMARY KEY(page,writer,message), FOREIGN KEY(page) REFERENCES pages(page) ON DELETE CASCADE) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// The schema whose step rewrites stored object envelopes as binary v2 (#5876).

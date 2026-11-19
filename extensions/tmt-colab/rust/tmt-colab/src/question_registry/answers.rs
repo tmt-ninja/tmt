@@ -5,11 +5,12 @@ use crate::{closed::Result, export::conversations::Conversations};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub fn project(
+pub(crate) fn project(
     registry: &Value,
     view: &Conversations,
     device_writers: &BTreeSet<String>,
     forms: &BTreeMap<String, Form>,
+    legacy: &super::form::LegacyForms,
 ) -> Result<Vec<Value>> {
     super::validate(registry)?;
     Ok(registry
@@ -31,8 +32,13 @@ pub fn project(
             let mut answer = None;
             let mut previous = None;
             for comment in comments {
-                let slot = if comment.answered_form.as_ref().is_none_or(|record|
-                    applies(Some(&record.digest), current.as_deref())) { &mut answer } else { &mut previous };
+                let recorded = legacy.get(&(comment.writer.clone(), comment.id.clone()));
+                let matches = match (&comment.answered_form, recorded) {
+                    (Some(record), _) => applies(Some(&record.digest), current.as_deref()),
+                    (None, Some(record)) => applies(record.as_ref().map(Form::digest).as_deref(), current.as_deref()),
+                    (None, None) => true,
+                };
+                let slot = if matches { &mut answer } else { &mut previous };
                 let order = |c: &crate::export::conversations::Comment| (c.sequence.parse::<u64>().unwrap_or(0), c.writer.clone(), c.id.clone());
                 if slot.is_none_or(|older| order(older) < order(comment)) {
                     *slot = Some(comment);
@@ -41,6 +47,11 @@ pub fn project(
             let mut effective = entry.clone();
             if let Some(comment) = previous {
                 effective["earlierAnswer"] = json!({"answeredForm":comment.answered_form,"answerRef":{"writer":comment.writer,"id":comment.id,"revision":comment.revision}});
+                if comment.answered_form.is_none() {
+                    effective["earlierAnswer"]["grandfathered"] = json!(true);
+                    effective["earlierAnswer"]["form"] = json!(legacy.get(&(comment.writer.clone(),comment.id.clone())));
+                    effective["earlierAnswer"]["answer"] = json!(crate::summary_passages::excerpt(&comment.body,crate::limits::QUESTION_ANSWER_POINTS));
+                }
             }
             if let Some(answer) = answer {
                 if effective["state"] == "open" {
@@ -64,6 +75,51 @@ pub fn project(
 mod tests {
     use super::*;
     #[test]
+    fn absent_at_upgrade_keeps_the_answer_until_the_question_returns() {
+        let corpus: Value = serde_json::from_str(include_str!(
+            "../../../../contracts/vectors/question-answers-v1.json"
+        ))
+        .unwrap();
+        let case = corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| {
+                case["name"] == "stable question binding survives title change and failed Ask"
+            })
+            .unwrap();
+        let view = crate::summary_pending::tests::view(case);
+        let writers = serde_json::from_value(case["deviceWriters"].clone()).unwrap();
+        let comment = &view.threads[0].comments[0];
+        let id = comment.question_id.clone().unwrap();
+        let legacy = BTreeMap::from([((comment.writer.clone(), comment.id.clone()), None)]);
+        let absent = project(
+            &case["registry"],
+            &view,
+            &writers,
+            &BTreeMap::new(),
+            &legacy,
+        )
+        .unwrap();
+        assert_eq!(absent[0]["state"], "answered");
+        let form = serde_json::from_value(json!([1, "New prompt", "short", []])).unwrap();
+        let restored = project(
+            &case["registry"],
+            &view,
+            &writers,
+            &BTreeMap::from([(id, form)]),
+            &legacy,
+        )
+        .unwrap();
+        assert_eq!(restored[0]["state"], "open");
+        assert!(restored[0].get("answer").is_none());
+        assert_eq!(restored[0]["earlierAnswer"]["grandfathered"], true);
+        assert_eq!(
+            restored[0]["earlierAnswer"]["answerRef"],
+            absent[0]["answerRef"]
+        );
+    }
+    #[test]
     fn verified_answer_states_and_per_question_counts_match_shared_vectors() {
         let corpus: Value = serde_json::from_str(include_str!(
             "../../../../contracts/vectors/question-answers-v1.json"
@@ -77,7 +133,14 @@ mod tests {
                 .iter()
                 .map(|id| id.as_str().unwrap().to_owned())
                 .collect();
-            let actual = project(&case["registry"], &view, &writers, &BTreeMap::new()).unwrap();
+            let actual = project(
+                &case["registry"],
+                &view,
+                &writers,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+            )
+            .unwrap();
             assert_eq!(
                 serde_json::to_value(&actual).unwrap(),
                 case["expected"],
