@@ -6,6 +6,8 @@ use crate::board::{
     notes::single_line, recent_responses::canonical_identity, workspace::OpsRoster,
 };
 
+use super::order::ProjectOrder;
+
 const MAX_PAGES: usize = 1_000;
 const MAX_TODOS: usize = 64;
 pub(super) const MAX_BYTES: usize = 2 * 1024 * 1024;
@@ -148,6 +150,8 @@ pub(in crate::board) struct List {
     pub missing: usize,
     pub omitted: usize,
     pub has_summary: bool,
+    pub(super) orders: BTreeMap<String, ProjectOrder>,
+    pub(super) omitted_orders: std::collections::BTreeSet<String>,
 }
 
 fn text(value: &Value, max_bytes: usize) -> Option<String> {
@@ -209,6 +213,8 @@ impl List {
             missing: 0,
             omitted: 0,
             has_summary: false,
+            orders: BTreeMap::new(),
+            omitted_orders: Default::default(),
         };
         for page in pages {
             if page["archived"] == true {
@@ -318,6 +324,22 @@ impl List {
                 });
             }
         }
+        for project in &list.projects {
+            if let Some(order) = ProjectOrder::decode(&value["projectOrders"][project]) {
+                list.orders.insert(project.clone(), order);
+            }
+        }
+        list.omitted_orders = value["projectOrdersOmitted"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .take(MAX_PAGES)
+            .filter_map(Value::as_str)
+            .filter(|name| {
+                !list.orders.contains_key(*name) && list.projects.iter().any(|p| p == name)
+            })
+            .map(str::to_owned)
+            .collect();
         list.items.sort_by(|a, b| a.order().cmp(&b.order()));
         Ok(list)
     }

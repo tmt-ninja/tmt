@@ -30,6 +30,7 @@ pub(super) enum Job {
     },
     Act(Request),
     OpenWorkPage(String),
+    WorkOrder(super::work::OrderJob),
     Jump {
         member: String,
     },
@@ -76,6 +77,7 @@ impl Job {
                 | Self::Notes(_)
                 | Self::Skills(_)
                 | Self::Versions
+                | Self::WorkOrder(_)
                 | Self::OfflineResume(_)
         ) && !matches!(self, Self::Terminals(task) if task.progress().is_none())
     }
@@ -85,6 +87,7 @@ impl Job {
         match self {
             Self::Shell { .. } => "Running shell…",
             Self::OpenWorkPage(_) => "Opening Colab page…",
+            Self::WorkOrder(_) => "Working with the Colab project order…",
             Self::Act(request) | Self::Send { request, .. } => request.progress(),
             Self::Jump { .. } => "Jumping…",
             Self::AcknowledgeAnswers(_) => "Acknowledging answers…",
@@ -116,6 +119,7 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
     match job {
         Job::Shell { .. } => unreachable!("shell has a dedicated worker"),
         Job::OpenWorkPage(page) => BoardEvent::WorkOpened(super::work::open(core, &page)),
+        Job::WorkOrder(job) => BoardEvent::WorkOrder(super::work::run_order(core, job)),
         Job::LocalUnread(task) => {
             let actor = task.actor().to_owned();
             BoardEvent::LocalUnreadPublished {

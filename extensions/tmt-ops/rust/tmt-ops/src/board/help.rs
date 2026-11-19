@@ -362,6 +362,13 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 ("r", "refresh the owner list"),
             ],
         ));
+        if app.work.has_project_orders() {
+            sections.push(section(
+                "work-order",
+                "Project order",
+                &[("m", "move numbered work in a selected project")],
+            ));
+        }
     }
     if matches!(
         app.shell.tab,

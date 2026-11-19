@@ -165,6 +165,7 @@ pub(in crate::board) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
     },
     WorkOpened(Result<(), String>),
+    WorkOrder(work::OrderReply),
     OrchestrationRead {
         read: orchestration::Read,
         observation: orchestration::Observation,
@@ -341,6 +342,7 @@ impl BoardEvent {
             Self::IdleAlert(_) => "IdleAlert",
             Self::WorkRead { .. } => "WorkRead",
             Self::WorkOpened(_) => "WorkOpened",
+            Self::WorkOrder(_) => "WorkOrder",
             Self::OrchestrationRead { .. } => "OrchestrationRead",
             Self::Orchestration(_) => "Orchestration",
             Self::InputClosed => "InputClosed",
@@ -1012,6 +1014,12 @@ fn session(
         {
             work_read();
         }
+        if app.shell.tab == shell::OpsTab::Work
+            && !app.framed()
+            && let Some(job) = app.work.request_order_show()
+        {
+            submit(app, lane::Job::WorkOrder(job));
+        }
         if dirty {
             observe_navigation(app, (), |_| Some("Paint"), |app, ()| draw(app))?;
             // The frame just recorded the screen's area: a zoom or resize asks for it now, not
@@ -1198,6 +1206,12 @@ fn session(
                     Ok(BoardEvent::WorkOpened(result)) => {
                         app.in_flight = app.in_flight.saturating_sub(1);
                         app.finished(result.map(|()| "Opened Colab page.".into()));
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::WorkOrder(reply)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        app.work.apply_order(reply);
                         dirty = true;
                         Effect::None
                     }
@@ -1712,6 +1726,9 @@ fn session(
                         io(lane::Job::IdleAlert(task));
                     }
                     Effect::OpenWorkPage(page) => submit(app, lane::Job::OpenWorkPage(page)),
+                    Effect::WorkOrder(task) => {
+                        submit(app, lane::Job::WorkOrder(work::OrderJob::Move(task)))
+                    }
                     Effect::Orchestration(task) => {
                         app.in_flight += 1;
                         io(lane::Job::Orchestration(task));
