@@ -333,11 +333,15 @@ impl Worker {
                 },
                 |job, generation| {
                     if let Deferred::Checklist(task) = job {
-                        return events
-                            .send(super::BoardEvent::Checklist(
+                        let event = match task {
+                            ChecklistWork::Room(task) => super::BoardEvent::Checklist(
                                 checklist.complete(&checklist_reader, task),
-                            ))
-                            .is_ok();
+                            ),
+                            ChecklistWork::Conversation(task) => super::BoardEvent::NotesRead(
+                                super::conversation_checklist::complete(&checklist_reader, task),
+                            ),
+                        };
+                        return events.send(event).is_ok();
                     }
                     let cancellation = read_generation.cancellation(generation);
                     let reader = background.cancellable(cancellation.clone());
@@ -474,7 +478,18 @@ impl Worker {
         ));
     }
     pub fn checklist(&self, task: super::checklist::load::Task) {
-        let _ = self.requests.send(Work::Checklist(task));
+        let _ = self
+            .requests
+            .send(Work::Checklist(ChecklistWork::Room(task)));
+    }
+    pub fn conversation_checklist(&self, task: super::conversation_checklist::Task) {
+        debug_assert!(
+            task.read_only(),
+            "conversation mutations belong on the action lane"
+        );
+        let _ = self
+            .requests
+            .send(Work::Checklist(ChecklistWork::Conversation(task)));
     }
     pub fn selected(&self, revision: u64, read: Option<SelectedRead>) {
         // Replace the selected lane without interrupting base/background reads.
@@ -507,10 +522,16 @@ impl Drop for Worker {
     }
 }
 
+/// Checklist work has its own shutdown fence, independent of view generations.
+enum ChecklistWork {
+    Room(super::checklist::load::Task),
+    Conversation(super::conversation_checklist::Task),
+}
+
 enum Work {
     ReadColab(u64),
     History { job: HistoryJob, generation: u64 },
-    Checklist(super::checklist::load::Task),
+    Checklist(ChecklistWork),
     Reload(Reload),
 }
 
@@ -774,7 +795,7 @@ fn capture_footer(reader: &Core, name: &str) -> Option<String> {
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
     ReadColab,
-    Checklist(super::checklist::load::Task),
+    Checklist(ChecklistWork),
     Enrich(EnrichJob),
     History(HistoryJob),
     HomeLeads(super::home_leads::Fetch),
@@ -1709,14 +1730,16 @@ mod tests {
         let (sender, pending) = mpsc::channel();
         for serial in 1..=3 {
             sender
-                .send(Work::Checklist(super::super::checklist::load::Task {
-                    key: super::super::checklist::load::Key {
-                        controller: 9,
-                        serial,
-                        room: None,
+                .send(Work::Checklist(ChecklistWork::Room(
+                    super::super::checklist::load::Task {
+                        key: super::super::checklist::load::Key {
+                            controller: 9,
+                            serial,
+                            room: None,
+                        },
+                        job: super::super::checklist::load::Job::Ids,
                     },
-                    job: super::super::checklist::load::Job::Ids,
-                }))
+                )))
                 .unwrap();
         }
         drop(sender);
@@ -1729,7 +1752,7 @@ mod tests {
             |_, _| Stamp::cursor(0),
             |_, _, _, _| panic!("no reload"),
             |job, _| {
-                let Deferred::Checklist(task) = job else {
+                let Deferred::Checklist(ChecklistWork::Room(task)) = job else {
                     panic!("only checklist work was queued")
                 };
                 completed.push(task.key.serial);

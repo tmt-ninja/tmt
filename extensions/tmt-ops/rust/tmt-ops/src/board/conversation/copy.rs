@@ -24,6 +24,7 @@ pub(super) struct Row {
     pub at: Option<At>,
     pub shown: String,
     origins: Vec<Origin>,
+    pub code_origin: Option<Origin>,
 }
 
 impl Row {
@@ -31,6 +32,7 @@ impl Row {
         Self {
             at,
             shown,
+            code_origin: None,
             origins: links
                 .iter()
                 .filter_map(|link| link.source.clone())
@@ -191,7 +193,10 @@ fn source(text: &str, low: usize, high: usize, cut: &Cut) -> String {
     }
     for (line, text) in lines.iter().enumerate().take(high + 1).skip(low) {
         let mut text = *text;
-        let hard_break = line + 1 < lines.len() && text.ends_with("  ");
+        let fenced = blocks.iter().any(|block| {
+            matches!(block, Block::Fence { open, close } if *open < line && close.is_none_or(|end| line < end))
+        });
+        let hard_break = !fenced && line + 1 < lines.len() && text.ends_with("  ");
         let from = if line == low {
             cut.head.filter(|at| text.is_char_boundary(*at))
         } else {
@@ -205,7 +210,13 @@ fn source(text: &str, low: usize, high: usize, cut: &Cut) -> String {
             None
         };
         let start = from.unwrap_or(0);
-        let to = to.map(|to| closing(text, start, to.max(start)));
+        let to = to.map(|to| {
+            if fenced {
+                to.max(start)
+            } else {
+                closing(text, start, to.max(start))
+            }
+        });
         if let Some(to) = to {
             text = &text[..to.min(text.len())];
         }
@@ -236,7 +247,8 @@ fn source(text: &str, low: usize, high: usize, cut: &Cut) -> String {
 /// first (head) or last (tail) displayed character. Painted-only glyphs (bullets, quote bars,
 /// table borders) are skipped. `None` when the text cannot be aligned with its source.
 fn exact(map: &Map, text: &str, row: usize, end: &End, head: bool) -> Option<Edge> {
-    let source_line = map.rows.get(row)?.at?;
+    let mapped_row = map.rows.get(row)?;
+    let source_line = mapped_row.at?;
     let lines: Vec<&str> = text.split('\n').collect();
     let line = *lines.get(source_line.line)?;
     let line_start = lines
@@ -244,6 +256,42 @@ fn exact(map: &Map, text: &str, row: usize, end: &End, head: bool) -> Option<Edg
         .take(source_line.line)
         .map(|line| line.len() + 1)
         .sum::<usize>();
+    if let Some(code) = &mapped_row.code_origin {
+        // Match the full painted fragment including its marker, then clamp the
+        // selection to its literal content. Captured rows trim trailing spaces.
+        let caption = mapped_row.shown.get(..code.shown.end)?.trim_end();
+        let lead = end.row.find(caption)?;
+        let cell = end.at.saturating_sub(lead).min(caption.len());
+        let offset = cell.saturating_sub(code.shown.start);
+        let original = text.get(code.source.clone())?;
+        let at = if !head && cell == caption.len() {
+            original.len()
+        } else if original == mapped_row.shown.get(code.shown.clone())? {
+            offset
+        } else {
+            // A glyph too wide for an empty row is represented by one cell,
+            // but selecting that cell still selects the whole original glyph.
+            if offset == 0 { 0 } else { original.len() }
+        };
+        let neighbor = if head {
+            row.checked_sub(1)
+        } else {
+            Some(row + 1)
+        };
+        let adjacent = neighbor
+            .and_then(|row| map.rows.get(row))
+            .and_then(|row| row.at);
+        let edge = adjacent != Some(source_line)
+            && if head {
+                offset == 0
+            } else {
+                cell == caption.len()
+            };
+        return Some(Edge {
+            at: code.source.start.checked_sub(line_start)? + at,
+            edge,
+        });
+    }
     // Spaces are not anchors, and the painted row may carry a pane border or a scroll bar
     // beside the displayed text: find that text inside it.
     let nonspace = |text: &str| {
@@ -467,6 +515,7 @@ mod tests {
             crate::look::Look::default(),
             None,
         );
+        let mut code_origins = rendered.code_origins.into_iter().peekable();
         Map {
             messages: vec![source.to_owned()],
             rows: rendered
@@ -474,15 +523,20 @@ mod tests {
                 .iter()
                 .zip(&rendered.sources)
                 .zip(&rendered.mentions)
-                .map(|((line, &source), links)| {
-                    Row::new(
+                .enumerate()
+                .map(|(index, ((line, &source), links))| {
+                    let mut row = Row::new(
                         (line.width() > 0).then_some(At {
                             message: 0,
                             line: source,
                         }),
                         line.to_string(),
                         links,
-                    )
+                    );
+                    row.code_origin = code_origins
+                        .next_if(|(row, _)| *row == index)
+                        .map(|(_, origin)| origin);
+                    row
                 })
                 .collect(),
         }
@@ -659,6 +713,19 @@ mod tests {
         let rows = shown(&["let a = 1;", "let b = 2;", "let c = 3;"]);
         assert_eq!(passage(&map, &rows, 0, 2), source);
         assert_eq!(passage(&map, &rows, 1, 1), "```rust\nlet b = 2;\n```");
+    }
+
+    #[test]
+    fn wrapped_code_copies_only_original_bytes() {
+        let source = "```text\n  abcdefgh↪ijklmnop\n```";
+        let map = rendered_map(source, 8);
+        assert_eq!(map.rows.len(), 3);
+        let end = map.rows[2].shown.trim_end().len();
+        assert_eq!(cut(&map, 0, 2, 0, end), source);
+        // The leading ↪ is painted. The second ↪ belongs to the source.
+        let row = &map.rows[1].shown;
+        assert!(row.starts_with("↪gh↪"));
+        assert_eq!(cut(&map, 1, 1, 0, "↪gh↪".len()), "gh↪");
     }
 
     #[test]

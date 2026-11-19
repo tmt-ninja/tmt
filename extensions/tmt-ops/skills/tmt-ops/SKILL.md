@@ -969,7 +969,7 @@ a recipient reply or approval and does not clear manual pending/state. The shell
 owns global attention; selected-target context never substitutes a guessed
 recipient for a hidden, removed or unknown target.
 
-Conversation Markdown includes filled, unwrapped code blocks, muted quote gutters
+Conversation Markdown includes filled, wrapped code blocks, muted quote gutters
 and boxed tables (literal source when the grid is too wide). Links and member
 references use underlined text; GitHub issue URLs shorten to `owner/repo#N`.
 Conversation bodies always render in full; the pane scrolls.

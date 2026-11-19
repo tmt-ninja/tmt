@@ -2201,7 +2201,13 @@ pub fn run(
         |squad, preempt, preview, chart| worker.request(squad, preempt, preview, chart),
         |revision, identity| worker.selected(revision, identity),
         |task| worker.checklist(task),
-        |job| lane.submit(job),
+        |job| {
+            lane::route(
+                job,
+                |task| worker.conversation_checklist(task),
+                |job| lane.submit(job),
+            )
+        },
         |scope| {
             if let Some(labels) = &labels {
                 labels.refresher().scope(scope);

@@ -28,12 +28,6 @@ impl Renderer<'_> {
         });
     }
 
-    fn line_of(&self, at: usize) -> usize {
-        self.starts
-            .partition_point(|start| *start <= at)
-            .saturating_sub(1)
-    }
-
     /// Reads the table structure from the main event stream; inline events inside a cell go
     /// through the ordinary handlers. Returns whether the event was consumed.
     pub(super) fn table_event(&mut self, event: &Event<'_>, at: &std::ops::Range<usize>) -> bool {
@@ -195,6 +189,7 @@ impl Renderer<'_> {
             spans,
             source_line,
             literal: true,
+            code_origin: None,
             style: Style::new(),
             prefix_style: Style::new(),
             quote_depth: 0,

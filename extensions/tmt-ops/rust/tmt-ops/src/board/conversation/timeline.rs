@@ -173,11 +173,13 @@ impl<'a> Paint<'a> {
             .map(|link| link.occurrence + 1)
             .max()
             .unwrap_or(0);
-        for ((line, mut links), source) in mapped
+        let mut code_origins = mapped.code_origins.into_iter().peekable();
+        for (index, ((line, mut links), source)) in mapped
             .lines
             .into_iter()
             .zip(mapped.mentions)
             .zip(mapped.sources)
+            .enumerate()
         {
             let shown = line.to_string();
             let mut line = exchange_view::body(line, self.look);
@@ -198,7 +200,11 @@ impl<'a> Paint<'a> {
                 &note,
                 None,
             );
-            self.copy.rows.last_mut().unwrap().shown = shown;
+            let copy_row = self.copy.rows.last_mut().unwrap();
+            copy_row.shown = shown;
+            copy_row.code_origin = code_origins
+                .next_if(|(row, _)| *row == index)
+                .map(|(_, origin)| origin);
         }
         start..self.lines.len()
     }
@@ -215,6 +221,7 @@ impl<'a> Paint<'a> {
                 lines: self.lines,
                 sources: (0..count).collect(),
                 mentions: self.mentions,
+                code_origins: Vec::new(),
             },
             anchor_text: self.anchors.join("\n"),
             timeline_spans: self.bodies,

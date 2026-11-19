@@ -116,6 +116,19 @@ impl Job {
     }
 }
 
+/// Checklist counts and previews use the worker so they cannot hold an
+/// explicit jump behind a read on the action lane.
+pub(super) fn route(
+    job: Job,
+    read_checklist: impl FnOnce(super::conversation_checklist::Task),
+    action: impl FnOnce(Job),
+) {
+    match job {
+        Job::Notes(task) if task.read_only() => read_checklist(task),
+        job => action(job),
+    }
+}
+
 /// The result of one job.
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {

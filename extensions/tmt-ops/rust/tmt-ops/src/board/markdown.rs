@@ -37,6 +37,7 @@ struct Block {
     spans: Vec<Part>,
     source_line: usize,
     literal: bool,
+    code_origin: Option<super::member_links::Origin>,
     style: Style,
     prefix_style: Style,
     quote_depth: usize,
@@ -161,6 +162,7 @@ impl Renderer<'_> {
             spans: Vec::new(),
             source_line: self.source_line,
             literal: false,
+            code_origin: None,
             style: Style::new(),
             quote_depth: self.quote_depth,
             prefix_style: self.look.role(if self.quote_depth > 0 {
@@ -216,6 +218,12 @@ impl Renderer<'_> {
             .expect("a block is open")
             .spans
             .push(part);
+    }
+
+    fn line_of(&self, at: usize) -> usize {
+        self.starts
+            .partition_point(|start| *start <= at)
+            .saturating_sub(1)
     }
 
     fn text(&mut self, text: &str, range: std::ops::Range<usize>) {
@@ -327,6 +335,7 @@ impl Renderer<'_> {
                 spans: Vec::new(),
                 source_line: self.source_line.saturating_sub(1),
                 literal: false,
+                code_origin: None,
                 style: Style::new(),
                 prefix_style: Style::new(),
                 quote_depth: 0,
@@ -345,6 +354,7 @@ impl Renderer<'_> {
                 spans: Vec::new(),
                 source_line: self.source_line + offset,
                 literal: false,
+                code_origin: None,
                 style: Style::new(),
                 prefix_style: Style::new(),
                 quote_depth: 0,
@@ -383,51 +393,33 @@ impl Renderer<'_> {
             self.next_command += 1;
         }
         if self.next_command < self.commands.len()
-            && !self.commands[self.next_command].console
+            && matches!(event, Event::Code(_))
             && self.commands[self.next_command].range.start == range.start
         {
             let reference = self.commands[self.next_command].clone();
-            let fenced = matches!(event, Event::Start(Tag::CodeBlock(_)));
-            if fenced {
-                self.separate();
-            }
             let occurrence = self.next_mention;
             self.next_mention += 1;
-            let first = self
-                .starts
-                .partition_point(|start| *start <= reference.content.start)
-                .saturating_sub(1);
-            let mut content_start = reference.content.start;
-            for (offset, text) in reference.command.shown.split('\n').enumerate() {
-                if offset > 0 {
-                    self.finish();
-                }
-                self.source_line = first + offset;
-                if self.current.is_none() {
-                    self.start(String::new(), 0);
-                }
-                let mut part = Part::new(
-                    text.into(),
-                    self.style()
-                        .patch(self.look.role(Role::Code))
-                        .add_modifier(Modifier::UNDERLINED),
-                    first + offset,
-                    Some((
-                        super::member_links::Target::Command(reference.command.clone()),
-                        occurrence,
-                    )),
-                );
-                part.source_range = Some(content_start..content_start + text.len());
-                content_start += text.len() + 1;
-                self.current
-                    .as_mut()
-                    .expect("a command block is open")
-                    .spans
-                    .push(part);
+            let source_line = self.line_of(reference.content.start);
+            if self.current.is_none() {
+                self.start(String::new(), 0);
             }
-            if fenced {
-                self.finish();
-            }
+            let mut part = Part::new(
+                reference.command.shown.clone(),
+                self.style()
+                    .patch(self.look.role(Role::Code))
+                    .add_modifier(Modifier::UNDERLINED),
+                source_line,
+                Some((
+                    super::member_links::Target::Command(reference.command),
+                    occurrence,
+                )),
+            );
+            part.source_range = Some(reference.content);
+            self.current
+                .as_mut()
+                .expect("an inline command has a line")
+                .spans
+                .push(part);
             self.skip_until = reference.range.end;
             self.next_command += 1;
             return;
@@ -555,6 +547,7 @@ impl Renderer<'_> {
                     )],
                     source_line: self.source_line,
                     literal: false,
+                    code_origin: None,
                     style: Style::new(),
                     prefix_style: Style::new(),
                     quote_depth: 0,
@@ -581,6 +574,7 @@ pub(super) struct Mapped {
     pub lines: Vec<Line<'static>>,
     pub sources: Vec<usize>,
     pub mentions: Vec<Vec<super::member_links::Link>>,
+    pub code_origins: Vec<(usize, super::member_links::Origin)>,
 }
 
 pub(super) fn render_mapped(text: &str, width: usize, look: crate::look::Look) -> Mapped {
@@ -766,9 +760,16 @@ fn project<'a>(
         lines: Vec::new(),
         sources: Vec::new(),
         mentions: Vec::new(),
+        code_origins: Vec::new(),
     };
     for block in renderer.blocks {
+        let code_origin = block.code_origin.clone();
         for (line, source, mentions) in wrap(block, width.max(1)) {
+            if let Some(origin) = &code_origin {
+                mapped
+                    .code_origins
+                    .push((mapped.lines.len(), origin.clone()));
+            }
             mapped.lines.push(line);
             mapped.sources.push(source);
             mapped.mentions.push(mentions);
@@ -796,6 +797,7 @@ pub(super) fn wrap_styled(line: Line<'static>, width: usize) -> Vec<Line<'static
                 .collect(),
             source_line: 0,
             literal: false,
+            code_origin: None,
             style: Style::new(),
             prefix_style: Style::new(),
             quote_depth: 0,
@@ -1034,14 +1036,53 @@ mod tests {
     }
 
     #[test]
-    fn fenced_code_is_filled_and_clipped_without_wrapping_or_fences() {
+    fn fenced_code_wraps_with_filled_continuations_and_source_lines() {
         let look = Look::default();
-        let mapped = render_mapped("```rust\n  let value = 1;\n界界界界界\n```", 8, look);
-        assert_eq!(text(&mapped.lines), ["  let v…", "界界界…"]);
-        assert_eq!(mapped.sources, [1, 2]);
+        let mapped = render_mapped("```rust\n  abcdefghijk\n界界界界界\n```", 8, look);
+        assert_eq!(
+            text(&mapped.lines),
+            ["  abcdef", "↪ghijk", "界界界界", "↪界"]
+        );
+        assert_eq!(mapped.sources, [1, 1, 2, 2]);
         for line in &mapped.lines {
             assert_eq!(line.width(), 8, "the fill covers the whole block row");
             assert_eq!(line.style.bg, look.role(Role::Track).bg);
+        }
+        assert_eq!(mapped.lines[1].spans[0].style.fg, look.role(Role::Dim).fg);
+
+        for (width, expected) in [(1, vec!["a", "�", "b"]), (2, vec!["a", "界", "↪b"])] {
+            let narrow = render_mapped("```\na界b\n```", width, look);
+            assert_eq!(text(&narrow.lines), expected);
+            assert_eq!(narrow.sources, [1, 1, 1]);
+            assert!(narrow.lines.iter().all(|line| line.width() == width));
+        }
+    }
+
+    #[test]
+    fn wrapped_console_and_marked_fence_links_keep_the_whole_command() {
+        use super::super::member_links::Target;
+        for (language, prefix) in [("console", "$ "), ("text", "！ ")] {
+            let command = "printf abcdefghijk";
+            let shown = format!("{prefix}{command}");
+            let source = format!("```{language}\n{shown}\n```");
+            let mapped = render_conversation_with_members(&source, 8, Look::default(), None);
+            let mut fragments = String::new();
+            assert!(mapped.lines.len() > 1);
+            for (row, links) in mapped.mentions.iter().enumerate() {
+                let [link] = links.as_slice() else {
+                    panic!("expected one command hit on each code row: {links:?}");
+                };
+                let Target::Command(target) = &link.target else {
+                    panic!()
+                };
+                assert_eq!(target.text, command);
+                assert_eq!(link.occurrence, 0);
+                assert_eq!(link.column, usize::from(row != 0));
+                assert!(link.column + link.width <= 8);
+                assert_eq!(mapped.sources[row], 1);
+                fragments.push_str(&source[link.source.as_ref().unwrap().source.clone()]);
+            }
+            assert_eq!(fragments, shown);
         }
     }
 

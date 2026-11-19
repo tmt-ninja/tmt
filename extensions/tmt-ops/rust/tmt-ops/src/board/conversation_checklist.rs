@@ -101,6 +101,12 @@ pub(in crate::board) struct Task {
     epoch: u64,
 }
 
+impl Task {
+    pub(super) fn read_only(&self) -> bool {
+        matches!(self.work, Work::Read { .. } | Work::Counts)
+    }
+}
+
 #[derive(Debug)]
 enum Outcome {
     Read {
