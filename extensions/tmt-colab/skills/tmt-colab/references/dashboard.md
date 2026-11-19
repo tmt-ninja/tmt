@@ -129,10 +129,11 @@ Unicode code points, line 2 at most 60. Text is inert, without control character
 omit optional fields instead of null. Page, reading and item IDs are canonical UUIDs.
 
 Extra/missing fields, invalid types/IDs/anchors, duplicate or unknown items,
-before-self, unknown placement or over-limit values refuse the **whole** action
+unknown placement or over-limit values refuse the **whole** action
 with `COLAB_INPUT_INVALID`; the document stays unchanged. Fix the body, not the
 validation. A changed revision is `COLAB_STALE_BASE`: read again, reconcile the
 intent against current data and use the new revision, never blindly retry.
+Moving an existing item before itself returns `changed:false` and keeps its revision.
 
 After timeout or uncertain publication, inspect the retained original operation
 and read back before another write; never resend or switch to an offline fallback.

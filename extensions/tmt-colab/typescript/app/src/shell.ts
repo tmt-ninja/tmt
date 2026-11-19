@@ -119,6 +119,7 @@ export function applyShellAction(
       next.order.splice(index, 0, key);
     } else {
       requireValue(Object.hasOwn(next.items, key));
+      if (action === 'item.move' && body.beforeId === key) return next;
       if (action === 'item.set') {
         validateShellItem(body.item);
         next.items[key] = structuredClone(body.item);

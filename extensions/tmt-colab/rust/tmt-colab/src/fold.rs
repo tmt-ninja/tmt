@@ -1138,6 +1138,28 @@ impl Snapshot {
             }
             receipt = Some(receipt_value);
         }
+        if matches!(edit.kind, StructuredKind::Shell) && shell {
+            if matches!(edit.action.as_str(), "item.add" | "reading.suggest")
+                && edit.body["itemId"]
+                    .as_str()
+                    .is_some_and(|id| base.meta["shell"]["items"].get(id).is_some())
+            {
+                return Err(crate::page::Fault::DuplicateDashboardItem.into());
+            }
+            if edit.action == "summary.set" {
+                for (name, limit) in [
+                    ("line1", crate::summary_lines::SUMMARY_LINE1_POINTS),
+                    ("line2", crate::summary_lines::SUMMARY_LINE2_POINTS),
+                ] {
+                    if edit.body[name]
+                        .as_str()
+                        .is_some_and(|s| s.chars().count() > limit)
+                    {
+                        return Err(crate::page::Fault::DashboardSummaryLimit(name, limit).into());
+                    }
+                }
+            }
+        }
         match edit.kind {
             StructuredKind::Conversion if edit.action == "page.convert" && ordinary => {
                 crate::conversion::project(

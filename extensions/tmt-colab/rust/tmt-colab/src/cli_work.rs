@@ -536,8 +536,25 @@ fn create_subpage(root: &Path, page: &str, args: &ArgMatches) -> Result<()> {
         page_id,
         work: read,
         found,
+        archived,
         ..
-    } = read_with_space(root, page)?;
+    } = read_with_space(root, page).map_err(|error| {
+        if crate::error_code(error.as_ref()) == "COLAB_PAGE_DELETED" {
+            return fail(
+                "COLAB_PAGE_DELETED",
+                "The parent was deleted. Create a top-level page with tmt colab page create.",
+            );
+        }
+        error
+    })?;
+    if archived.contains(&page_id) {
+        return Err(fail(
+            "COLAB_PAGE_INACTIVE",
+            &format!(
+                "The parent is archived. Run tmt colab unarchive {page_id} first, or create a top-level page with tmt colab page create."
+            ),
+        ));
+    }
     // Refuse what the attach would refuse before a page exists.
     if Graph(&found).legacy(&page_id) {
         return Err(fault(work_admission::not_migrated(&page_id)));

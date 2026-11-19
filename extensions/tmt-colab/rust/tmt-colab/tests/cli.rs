@@ -891,10 +891,18 @@ fn confirmation_required(pilot: &Pilot, args: &[&str], consequence: &str, action
     let result = failure(pilot, args, "COLAB_CONFIRMATION_REQUIRED");
     let message = result["error"]["message"].as_str().unwrap();
     assert!(message.starts_with(consequence), "{message}");
-    assert!(
-        message.ends_with(&format!(" Run again with --yes to {action}.")),
-        "{message}"
-    );
+    if args.first() == Some(&"share") {
+        assert!(
+            message.contains("Ask them to run this in their own terminal: tmt colab share "),
+            "{message}"
+        );
+        assert!(message.ends_with(" --yes"), "{message}");
+    } else {
+        assert!(
+            message.ends_with(&format!(" Run again with --yes to {action}.")),
+            "{message}"
+        );
+    }
     assert!(!message.contains("disclosure in help"), "{message}");
     assert_eq!(
         message.contains("permanent"),
@@ -948,6 +956,58 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     assert!(!human.stdout.contains(&0x1b));
     assert!(String::from_utf8_lossy(&human.stdout).contains("expires in 29 days"));
     assert_eq!(fs::read(db).unwrap(), before);
+}
+#[test]
+fn inactive_parent_never_creates_a_child_and_person_gets_terminal_confirmation() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    fs::remove_file(pilot.root.join("publisher")).unwrap();
+    let refusal = failure(
+        &pilot,
+        &["share", "mode", PAGE, "link", "--json"],
+        "COLAB_CONFIRMATION_REQUIRED",
+    );
+    assert!(
+        refusal["error"]["message"]
+            .as_str()
+            .unwrap()
+            .ends_with("Run again with --yes to share it by link.")
+    );
+    for (action, code, hint) in [
+        ("archive", "COLAB_PAGE_INACTIVE", "unarchive"),
+        ("delete", "COLAB_PAGE_DELETED", "top-level page"),
+    ] {
+        pilot.call(&[action, PAGE, "--yes", "--json"]);
+        let before = pilot.call(&["ls", "--archived", "--json"]);
+        let before_active = pilot.call(&["ls", "--json"]);
+        let rejected = failure(
+            &pilot,
+            &[
+                "subpage",
+                "create",
+                PAGE,
+                "--title",
+                "Should never exist",
+                "--json",
+            ],
+            code,
+        );
+        assert!(
+            rejected["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains(hint),
+            "{rejected}"
+        );
+        assert_eq!(
+            pilot.call(&["ls", "--archived", "--json"])["pageIds"],
+            before["pageIds"]
+        );
+        assert_eq!(
+            pilot.call(&["ls", "--json"])["pages"],
+            before_active["pages"]
+        );
+    }
 }
 #[test]
 fn management_confirmation_and_input_denials_have_no_state_effects() {
@@ -1790,6 +1850,16 @@ fn future_schema_keeps_recovery_and_correlation_and_serve_refuses_to_migrate() {
 
 #[test]
 fn dashboard_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
+    fn refusal(pilot: &Pilot, args: &[&str], expected: &str) {
+        let out = pilot.command().args(args).output().unwrap();
+        assert!(!out.status.success(), "{args:?}");
+        let error = serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"].clone();
+        assert_eq!(error["code"], "COLAB_INPUT_INVALID", "{args:?}: {error}");
+        assert!(
+            error["message"].as_str().unwrap().contains(expected),
+            "{error}"
+        );
+    }
     fn call(pilot: &Pilot, args: &[&str]) -> Value {
         let out = pilot
             .command()
@@ -1858,6 +1928,7 @@ fn dashboard_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
                 json!({"itemId":second,"pageId":page_id,"readingId":"30000000-0000-4000-8000-000000000001"}),
             ),
             ("item-move", json!({"itemId":second,"beforeId":first})),
+            ("item-move", json!({"itemId":second,"beforeId":second})),
             (
                 "item-set",
                 json!({"itemId":first,"item":{"kind":"anchor","pageId":page_id,"anchor":"plan"}}),
@@ -1885,7 +1956,8 @@ fn dashboard_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
             let outcome = call(&pilot, &args);
             assert_eq!(
                 outcome["changed"],
-                !(name == "summary-clear" && before["shell"].get("summary").is_none())
+                !(name == "summary-clear" && before["shell"].get("summary").is_none()
+                    || name == "item-move" && body["itemId"] == body["beforeId"])
             );
             before = call(&pilot, &["dashboard", "read", id, "--json"]);
             if name == "summary-set" {
@@ -1906,6 +1978,106 @@ fn dashboard_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
         }
         assert!(!summary.is_null());
         assert_eq!(before["shell"]["order"], json!([second]));
+        refusal(
+            &pilot,
+            &["page", "read", id, "--json"],
+            "dashboard read PAGE",
+        );
+        refusal(
+            &pilot,
+            &["dashboard", "read", page_id, "--json"],
+            "page read PAGE",
+        );
+        let blocks = call(
+            &pilot,
+            &["page", "create", "--title", "Tasks", "--no-open", "--json"],
+        );
+        let blocks_id = blocks["pageId"].as_str().unwrap();
+        refusal(
+            &pilot,
+            &["dashboard", "read", blocks_id, "--json"],
+            "block ls PAGE",
+        );
+        let inserted = call(
+            &pilot,
+            &[
+                "block", "insert", blocks_id, "--type", "todo", "--text", "Release", "--json",
+            ],
+        );
+        let todo = inserted["blockIds"][0].as_str().unwrap();
+        refusal(
+            &pilot,
+            &[
+                "block",
+                "props",
+                blocks_id,
+                todo,
+                "--set",
+                "due=tomorrow",
+                "--json",
+            ],
+            "YYYY-MM-DD",
+        );
+        call(
+            &pilot,
+            &[
+                "block",
+                "props",
+                blocks_id,
+                todo,
+                "--set",
+                "due=2026-11-22",
+                "--json",
+            ],
+        );
+        let list = call(&pilot, &["ls", "--json", "--work"]);
+        let row = list["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["pageId"] == blocks_id)
+            .unwrap();
+        assert_eq!(row["summary"]["todos"][0]["due"], "2026-11-22", "{row}");
+        call(
+            &pilot,
+            &[
+                "block", "props", blocks_id, todo, "--unset", "due", "--json",
+            ],
+        );
+        before = call(&pilot, &["dashboard", "read", id, "--json"]);
+        for (action, body, expected) in [
+            (
+                "item-add",
+                json!({"itemId":second,"item":{"kind":"page","pageId":page_id}}),
+                second,
+            ),
+            (
+                "summary-set",
+                json!({"line1":"a".repeat(25),"line2":"ok"}),
+                "line1 is limited to 24",
+            ),
+            (
+                "summary-set",
+                json!({"line1":"ok","line2":"a".repeat(61)}),
+                "line2 is limited to 60",
+            ),
+        ] {
+            fs::write(&file, body.to_string()).unwrap();
+            refusal(
+                &pilot,
+                &[
+                    "dashboard",
+                    action,
+                    id,
+                    "--expected-revision",
+                    before["revision"].as_str().unwrap(),
+                    "--file",
+                    file.to_str().unwrap(),
+                    "--json",
+                ],
+                expected,
+            );
+        }
         // Neither removing the reference nor suggesting a reading changes the source page.
         assert_eq!(
             call(&pilot, &["page", "read", page_id, "--json"])["source"],
@@ -1998,6 +2170,12 @@ fn dashboard_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
             ],
         );
         let directory = PathBuf::from(exported["directory"].as_str().unwrap());
+        assert!(
+            exported["disclosure"]
+                .as_str()
+                .unwrap()
+                .contains("shell.json")
+        );
         assert!(!directory.join("page.html").exists());
         assert_eq!(
             serde_json::from_slice::<Value>(&fs::read(directory.join("shell.json")).unwrap())

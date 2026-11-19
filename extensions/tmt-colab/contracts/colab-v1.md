@@ -3516,8 +3516,8 @@ bodies are:
 | `reading.suggest` | `{itemId,pageId,readingId,beforeId?,note?,audience?}` | Add a reading reference under the same add rules.            |
 
 Extra/missing fields, invalid types, null optionals, overlimits, duplicate or
-unknown IDs, before-self, unknown placement and an incomplete order refuse the
-whole action with `COLAB_INPUT_INVALID`, leaving the base untouched. A changed
+unknown IDs, unknown placement and an incomplete order refuse the
+whole action with `COLAB_INPUT_INVALID`, leaving the base untouched. Moving an existing item before itself returns `changed:false`. A changed
 revision is `COLAB_STALE_BASE`: read again, without an automatic retry. Adding
 a caller-chosen item ID makes an uncertain outcome inspectable by reading it
 back. Suggesting a reading never marks it read or sends a notice; those remain
@@ -6786,7 +6786,7 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   - `release` is the release tag a retained owner fact proved for one of the page's PRs (the last
     such PR); absent when none is retained. The list read never reads GitHub for it.
   - `todos` lists the page's visible to-dos in page order, at most 64:
-    `{id, text, checked, number?, assignee?, doneAtMs?, ask?}`. `ask` is the state of the Ask a
+    `{id, text, checked, number?, assignee?, due?, doneAtMs?, ask?}`. `due` is a YYYY-MM-DD string, absent when unset. `ask` is the state of the Ask a
     to-do came from, linked by the block's `thread` prop: `sent` (no reply yet), `needs-you`
     (answered, its thread still open) or `answered` (answered, its thread resolved); omitted for a
     to-do no Ask made. It is owner-local, display only, and never sent to share readers. `text` is cut at 256 bytes on a

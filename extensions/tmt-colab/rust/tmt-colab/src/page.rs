@@ -48,6 +48,12 @@ pub enum Fault {
     /// `after` names a block that is not a child of `parent`.
     BlockBadAfter,
     QuestionGroup,
+    TodoDue,
+    DashboardPage,
+    HtmlDashboardRead,
+    BlockDashboardRead,
+    DuplicateDashboardItem,
+    DashboardSummaryLimit(&'static str, usize),
     BlockTextNotFound,
     BlockTextAmbiguous,
     /// A mockup block's markup does not pass the page check.
@@ -72,7 +78,13 @@ impl Fault {
             Self::NotStructured => "COLAB_NOT_STRUCTURED",
             Self::BlockNotFound => "COLAB_BLOCK_NOT_FOUND",
             Self::BlockBadAfter => "COLAB_BLOCK_BAD_AFTER",
-            Self::QuestionGroup => "COLAB_INPUT_INVALID",
+            Self::QuestionGroup
+            | Self::TodoDue
+            | Self::DashboardPage
+            | Self::HtmlDashboardRead
+            | Self::BlockDashboardRead
+            | Self::DuplicateDashboardItem
+            | Self::DashboardSummaryLimit(..) => "COLAB_INPUT_INVALID",
             Self::BlockTextNotFound => "COLAB_BLOCK_TEXT_NOT_FOUND",
             Self::BlockTextAmbiguous => "COLAB_BLOCK_TEXT_AMBIGUOUS",
             Self::BlockMarkup => "COLAB_BLOCK_MARKUP",
@@ -123,6 +135,14 @@ impl std::fmt::Display for Fault {
             }
             Self::BlockNotFound => {
                 "A block named in the request is not on the page; it was never added, or compaction removed it after it was deleted. Run `tmt colab block ls`. Nothing was written."
+            }
+            Self::TodoDue => "Set due to a date in YYYY-MM-DD form, or remove it with --unset due.",
+            Self::DashboardPage => "This is a dashboard. Read it with `tmt colab dashboard read PAGE --json`.",
+            Self::HtmlDashboardRead => "This is an HTML page. Read it with `tmt colab page read PAGE --json`.",
+            Self::BlockDashboardRead => "This is a block page. Read it with `tmt colab block ls PAGE --json`.",
+            Self::DuplicateDashboardItem => "This dashboard already contains that item ID.",
+            Self::DashboardSummaryLimit(name, limit) => {
+                return write!(f, "Dashboard summary {name} is limited to {limit} characters.");
             }
             Self::QuestionGroup => "Question blocks do not support the group prop. Use individual blocks or group questions on an HTML page.",
             Self::BlockBadAfter => {
@@ -615,7 +635,7 @@ fn read_with_meta(
         return Err(if page_type == "blocks" {
             Fault::StructuredPage
         } else {
-            Fault::Invalid
+            Fault::DashboardPage
         }
         .into());
     }
@@ -699,7 +719,12 @@ pub fn read_shell(
     let s = snapshot(store, key, page, false)?;
     let view = s.materialize(key, page, decoder)?;
     if view.meta["pageType"].as_str() != Some("shell") {
-        return Err(Fault::Invalid.into());
+        return Err(if view.meta["pageType"] == "blocks" {
+            Fault::BlockDashboardRead
+        } else {
+            Fault::HtmlDashboardRead
+        }
+        .into());
     }
     Ok(ShellPage {
         space_id: key.space_id.clone(),
@@ -1014,6 +1039,7 @@ impl From<crate::blocks::ops::Refusal> for Fault {
             Refusal::NotFound => Self::BlockNotFound,
             Refusal::BadAfter => Self::BlockBadAfter,
             Refusal::QuestionGroup => Self::QuestionGroup,
+            Refusal::TodoDue => Self::TodoDue,
             Refusal::TextNotFound => Self::BlockTextNotFound,
             Refusal::TextAmbiguous => Self::BlockTextAmbiguous,
             Refusal::Capacity => Self::Capacity,

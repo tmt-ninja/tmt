@@ -1445,7 +1445,22 @@ fn run_once(
     {
         return Err(Box::new(ManagementFault {
             code: "COLAB_CONFIRMATION_REQUIRED",
-            message: format!("{consequence} Run again with --yes to {action}."),
+            message: if command == "share"
+                && (std::env::var_os("TMT_AGENT").is_some_and(|v| !v.is_empty())
+                    || crate::core::caller_snapshot()
+                        .is_some_and(|caller| caller.agent_id.is_some()))
+            {
+                let words = std::env::args()
+                    .skip(1)
+                    .map(|word| tmt_colab::repair::argument(&word))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!(
+                    "{consequence} Changing access is the person's action. Ask them to run this in their own terminal: tmt colab {words} --yes"
+                )
+            } else {
+                format!("{consequence} Run again with --yes to {action}.")
+            },
             correlation: json!({"pageId":id}),
             source: None,
         }));

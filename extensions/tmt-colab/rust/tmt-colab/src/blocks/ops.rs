@@ -25,6 +25,7 @@ pub enum Refusal {
     /// `after` names a block that is not a child of `parent`.
     BadAfter,
     QuestionGroup,
+    TodoDue,
     TextNotFound,
     TextAmbiguous,
     Capacity,
@@ -200,6 +201,13 @@ impl Editing {
         let position = self.place(parent, &after_of(op)?, None)?;
         let props = op.get("props").cloned().unwrap_or_else(|| json!({}));
         object(&props)?;
+        if block_type == "todo"
+            && props
+                .get("due")
+                .is_some_and(|v| !v.as_str().is_some_and(schema::date))
+        {
+            return Err(Refusal::TodoDue);
+        }
         if block_type == "question" && props.get("group").is_some() {
             return Err(Refusal::QuestionGroup);
         }
@@ -257,6 +265,13 @@ impl Editing {
         let set = op
             .get("set")
             .map_or(Ok(Map::new()), |v| object(v).cloned())?;
+        if block_type == "todo"
+            && set
+                .get("due")
+                .is_some_and(|v| !v.as_str().is_some_and(schema::date))
+        {
+            return Err(Refusal::TodoDue);
+        }
         if block_type == "question" && set.contains_key("group") {
             return Err(Refusal::QuestionGroup);
         }

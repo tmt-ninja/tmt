@@ -8,6 +8,8 @@ Use `subpage ls PAGE` for freshly folded sub-page work.
 
 Use `tmt colab ls --json --work` for owner Work home summaries, including each page’s counted `sections` and
 project orders. A running serve reads its owner list; an offline read folds the local store.
+A to-do in `summary.todos` includes `due` as YYYY-MM-DD when set. Set it with
+`tmt colab block props PAGE BLOCK --set due=2026-11-22`, or remove it with `--unset due`.
 Plain `ls --json` skips these extras. `sectionsOmitted` flags an incomplete section listing.
 The top-level `projectOrders` maps project names to revisions and ranked items. For a name in
 `projectOrdersOmitted`, use `tmt colab work order show PROJECT --json` for its complete order.
@@ -44,7 +46,9 @@ breaks a rule is `COLAB_LINK_REFUSED` with a `reason`: `second-parent` (another 
 message names that page), `cycle` (the page itself or a page above it), `unavailable` (not a page
 of this space) or `invalid-hierarchy` (existing links already conflict). Two writers can still race
 into a page with two parents or a loop; `tmt colab show PAGE --json` flags them in `page.warnings`.
-Repair them with `subpage detach`, which is always admitted.
+Detach bypasses hierarchy conflicts. The parent owns the link and must be writable. For an archived
+parent, run `tmt colab unarchive PARENT`, `tmt colab subpage detach PARENT CHILD`, then
+`tmt colab archive PARENT` to restore its archived state.
 
 Pages from before sub-pages held tasks. The serve rewrites them once as sub-pages (the pages those
 tasks followed) and keeps each page's old tasks in `migrations/5825/<pageId>.json` in the space's
@@ -53,7 +57,8 @@ tried again at the next serve. Until it is rewritten, every `subpage` and `summa
 is refused as `COLAB_WORK_NOT_MIGRATED`: run `tmt colab serve` first. Do not recreate old tasks
 yourself: tell the person where the copy is.
 
-`subpage create` makes an empty structured page first, then attaches it. Use `--html` for an HTML
+`subpage create` checks the parent before creating a page. Unarchive an archived parent first. It then
+makes an empty structured page and attaches it. Use `--html` for an HTML
 page with the title as its heading. If the
 attach fails it prints the page it made and the `subpage attach` command that finishes; it never
 searches for a page to adopt, so running it again makes another page.
