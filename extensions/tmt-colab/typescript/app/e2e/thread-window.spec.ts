@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { chatAction, commentsAction } from '../test/page-actions.js';
+import { chatAction, commentsAction, threadFilterItem } from '../test/page-actions.js';
 import { commentsRegion } from '../test/comments-region.js';
 
 async function run(page: Page, method: string, argument?: unknown) {
@@ -49,12 +49,30 @@ test('Resolve removes the selected thread from Open and preserves its draft in A
   await input.fill('Unsent draft');
   await panel.getByRole('button', { name: 'Resolve', exact: true }).click();
   await expect(panel.getByTestId('comments-empty')).toBeVisible();
+  // The empty Open view says where the resolved thread went (#6725).
+  await expect(panel.getByTestId('comments-empty')).toContainText(
+    'Resolved threads are under Resolved in the thread filter.',
+  );
   await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
+  // Each view names how many threads it holds.
+  expect(
+    await page
+      .getByRole('menuitemradio')
+      .evaluateAll((items) => items.map((item) => item.getAttribute('aria-label'))),
+  ).toEqual(['Open 0', 'Needs you 0', 'Resolved 1', 'All 1']);
+  await threadFilterItem(page, 'Resolved').click();
+  await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
+  await expect(panel.locator('.discussion-position')).toHaveText('1 / 1');
+  await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+  await threadFilterItem(page, 'All').click();
   await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
   await expect(panel.getByRole('combobox', { name: 'Message', exact: true })).toHaveText(
     'Unsent draft',
   );
+  await panel.getByRole('button', { name: 'Reopen', exact: true }).click();
+  await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+  await expect(threadFilterItem(page, 'Resolved')).toHaveAccessibleName('Resolved 0');
+  await expect(threadFilterItem(page, 'Open')).toHaveAccessibleName('Open 1');
 });
 
 test('filter choices replace the list tabs and expose the empty Needs you view', async ({
@@ -62,13 +80,13 @@ test('filter choices replace the list tabs and expose the empty Needs you view',
 }) => {
   const panel = await open(page);
   await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: 'Needs you', exact: true }).click();
+  await threadFilterItem(page, 'Needs you').click();
   await expect(panel.getByTestId('comments-empty').getByRole('heading')).toHaveText(
     'Nothing waiting here.',
   );
   await expect(panel.getByRole('tab')).toHaveCount(0);
   await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
+  await threadFilterItem(page, 'All').click();
   await expect(panel.getByTestId('comment-thread')).toBeVisible();
   await expect(panel.locator('.discussion-position')).toHaveText('1 / 2');
 });
@@ -105,7 +123,7 @@ test('an agent resolution leaves Open immediately with a notice and remains unse
   await expect(commentsAction(page)).toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(1);
   await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
+  await threadFilterItem(page, 'All').click();
   await expect(commentsAction(page)).not.toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(2);
 });
@@ -272,7 +290,7 @@ for (const action of ['navigation', 'filter change', 'close'] as const)
   test(`a Resolve all failure clears after ${action}`, async ({ page }) => {
     const panel = await open(page, 2, 'First note');
     await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
-    await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
+    await threadFilterItem(page, 'All').click();
     await run(page, 'failStatusOnce');
     await panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }).click();
     await page
@@ -286,7 +304,7 @@ for (const action of ['navigation', 'filter change', 'close'] as const)
       await panel.getByRole('button', { name: 'Next', exact: true }).click();
     } else if (action === 'filter change') {
       await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
-      await page.getByRole('menuitemradio', { name: 'Open', exact: true }).click();
+      await threadFilterItem(page, 'Open').click();
     } else {
       await panel.getByRole('button', { name: 'Close (Esc)', exact: true }).click();
       await commentsAction(page).click();
@@ -339,12 +357,12 @@ for (const width of [390, 1440])
       await panel.getByRole('button', { name: 'Resolve', exact: true }).click();
       await expect(panel.getByTestId('comment-thread')).toBeVisible();
       await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
-      await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
+      await threadFilterItem(page, 'All').click();
       await expect(panel.getByTestId('discussion-state')).toContainText('Resolved');
       await page.screenshot({ path: info.outputPath('resolved.png') });
       await panel.getByRole('button', { name: 'Reopen', exact: true }).click();
       await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
-      await page.getByRole('menuitemradio', { name: 'Open', exact: true }).click();
+      await threadFilterItem(page, 'Open').click();
       await run(page, 'failStatusOnce');
       await panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }).click();
       await page
@@ -356,7 +374,7 @@ for (const width of [390, 1440])
       );
       await page.screenshot({ path: info.outputPath('error.png') });
       await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
-      await page.getByRole('menuitemradio', { name: 'Needs you', exact: true }).click();
+      await threadFilterItem(page, 'Needs you').click();
       await expect(panel.getByTestId('comments-empty')).toBeVisible();
       await page.screenshot({ path: info.outputPath('empty.png') });
       await panel.getByRole('button', { name: 'Close (Esc)', exact: true }).click();

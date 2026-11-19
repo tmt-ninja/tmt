@@ -111,11 +111,17 @@ export async function readerAction(page: Page, name: string) {
 }
 
 /** Select through the shipped filter and arrows; no synthetic row, state injection or hidden UI. */
-export async function chooseThreadFilter(page: Page, name: 'Open' | 'Needs you' | 'All') {
+export async function chooseThreadFilter(
+  page: Page,
+  name: 'Open' | 'Needs you' | 'Resolved' | 'All',
+) {
   const panel = commentsRegion(page);
   await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
-  await page.getByRole('menuitemradio', { name, exact: true }).click();
+  await threadFilterItem(page, name).click();
 }
+/** A thread filter row: its name is the view and the count it holds (#6725). */
+export const threadFilterItem = (page: Page, name: string) =>
+  page.getByRole('menuitemradio', { name: new RegExp(`^${name} \\d+$`) });
 async function walkDiscussion(page: Page, matches: () => Promise<boolean>) {
   await chooseThreadFilter(page, 'All');
   const panel = commentsRegion(page);

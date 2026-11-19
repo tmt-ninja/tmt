@@ -357,6 +357,8 @@ export async function mountRenderer(
    * false when none or several match, undefined when the render ended or never answered. */
   reveal(id: string): Promise<boolean | undefined>;
   selectionMode(enabled: boolean): void;
+  /** Clear the page's text selection, once an annotation of it is sent (#6725). Cosmetic. */
+  clearSelection(): void;
   /** Show each template rule above its block (#6333): for someone who may edit a template page.
    * Cosmetic; the frame reads the rules from the source it holds. */
   templateRules(show: boolean): void;
@@ -1847,6 +1849,13 @@ export async function mountRenderer(
       enabled,
     });
   };
+  const clearSelection = () => {
+    if (stopped || !ready) return;
+    channel.port1.postMessage({
+      type: 'colab.render.clear-selection',
+      renderId: snapshot.renderId,
+    });
+  };
   const templateRules = (show: boolean) => {
     if (stopped || !ready) return;
     channel.port1.postMessage({
@@ -2012,6 +2021,7 @@ export async function mountRenderer(
         else readyWaiters.push(send);
       }),
     selectionMode,
+    clearSelection,
     templateRules,
     images,
     anchorRectangle,

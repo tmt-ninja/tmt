@@ -1546,7 +1546,9 @@ attached answer footers using parent-window bounds, and hide temporarily when no
 room remains; header entry points stay available. Placement and visibility never
 change answer, recipient, draft or publication admission.
 
-The Discussion header offers Open, Needs you and All. Open, the corner count and Resolve all
+The Discussion header offers Open, Needs you, Resolved and All, each with the number of threads it
+holds (#6725); Resolved lists only resolved threads, and an empty view says where resolved threads
+are when there are any. Open, the corner count and Resolve all
 share the same live, non-Chat, unresolved predicate. A resolved thread leaves Open immediately,
 even while selected. Resolve and Reopen have visible labels; a device without owner-member
 provenance sees why the action is unavailable. An agent resolution observed while the person is
@@ -3070,7 +3072,10 @@ off; otherwise it toggles parent-owned selection mode. It stays outside
 input/textarea/select/contenteditable/textbox targets, with all modifiers, handled-event,
 IME and keyCode 229 guards. The frame requests only `type:"colab.render.toggle-selection",renderId`;
 the parent enables it only for the admitted comment surface. Its bound port projection is
-exactly `type:"colab.render.selection-mode",renderId,enabled` (boolean). The same port carries
+exactly `type:"colab.render.selection-mode",renderId,enabled` (boolean). Once an annotation's send
+records its thread, the parent sends `type:"colab.render.clear-selection",renderId`: the frame
+removes its text selection and reports none, so the passage shows only as the thread's mark (#6725).
+The same port carries
 `type:"colab.render.template-rules",renderId,show` (boolean) for a template's rule tags, sent after
 each mount and `show:false` when the page is archived, loses metadata authority or stops being a
 template ([Templates in the browser](#templates-in-the-browser-5076-5077)); equally cosmetic. Mode is cosmetic:
@@ -3080,8 +3085,9 @@ element marked `data-ds-example` (a design-system example, #5866) targets that w
 so its quote is the example's own text; the anchor stays a text quote. Two examples with the
 same text on one page would quote alike, so Design writes each example's `<component>:<id>` as a
 visible label line inside its root. Textless clicks
-show a temporary polite hint and create nothing. Starting a comment exits selection mode,
-so cancelling or closing its composer leaves the mode off. Each mode projection clears the
+show a temporary polite hint and create nothing. Starting a comment keeps selection mode as it
+was (#6725): Escape closes the comment's window first and leaves the mode only on a later press,
+so annotating block after block needs no toggle each time. Each mode projection clears the
 renderer's completed-selection gesture marker; the parent remains the sole mode owner.
 Source replacement reprojects mode; page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
 Escape consumes one level: a nested menu or mention list, then the active window or drawer (Chat closes even during a send, keeping its draft and the send, and a failure before recording after closing is named in the page alert row whose Open action reopens Chat with its failed row, draft and files; Discussion closes without losing its draft, while an in-flight send or status change holds the panel), then the anchored window (draft retained; a pending send keeps running; a failure before recording after closing, whether a first comment or reply, is named in a page alert row whose Open action restores that same window with its failed row, draft and files), then selection mode. A failed first comment also reopens on the same quote. Editing a failed row, deliberately clearing its text and closing releases the retained failure and alert; Send's automatically cleared field never discards it. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
@@ -4401,7 +4407,7 @@ notification and captured earlier conversation belong to the canonical thread al
 answer` is a new comment and an ordinary single-comment Ask; the batch is untouched.
 
 The Comments overlay opens one annotation or page-level thread directly.
-Its Open / Needs you / All filter and Previous / Next arrows use the authenticated
+Its Open / Needs you / Resolved / All filter and Previous / Next arrows use the authenticated
 thread projection, existing creation-order numbers and attention metadata; opening
 performs no additional discussion read. Position (`n / N`) is text, not navigation.
 The selected thread stays selected while Comments is closed and reopened. A margin
@@ -4511,8 +4517,9 @@ authority.
 
 The Chat action in the page's dock opens the retained non-modal Chat window without resizing or
 reflowing the page. The dock holds selection-mode, Chat and Comments actions in that order,
-with the Comments count and unread attention retained. Comments and Chat actions hide during
-selection mode or an annotation. The dock remains visible while either window is open; the
+with the Comments count and unread attention retained. Comments and Chat actions hide while an
+annotation window is open; in selection mode they stay beside the pressed mode, and opening either
+leaves the mode (#6725). The dock remains visible while either window is open; the
 window clips to the dock during its motion, with no animation under reduced motion. Chat and Discussion share the same position and size; the page remains
 clickable, selectable and scrollable. Close or Escape retains the draft and returns focus to
 the opener when appropriate; a Discussion opened by a marker returns to that marker when available.

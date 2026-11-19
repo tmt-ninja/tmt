@@ -139,7 +139,7 @@ import { needsYouTarget, readNeedsYouAcknowledgements } from './needs-you-acknow
 import { useReplyNotifications } from './use-reply-notifications.js';
 import { ReplyNotificationObserver } from './reply-notifications.js';
 import { ReplyNotificationContext } from './reply-notification-context.js';
-import { ThreadPanel, ThreadWindow } from './thread-panel.js';
+import { AnchorGoneContext, ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { ResolveAllThreads } from './resolve-all-threads.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isOpenThread, isStatusThread, openThreadCount } from './thread-status-view.js';
@@ -417,7 +417,9 @@ function PageFloatingActions({
             }}
           />
         )}
-        {!enabled && !discussionOpen && (
+        {/* Chat and Comments stay beside the pressed mode (#6725): each opens in one action, and
+            opening either leaves Selection mode. */}
+        {!discussionOpen && (
           <BrowserIconAction
             type="button"
             variant="secondary"
@@ -442,7 +444,9 @@ function PageFloatingActions({
             }}
           />
         )}
-        {!enabled && !discussionOpen && (
+        {/* Chat and Comments stay beside the pressed mode (#6725): each opens in one action, and
+            opening either leaves Selection mode. */}
+        {!discussionOpen && (
           <BrowserIconAction
             type="button"
             variant="secondary"
@@ -2643,6 +2647,9 @@ function OpenPage({
     const block = structuredBlocks.find((candidate) => candidate.id === anchor.block);
     return block?.id;
   };
+  // A block anchor whose block the page deleted (#6725); HTML anchors are never gone.
+  const anchorGone = (anchor: ThreadAnchor) =>
+    view.pageType === 'blocks' && 'block' in anchor && !!view.blocks?.[anchor.block]?.deleted;
   const blockAnchors = (() => {
     const found = new Map<string, { id: string; ordinal: number; open: boolean }[]>();
     if (view.pageType !== 'blocks' || !view.blocks) return found;
@@ -2798,6 +2805,7 @@ function OpenPage({
   const filterLabels: Record<ThreadFilter, string> = {
     open: text.commentsViewOpen,
     needs: text.needsYouWord,
+    resolved: text.commentsViewResolved,
     all: text.commentsViewAll,
   };
   const threadFilterMenu = (
@@ -2805,9 +2813,13 @@ function OpenPage({
       label={text.commentsFilter}
       triggerText={filterLabels[threadFilter]}
       disabled={changingStatus}
-      items={(['open', 'needs', 'all'] as const).map((key) => ({
+      items={(['open', 'needs', 'resolved', 'all'] as const).map((key) => ({
         key,
         label: filterLabels[key],
+        // Each view says how many threads it holds, so a resolved thread is never out of sight.
+        meta: String(
+          listedThreads(view.threads ?? [], numbers, key, null, view.threadPresentations).length,
+        ),
         role: 'menuitemradio' as const,
         checked: key === threadFilter,
       }))}
@@ -3839,6 +3851,7 @@ function OpenPage({
           chatUnread={notifications.chatUnread}
           chatButton={floatingChat}
           toggleChat={() => {
+            if (selectionMode) setSelectionMode(false);
             if (ensureDiscussion && !snapshot.binding?.discussion) {
               void ensureDiscussion();
               return;
@@ -3850,6 +3863,7 @@ function OpenPage({
           unseen={unseenThreads}
           commentsButton={floatingComments}
           toggleComments={() => {
+            if (selectionMode) setSelectionMode(false);
             discussionMarkerOpener.current = null;
             const selected = (view.threads ?? []).find(
               (thread) =>
@@ -4168,39 +4182,43 @@ function OpenPage({
         }}
       >
         <QuickSwitcherModalPresence />
-        <AgentPresentation value={agents}>
-          <AgentActivityProvider
-            observation={liveError || archived ? undefined : view.agentActivity}
-            messages={liveError || archived ? undefined : view.messageStates}
-          >
-            {view.pageType === 'shell' ? (
-              <section className="page">
-                <AppHeader
-                  page
-                  title={view.title || snapshot.title}
-                  remote={{ deviceName: transport.backendName }}
-                />
-                <main className="canvas">
-                  {(view.shell || !endedError) && (
-                    <ShellPage
-                      shell={view.shell}
-                      embed={embedded ? undefined : (pageId) => <EmbeddedPage pageId={pageId} />}
-                    />
-                  )}
-                  {endedError && <EndedBody error={endedError} action={endedAction} />}
-                </main>
-              </section>
-            ) : (
-              <PendingMessageContext
-                value={
-                  transport.drafts ? pendingMessageStore(transport.drafts, snapshot.id) : undefined
-                }
-              >
-                {content}
-              </PendingMessageContext>
-            )}
-          </AgentActivityProvider>
-        </AgentPresentation>
+        <AnchorGoneContext value={anchorGone}>
+          <AgentPresentation value={agents}>
+            <AgentActivityProvider
+              observation={liveError || archived ? undefined : view.agentActivity}
+              messages={liveError || archived ? undefined : view.messageStates}
+            >
+              {view.pageType === 'shell' ? (
+                <section className="page">
+                  <AppHeader
+                    page
+                    title={view.title || snapshot.title}
+                    remote={{ deviceName: transport.backendName }}
+                  />
+                  <main className="canvas">
+                    {(view.shell || !endedError) && (
+                      <ShellPage
+                        shell={view.shell}
+                        embed={embedded ? undefined : (pageId) => <EmbeddedPage pageId={pageId} />}
+                      />
+                    )}
+                    {endedError && <EndedBody error={endedError} action={endedAction} />}
+                  </main>
+                </section>
+              ) : (
+                <PendingMessageContext
+                  value={
+                    transport.drafts
+                      ? pendingMessageStore(transport.drafts, snapshot.id)
+                      : undefined
+                  }
+                >
+                  {content}
+                </PendingMessageContext>
+              )}
+            </AgentActivityProvider>
+          </AgentPresentation>
+        </AnchorGoneContext>
       </ReplyNotificationContext>
     </CreatorDefaultProvider>
   );
