@@ -7,6 +7,7 @@ import { livePatternSlugs, PatternPage } from '../docs/pattern-page.js';
 import {
   buildBundle,
   checkElements,
+  SHARED_ATTRIBUTES,
   validateComponent,
   validateCapabilities,
   type Bundle,
@@ -282,6 +283,29 @@ describe('checkElements', () => {
       'tmt-question',
       'acme-button',
     ]);
+  });
+  it('takes the shared attributes from their data file, and no bundle carries them (#6713)', async () => {
+    const file = JSON.parse(
+      readFileSync(new URL('../../systems/shared-attributes.json', import.meta.url), 'utf8'),
+    );
+    expect(SHARED_ATTRIBUTES).toEqual(file);
+    const system = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
+    // Every name and any longer name under a prefix passes on any component; a bare prefix does not.
+    const attrs = Object.fromEntries([
+      ...file.names.map((name: string) => [name, 'x']),
+      ...file.prefixes.map((prefix: string) => [`${prefix}x`, 'x']),
+    ]);
+    expect(checkElements([{ tag: 'tmt-ui-button', attrs }], pin, system)).toEqual([]);
+    expect(
+      checkElements([{ tag: 'tmt-ui-button', attrs: { 'data-': '', 'aria-': '' } }], pin, system),
+    ).toEqual([
+      { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'data-', index: 0 },
+      { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'aria-', index: 0 },
+    ]);
+    // The rule is global, not a release's: the built-in bundle and its hash do not change for it.
+    const checkedIn = JSON.parse(readFileSync(builtIn, 'utf8'));
+    expect(Object.keys(checkedIn)).not.toContain('sharedAttributes');
+    expect(system.hash).toBe(checkedIn.hash);
   });
   it('reports each of the five page check codes', async () => {
     bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);

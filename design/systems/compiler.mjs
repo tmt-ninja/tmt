@@ -3,6 +3,7 @@
 // code in the browser on a design system's pages. SHA-256 is passed in by the caller.
 
 import runtime4 from '../../extensions/tmt-colab/contracts/vectors/design-runtime-4-ui.json' with { type: 'json' };
+import sharedAttributes from './shared-attributes.json' with { type: 'json' };
 
 export const SCHEMA = 1;
 /** Default runtime 2 retains its original React, html and cn skeleton. Runtime 3 adds the
@@ -15,9 +16,15 @@ export const DATA_CAPABILITIES = ['page'];
 export const UI_PARTS = Object.freeze([...runtime4.parts, ...runtime4.blockParts]);
 export const BLOCK_UI_PARTS = Object.freeze(runtime4.blockParts);
 export const SKELETON = ['React', 'html', 'cn'];
-/** Attributes any component element may carry besides its props. */
-const GLOBAL_ATTRIBUTES =
-  /^(class|id|style|slot|title|lang|dir|hidden|tabindex|role|data-.+|aria-.+)$/;
+/** Attributes any component element may carry besides its props: one global rule, as data the
+ * CLI page check reads too (#6713). A prefix needs at least one more character. */
+export const SHARED_ATTRIBUTES = sharedAttributes;
+const sharedNames = new Set(sharedAttributes.names);
+const GLOBAL_ATTRIBUTES = {
+  test: (name) =>
+    sharedNames.has(name) ||
+    sharedAttributes.prefixes.some((prefix) => name.length > prefix.length && name.startsWith(prefix)),
+};
 
 export class DesignSystemError extends Error {}
 const fail = (message) => {
