@@ -3,9 +3,10 @@
 A page can have a two-line summary and ordered sub-pages. Give each part its own page when it
 needs its own discussion or owner. To track work within one page, use [heading sections](blocks.md#section-progress).
 The page's manual state (`tmt colab page state PAGE todo|in-progress|done --json`) is separate
-from its computed status and progress. The app supplies the page top bar and status details. Use `subpage ls PAGE` for freshly folded sub-page work.
+from its computed status and progress. Open the status in the page top bar to see its details in the status popover.
+Use `subpage ls PAGE` for freshly folded sub-page work.
 
-Use `tmt colab ls --json --work` for owner Work home summaries, including counted sections and
+Use `tmt colab ls --json --work` for owner Work home summaries, including each page’s counted `sections` and
 project orders. A running serve reads its owner list; an offline read folds the local store.
 Plain `ls --json` skips these extras. `sectionsOmitted` flags an incomplete section listing.
 The top-level `projectOrders` maps project names to revisions and ranked items. For a name in
