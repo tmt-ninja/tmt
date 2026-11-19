@@ -6262,10 +6262,16 @@ project rename <name> <to>
 project delete <name>
 ```
 
-`ls --deleted --json` (#6739) reads the verified owner log only. It lists every `page.delete` in log
-order as `{pageId, revision}`, where `revision` is the statement's own, plus the log's `membershipHead`
-and `spaceId`. A delete statement carries no time, device or title, and the delete erases the title
-with the page's data, so none is listed. It takes no other list filter and has no human form.
+`ls --deleted --json` (#6739) lists every `page.delete` in the verified owner log, in log order, as
+`{pageId, revision}` (the statement's own revision), plus the log's `membershipHead` and `spaceId`. A
+delete statement carries no time, device or title. Since store schema 29 the owner records each delete
+in its own transaction, owner-locally (never a statement, never synced or exported), and the row adds
+`deletedAt` (the owner's clock, ms) and `by`: `{kind:"device", id}` for a browser's verified sender
+device, or `{kind:"cli", id}` for a local command, `id` being the TMT caller it ran as (the same source
+as a page's publisher agent) or `null`. A local delete body names that caller as `actor`; a serve from
+before schema 29 refuses such a body, and a CLI sends it only to a store at schema 29, which only a
+serve that accepts it migrates to. No title is kept. It takes no other list filter and has no human
+form.
 
 All commands support human output and one `--json` document. Human retention
 reads show a day count or forever and omit policy fields absent from that view.

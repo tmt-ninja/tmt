@@ -37,6 +37,9 @@ pub(crate) fn display_title(title: &str) -> Option<String> {
     (!words.is_empty()).then(|| words.join(" "))
 }
 
+/// A recorded delete (#6739): the owner's clock in ms, `device` or `cli`, and the device ID or TMT
+/// caller name when known.
+pub(crate) type Deletion = (u64, String, Option<String>);
 impl OwnerTransaction<'_> {
     pub(crate) fn membership_page(
         &self,
@@ -313,6 +316,40 @@ impl OwnerTransaction<'_> {
         Ok(())
     }
     /// An archive, like a delete, takes the page's pin away; unarchiving does not restore it.
+    /// Who deleted `page` and when, beside the delete's statement at `revision` (#6739).
+    /// See `Deletion`.
+    pub(crate) fn record_deletion(
+        &self,
+        page: &str,
+        revision: u64,
+        at_ms: u64,
+        by: crate::transitions::DeleteActor<'_>,
+    ) -> Result<()> {
+        let (kind, actor) = match by {
+            crate::transitions::DeleteActor::Device(id) => ("device", Some(id)),
+            crate::transitions::DeleteActor::Cli(name) => ("cli", name),
+        };
+        self.tx.execute(
+            "INSERT INTO page_deletions(page,revision,at_ms,actor_kind,actor) VALUES(?1,?2,?3,?4,?5)",
+            rusqlite::params![page, revision as i64, at_ms as i64, kind, actor],
+        )?;
+        Ok(())
+    }
+    /// Every recorded delete by page: its time and who asked for it.
+    pub(crate) fn deletions(&self) -> Result<std::collections::BTreeMap<String, Deletion>> {
+        let mut query = self
+            .tx
+            .prepare("SELECT page,at_ms,actor_kind,actor FROM page_deletions")?;
+        query
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    (r.get::<_, i64>(1)? as u64, r.get(2)?, r.get(3)?),
+                ))
+            })?
+            .map(|row| Ok(row?))
+            .collect()
+    }
     pub(crate) fn drop_page_pin(&self, page: &str) -> Result<()> {
         self.tx
             .execute("DELETE FROM page_pins WHERE page=?", [page])?;

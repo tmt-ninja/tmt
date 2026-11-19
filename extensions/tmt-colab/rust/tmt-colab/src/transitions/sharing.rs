@@ -215,6 +215,10 @@ impl Engine {
                 }
                 if matches!(request.action, PageAction::Delete) {
                     tx.delete_page_data(request.page)?;
+                    if let Some(by) = request.deleted_by {
+                        let revision = tx.head().ok_or(OwnerFault::Invalid)?.revision;
+                        tx.record_deletion(request.page, revision, now, by)?;
+                    }
                 }
                 membership::outcome(&statements, wraps)
             },

@@ -1501,7 +1501,7 @@ fn run_once(
     // owner can later see who deleted the page (#6739). A serve from before #6739 refuses a body
     // with `actor` (its local body is closed); this send relies on the schema gate: the store this
     // command already checked with `require_current_schema` is at the version that records deletes
-    // (`management::DELETE_ACTOR_SCHEMA`), which only a serve that accepts `actor` migrates to.
+    // (schema 29), which only a serve that accepts `actor` migrates to. A management test pins that.
     let actor = (operation == "page.delete")
         .then(crate::core::caller_snapshot)
         .flatten()

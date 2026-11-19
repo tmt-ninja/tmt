@@ -1273,6 +1273,20 @@ mod tests {
         serde_json::to_vec(&json!({"space":SPACE,"page":page_of(operation),"operationId":OP,"expectedRevision":revision(operation),
             "operation":operation,"payload":values::encode_binary(&serde_json::to_vec(&payload).unwrap())})).unwrap()
     }
+    /// The CLI sends a delete's `actor` only after `require_current_schema`: that is safe only while
+    /// the build that accepts `actor` is the one that migrates the store to record deletes. Moving
+    /// the actor to a build without that schema step fails here (#6739).
+    #[test]
+    fn a_delete_names_its_caller_only_in_a_build_whose_store_records_deletes() {
+        // The schema at which a local delete may name its caller: a serve from before it refuses a
+        // local body with `actor`, and only a serve that accepts one migrates a store to it.
+        const DELETE_ACTOR_SCHEMA: u32 = 29;
+        assert!(crate::store::schema_step_creates(
+            DELETE_ACTOR_SCHEMA,
+            "page_deletions"
+        ));
+        const { assert!(crate::store::SCHEMA_VERSION >= DELETE_ACTOR_SCHEMA) };
+    }
     #[test]
     fn a_local_delete_names_its_caller_and_a_body_without_one_is_still_accepted() {
         let plain = local("page.delete", json!({"pageId":PAGE}));
