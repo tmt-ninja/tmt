@@ -11,6 +11,7 @@ pub(crate) fn view(case: &Value) -> Conversations {
         let id = string(row, "id");
         let comments = row["comments"].as_array().unwrap().iter().map(|comment| Comment {
             question_id: comment["questionId"].as_str().map(str::to_owned),
+            answered_form: None,
             writer: string(comment, "writer"), id: string(comment, "id"), revision: comment["revision"].as_str().unwrap_or("1").into(),
             sequence: string(comment, "sequence"), deleted: comment["deleted"] == true,
             body: string(comment, "body"), device_name: "Fixture".into(), at: comment["at"].as_str().unwrap_or("1").into(), attachments: Vec::new(),

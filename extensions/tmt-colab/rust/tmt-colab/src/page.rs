@@ -621,10 +621,13 @@ fn read_with_meta(
     }
     let question_states = if let Some(registry) = view.meta.get("questions") {
         let conversations = crate::discussion::project(key, page, &s, &view);
+        let forms =
+            crate::question_registry::form::Form::page_forms(&view.source, view.blocks.as_ref());
         let mut states = crate::question_registry::answers::project(
             registry,
             &conversations,
             &view.status_writers,
+            &forms,
         )
         .map_err(|_| Fault::Invalid)?;
         if let Some(blocks) = &view.blocks {

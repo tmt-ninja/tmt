@@ -1267,6 +1267,8 @@ removed, while preserving other pending kinds. Browser controls/routing/count ad
 tracked separately by #5146; the strict browser metadata and own-record codecs already
 preserve these values without granting a commenter content authority.
 
+At its first projection after upgrade the owner serve records the current form or its absence for a legacy answer: while the question is absent it stays answered, and when the ID appears again only an answer bound to that same form counts, including for answers recorded after upgrade; all other answers remain available as history.
+
 Owner Save refusals keep the existing short message and add optional bounded
 `findings:[{code,line,fix}]` only on a rejected result. Up to 50 first repairs fit inside the
 existing 64 KiB frame; each fix is at most 2048 UTF-8 bytes. The browser preserves the first

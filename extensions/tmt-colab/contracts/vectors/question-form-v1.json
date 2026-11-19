@@ -1,0 +1,101 @@
+[
+  {
+    "form": [
+      1,
+      "Choose one",
+      "single",
+      [
+        [
+          "Alpha",
+          null
+        ],
+        [
+          "Beta",
+          null
+        ]
+      ]
+    ],
+    "sha256": "66dc5dd419d87c0ed5331084f79a443bcb8ca753d118db9e57b5b578739a58af"
+  },
+  {
+    "form": [
+      1,
+      "Choose the item to cancel",
+      "single",
+      [
+        [
+          "Alpha",
+          null
+        ],
+        [
+          "Beta",
+          null
+        ]
+      ]
+    ],
+    "sha256": "26537d6e12448df7c453f3c69cb4d029d71ed98ed9953f0bde5e0a5d57da343e"
+  },
+  {
+    "form": [
+      1,
+      "Choose one",
+      "single",
+      [
+        [
+          "Beta",
+          null
+        ],
+        [
+          "Alpha",
+          null
+        ]
+      ]
+    ],
+    "sha256": "8a1f1e3d9b710f3633e8cd3db84b5003a9a5e2e9afef3a0d6d23e6f613ba0754"
+  },
+  {
+    "form": [
+      1,
+      "Choose one",
+      "multiple",
+      [
+        [
+          "Alpha",
+          null
+        ],
+        [
+          "Beta",
+          null
+        ]
+      ]
+    ],
+    "sha256": "eed917fd0fa430e7b81db6f3cbbefa1c4c67f3f8a2fb86883b23889a756553ed"
+  },
+  {
+    "form": [
+      1,
+      "Which “東京” option?",
+      "single",
+      [
+        [
+          "A",
+          "First choice"
+        ],
+        [
+          "B",
+          "Second choice"
+        ]
+      ]
+    ],
+    "sha256": "73d1de6a1f026ae0ebb43bbf29747ca83534f1d8623679645e6d57eb74045f51"
+  },
+  {
+    "form": [
+      1,
+      "Why?",
+      "long",
+      []
+    ],
+    "sha256": "7cdc3b4e19f628e9a4049a17210cfdcc607d10664d7f056a19cf6b0541e44af2"
+  }
+]

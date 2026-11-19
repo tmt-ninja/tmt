@@ -1,6 +1,7 @@
 //! Editor-owned question registration and creator values. Verified answer records supply the
 //! effective answered state separately; this value never grants a commenter content authority.
 pub mod answers;
+pub mod form;
 
 use crate::closed::{Invalid, Result, keys, plain, require, text};
 use crate::summary_lines::validate_attribution;

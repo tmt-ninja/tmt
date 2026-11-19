@@ -13,6 +13,25 @@ import {
   READING_LIMIT,
 } from '../src/questions.js';
 import { vectors } from './question-vectors.js';
+import formVectors from '../../../contracts/vectors/question-form-v1.json';
+import lifecycle from '../../../contracts/vectors/question-form-lifecycle-v1.json';
+import { answerApplies, formDigest, type QuestionForm } from '../src/question-form.js';
+
+for (const example of lifecycle) {
+  it(example.name, () => {
+    const recorded = example.legacy ? example.atUpgrade : example.atSend;
+    expect(recorded).not.toBeUndefined();
+    expect(example.current.map((current) => answerApplies(recorded!, current))).toEqual(
+      example.answered,
+    );
+  });
+}
+
+it('hashes the admitted question forms identically to the native projection', () => {
+  for (const vector of formVectors) {
+    expect(formDigest(vector.form as QuestionForm)).toBe(vector.sha256);
+  }
+});
 
 it('the vector limits equal the named constants, so a number cannot drift', () => {
   const limits = vectors.limits;

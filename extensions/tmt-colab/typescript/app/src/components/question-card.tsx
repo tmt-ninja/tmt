@@ -32,6 +32,7 @@ export interface QuestionDraft {
 /** Controlled answer/conversation presentation. The admitted group owns drafts and all effects. */
 export function QuestionCard({
   question,
+  earlierAnswer,
   draft,
   onDraft,
   threads,
@@ -56,6 +57,7 @@ export function QuestionCard({
   followUpRecipient,
 }: {
   question: Question;
+  earlierAnswer?: string;
   draft: QuestionDraft;
   onDraft(patch: Partial<QuestionDraft>): void;
   threads: readonly ThreadView[];
@@ -140,6 +142,7 @@ export function QuestionCard({
       }}
     >
       <div className="question-controls">
+        {compose && earlierAnswer !== undefined && <p className="question-kind">{text.questionEarlierVersion(earlierAnswer)}</p>}
         {readOnly && compose && body && <ArchivedDraft value={body} />}
         {!readOnly && compose && (
           <>

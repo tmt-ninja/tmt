@@ -1,13 +1,15 @@
 //! Effective question state from the already verified conversation projection. No writes, Ask
 //! outcome, author labels, source titles or timestamps establish whether an answer exists.
+use super::form::{Form, applies};
 use crate::{closed::Result, export::conversations::Conversations};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub fn project(
     registry: &Value,
     view: &Conversations,
     device_writers: &BTreeSet<String>,
+    forms: &BTreeMap<String, Form>,
 ) -> Result<Vec<Value>> {
     super::validate(registry)?;
     Ok(registry
@@ -15,7 +17,8 @@ pub fn project(
         .expect("validated registry")
         .iter()
         .map(|entry| {
-            let answer = view
+            let current = forms.get(entry["id"].as_str().unwrap_or_default()).map(Form::digest);
+            let comments = view
                 .threads
                 .iter()
                 .filter(|thread| !thread.deleted)
@@ -24,21 +27,27 @@ pub fn project(
                     !comment.deleted
                         && device_writers.contains(&comment.writer)
                         && comment.question_id.as_deref() == entry["id"].as_str()
-                })
-                .max_by(|a, b| {
-                    (a.sequence.parse::<u64>().unwrap_or(0), &a.writer, &a.id).cmp(&(
-                        b.sequence.parse::<u64>().unwrap_or(0),
-                        &b.writer,
-                        &b.id,
-                    ))
                 });
+            let mut answer = None;
+            let mut previous = None;
+            for comment in comments {
+                let slot = if comment.answered_form.as_ref().is_none_or(|record|
+                    applies(Some(&record.digest), current.as_deref())) { &mut answer } else { &mut previous };
+                let order = |c: &crate::export::conversations::Comment| (c.sequence.parse::<u64>().unwrap_or(0), c.writer.clone(), c.id.clone());
+                if slot.is_none_or(|older| order(older) < order(comment)) {
+                    *slot = Some(comment);
+                }
+            }
             let mut effective = entry.clone();
+            if let Some(comment) = previous {
+                effective["earlierAnswer"] = json!({"answeredForm":comment.answered_form,"answerRef":{"writer":comment.writer,"id":comment.id,"revision":comment.revision}});
+            }
             if let Some(answer) = answer {
                 if effective["state"] == "open" {
                     effective["state"] = json!("answered");
                 }
                 let summary = crate::summary_passages::excerpt(
-                    &answer.body,
+                    answer.answered_form.as_ref().map_or(answer.body.as_str(), |record| record.selection.as_str()),
                     crate::limits::QUESTION_ANSWER_POINTS,
                 );
                 effective["answer"] = json!(summary);
@@ -68,7 +77,7 @@ mod tests {
                 .iter()
                 .map(|id| id.as_str().unwrap().to_owned())
                 .collect();
-            let actual = project(&case["registry"], &view, &writers).unwrap();
+            let actual = project(&case["registry"], &view, &writers, &BTreeMap::new()).unwrap();
             assert_eq!(
                 serde_json::to_value(&actual).unwrap(),
                 case["expected"],

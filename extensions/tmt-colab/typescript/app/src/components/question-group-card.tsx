@@ -215,6 +215,7 @@ export function QuestionGroupCard({
       <QuestionCard
         key={question.id}
         question={question}
+        earlierAnswer={states?.find(entry => entry.id === question.id)?.earlierAnswer?.answeredForm.selection}
         followUpRecipient={(() => {
           const agent = registry?.find((entry) => entry.id === question.id)?.agent ?? creator;
           return agent ? { agentId: agent.id, label: agent.name } : undefined;

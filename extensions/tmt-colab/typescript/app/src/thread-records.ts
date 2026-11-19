@@ -1,4 +1,5 @@
 import { validQuestionId } from './question-id.js';
+import { type AnsweredForm, validAnsweredForm } from './question-form.js';
 import {
   attachment,
   decimal,
@@ -77,6 +78,7 @@ export interface CommentRecord extends DiscussionRecordScope {
   kind: 'comment';
   /** Stable binding to one registered question; immutable across comment revisions. */
   questionId?: string;
+  answeredForm?: AnsweredForm;
   messageId: string;
   thread: DiscussionRef;
   body: string;
@@ -172,6 +174,7 @@ export function validateDiscussionRecord(
       'body',
       ...(Object.hasOwn(r, 'sequence') ? ['sequence'] : []),
       ...(Object.hasOwn(r, 'questionId') ? ['questionId'] : []),
+      ...(Object.hasOwn(r, 'answeredForm') ? ['answeredForm'] : []),
       ...(Object.hasOwn(r, 'attachments') ? ['attachments'] : []),
     ]);
     requireValue(root === 'messages' && r.kind === 'comment');
@@ -180,6 +183,8 @@ export function validateDiscussionRecord(
     if (Object.hasOwn(r, 'sequence')) validateSequence(r.sequence);
     if (Object.hasOwn(r, 'questionId'))
       requireValue(typeof r.questionId === 'string' && validQuestionId(r.questionId));
+    if (Object.hasOwn(r, 'answeredForm'))
+      requireValue(r.questionId !== undefined && validAnsweredForm(r.answeredForm));
     requireValue(typeof r.body === 'string' && text(r.body).length <= COMMENT_BYTES);
     const attachments = Object.hasOwn(r, 'attachments')
       ? attachment.attachmentList(
@@ -252,7 +257,9 @@ function latest<T extends ThreadRecord | CommentRecord>(records: T[]): T | undef
       (record.thread.writer !== previous.thread.writer ||
         record.thread.id !== previous.thread.id ||
         sequenceOf(record) !== sequenceOf(previous) ||
-        record.questionId !== previous.questionId)
+        record.questionId !== previous.questionId ||
+        record.answeredForm?.digest !== previous.answeredForm?.digest ||
+        record.answeredForm?.selection !== previous.answeredForm?.selection)
     )
       return;
     previous = record;

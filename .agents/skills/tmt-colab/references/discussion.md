@@ -76,7 +76,7 @@ owns record fields, limits, revision semantics and trust boundaries.
   edits read admitted records rather than copying projection metadata. Agent replies
   cannot supply Answered. The canonical thread prefers a verified device answer,
   with writer/thread identity order breaking ties or choosing an unanswered thread;
-  its latest answer wins and later answers append there. `comment-send.ts` and
+  its latest verified answer matching the current form wins ([question metadata](../../../../extensions/tmt-colab/contracts/colab-v1.md#question-metadata-5052)), and later answers append there. `comment-send.ts` and
   `comment-send-failures.tsx` share annotation/answer preparation and explicit retry
   behavior. Grammar and bounds live in [Answer blocks](../../../../extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
 - Review sections: `questions.ts` admits inert `tmt-review` structure beside the questions (one

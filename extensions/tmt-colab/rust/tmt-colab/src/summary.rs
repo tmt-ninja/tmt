@@ -198,6 +198,7 @@ fn fold_details(
         folded.meta.get("questions").unwrap_or(&json!([])),
         &conversations,
         &folded.status_writers,
+        &crate::question_registry::form::Form::page_forms(&folded.source, folded.blocks.as_ref()),
     )
     .map_err(|_| page::Fault::Invalid)?;
     let pending = crate::summary_pending::items(
@@ -758,6 +759,7 @@ mod tests {
     fn comment(id: &str, deleted: bool, body: &str) -> Comment {
         Comment {
             question_id: None,
+            answered_form: None,
             writer: "w".into(),
             id: id.into(),
             revision: "1".into(),
