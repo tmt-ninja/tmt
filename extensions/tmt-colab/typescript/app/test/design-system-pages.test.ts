@@ -1647,7 +1647,7 @@ describe('the design-system page check on a Colab page (#6062)', () => {
     const page = [...colabElements.map(el), el('tmt-ui-button')];
     expect(checkPageElements(page, pin, bundle)).toEqual([]);
     expect(checkPageElements([...page, el('acme-button')], pin, bundle)).toEqual([
-      { code: 'ds-prefix-mismatch', tag: 'acme-button', index: page.length },
+      { code: 'ds-prefix-mismatch', tag: 'acme-button', system: 'tmt-gui', index: page.length },
     ]);
   });
 });

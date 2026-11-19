@@ -84,6 +84,14 @@ export interface Finding {
   tag: string;
   attribute?: string;
   index: number;
+  /** The pinned system, as the fix names it (#6716). */
+  system?: string;
+  /** An unknown tag: the one component within two edits, if exactly one is nearest. */
+  near?: string;
+  /** An attribute: the value given, and the values allowed or that it is a boolean. */
+  value?: string;
+  allowed?: readonly string[];
+  boolean?: boolean;
 }
 export function checkSchema(doc: unknown, where: string): void;
 export function propType(spec: PropSpec): string;
@@ -117,3 +125,12 @@ export function checkElements(
   pageElements?: readonly string[]
 ): Finding[];
 export const findingText: Record<Finding['code'], (finding: Finding) => string>;
+/** The finding texts both page checks render (`finding-texts.json`, #6716). */
+export const FINDING_TEXTS: {
+  placeholders: Record<string, string>;
+  codes: Record<Finding['code'], { message: string; fix: Record<string, string> }>;
+};
+/** A finding's message and fix, filled from `FINDING_TEXTS`. */
+export function findingParts(finding: Finding): { message: string; fix: string };
+/** The one component tag within two edits of `tag`, if exactly one is nearest. */
+export function nearestTag(tag: string, prefix: string, tags: readonly string[]): string | undefined;

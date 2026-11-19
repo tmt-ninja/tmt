@@ -4,9 +4,14 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { livePatternSlugs, PatternPage } from '../docs/pattern-page.js';
+import { formatMarkup } from '../docs/templates.js';
 import {
   buildBundle,
   checkElements,
+  findingParts,
+  findingText,
+  FINDING_TEXTS,
+  nearestTag,
   SHARED_ATTRIBUTES,
   validateComponent,
   validateCapabilities,
@@ -52,6 +57,29 @@ it('applies the same capability checks to authored components and stored bundle 
     expect(loaded).toBe(authored);
     expect(authored).toBe(cases.indexOf(item) < 2);
   }
+});
+
+it('writes page markup one element per line, as an author would (#6716)', () => {
+  expect(formatMarkup('<a-b>Send</a-b> <a-b x="1">New</a-b>')).toBe(
+    '<a-b>Send</a-b>\n<a-b x="1">New</a-b>',
+  );
+  expect(
+    formatMarkup('<a-doc><a-block label="P"><a-text>One <b>two</b></a-text></a-block></a-doc>'),
+  ).toBe(
+    [
+      '<a-doc>',
+      '  <a-block label="P">',
+      '    <a-text>',
+      '      One',
+      '      <b>two</b>',
+      '    </a-text>',
+      '  </a-block>',
+      '</a-doc>',
+    ].join('\n'),
+  );
+  // Markup it cannot read as balanced tags stays as given.
+  expect(formatMarkup('<a-b>open')).toBe('<a-b>open');
+  expect(formatMarkup('</a-b>')).toBe('</a-b>');
 });
 
 it('renders every live pattern scene', () => {
@@ -276,7 +304,7 @@ describe('checkElements', () => {
     const el = (tag: string) => ({ tag, attrs: {} });
     const page = [el('tmt-question'), el('tmt-ui-button'), el('acme-button')];
     expect(checkElements(page, pin, system, ['tmt-question'])).toEqual([
-      { code: 'ds-prefix-mismatch', tag: 'acme-button', index: 2 },
+      { code: 'ds-prefix-mismatch', tag: 'acme-button', index: 2, system: 'tmt-gui' },
     ]);
     // Without the host's list, its elements are foreign to the system like any other tag.
     expect(checkElements(page, pin, system).map((finding) => finding.tag)).toEqual([
@@ -299,8 +327,22 @@ describe('checkElements', () => {
     expect(
       checkElements([{ tag: 'tmt-ui-button', attrs: { 'data-': '', 'aria-': '' } }], pin, system),
     ).toEqual([
-      { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'data-', index: 0 },
-      { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'aria-', index: 0 },
+      {
+        code: 'invalid-ds-prop',
+        tag: 'tmt-ui-button',
+        attribute: 'data-',
+        index: 0,
+        system: 'tmt-gui',
+        value: '',
+      },
+      {
+        code: 'invalid-ds-prop',
+        tag: 'tmt-ui-button',
+        attribute: 'aria-',
+        index: 0,
+        system: 'tmt-gui',
+        value: '',
+      },
     ]);
     // The rule is global, not a release's: the built-in bundle and its hash do not change for it.
     const checkedIn = JSON.parse(readFileSync(builtIn, 'utf8'));
@@ -314,7 +356,7 @@ describe('checkElements', () => {
       { code: 'ds-not-pinned', tag: 'tmt-ui-button', index: 0 },
     ]);
     expect(checkElements([el('tmt-ui-button')], pin, null)).toEqual([
-      { code: 'unknown-ds-release', tag: 'meta', index: -1 },
+      { code: 'unknown-ds-release', tag: 'meta', index: -1, system: 'tmt-gui' },
     ]);
     expect(
       checkElements(
@@ -324,17 +366,108 @@ describe('checkElements', () => {
           el('tmt-ui-carousel'),
           el('tmt-ui-button', { variant: 'loud' }),
           el('tmt-ui-button', { tone: 'red', disabled: 'no' }),
+          el('tmt-ui-buton'),
         ],
         pin,
         bundle,
       ),
     ).toEqual([
-      { code: 'ds-prefix-mismatch', tag: 'acme-button', index: 1 },
-      { code: 'unknown-ds-component', tag: 'tmt-ui-carousel', index: 2 },
-      { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'variant', index: 3 },
-      { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'tone', index: 4 },
-      { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'disabled', index: 4 },
+      { code: 'ds-prefix-mismatch', tag: 'acme-button', index: 1, system: 'tmt-gui' },
+      { code: 'unknown-ds-component', tag: 'tmt-ui-carousel', index: 2, system: 'tmt-gui' },
+      {
+        code: 'invalid-ds-prop',
+        tag: 'tmt-ui-button',
+        attribute: 'variant',
+        index: 3,
+        system: 'tmt-gui',
+        value: 'loud',
+        allowed: ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link'],
+      },
+      {
+        code: 'invalid-ds-prop',
+        tag: 'tmt-ui-button',
+        attribute: 'tone',
+        index: 4,
+        system: 'tmt-gui',
+        value: 'red',
+      },
+      {
+        code: 'invalid-ds-prop',
+        tag: 'tmt-ui-button',
+        attribute: 'disabled',
+        index: 4,
+        system: 'tmt-gui',
+        value: 'no',
+        boolean: true,
+      },
+      // Within two edits of exactly one component, the finding names it.
+      {
+        code: 'unknown-ds-component',
+        tag: 'tmt-ui-buton',
+        index: 5,
+        system: 'tmt-gui',
+        near: 'tmt-ui-button',
+      },
     ]);
+  });
+  it('renders each finding from the shared finding texts, with the value given and the values allowed (#6716)', async () => {
+    bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
+    const file = JSON.parse(
+      readFileSync(new URL('../../systems/finding-texts.json', import.meta.url), 'utf8'),
+    );
+    expect(FINDING_TEXTS).toEqual(file);
+    const el = (tag: string, attrs: Record<string, string> = {}) => ({ tag, attrs });
+    const findings = checkElements(
+      [
+        el('tmt-ui-button', { variant: 'garbage' }),
+        el('tmt-ui-buton'),
+        el('tmt-ui-completely-unrelated'),
+        el('tmt-ui-button', { disabled: 'no', tone: 'red' }),
+        el('acme-button'),
+      ],
+      pin,
+      bundle,
+    );
+    // Each line is the element, then the file's message and the fix the finding takes, its
+    // placeholders filled with the finding's own values.
+    const filled = (template: string, values: Record<string, string>) =>
+      template.replace(/\{(\w+)\}/g, (_, name: string) => values[name]!);
+    const { codes } = file;
+    const prop = codes['invalid-ds-prop'];
+    const tag = codes['unknown-ds-component'];
+    const allowed = 'default, outline, secondary, ghost, destructive, link';
+    expect(findings.map((finding) => findingText[finding.code](finding))).toEqual([
+      `<tmt-ui-button>: ${prop.message} ${filled(prop.fix.allowed, { tag: 'tmt-ui-button', prop: 'variant', value: 'garbage', allowed })}`,
+      `<tmt-ui-buton>: ${tag.message} ${filled(tag.fix.near, { near: 'tmt-ui-button' })}`,
+      `<tmt-ui-completely-unrelated>: ${tag.message} ${filled(tag.fix.list, { tag: 'tmt-ui-completely-unrelated', system: 'tmt-gui' })}`,
+      `<tmt-ui-button>: ${prop.message} ${filled(prop.fix.boolean, { tag: 'tmt-ui-button', prop: 'disabled', value: 'no' })}`,
+      `<tmt-ui-button>: ${prop.message} ${filled(prop.fix.unknown, { tag: 'tmt-ui-button', prop: 'tone', system: 'tmt-gui' })}`,
+      `<acme-button>: ${codes['ds-prefix-mismatch'].message} ${filled(codes['ds-prefix-mismatch'].fix.list, { tag: 'acme-button', system: 'tmt-gui' })}`,
+    ]);
+    // The fix names what the author gave and what the component takes.
+    expect(findingParts(findings[0]!).fix).toContain('variant="garbage"');
+    expect(findingParts(findings[0]!).fix).toContain(allowed);
+    // Every template names only the placeholders the file defines.
+    for (const { message, fix } of Object.values(codes) as {
+      message: string;
+      fix: Record<string, string>;
+    }[])
+      for (const template of [message, ...Object.values(fix)])
+        for (const [, name] of template.matchAll(/\{(\w+)\}/g))
+          expect(Object.keys(file.placeholders)).toContain(name);
+  });
+  it('suggests the one nearest tag within two edits, as the shared vector says (#6716)', () => {
+    const cases = JSON.parse(
+      readFileSync(
+        new URL(
+          '../../../extensions/tmt-colab/contracts/vectors/design-nearest-tag-v1.json',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ) as { tag: string; prefix: string; tags: string[]; near: string | null }[];
+    for (const { tag, prefix, tags, near } of cases)
+      expect(nearestTag(tag, prefix, tags) ?? null, tag).toBe(near);
   });
 });
 

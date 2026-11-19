@@ -1061,11 +1061,14 @@ test('the page check shows its findings on the page', async ({ page }) => {
      <tmt-ui-button tone="red">Save</tmt-ui-button><tmt-ui-carousel>Card</tmt-ui-carousel><acme-button>Other</acme-button>`,
   );
   const findings = frame.getByRole('status', { name: 'Design system check' });
-  await expect(findings).toContainText('<tmt-ui-button> has an invalid tone attribute.');
+  // Each line is the shared finding text (design/systems/finding-texts.json): message, then fix.
   await expect(findings).toContainText(
-    '<tmt-ui-carousel> is not a component of the pinned design system.',
+    '<tmt-ui-button>: The component does not accept this attribute or value. Remove the unknown tone attribute from <tmt-ui-button>',
   );
-  await expect(findings).toContainText('<acme-button> is not from the pinned design system.');
+  await expect(findings).toContainText(
+    '<tmt-ui-carousel>: The pinned system has no component with this tag.',
+  );
+  await expect(findings).toContainText('<acme-button>: The tag belongs to another design system.');
   // The valid parts still draw.
   await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
   frame = await mount(page, '<tmt-ui-button>Save</tmt-ui-button>');

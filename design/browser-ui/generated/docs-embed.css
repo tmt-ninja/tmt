@@ -2415,22 +2415,24 @@ code {
   font-weight: 600;
 }
 .docs-snippet {
-  position: relative;
+  
+  display: flex;
+  flex-direction: column;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius-l);
   background: var(--tmt-ui-surface-code);
 }
 .docs-snippet pre {
   margin: 0;
-  padding: var(--tmt-ui-ref-space-4);
-  overflow-x: auto;
-  white-space: pre;
+  padding: var(--tmt-ui-ref-space-2) var(--tmt-ui-ref-space-4) var(--tmt-ui-ref-space-4);
+  
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font: var(--tmt-ui-ref-size-3) / 1.6 var(--tmt-ui-font-mono);
 }
 .docs-snippet button {
-  position: absolute;
-  top: var(--tmt-ui-ref-space-2);
-  right: var(--tmt-ui-ref-space-2);
+  align-self: flex-end;
+  margin: var(--tmt-ui-ref-space-2) var(--tmt-ui-ref-space-2) 0;
   padding: 2px var(--tmt-ui-ref-space-2);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
@@ -2668,10 +2670,6 @@ code {
   }
   .docs-article h1:where(:not(.layout-stage *)) {
     font-size: var(--tmt-ui-ref-size-7);
-  }
-  
-  .docs-snippet:has(button) pre {
-    padding-top: calc(var(--tmt-ui-ref-space-4) + 24px);
   }
 }
 
@@ -3031,6 +3029,14 @@ code {
 .layout-card-value {
   margin: 0;
   font: 600 var(--tmt-ui-ref-size-6) / 1 var(--tmt-ui-font-display);
+}
+
+.docs-more-examples {
+  margin: var(--tmt-ui-space-s) 0 var(--tmt-ui-space-m);
+}
+.docs-more-examples > summary {
+  cursor: pointer;
+  color: var(--tmt-ui-color-secondary);
 }
 
 }
