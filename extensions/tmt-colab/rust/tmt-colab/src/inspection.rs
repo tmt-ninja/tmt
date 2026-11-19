@@ -92,6 +92,33 @@ pub fn catalog_for(store: &Store, key: &Keyring, space: SpaceExpiry) -> Result<V
     })
 }
 
+/// Every page delete the verified owner log holds, in log order, each with the revision of its
+/// statement, and the log's head (#6739). Read-only. The log names no time, device or title: a
+/// delete erases the title with the page's data.
+pub fn deleted(store: &Store, key: &Keyring) -> Result<Value> {
+    store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        let owner = tmt_colab_model::statement::Owner::new(&key.space_id, &key.owner_public())?;
+        let mut head = None;
+        let mut deleted = Vec::new();
+        for item in tx.log()? {
+            let verified = item.verify_next_by(&owner, head.as_ref())?;
+            if let tmt_colab_model::payload::Payload::Delete(page) = &verified.payload {
+                deleted.push(json!({"pageId":page.page_id,
+                    "revision":verified.head.revision.to_string()}));
+            }
+            head = Some(verified.head);
+        }
+        let head = head.ok_or(OwnerFault::Invalid)?;
+        if tx.head() != Some(&head) {
+            return Err(OwnerFault::Invalid.into());
+        }
+        Ok(
+            json!({"deleted":deleted,"membershipHead":{"revision":head.revision.to_string(),
+            "statementHash":values::encode_binary(&head.hash)}}),
+        )
+    })
+}
+
 pub fn detail(store: &Store, key: &Keyring, page: &Value) -> Result<Value> {
     let id = page["pageId"].as_str().ok_or(OwnerFault::Invalid)?;
     store.owner_read(&key.space_id, &key.owner_public(), |tx| {

@@ -1202,6 +1202,11 @@ fn run_once(
     let key = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
+    if command == "ls" && args.get_flag("deleted") {
+        let mut deleted = inspection::deleted(&store, &key)?;
+        deleted["spaceId"] = json!(key.space_id);
+        return output(&deleted, json_output);
+    }
     let space_expiry = tmt_colab::settings::read_or_default(root).page_expiry();
     let mut catalog = inspection::catalog_for(&store, &key, space_expiry)?;
     // Taken before `ls` drops archived rows: an archived sub-page is never counted (#5867).
