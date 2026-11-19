@@ -216,7 +216,6 @@ fn props_set_and_unset_by_key_under_the_type_schema() {
     );
     for bad in [
         json!({"set": {"checked": "yes"}}),
-        json!({"set": {"due": "30/11/2026"}}),
         json!({"set": {"indent": 3}}),
         json!({"set": {"nope": 1}}),
         json!({"set": {"indent": 1}, "unset": ["indent"]}),
@@ -232,6 +231,14 @@ fn props_set_and_unset_by_key_under_the_type_schema() {
             "{bad}"
         );
     }
+    assert_eq!(
+        run(
+            &base,
+            json!([{"op":"props","id":bid(1),"set":{"due":"30/11/2026"}}])
+        )
+        .unwrap_err(),
+        Refusal::TodoDue
+    );
     assert_eq!(
         run(
             &base,
