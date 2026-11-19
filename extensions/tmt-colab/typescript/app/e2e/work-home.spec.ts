@@ -165,6 +165,48 @@ test('keyboard reorder survives reload when the list omits the project order', a
   await mountOrder(page);
   await expect(rows.first()).toContainText('Queued item 2');
   expect(await page.evaluate(() => sessionStorage.getItem('fixture-notifications'))).toBeNull();
+  // At 1440, 1280 and 1024 a hovered row's actions cover its trailing facts whole: no fact shows between or
+  // around the buttons (#6688).
+  for (const width of [1440, 1280, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    await rows.first().hover();
+    const actions = rows.first().locator('.work-order-actions');
+    await expect(actions).toHaveCSS('opacity', '1');
+    const covered = await actions.evaluate((box) => {
+      const row = box.closest('[data-order-key]')!.getBoundingClientRect();
+      const own = box.getBoundingClientRect();
+      const buttons = [...box.querySelectorAll('button')].map((b) => b.getBoundingClientRect());
+      const first = buttons[0]!;
+      // Every point across the buttons' band, gaps included, is the actions' own.
+      const band: boolean[] = [];
+      for (let x = first.left; x < own.right; x += 4)
+        for (const y of [row.top + 2, (row.top + row.bottom) / 2, row.bottom - 2])
+          band.push(box.contains(document.elementFromPoint(x, y)));
+      return {
+        fullHeight: Math.abs(own.top - row.top) <= 1.5 && Math.abs(own.bottom - row.bottom) <= 1.5,
+        band: band.every(Boolean),
+      };
+    });
+    expect(covered, `${width}`).toEqual({ fullHeight: true, band: true });
+    await page.screenshot({ path: test.info().outputPath(`order-hover-${width}.png`) });
+  }
+  // A Remove that loses to another device's change says so, and the list shows the order as stored.
+  await page.evaluate(() => {
+    const order = JSON.parse(sessionStorage.getItem('fixture-order')!);
+    sessionStorage.setItem(
+      'fixture-order',
+      JSON.stringify({ revision: order.revision + 1, items: order.items.slice(0, 7) }),
+    );
+  });
+  const first = await rows.first().getAttribute('data-order-key');
+  await rows.first().getByRole('button', { name: 'Remove from Next' }).click();
+  await expect(
+    page
+      .getByRole('status')
+      .filter({ hasText: 'The order changed on another device. Review it and try again.' }),
+  ).toBeVisible();
+  await expect(rows).toHaveCount(7);
+  await expect(rows.first()).toHaveAttribute('data-order-key', first!);
 });
 
 test('Notify sends once to each explicitly chosen recipient', async ({ page }) => {

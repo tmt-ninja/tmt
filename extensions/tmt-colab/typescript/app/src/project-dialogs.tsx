@@ -39,6 +39,93 @@ function previewPrefix(name: string, prefixes: NonNullable<Prefixes>) {
   return candidate;
 }
 const t = text.pageList;
+/** The rule a work number prefix follows, as the serve checks it (`PROJECT_PREFIX_INVALID`). */
+const prefixRule = 'Use 1 to 6 capital letters, A to Z.';
+function prefixError(prefix: string) {
+  return /^[A-Z]{1,6}$/.test(prefix) ? undefined : prefixRule;
+}
+
+/** A project's work number prefix (#6688): the design-system field, with the rule under it when
+ * the value breaks it, and the reason when an issued number has fixed it. */
+function PrefixField({
+  value,
+  locked,
+  error,
+  onChange,
+}: {
+  value: string;
+  locked: boolean;
+  error: string | undefined;
+  onChange(value: string): void;
+}) {
+  const id = useId();
+  return (
+    <BrowserField
+      controlId={`${id}-prefix`}
+      label="Work number prefix"
+      description={locked ? lockedPrefix : undefined}
+      descriptionId={`${id}-locked`}
+      error={error}
+      errorId={`${id}-error`}
+      invalid={error !== undefined}
+      renderControl={(field) => (
+        <input
+          {...field}
+          name="prefix"
+          value={value}
+          readOnly={locked}
+          maxLength={6}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => onChange(event.target.value.toUpperCase())}
+        />
+      )}
+    />
+  );
+}
+
+/** One project's prefix in Manage projects; an issued one is read-only with its reason. */
+function ManagedPrefix({
+  name,
+  prefix,
+  issued,
+  busy,
+  onSave,
+}: {
+  name: string;
+  prefix: string;
+  issued: boolean;
+  busy: boolean;
+  onSave(prefix: string): Promise<void>;
+}) {
+  const [value, setValue] = useState(prefix);
+  const [tried, setTried] = useState(false);
+  const error = tried || value !== prefix ? prefixError(value) : undefined;
+  return (
+    <form
+      className="project-prefix"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        setTried(true);
+        if (!issued && !prefixError(value)) void onSave(value);
+      }}
+    >
+      <PrefixField value={value} locked={issued} error={error} onChange={setValue} />
+      {!issued && (
+        <BrowserAction
+          type="submit"
+          variant="secondary"
+          presentation="compact"
+          label={`Save prefix for ${name}`}
+          visibleLabel="Save prefix"
+          disabled={busy || value === prefix}
+          onActivate={() => {}}
+        />
+      )}
+    </form>
+  );
+}
 
 /** What the owner needs to finish a write: Home applies the changes and refreshes the list. */
 export interface ProjectWriting {
@@ -178,6 +265,7 @@ function NewProjectForm({
     const invalid = userProjectNameError(name);
     if (invalid) return setError(t.nameErrors[invalid]);
     if (existing.includes(name) && createdName !== name) return setError(t.nameErrors.exists);
+    if (override !== undefined && prefixError(override)) return;
     const changes: ProjectChange[] = [];
     for (const page of pages.filter((candidate) => ticked.has(candidate.id))) {
       const change = withProject(page, name, true);
@@ -230,17 +318,12 @@ function NewProjectForm({
         }}
       />
       {prefixes && (
-        <label>
-          Work number prefix{' '}
-          <input
-            value={override ?? previewPrefix(name, prefixes)}
-            readOnly={createdName === name}
-            pattern="[A-Z]{1,6}"
-            required
-            maxLength={6}
-            onChange={(event) => setOverride(event.target.value.toUpperCase())}
-          />
-        </label>
+        <PrefixField
+          value={override ?? previewPrefix(name, prefixes)}
+          locked={createdName === name}
+          error={override === undefined ? undefined : prefixError(override)}
+          onChange={setOverride}
+        />
       )}
       <div className="project-divider" role="separator" />
       <fieldset className="project-pages">
@@ -418,11 +501,13 @@ export function ManageProjectsDialog({
                       </span>
                     </div>
                     {prefixes?.[name] && (
-                      <form
+                      <ManagedPrefix
                         key={prefixes[name].prefix}
-                        onSubmit={async (event) => {
-                          event.preventDefault();
-                          const prefix = String(new FormData(event.currentTarget).get('prefix'));
+                        name={name}
+                        prefix={prefixes[name].prefix}
+                        issued={prefixes[name].issued}
+                        busy={busy}
+                        onSave={async (prefix) => {
                           setBusy(true);
                           try {
                             const result = await writing.manage({ action: 'prefix', name, prefix });
@@ -435,24 +520,7 @@ export function ManageProjectsDialog({
                             setBusy(false);
                           }
                         }}
-                      >
-                        <label>
-                          Work number prefix{' '}
-                          <input
-                            name="prefix"
-                            defaultValue={prefixes[name].prefix}
-                            readOnly={prefixes[name].issued}
-                            pattern="[A-Z]{1,6}"
-                            maxLength={6}
-                            required
-                          />
-                        </label>
-                        {prefixes[name].issued ? (
-                          <p>{lockedPrefix}</p>
-                        ) : (
-                          <button disabled={busy}>Save prefix</button>
-                        )}
-                      </form>
+                      />
                     )}
                   </li>
                 );

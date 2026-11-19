@@ -490,11 +490,12 @@ for (const width of [1440, 390])
       const home = app(page).locator('[data-page-list]');
       const controls = home.locator('.page-list-controls');
       const search = home.getByRole('combobox', { name: 'Search pages' });
-      await search.fill('unfinished query');
+      // The list follows the typed draft (#6688): a draft that still matches enough pages to scroll.
+      await search.fill('e');
       const editor = await search.elementHandle();
       await home.evaluate((node) => (node.scrollTop = 520));
       await expect(home).toHaveAttribute('data-compact', '');
-      await expect(search).toHaveText('unfinished query');
+      await expect(search).toHaveText('e');
       expect(await search.evaluate((node, previous) => node === previous, editor)).toBe(true);
       const geometry = await controls.evaluate((node) => {
         const root = node.closest('[data-page-list]')!;
@@ -538,7 +539,7 @@ for (const width of [1440, 390])
       await expect(create).toBeFocused();
       await home.evaluate((node) => (node.scrollTop = 0));
       await expect(home).not.toHaveAttribute('data-compact');
-      await expect(search).toHaveText('unfinished query');
+      await expect(search).toHaveText('e');
       expect(await search.evaluate((node, previous) => node === previous, editor)).toBe(true);
       await expect(home.getByRole('button', { name: 'New page', exact: true })).toBeFocused();
       expect(
@@ -560,19 +561,21 @@ test('compact project condition preserves draft and focus across viewport change
   await mount(page, 1440, 'light');
   const home = app(page).locator('[data-page-list]');
   const search = home.getByRole('combobox', { name: 'Search pages' });
-  await search.fill('a long unfinished query that remains a draft');
+  // The list follows the typed text (#6688), so the text still matches enough pages to scroll.
+  await search.fill('e');
   await home.evaluate((node) => (node.scrollTop = 520));
   await expect(home).toHaveAttribute('data-compact', '');
   await home.getByRole('button', { name: 'Filter', exact: true }).click();
   await page.getByRole('menuitemcheckbox', { name: 'blog', exact: true }).click();
   await expect(home).not.toHaveAttribute('data-compact');
   await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
-  // The picked project is a token in the field; the typed text beside it stays a draft.
+  // The picked project is a token in the field beside the typed text; leaving the field for the
+  // menu applied that text, as Enter does.
   const chip = home.getByRole('button', { name: 'Remove project filter blog', exact: true });
   await expect(chip).toBeVisible();
-  await expect(search).toContainText('a long unfinished query that remains a draft');
+  await expect(search).toContainText('e');
   expect(decodeURIComponent(new URL(page.url()).hash)).toContain('project=["blog"]');
-  expect(new URL(page.url()).hash).not.toContain('q=');
+  expect(new URL(page.url()).hash).toContain('q=e');
   await home.evaluate((node) => (node.scrollTop = 520));
   await expect(home).toHaveAttribute('data-compact', '');
   await chip.focus();
@@ -583,7 +586,7 @@ test('compact project condition preserves draft and focus across viewport change
   expect(await home.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(chip).toBeFocused();
-  await expect(search).toContainText('a long unfinished query that remains a draft');
+  await expect(search).toContainText('e');
   await search.fill('');
   await search.press('Escape');
   await page.keyboard.press('/');

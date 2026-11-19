@@ -539,12 +539,26 @@
     position: relative;
     flex-wrap: nowrap;
   }
+  /* A ranked row's actions come over the row's trailing facts on hover or focus (#6688): they take
+     the row's full height above everything in it, and the facts under them give way behind a fade,
+     so no text draws through a button. */
   .work-order-actions {
     position: absolute;
+    inset-block: 0;
     right: 0;
+    z-index: 1;
+    flex-wrap: nowrap;
+    align-items: center;
+    padding-inline-start: 32px;
     opacity: 0;
     pointer-events: none;
-    background: var(--tmt-ui-surface-paper);
+    /* Paper under the row's hover tint, so the buttons sit on what the row shows. */
+    background:
+      linear-gradient(to right, transparent, var(--work-order-row-tint, transparent) 32px),
+      linear-gradient(to right, transparent, var(--tmt-ui-surface-paper) 32px);
+  }
+  .work-order-row:has(.work-home-row-link:hover) {
+    --work-order-row-tint: var(--tmt-ui-surface-hover);
   }
   .work-order-actions[data-unranked] {
     position: static;
