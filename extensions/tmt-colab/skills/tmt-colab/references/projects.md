@@ -38,3 +38,7 @@ position. A stale revision returns the current order for review. Moving an item 
 The owner generates the work-number prefix from the project name. Set it before
 the first number is issued. After issuance the prefix stays fixed, including
 when the numbered item is deleted.
+
+For title-matched pull requests, set the project’s GitHub repository with
+`tmt colab project set NAME --repo OWNER/REPO`. Use `--clear-repo` to remove it.
+Explicit PR links still work without a configured repository.
