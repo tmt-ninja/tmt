@@ -1,3 +1,4 @@
+import { readerDesignSystem } from './design-system.js';
 import { MobileWorkTitle, WorkBand } from './work-band.js';
 import { PageBarSummary } from './page-bar-summary.js';
 import { PageStatusDetails } from './page-status-details.js';
@@ -170,6 +171,7 @@ export function ReaderApp({
     void mountRenderer(host.current!, source, {
       signal: controller.signal,
       layout,
+      designSystem: readerDesignSystem,
       onState: (next) => {
         if (next !== 'ready') resetPageLinks();
         setRender(next);

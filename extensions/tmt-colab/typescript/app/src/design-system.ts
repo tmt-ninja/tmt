@@ -162,6 +162,20 @@ export interface DesignSystemSource {
   watch(system: string, changed: () => void): () => void;
 }
 
+/** The built-in system's ID in a pin: `tmt-gui`, no page behind it. */
+export const BUILT_IN_SYSTEM = 'tmt-gui';
+/** The built-in tmt GUI release ships with the app: every install can use it (#5921). Its draft is
+ * that release: it has no pages to edit. */
+export const builtIn = () =>
+  import('../../../../../design/systems/tmt-gui/generated/bundle.json').then(
+    ({ default: bundle }) => bundle as unknown as DesignSystemBundle,
+  );
+export const readerDesignSystem: DesignSystemSource = {
+  release: builtIn,
+  draft: builtIn,
+  watch: () => () => {},
+};
+
 /** Whether `bundle`, whose own hash is `hash`, is the release `lock` names and this TMT can draw it. */
 export function verifyRelease(
   bundle: DesignSystemBundle | undefined,
@@ -201,11 +215,12 @@ const onParsed = (body: string) =>
 const closes = (text: string, tag: string) =>
   text.includes('<!--') || text.toLowerCase().includes(`</${tag}`);
 /** A frame script that only says why the components cannot be drawn. */
-export function noticeFrame(failure: DesignSystemFailure, detail?: string): FrameDesignSystem {
-  const text = JSON.stringify(detail ? `${notices[failure]} ${detail}` : notices[failure]).replace(
-    /</g,
-    '\\u003c',
-  );
+export function noticeFrame(
+  failure: DesignSystemFailure,
+  detail?: string,
+  message = notices[failure],
+): FrameDesignSystem {
+  const text = JSON.stringify(detail ? `${message} ${detail}` : message).replace(/</g, '\\u003c');
   return {
     style: '',
     failure,
@@ -381,6 +396,12 @@ export async function loadDesignSystem(
   const elements = pageElements(source);
   if (!named) return { style: '', script: findingsScript(checkPageElements(elements, null, null)) };
   if (!pin || !from) return noticeFrame('unknown-release');
+  if (from === readerDesignSystem && pin.system !== BUILT_IN_SYSTEM)
+    return noticeFrame(
+      'unknown-release',
+      undefined,
+      'This page uses a design system that is not included in the share.',
+    );
   const bundle = await pinnedBundle(pin, from);
   if ('failure' in bundle) return noticeFrame(bundle.failure, bundle.detail);
   const frame = frameDesignSystem(bundle, pin);

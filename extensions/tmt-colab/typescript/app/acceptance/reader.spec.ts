@@ -57,6 +57,64 @@ const ownerRoot = (world: AcceptanceWorld) => {
 /** The seed is the one secret in a reader link; it lives in the fragment only. */
 const seedOf = (readerPath: string) => new URLSearchParams(readerPath.split('#')[1]).get('seed')!;
 
+test('an unpaired reader draws the shipped design system like the owner', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const created = createPage(
+      world,
+      'Release review',
+      '<meta name="tmt-ds" content="tmt-gui"><h1>Release review</h1><tmt-ui-button>Approve release</tmt-ui-button>',
+    );
+    colab(world, ['share', 'mode', created.pageId, 'link', '--yes']);
+    const link = colab(world, ['share', 'link', 'add', created.pageId, '--yes']);
+    const reader = await openReaderLink(world, door, String(link.readerPath), 'design-reader');
+    const owner = await pairBrowser(world, 'design-owner');
+    await owner.page.goto(new URL(created.path, door.address).href);
+    const captures = process.env.COLAB_READER_CAPTURE_DIR;
+    if (captures) await mkdir(captures, { recursive: true });
+    for (const width of [1440, 390]) {
+      for (const theme of ['light', 'dark'] as const) {
+        const styles = [];
+        for (const [name, page] of [
+          ['owner', owner.page],
+          ['reader', reader.page],
+        ] as const) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.emulateMedia({ colorScheme: theme });
+          await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+          const button = page
+            .frameLocator('iframe')
+            .getByRole('button', { name: 'Approve release' });
+          await expect(button).toBeVisible();
+          styles.push(
+            await button.evaluate((node) => {
+              const style = getComputedStyle(node);
+              return [style.backgroundColor, style.color, style.paddingInlineStart];
+            }),
+          );
+          if (captures)
+            await page.screenshot({ path: path.join(captures, `${name}-${width}-${theme}.png`) });
+        }
+        expect(styles[1]).toEqual(styles[0]);
+      }
+    }
+    const read = colab(world, ['page', 'read', created.pageId]);
+    colab(
+      world,
+      patchArgs(world, created.pageId, [
+        '--file',
+        '-',
+        '--expected-revision',
+        String(read.revision),
+      ]),
+      '<meta name="tmt-ds" content="team-kit"><p>Team mockup</p>',
+    );
+    await expect(reader.page.frameLocator('iframe').getByRole('alert')).toHaveText(
+      'This page uses a design system that is not included in the share.',
+    );
+  });
+});
+
 test('reader link: opens unpaired, shows live edits read-only, and ends on Reset', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
