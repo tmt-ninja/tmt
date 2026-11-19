@@ -109,7 +109,16 @@ esac
     await expect(page.locator('.work-pull-details').filter({ hasText: 'PR #42' })).toContainText(
       'Ignored',
     );
+    const prChip = page.getByRole('link', { name: /PR #42/ });
+    await expect(
+      page.getByRole('button', { name: 'Discussing, show status details' }),
+    ).toContainText('Discussing');
+    await expect(prChip).toHaveCount(0);
     await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: 'Waiting for CI, show status details' }),
+    ).toContainText('Waiting for CI');
+    await expect(prChip.first()).toContainText('PR #42');
     await expect(page.getByRole('button', { name: 'Ignore', exact: true })).toBeVisible();
   });
 });

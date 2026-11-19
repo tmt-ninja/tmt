@@ -163,6 +163,7 @@ export interface PageBinding {
   canMetadata?(): boolean;
   /** Invalidate optional owner progress after an already-observed child state changes. */
   refreshProgress?(): void;
+  changeTitleMatch?(url: string, ignore: boolean): Promise<void>;
   /** Freeze the verified revision when opening an editor, never silently retarget a stale choice. */
   metadataRevision?(
     shown: Pick<PageView, 'creator' | 'questions' | 'pageState'> &

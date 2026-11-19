@@ -1236,6 +1236,18 @@ export class Live implements PageBinding {
     // A status reply carries no receipt: the page's text then shows what landed.
     return { droppedHunks: result.receipt?.droppedHunks ?? [], seq: this.#contentSeq };
   }
+  async changeTitleMatch(url: string, ignore: boolean): Promise<void> {
+    if (this.#closed || !this.canWork()) throw new Error('Owner page unavailable');
+    const facts = await readWorkFacts(this.mount, this.page.pageId, undefined, {
+      exclusion: { url, ignore },
+    });
+    if (this.#closed) return;
+    // A read started before the change must not replace the mutation response.
+    this.#workFactsRequest?.abort();
+    this.#workFactsPending = false;
+    this.#workFacts = facts;
+    this.#publish();
+  }
   refreshProgress(): void {
     void this.#progressReads.refresh();
   }

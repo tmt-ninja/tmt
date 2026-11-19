@@ -112,13 +112,7 @@ export function PageWorkBand({
     <ComputedStatus
       facts={workFacts}
       blocked={blockedReason}
-      change={
-        transport.workFacts &&
-        ((url, ignore) =>
-          transport.workFacts!(pageId, new AbortController().signal, {
-            exclusion: { url, ignore },
-          }))
-      }
+      change={binding?.changeTitleMatch?.bind(binding)}
     />
   ) : (
     <PageStateMenu binding={binding} state={band.pageState} />
@@ -213,10 +207,7 @@ export function computedTone(state: string): 'blocked' | 'working' | 'waiting' |
         : 'muted';
 }
 
-type ChangeBinding = (
-  url: string,
-  ignore: boolean,
-) => Promise<import('./reading-details.js').WorkFactView>;
+type ChangeBinding = (url: string, ignore: boolean) => Promise<void>;
 
 function ComputedStatus({
   change,
@@ -399,8 +390,8 @@ export function PageStateMenu({
 /** The status popover's body (#6474): one reason sentence, the owner's activity and each PR's
  * facts. The page's status chip and a Work home row show the same details. */
 export function StatusDetailsBody({
-  state: originalState,
-  facts: originalFacts,
+  state,
+  facts,
   change,
   blocked,
 }: {
@@ -409,20 +400,14 @@ export function StatusDetailsBody({
   change?: ChangeBinding;
   blocked?: string;
 }) {
-  const [updated, setUpdated] = useState<{
-    base: typeof originalFacts;
-    view: NonNullable<typeof originalFacts>;
-  }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
-  const facts = updated && updated.base === originalFacts ? updated.view : originalFacts;
-  const state = facts?.state ?? originalState;
   async function setIgnored(url: string, ignore: boolean) {
     if (!change || busy) return;
     setBusy(true);
     setError(false);
     try {
-      setUpdated({ base: originalFacts, view: await change(url, ignore) });
+      await change(url, ignore);
     } catch {
       setError(true);
     } finally {

@@ -151,7 +151,7 @@ function RowStatus({ item, transport }: { item: WorkItem; transport: PageTranspo
             className="work-home-row-status"
             aria-label={t.statusDetails(item.number ?? item.title)}
           >
-            <Dot status={item.status} />
+            <Dot status={view?.state ?? item.status} />
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="work-status-details">
@@ -169,7 +169,7 @@ function RowStatus({ item, transport }: { item: WorkItem; transport: PageTranspo
                     transport.workFacts!(item.pageId, new AbortController().signal, {
                       blockId: item.blockId,
                       exclusion: { url, ignore },
-                    }))
+                    }).then(setFacts))
                 }
                 {...(view ? { facts: view } : {})}
                 {...(item.status === 'blocked' && item.next ? { blocked: item.next } : {})}
