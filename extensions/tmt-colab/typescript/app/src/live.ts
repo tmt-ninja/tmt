@@ -180,9 +180,15 @@ export class Live implements PageBinding {
   ) {
     this.#progressReads = new ProgressReads(
       async (signal) => {
-        let details = await readReadingDetails(this.mount, this.page.pageId, signal, true);
+        const includeBindings = this.#answerRefs !== '' && this.#answerRefs !== '[]';
+        let details = await readReadingDetails(
+          this.mount,
+          this.page.pageId,
+          signal,
+          includeBindings,
+        );
         for (const delay of [100, 250, 500, 1000, 2000]) {
-          if (details.state !== 'pending' || !this.#answerRefs || this.#answerRefs === '[]') break;
+          if (details.state !== 'pending' || !includeBindings) break;
           await waitReadmitDelay(delay, signal);
           details = await readReadingDetails(this.mount, this.page.pageId, signal, true);
         }
@@ -197,7 +203,9 @@ export class Live implements PageBinding {
             ? (detail.progress ?? null)
             : null;
         const bindings =
-          detail?.state === 'ready' ? (detail.answerBindings ?? []) : this.#answerBindings;
+          detail?.state === 'ready' && this.#answerRefs && this.#answerRefs !== '[]'
+            ? (detail.answerBindings ?? [])
+            : this.#answerBindings;
         const bindingsChanged = JSON.stringify(bindings) !== JSON.stringify(this.#answerBindings);
         if (bindingsChanged || canonical(progress) !== canonical(this.#progress)) {
           this.#answerBindings = bindings;

@@ -3193,7 +3193,10 @@ it('a burst of admitted page observations coalesces details reads and rejects th
   let facts = { known: false, state: 'unknown' };
   let factReads = 0;
   vi.stubGlobal('fetch', (input: URL | RequestInfo) => {
-    if (!String(input).includes('/api/work-facts')) return fetch();
+    if (!String(input).includes('/api/work-facts')) {
+      expect(String(input)).toBe(`https://example.test/colab/api/pages/${pageId}/summary-details`);
+      return fetch();
+    }
     factReads++;
     return Promise.resolve(
       new Response(JSON.stringify({ pageId, ...facts, pulls: [], activity: null, asOfMs: 0 })),
