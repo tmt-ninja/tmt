@@ -1,0 +1,42 @@
+{
+  "placeholders": {
+    "tag": "the element's tag",
+    "prop": "the attribute",
+    "value": "the value given, as written",
+    "allowed": "the values allowed, joined by \", \"",
+    "near": "the one component tag within two edits",
+    "system": "the pinned system's name"
+  },
+  "codes": {
+    "ds-not-pinned": {
+      "message": "<{tag}> needs the page to pin a design system (<meta name=\"tmt-ds\">).",
+      "fix": {}
+    },
+    "unknown-ds-release": {
+      "message": "This build does not carry the pinned release.",
+      "fix": { "lock": "Use the lockMeta from tmt colab design show {system}, or follow its draft." }
+    },
+    "ds-prefix-mismatch": {
+      "message": "The tag belongs to another design system.",
+      "fix": {
+        "near": "Did you mean <{near}>?",
+        "list": "Replace <{tag}> with a tag listed by tmt colab design show {system}."
+      }
+    },
+    "unknown-ds-component": {
+      "message": "The pinned system has no component with this tag.",
+      "fix": {
+        "near": "Did you mean <{near}>?",
+        "list": "Replace <{tag}> with a tag listed by tmt colab design show {system}."
+      }
+    },
+    "invalid-ds-prop": {
+      "message": "The component does not accept this attribute or value.",
+      "fix": {
+        "allowed": "<{tag}> received {prop}=\"{value}\". Choose one of {allowed}.",
+        "boolean": "<{tag}> received {prop}=\"{value}\". Use the bare attribute, an empty value or \"{prop}\", or remove it.",
+        "unknown": "Remove the unknown {prop} attribute from <{tag}> or choose a prop listed by tmt colab design show {system}."
+      }
+    }
+  }
+}

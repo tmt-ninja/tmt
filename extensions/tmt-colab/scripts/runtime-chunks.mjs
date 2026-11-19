@@ -17,7 +17,8 @@ export const wasmChunk = chunkVector.chunks.find((chunk) => chunk.kind === 'wasm
 /** Which chunk owns a module, by its resolved path. The first match wins; everything else is base.
  * A module that a lower chunk needs belongs to that lower chunk (the build refuses an upward edge). */
 const owners = [
-  ['docs', /\/browser-ui\/(docs|gallery)\/|\/src\/runtime\/chunks\/docs\.ts$/],
+  // The docs, and the built-in components' page examples their usage leads with (#6716).
+  ['docs', /\/browser-ui\/(docs|gallery)\/|\/systems\/tmt-gui\/components\/[^/]+\.json$|\/src\/runtime\/chunks\/docs\.ts$/],
   ['rich-input', /\/lexical|\/@lexical\/|\/browser-ui\/src\/rich-input\/|\/src\/runtime\/chunks\/rich-input\.ts$/],
   ['blocks', /\/browser-ui\/src\/(blocks|data-table)\/|\/src\/runtime\/chunks\/blocks\.ts$/],
   [

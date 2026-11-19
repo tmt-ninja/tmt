@@ -87,6 +87,81 @@ export interface ComponentVariant {
   /** Its markup or code, shown under it with Copy. */
   code?: string;
 }
+type MarkupNode = { open: string; close?: string; children: (MarkupNode | string)[] };
+const VOID = /^<(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)\b/i;
+/**
+ * Page markup as an author writes it (#6716): one element per line, children indented, and an
+ * element that holds only text on one line. Markup it cannot read as balanced tags stays as given.
+ */
+export function formatMarkup(markup: string): string {
+  const root: MarkupNode = { open: '', children: [] };
+  const stack = [root];
+  for (const [token] of markup.matchAll(/<\/?[a-zA-Z][^>]*>|[^<]+/g)) {
+    const top = stack[stack.length - 1]!;
+    if (token.startsWith('</')) {
+      if (stack.length === 1) return markup;
+      top.close = token;
+      stack.pop();
+    } else if (token.startsWith('<')) {
+      const node: MarkupNode = { open: token, children: [] };
+      top.children.push(node);
+      if (!VOID.test(token) && !token.endsWith('/>')) stack.push(node);
+    } else if (token.trim()) top.children.push(token.trim());
+  }
+  if (stack.length !== 1) return markup;
+  const lines: string[] = [];
+  const print = (node: MarkupNode | string, depth: number) => {
+    const indent = '  '.repeat(depth);
+    if (typeof node === 'string') return void lines.push(indent + node);
+    if (node.children.every((child) => typeof child === 'string'))
+      return void lines.push(`${indent}${node.open}${node.children.join(' ')}${node.close ?? ''}`);
+    lines.push(indent + node.open);
+    for (const child of node.children) print(child, depth + 1);
+    if (node.close) lines.push(indent + node.close);
+  };
+  for (const child of root.children) print(child, 0);
+  return lines.join('\n');
+}
+
+/** One page-markup example: what a Colab page writes for the component (`design show` examples). */
+export interface PageExample {
+  title: string;
+  markup: string;
+}
+/** Usage that leads with the page markup when the host supplies it (#6716), the app's code after. */
+export function UsageSection({
+  examples,
+  usage,
+}: {
+  examples?: readonly PageExample[];
+  usage?: string;
+}) {
+  const [first, ...more] = examples ?? [];
+  return (
+    <>
+      <h2>Usage</h2>
+      {first && (
+        <>
+          <h3>In a page</h3>
+          <Snippet code={formatMarkup(first.markup)} />
+          {more.length > 0 && (
+            <details className="docs-more-examples">
+              <summary>More page examples ({more.length})</summary>
+              {more.map((example) => (
+                <section key={example.title}>
+                  <p className="docs-muted">{example.title}</p>
+                  <Snippet code={formatMarkup(example.markup)} />
+                </section>
+              ))}
+            </details>
+          )}
+          {usage && <h3>In the app</h3>}
+        </>
+      )}
+      {usage && <Snippet code={usage} />}
+    </>
+  );
+}
 export interface ComponentTemplateProps {
   title: string;
   lead: ReactNode;
@@ -95,6 +170,8 @@ export interface ComponentTemplateProps {
   /** A note on the hero's motion, shown under it. */
   motion?: ReactNode;
   usage: string;
+  /** The page markup a Colab page writes, shown first when the host supplies it (#6716). */
+  pageExamples?: readonly PageExample[];
   variants: readonly ComponentVariant[];
   props?: readonly ComponentProp[];
   dos?: readonly (readonly ['do' | 'dont', string])[];
@@ -106,6 +183,7 @@ export function ComponentTemplate({
   preview,
   motion,
   usage,
+  pageExamples,
   variants,
   props,
   dos,
@@ -118,8 +196,7 @@ export function ComponentTemplate({
           <b>Motion</b> {motion}
         </p>
       )}
-      <h2>Usage</h2>
-      <Snippet code={usage} />
+      <UsageSection examples={pageExamples} usage={usage} />
       {variants.length > 0 && <h2>Variants and states</h2>}
       {variants.map((variant) => (
         <section key={variant.label} className="docs-variant">

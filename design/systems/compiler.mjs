@@ -2,6 +2,7 @@
 // design/systems/compile.mjs runs it on the repo's template files, and the Colab app runs the same
 // code in the browser on a design system's pages. SHA-256 is passed in by the caller.
 
+import findingTexts from './finding-texts.json' with { type: 'json' };
 import runtime4 from '../../extensions/tmt-colab/contracts/vectors/design-runtime-4-ui.json' with { type: 'json' };
 import sharedAttributes from './shared-attributes.json' with { type: 'json' };
 
@@ -182,6 +183,36 @@ export async function buildBundle(system, config, components, sha256Hex) {
   return { ...body, hash: `sha256-${await sha256Hex(JSON.stringify(body))}` };
 }
 
+/** The one component tag within two single-character edits of an unknown one with the system's
+ * prefix, if exactly one is nearest; the CLI page check suggests the same (#6716). */
+export function nearestTag(tag, prefix, tags) {
+  const name = tag.startsWith(prefix) ? tag.slice(prefix.length) : undefined;
+  if (name === undefined || !/^[\x00-\x7f]*$/.test(name) || name.length > 64) return undefined;
+  let best = 3;
+  let suggestion;
+  for (const candidate of tags) {
+    if (!candidate.startsWith(prefix)) continue;
+    const other = candidate.slice(prefix.length);
+    if (Math.abs(name.length - other.length) > 2) continue;
+    const row = Array.from({ length: other.length + 1 }, (_, j) => j);
+    for (let i = 0; i < name.length; i++) {
+      let diagonal = row[0];
+      row[0] = i + 1;
+      for (let j = 0; j < other.length; j++) {
+        const previous = row[j + 1];
+        row[j + 1] = Math.min(diagonal + (name[i] === other[j] ? 0 : 1), previous + 1, row[j] + 1);
+        diagonal = previous;
+      }
+    }
+    const distance = row[other.length];
+    if (distance < best) {
+      best = distance;
+      suggestion = candidate;
+    } else if (distance === best) suggestion = undefined;
+  }
+  return suggestion;
+}
+
 /**
  * The page check for design-system markup. `elements` is every element of the page as
  * `{tag, attrs}`; `pin` is the page's `tmt-ds` pin or null; `bundle` is the pinned bundle or null
@@ -202,15 +233,19 @@ export function checkElements(elements, pin, bundle, pageElements = []) {
       }
     return findings;
   }
-  if (!bundle) return [{ code: 'unknown-ds-release', tag: 'meta', index: -1 }];
+  if (!bundle) return [{ code: 'unknown-ds-release', tag: 'meta', index: -1, system: pin.system }];
   const components = new Map(bundle.components.map((component) => [component.tag, component]));
+  const system = pin.system;
   for (const { tag, attrs, index } of candidates) {
     const component = components.get(tag);
     if (!component) {
+      const near = nearestTag(tag, `${bundle.prefix}-`, [...components.keys()]);
       findings.push({
         code: tag.startsWith(`${bundle.prefix}-`) ? 'unknown-ds-component' : 'ds-prefix-mismatch',
         tag,
         index,
+        system,
+        ...(near ? { near } : {}),
       });
       continue;
     }
@@ -222,18 +257,61 @@ export function checkElements(elements, pin, bundle, pageElements = []) {
         (spec.type === 'boolean'
           ? value === '' || value === name
           : !spec.enum || spec.enum.includes(value));
-      if (!valid) findings.push({ code: 'invalid-ds-prop', tag, attribute: name, index });
+      if (valid) continue;
+      // What the author gave and what the component takes, so the fix needs no other page (#6716).
+      findings.push({
+        code: 'invalid-ds-prop',
+        tag,
+        attribute: name,
+        index,
+        system,
+        value,
+        ...(!spec ? {} : spec.type === 'boolean' ? { boolean: true } : { allowed: spec.enum }),
+      });
     }
   }
   return findings;
 }
 
-/** One line per finding, for people. */
-export const findingText = {
-  'ds-not-pinned': (f) =>
-    `<${f.tag}> needs the page to pin a design system (<meta name="tmt-ds">).`,
-  'unknown-ds-release': () => 'The pinned design system release cannot be read.',
-  'ds-prefix-mismatch': (f) => `<${f.tag}> is not from the pinned design system.`,
-  'unknown-ds-component': (f) => `<${f.tag}> is not a component of the pinned design system.`,
-  'invalid-ds-prop': (f) => `<${f.tag}> has an invalid ${f.attribute} attribute.`,
-};
+/** The finding texts both page checks render (#6716): this file's frame lines and the CLI's
+ * messages and fixes come from `finding-texts.json`, filled with the finding's own values. */
+export const FINDING_TEXTS = findingTexts;
+const fill = (template, f) =>
+  template.replace(/\{(\w+)\}/g, (_, name) =>
+    name === 'prop'
+      ? f.attribute
+      : name === 'allowed'
+        ? f.allowed.join(', ')
+        : String(f[name]),
+  );
+/** Which fix a finding takes: the nearest tag or the list, the values allowed, or the lock. */
+const fixOf = (f) =>
+  f.code === 'unknown-ds-release'
+    ? 'lock'
+    : f.code === 'invalid-ds-prop'
+      ? f.allowed
+        ? 'allowed'
+        : f.boolean
+          ? 'boolean'
+          : 'unknown'
+      : f.near
+        ? 'near'
+        : 'list';
+/** A finding's message and fix, as both checks word them. */
+export function findingParts(f) {
+  const texts = findingTexts.codes[f.code];
+  const fix = texts.fix[fixOf(f)];
+  return { message: fill(texts.message, f), fix: fix === undefined ? '' : fill(fix, f) };
+}
+/** One line per finding, for people: the element, then its message and fix. The CLI names the
+ * element in its own column. */
+export const findingText = Object.fromEntries(
+  Object.keys(findingTexts.codes).map((code) => [
+    code,
+    (f) => {
+      const { message, fix } = findingParts(f);
+      const text = fix ? `${message} ${fix}` : message;
+      return code === 'ds-not-pinned' || code === 'unknown-ds-release' ? text : `<${f.tag}>: ${text}`;
+    },
+  ]),
+);

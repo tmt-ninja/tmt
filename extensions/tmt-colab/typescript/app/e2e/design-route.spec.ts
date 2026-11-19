@@ -207,6 +207,34 @@ test('tmt GUI draws the shipped pages and makes a discussion page only on the fi
   await expect(
     designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
   ).toBeVisible();
+  // Its usage leads with what a Colab page writes, the examples `design show` prints; the app's
+  // React import follows under its own label (#6716).
+  const frame = designFrame(page);
+  const usage = frame.locator('h2:text-is("Usage") ~ :is(h3, .docs-snippet, .docs-more-examples)');
+  await expect(usage.first()).toHaveText('In a page');
+  // As an author writes it: one element per line.
+  const first = frame.locator('.docs-snippet').first();
+  expect(await first.locator('code').evaluate((code) => code.textContent)).toBe(
+    [
+      '<tmt-ui-button>Send</tmt-ui-button>',
+      '<tmt-ui-button variant="outline">New timer</tmt-ui-button>',
+      '<tmt-ui-button variant="ghost">Cancel</tmt-ui-button>',
+    ].join('\n'),
+  );
+  // Copy sits on its own row: its box never covers the code's.
+  const copy = (await first.getByRole('button', { name: 'Copy' }).boundingBox())!;
+  const code = (await first.locator('code').boundingBox())!;
+  expect(copy.y + copy.height).toBeLessThanOrEqual(code.y);
+  // A long line wraps inside the box rather than running off it.
+  expect(await first.locator('pre').evaluate((pre) => pre.scrollWidth <= pre.clientWidth)).toBe(
+    true,
+  );
+  await expect(frame.getByText('More page examples (9)')).toBeVisible();
+  await expect(frame.getByRole('heading', { name: 'In the app', exact: true })).toBeVisible();
+  const order = await frame
+    .locator('h3')
+    .evaluateAll((headings) => headings.map((heading) => heading.textContent));
+  expect(order.indexOf('In a page')).toBeLessThan(order.indexOf('In the app'));
   // Comments now work as on any page, once the discussion page has opened.
   await selectionOn(page);
   // An edit to the stored copy never reaches Design: it draws what the build ships.
@@ -790,7 +818,8 @@ test('a system with no CSS of its own still draws its docs pages in the Design d
   expect(Number.parseFloat(drawn.canvas.radius)).toBeGreaterThan(0);
   expect(Number.parseFloat(drawn.snippet.border)).toBeGreaterThan(0);
   expect(drawn.snippet.font).toMatch(/mono|Menlo|Consolas|monospace/i);
-  expect(drawn.snippet.white).toBe('pre');
+  // The code keeps its line breaks and indent; a long line wraps inside the box (#6716).
+  expect(drawn.snippet.white).toBe('pre-wrap');
   // With no Usage section of its own, the page keeps its hero's heading and code, and the stage
   // fits a one-line example.
   const hero = frame.locator('.docs-hero');

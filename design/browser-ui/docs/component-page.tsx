@@ -9,10 +9,16 @@ import { DataTableFrame } from '../gallery/data-table-frame.js';
 import { PageListFrame } from '../gallery/page-list-frame.js';
 import { DialogFrame, DrawerFrame, PanelFrame, SourceFrame } from '../gallery/frames.js';
 import { motionNotes, Replay } from './motion.js';
-import { Article, ComponentTemplate, Snippet } from './templates.js';
+import { Article, ComponentTemplate, UsageSection, type PageExample } from './templates.js';
 
 /** A component's docs page: hero, usage, variants and states, props, then do and don't. */
-export function ComponentPage({ doc }: { doc: ComponentDoc }) {
+export function ComponentPage({
+  doc,
+  pageExamples,
+}: {
+  doc: ComponentDoc;
+  pageExamples?: readonly PageExample[];
+}) {
   return (
     <ComponentTemplate
       title={doc.name}
@@ -20,6 +26,7 @@ export function ComponentPage({ doc }: { doc: ComponentDoc }) {
       preview={motionNotes[doc.slug] ? <Replay>{doc.preview()}</Replay> : doc.preview()}
       motion={motionNotes[doc.slug]}
       usage={doc.usage}
+      pageExamples={pageExamples}
       variants={doc.variants.map(([label, render]) => ({ label, render: render() }))}
       dos={doc.dos}
     />
@@ -27,17 +34,25 @@ export function ComponentPage({ doc }: { doc: ComponentDoc }) {
 }
 
 /** A Browser component: the gallery's section for it, every demo in light and dark side by side. */
-export function BrowserPage({ doc }: { doc: BrowserDoc }) {
+export function BrowserPage({
+  doc,
+  pageExamples,
+}: {
+  doc: BrowserDoc;
+  pageExamples?: readonly PageExample[];
+}) {
   const names = browserExports(doc);
   return (
     <Article title={doc.name} lead={doc.description}>
-      {names.length > 0 && (
-        <>
-          <h2>Usage</h2>
-          <Snippet
-            code={`import { ${names.join(', ')} } from '@tmt/browser-ui/${doc.entry ?? 'react'}';`}
-          />
-        </>
+      {(names.length > 0 || pageExamples?.length) && (
+        <UsageSection
+          examples={pageExamples}
+          usage={
+            names.length > 0
+              ? `import { ${names.join(', ')} } from '@tmt/browser-ui/${doc.entry ?? 'react'}';`
+              : undefined
+          }
+        />
       )}
       <p className="docs-muted">
         Styles: {doc.css.map((name) => `src/${name}.css`).join(', ')}
@@ -82,7 +97,14 @@ function drawScene(_path: string, params: URLSearchParams) {
 
 /** A component's page as the docs show it, by its docs path (`components/button`,
  * `browser/avatar`): the same live scenes, drawn in the frame that hosts it (#6060). */
-export function DocsComponentPage({ page }: { page: string }) {
+export function DocsComponentPage({
+  page,
+  pageExamples,
+}: {
+  page: string;
+  /** The page markup a Colab page writes for this component, which then leads its usage (#6716). */
+  pageExamples?: readonly PageExample[];
+}) {
   // The docs shell's theme: the frame's, which UI portals (menus, dialogs) originate from.
   const { theme } = useFramePreview();
   const [section, slug] = page.split('/');
@@ -91,7 +113,11 @@ export function DocsComponentPage({ page }: { page: string }) {
   if (!component && !browser) return null;
   return (
     <UiTheme theme={theme}>
-      {component ? <ComponentPage doc={component} /> : <BrowserPage doc={browser as BrowserDoc} />}
+      {component ? (
+        <ComponentPage doc={component} pageExamples={pageExamples} />
+      ) : (
+        <BrowserPage doc={browser as BrowserDoc} pageExamples={pageExamples} />
+      )}
     </UiTheme>
   );
 }

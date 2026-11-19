@@ -1,0 +1,11 @@
+[
+  { "tag": "tmt-ui-buton", "prefix": "tmt-ui-", "tags": ["tmt-ui-button", "tmt-ui-badge"], "near": "tmt-ui-button" },
+  { "tag": "tmt-ui-buttn", "prefix": "tmt-ui-", "tags": ["tmt-ui-button"], "near": "tmt-ui-button" },
+  { "tag": "tmt-ui-butt", "prefix": "tmt-ui-", "tags": ["tmt-ui-button"], "near": "tmt-ui-button" },
+  { "tag": "tmt-ui-bu", "prefix": "tmt-ui-", "tags": ["tmt-ui-button"], "near": null },
+  { "tag": "tmt-ui-completely-unrelated", "prefix": "tmt-ui-", "tags": ["tmt-ui-button", "tmt-ui-card"], "near": null },
+  { "tag": "tmt-ui-cart", "prefix": "tmt-ui-", "tags": ["tmt-ui-card", "tmt-ui-cars"], "near": null },
+  { "tag": "tmt-ui-carx", "prefix": "tmt-ui-", "tags": ["tmt-ui-card", "tmt-ui-carxyz"], "near": "tmt-ui-card" },
+  { "tag": "acme-button", "prefix": "tmt-ui-", "tags": ["tmt-ui-button"], "near": null },
+  { "tag": "tmt-ui-bütton", "prefix": "tmt-ui-", "tags": ["tmt-ui-button"], "near": null }
+]
