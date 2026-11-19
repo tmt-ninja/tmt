@@ -1397,6 +1397,7 @@ impl App {
         use crate::board::shell::OpsInputOwner;
         let overlay = self.overlay();
         let editing = match overlay {
+            Some(Overlay::ProviderAnswer) => self.provider_answer.owns_typing(),
             Some(Overlay::NewMember | Overlay::SwitchTool | Overlay::IdleAlert) => true,
             Some(Overlay::Workspace) => self.input.is_some(),
             Some(Overlay::Settings) => self

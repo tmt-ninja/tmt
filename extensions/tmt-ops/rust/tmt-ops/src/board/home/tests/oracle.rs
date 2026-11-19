@@ -932,9 +932,9 @@ fn agents_activity_frames(styles: &mut Styles) -> Vec<Value> {
     frames
 }
 
-/// Five provider-form scenes; answers are always taken in the member's terminal.
+/// Provider-form read-only views and user-owned answer dialogs.
 fn provider_form_frames(styles: &mut Styles) -> Vec<Value> {
-    scene_group(
+    provider_form_scenes(
         styles,
         &[
             "form-question",
@@ -943,15 +943,30 @@ fn provider_form_frames(styles: &mut Styles) -> Vec<Value> {
             "form-truncated",
             "form-two",
         ],
+    )
+}
+
+fn provider_form_scenes(styles: &mut Styles, scenes: &[&str]) -> Vec<Value> {
+    scene_group(
+        styles,
+        scenes,
         |_| grid(&[160, 100], &[36]),
         |state, look, _, _| {
             let mut app = capture_case("overview", look);
-            let question = json!({
+            let mut question = json!({
                 "formId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "identityId":MEMBER,
                 "openedMs":NOW - 1000, "kind":"question", "truncated":state == "form-truncated",
                 "answerable":state != "form-truncated", "answerIn":if state == "form-truncated" {"terminal"} else {"client"},
                 "questions":[{"text":"Which approach?", "choice":"single", "options":[{"label":"First"},{"label":"Second"}], "freeText":false}]
             });
+            if state == "form-question" {
+                question["questions"] = json!([
+                    {"header":"Approach","text":"Which approach?","choice":"single",
+                     "options":[{"label":"Use the cached result","description":"Keeps the current view"},{"label":"Recompute"}],"freeText":false},
+                    {"header":"Evidence","text":"Which checks should run?","choice":"multiple",
+                     "options":[{"label":"Focused tests"},{"label":"Whole suite"}],"freeText":true}
+                ]);
+            }
             let plan = json!({"formId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "identityId":MEMBER,
                 "openedMs":NOW - 500, "kind":"planApproval", "plan":"Review the plan before proceeding.",
                 "truncated":false, "answerable":true, "answerIn":"client"});
@@ -980,12 +995,65 @@ fn provider_form_frames(styles: &mut Styles) -> Vec<Value> {
                 .unwrap()
                 .workspace
                 .forms_stale = state == "form-truncated";
+            if matches!(state, "form-question" | "form-plan" | "form-two") {
+                use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+                let press = |app: &mut App, code| app.key(KeyEvent::new(code, KeyModifiers::NONE));
+                crate::board::app::workspace::tests::focus_talk_fixture(&mut app);
+                assert_eq!(
+                    press(&mut app, KeyCode::Char('f')),
+                    crate::board::app::Effect::None
+                );
+                assert!(
+                    app.modal_open(),
+                    "the {state} fixture opens an answer action"
+                );
+                if state == "form-two" {
+                    // Pick the first form, choose an option, and dispatch without calling Core.
+                    for key in [
+                        KeyCode::Enter,
+                        KeyCode::Right,
+                        KeyCode::Down,
+                        KeyCode::Down,
+                        KeyCode::Left,
+                    ] {
+                        assert_eq!(press(&mut app, key), crate::board::app::Effect::None);
+                    }
+                    assert!(matches!(
+                        press(&mut app, KeyCode::Enter),
+                        crate::board::app::Effect::AnswerProviderForm(_)
+                    ));
+                }
+            }
             app
         },
         |captured, app| {
-            captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()))
+            captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()));
+            if let Some(hit) = app.provider_answer.action_hit.get() {
+                captured["formAnswerHit"] = json!([hit.x, hit.y, hit.width, hit.height]);
+            }
         },
     )
+}
+
+#[test]
+#[ignore = "exports only the 16 provider answer dialogs to HOME_ORACLE_OUT; never records fixtures"]
+fn dump_provider_answer_dialogs() {
+    crate::status::with_now_ms(NOW, || {
+        let mut styles = Styles::default();
+        let frames = provider_form_scenes(&mut styles, &["form-question", "form-plan"]);
+        assert_eq!(frames.len(), 16);
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        fs::write(
+            std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path"),
+            serde_json::to_string_pretty(&json!({"styles": styles, "frames": frames})).unwrap()
+                + "\n",
+        )
+        .unwrap();
+    });
 }
 
 /// Shell mode and its owner-local member conversation, without running commands.

@@ -532,11 +532,11 @@ the header names the saved window and the twelve grey cells run oldest to newest
 The TOK column switches between tokens and cost. Its Range cycles through 5m,
 10m, 1h, 3h, 6h, 1d and 7d. A recent increase in observed tokens bolds the figure
 in every look. Workspace settings can turn motion off while keeping this cue.
-A member waiting on a reported provider form has a `◆ form` mark and a read-only
-form in its Talk pane. The pane shows the reported question and choices, plan or
-permission, and marks truncated content. Use the existing jump action to answer
-in the member's terminal; the board does not answer provider forms. If the form
-read fails, a retained form is marked unavailable until a fresh read succeeds.
+Talk marks a waiting provider form with `◆ form`. For a complete form Core
+marks answerable, press `f` in Talk or click Answer form. Only the user can
+send. Agents never answer forms. Approve plan uses manual edits. Truncated,
+stale and terminal-only forms stay read-only. Jump to answer terminal-only forms.
+If delivery is unconfirmed, check the terminal. The board never resends.
 Missing evidence is `—`, while an observed zero is `0`; partial totals are marked `~`.
 Narrow tables drop HOST, then ACTIVITY. ◷ is the total **timers owned** by that member in the row's
 room, paused included: known zero is `0`, unavailable is `—`. Digest/runtime

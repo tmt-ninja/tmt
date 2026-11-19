@@ -6128,3 +6128,257 @@ fn provider_form_paint_is_read_only_and_jump_uses_existing_target() {
             .is_some_and(|notice| notice.contains("unavailable"))
     );
 }
+
+fn answerable_plan_board() -> App {
+    let mut app = board();
+    let mut form = provider_form_fixture().remove(0);
+    form.kind = "planApproval".into();
+    form.questions.clear();
+    form.plan = Some("Review the retry plan.".into());
+    form.answerable = true;
+    form.answer_in = "client".into();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.forms = Some(vec![form]);
+    snapshot.forms_stale = false;
+    focus_talk_fixture(&mut app);
+    app
+}
+
+pub(in crate::board) fn focus_talk_fixture(app: &mut App) {
+    app.right_tab = crate::board::shell::RightTab::Talk;
+    app.focus = app
+        .focus_panes()
+        .iter()
+        .position(|pane| *pane == Pane::Replies)
+        .unwrap();
+}
+
+#[test]
+fn repeated_provider_answer_input_creates_exactly_one_write() {
+    use crate::{
+        core::Core,
+        test_support::{Scratch, write_ready_executable},
+    };
+    let mut app = answerable_plan_board();
+    paint(&app, 160, 36);
+    assert_eq!(
+        app.provider_answer_hint(),
+        Some("f answer form…"),
+        "loading={} tab={:?} selected={:?} focused={:?} key={:?} input={} search={} stale={:?}",
+        app.loading(),
+        app.shell.tab,
+        app.workspace.selected,
+        app.focused(),
+        app.bindings().get("f"),
+        app.input.is_some(),
+        app.searching,
+        app.workspace_snapshot().map(|view| view.forms_stale)
+    );
+    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+    assert!(app.modal_open(), "f opens the selected member's form");
+    assert_eq!(key(&mut app, KeyCode::Left), Effect::None);
+    assert_eq!(key(&mut app, KeyCode::Left), Effect::None);
+    let repeat_enter = KeyEvent::new_with_kind(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        ratatui::crossterm::event::KeyEventKind::Repeat,
+    );
+    assert_eq!(app.key(repeat_enter), Effect::None);
+    assert!(app.modal_open(), "a held Enter cannot submit");
+    let Effect::AnswerProviderForm(answer) = key(&mut app, KeyCode::Enter) else {
+        panic!("explicit Approve plan submits");
+    };
+    assert!(!app.modal_open());
+    assert!(!matches!(
+        app.key(repeat_enter),
+        Effect::AnswerProviderForm(_)
+    ));
+    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+    assert!(!app.modal_open(), "pending form cannot be sent again");
+
+    let scratch = Scratch::new("provider-answer-once");
+    let executable = scratch.join("tmt");
+    write_ready_executable(
+        &executable,
+        r#"#!/bin/sh
+cd "$(dirname "$0")" || exit 2
+[ "$#" -eq 1 ] && [ "$1" = api ] || exit 2
+cat >> writes
+printf '%s\n' '{"error":{"code":"FORM_DELIVERY_UNCERTAIN","message":"Check the terminal."}}'
+exit 1
+"#,
+    );
+    let core = Core::at(executable);
+    let crate::board::BoardEvent::ProviderAnswer(result) = crate::board::lane::run(
+        &core,
+        None,
+        crate::board::lane::Job::AnswerProviderForm(answer),
+    ) else {
+        panic!("the lane returns a correlated result");
+    };
+    app.provider_answer_completed(result);
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("Delivery unconfirmed"), "{screen}");
+    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+    assert!(!app.modal_open(), "uncertain form cannot be sent again");
+    let calls = std::fs::read_to_string(scratch.join("writes")).unwrap();
+    let documents = serde_json::Deserializer::from_str(&calls)
+        .into_iter::<serde_json::Value>()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        documents,
+        [json!({"version":1, "operation":"forms.answer", "input":{
+            "formId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "answer":{"decision":"allow"}
+        }})]
+    );
+}
+
+#[test]
+fn the_provider_answer_follows_the_close_rule() {
+    use crate::board::{app::Overlay, home::tests::dialog_dismiss::assert_close_rule};
+    let open = || {
+        let mut app = answerable_plan_board();
+        assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+        app
+    };
+    assert_close_rule(&mut open(), &mut open(), Overlay::ProviderAnswer);
+}
+
+#[test]
+fn provider_answer_dialog_fits_short_content_and_scrolls_a_long_plan() {
+    let mut app = answerable_plan_board();
+    let overlay = crate::board::app::Overlay::ProviderAnswer;
+    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+    let screen = paint(&app, 100, 36);
+    let sheet = app.peek_areas.area(overlay).unwrap();
+    let body_top = usize::from(sheet.y) + 1;
+    assert!(screen[body_top].contains("Review the retry plan."));
+    assert!(screen[body_top + 1].contains("Approve plan uses manual edits."));
+    assert!(screen[body_top + 2].contains("Keep planning"));
+    assert_eq!(sheet.height, 5);
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .forms
+        .as_mut()
+        .unwrap()[0]
+        .plan = Some("Plan detail\n".repeat(36) + "End of the plan.");
+    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+    let screen = paint(&app, 100, 36);
+    let sheet = app.peek_areas.area(overlay).unwrap();
+    assert!(!screen.join("\n").contains("End of the plan."));
+    for _ in 0..6 {
+        assert_eq!(key(&mut app, KeyCode::PageDown), Effect::None);
+    }
+    let scrolled = paint(&app, 100, 36);
+    assert_eq!(app.peek_areas.area(overlay), Some(sheet));
+    assert!(scrolled.join("\n").contains("End of the plan."));
+    let footer = usize::from(sheet.bottom()) - 2;
+    assert_eq!(scrolled[footer], screen[footer]);
+    assert!(scrolled[footer].contains("Keep planning"));
+}
+
+#[test]
+fn provider_answer_keeps_mixed_question_draft_and_sends_original_indices() {
+    use crate::{
+        core::Core,
+        test_support::{Scratch, write_ready_executable},
+    };
+    let mut app = answerable_plan_board();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .forms = crate::board::workspace::observe::provider_forms(&json!({"forms":[{
+        "formId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "identityId":MEMBER,
+        "openedMs":123, "kind":"question", "truncated":false,
+        "answerable":true, "answerIn":"client",
+        "questions":[
+            {"text":"Which approach?", "choice":"single", "options":[{"label":"Cache"},{"label":"Fresh"}], "freeText":false},
+            {"text":"Which checks?", "choice":"multiple", "options":[{"label":"Focused"}], "freeText":true}
+        ]
+    }]}));
+    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+    assert!(app.modal_open());
+    for code in [
+        KeyCode::Down,
+        KeyCode::Right,
+        KeyCode::Down,
+        KeyCode::Right,
+        KeyCode::Down,
+        KeyCode::Char('q'),
+    ] {
+        assert_eq!(key(&mut app, code), Effect::None);
+    }
+    assert_eq!(app.paste("uality"), Effect::None);
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.modal_open());
+    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+    let rows = paint(&app, 100, 36);
+    let other = rows
+        .iter()
+        .position(|line| line.contains("Other:") && line.contains("quality"))
+        .unwrap();
+    assert!(
+        rows[other + 1].contains("Send answer"),
+        "the buttons follow the last field"
+    );
+    let screen = rows.join("\n");
+    for expected in ["● Fresh", "☑ Focused", "quality"] {
+        assert!(screen.contains(expected), "{screen}");
+    }
+    for code in [
+        KeyCode::Down,
+        KeyCode::Down,
+        KeyCode::Down,
+        KeyCode::Down,
+        KeyCode::Left,
+    ] {
+        assert_eq!(key(&mut app, code), Effect::None);
+    }
+    let Effect::AnswerProviderForm(answer) = key(&mut app, KeyCode::Enter) else {
+        panic!("Send answer submits the retained draft");
+    };
+    let scratch = Scratch::new("provider-answer-questions");
+    let executable = scratch.join("tmt");
+    write_ready_executable(
+        &executable,
+        r#"#!/bin/sh
+cd "$(dirname "$0")" || exit 2
+[ "$#" -eq 1 ] && [ "$1" = api ] || exit 2
+cat > write
+printf '%s\n' '{"formId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","delivered":true}'
+"#,
+    );
+    let crate::board::BoardEvent::ProviderAnswer(result) = crate::board::lane::run(
+        &Core::at(executable),
+        None,
+        crate::board::lane::Job::AnswerProviderForm(answer),
+    ) else {
+        panic!("the lane returns a correlated result");
+    };
+    app.provider_answer_completed(result);
+    assert!(
+        paint(&app, 100, 36)
+            .join("\n")
+            .contains("Form answer delivered")
+    );
+    let request: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(scratch.join("write")).unwrap()).unwrap();
+    assert_eq!(
+        request,
+        json!({"version":1, "operation":"forms.answer", "input":{
+            "formId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "answer":{"choices":[[1],[0]],"other":[null,"quality"]}
+        }})
+    );
+}

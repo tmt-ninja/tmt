@@ -332,6 +332,7 @@ pub(in crate::board) fn render_frame(
             line,
         );
     }
+    app.provider_answer.action_hit.set(None);
     panes::render_body(frame, app, body);
     waiting::inline_prompt(frame, app, body);
     if !app.modal_open()

@@ -18,7 +18,7 @@ pub(crate) enum BindingContext {
 type BindingSources = BTreeMap<String, String>;
 
 /// The bounded, read-only projection of Core's open provider forms.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderForm {
     pub form_id: String,
     pub identity_id: String,
@@ -32,7 +32,7 @@ pub(crate) struct ProviderForm {
     pub answer_in: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderQuestion {
     pub text: String,
     pub header: Option<String>,
@@ -41,13 +41,13 @@ pub(crate) struct ProviderQuestion {
     pub free_text: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderOption {
     pub label: String,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderTool {
     pub name: String,
     pub summary: String,

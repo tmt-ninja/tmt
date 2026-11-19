@@ -24,6 +24,7 @@ pub(super) enum Opening {
 
 #[derive(Debug)]
 pub(super) enum Job {
+    AnswerProviderForm(super::provider_answer::Send),
     Shell {
         key: (String, String),
         command: String,
@@ -88,6 +89,7 @@ impl Job {
             Self::Shell { .. } => "Running shell…",
             Self::OpenWorkPage(_) => "Opening Colab page…",
             Self::WorkOrder(_) => "Working with the Colab project order…",
+            Self::AnswerProviderForm(_) => "Sending form answer…",
             Self::Act(request) | Self::Send { request, .. } => request.progress(),
             Self::Jump { .. } => "Jumping…",
             Self::AcknowledgeAnswers(_) => "Acknowledging answers…",
@@ -117,6 +119,9 @@ impl Job {
 /// The result of one job.
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
+        Job::AnswerProviderForm(answer) => {
+            BoardEvent::ProviderAnswer(super::provider_answer::send(core, answer))
+        }
         Job::Shell { .. } => unreachable!("shell has a dedicated worker"),
         Job::OpenWorkPage(page) => BoardEvent::WorkOpened(super::work::open(core, &page)),
         Job::WorkOrder(job) => BoardEvent::WorkOrder(super::work::run_order(core, job)),

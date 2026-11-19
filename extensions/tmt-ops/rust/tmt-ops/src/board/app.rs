@@ -327,6 +327,7 @@ pub enum Effect {
     Act(Request),
     OpenWorkPage(String),
     WorkOrder(super::work::OrderMove),
+    AnswerProviderForm(super::provider_answer::Send),
     Shell {
         key: (String, String),
         command: String,
@@ -733,11 +734,12 @@ pub(super) enum Overlay {
     UsageControls,
     OfflineResume,
     Confirm,
+    ProviderAnswer,
     PastePreview,
 }
 impl Overlay {
     #[cfg(test)]
-    pub(super) const ALL: [Self; 25] = [
+    pub(super) const ALL: [Self; 26] = [
         Self::Workspace,
         Self::Recovery,
         Self::Help,
@@ -762,6 +764,7 @@ impl Overlay {
         Self::UsageControls,
         Self::OfflineResume,
         Self::Confirm,
+        Self::ProviderAnswer,
         Self::PastePreview,
     ];
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -790,6 +793,7 @@ impl Overlay {
                 Self::IdleAlert => "idle-alert",
                 Self::UsageControls => "usage-controls",
                 Self::Confirm => "confirm",
+                Self::ProviderAnswer => "provider-answer",
                 Self::PastePreview => "paste-preview",
                 Self::OfflineResume => "offline-resume",
             }
@@ -918,6 +922,7 @@ pub struct App {
     pub(super) member_session_generation: u64,
     /// The once-per-run ask to resume the built-in host's offline members.
     pub(super) offline_resume: super::offline_resume::State,
+    pub(super) provider_answer: super::provider_answer::State,
     pub(super) notes_overlay: Option<super::conversation_checklist::overlay::Controller>,
     pub(super) new_member: Option<super::new_member::Controller>,
     pub(super) new_member_generation: u64,
@@ -1930,6 +1935,8 @@ impl App {
                             .as_ref()
                             .and_then(|previous| previous.home.as_ref())
                             .and_then(|previous| previous.workspace.forms.clone());
+                    } else if let Some(forms) = &home.workspace.forms {
+                        self.provider_answer.reconcile(forms);
                     }
                 }
                 // Open a newly observed form at its first line, independent of the
@@ -3636,6 +3643,7 @@ impl App {
         self.composer.paste_preview.get_mut().take();
         self.composer.invalidate();
         if self.checklist_shown()
+            || self.provider_answer.shown()
             || self.recovery_shown()
             || self.discovery_shown()
             || self.new_member_shown()
@@ -4215,6 +4223,8 @@ impl App {
     pub(super) fn overlay(&self) -> Option<Overlay> {
         if self.confirm.is_some() {
             Some(Overlay::Confirm)
+        } else if self.provider_answer.shown() {
+            Some(Overlay::ProviderAnswer)
         } else if self.paste_preview_shown() {
             Some(Overlay::PastePreview)
         } else if self.monitor_details.is_some() {
@@ -4278,6 +4288,7 @@ impl App {
 
     fn overlay_input(&mut self, overlay: Overlay, event: &Event) -> Option<Effect> {
         match overlay {
+            Overlay::ProviderAnswer => Some(self.provider_answer_event(event)),
             Overlay::PastePreview => Some(self.paste_preview_event(event)),
             Overlay::Workspace => self.workspace_form_event(event),
             Overlay::Panels => self.panels_event(event),
@@ -4443,10 +4454,11 @@ impl App {
             None
         };
         let traced_key = if matches!(key.code, KeyCode::Char(_))
-            && self
-                .input
-                .as_ref()
-                .is_some_and(|input| matches!(input.compose, Compose::Talk { .. }))
+            && (self.provider_answer.owns_typing()
+                || self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| matches!(input.compose, Compose::Talk { .. })))
         {
             "<text>".to_owned()
         } else {
@@ -4728,6 +4740,9 @@ impl App {
         if let Some(effect) = self.conversation_source_key(key) {
             return effect;
         }
+        if let Some(effect) = self.provider_answer_key(key) {
+            return effect;
+        }
         if key.code == KeyCode::Esc
             && key.kind != ratatui::crossterm::event::KeyEventKind::Release
             && self.conversation_source_escape()
@@ -4740,6 +4755,7 @@ impl App {
     /// Refuse pointer and viewport authority from a superseded frame. Offsets
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
+        self.provider_answer.invalidate();
         self.orchestration.invalidate();
         self.work.hits.borrow_mut().clear();
         self.pane_resize.invalidate();
@@ -5098,6 +5114,9 @@ impl App {
         }
         if self.menu.is_some() {
             return self.menu_mouse(event);
+        }
+        if let Some(effect) = self.provider_answer_mouse(event) {
+            return effect;
         }
         // Jump to latest (#5920) sits over the reader's body, so it takes a press anywhere in its
         // box before any handler of what lies beneath it (#6051).
