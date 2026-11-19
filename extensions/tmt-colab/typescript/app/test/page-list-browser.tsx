@@ -754,6 +754,13 @@ export async function mountPageList(
             send: async (input: import('../src/ask-remote.js').SendInput) => {
               const messages = JSON.parse(sessionStorage.getItem('fixture-notifications') ?? '[]');
               sessionStorage.setItem('fixture-notifications', JSON.stringify([...messages, input]));
+              if (sessionStorage.getItem('fixture-talk-denied') === 'true')
+                return {
+                  state: 'refused' as const,
+                  operationId: input.operationId,
+                  reason: 'REMOTE_SCOPE_DENIED',
+                  scope: 'talk' as const,
+                };
               return {
                 state: 'accepted' as const,
                 operationId: input.operationId,

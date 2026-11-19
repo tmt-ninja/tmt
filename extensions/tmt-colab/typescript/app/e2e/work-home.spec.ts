@@ -195,3 +195,24 @@ test('Notify sends once to each explicitly chosen recipient', async ({ page }) =
       new URL('/colab/work?project=Colab', page.url()).href,
   );
 });
+
+test('Notify stops after the first verified talk refusal', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => sessionStorage.setItem('fixture-talk-denied', 'true'));
+  await mountOrder(page);
+  await page.getByRole('button', { name: 'Notify' }).click();
+  const card = page.getByRole('dialog', { name: 'Recipients' });
+  for (const name of ['Ada', 'Bea']) await card.getByRole('checkbox', { name }).check();
+  const send = card.getByRole('button', { name: 'Send', exact: true });
+  await send.click();
+  await expect(card.locator('label').filter({ hasText: 'Ada' })).toContainText('Not allowed');
+  await expect(
+    card.getByText(
+      'This browser is not allowed to send to agents. Turn sending on in Remote settings, or pair with talk.',
+    ),
+  ).toBeVisible();
+  await expect(send).toBeDisabled();
+  expect(
+    await page.evaluate(() => JSON.parse(sessionStorage.getItem('fixture-notifications')!)),
+  ).toHaveLength(1);
+});

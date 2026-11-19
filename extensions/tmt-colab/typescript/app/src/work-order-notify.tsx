@@ -24,8 +24,9 @@ export function WorkOrderNotify({
 }) {
   const [agents, setAgents] = useState<RemoteAgent[]>();
   const [selected, setSelected] = useState(new Set<string>());
-  const [results, setResults] = useState(new Map<string, SendState['state']>());
+  const [results, setResults] = useState(new Map<string, SendState['state'] | 'notAllowed'>());
   const operations = useRef(new Map<string, string>());
+  const [talkDenied, setTalkDenied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const url = new URL('/colab/work', window.location.origin);
@@ -39,6 +40,7 @@ export function WorkOrderNotify({
     setBusy(true);
     try {
       const directory = await remote.listAgents();
+      setTalkDenied(false);
       setAgents(directory);
       setSelected(
         new Set(directory.filter((agent) => affected.has(agent.name)).map((agent) => agent.id)),
@@ -59,7 +61,14 @@ export function WorkOrderNotify({
         operations.current.set(agentId, operationId);
         let state: SendState['state'];
         try {
-          state = (await remote.send({ operationId, agentId, message })).state;
+          const reply = await remote.send({ operationId, agentId, message });
+          if (reply.state === 'refused' && reply.scope === 'talk') {
+            operations.current.delete(agentId);
+            setResults((previous) => new Map(previous).set(agentId, 'notAllowed'));
+            setTalkDenied(true);
+            break;
+          }
+          state = reply.state;
         } catch {
           state = 'uncertain';
         }
@@ -84,6 +93,7 @@ export function WorkOrderNotify({
           </PopoverTrigger>
           <PopoverContent align="end" className="work-notify-card" aria-label={t.recipients}>
             <strong>{t.recipients}</strong>
+            {talkDenied && <p role="status">{t.talkDenied}</p>}
             {agents?.map((agent) => {
               const changes = affected.get(agent.name);
               const result = results.get(agent.id);
@@ -115,7 +125,7 @@ export function WorkOrderNotify({
             <blockquote>{quote}</blockquote>
             <Button
               size="sm"
-              disabled={busy || ![...selected].some((id) => !delivered(id))}
+              disabled={talkDenied || busy || ![...selected].some((id) => !delivered(id))}
               onClick={() => void send()}
             >
               {t.send}
