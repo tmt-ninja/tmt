@@ -49,17 +49,23 @@ function sliceUtf8Bytes(text, maxBytes) {
 function latestAssistantText(ctx) {
   const branch = ctx?.sessionManager?.getBranch?.();
   if (!Array.isArray(branch) || branch.length === 0) return null;
-  const latest = branch[branch.length - 1];
-  if (latest?.type !== 'message' || latest?.message?.role !== 'assistant') return null;
-  const blocks = latest.message.content;
-  if (!Array.isArray(blocks)) return null;
-  const parts = [];
-  for (const block of blocks) {
-    if (block?.type === 'text' && typeof block.text === 'string' && block.text.length > 0) {
-      parts.push(block.text);
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    const entry = branch[index];
+    if (entry?.type !== 'message') continue;
+    const role = entry?.message?.role;
+    if (role === 'user') return null;
+    if (role !== 'assistant') continue;
+    const blocks = entry.message.content;
+    if (!Array.isArray(blocks)) return null;
+    const parts = [];
+    for (const block of blocks) {
+      if (block?.type === 'text' && typeof block.text === 'string' && block.text.length > 0) {
+        parts.push(block.text);
+      }
     }
+    return parts.length > 0 ? parts.join('\n') : null;
   }
-  return parts.length > 0 ? parts.join('\n') : null;
+  return null;
 }
 
 function encodeBoundedPayload(payload) {
