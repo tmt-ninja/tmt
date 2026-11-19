@@ -122,7 +122,7 @@ export function mountWorkPage(
   owner = false,
   scenario: 'tree' | 'empty' | 'many' | 'filled' | 'work-fields' = 'tree',
   tall = false,
-  activityState?: 'working' | 'possibly-stalled' | 'unknown',
+  activityState?: 'working' | 'possibly-stalled' | 'unknown' | 'waiting-ci',
   /** The bar's status details filled (#6652): a long blocked reason, three PRs and eight projects;
    * or minimal, with no owner, fields or PR. */
   fill?: 'long' | 'minimal',
@@ -229,15 +229,17 @@ export function mountWorkPage(
                 observedAtMs: 1000000,
               },
             }))
-          : fill !== 'minimal' && scenario === 'work-fields' && !activityState
+          : fill !== 'minimal' &&
+              scenario === 'work-fields' &&
+              (!activityState || activityState === 'waiting-ci')
             ? [
                 {
                   url: 'https://github.com/example/project/pull/42',
                   fact: {
-                    state: 'merged',
+                    state: activityState === 'waiting-ci' ? 'open' : 'merged',
                     checks: 'SUCCESS',
-                    released: true,
-                    tag: 'v1.2.3',
+                    released: activityState === 'waiting-ci' ? null : true,
+                    tag: activityState === 'waiting-ci' ? null : 'v1.2.3',
                     observedAtMs: 1000000,
                   },
                 },

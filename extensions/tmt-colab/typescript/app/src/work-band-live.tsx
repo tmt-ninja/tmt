@@ -1,3 +1,4 @@
+import { openPrStatus } from './open-pr-status.js';
 import { WorkPullDetails } from './work-pull-details.js';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { BrowserMenu } from '@tmt/browser-ui/react';
@@ -199,8 +200,11 @@ export function showsComputedStatus(binding?: PageBinding): boolean {
 }
 
 /** A computed status's word, the same in the work band and the page bar. */
-export function computedLabel(state: import('./reading-details.js').WorkFactView['state']) {
-  return t.computedState[state];
+export function computedLabel(
+  state: import('./reading-details.js').WorkFactView['state'],
+  facts?: import('./reading-details.js').WorkFactView,
+) {
+  return state === 'waiting-ci' ? openPrStatus(facts?.pulls).label : t.computedState[state];
 }
 
 /** The dot tone of a computed status, shared by the work band and the page bar. */
@@ -229,7 +233,7 @@ function ComputedStatus({
   const trigger = useRef<HTMLButtonElement>(null);
   const restoredOnEscape = useRef(false);
   const state = facts?.state ?? 'unknown';
-  const label = computedLabel(state);
+  const label = computedLabel(state, facts);
   const tone = computedTone(state);
   return (
     <UiTheme theme={theme}>
@@ -400,19 +404,18 @@ export function statusReason(
   facts: import('./reading-details.js').WorkFactView | undefined,
   blocked: string | undefined,
 ): string {
-  // The PR that decides the status: an open one, or a merged one not yet in a release.
-  const prNumber = (wanted: 'open' | 'merged') =>
+  const unreleased = () =>
     facts?.pulls
-      .find(({ fact }) => fact?.state === wanted && (wanted === 'open' || fact.released === false))
+      .find(({ fact }) => fact?.state === 'merged' && fact.released === false)
       ?.url.split('/')
       .at(-1);
   // A blocked item's own reason is the sentence under the heading, never prefixed again.
   return state === 'blocked'
     ? (blocked ?? t.statusReason.blocked(undefined))
     : state === 'waiting-ci'
-      ? t.statusReason['waiting-ci'](prNumber('open'))
+      ? openPrStatus(facts?.pulls).reason
       : state === 'waiting-release'
-        ? t.statusReason['waiting-release'](prNumber('merged'))
+        ? t.statusReason['waiting-release'](unreleased())
         : t.statusReason[state];
 }
 
@@ -429,7 +432,7 @@ export function StatusDetailsBody({
   change?: ChangeBinding;
   blocked?: string;
 }) {
-  const label = t.computedState[state];
+  const label = computedLabel(state, facts);
   const reason = statusReason(state, facts, blocked);
   return (
     <>

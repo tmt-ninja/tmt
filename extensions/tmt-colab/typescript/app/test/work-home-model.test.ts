@@ -109,7 +109,7 @@ it('carries the counted sections of a page as its one number, bar and stuck sect
     item.sections!.map((section) => [sectionMark(section).shape, sectionMark(section).count]),
   ).toEqual([
     ['dot', '3/3'],
-    ['half', '1/2 · Waiting for CI'],
+    ['half', '1/2 · Waiting on a PR'],
     ['target', '0/3 · Needs you'],
     // A manual done keeps the real count.
     ['dot', '1/4'],

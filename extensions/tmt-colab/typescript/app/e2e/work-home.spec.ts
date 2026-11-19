@@ -32,6 +32,9 @@ test('Work home counts open work, filters by a status and lists what was done', 
   expect(segment).toBe(dot);
   const rows = home.locator('.tmt-ui-work-row');
   await expect(rows).toHaveCount(8);
+  await expect(rows.filter({ hasText: 'OPS-33' }).locator('.tmt-ui-work-next')).toHaveText(
+    'Waiting on a PR · Review PR #6461',
+  );
   // Sections are progress (#6619): a page with sections shows one bar and one number, and its
   // details name the stuck section.
   const sectioned = rows.filter({ hasText: 'COLAB-140' });

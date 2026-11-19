@@ -46,7 +46,7 @@ export function PageStatusDetails({
   return (
     <div className="page-status-details">
       <p className="page-status-headline">
-        <strong>{computedLabel(state)}</strong>
+        <strong>{computedLabel(state, facts)}</strong>
         <span>{facts ? statusReason(state, facts, blocked) : text.workBand.statusUnavailable}</span>
       </p>
       <dl className={`${ui.facts} page-status-fields`}>

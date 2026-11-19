@@ -1,3 +1,4 @@
+import { openPrStatus } from './open-pr-status.js';
 import {
   WorkRow as WorkRowPart,
   WorkRatio,
@@ -149,6 +150,7 @@ function RowStatus({ item, transport }: { item: WorkItem; transport: PageTranspo
           <button
             type="button"
             className="work-home-row-status"
+            title={state === 'waiting-ci' ? openPrStatus(view?.pulls).label : undefined}
             aria-label={t.statusDetails(item.number ?? item.title)}
           >
             <Dot status={view?.state ?? item.status} />
@@ -280,7 +282,13 @@ function WorkRow({
           {item.title}
         </Link>
       }
-      next={item.status === 'blocked' && item.next ? 'Blocked: ' + item.next : item.next}
+      next={
+        item.status === 'waiting-ci'
+          ? [openPrStatus().label, item.next].filter(Boolean).join(' · ')
+          : item.status === 'blocked' && item.next
+            ? 'Blocked: ' + item.next
+            : item.next
+      }
       sections={item.sections ? <RowSections sections={item.sections} /> : undefined}
       ownerControl={item.owner ? <OwnerCell owner={item.owner} /> : undefined}
       time={age(item.lastMs, now)}
