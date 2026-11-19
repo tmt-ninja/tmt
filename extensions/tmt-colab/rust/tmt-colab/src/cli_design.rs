@@ -147,7 +147,6 @@ pub fn rules_for_pin(pin: &str) -> Option<Value> {
     let store = Store::read(&layout).ok()?;
     store.require_current_schema().ok()?;
     let mut decoder = Decoder::new(std::env::current_exe().ok()?).ok()?;
-    let generation = store.write_generation().ok()?;
     let root_page = page::read(&store, &key, id, &mut decoder).ok()?;
     let config = config(&root_page.source)?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
@@ -172,12 +171,14 @@ pub fn rules_for_pin(pin: &str) -> Option<Value> {
     } else {
         let prefix = config["prefix"].as_str()?;
         let mut components = Vec::new();
+        let mut revisions = vec![(id, root_page.revision)];
         for entry in config["components"].as_array()? {
             if std::time::Instant::now() >= deadline {
                 return None;
             }
             let page_id = entry["page"].as_str()?;
             let doc = page::read(&store, &key, page_id, &mut decoder).ok()?;
+            revisions.push((page_id, doc.revision));
             let marker = r#"<script type="application/json" data-tmt-ds="component">"#;
             let (_, tail) = doc.source.split_once(marker)?;
             let component: Value = serde_json::from_str(tail.split_once("</script>")?.0).ok()?;
@@ -185,8 +186,14 @@ pub fn rules_for_pin(pin: &str) -> Option<Value> {
             let props = component["props"].as_object()?;
             components.push(json!({"tag":format!("{prefix}-{tag}"),"props":props}));
         }
-        if store.write_generation().ok()? != generation {
-            return None;
+        // Serve can commit unrelated maintenance during this scan. Only changes to the
+        // pages supplying rules invalidate the collected draft.
+        for (page_id, revision) in revisions {
+            if std::time::Instant::now() >= deadline
+                || page::revision(&store, &key, page_id).ok()? != revision
+            {
+                return None;
+            }
         }
         json!({"prefix":prefix,"components":components})
     };
