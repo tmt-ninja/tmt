@@ -1313,6 +1313,34 @@ for (const task of ['heading actions', 'annotation'] as const)
         await expect
           .poll(() => cli(['block', 'get', created.pageId, id!]).block.props.progress)
           .toBe('done');
+        // Sections follow the page's own blocks at once (#6687), here and in another tab of the
+        // owner: the heading marked done by hand says Done, never 0 of something.
+        const other = await browser.context.newPage();
+        await other.goto(new URL(created.path, door.address).href);
+        const row = (view: typeof page, name: string) =>
+          view
+            .getByRole('navigation', { name: 'Page outline' })
+            .getByRole('button', { name: new RegExp(`^${name}`) });
+        for (const view of [page, other]) {
+          await expect(row(view, 'Details').locator('.page-outline-section-count')).toHaveText(
+            /^Done/,
+          );
+          await expect(row(view, 'Details').locator('.page-outline-mark')).toHaveAttribute(
+            'data-shape',
+            'dot',
+          );
+          await expect(view.locator('.page-outline-progress')).toContainText('1/2 done');
+        }
+        await page.getByRole('checkbox', { name: 'Send the summary' }).check();
+        for (const view of [page, other]) {
+          await expect(row(view, 'Decisions').locator('.page-outline-section-count')).toHaveText(
+            /^1\/1/,
+          );
+          await expect(view.locator('.page-outline-progress')).toContainText('2/2 done');
+          await expect(
+            view.locator('.structured-section-heading').filter({ hasText: 'Decisions' }),
+          ).toContainText('1/1');
+        }
       } else {
         // A heading selected from the outline first: Selection mode does not draw it (#6675).
         const outlineToggle = nav.locator('.page-outline-toggle');

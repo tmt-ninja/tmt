@@ -810,6 +810,32 @@ for (const width of [1440, 390])
       ]);
       await expect(outline.locator('.page-outline-mark')).toHaveCount(3);
       expect(Math.abs(control.y - title.y)).toBeLessThanOrEqual(4);
+      // The page counts its sections from its own blocks (#6687): a to-do checked and a heading
+      // marked done elsewhere show at once, while the serve's facts still say 3/4.
+      const change = (block: number, props: Record<string, unknown>) =>
+        run(page, 'setStructuredProps', { block, props });
+      await change(901, { checked: true });
+      await expect(outline.locator('.page-outline-section-count').first()).toHaveText('4/4, Done');
+      await expect(toggle).toContainText('Outline · 2/3 done');
+      // A heading marked done by hand says Done, never 0/1 beside a done mark.
+      await change(105, { progress: 'done' });
+      await expect(outline.locator('.page-outline-section-count').last()).toHaveText('Done, Done');
+      await expect(toggle).toContainText('Outline · 3/3 done');
+      await change(901, { checked: false });
+      await change(105, { progress: null });
+      await expect(toggle).toContainText('Outline · 1/3 done');
+      // A long section title keeps two lines in the outline, then an ellipsis; the row names it whole.
+      const long = 'Decisions on the hosted reader, the pairing door and every rollout step';
+      await run(page, 'setStructuredProps', { block: 105, props: {}, text: long });
+      const longRow = outline.getByRole('button', { name: new RegExp(`^${long}`) });
+      await expect(longRow).toHaveAttribute('title', long);
+      const lines = await longRow
+        .locator('.page-outline-title')
+        .evaluate(
+          (node) =>
+            node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight),
+        );
+      expect(lines).toBeLessThanOrEqual(2.05);
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-expanded', 'false');
       // Collapsing slides the column shut to the left (#6611): the content and the title take its

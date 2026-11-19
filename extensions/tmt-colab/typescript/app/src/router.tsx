@@ -4,7 +4,7 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageStateMenu, PageWorkBand, showsComputedStatus } from './work-band-live.js';
-import { htmlOutlineSections, sectionTotals } from './section-view.js';
+import { htmlOutlineSections, liveSections, sectionTotals } from './section-view.js';
 import { MobileWorkTitle } from './work-band.js';
 import { useMedia } from './use-media.js';
 import { Sheet, SheetContent, SheetTitle, UiTheme } from '@tmt/browser-ui/ui';
@@ -29,6 +29,7 @@ import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { blockTree } from './block-projection.js';
+import type { BlockRecord } from './block-model.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import { PagePinNotice, PageProjects } from './page-projects.js';
@@ -2563,9 +2564,21 @@ function OpenPage({
     closeRef.current(true);
     showTemplateToast(text.blockDelete.remote);
   }, [view.blocks, annotationRef, closeRef, showTemplateToast]);
+  // A structured page counts its sections from the blocks it holds (#6687): a checked to-do or a
+  // heading marked done shows at once, here and in another browser; an HTML page's come from the
+  // serve, which reads its source.
+  // The editor's drawn page includes this tab's changes still on their way to the serve.
+  const [drawnBlocks, setDrawnBlocks] = useState<readonly BlockRecord[]>();
+  const pageSections = useMemo(
+    () =>
+      view.pageType === 'blocks'
+        ? liveSections(drawnBlocks ?? structuredBlocks, view.workFacts?.sections)
+        : view.workFacts?.sections,
+    [view.pageType, drawnBlocks, structuredBlocks, view.workFacts?.sections],
+  );
   const sectionsById = useMemo(
-    () => new Map((view.workFacts?.sections ?? []).map((section) => [section.id, section])),
-    [view.workFacts?.sections],
+    () => new Map((pageSections ?? []).map((section) => [section.id, section])),
+    [pageSections],
   );
   const outlineHeadings = useMemo(
     () =>
@@ -2849,7 +2862,6 @@ function OpenPage({
   // phone width, then the page menu's Sub-pages (N), which opens them as a sheet.
   const viewerSubpages = workControls && !barStatus && hierarchy.hasSubpages;
   // The page's section progress beside its status (#6619): done sections over counted ones.
-  const pageSections = view.workFacts?.sections;
   const pageSectionTotals = pageSections?.length ? sectionTotals(pageSections) : undefined;
   const projectControls = (
     <PageProjects
@@ -3463,7 +3475,7 @@ function OpenPage({
                 <PageOutline
                   headings={outlineHeadings}
                   locate={locateStructuredHeading}
-                  sections={view.workFacts?.sections}
+                  sections={pageSections}
                 />
                 <div
                   className="structured-page-stage"
@@ -3512,6 +3524,7 @@ function OpenPage({
                   data-annotation-mode={(canSelect && selectionMode) || undefined}
                 >
                   <LazyStructuredPage
+                    onDrawn={setDrawnBlocks}
                     onSettle={setBlockSettler}
                     blocks={view.blocks}
                     todoNumbers={view.todoNumbers}

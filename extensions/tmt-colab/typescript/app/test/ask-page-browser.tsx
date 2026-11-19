@@ -254,6 +254,26 @@ function sessionDrafts(mode: 'session' | 'failing' | 'split', wait?: Promise<voi
     },
   };
 }
+/** The work under the first three outline sections (#6687): Overview has one of two to-dos checked
+ * and holds Details with both checked (3/4), and Decisions has an open to-do and a waiting question. */
+const OUTLINE_WORK: Record<number, Record<string, unknown>[]> = {
+  0: [
+    { type: 'todo', props: { checked: true }, text: { s: 'Write the outline', marks: [] } },
+    { type: 'todo', props: { checked: false }, text: { s: 'Review the outline', marks: [] } },
+  ],
+  1: [
+    { type: 'todo', props: { checked: true }, text: { s: 'List the details', marks: [] } },
+    { type: 'todo', props: { checked: true }, text: { s: 'Check the details', marks: [] } },
+  ],
+  2: [
+    { type: 'todo', props: { checked: false }, text: { s: 'Decide the release', marks: [] } },
+    {
+      type: 'question',
+      props: { kind: 'short', state: 'waiting' },
+      text: { s: 'Ship this week?', marks: [] },
+    },
+  ],
+};
 /** A heading's (0) or its paragraph's (1) position: A to F for the first three sections, then
  * two letters after Z, so any number of sections keeps its order. */
 function outlinePos(index: number, part: 0 | 1) {
@@ -418,6 +438,14 @@ export async function mount(
                   text: { s: `${title} section. `.repeat(100), marks: [] },
                 },
               ],
+              // The page counts its sections from these (#6687), as `workFacts.sections` says.
+              ...(OUTLINE_WORK[index] ?? []).map(
+                (block, at) =>
+                  [
+                    id(900 + index * 10 + at),
+                    { parent: 'root', pos: `${outlinePos(index, 1)}${at}`, ...block },
+                  ] as const,
+              ),
             ]),
           )
         : {
@@ -2594,5 +2622,28 @@ export function detailsSlots(options: { kind: 'review' | 'reading'; darkPage?: b
     ...current,
     source: `${current.source.slice(0, start)}<details id="outer"><summary>Review decisions</summary><details id="inner" open><summary>Section details</summary>${current.source.slice(start, end)}</details></details>${current.source.slice(end)}`,
   };
+  emit();
+}
+/** A live change to one block's props, as another browser's edit arrives (#6687). The page's
+ * `workFacts` stay as they were: only the blocks say what changed. */
+export function setStructuredProps(change: {
+  block: number;
+  props: Record<string, unknown>;
+  text?: string;
+}) {
+  const blocks = { ...current.blocks };
+  const key = id(change.block);
+  // A null removes the prop.
+  const props = Object.fromEntries(
+    Object.entries({ ...blocks[key]!.props, ...change.props }).filter(
+      ([, value]) => value !== null,
+    ),
+  );
+  blocks[key] = {
+    ...blocks[key]!,
+    props,
+    ...(change.text === undefined ? {} : { text: { s: change.text, marks: [] } }),
+  };
+  current = { ...current, blocks };
   emit();
 }
