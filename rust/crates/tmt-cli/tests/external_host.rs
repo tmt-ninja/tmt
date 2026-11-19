@@ -2174,9 +2174,6 @@ struct SteppedProvider {
     provider: &'static str,
     steps: PathBuf,
     next: usize,
-    /// The child is a pane shell that leads its own process group, with the
-    /// provider and its commands in it.
-    shell: bool,
     /// The launch observation `tmt run` exports to every hook of a managed launch.
     launch: Option<String>,
 }
@@ -2275,7 +2272,6 @@ impl SteppedProvider {
             provider,
             steps,
             next: 0,
-            shell: true,
             launch: None,
         }
     }
@@ -2348,6 +2344,8 @@ impl SteppedProvider {
         ancestors: &[&'static str],
         words: &[&str],
     ) -> Self {
+        use std::os::unix::process::CommandExt;
+
         let stand_in = |name: &str| {
             if name == "sh" {
                 return PathBuf::from("/bin/sh");
@@ -2372,7 +2370,6 @@ impl SteppedProvider {
         let mut command = if let Some((outermost, inner)) = ancestors.split_first() {
             // Each ancestor waits for the next (`; :` keeps it from replacing
             // itself with it). The outermost leads a group the test owns.
-            use std::os::unix::process::CommandExt;
             let mut command = std::process::Command::new(stand_in(outermost));
             command.args(["-c", "\"$0\" \"$@\"; :"]);
             for ancestor in inner {
@@ -2380,7 +2377,7 @@ impl SteppedProvider {
                     .arg(stand_in(ancestor))
                     .args(["-c", "\"$0\" \"$@\"; :"]);
             }
-            command.arg(program).process_group(0);
+            command.arg(program);
             command
         } else {
             std::process::Command::new(program)
@@ -2410,6 +2407,7 @@ impl SteppedProvider {
             )
             .current_dir(&fixture.root)
             .stdin(Stdio::null())
+            .process_group(0)
             .spawn()
             .unwrap();
         Self {
@@ -2417,7 +2415,6 @@ impl SteppedProvider {
             provider,
             steps,
             next: 0,
-            shell: !ancestors.is_empty(),
             launch: None,
         }
     }
@@ -2540,11 +2537,10 @@ impl SteppedProvider {
 }
 
 impl SteppedProvider {
-    /// With a pane shell: asks the stand-in to stop, and gives the shell up
-    /// to 5 s to exit, without reaping it. Then the owned group is ended
-    /// while its leader is unreaped, so its id names no other group: a
-    /// stopped or stuck provider and its commands end with it.
-    fn stop_pane(&mut self) {
+    /// Let the provider finish its current polling step and consume the stop
+    /// file. Allow up to 5 s before ending the owned group with its leader
+    /// still unreaped, so its id cannot name another group.
+    fn stop(&mut self) {
         let _ = fs::write(self.steps.join("stop"), "");
         let pid = u64::from(self.child.id());
         let graceful = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -2556,27 +2552,23 @@ impl SteppedProvider {
         {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        stop_owned_group(&mut self.child, "the pane shell");
+        stop_owned_group(&mut self.child, "the stepped provider");
     }
 }
 
 impl Drop for SteppedProvider {
     fn drop(&mut self) {
-        if !self.shell {
-            let _ = fs::write(self.steps.join("stop"), "");
-            if !matches!(self.child.try_wait(), Ok(Some(_))) {
-                let _ = self.child.kill();
-            }
-            let _ = self.child.wait();
-        } else if std::thread::panicking() {
+        if std::thread::panicking() {
             // The same cleanup; a second panic while unwinding would abort,
             // so a failure is only reported.
-            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.stop_pane())).is_err()
-            {
-                eprintln!("the pane shell {} was not cleaned up", self.child.id());
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.stop())).is_err() {
+                eprintln!(
+                    "the stepped provider {} was not cleaned up",
+                    self.child.id()
+                );
             }
         } else {
-            self.stop_pane();
+            self.stop();
         }
     }
 }
@@ -2606,6 +2598,47 @@ fn stop_owned_group(child: &mut std::process::Child, what: &str) -> std::process
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     status
+}
+
+#[test]
+fn dropping_a_direct_stepped_provider_empties_its_polling_group() {
+    use nix::{errno::Errno, sys::signal::killpg, unistd::Pid};
+    use tmt_adapters::process::ps::query_ps;
+
+    let fixture = Fixture::new("stepped-poll-cleanup");
+    let provider = SteppedProvider::start(&fixture, "claude", "steps");
+    let provider_pid = provider.provider_pid();
+    let group = Pid::from_raw(i32::try_from(provider_pid).unwrap());
+    let mut sleeper_group = None;
+    wait_until("the stepped provider has started its polling sleep", || {
+        let output = query_ps(
+            &UnixCommandRunner,
+            &["-A".into(), "-o".into(), "ppid=,pgid=,comm=".into()],
+            deadline(),
+            1024 * 1024,
+        )
+        .unwrap();
+        sleeper_group = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .find_map(|line| {
+                let mut fields = line.split_whitespace();
+                let parent = fields.next()?.parse::<u64>().ok()?;
+                let group = fields.next()?.parse::<i32>().ok()?;
+                let command = std::path::Path::new(fields.next()?);
+                (parent == provider_pid && command.file_name()?.to_str()? == "sleep")
+                    .then_some(Pid::from_raw(group))
+            });
+        sleeper_group.is_some()
+    });
+
+    assert_eq!(
+        sleeper_group,
+        Some(group),
+        "the sleeper belongs to the fixture"
+    );
+    drop(provider);
+    assert_eq!(killpg(group, None), Err(Errno::ESRCH));
 }
 
 /// A Codex hook payload for `event` in session `s-1`; `turn` adds `turn_id`.
