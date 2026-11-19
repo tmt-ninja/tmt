@@ -78,12 +78,13 @@ describe('templates (#5077)', () => {
     ).toEqual(['weekly-review', 'design-proposal', 'board', 'report', 'starter']);
   });
 
-  it('gives the terminal command for the chosen template, with none for the default', () => {
+  it('gives the terminal command for the chosen card: a template is HTML, Blank page is blocks (#6707)', () => {
+    // The CLI's default page is a page of blocks, so a template, the default one too, is named.
     expect(createCommand('Week 43', entry('starter', { default: true }))).toBe(
-      'tmt colab page create --title "Week 43"',
+      'tmt colab page create --title "Week 43" --html --template starter',
     );
-    expect(createCommand('Say "hi" $x', space('weekly-review', 1))).toBe(
-      'tmt colab page create --title "Say \\"hi\\" \\$x" --template weekly-review',
+    expect(createCommand('Say "hi" $x', space('weekly-review', 1), 'Web Ops')).toBe(
+      'tmt colab page create --title "Say \\"hi\\" \\$x" --html --template weekly-review --project "Web Ops"',
     );
     expect(createCommand('  ', undefined)).toBe('tmt colab page create --title "Notes"');
   });

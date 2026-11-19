@@ -50,13 +50,19 @@ for (const width of [1440, 390]) {
       await confirm(
         'Set access expiry',
         'Set access expiry',
-        'Access expires after 30 days without a page update.',
+        'After 30 days without a page update, the shared copy expires and links and grants stop working.',
       );
-      await dialog.getByLabel('Keep on this computer until I delete it').check();
+      // Expiry says what it ends and what it never touches (#6707).
+      await expect(
+        dialog.getByText(
+          'Expiry ends access through links and grants. It never deletes your copy on this computer.',
+        ),
+      ).toBeVisible();
+      await dialog.getByLabel('No expiry: links and grants keep working').check();
       await confirm(
         'Set access expiry',
         'Set access expiry',
-        'Keep this page on this computer until you delete it.',
+        'Links and grants keep working with no expiry. Expiry never deletes your copy on this computer.',
       );
       await confirm(
         'Archive and stop edits…',

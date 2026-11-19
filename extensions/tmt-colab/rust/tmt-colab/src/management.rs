@@ -122,7 +122,12 @@ struct NewPage {
     page_id: String,
     title: String,
     /// A template selector: a compiled name, a user template's name, or a template page's ID.
-    template: String,
+    /// Absent, the page is a page of blocks, as `page create` makes by default (#6707).
+    #[serde(default)]
+    template: Option<String>,
+    /// The project the page starts in: the page list's view of one project (#6707).
+    #[serde(default)]
+    project: Option<String>,
     #[serde(default, deserialize_with = "creator_selection")]
     creator: Option<Value>,
 }
@@ -529,8 +534,14 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
                 .map_err(|_| tmt_colab_model::Invalid)?
                 .to_owned();
             if value.title.len() > crate::decoder::BASELINE_TITLE_BYTES
-                || value.template.is_empty()
-                || value.template.len() > TEMPLATE_SELECTOR_BYTES
+                || value
+                    .template
+                    .as_ref()
+                    .is_some_and(|t| t.is_empty() || t.len() > TEMPLATE_SELECTOR_BYTES)
+                || value
+                    .project
+                    .as_deref()
+                    .is_some_and(|name| !crate::projects::valid(name))
             {
                 return Err(tmt_colab_model::Invalid);
             }
@@ -866,6 +877,7 @@ fn apply(
                 (v.publisher_agent.as_deref(), v.creation_recipient.as_ref());
             if v.page_type.as_deref() == Some("blocks") {
                 OwnerAction::CreateBlocks {
+                    creator: None,
                     page,
                     title,
                     project: v.project.as_deref(),
@@ -1040,6 +1052,33 @@ fn new_page(
     if service.page_epoch(&new.page_id).is_some() {
         return reply(head()?);
     }
+    // No template: a page of blocks, as `page create` makes by default (#6707).
+    let Some(template_selector) = &new.template else {
+        let expected = head()?.revision;
+        let applied = service
+            .apply_owner(
+                OwnerRequest {
+                    operation_id: &crate::subpage_create::new_page_create_id(
+                        &space,
+                        &command.operation_id,
+                    ),
+                    expected_revision: expected,
+                    action: OwnerAction::CreateBlocks {
+                        creator: new.creator.as_ref(),
+                        page: &new.page_id,
+                        title: &new.title,
+                        project: new.project.as_deref(),
+                        publisher_agent: None,
+                        creation_recipient: None,
+                    },
+                    transport_digest: Some(command.transport_digest),
+                    scope: None,
+                },
+                now,
+            )
+            .map_err(|error| error.code)?;
+        return reply(applied.head);
+    };
     let creator = new
         .creator
         .as_ref()
@@ -1054,7 +1093,7 @@ fn new_page(
             &mut space.decoder,
         )
         .map_err(|_| Code::Unavailable)?;
-        let found = catalog.find(&new.template).map_err(find_refusal)?;
+        let found = catalog.find(template_selector).map_err(find_refusal)?;
         match found {
             Found::BuiltIn(template) => (
                 template.name.to_owned(),
@@ -1092,7 +1131,7 @@ fn new_page(
                 action: OwnerAction::Create {
                     page: &new.page_id,
                     title: &new.title,
-                    project: None,
+                    project: new.project.as_deref(),
                     source: &source,
                     publisher_agent: None,
                     creation_recipient: None,

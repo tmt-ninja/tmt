@@ -91,7 +91,14 @@ interface Props {
   onCreated?(pageId: string): void;
   /** Browse all templates: the Templates page. */
   onBrowse?(): void;
+  /** The project the page starts in: the list's view of one project (#6707). */
+  project?: string;
+  /** The owner's projects, to change or clear it. */
+  projects?: readonly string[];
 }
+/** The Blank page card: a page of blocks, no template (#6707). Not a template name's grammar. */
+const BLANK = 'blank:';
+const NO_PROJECT = '\u0000none';
 
 /**
  * New page (#5076, #5077): a title, a template from cards, and a creator. Create page makes the
@@ -109,6 +116,8 @@ function NewPage({
   initialTemplate,
   onCreated,
   onBrowse,
+  project: viewProject,
+  projects = [],
 }: Omit<Props, 'open'>) {
   const ids = useId();
   const titleRef = useRef<HTMLInputElement>(null);
@@ -121,6 +130,7 @@ function NewPage({
   const [source, setSource] = useState<Source>('all');
   const [agents, setAgents] = useState<Agents>({ state: 'loading' });
   const [creator, setCreator] = useState<string>(() => stored(CREATOR_KEY) ?? '');
+  const [project, setProject] = useState(viewProject);
   const theme = useSyncExternalStore(subscribeTheme, getTheme);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -175,11 +185,13 @@ function NewPage({
   );
   const filtering = ordered.length > FILTER_FROM;
   const counts = {
-    all: ordered.length,
-    builtIn: ordered.filter((tpl) => tpl.source === 'builtIn').length,
+    all: ordered.length + 1,
+    builtIn: ordered.filter((tpl) => tpl.source === 'builtIn').length + 1,
     space: ordered.filter((tpl) => tpl.source === 'space').length,
   };
   const needle = query.trim().toLowerCase();
+  // Blank page is TMT's own first card, as a template is.
+  const showBlank = source !== 'space' && (!needle || t.blankName.toLowerCase().includes(needle));
   const shown = ordered.filter(
     (tpl) =>
       (source === 'all' || tpl.source === source) &&
@@ -188,21 +200,31 @@ function NewPage({
         tpl.summary.toLowerCase().includes(needle) ||
         (tpl.author ?? '').toLowerCase().includes(needle)),
   );
-  const chosen: TemplateEntry | undefined =
-    ordered.find((tpl) => tpl.name === picked || tpl.id === picked) ??
-    ordered.find((tpl) => tpl.default);
+  const blank = picked === BLANK;
+  const chosen: TemplateEntry | undefined = blank
+    ? undefined
+    : (ordered.find((tpl) => tpl.name === picked || tpl.id === picked) ??
+      ordered.find((tpl) => tpl.default));
+  /** The cards in order, for the arrow keys: Blank page first. */
+  const keys = [...(showBlank ? [BLANK] : []), ...shown.map((tpl) => tpl.name)];
+  const chosenKey = blank ? BLANK : chosen?.name;
   const creatorAgent =
     agents.state === 'ready' ? agents.agents.find((agent) => agent.id === creator) : undefined;
 
   async function create() {
-    if (busy || !management || !chosen) return;
+    if (busy || !management || (!chosen && !blank)) return;
     const name = title.trim();
     if (!name) {
       setTitleError(true);
       titleRef.current?.focus();
       return;
     }
-    const key = JSON.stringify([name, chosen.name, creatorAgent?.id ?? '']);
+    const key = JSON.stringify([
+      name,
+      chosen?.name ?? BLANK,
+      project ?? '',
+      creatorAgent?.id ?? '',
+    ]);
     // The same request again (a retry) keeps its operation, so a page already made is found.
     if (operation.current?.key !== key) operation.current = { id: crypto.randomUUID(), key };
     setBusy(true);
@@ -211,10 +233,11 @@ function NewPage({
       const pageId = await management.newPage({
         operationId: operation.current.id,
         title: name,
-        template: chosen.id ?? chosen.name,
+        ...(chosen ? { template: chosen.id ?? chosen.name } : {}),
+        ...(project ? { project } : {}),
         ...(creatorAgent ? { creator: { agent: creatorAgent } } : {}),
       });
-      rememberTemplate(chosen.name);
+      if (chosen) rememberTemplate(chosen.name);
       store(CREATOR_KEY, creatorAgent?.id ?? '');
       if (!alive.current) return;
       onCreated?.(pageId);
@@ -236,7 +259,7 @@ function NewPage({
       void create();
       return;
     }
-    if (!shown.length) return;
+    if (!keys.length) return;
     const columns = listRef.current
       ? getComputedStyle(listRef.current).gridTemplateColumns.split(' ').length
       : 1;
@@ -246,25 +269,22 @@ function NewPage({
       ArrowDown: columns,
       ArrowUp: -columns,
     };
-    const index = Math.max(
-      0,
-      shown.findIndex((tpl) => tpl.name === chosen?.name),
-    );
+    const index = Math.max(0, keys.indexOf(chosenKey ?? ''));
     let next: number;
     if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = shown.length - 1;
+    else if (event.key === 'End') next = keys.length - 1;
     else if (event.key in steps)
-      next = Math.min(shown.length - 1, Math.max(0, index + steps[event.key]!));
+      next = Math.min(keys.length - 1, Math.max(0, index + steps[event.key]!));
     else return;
     event.preventDefault();
-    const target = shown[next]!;
-    setPicked(target.name);
+    const target = keys[next]!;
+    setPicked(target);
     listRef.current
-      ?.querySelector<HTMLElement>(`[data-template="${CSS.escape(target.name)}"]`)
+      ?.querySelector<HTMLElement>(`[data-template="${CSS.escape(target)}"]`)
       ?.scrollIntoView({ block: 'nearest' });
   }
 
-  const optionId = (name: string) => `${ids}-option-${name}`;
+  const optionId = (name: string) => `${ids}-option-${name === BLANK ? 'blank' : name}`;
   return (
     <BrowserDialog
       open
@@ -290,7 +310,7 @@ function NewPage({
               variant="primary"
               label={busy ? t.creating : t.create}
               busy={busy}
-              disabled={!chosen}
+              disabled={!chosen && !blank}
               leadingIcon={<Plus aria-hidden="true" />}
               onActivate={() => void create()}
             />
@@ -394,16 +414,34 @@ function NewPage({
                     tabIndex={0}
                     aria-labelledby={`${ids}-templates`}
                     aria-activedescendant={
-                      chosen && shown.includes(chosen) ? optionId(chosen.name) : undefined
+                      chosenKey && keys.includes(chosenKey) ? optionId(chosenKey) : undefined
                     }
                     onKeyDown={move}
                   >
+                    {showBlank && (
+                      <div
+                        id={optionId(BLANK)}
+                        role="option"
+                        aria-selected={blank}
+                        data-template={BLANK}
+                        className="new-page-card"
+                        onClick={() => {
+                          setPicked(BLANK);
+                          listRef.current?.focus();
+                        }}
+                      >
+                        <span className="new-page-card-name">
+                          <span>{t.blankName}</span>
+                        </span>
+                        <span className="new-page-card-meta">{t.blankMeta}</span>
+                      </div>
+                    )}
                     {shown.map((tpl) => (
                       <div
                         key={tpl.name}
                         id={optionId(tpl.name)}
                         role="option"
-                        aria-selected={tpl.name === chosen?.name}
+                        aria-selected={!blank && tpl.name === chosen?.name}
                         data-template={tpl.name}
                         className="new-page-card"
                         onClick={() => {
@@ -422,11 +460,37 @@ function NewPage({
                       </div>
                     ))}
                   </div>
-                  {!shown.length && <p className="new-page-note">{t.none}</p>}
+                  {!keys.length && <p className="new-page-note">{t.none}</p>}
                 </div>
               </>
             )}
           </div>
+        )}
+        {management && (projects.length > 0 || project) && (
+          <BrowserField
+            controlId={`${ids}-project`}
+            label={t.projectLabel}
+            renderControl={(props) => (
+              <UiTheme theme={theme}>
+                <Select
+                  value={project ?? NO_PROJECT}
+                  onValueChange={(value) => setProject(value === NO_PROJECT ? undefined : value)}
+                >
+                  <SelectTrigger {...props} className="tmt:w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_PROJECT}>{t.noProject}</SelectItem>
+                    {[...new Set([...(project ? [project] : []), ...projects])].map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </UiTheme>
+            )}
+          />
         )}
         {management && (
           <BrowserField
@@ -466,7 +530,7 @@ function NewPage({
           </p>
         )}
         <BrowserDisclosure summary={t.terminal} divided open={management ? undefined : true}>
-          <CopyCommand command={createCommand(title, chosen)} enabled />
+          <CopyCommand command={createCommand(title, chosen, project)} enabled />
         </BrowserDisclosure>
       </form>
     </BrowserDialog>

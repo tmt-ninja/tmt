@@ -904,6 +904,8 @@ test('bulk archive confirms with the count and titles, then sends one statement 
   page,
 }) => {
   await mount(page);
+  // The list read after the change is taken before the owner folded it (#6707).
+  await page.evaluate(() => (window.__listLags = true));
   await selectRow(page, 'Beta review').check();
   await selectRow(page, 'Gamma notes').check();
   await bulkBar(page).getByRole('button', { name: 'Archive', exact: true }).click();
@@ -918,6 +920,23 @@ test('bulk archive confirms with the count and titles, then sends one statement 
   ]);
   await expect(bulkBar(page)).toHaveCount(0);
   await expect(titles(page)).toHaveText(['Alpha plan', 'Delta ops']);
+  // The tab and the Archived list follow at once, without a reload, and Restore does the same.
+  const archivedTab = app(page).getByRole('tab', { name: /^Archived, / });
+  await expect(archivedTab).toHaveAccessibleName('Archived, 3');
+  await archivedTab.click();
+  await expect(titles(page)).toHaveText(['Beta review', 'Gamma notes', 'Archived spec']);
+  await page.evaluate(() => (window.__listLags = true));
+  await rows(page)
+    .filter({ hasText: 'Gamma notes' })
+    .getByRole('button', { name: 'More for Gamma notes' })
+    .click();
+  await page.getByRole('menuitem', { name: 'Restore' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^Restore/ })
+    .click();
+  await expect(titles(page)).toHaveText(['Beta review', 'Archived spec']);
+  await expect(archivedTab).toHaveAccessibleName('Archived, 2');
 });
 
 test('bulk delete in the Archived tab offers no archive and confirms the count', async ({

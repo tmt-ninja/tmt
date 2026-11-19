@@ -279,6 +279,7 @@ impl Running {
                         operation_id: "40000000-0000-4000-8000-0000000000b1",
                         expected_revision: 0,
                         action: tmt_colab::transitions::OwnerAction::CreateBlocks {
+                            creator: None,
                             project: None,
                             page: PAGE,
                             title: "Pictures",
@@ -8234,7 +8235,7 @@ fn a_browser_new_page_starts_from_a_compiled_template_once_per_operation() {
         &new_page_body(
             &server,
             NEXT_OP,
-            json!({"pageId":next,"title":"Report","template":"report"}),
+            json!({"pageId":next,"title":"Report","template":"report","project":"Ops"}),
             DEVICE,
             now(),
         ),
@@ -8245,6 +8246,63 @@ fn a_browser_new_page_starts_from_a_compiled_template_once_per_operation() {
         read_page(&server, &next).from_template,
         Some(json!({"name":"report"}))
     );
+    // The page starts in the project the request names (#6707), and no template makes a page of
+    // blocks in it, as `page create` does by default; a bad project name writes nothing.
+    let projects_of = |page: &str| -> Vec<String> {
+        let db = server.oracle();
+        let mut query = db
+            .prepare("SELECT project FROM page_projects WHERE page=? ORDER BY project")
+            .unwrap();
+        query
+            .query_map([page], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert_eq!(projects_of(&next), ["Ops"]);
+    const BLANK_OP: &str = "40000000-0000-4000-8000-0000000000a4";
+    let blank = tmt_colab::subpage_create::new_page_id(&server.space, BLANK_OP);
+    let made = server.event(
+        path,
+        &header,
+        &new_page_body(
+            &server,
+            BLANK_OP,
+            json!({"pageId":blank,"title":"Notes","project":"Ops"}),
+            DEVICE,
+            now(),
+        ),
+    );
+    assert!(made.starts_with("HTTP/1.1 200"), "{made}");
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let blocks = tmt_colab::page::read_blocks(
+        &Store::read(&layout).unwrap(),
+        &Keyring::read(&layout).unwrap(),
+        &blank,
+        &mut tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+            env!("CARGO_BIN_EXE_tmt-colab").into(),
+        ))
+        .unwrap(),
+    );
+    assert!(blocks.is_ok(), "a blank page is a page of blocks");
+    assert_eq!(projects_of(&blank), ["Ops"]);
+    const BAD_OP: &str = "40000000-0000-4000-8000-0000000000a5";
+    let bad = tmt_colab::subpage_create::new_page_id(&server.space, BAD_OP);
+    let operations = owner_operations(&server);
+    let refused = server.event(
+        path,
+        &header,
+        &new_page_body(
+            &server,
+            BAD_OP,
+            json!({"pageId":bad,"title":"Bad","project":" spaced "}),
+            DEVICE,
+            now(),
+        ),
+    );
+    assert!(refused.ends_with("INVALID"), "{refused}");
+    assert!(!page_exists(&server, &bad));
+    assert_eq!(owner_operations(&server), operations);
 
     // A revoked owner device is refused even with a valid signature, and nothing is made.
     server

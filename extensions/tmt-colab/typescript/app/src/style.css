@@ -199,6 +199,11 @@ footer {
   margin: 0;
   color: var(--c-muted);
 }
+/* What expiry ends and what it never touches (#6707). */
+.retention-scope {
+  margin: 4px 0 0;
+  color: var(--c-muted);
+}
 .retention-warning {
   color: var(--c-text);
 }

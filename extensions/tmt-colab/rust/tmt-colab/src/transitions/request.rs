@@ -50,6 +50,8 @@ pub enum OwnerAction<'a> {
     },
     /// A structured page: no source, no blocks yet (`meta.pageType` is `blocks`).
     CreateBlocks {
+        /// The creator selection the owner browser's `page.new` names (#6707); none elsewhere.
+        creator: Option<&'a serde_json::Value>,
         page: &'a str,
         title: &'a str,
         project: Option<&'a str>,
@@ -260,6 +262,7 @@ impl Engine {
                 now,
             )?,
             OwnerAction::CreateBlocks {
+                creator,
                 page,
                 title,
                 project,
@@ -274,7 +277,7 @@ impl Engine {
                     title,
                     project,
                     source: "",
-                    creator: None,
+                    creator,
                     template: None,
                     template_page: None,
                     publisher_agent,

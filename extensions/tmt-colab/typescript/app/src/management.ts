@@ -139,7 +139,10 @@ export interface ManagementPort {
 export interface NewPageRequest {
   operationId: string;
   title: string;
-  template: string;
+  /** Absent: a page of blocks (#6707). */
+  template?: string;
+  /** The project the page starts in (#6707). */
+  project?: string;
   creator?: { agent: { id: string; name: string } };
 }
 /** The page a `page.new` operation names (contract: `page.new`): SHA-256 over the domain, the space
@@ -664,8 +667,8 @@ export class ManagementClient implements ManagementPort {
     requireValue(
       title.length > 0 &&
         ![...title].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) &&
-        request.template.length > 0 &&
-        request.template.length <= 64,
+        (request.template === undefined ||
+          (request.template.length > 0 && request.template.length <= 64)),
     );
     const cert = this.registration.chain.certificate();
     const pageId = await newPageId(cert.space, request.operationId);
@@ -675,7 +678,8 @@ export class ManagementClient implements ManagementPort {
       {
         pageId,
         title,
-        template: request.template,
+        ...(request.template === undefined ? {} : { template: request.template }),
+        ...(request.project === undefined ? {} : { project: request.project }),
         ...(request.creator ? { creator: request.creator } : {}),
       },
       request.operationId,

@@ -171,7 +171,33 @@ export function Home() {
   const search = { ...routeSearch, project: projects?.length ? projects : undefined };
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
-  const { pages: homePages, hints: titleHints } = useHomeSpace(space);
+  const { pages: listedPages, hints: titleHints } = useHomeSpace(space);
+  // What this list's own archive, restore or delete finished (#6707): shown at once, until a list
+  // read agrees. A read taken before the owner folded the change would otherwise put it back.
+  const [finishedOps, setFinishedOps] = useState<ReadonlyMap<string, PageOperation>>(new Map());
+  const homePages = useMemo(
+    () =>
+      finishedOps.size
+        ? listedPages.flatMap((page) => {
+            const done = finishedOps.get(page.id);
+            if (done === 'page.delete') return [];
+            return done ? [{ ...page, archived: done === 'page.archive' }] : [page];
+          })
+        : listedPages,
+    [listedPages, finishedOps],
+  );
+  useEffect(() => {
+    setFinishedOps((now) => {
+      if (!now.size) return now;
+      const listed = new Map(space.pages.map((page) => [page.id, page]));
+      const waiting = [...now].filter(([id, done]) => {
+        const page = listed.get(id);
+        if (done === 'page.delete') return page !== undefined;
+        return page !== undefined && !!page.archived !== (done === 'page.archive');
+      });
+      return waiting.length === now.size ? now : new Map(waiting);
+    });
+  }, [space.pages]);
   const refreshActivity = useCallback(
     () => void rereadInPlace(() => router.invalidate()),
     [router],
@@ -583,6 +609,8 @@ export function Home() {
     setOperation(undefined);
     setStatus(operationStatus(batch, kind, targets.length));
     const finished = new Set(batch.done.map((page) => page.id));
+    if (finished.size)
+      setFinishedOps((now) => new Map([...now, ...[...finished].map((id) => [id, kind] as const)]));
     if (finished.size)
       setSelectedIds((previous) => new Set([...previous].filter((id) => !finished.has(id))));
     // A lost acknowledgment may have changed the page: show what the owner has.
@@ -1246,6 +1274,9 @@ export function Home() {
         open={newPage}
         onClose={() => setNewPage(false)}
         management={port}
+        // A view of one project makes the page in it (#6707); the dialog can change or clear it.
+        project={scope}
+        projects={projectNames}
         onCreated={(pageId) => void router.navigate({ to: '/pages/$pageId', params: { pageId } })}
         onBrowse={() => {
           setNewPage(false);

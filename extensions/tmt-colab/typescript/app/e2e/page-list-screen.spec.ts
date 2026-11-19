@@ -119,12 +119,16 @@ test('New page creates a page from the chosen template and opens it (#5076)', as
   const title = dialog.getByRole('textbox', { name: 'Title' });
   await expect(title).toBeFocused();
   const cards = dialog.getByRole('listbox', { name: 'Template' });
-  // The default first, TMT's next, then this space's; the default is chosen until another is.
-  await expect(cards.getByRole('option').first()).toContainText('starter');
+  // Blank page first (#6707), then the default, TMT's next, then this space's; the default is
+  // chosen until another is.
+  await expect(cards.getByRole('option').first()).toContainText('Blank page');
+  await expect(cards.getByRole('option').nth(1)).toContainText('starter');
   await expect(cards.getByRole('option', { selected: true })).toContainText('starter');
-  // The terminal command follows the choice and names no template for the default.
+  // The terminal command follows the choice: a template is an HTML page, the CLI's default is not.
   await dialog.getByText('Or create from a terminal').click();
-  await expect(dialog).toContainText('tmt colab page create --title "Notes"');
+  await expect(dialog).toContainText(
+    'tmt colab page create --title "Notes" --html --template starter',
+  );
   // Without a title nothing is sent, and the title says why.
   await dialog.getByRole('button', { name: 'Create page' }).click();
   await expect(title).toBeFocused();
@@ -134,7 +138,7 @@ test('New page creates a page from the chosen template and opens it (#5076)', as
   await cards.getByRole('option', { name: /weekly-review/ }).click();
   await expect(cards).toBeFocused();
   await expect(dialog).toContainText(
-    'tmt colab page create --title "Week 43" --template weekly-review',
+    'tmt colab page create --title "Week 43" --html --template weekly-review',
   );
   // A refusal stays in the dialog with its reason; the dialog is not closed.
   await page.evaluate(() => (window.__newPageRefusal = 'TEMPLATE_CHANGED'));
@@ -175,7 +179,7 @@ test('the template cards move with the arrow keys and Enter creates (#5077)', as
   await page.keyboard.press('End');
   await expect(selected()).toContainText('weekly-review');
   await page.keyboard.press('Home');
-  await expect(selected()).toContainText('starter');
+  await expect(selected()).toContainText('Blank page');
   await expect(cards).toHaveAttribute(
     'aria-activedescendant',
     (await selected().getAttribute('id'))!,
@@ -196,7 +200,7 @@ test('the template cards move with the arrow keys and Enter creates (#5077)', as
   await expect.poll(() => new URL(page.url()).hash).toContain('/pages/');
   await page.goBack();
   await app(page).getByRole('button', { name: 'New page', exact: true }).click();
-  await expect(dialog.getByRole('option').nth(1)).toContainText('weekly-review');
+  await expect(dialog.getByRole('option').nth(2)).toContainText('weekly-review');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(app(page).getByRole('button', { name: 'New page', exact: true })).toBeFocused();
@@ -252,7 +256,39 @@ test('New page names the chosen agent as creator and offers it next time (#5076)
   await dialog.getByRole('textbox', { name: 'Title' }).fill('Week 44');
   await dialog.getByRole('button', { name: 'Create page' }).click();
   await expect(dialog).toHaveCount(0);
-  expect((await page.evaluate(() => window.__newPages))[1]!.creator).toBeUndefined();
+  expect((await page.evaluate(() => window.__newPages))[1]!.creator).toBeUndefined(); // From a view of one project the page starts in it, and Blank page, the first card, makes a page
+  // of blocks: no template (#6707).
+  await page.evaluate(() => (location.hash = `/?project=${encodeURIComponent('["blog"]')}`));
+  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
+  await opener.click();
+  const projectField = dialog.getByRole('combobox', { name: 'Project' });
+  await expect(projectField).toHaveText('blog');
+  const cards = dialog.getByRole('listbox', { name: 'Template' }).getByRole('option');
+  await expect(cards.first()).toContainText('Blank page');
+  await cards.first().click();
+  await expect(cards.first()).toHaveAttribute('aria-selected', 'true');
+  await expect(dialog.locator('code, .copy-command').first()).toContainText(
+    'tmt colab page create --title "Notes" --project "blog"',
+  );
+  await dialog.getByRole('textbox', { name: 'Title' }).fill('Blog notes');
+  await dialog.getByRole('button', { name: 'Create page' }).click();
+  await expect(dialog).toHaveCount(0);
+  const blank = (await page.evaluate(() => window.__newPages))[2]!;
+  expect(blank).toMatchObject({ title: 'Blog notes', project: 'blog' });
+  expect(blank.template).toBeUndefined();
+  // The project can be cleared; a template card names its template.
+  await page.goBack();
+  await opener.click();
+  await projectField.click();
+  await page.getByRole('option', { name: 'No project' }).click();
+  await expect(projectField).toHaveText('No project');
+  await cards.filter({ hasText: 'report' }).click();
+  await dialog.getByRole('textbox', { name: 'Title' }).fill('Plain report');
+  await dialog.getByRole('button', { name: 'Create page' }).click();
+  await expect(dialog).toHaveCount(0);
+  const plain = (await page.evaluate(() => window.__newPages))[3]!;
+  expect(plain.project).toBeUndefined();
+  expect(plain.template).toBe('report');
 });
 
 for (const width of [1586, 390])

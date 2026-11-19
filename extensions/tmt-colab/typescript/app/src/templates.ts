@@ -116,9 +116,15 @@ export function pickerOrder(
 }
 
 /** The terminal command that makes the same page; the default needs no `--template`. */
-export function createCommand(title: string, template: TemplateEntry | undefined): string {
-  const quoted = `"${(title.trim() || 'Notes').replace(/(["\\$`])/g, '\\$1')}"`;
-  return `tmt colab page create --title ${quoted}${
-    template && !template.default ? ` --template ${template.name}` : ''
-  }`;
+export function createCommand(
+  title: string,
+  template: TemplateEntry | undefined,
+  project?: string,
+): string {
+  const quote = (value: string) => `"${value.replace(/(["\\$`])/g, '\\$1')}"`;
+  // No template is a page of blocks, the CLI's default (#6707); a template names itself, since
+  // the CLI's default page is blocks, not the default template.
+  return `tmt colab page create --title ${quote(title.trim() || 'Notes')}${
+    template ? ` --html --template ${template.name}` : ''
+  }${project ? ` --project ${quote(project)}` : ''}`;
 }

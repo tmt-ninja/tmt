@@ -18,6 +18,7 @@ impl Flow {
     fn with_pictures() -> Self {
         let mut flow = Flow::new();
         flow.world.state.apply(OwnerAction::CreateBlocks {
+            creator: None,
             project: None,
             page: PICTURES,
             title: "Pictures",
