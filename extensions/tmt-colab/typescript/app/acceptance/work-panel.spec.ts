@@ -22,6 +22,21 @@ async function panelTheme(page: Page, chip: Locator, theme: string) {
   await expect(chip).toHaveCSS('background-color', background);
 }
 
+/** The page's details open from the bar's status chip (#6652): a popover, or a sheet on a phone. */
+async function openDetails(page: Page) {
+  await page.locator('.tmt-ui-topbar:visible .page-bar-status').click();
+  const details = page.locator('.page-status-details:visible');
+  await expect(details).toBeVisible();
+  return details;
+}
+const field = (details: Locator, name: string) =>
+  details
+    .locator('.page-status-fields dt')
+    .filter({ hasText: new RegExp(`^${name}$`) })
+    .locator('xpath=following-sibling::dd[1]');
+/** The work band (parent and sub-pages) inside the opened details. */
+const bandIn = (details: Locator) => details.getByRole('region', { name: 'Work on this page' });
+
 test.afterEach(disposeActiveWorlds);
 
 test('an open linked PR supplies the owner page status', async () => {
@@ -109,16 +124,17 @@ esac
     await expect(page.locator('.work-pull-details').filter({ hasText: 'PR #42' })).toContainText(
       'Ignored',
     );
-    const prChip = page.getByRole('link', { name: /PR #42/ });
+    // The bar's chip follows at once, with the details still open (#6652).
     await expect(
       page.getByRole('button', { name: 'Discussing, show status details' }),
     ).toContainText('Discussing');
-    await expect(prChip).toHaveCount(0);
     await page.getByRole('button', { name: 'Restore', exact: true }).click();
     await expect(
       page.getByRole('button', { name: 'Waiting for CI, show status details' }),
     ).toContainText('Waiting for CI');
-    await expect(prChip.first()).toContainText('PR #42');
+    await expect(page.locator('.work-pull-details').filter({ hasText: 'PR #42' })).toContainText(
+      'Matched by title: ATLAS-1',
+    );
     await expect(page.getByRole('button', { name: 'Ignore', exact: true })).toBeVisible();
   });
 });
@@ -157,7 +173,7 @@ esac
     const browser = await pairBrowser(world, 'released-html-owner');
     const page = await openPage(door, browser, created);
     await expect(page.getByRole('button', { name: 'Done, show status details' })).toBeVisible();
-    await expect(page.getByText(/^Last activity /)).toBeVisible();
+    await expect(field(await openDetails(page), 'Last activity')).toBeVisible();
     const shown = JSON.parse(run(world, world.binaries.colab, ['show', created.pageId, '--json']));
     expect(shown.page.computedStatus.state).toBe('done');
   });
@@ -183,8 +199,9 @@ test('new empty parent and sub-page show discussing with page activity', async (
     await expect(
       page.getByRole('button', { name: 'Discussing, show status details' }),
     ).toBeVisible();
-    await expect(page.getByText(/^Last activity /)).toBeVisible();
-    await page.getByRole('button', { name: '1 sub-page' }).click();
+    const details = await openDetails(page);
+    await expect(field(details, 'Last activity')).toBeVisible();
+    await details.getByRole('button', { name: '1 sub-page' }).click();
     await page.getByRole('link', { name: 'Empty child' }).click();
     await expect(page.getByRole('heading', { name: /Empty child/ })).toBeVisible();
     await expect(
@@ -234,15 +251,17 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
     await expect(page.getByRole('banner').locator('.colab-work-number:visible')).toHaveText(
       'COLAB-1',
     );
-    await expect(page.getByLabel('Priority high', { exact: true })).toBeVisible();
-    await expect(page.locator('.work-owner-chip')).toBeVisible();
-    await expect(page.locator('.work-owner-chip')).toHaveAttribute(
-      'aria-label',
-      'release-coordination-agent',
-    );
-    await expect(page.getByRole('button', { name: /Projects for .*: Colab/ })).toBeVisible();
-    await expect(page.getByText('Next · Review the result', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: '3 sub-pages' })).toBeVisible();
+    // The fields are read in the bar's status details (#6652); the projects are the bar's labels.
+    await expect(
+      page.getByRole('button', { name: 'Projects: Colab. Edit projects' }),
+    ).toBeVisible();
+    const fields = await openDetails(page);
+    await expect(field(fields, 'Priority')).toHaveText('↑ High');
+    await expect(field(fields, 'Owner')).toHaveText(/release-coordination-agent$/);
+    await expect(field(fields, 'Next')).toHaveText('Review the result');
+    await expect(fields.getByRole('button', { name: '3 sub-pages' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(fields).toHaveCount(0);
     await expect(page.getByText('COLAB-2', { exact: true })).toBeVisible();
     await expect(page.locator('[data-block-id]').filter({ hasText: 'Ship the fix' })).toBeVisible();
     const prior = new Set<string>(
@@ -314,7 +333,9 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
           await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
           if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
           await expect(
-            page.getByRole('button', { name: 'Parent · Release coordination' }),
+            (await openDetails(page)).getByRole('button', {
+              name: 'Parent · Release coordination',
+            }),
           ).toBeVisible();
           await page.evaluate((value) => {
             document.documentElement.dataset.theme = value;
@@ -326,8 +347,11 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
         }
     }
     colab(['page', 'set', created.pageId, '--clear-owner', '--priority', 'low']);
-    await expect(page.getByLabel('Priority low', { exact: true })).toBeVisible();
-    await expect(page.locator('.work-owner-chip')).toHaveCount(0);
+    await page.reload();
+    const cleared = await openDetails(page);
+    await expect(field(cleared, 'Priority')).toHaveText('Low');
+    await expect(field(cleared, 'Owner')).toHaveCount(0);
+    await page.keyboard.press('Escape');
     if (captures) {
       for (const width of [1440, 1100, 800, 390])
         for (const theme of ['light', 'dark']) {
@@ -337,7 +361,9 @@ test('CLI work fields and to-do numbers appear on the owner page', async () => {
           await expect(page.getByRole('checkbox', { name: 'Review the change' })).toBeChecked();
           if (width <= 900) await expect(page.locator('.page-mobile-title')).toBeVisible();
           await expect(
-            page.getByRole('button', { name: 'Parent · Release coordination' }),
+            (await openDetails(page)).getByRole('button', {
+              name: 'Parent · Release coordination',
+            }),
           ).toBeVisible();
           await page.evaluate((value) => {
             document.documentElement.dataset.theme = value;
@@ -377,16 +403,13 @@ test('manual state persists, an empty page offers Add to the owner only, and sha
     const door = await startDoor(world);
     const browser = await pairBrowser(world, 'status-owner');
     const page = await openPage(door, browser, created);
-    const band = page.getByRole('region', { name: 'Work on this page' });
-    // An empty page keeps its state in the title and offers Add in the page menu.
-    await expect(band.locator('.work-toggle')).toHaveCount(0);
-    const status = band
-      .locator('.work-head-chip')
-      .getByRole('button', { name: /show status details/ });
+    // An empty page keeps its state in the bar and offers Add in the page menu (#6652).
+    const status = page.locator('.tmt-ui-topbar:visible .page-bar-status');
     await expect(status).toBeVisible();
-    await status.click();
-    await expect(page.locator('.work-status-details')).toBeVisible();
+    const details = await openDetails(page);
+    await expect(details.locator('.work-toggle')).toHaveCount(0);
     await page.keyboard.press('Escape');
+    await expect(details).toHaveCount(0);
     await expect(status).toBeFocused();
     await page.getByRole('button', { name: 'More', exact: true }).click();
     await expect(page.getByRole('menuitem', { name: 'Add a sub-page' })).toBeVisible();
@@ -400,21 +423,16 @@ test('manual state persists, an empty page offers Add to the owner only, and sha
     expect(after.page.state).toBe('done');
     expect(after.page.progress).toEqual(before.page.progress);
     await page.reload();
-    await expect(
-      band.locator('.work-head-chip').getByRole('button', { name: /show status details/ }),
-    ).toBeVisible();
-    await expect(band.locator('.work-toggle')).toHaveCount(0);
+    await expect(status).toBeVisible();
+    await expect((await openDetails(page)).locator('.work-toggle')).toHaveCount(0);
+    await page.keyboard.press('Escape');
     const captures = process.env.COLAB_STATUS_CAPTURE_DIR;
     if (captures) {
       mkdirSync(captures, { recursive: true });
       for (const width of [390, 1440])
         for (const theme of ['light', 'dark']) {
           await page.setViewportSize({ width, height: 900 });
-          await panelTheme(
-            page,
-            band.locator('.work-head-chip').getByRole('button', { name: /show status details/ }),
-            theme,
-          );
+          await panelTheme(page, status, theme);
           await page.screenshot({
             path: `${captures}/status-owner-empty-${width}-${theme}.png`,
           });
@@ -459,7 +477,7 @@ test('opening a page with sub-pages reads details once and lists the child', asy
         reads++;
     });
     const page = await openPage(door, browser, parent);
-    const band = page.getByRole('region', { name: 'Work on this page' });
+    const band = bandIn(await openDetails(page));
     await expect(band.locator('.work-toggle')).toHaveAccessibleName('1 sub-page');
     await band.locator('.work-toggle').click();
     await expect(band.getByRole('link', { name: 'Status child', exact: true })).toBeVisible();
@@ -479,7 +497,6 @@ test('sub-pages attach, get created and detach at any depth through the owner ad
     const browser = await pairBrowser(world, 'attach-owner');
     // The middle page already has a parent and still takes a child of its own (#5820).
     const page = await openPage(door, browser, middle);
-    const band = page.getByRole('region', { name: 'Work on this page' });
     await page.getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Add a sub-page' }).click();
     const dialog = page.getByRole('dialog', { name: 'Add a sub-page to “Attach middle”' });
@@ -491,6 +508,7 @@ test('sub-pages attach, get created and detach at any depth through the owner ad
     await expect(dialog).toHaveCount(0);
     const listed = () => colab(['subpage', 'ls', middle.pageId]).children as string[];
     expect(listed()).toEqual([grand.pageId]);
+    let band = bandIn(await openDetails(page));
     await band.locator('.work-toggle').click();
     await expect(band.getByRole('link', { name: 'Grand page', exact: true })).toBeVisible();
     // Create makes the page with the typed name and attaches it.
@@ -501,6 +519,9 @@ test('sub-pages attach, get created and detach at any depth through the owner ad
     const [, made] = listed();
     expect(made).toBeDefined();
     expect(colab(['show', made]).page.title).toBe('Made here');
+    // Add replaced the details; open them again for the list.
+    band = bandIn(await openDetails(page));
+    await band.locator('.work-toggle').click();
     // Detach removes the link only: the page stays.
     await band.getByRole('link', { name: 'Grand page', exact: true }).hover();
     await band.getByRole('button', { name: 'More for Grand page' }).click();

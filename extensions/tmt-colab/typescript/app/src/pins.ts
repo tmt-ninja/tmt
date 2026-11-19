@@ -15,14 +15,13 @@ export interface PagePinRequest {
   action: 'toggle' | 'dismiss';
 }
 
-/** Phones expose the hidden header pin in More; the menu supplies no write authority. */
+/** The page menu holds Pin at every width (#6652); the menu supplies no write authority. */
 export function pinMenuItem(
   state: PagePinState | undefined,
-  compact: boolean,
   canWrite: boolean,
   readOnly: boolean,
 ): { key: 'pin'; label: string; disabled: boolean } | undefined {
-  if (!compact || !canWrite || readOnly || !state) return;
+  if (!canWrite || readOnly || !state) return;
   return {
     key: 'pin' as const,
     label: state.pinned ? t.unpinItem : t.pinItem,

@@ -123,6 +123,9 @@ export function mountWorkPage(
   scenario: 'tree' | 'empty' | 'many' | 'filled' | 'work-fields' = 'tree',
   tall = false,
   activityState?: 'working' | 'possibly-stalled' | 'unknown',
+  /** The bar's status details filled (#6652): a long blocked reason, three PRs and eight projects;
+   * or minimal, with no owner, fields or PR. */
+  fill?: 'long' | 'minimal',
 ) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
@@ -210,23 +213,36 @@ export function mountWorkPage(
     state: manualState,
     pageState: manualState,
     workFacts: {
-      state: activityState ?? (scenario === 'work-fields' ? 'blocked' : 'working'),
+      state:
+        activityState ??
+        (fill === 'minimal' ? 'discussing' : scenario === 'work-fields' ? 'blocked' : 'working'),
       known: true,
       pulls:
-        scenario === 'work-fields' && !activityState
-          ? [
-              {
-                url: 'https://github.com/example/project/pull/42',
-                fact: {
-                  state: 'merged',
-                  checks: 'SUCCESS',
-                  released: true,
-                  tag: 'v1.2.3',
-                  observedAtMs: 1000000,
-                },
+        fill === 'long'
+          ? [41, 42, 43].map((number, index) => ({
+              url: `https://github.com/example/project/pull/${number}`,
+              fact: {
+                state: (['open', 'merged', 'merged'] as const)[index]!,
+                checks: (['PENDING', 'SUCCESS', 'SUCCESS'] as const)[index]!,
+                released: index === 2,
+                tag: index === 2 ? 'v1.2.3' : null,
+                observedAtMs: 1000000,
               },
-            ]
-          : [],
+            }))
+          : fill !== 'minimal' && scenario === 'work-fields' && !activityState
+            ? [
+                {
+                  url: 'https://github.com/example/project/pull/42',
+                  fact: {
+                    state: 'merged',
+                    checks: 'SUCCESS',
+                    released: true,
+                    tag: 'v1.2.3',
+                    observedAtMs: 1000000,
+                  },
+                },
+              ]
+            : [],
       activity: {
         state: 'working',
         lastActivityMs: activityState === 'possibly-stalled' ? 1000000 : 9880000,
@@ -258,12 +274,19 @@ export function mountWorkPage(
         : {}),
       asOfMs: 10000000,
     },
-    ...(scenario === 'work-fields'
+    ...(scenario === 'work-fields' && fill !== 'minimal'
       ? {
           priority: 'high' as const,
           owner: { id: id(88), name: 'gui-3' },
           next: 'Review the mockup',
-          ...(activityState ? {} : { blocked: 'Waiting for Core' }),
+          ...(activityState
+            ? {}
+            : {
+                blocked:
+                  fill === 'long'
+                    ? 'Waiting for Core to decide whether the reader keeps its own session, and for Remote to publish the paired door that carries it'
+                    : 'Waiting for Core',
+              }),
         }
       : {}),
     ...(current ? { work: current } : {}),
@@ -304,7 +327,14 @@ export function mountWorkPage(
       title: pageTitle,
       state: manualState,
       sharing: 'private',
-      ...(scenario === 'work-fields' ? { projects: ['Colab'] } : {}),
+      ...(scenario === 'work-fields'
+        ? {
+            projects:
+              fill === 'long'
+                ? ['Colab', 'Core', 'Web Ops', 'Remote', 'Design', 'Release', 'Docs', 'Pairing']
+                : ['Colab'],
+          }
+        : {}),
       summary: {
         comments: 0,
         waiting: false,

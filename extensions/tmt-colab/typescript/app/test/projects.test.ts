@@ -316,26 +316,25 @@ describe('project requests', () => {
   });
 });
 
-describe('the phone page-header pin item', () => {
+describe('the page menu pin item', () => {
   const state = { pinned: false, busy: false };
   it('follows the admitted pin state and disables a pending write', () => {
-    expect(pinMenuItem(state, true, true, false)).toEqual({
+    expect(pinMenuItem(state, true, false)).toEqual({
       key: 'pin',
       label: 'Pin to top',
       disabled: false,
     });
-    expect(pinMenuItem({ pinned: true, busy: false }, true, true, false)).toEqual({
+    expect(pinMenuItem({ pinned: true, busy: false }, true, false)).toEqual({
       key: 'pin',
       label: 'Unpin',
       disabled: false,
     });
-    expect(pinMenuItem({ ...state, busy: true }, true, true, false)?.disabled).toBe(true);
+    expect(pinMenuItem({ ...state, busy: true }, true, false)?.disabled).toBe(true);
   });
-  it('offers nothing at desktop width, before the owner list, archived, or without write access', () => {
-    expect(pinMenuItem(state, false, true, false)).toBeUndefined();
-    expect(pinMenuItem(undefined, true, true, false)).toBeUndefined();
-    expect(pinMenuItem(state, true, false, false)).toBeUndefined();
-    expect(pinMenuItem(state, true, true, true)).toBeUndefined();
+  it('offers nothing before the owner list, archived, or without write access', () => {
+    expect(pinMenuItem(undefined, true, false)).toBeUndefined();
+    expect(pinMenuItem(state, false, false)).toBeUndefined();
+    expect(pinMenuItem(state, true, true)).toBeUndefined();
   });
 });
 

@@ -2,7 +2,7 @@ import { projectTone } from './projects.js';
 import { BrowserIconAction, BrowserMenu, useShellBar } from '@tmt/browser-ui/react';
 import { Alert, AlertDescription, UiTheme } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
-import { Pin, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -28,8 +28,6 @@ import './page-projects.css';
 const t = text.pageList;
 /** A page is in at most this many projects (the list row and the page header share the picker). */
 export const PAGE_LIMIT = 8;
-/** The chips beside the title; the rest are a count, the picker names them all. */
-const CHIPS = 3;
 
 /** The phone keeps the header mark and also tells the refused action in readable words. */
 export function PagePinNotice({ failure, close }: { failure?: string; close(): void }) {
@@ -108,22 +106,19 @@ export function PageProjectsMenu({
   );
 }
 
-/** The same host-owned group paint in the header and rows; each host retains its open request. */
+/** A list row's projects: its first chip, a count of the rest, and the picker's +. */
 export function PageProjectGroup({
   page,
-  location,
   expanded,
   buttonRef,
   onOpen,
 }: {
   page: PageSummary;
-  location: 'header' | 'row';
   expanded: boolean;
   buttonRef: Ref<HTMLButtonElement>;
   onOpen(event: MouseEvent<HTMLButtonElement>): void;
 }) {
   const projects = page.projects ?? [];
-  const shown = location === 'header' ? CHIPS : 1;
   const label = projects.length
     ? `${t.projectsFor(pageTitle(page))}: ${projects.join(', ')}`
     : t.addToProject;
@@ -132,28 +127,24 @@ export function PageProjectGroup({
       ref={buttonRef}
       type="button"
       className="page-project-group"
-      data-location={location}
       aria-label={label}
       title={label}
       aria-haspopup="menu"
       aria-expanded={expanded}
       onClick={onOpen}
     >
-      {projects.slice(0, shown).map((name) => (
+      {projects.slice(0, 1).map((name) => (
         <span key={name} className="page-project-group-chip" data-project-tone={projectTone(name)}>
           <span>{name}</span>
         </span>
       ))}
-      {projects.length > shown && (
+      {projects.length > 1 && (
         <span className="page-project-group-chip" data-overflow>
-          +{projects.length - shown}
+          +{projects.length - 1}
         </span>
       )}
       <span className="page-project-group-add">
         <Plus size={14} aria-hidden="true" />
-        {!projects.length && location === 'header' && (
-          <span className="page-project-group-word">{t.projectColumn}</span>
-        )}
       </span>
     </button>
   );
@@ -203,7 +194,6 @@ export function PageRowProjects({
     <span className="page-projects page-row-project-picker">
       <PageProjectGroup
         page={page}
-        location="row"
         expanded={expanded}
         buttonRef={group}
         onOpen={(event) => {
@@ -243,7 +233,6 @@ export function PageProjects({
   title,
   request,
   from,
-  open,
   pinRequest,
   onPinState,
   onProjects,
@@ -257,7 +246,6 @@ export function PageProjects({
   /** Where the request came from when it is not the chips: the More trigger's box, which the picker
    * opens under (right-aligned like the More menu itself) instead of under the chips. */
   from?: { top: number; left: number; width: number; height: number };
-  open(): void;
   /** A new request from the phone's More menu uses the header pin's existing write. */
   pinRequest?: PagePinRequest;
   onPinState?(state: PagePinState | undefined): void;
@@ -274,14 +262,8 @@ export function PageProjects({
   useEffect(() => setFailure(undefined), [pageId]);
   // The picker opens once its data is here: this counts those openings, not the requests.
   const [opened, setOpened] = useState(0);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const origin = useRef<HTMLElement | null>(null);
-  const groupButton = useRef<HTMLButtonElement>(null);
   const pickerAnchor = useRef<HTMLSpanElement>(null);
-  function openFromControl(event: React.MouseEvent<HTMLButtonElement>) {
-    origin.current = event.currentTarget;
-    open();
-  }
   // A new transport (a refreshed session) is read through, never a reason to read the list again.
   const latest = useRef(transport);
   latest.current = transport;
@@ -417,14 +399,8 @@ export function PageProjects({
     <>
       <span className="page-header-projects">
         <span className="page-header-project-add">
-          <PageProjectGroup
-            page={page}
-            location="header"
-            expanded={pickerOpen}
-            buttonRef={groupButton}
-            onOpen={openFromControl}
-          />
-          {/* The existing request/read pipeline admits opening; this hidden trigger anchors its menu. */}
+          {/* The bar's labels, the status sheet and More ask for the picker (#6652); this hidden
+              trigger anchors its menu under whichever of them asked. */}
           <span
             ref={pickerAnchor}
             className="page-header-projects-anchor page-project-picker-anchor"
@@ -438,29 +414,13 @@ export function PageProjects({
               names={names}
               openRequest={opened}
               onOpenChange={(value) => {
-                setPickerOpen(value);
-                if (!value)
-                  restoreProjectFocus(pickerAnchor.current, origin.current, groupButton.current);
+                if (!value) restoreProjectFocus(pickerAnchor.current, origin.current);
               }}
               toggle={(target, name) => void toggle(target, name)}
               create={() => setCreating(true)}
             />
           </span>
         </span>
-        {/* A page the owner list does not name, or an archived one, has nothing to pin. */}
-        {pinned !== undefined && (
-          <span className="page-header-pin">
-            <BrowserIconAction
-              type="button"
-              variant="text"
-              label={page.pinned ? t.unpinPage(pageTitle(page)) : t.pinPage(pageTitle(page))}
-              icon={<Pin />}
-              pressed={page.pinned === true}
-              busy={pinning}
-              onActivate={() => void togglePin()}
-            />
-          </span>
-        )}
         {failure !== undefined && (
           <span
             className="page-attention"

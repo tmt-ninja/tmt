@@ -54,7 +54,12 @@ export function usePageHierarchy({
   pageId: string;
   work?: StoredWork;
   pageHref(pageId: string): string;
-}): { parent?: ReactNode; hasSubpages: boolean; parentPage?: { id: string; title: string } } {
+}): {
+  parent?: ReactNode;
+  hasSubpages: boolean;
+  subpageCount: number;
+  parentPage?: { id: string; title: string };
+} {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const { pages } = useLinkedPages(transport, space, work);
   const tree = useMemo(() => subpageTree(pageId, work, pages), [pageId, work, pages]);
@@ -104,6 +109,7 @@ export function usePageHierarchy({
   return {
     parent,
     hasSubpages: tree.top.length > 0,
+    subpageCount: tree.top.length,
     parentPage: link && holder ? { id: link.page, title: holder.title } : undefined,
   };
 }

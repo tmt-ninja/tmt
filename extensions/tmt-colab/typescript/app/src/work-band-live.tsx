@@ -71,8 +71,12 @@ export function PageWorkBand({
   addDraft,
   workFacts,
   blockedReason,
+  dialogOnly = false,
   ...band
 }: Omit<WorkBandProps, 'subpages' | 'childrenOf' | 'counts' | 'stateControl'> & {
+  /** Only the Add window (#6652): the band itself is drawn in the bar's status details, which can
+   * be closed while the page menu's Add sub-page asks for the window. */
+  dialogOnly?: boolean;
   /** Absent for a page that never had work. */
   work?: StoredWork;
   title: string;
@@ -124,7 +128,8 @@ export function PageWorkBand({
     childrenOf: tree.childrenOf,
     counts: observed ? tree.counts : undefined,
   };
-  if (!owner || !binding) return <WorkBand {...shared} />;
+  // A viewer has no status details to open and adds no sub-pages: nothing here (#6652).
+  if (!owner || !binding) return dialogOnly ? null : <WorkBand {...shared} />;
   const add = async (choice: AddChoice): Promise<string | undefined> => {
     try {
       // One action each: an attach that fails leaves nothing behind, and a create that made its
@@ -151,26 +156,28 @@ export function PageWorkBand({
   };
   return (
     <>
-      <WorkBand
-        {...shared}
-        onAdd={() => onAddingChange(true)}
-        rowState={(row) => (
-          <RowStateMenu
-            row={row}
-            write={async (next) => {
-              await onPage(transport, row.id, (on, shown) => writeState(on, shown, next));
-              await reload();
-            }}
-          />
-        )}
-        rowActions={(row) => (
-          <RowMenu
-            row={row}
-            open={openPage ? () => openPage(row.id) : undefined}
-            detach={() => detach(row)}
-          />
-        )}
-      />
+      {!dialogOnly && (
+        <WorkBand
+          {...shared}
+          onAdd={() => onAddingChange(true)}
+          rowState={(row) => (
+            <RowStateMenu
+              row={row}
+              write={async (next) => {
+                await onPage(transport, row.id, (on, shown) => writeState(on, shown, next));
+                await reload();
+              }}
+            />
+          )}
+          rowActions={(row) => (
+            <RowMenu
+              row={row}
+              open={openPage ? () => openPage(row.id) : undefined}
+              detach={() => detach(row)}
+            />
+          )}
+        />
+      )}
       {adding && (
         <AddSubpageDialog
           draft={addDraft}
@@ -207,7 +214,7 @@ export function computedTone(state: string): 'blocked' | 'working' | 'waiting' |
         : 'muted';
 }
 
-type ChangeBinding = (url: string, ignore: boolean) => Promise<void>;
+export type ChangeBinding = (url: string, ignore: boolean) => Promise<void>;
 
 function ComputedStatus({
   change,
@@ -387,6 +394,28 @@ export function PageStateMenu({
   );
 }
 
+/** A computed status's one-sentence reason, shared by the status popovers (#6474, #6652). */
+export function statusReason(
+  state: import('./reading-details.js').WorkFactView['state'],
+  facts: import('./reading-details.js').WorkFactView | undefined,
+  blocked: string | undefined,
+): string {
+  // The PR that decides the status: an open one, or a merged one not yet in a release.
+  const prNumber = (wanted: 'open' | 'merged') =>
+    facts?.pulls
+      .find(({ fact }) => fact?.state === wanted && (wanted === 'open' || fact.released === false))
+      ?.url.split('/')
+      .at(-1);
+  // A blocked item's own reason is the sentence under the heading, never prefixed again.
+  return state === 'blocked'
+    ? (blocked ?? t.statusReason.blocked(undefined))
+    : state === 'waiting-ci'
+      ? t.statusReason['waiting-ci'](prNumber('open'))
+      : state === 'waiting-release'
+        ? t.statusReason['waiting-release'](prNumber('merged'))
+        : t.statusReason[state];
+}
+
 /** The status popover's body (#6474): one reason sentence, the owner's activity and each PR's
  * facts. The page's status chip and a Work home row show the same details. */
 export function StatusDetailsBody({
@@ -399,6 +428,33 @@ export function StatusDetailsBody({
   facts?: import('./reading-details.js').WorkFactView;
   change?: ChangeBinding;
   blocked?: string;
+}) {
+  const label = t.computedState[state];
+  const reason = statusReason(state, facts, blocked);
+  return (
+    <>
+      <strong>{label}</strong>
+      <p>{reason}</p>
+      {facts?.activity && (
+        <p>
+          {t.activityState[facts.activity.state]} ·{' '}
+          {t.factAge(relativeTime(facts.activity.observedAtMs, facts.asOfMs))}
+        </p>
+      )}
+      {facts && <WorkPulls facts={facts} change={change} />}
+      {!facts && <p>{t.statusUnavailable}</p>}
+    </>
+  );
+}
+
+/** A page's PRs, one block each, then the title matches its owner ignored, which can be
+ * restored; shared by the status details of the page bar (#6652) and of the work home. */
+export function WorkPulls({
+  facts,
+  change,
+}: {
+  facts: import('./reading-details.js').WorkFactView;
+  change?: ChangeBinding;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -414,36 +470,12 @@ export function StatusDetailsBody({
       setBusy(false);
     }
   }
-  const label = t.computedState[state];
-  // The PR that decides the status: an open one, or a merged one not yet in a release.
-  const prNumber = (wanted: 'open' | 'merged') =>
-    facts?.pulls
-      .find(({ fact }) => fact?.state === wanted && (wanted === 'open' || fact.released === false))
-      ?.url.split('/')
-      .at(-1);
-  const reason =
-    // A blocked item's own reason is the sentence under the heading, never prefixed again.
-    state === 'blocked'
-      ? (blocked ?? t.statusReason.blocked(undefined))
-      : state === 'waiting-ci'
-        ? t.statusReason['waiting-ci'](prNumber('open'))
-        : state === 'waiting-release'
-          ? t.statusReason['waiting-release'](prNumber('merged'))
-          : t.statusReason[state];
   return (
     <>
-      <strong>{label}</strong>
-      <p>{reason}</p>
-      {facts?.activity && (
-        <p>
-          {t.activityState[facts.activity.state]} ·{' '}
-          {t.factAge(relativeTime(facts.activity.observedAtMs, facts.asOfMs))}
-        </p>
-      )}
-      {facts?.titleDiscovery && facts.titleDiscovery.state !== 'complete' && (
+      {facts.titleDiscovery && facts.titleDiscovery.state !== 'complete' && (
         <small>{t.titleDiscovery[facts.titleDiscovery.state]}</small>
       )}
-      {facts?.pulls.map((pull, index) => (
+      {facts.pulls.map((pull, index) => (
         <WorkPullDetails
           key={pull.url}
           url={pull.url}
@@ -459,7 +491,7 @@ export function StatusDetailsBody({
           onAction={change && (() => void setIgnored(pull.url, true))}
         />
       ))}
-      {facts?.titleDiscovery?.ignored.map((url) => (
+      {facts.titleDiscovery?.ignored.map((url) => (
         <WorkPullDetails
           key={url}
           url={url}
@@ -471,7 +503,6 @@ export function StatusDetailsBody({
         />
       ))}
       {error && <p role="alert">{t.bindingFailed}</p>}
-      {!facts && <p>{t.statusUnavailable}</p>}
     </>
   );
 }

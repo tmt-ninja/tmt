@@ -51,3 +51,26 @@
     display: none;
   }
 }
+
+/* The status chip opens the page's details (#6652): a popover beside it, a sheet on a phone. */
+.page-bar-details {
+  width: min(26rem, calc(100vw - 2 * var(--tmt-ui-space-m)));
+}
+.page-bar-sheet {
+  max-height: 85dvh;
+  overflow-y: auto;
+  padding: var(--tmt-ui-space-l) var(--tmt-ui-space-m)
+    calc(var(--tmt-ui-space-l) + env(safe-area-inset-bottom));
+}
+/* The labels open the project picker: a plain button around the same chips. */
+button.page-bar-labels {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+button.page-bar-status {
+  cursor: pointer;
+}

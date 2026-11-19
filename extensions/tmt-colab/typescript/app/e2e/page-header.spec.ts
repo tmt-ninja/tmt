@@ -281,24 +281,22 @@ test.describe('the shell bar', () => {
       await expect(bar(page).locator('.tmt-ui-brand, .tmt-ui-wordmark, .tmt-ui-mark')).toHaveCount(
         0,
       );
-      // The controls belong to the title: inline in the bar on desktop, below it on phones.
-      const band = page.locator('#ask-page-fixture .work-band:visible');
+      // No row of work controls under the title (#6652); a viewer without work facts has no status
+      // details either, and its sub-pages stay in the page menu.
       if (width <= 900)
         await expect(page.locator('#ask-page-fixture .tmt-ui-module-menu')).toBeHidden();
-      await expect(band).toBeVisible();
-      const toggle = band.locator('.work-toggle');
-      await toggle.click();
-      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-      await toggle.click();
-      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-      const beforeScroll = (await band.boundingBox())!.y;
+      await expect(page.locator('#ask-page-fixture .page-mobile-title .work-band')).toHaveCount(0);
+      // The title scrolls with the page.
+      const beforeScroll = (await visibleTitle.boundingBox())!.y;
       await page.evaluate(() => {
         document.querySelector<HTMLElement>('#ask-page-fixture .canvas')!.style.minHeight =
           '3000px';
         window.scrollTo(0, 400);
       });
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(400);
-      await expect.poll(async () => (await band.boundingBox())!.y).toBeLessThan(beforeScroll);
+      await expect
+        .poll(async () => (await visibleTitle.boundingBox())!.y)
+        .toBeLessThan(beforeScroll);
     });
 
     test(`the search opens from the shortcut once, with its key hint, and Escape returns focus at ${width} ${scheme}`, async ({

@@ -55,6 +55,8 @@ export interface WorkBandProps {
   /** This page's state control, independent of the sub-page list. */
   stateControl?: ReactNode;
   beforeSubpages?: ReactNode;
+  /** The list starts open: a phone viewer's sheet opened from More is the list (#6652). */
+  defaultOpen?: boolean;
   /** Direct sub-pages, in order. */
   subpages: readonly SubpageRow[];
   /** The next level under a sub-page, from what the viewer already has; empty when unknown. */
@@ -77,17 +79,12 @@ export function MobileWorkTitle({
   workNumber,
   onSize,
   children,
-  next,
-  blocked,
-  facts,
 }: {
   title: string;
   workNumber?: string;
   onSize(height: number): void;
-  children: ReactNode;
-  next?: string;
-  blocked?: string;
-  facts?: WorkFactView;
+  /** The reader's work band; the owner's page has its details in the top bar (#6652). */
+  children?: ReactNode;
 }) {
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -112,18 +109,7 @@ export function MobileWorkTitle({
         )}
         {title}
       </h1>
-      <div className="page-mobile-title-chips">{children}</div>
-      {(next || blocked || facts?.lastActivityAtMs != null) && (
-        <div className="page-work-notes">
-          {blocked && <span>{blocked}</span>}
-          {next && <span>{text.workBand.nextNote(next)}</span>}
-          {facts?.lastActivityAtMs != null && (
-            <span>
-              {text.workBand.lastActivity(relativeTime(facts.lastActivityAtMs, facts.asOfMs))}
-            </span>
-          )}
-        </div>
-      )}
+      {children && <div className="page-mobile-title-chips">{children}</div>}
     </div>
   );
 }
@@ -163,10 +149,11 @@ export function WorkBand({
   beforeSubpages,
   subpages,
   onAdd,
+  defaultOpen = false,
   ...slots
 }: WorkBandProps): ReactNode {
   const t = text.workBand;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const listId = useId();
   const section = useRef<HTMLElement>(null);
   useEffect(() => {

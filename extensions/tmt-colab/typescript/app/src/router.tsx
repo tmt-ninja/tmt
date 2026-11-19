@@ -5,7 +5,10 @@ import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageStateMenu, PageWorkBand, showsComputedStatus } from './work-band-live.js';
 import { htmlOutlineSections, sectionTotals } from './section-view.js';
-import { MobileWorkTitle, WorkPullChips } from './work-band.js';
+import { MobileWorkTitle } from './work-band.js';
+import { useMedia } from './use-media.js';
+import { Sheet, SheetContent, SheetTitle, UiTheme } from '@tmt/browser-ui/ui';
+import { PageStatusDetails } from './page-status-details.js';
 import { PageBarSummary } from './page-bar-summary.js';
 import { PageOutline } from './page-outline.js';
 import { AskTodoContext, askTodoProgress } from './ask-todo-line.js';
@@ -1570,6 +1573,10 @@ function OpenPage({
   const [workBandSize, setWorkBandSize] = useState(0);
   const [barLabels, setBarLabels] = useState<readonly string[]>([]);
   const [addingSubpage, setAddingSubpage] = useState(false);
+  // A phone viewer's sub-pages, opened from the page menu (#6652).
+  const [viewerSheet, setViewerSheet] = useState(false);
+  const compactBar = useMedia('(max-width: 900px)');
+  const uiTheme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const [manualStateOpen, setManualStateOpen] = useState(false);
   const addSubpageDraft = useRef<import('./page-list-search.js').SearchEdit | undefined>(undefined);
   const {
@@ -2759,17 +2766,17 @@ function OpenPage({
     work: view.work,
     pageHref: (pageId) => routing.pageHref(pageId),
   });
-  const workControls = !design ? (
+  // The parent link and sub-pages toggle, drawn in the bar's status details (#6652); the same
+  // owner draws the Add window outside them, so the page menu's Add sub-page works while closed.
+  const workBand = (dialogOnly: boolean, close?: () => void, viewer?: { defaultOpen: boolean }) => (
     <PageWorkBand
+      dialogOnly={dialogOnly}
+      defaultOpen={viewer?.defaultOpen}
       work={view.work}
       priority={view.priority}
       owner={view.owner}
-      beforeSubpages={
-        <>
-          <WorkPullChips facts={view.workFacts} />
-          {hierarchy.parent}
-        </>
-      }
+      // A viewer's sub-pages stand alone; its parent is in the page menu.
+      beforeSubpages={viewer ? undefined : hierarchy.parent}
       workFacts={view.workFacts}
       blockedReason={view.blocked}
       pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
@@ -2780,22 +2787,25 @@ function OpenPage({
       title={view.title}
       pageHref={routing.pageHref}
       openPage={(id) => routing.open(`/pages/${id}`)}
-      adding={addingSubpage}
+      adding={dialogOnly && addingSubpage}
       addDraft={addSubpageDraft}
       onAddingChange={(open) => {
         if (!open) addSubpageDraft.current = undefined;
+        // The Add window replaces the status details it was opened from.
+        if (open) close?.();
         setAddingSubpage(open);
       }}
     />
-  ) : undefined;
+  );
+  const workControls = !design;
+  const barStatus =
+    !design && showsComputedStatus(archived || liveError ? undefined : snapshot.binding);
+  // Without a status chip to open, the bar offers the sub-pages alone (#6652): a chip up to the
+  // phone width, then the page menu's Sub-pages (N), which opens them as a sheet.
+  const viewerSubpages = workControls && !barStatus && hierarchy.hasSubpages;
   // The page's section progress beside its status (#6619): done sections over counted ones.
   const pageSections = view.workFacts?.sections;
   const pageSectionTotals = pageSections?.length ? sectionTotals(pageSections) : undefined;
-  const sectionTotalsChip = pageSectionTotals && (
-    <span className={`page-section-totals ${ui.countChip}`}>
-      {text.sections.summary(pageSectionTotals.done, pageSectionTotals.total)}
-    </span>
-  );
   const projectControls = (
     <PageProjects
       transport={transport}
@@ -2804,10 +2814,35 @@ function OpenPage({
       title={view.title || snapshot.title}
       request={projects.request}
       from={projects.from}
-      open={() => openProjects()}
       pinRequest={pinRequest}
       onPinState={setPin}
       onProjects={setBarLabels}
+    />
+  );
+  // What the row under the title showed, now opened from the bar's status chip (#6652).
+  const barDetails = (sheet: boolean, close: () => void) => (
+    <PageStatusDetails
+      facts={view.workFacts}
+      blocked={view.blocked}
+      owner={view.owner}
+      priority={view.priority}
+      next={view.next}
+      sections={pageSectionTotals}
+      links={workBand(false, close)}
+      change={
+        archived || liveError
+          ? undefined
+          : snapshot.binding?.changeTitleMatch?.bind(snapshot.binding)
+      }
+      projects={sheet ? barLabels : undefined}
+      onProjects={
+        sheet
+          ? (from) => {
+              close();
+              openProjects(from);
+            }
+          : undefined
+      }
     />
   );
   const content = (
@@ -2844,11 +2879,13 @@ function OpenPage({
                   (#6611); #6520 had left only the product and the author there. */}
               <PageBarSummary
                 facts={view.workFacts}
-                status={
-                  !design &&
-                  showsComputedStatus(archived || liveError ? undefined : snapshot.binding)
+                status={barStatus}
+                subpages={
+                  viewerSubpages ? workBand(false, undefined, { defaultOpen: false }) : undefined
                 }
                 labels={barLabels}
+                details={workControls ? barDetails : undefined}
+                onLabels={openProjects}
               />
             </>
           }
@@ -2994,6 +3031,7 @@ function OpenPage({
                   !liveError
                 }
                 parentTitle={hierarchy.parentPage?.title}
+                subpageCount={viewerSubpages && compactBar ? hierarchy.subpageCount : undefined}
                 pin={pin}
                 creatorLabel={creatorName(view)}
                 showSource={view.pageType !== 'blocks'}
@@ -3018,7 +3056,9 @@ function OpenPage({
                     : undefined
                 }
                 onSelect={(action) => {
-                  if (action === 'open-parent' && hierarchy.parentPage) {
+                  if (action === 'subpages') {
+                    setViewerSheet(true);
+                  } else if (action === 'open-parent' && hierarchy.parentPage) {
                     routing.open(`/pages/${hierarchy.parentPage.id}`);
                   } else if (action === 'add-subpage') {
                     setAddingSubpage(true);
@@ -3256,18 +3296,29 @@ function OpenPage({
       </BrowserDrawer>
       <div className="workspace">
         {workControls && (
-          <MobileWorkTitle
-            title={view.title || snapshot.title}
-            workNumber={snapshot.workNumber}
-            onSize={setWorkBandSize}
-            next={view.next}
-            blocked={view.blocked}
-            facts={view.workFacts}
-          >
-            {workControls}
-            {sectionTotalsChip}
+          <>
+            <MobileWorkTitle
+              title={view.title || snapshot.title}
+              workNumber={snapshot.workNumber}
+              onSize={setWorkBandSize}
+            />
+            {/* The project picker and the Add sub-page window, opened from the bar, its sheet and
+                the page menu (#6652); neither draws anything until asked. */}
             {projectControls}
-          </MobileWorkTitle>
+            {workBand(true)}
+            {viewerSubpages && compactBar && (
+              <UiTheme theme={uiTheme}>
+                <Sheet open={viewerSheet} onOpenChange={setViewerSheet}>
+                  <SheetContent side="bottom" className="page-bar-sheet">
+                    <SheetTitle>{text.pageBar.subpagesItem(hierarchy.subpageCount)}</SheetTitle>
+                    <div className="page-status-links">
+                      {workBand(false, undefined, { defaultOpen: true })}
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </UiTheme>
+            )}
+          </>
         )}
         {!design && pageLinkBar}
         {attachmentDownload.bar}

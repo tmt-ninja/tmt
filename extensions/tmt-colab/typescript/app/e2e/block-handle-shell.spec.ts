@@ -125,10 +125,8 @@ for (const width of [1440, 800, 390])
   test(`at ${width}px the blocks' text lines up with the page bar's text`, async ({ page }) => {
     await mountShell(page, width);
     const text = await textEdge(page, '.structured-page-stage [data-block-id="one"]');
-    const title = (await page.locator('.page-mobile-title h1').boundingBox())!;
-    const state = (await page.locator('.work-head-chip').boundingBox())!;
-    expect(state.y).toBeGreaterThanOrEqual(title.y + title.height);
-    expect(state.x + state.width).toBeLessThanOrEqual(width);
+    // No work row under the title any more (#6652): the blocks start right under it.
+    await expect(page.locator('.page-mobile-title .work-band')).toHaveCount(0);
     if (width > 900) expect(text).toBe(await textEdge(page, '.page-mobile-title h1'));
   });
 
