@@ -1373,6 +1373,10 @@ for (const task of ['heading actions', 'annotation'] as const)
         await expect(dialog.locator('.annotation-quote')).toContainText('Review the checklist.');
         await page.keyboard.press('Escape');
         await expect(block).toBeFocused();
+        // Selection mode stays on after the window closes (#6725): a second Escape leaves it.
+        await page.keyboard.press('Escape');
+        await expect(select).toHaveAttribute('aria-pressed', 'false');
+        await expect(block).toBeFocused();
         await page.keyboard.press('Enter');
         // The editor opens on the block before the caret keys reach it.
         await expect(block.locator('[contenteditable="true"]')).toBeFocused();

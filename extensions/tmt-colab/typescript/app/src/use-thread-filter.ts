@@ -5,7 +5,8 @@ const KEY = 'colab.comments.filter';
 function read(): ThreadFilter {
   try {
     const value = localStorage.getItem(KEY);
-    if (value === 'open' || value === 'needs' || value === 'all') return value;
+    if (value === 'open' || value === 'needs' || value === 'resolved' || value === 'all')
+      return value;
     return localStorage.getItem('colab.comments.showResolved') === '1' ? 'all' : 'open';
   } catch {
     return 'open';

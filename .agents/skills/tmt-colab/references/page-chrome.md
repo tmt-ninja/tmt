@@ -450,7 +450,7 @@ gutters on narrow screens; height fills the available viewport between the top-b
 and measured dock clearance. History scrolls internally above the pinned composer.
 The dock opens a single Discussion,
 initially the first Needs-you thread or the first matching thread by number.
-`comments-listing.ts` owns the Open / Needs you / All sequence from the verified
+`comments-listing.ts` owns the Open / Needs you / Resolved / All sequence from the verified
 threads and existing attention metadata. Deleted
 and Chat records stay excluded. `use-thread-filter.ts` keeps the filter on this
 device, accepting the previous Show-resolved preference as All when no filter is

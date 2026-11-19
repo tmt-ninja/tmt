@@ -632,15 +632,17 @@ for (const width of [1440, 390])
       await frame.locator('#selected').click();
       const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
       await expect(input).toBeFocused();
-      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+      // The mode stays on while the comment is written (#6725).
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
       await expect(page.locator('.annotation-popover .thread-state')).toHaveAttribute(
         'title',
         'Exact selected text',
       );
       await expect(page.getByText(text.selectionModeHint, { exact: true })).toHaveCount(0);
       await input.fill('Retain this selection draft');
+      // C in the composer is text, not the mode's shortcut.
       await input.press('c');
-      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
       const modeBox = (await mode.boundingBox())!;
       const windowBox = (await page.locator('.annotation-popover').boundingBox())!;
       const headerBox = (await page.locator('.tmt-ui-topbar:visible').boundingBox())!;
@@ -654,12 +656,13 @@ for (const width of [1440, 390])
       await page.screenshot({ path: capturePath(`1923-discussion-${width}-${theme}.png`) });
       const originalDraft = await input.textContent();
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
-      await mode.click();
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
       await frame.locator('#selected').click();
       await expect(input).toHaveText(originalDraft!);
       expect((await run(page, 'proof')).sends).toEqual([]);
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
-      await mode.click();
+      // Still in the mode: the next click annotates without turning it on again.
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
       if (width === 1440) {
         await (await pageAction(page, 'Source')).click();
         await expect(openPanel(page)).toHaveCount(1);
@@ -752,7 +755,9 @@ for (const selectionMode of [false, true])
   });
 
 for (const gesture of ['drag', 'completed selection C'] as const)
-  test(`selection mode exits after ${gesture} opens a comment`, async ({ page }) => {
+  test(`selection mode stays as it was after ${gesture} opens a comment, until a second Escape`, async ({
+    page,
+  }) => {
     await page.goto('/');
     await run(page, 'mount');
     const mode = page.locator('.selection-mode').getByRole('button', {
@@ -770,11 +775,23 @@ for (const gesture of ['drag', 'completed selection C'] as const)
     if (gesture === 'completed selection C') await page.keyboard.press('c');
     const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
     await expect(input).toBeFocused();
-    await expect(mode).toHaveAttribute('aria-pressed', 'false');
+    // Opening a comment leaves the mode as it was (#6725): annotating block after block needs no
+    // toggle each time.
+    const pressed = gesture === 'drag' ? 'true' : 'false';
+    await expect(mode).toHaveAttribute('aria-pressed', pressed);
     await expect(page.getByText(text.selectionModeHint, { exact: true })).toHaveCount(0);
     await input.press('Escape');
     await expect(page.locator('.annotation-popover')).toHaveCount(0);
-    await expect(mode).toHaveAttribute('aria-pressed', 'false');
+    await expect(mode).toHaveAttribute('aria-pressed', pressed);
+    if (gesture === 'drag') {
+      // The mode still annotates the next click; a second Escape leaves it.
+      await target.click();
+      await expect(page.locator('.annotation-popover')).toHaveCount(1);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.annotation-popover')).toHaveCount(0);
+      await page.keyboard.press('Escape');
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+    }
     await target.click();
     await expect(page.locator('.annotation-popover')).toHaveCount(0);
     expect((await run(page, 'proof')).sends).toEqual([]);
@@ -1153,6 +1170,11 @@ for (const kind of ['duplicate', 'image', 'mockup'] as const)
       await run(page, 'removeStructuredBlock', id(99));
       await expect(chosen).toHaveCount(0);
       await expect(other.getByRole('button', { name: 'Open comment 1' })).toHaveCount(0);
+      // Selection mode stayed on after the comment (#6725); Escape leaves it and brings the dock back.
+      await page.keyboard.press('Escape');
+      await expect(
+        page.getByRole('button', { name: 'Selection mode', exact: true }),
+      ).toHaveAttribute('aria-pressed', 'false');
       await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
       await expect(page.getByText('Review this block', { exact: true })).toBeVisible();
     }

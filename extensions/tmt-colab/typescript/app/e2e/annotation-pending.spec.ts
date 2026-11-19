@@ -110,6 +110,30 @@ for (const close of ['×', 'Escape', 'outside'] as const)
     await expect.poll(() => paint(page, 'failed')).toBe(0);
   });
 
+test('a sent annotation clears the page selection and its Annotate control (#6725)', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await annotate(page, FIRST, 'Recorded, then the selection goes.');
+  await send(page).click();
+  await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
+  const frameSelection = () =>
+    page
+      .frameLocator('#ask-page-fixture iframe')
+      .locator('body')
+      .evaluate((body) => body.ownerDocument.getSelection()?.toString() ?? '');
+  await expect.poll(frameSelection).toBe('');
+  // The thread window stays open with its message; closing it leaves no Annotate behind.
+  await expect(dialog(page).getByText('Recorded, then the selection goes.')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByTestId('selection-ask')).toBeHidden();
+  // A new selection still offers Annotate.
+  await select(page, ...SECOND);
+  await expect(page.getByTestId('selection-ask')).toBeVisible();
+});
+
 test('a send that fails after its window closed is said on the page; Open brings back its draft and Retry records it once', async ({
   page,
 }) => {

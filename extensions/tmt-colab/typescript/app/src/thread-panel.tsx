@@ -25,7 +25,8 @@ import { threadNotificationDestination } from './reply-notification-context.js';
 import { MarkdownText } from './components/markdown-text.js';
 import { EchoAttachments, MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { isOpenThread } from './thread-status-view.js';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './ask-panel.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -455,6 +456,9 @@ export function CommentExchange({
   );
 }
 
+/** Whether an anchor's block was deleted, as the page knows it; HTML pages have no blocks. */
+export const AnchorGoneContext = createContext<(anchor: ThreadAnchor) => boolean>(() => false);
+
 export type ThreadWindowProps = {
   number?: number;
   creationRecipient?: CreatorTarget;
@@ -546,6 +550,8 @@ export function ThreadWindow({
   const anchor = thread ? thread.anchor : initialAnchor;
   const quote = anchorQuote(anchor);
   const anchorText = quote?.exact ?? (anchor && 'block' in anchor ? text.block : '');
+  const anchorGone = useContext(AnchorGoneContext);
+  const gone = !!anchor && anchorGone(anchor);
   // A resolved thread leaves the page's marker set, so its attachment is not
   // observed until Reopen restores the marker.
   const tracked = !!anchor && !shownResolved;
@@ -848,7 +854,9 @@ export function ThreadWindow({
       >
         {resolveAction}
         {tracked && anchorsChecked && !attached && (
-          <p className="annotation-hint">{text.commentQuoteChanged}</p>
+          <p className="annotation-hint">
+            {gone ? text.commentBlockDeleted : text.commentQuoteChanged}
+          </p>
         )}
         {thread?.comments
           .filter((comment) => !held(comment))
@@ -881,16 +889,21 @@ export function ThreadWindow({
           anchorsChecked &&
           !attached && (
             <div className="comment-actions">
-              <BrowserAction
-                type="button"
-                variant="text"
-                label={text.commentReattach}
-                busy={busy}
-                disabled={blocked || !selection}
-                onActivate={(event) => {
-                  if (event.isTrusted && selection) setReattach(structuredClone(selection));
-                }}
-              />
+              {/* Without a selection there is nothing to reattach to: say how, not a dimmed action. */}
+              {selection ? (
+                <BrowserAction
+                  type="button"
+                  variant="text"
+                  label={text.commentReattach}
+                  busy={busy}
+                  disabled={blocked}
+                  onActivate={(event) => {
+                    if (event.isTrusted) setReattach(structuredClone(selection));
+                  }}
+                />
+              ) : (
+                <p className="annotation-hint">{text.commentReattachHint}</p>
+              )}
             </div>
           )}
         {!archived && reattach && thread && !thread.deleted && (
@@ -1058,7 +1071,13 @@ export function ThreadPanel({
       <div className="comments-empty" data-testid="comments-empty">
         <Check aria-hidden />
         <h3>{threads.length ? text.commentsEmptyTitle : text.commentsEmptyNone}</h3>
-        <p>{threads.length ? text.commentsEmptyCaughtUp : text.commentsEmptyNoneHint}</p>
+        <p>
+          {!threads.length
+            ? text.commentsEmptyNoneHint
+            : threads.some((thread) => !thread.deleted && !isOpenThread(thread))
+              ? text.commentsResolvedHint
+              : text.commentsEmptyCaughtUp}
+        </p>
       </div>
     </aside>
   );

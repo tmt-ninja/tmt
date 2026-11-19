@@ -154,7 +154,8 @@ export function useAnnotations({
     if (statusBusy.current || !currentSelector.current || !currentRectangle.current) return;
     const quote = JSON.stringify(currentSelector.current);
     closeRef.current(false);
-    setSelectionMode(false);
+    // Selection mode stays on (#6725): Escape closes this window first and leaves the mode only on
+    // a second press, so annotating block after block needs no toggle each time.
     // The same quote again shows the hidden annotation whose send failed before it was recorded.
     const held = annotationsRef.current.find(
       (value) => !value.thread && JSON.stringify(value.selector) === quote,
@@ -276,6 +277,8 @@ export function useAnnotations({
   }
   const closeRef = useRef(closeAnnotation);
   closeRef.current = closeAnnotation;
+  /** The page clears the selection a send just recorded (#6725): that clear keeps the window. */
+  const clearingSent = useRef(false);
   const selectionCleared = useRef<() => void>(() => {});
   selectionCleared.current = () => {
     // A new selection keeps typed text; a saved window collapses with its draft cached.
@@ -312,6 +315,11 @@ export function useAnnotations({
     if (!value) return;
     if (unsent.current.delete(key)) setSendVersion((n) => n + 1);
     keepDraft(JSON.stringify(value.selector), null);
+    // The passage is the thread's mark now: the text selection and its Annotate control go.
+    if (currentSelector.current && renderer.current) {
+      clearingSent.current = true;
+      renderer.current.clearSelection();
+    }
     setAnnotations((all) =>
       all.map((item) => (item.key === key ? { ...item, thread: ref, restored: undefined } : item)),
     );
@@ -325,7 +333,9 @@ export function useAnnotations({
     currentSelector.current = quote ?? null;
     currentRectangle.current = rect ?? null;
     setRectangle(rect ?? null);
-    if (!quote) selectionCleared.current();
+    if (quote) clearingSent.current = false;
+    else if (clearingSent.current) clearingSent.current = false;
+    else selectionCleared.current();
   }
 
   // Cosmetic paint only: failed quotes take priority, then creation order. No send is dropped

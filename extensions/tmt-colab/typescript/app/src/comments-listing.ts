@@ -3,14 +3,15 @@ import { isOpenThread } from './thread-status-view.js';
 import { presentationOf, type ThreadPresentation } from './thread-status-presentation.js';
 
 export const threadKey = (thread: ThreadView) => `${thread.ref.writer}:${thread.threadId}`;
-export type ThreadFilter = 'open' | 'needs' | 'all';
+export type ThreadFilter = 'open' | 'needs' | 'resolved' | 'all';
 
 /** Needs-you is the existing authenticated attention projection, never a new read. */
 export function threadNeedsYou(thread: ThreadView, presentations?: readonly ThreadPresentation[]) {
   return isOpenThread(thread) && !!presentationOf(presentations, thread.ref)?.status.unseen;
 }
 
-/** Needs-you retains the selected thread after acknowledgement; Open excludes resolved threads. */
+/** Needs-you retains the selected thread after acknowledgement; Open excludes resolved threads,
+ * and Resolved lists only them (#6725). */
 export function listedThreads(
   threads: readonly ThreadView[],
   numbers: ReadonlyMap<string, number>,
@@ -26,7 +27,9 @@ export function listedThreads(
         (filter === 'all' ||
           (filter === 'needs'
             ? threadKey(thread) === viewed || threadNeedsYou(thread, presentations)
-            : isOpenThread(thread))),
+            : filter === 'resolved'
+              ? !isOpenThread(thread)
+              : isOpenThread(thread))),
     )
     .sort(
       (a, b) => (numbers.get(threadKey(a)) ?? Infinity) - (numbers.get(threadKey(b)) ?? Infinity),

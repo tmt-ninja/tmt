@@ -336,6 +336,15 @@ export function StructuredPage(props: StructuredPageProps) {
         onKeyDown={(event) => {
           if ((event.target as HTMLElement).closest('[data-deleted-draft]')) return;
           if (typesInto(event)) setHovered(undefined);
+          // Selection mode draws no block selection (#6675). Escape there still reaches the page's
+          // ladder (close the window, then leave the mode), and the unseen selection becomes the
+          // block the person is on, so leaving the mode keeps them there (#6725).
+          if (props.annotationMode && event.key === 'Escape') {
+            const on = (event.target as HTMLElement).closest<HTMLElement>('[data-block-id]');
+            if (on?.dataset.blockId) props.onSelectBlock?.(on.dataset.blockId);
+            else props.onPageKey?.(event);
+            return;
+          }
           if (props.onPageKey?.(event)) event.preventDefault();
         }}
         // The handle follows the last block the pointer entered and stays when the pointer leaves

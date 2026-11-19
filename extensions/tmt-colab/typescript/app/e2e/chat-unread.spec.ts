@@ -86,10 +86,13 @@ for (const width of [320, 390, 1440])
         await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
         await expect(page.getByTestId('chat-panel')).toBeHidden();
         await expect(action(page)).toBeFocused();
+        // Chat stays beside the pressed Selection mode (#6725); opening it leaves the mode.
         await select.click();
-        await expect(action(page)).toHaveCount(0);
-        await page.keyboard.press('Escape');
+        await expect(select).toHaveAttribute('aria-pressed', 'true');
         await expect(action(page)).toBeVisible();
+        await action(page).click();
+        await expect(page.getByTestId('chat-panel')).toBeVisible();
+        await expect(select).toHaveAttribute('aria-pressed', 'false');
       });
       test('closed retained history and reading older messages cannot clear a new reply; position survives reload', async ({
         page,
