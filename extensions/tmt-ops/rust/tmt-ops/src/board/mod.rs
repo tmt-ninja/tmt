@@ -2201,7 +2201,12 @@ pub fn run(
         |squad, preempt, preview, chart| worker.request(squad, preempt, preview, chart),
         |revision, identity| worker.selected(revision, identity),
         |task| worker.checklist(task),
-        |job| lane.submit(job),
+        |job| match job {
+            // Counts and previews are acquisition. A queued read must not hold
+            // an explicit jump behind it on the interaction lane.
+            lane::Job::Notes(task) if task.read_only() => worker.conversation_checklist(task),
+            job => lane.submit(job),
+        },
         |scope| {
             if let Some(labels) = &labels {
                 labels.refresher().scope(scope);
