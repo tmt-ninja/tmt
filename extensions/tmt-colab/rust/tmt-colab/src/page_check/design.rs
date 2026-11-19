@@ -46,6 +46,47 @@ static SHARED: LazyLock<Option<SharedAttributes>> = LazyLock::new(|| {
     })
 });
 
+/// Suggest a unique nearest component within two single-character edits.
+fn nearest<'a>(tag: &str, prefix: &str, components: &'a [Value]) -> Option<&'a str> {
+    let name = tag.strip_prefix(prefix)?;
+    if !name.is_ascii() || name.len() > 64 {
+        return None;
+    }
+    let mut best = 3;
+    let mut suggestion = None;
+    for candidate in components
+        .iter()
+        .filter_map(|component| component["tag"].as_str())
+    {
+        let Some(other) = candidate.strip_prefix(prefix) else {
+            continue;
+        };
+        if name.len().abs_diff(other.len()) > 2 {
+            continue;
+        }
+        let mut row: Vec<usize> = (0..=other.len()).collect();
+        for (i, a) in name.bytes().enumerate() {
+            let mut diagonal = row[0];
+            row[0] = i + 1;
+            for (j, b) in other.bytes().enumerate() {
+                let previous = row[j + 1];
+                row[j + 1] = (diagonal + usize::from(a != b))
+                    .min(previous + 1)
+                    .min(row[j] + 1);
+                diagonal = previous;
+            }
+        }
+        let distance = row[other.len()];
+        if distance < best {
+            best = distance;
+            suggestion = Some(candidate);
+        } else if distance == best {
+            suggestion = None;
+        }
+    }
+    suggestion
+}
+
 pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) {
     let mut pins = elements
         .iter()
@@ -120,7 +161,14 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                 id,
                 ordinal,
                 code,
-                format!("Replace <{tag}> with a tag listed by tmt colab design show {system}."),
+                nearest(tag, &prefix, RELEASE["components"].as_array().unwrap()).map_or_else(
+                    || {
+                        format!(
+                            "Replace <{tag}> with a tag listed by tmt colab design show {system}."
+                        )
+                    },
+                    |near| format!("Did you mean <{near}>?"),
+                ),
             );
             continue;
         };
@@ -150,7 +198,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                         id,
                         ordinal,
                         "invalid-ds-prop",
-                        format!("Set {name} on <{tag}> to one of {accepted}."),
+                        format!("<{tag}> received {name}={value:?}. Choose one of {accepted}."),
                     );
                 }
             } else if prop["type"] == "boolean" && !value.is_empty() && value != name {
@@ -158,7 +206,9 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                     id,
                     ordinal,
                     "invalid-ds-prop",
-                    format!("Write {name} as a bare boolean attribute on <{tag}> or remove it."),
+                    format!(
+                        "<{tag}> received {name}={value:?}. Use the bare attribute, an empty value or {name:?}, or remove it."
+                    ),
                 );
             }
         }
@@ -168,6 +218,26 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn typo_and_enum_repairs_name_the_component_and_rejected_value() {
+        let report = crate::page_check::check(r#"<meta name="tmt-ds" content="tmt-gui"><tmt-ui-buton></tmt-ui-buton><tmt-ui-button variant="garbage"></tmt-ui-button><tmt-ui-completely-unrelated></tmt-ui-completely-unrelated>"#).unwrap();
+        assert_eq!(report.findings.len(), 3);
+        assert_eq!(
+            report.findings[0].fix.as_deref(),
+            Some("Did you mean <tmt-ui-button>?")
+        );
+        let repair = report.findings[1].fix.as_deref().unwrap();
+        assert!(repair.contains("variant=\"garbage\""));
+        assert!(repair.contains("default, outline, secondary, ghost, destructive, link"));
+        assert!(
+            !report.findings[2]
+                .fix
+                .as_deref()
+                .unwrap()
+                .contains("Did you mean")
+        );
+    }
+
     #[test]
     fn duplicate_meta_and_unavailable_lock_name_the_line_and_recovery() {
         for (second, code) in [
