@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { openReaderLink, startDoor } from './harness/browser.js';
+import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import { text as copy } from '../src/strings.js';
 import { patchArgs, createPage, freePort, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -949,5 +949,79 @@ test('editor metadata: owner applies creator and handled/reopen requests, refuse
     ).toBeVisible({ timeout: 60000 });
     await expect(editor.page.locator('iframe')).toHaveCount(0);
     expect(read()).toMatchObject({ creator: { agent: { id: first.id } }, source });
+  });
+});
+
+test('a structured share link renders admitted blocks and follows owner edits', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const created = colab(world, [
+      'page',
+      'create',
+      '--structured',
+      '--title',
+      'Release checklist',
+      '--no-open',
+    ]);
+    const pageId = String(created.pageId);
+    const table = randomUUID();
+    const ops = [
+      { type: 'heading', text: 'Release handoff', props: { level: 2 } },
+      { type: 'paragraph', text: 'Review the candidate with the delivery team.' },
+      { type: 'todo', text: 'Confirm the smoke test' },
+      { type: 'code', text: 'tmt colab ls --json' },
+    ].map((block) => ({ op: 'insert', id: randomUUID(), ...block }));
+    colab(
+      world,
+      ['block', 'batch', pageId, '--file', '-'],
+      JSON.stringify([
+        ...ops,
+        {
+          op: 'insert',
+          id: table,
+          type: 'table',
+          props: { columns: [{ id: 'stage', name: 'Stage' }] },
+        },
+        {
+          op: 'table',
+          id: table,
+          action: 'add-row',
+          row: randomUUID(),
+          cells: { stage: 'Verification' },
+        },
+      ]),
+    );
+    colab(world, ['share', 'mode', pageId, 'link', '--yes']);
+    const link = colab(world, ['share', 'link', 'add', pageId, '--yes']);
+    const reader = await openReaderLink(world, door, String(link.readerPath), 'structured-reader');
+    const body = reader.page.frameLocator('iframe');
+    await expect(body.getByRole('heading', { name: 'Release handoff' })).toBeVisible();
+    await expect(body.getByText('Review the candidate with the delivery team.')).toBeVisible();
+    await expect(body.getByText('Confirm the smoke test')).toBeVisible();
+    await expect(body.getByRole('cell', { name: 'Verification' })).toBeVisible();
+    await expect(body.locator('code')).toHaveText('tmt colab ls --json');
+    colab(world, ['block', 'insert', pageId, '--type', 'paragraph', '--text', 'Ready for review.']);
+    await expect(body.getByText('Ready for review.')).toBeVisible();
+    const captures = process.env.COLAB_READER_CAPTURE_DIR;
+    if (captures) {
+      await mkdir(captures, { recursive: true });
+      const owner = await pairBrowser(world, 'structured-owner');
+      await owner.page.goto(new URL(String(created.path), door.address).href);
+      await expect(
+        owner.page.getByText('Ready for review.', { exact: true }).first(),
+      ).toBeVisible();
+      for (const width of [1440, 390])
+        for (const theme of ['light', 'dark'] as const) {
+          for (const [name, page] of [
+            ['owner', owner.page],
+            ['reader', reader.page],
+          ] as const) {
+            await page.setViewportSize({ width, height: 900 });
+            await page.emulateMedia({ colorScheme: theme });
+            await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+            await page.screenshot({ path: path.join(captures, `${name}-${width}-${theme}.png`) });
+          }
+        }
+    }
   });
 });

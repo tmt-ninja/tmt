@@ -183,7 +183,24 @@ function table(all: Json, id: string, block: Json): string {
   return `${out}</tbody></table></section>\n`;
 }
 
-function render1(all: Json, id: string, block: Json): string {
+type Surface = 'export' | 'reader';
+
+const readerPlaceholders: Readonly<Record<string, string>> = {
+  image: 'Image or file attachment',
+  mockup: 'Mockup',
+  question: 'Interactive question',
+  'page-view': 'Page view',
+  'work-bundle': 'Work bundle',
+};
+
+function render1(all: Json, id: string, block: Json, surface: Surface): string {
+  if (
+    surface === 'reader' &&
+    typeof block.type === 'string' &&
+    Object.hasOwn(readerPlaceholders, block.type)
+  ) {
+    return `<p><em>${readerPlaceholders[block.type]} is not shown in the shared reader.</em></p>\n`;
+  }
   const props = obj(block.props);
   switch (block.type) {
     case 'paragraph':
@@ -203,7 +220,7 @@ function render1(all: Json, id: string, block: Json): string {
         out += `<summary>${title === undefined ? '' : escape(title)}</summary>`;
         if (meta !== undefined) out += `<p><small>${escape(meta)}</small></p>`;
         out += '\n';
-        out += children(all, id);
+        out += children(all, id, surface);
         return `${out}</details>\n`;
       }
       if (props.variant === 'section') {
@@ -212,7 +229,7 @@ function render1(all: Json, id: string, block: Json): string {
           out += `<h2 class="tmt-ui-section-heading" data-variant="label">${escape(title)}</h2>`;
         }
         out += '\n';
-        out += children(all, id);
+        out += children(all, id, surface);
         return `${out}</section>\n`;
       }
       out += '<section class="tmt-ui-section"><div class="tmt-ui-card">';
@@ -223,7 +240,7 @@ function render1(all: Json, id: string, block: Json): string {
         out += '</div>';
       }
       out += '\n';
-      out += children(all, id);
+      out += children(all, id, surface);
       return `${out}</div></section>\n`;
     }
     case 'question': {
@@ -315,7 +332,7 @@ function render1(all: Json, id: string, block: Json): string {
   }
 }
 
-function children(all: Json, parent: string): string {
+function children(all: Json, parent: string, surface: Surface): string {
   const items = liveChildren(all, parent);
   let out = '';
   let at = 0;
@@ -326,7 +343,7 @@ function children(all: Json, parent: string): string {
       out += listRun(items.slice(at, end));
       at = end;
     } else {
-      out += render1(all, items[at]![0], items[at]![1]);
+      out += render1(all, items[at]![0], items[at]![1], surface);
       at++;
     }
   }
@@ -340,7 +357,7 @@ const STARTER =
 
 /** The page's live blocks as HTML, each block-level fragment on its own line; nothing for a page
  * without live blocks. */
-export function renderBlocks(blocks: unknown): string {
-  const body = children(obj(blocks), 'root');
+export function renderBlocks(blocks: unknown, surface: Surface = 'export'): string {
+  const body = children(obj(blocks), 'root', surface);
   return body === '' ? body : STARTER + body;
 }

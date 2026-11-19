@@ -10,3 +10,18 @@ it('renders nothing for anything that is not an object of blocks', () => {
   expect(renderBlocks(undefined)).toBe('');
   expect(renderBlocks([])).toBe('');
 });
+
+it.each([
+  ['image', 'Image or file attachment'],
+  ['mockup', 'Mockup'],
+  ['question', 'Interactive question'],
+  ['page-view', 'Page view'],
+  ['work-bundle', 'Work bundle'],
+])('names the unavailable %s in shared readers', (type, label) => {
+  const blocks = {
+    child: { type, parent: 'root', pos: 'V', props: { markup: '<p>private mockup</p>' } },
+  };
+  const html = renderBlocks(blocks, 'reader');
+  expect(html).toContain(label + ' is not shown in the shared reader.');
+  expect(html).not.toContain('private mockup');
+});

@@ -4,6 +4,7 @@ import { PageStatusDetails } from './page-status-details.js';
 import { useMedia } from './use-media.js';
 import { subpageTree } from './work-tree.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
+import { renderBlocks } from './blocks-html.js';
 import { ShellNotice } from './shell-notice.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageAttachmentDownload } from './page-attachment-download.js';
@@ -16,7 +17,7 @@ import { ReaderMetadataInfo } from './reader-metadata.js';
 import type { ReaderMetadata } from './link-metadata.js';
 import { ReaderSource, type ReaderEdit } from './reader-source.js';
 import { NoticeCard } from './notice-card.js';
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { mountRenderer, type OutlineSnapshot, type RenderState } from './renderer.js';
 import { PageOutline } from './page-outline.js';
 import { text } from './strings.js';
@@ -61,10 +62,17 @@ export function ReaderApp({
   const [files, setFiles] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const shell = state.kind === 'ready' && state.view.pageType === 'shell';
+  const structured = state.kind === 'ready' && state.view.pageType === 'blocks';
+  const blocks = structured ? state.view.blocks : undefined;
+  const blockSource = useMemo(
+    () => (structured ? renderBlocks(blocks, 'reader') : null),
+    [structured, blocks],
+  );
+  const sourceEditable = !structured && !shell;
   const phone = useMedia('(max-width: 640px)');
-  const mode = canEdit && !shell ? text.readerCanEdit : text.readerOnly;
+  const mode = canEdit && sourceEditable ? text.readerCanEdit : text.readerOnly;
   const descriptors = state.kind === 'ready' ? (state.view.attachments ?? []) : [];
-  const source = state.kind === 'ready' && !shell ? state.view.source : null;
+  const source = state.kind === 'ready' && !shell ? (blockSource ?? state.view.source) : null;
   const title = state.kind === 'ready' ? state.view.title : '';
   const layout = state.kind === 'ready' ? state.view.layout : undefined;
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
@@ -300,7 +308,7 @@ export function ReaderApp({
                     },
                   ]
                 : []),
-              ...(state.kind === 'ready' && edit && !shell
+              ...(state.kind === 'ready' && edit && sourceEditable
                 ? [
                     {
                       key: 'source',
@@ -315,7 +323,8 @@ export function ReaderApp({
                 label: text.readerInfo,
                 leadingIcon: <Info />,
                 heading: text.moreGroups.page,
-                separated: descriptors.length > 0 || (state.kind === 'ready' && !!edit && !shell),
+                separated:
+                  descriptors.length > 0 || (state.kind === 'ready' && !!edit && sourceEditable),
               },
             ]}
             onSelect={(key) => {
@@ -336,7 +345,7 @@ export function ReaderApp({
       >
         {state.kind === 'ready' && (
           <div className="reader-status-row" ref={statusRow}>
-            <span className="chip" data-mode={canEdit && !shell ? 'edit' : 'read'}>
+            <span className="chip" data-mode={canEdit && sourceEditable ? 'edit' : 'read'}>
               {mode}
             </span>
             <span
@@ -364,10 +373,11 @@ export function ReaderApp({
             <Info aria-hidden />
             <div>
               <p id="reader-note-title" className="reader-note-title">
-                {canEdit && !shell ? text.readerNoteTitleEditor : text.readerNoteTitle}
+                {canEdit && sourceEditable ? text.readerNoteTitleEditor : text.readerNoteTitle}
               </p>
               <p className="reader-note-text">
-                {accessNote ?? (canEdit && !shell ? text.readerNoteEditor : text.readerNote)}
+                {accessNote ??
+                  (canEdit && sourceEditable ? text.readerNoteEditor : text.readerNote)}
               </p>
             </div>
           </aside>
@@ -443,7 +453,7 @@ export function ReaderApp({
           </section>
         </div>
       </BrowserDialog>
-      {state.kind === 'ready' && edit && (
+      {state.kind === 'ready' && sourceEditable && edit && (
         <ReaderSource
           source={state.view.source}
           edit={edit}
