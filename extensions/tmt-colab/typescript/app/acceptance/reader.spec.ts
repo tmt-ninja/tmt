@@ -202,6 +202,12 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
       .poll(async () => (await element.boundingBox())?.height ?? Infinity)
       .toBeLessThan(1100);
 
+    await reader.page.reload();
+    await expect(reader.page.getByRole('alert')).toContainText(copy.readerMissing);
+    await reader.page.goto(new URL(readerPath, door.address).href);
+    await expect(frame.locator('#text')).toHaveText('Second text');
+    expect(await reader.page.evaluate(() => location.hash)).toBe('');
+
     // Re-opening the same link in more browsers presents the same derived device: no new row.
     for (const name of ['reader-again-1', 'reader-again-2']) {
       const again = await openReaderLink(world, door, readerPath, name);

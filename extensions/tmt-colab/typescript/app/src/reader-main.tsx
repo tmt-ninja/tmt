@@ -17,7 +17,14 @@ import { startHosted } from './hosted-main.js';
  * before anything else runs and is never stored, logged or sent to the server. */
 const hosted = isHostedOrigin(location.origin);
 let fragment = hosted ? '' : location.hash;
-if (!hosted) history.replaceState(history.state, '', location.pathname + location.search);
+if (!hosted) {
+  history.replaceState(history.state, '', location.pathname + location.search);
+  // Pasting the original link into this tab is a same-document navigation.
+  // Re-enter through the normal link parser and retire any previous reader session.
+  addEventListener('hashchange', () => {
+    if (location.hash) location.reload();
+  });
+}
 const root = createRoot(document.getElementById('root')!);
 let shown: ReaderState = { kind: 'opening' };
 let files: AttachmentBinding | undefined;
@@ -57,6 +64,7 @@ async function start() {
   ) {
     return show({ kind: 'invalid' });
   }
+  if (!fragment) return show({ kind: 'missing' });
   let link;
   const older = isOlderReaderFragment(fragment);
   try {

@@ -1718,6 +1718,8 @@ export const text = {
   readerOpening: 'Opening shared page…',
   readerEnded: 'Access ended',
   readerEndedNote: 'This link no longer gives access to the page. Ask the owner for a new link.',
+  readerMissing:
+    'For safety, opening a shared page removes the access key from its address. Open the original link again in this tab.',
   readerInvalid: 'This link is incomplete or malformed. Open the full link again.',
   readerOlderTitle: 'Link out of date',
   readerOlder:

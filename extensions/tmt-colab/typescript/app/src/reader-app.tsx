@@ -28,6 +28,7 @@ export type ReaderState =
   | { kind: 'opening' }
   | { kind: 'ready'; view: PageView; pageId?: string }
   | { kind: 'ended' }
+  | { kind: 'missing' }
   | { kind: 'invalid' }
   | { kind: 'older' }
   | { kind: 'failed' };
@@ -410,6 +411,7 @@ export function ReaderApp({
             }
           >
             {state.kind === 'ended' && <p>{text.readerEndedNote}</p>}
+            {state.kind === 'missing' && <p>{text.readerMissing}</p>}
             {state.kind === 'invalid' && <p>{text.readerInvalid}</p>}
             {state.kind === 'older' && <p>{text.readerOlder}</p>}
             {state.kind === 'failed' && <p>{text.readerFailed}</p>}
