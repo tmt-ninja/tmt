@@ -30,6 +30,12 @@ export interface WorkFactView {
     | 'discussing'
     | 'unknown';
   known: boolean;
+  titleDiscovery?: {
+    state: 'unconfigured' | 'unknown' | 'partial' | 'complete';
+    number: string;
+    explicitCount: number;
+    ignored: string[];
+  };
   pulls: {
     url: string;
     fact: {
@@ -50,10 +56,15 @@ export interface WorkFactView {
   sectionsOmitted?: true;
 }
 /** Owner-only, bounded derived observations. No GitHub response or page markup is trusted. */
+export interface WorkFactOptions {
+  blockId?: string;
+  exclusion?: { url: string; ignore: boolean };
+}
 export async function readWorkFacts(
   mount: URL,
   pageId: string,
   signal?: AbortSignal,
+  options?: WorkFactOptions,
 ): Promise<WorkFactView> {
   requireValue(validReadingId(pageId));
   const response = await fetch(new URL('api/work-facts', mount), {
@@ -61,7 +72,7 @@ export async function readWorkFacts(
     credentials: 'same-origin',
     cache: 'no-store',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ pageId }),
+    body: JSON.stringify({ pageId, ...options }),
     signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(120_000)]),
   });
   const value = await jsonResponse(response, READING_DETAILS_BYTES);
@@ -75,6 +86,7 @@ export async function readWorkFacts(
     ...(value && typeof value === 'object' && 'lastActivityAtMs' in value
       ? ['lastActivityAtMs']
       : []),
+    ...(value && typeof value === 'object' && 'titleDiscovery' in value ? ['titleDiscovery'] : []),
     ...(value && typeof value === 'object' && 'sections' in value ? ['sections'] : []),
     ...(value && typeof value === 'object' && 'sectionsOmitted' in value
       ? ['sectionsOmitted']
@@ -107,6 +119,29 @@ export async function readWorkFacts(
       'unknown',
     ].includes(value.state as string),
   );
+  if ('titleDiscovery' in value) {
+    const title = value.titleDiscovery;
+    exactKeys(title, ['state', 'number', 'explicitCount', 'ignored']);
+    requireValue(
+      Array.isArray(title.ignored) &&
+        title.ignored.length <= 20 &&
+        title.ignored.every(
+          (url) =>
+            typeof url === 'string' &&
+            /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/.test(
+              url,
+            ),
+        ),
+    );
+    requireValue(
+      ['unconfigured', 'unknown', 'partial', 'complete'].includes(String(title.state)) &&
+        typeof title.number === 'string' &&
+        /^[A-Za-z0-9_-]{1,64}$/.test(title.number) &&
+        Number.isSafeInteger(title.explicitCount) &&
+        Number(title.explicitCount) >= 0 &&
+        Number(title.explicitCount) <= value.pulls.length,
+    );
+  }
   for (const item of value.pulls) {
     exactKeys(item, ['url', 'fact']);
     requireValue(

@@ -108,16 +108,31 @@ struct WorkNumbersRequest {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct WorkFactsRequest {
+    exclusion: Option<TitleExclusion>,
     page_id: String,
+    block_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TitleExclusion {
+    pub url: String,
+    pub ignore: bool,
 }
 
 pub(crate) struct WorkFactsInput {
+    pub exclusion: Option<TitleExclusion>,
     pub device: String,
     pub page: String,
     pub projection: Option<crate::summary::SummaryProjection>,
     pub never_written: bool,
     pub last_activity_at_ms: Option<u64>,
     pub prefix: Option<String>,
+    pub repository: Option<String>,
+    pub numbers: Vec<String>,
+    pub numbered_blocks: std::collections::BTreeMap<String, String>,
+    pub block: Option<String>,
+    pub number: Option<String>,
     pub fingerprint: String,
 }
 impl Context {
@@ -791,13 +806,21 @@ impl Registration {
                 .is_some_and(|reason| !reason.is_empty());
             observed.push((id.clone(), "blocked", Some(blocked), at(id)));
         }
+        let todo_statuses = self
+            .store
+            .todo_pull_statuses(fingerprints, now)
+            .unwrap_or_default();
         let mut complete = Vec::new();
         for (id, todos) in &items {
             for todo in todos {
                 observed.push((
                     format!("{id}:{}", todo.id),
                     "done",
-                    Some(todo.checked),
+                    todo_statuses
+                        .get(&format!("{id}:{}", todo.id))
+                        .map_or(Some(todo.checked), |state| {
+                            (state != "unknown").then(|| state == "done")
+                        }),
                     at(id),
                 ));
             }
@@ -854,6 +877,9 @@ impl Registration {
                         let mut row = serde_json::json!({
                             "id": todo.id, "text": todo.text, "checked": todo.checked,
                         });
+                        if let Some(status) = todo_statuses.get(&item) {
+                            row["pullStatus"] = serde_json::json!(status);
+                        }
                         if let Some(number) = numbers.get(&item) {
                             row["number"] = serde_json::json!(number);
                         }
@@ -1038,7 +1064,49 @@ impl Registration {
             .store
             .release_tag_prefix_for_page(&request.page_id)
             .map_err(|_| Code::Unavailable)?;
+        let repository = self
+            .store
+            .repository_for_page(&request.page_id)
+            .map_err(|_| Code::Unavailable)?;
+        let mut numbers = Vec::new();
+        let mut numbered_blocks = std::collections::BTreeMap::new();
+        let mut number = self
+            .store
+            .work_number(&request.page_id)
+            .map_err(|_| Code::Unavailable)?;
+        numbers.extend(number.iter().cloned());
+        if let Some(id) = &request.block_id {
+            values::generated_id(id).map_err(|_| Code::Invalid)?;
+            if !projection
+                .as_ref()
+                .is_some_and(|p| p.todo_items.iter().any(|t| &t.id == id))
+            {
+                return Err(Code::Denied);
+            }
+            number = None;
+        }
+        if repository.is_some() {
+            for todo in projection.iter().flat_map(|p| &p.todo_items) {
+                if let Some(issued) = self
+                    .store
+                    .work_number(&format!("{}:{}", request.page_id, todo.id))
+                    .map_err(|_| Code::Unavailable)?
+                {
+                    if request.block_id.as_ref() == Some(&todo.id) {
+                        number = Some(issued.clone());
+                    }
+                    numbered_blocks.insert(issued.clone(), todo.id.clone());
+                    numbers.push(issued);
+                }
+            }
+        }
         Ok(WorkFactsInput {
+            exclusion: request.exclusion,
+            numbers,
+            numbered_blocks,
+            block: request.block_id,
+            repository,
+            number,
             device,
             projection,
             never_written: self

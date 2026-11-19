@@ -163,6 +163,7 @@ export interface PageBinding {
   canMetadata?(): boolean;
   /** Invalidate optional owner progress after an already-observed child state changes. */
   refreshProgress?(): void;
+  changeTitleMatch?(url: string, ignore: boolean): Promise<void>;
   /** Freeze the verified revision when opening an editor, never silently retarget a stale choice. */
   metadataRevision?(
     shown: Pick<PageView, 'creator' | 'questions' | 'pageState'> &
@@ -222,6 +223,7 @@ export interface PageTransport {
   workFacts?(
     pageId: string,
     signal: AbortSignal,
+    options?: import('./reading-details.js').WorkFactOptions,
   ): Promise<import('./reading-details.js').WorkFactView>;
   /** Optional, owner-only cached reading metadata. No page subscription, fold or publication. */
   readingDetails?(id: string, signal: AbortSignal): Promise<ReadingDetails>;

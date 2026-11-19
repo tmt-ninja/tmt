@@ -215,6 +215,12 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE project_meta ADD COLUMN order_revision INTEGER NOT NULL DEFAULT 0 CHECK(order_revision >= 0);
     ALTER TABLE project_meta ADD COLUMN order_items TEXT NOT NULL DEFAULT '[]';
     "#,
+    // Schema 27: repository settings and per-work-item title exclusions are owner-local.
+    r#"
+    ALTER TABLE project_meta ADD COLUMN repository TEXT;
+    CREATE TABLE work_title_exclusions(item TEXT NOT NULL, repo TEXT NOT NULL, number INTEGER NOT NULL,
+        PRIMARY KEY(item,repo,number)) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// The schema whose step rewrites stored object envelopes as binary v2 (#5876).

@@ -196,6 +196,7 @@ export function sectionSummaries(value: unknown): void {
 }
 /** One to-do as a work item in the owner list. Display only. */
 export interface TodoWorkItem {
+  pullStatus?: ComputedState;
   id: string;
   text: string;
   checked: boolean;
@@ -223,7 +224,7 @@ function todoWorkItem(value: unknown): void {
   const item = value as Record<string, unknown>;
   exactKeys(
     item,
-    ['id', 'text', 'checked', 'number', 'assignee', 'doneAtMs', 'ask'].filter(
+    ['id', 'text', 'checked', 'number', 'assignee', 'doneAtMs', 'ask', 'pullStatus'].filter(
       (key) => key in item || ['id', 'text', 'checked'].includes(key),
     ),
   );
@@ -231,6 +232,7 @@ function todoWorkItem(value: unknown): void {
     text(item.id, 64) &&
       text(item.text, WORK_TODO_TEXT, true) &&
       typeof item.checked === 'boolean' &&
+      (!('pullStatus' in item) || COMPUTED_STATES.some((state) => state === item.pullStatus)) &&
       (!('number' in item) || text(item.number, WORK_NUMBER_BYTES)) &&
       (!('assignee' in item) || text(item.assignee, ASSIGNEE_BYTES)) &&
       (!('doneAtMs' in item) || (item.checked === true && time(item.doneAtMs))) &&

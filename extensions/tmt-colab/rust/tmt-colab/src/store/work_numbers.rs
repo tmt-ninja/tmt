@@ -214,6 +214,52 @@ impl super::Store {
             )
             .optional()?)
     }
+    pub fn set_title_exclusion(
+        &self,
+        item: &str,
+        repo: &str,
+        pr: i64,
+        ignore: bool,
+    ) -> StoreResult<()> {
+        if ignore {
+            self.connection.execute(
+                "INSERT OR IGNORE INTO work_title_exclusions SELECT ?,?,? WHERE (SELECT count(*) FROM work_title_exclusions WHERE item=? AND repo=?) < 20",
+                params![item,repo,pr,item,repo])?;
+            if !self.title_exclusions(item, repo)?.contains(&pr) {
+                return Err(Fault::Capacity);
+            }
+        } else {
+            self.connection.execute(
+                "DELETE FROM work_title_exclusions WHERE item=? AND repo=? AND number=?",
+                params![item, repo, pr],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn title_exclusions(&self, item: &str, repo: &str) -> StoreResult<Vec<i64>> {
+        let mut query = self.connection.prepare(
+            "SELECT number FROM work_title_exclusions WHERE item=? AND repo=? ORDER BY number",
+        )?;
+        let rows = query.query_map(params![item, repo], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn project_repositories(&self) -> StoreResult<std::collections::BTreeMap<String, String>> {
+        let mut query = self
+            .connection
+            .prepare("SELECT name,repository FROM project_meta WHERE repository IS NOT NULL")?;
+        let rows = query.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn repository_for_page(&self, page: &str) -> StoreResult<Option<String>> {
+        Ok(self.connection.query_row(
+            "SELECT m.repository FROM page_projects p JOIN project_meta m ON m.name=p.project WHERE p.page=? AND m.repository IS NOT NULL ORDER BY p.project LIMIT 1",
+            [page], |row| row.get(0),
+        ).optional()?)
+    }
+
     /// The first canonical project that has an explicit release tag filter.
     pub fn release_tag_prefix_for_page(&self, page: &str) -> StoreResult<Option<String>> {
         Ok(self.connection.query_row(
@@ -326,6 +372,48 @@ impl super::Store {
             rusqlite::params![page, fingerprint, value],
         )?;
         Ok(())
+    }
+    /// Retained item statuses are owner observations; only the current page fold may use them.
+    pub fn todo_pull_statuses(
+        &self,
+        fingerprints: &std::collections::BTreeMap<String, String>,
+        now: u64,
+    ) -> StoreResult<std::collections::HashMap<String, String>> {
+        let mut out = std::collections::HashMap::new();
+        let mut query = self.connection.prepare(
+            "SELECT page,fingerprint,value FROM work_status_cache WHERE instr(page,':')>0",
+        )?;
+        let mut rows = query.query([])?;
+        while let Some(row) = rows.next()? {
+            let item: String = row.get(0)?;
+            let Some((page, _)) = item.split_once(':') else {
+                continue;
+            };
+            let fingerprint: String = row.get(1)?;
+            if fingerprints.get(page) != Some(&fingerprint) {
+                continue;
+            }
+            let raw: String = row.get(2)?;
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            let Some(state) = value["state"].as_str() else {
+                continue;
+            };
+            let Some(at) = value["asOfMs"].as_u64() else {
+                continue;
+            };
+            if value["pulls"].as_array().is_none_or(Vec::is_empty) {
+                continue;
+            }
+            let status = if now < at || now - at >= 60_000 {
+                "unknown"
+            } else {
+                state
+            };
+            out.insert(item, status.to_owned());
+        }
+        Ok(out)
     }
     /// Share one verified fingerprint snapshot across a catalog read.
     pub fn work_status_fingerprints(
@@ -468,6 +556,21 @@ impl super::Store {
         {
             return Ok(None);
         }
+        if let Some(explicit) = value
+            .pointer("/titleDiscovery/explicitCount")
+            .and_then(|v| v.as_u64())
+            && value["pulls"]
+                .as_array()
+                .is_some_and(|p| p.len() > explicit as usize)
+            && value["asOfMs"]
+                .as_u64()
+                .is_none_or(|at| now < at || now - at >= 60_000)
+        {
+            value["titleDiscovery"]["state"] = "partial".into();
+            if matches!(value["state"].as_str(), Some("done" | "waiting-release")) {
+                value["state"] = "unknown".into();
+            }
+        }
         if matches!(
             value["state"].as_str(),
             Some("working" | "possibly-stalled")
@@ -554,6 +657,40 @@ pub(super) fn backfill(connection: &Connection) -> StoreResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ignored_titles_are_scoped_to_item_and_repository_and_can_be_restored() {
+        let root = std::env::temp_dir().join(format!("tmt-work-ignore-{}", std::process::id()));
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let store = crate::store::Store::open(&layout).unwrap();
+        store
+            .set_title_exclusion("item", "org/repo", 7, true)
+            .unwrap();
+        assert_eq!(store.title_exclusions("item", "org/repo").unwrap(), [7]);
+        assert!(
+            store
+                .title_exclusions("other", "org/repo")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            store
+                .title_exclusions("item", "org/other")
+                .unwrap()
+                .is_empty()
+        );
+        store
+            .set_title_exclusion("item", "org/repo", 7, false)
+            .unwrap();
+        assert!(
+            store
+                .title_exclusions("item", "org/repo")
+                .unwrap()
+                .is_empty()
+        );
+        store.close().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn cached_status_keeps_its_observation_time_on_later_reads() {

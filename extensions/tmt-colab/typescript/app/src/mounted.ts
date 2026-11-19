@@ -461,9 +461,9 @@ export async function mountedTransport(
           readWorkActivity(mount, owners, AbortSignal.any([signal, lifetime.signal])),
         );
       },
-      workFacts(pageId, signal) {
+      workFacts(pageId, signal, options) {
         return owned(() =>
-          readWorkFacts(mount, pageId, AbortSignal.any([signal, lifetime.signal])),
+          readWorkFacts(mount, pageId, AbortSignal.any([signal, lifetime.signal]), options),
         );
       },
       readingDetails(id, signal) {

@@ -45,7 +45,7 @@ pub fn command() -> Command {
         .mut_arg("json",|arg|arg.global(true)).subcommand_required(true)
         .subcommand(command_spec!("ls","List every project with its page count","tmt colab project ls --json","Reads only; archived pages count, and a project with no page is listed.").alias("list"))
         .subcommand(command_spec!("create","Create a project with no page yet","tmt colab project create launch","Creating a project that exists changes nothing. Add pages with `project add`.").arg(Arg::new("name").required(true).index(1).help("The new project")))
-        .subcommand(command_spec!("set","Set a project prefix","tmt colab project set launch --prefix REL","The work-number prefix can change until its first number is issued. The release tag prefix filters GitHub release tags.").arg(Arg::new("name").required(true).index(1)).arg(Arg::new("prefix").long("prefix").value_name("PREFIX")).arg(Arg::new("release-tag-prefix").long("release-tag-prefix").value_name("PREFIX")).arg(Arg::new("clear-release-tag-prefix").long("clear-release-tag-prefix").action(ArgAction::SetTrue)).group(clap::ArgGroup::new("setting").args(["prefix", "release-tag-prefix", "clear-release-tag-prefix"]).required(true)))
+        .subcommand(command_spec!("set","Set a project prefix or repository","tmt colab project set launch --prefix REL","The work-number prefix can change until its first number is issued. The release tag prefix filters GitHub release tags.").arg(Arg::new("name").required(true).index(1)).arg(Arg::new("prefix").long("prefix").value_name("PREFIX")).arg(Arg::new("release-tag-prefix").long("release-tag-prefix").value_name("PREFIX")).arg(Arg::new("clear-release-tag-prefix").long("clear-release-tag-prefix").action(ArgAction::SetTrue)).arg(Arg::new("repo").long("repo").value_name("OWNER/REPO").help("Search this repository for work numbers in PR titles")).arg(Arg::new("clear-repo").long("clear-repo").action(ArgAction::SetTrue)).group(clap::ArgGroup::new("setting").args(["repo", "clear-repo", "prefix", "release-tag-prefix", "clear-release-tag-prefix"]).required(true)))
         .subcommand(command_spec!("add","Put a page in projects","tmt colab project add 10000000-0000-4000-8000-000000000001 launch 'q4 plan'","A name no project has yet creates it. Adding a project the page is already in changes nothing. Last writer wins: the command replaces the page's whole project set.").arg(crate::cli_grammar::page()).arg(names("Projects to add")))
         .subcommand(command_spec!("remove","Take a page out of projects","tmt colab project remove 10000000-0000-4000-8000-000000000001 launch","Removing a project the page is not in changes nothing. The project stays, even with no page left.").alias("rm").arg(crate::cli_grammar::page()).arg(names("Projects to remove")))
         .subcommand(command_spec!("rename","Rename a project","tmt colab project rename launch release","Archived pages are included. Renaming onto an existing project merges the two: a page in both keeps one entry. No page is deleted.").arg(Arg::new("name").required(true).index(1).help("The project to rename")).arg(Arg::new("to").required(true).index(2).help("Its new name")))
@@ -167,6 +167,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
     let catalog = inspection::catalog(&store, &key)?;
+    let repositories = store.project_repositories()?;
     let release_tag_prefixes = store.release_tag_prefixes()?;
     let page = match mode {
         "add" | "remove" => Some(resolve_page(
@@ -209,7 +210,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     "automatic: your most recently used projects, until you pin one".into(),
                 ));
             }
-            json!({"spaceId":key.space_id,"pinsAutomatic":automatic,"projects":counts.iter().map(|(name, pages)| json!({"name":name,"pages":pages,"pinned":place(name),"releaseTagPrefix":release_tag_prefixes.get(name)})).collect::<Vec<_>>()})
+            json!({"spaceId":key.space_id,"pinsAutomatic":automatic,"projects":counts.iter().map(|(name, pages)| {let mut row=json!({"name":name,"pages":pages,"pinned":place(name),"releaseTagPrefix":release_tag_prefixes.get(name)}); if let Some(repo)=repositories.get(name){row["repo"]=json!(repo);}row}).collect::<Vec<_>>()})
         }
         "pin" | "unpin" => {
             let name = &names[0];
@@ -274,6 +275,21 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 rows.push(("project", name.clone()));
                 rows.push(("prefix", prefix.clone()));
                 json!({"spaceId":key.space_id,"name":name,"prefix":prefix})
+            } else if args.contains_id("repo") || args.get_flag("clear-repo") {
+                let repo = args.get_one::<String>("repo");
+                if repo.is_some_and(|v| !projects::valid_repository(v)) {
+                    return Err(fail(
+                        "COLAB_INPUT_INVALID",
+                        "Use a GitHub repository in OWNER/REPO form.",
+                    ));
+                }
+                manage(
+                    &layout,
+                    &key,
+                    &json!({"action":"repository","name":name,"repo":repo}),
+                )?;
+                rows.push(("repository", repo.cloned().unwrap_or_else(|| "none".into())));
+                json!({"spaceId":key.space_id,"name":name,"repo":repo})
             } else {
                 let prefix = args
                     .get_one::<String>("release-tag-prefix")

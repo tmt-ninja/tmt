@@ -1,3 +1,4 @@
+import { WorkPullDetails } from './work-pull-details.js';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { BrowserMenu } from '@tmt/browser-ui/react';
 import { Popover, PopoverContent, PopoverTrigger, UiTheme } from '@tmt/browser-ui/ui';
@@ -108,7 +109,11 @@ export function PageWorkBand({
   }, [transport, space]);
   const owner = showsComputedStatus(binding);
   const stateControl = owner ? (
-    <ComputedStatus facts={workFacts} blocked={blockedReason} />
+    <ComputedStatus
+      facts={workFacts}
+      blocked={blockedReason}
+      change={binding?.changeTitleMatch?.bind(binding)}
+    />
   ) : (
     <PageStateMenu binding={binding} state={band.pageState} />
   );
@@ -202,11 +207,15 @@ export function computedTone(state: string): 'blocked' | 'working' | 'waiting' |
         : 'muted';
 }
 
+type ChangeBinding = (url: string, ignore: boolean) => Promise<void>;
+
 function ComputedStatus({
+  change,
   facts,
   blocked,
 }: {
   facts?: import('./reading-details.js').WorkFactView;
+  change?: ChangeBinding;
   blocked?: string;
 }) {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
@@ -242,7 +251,7 @@ function ComputedStatus({
             restoredOnEscape.current = false;
           }}
         >
-          <StatusDetailsBody state={state} facts={facts} blocked={blocked} />
+          <StatusDetailsBody state={state} facts={facts} blocked={blocked} change={change} />
         </PopoverContent>
       </Popover>
     </UiTheme>
@@ -383,12 +392,28 @@ export function PageStateMenu({
 export function StatusDetailsBody({
   state,
   facts,
+  change,
   blocked,
 }: {
   state: import('./reading-details.js').WorkFactView['state'];
   facts?: import('./reading-details.js').WorkFactView;
+  change?: ChangeBinding;
   blocked?: string;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  async function setIgnored(url: string, ignore: boolean) {
+    if (!change || busy) return;
+    setBusy(true);
+    setError(false);
+    try {
+      await change(url, ignore);
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
   const label = t.computedState[state];
   // The PR that decides the status: an open one, or a merged one not yet in a release.
   const prNumber = (wanted: 'open' | 'merged') =>
@@ -415,15 +440,37 @@ export function StatusDetailsBody({
           {t.factAge(relativeTime(facts.activity.observedAtMs, facts.asOfMs))}
         </p>
       )}
-      {facts?.pulls.map(({ url, fact }) => (
-        <p key={url}>
-          PR #{url.split('/').at(-1)} ·{' '}
-          {fact?.tag ? t.releasedIn(fact.tag) : fact ? t.pullState[fact.state] : t.unknown}
-          {fact?.checks && <> · {t.checks[fact.checks]}</>}
-          {fact?.state === 'open' && !fact.checks && <> · {t.checksUnavailable}</>}
-          {fact && <> · {t.factAge(relativeTime(fact.observedAtMs, facts.asOfMs))}</>}
-        </p>
+      {facts?.titleDiscovery && facts.titleDiscovery.state !== 'complete' && (
+        <small>{t.titleDiscovery[facts.titleDiscovery.state]}</small>
+      )}
+      {facts?.pulls.map((pull, index) => (
+        <WorkPullDetails
+          key={pull.url}
+          url={pull.url}
+          fact={pull.fact}
+          asOfMs={facts.asOfMs}
+          provenance={
+            facts.titleDiscovery && index >= facts.titleDiscovery.explicitCount
+              ? t.titleMatch(facts.titleDiscovery.number)
+              : undefined
+          }
+          action={t.ignoreMatch}
+          disabled={busy}
+          onAction={change && (() => void setIgnored(pull.url, true))}
+        />
       ))}
+      {facts?.titleDiscovery?.ignored.map((url) => (
+        <WorkPullDetails
+          key={url}
+          url={url}
+          asOfMs={facts.asOfMs}
+          provenance={t.ignoredMatch}
+          action={t.restoreMatch}
+          disabled={busy}
+          onAction={change && (() => void setIgnored(url, false))}
+        />
+      ))}
+      {error && <p role="alert">{t.bindingFailed}</p>}
       {!facts && <p>{t.statusUnavailable}</p>}
     </>
   );
