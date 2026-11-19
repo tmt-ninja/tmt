@@ -466,26 +466,70 @@ exec /opt/tmt-tests/claude "$@"
           CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '55',
           CLAUDE_MINI_PCT: '60',
           ANTHROPIC_API_KEY: 'fixture-secret',
+          TMT_HOOK_DEBUG: '1',
         }
       );
       const id = identityId(fixture, 'Preset');
       const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
       try {
-        const row = db
-          .prepare(
-            "SELECT value FROM identity_metadata WHERE identity_id = ? AND key = 'resume.launch'"
-          )
-          .get(id) as { value: string };
-        expect(row.value).not.toContain('private prompt');
-        expect(row.value).not.toContain('fixture-secret');
-        expect(JSON.parse(row.value)).toMatchObject({
-          executable: wrapper,
-          harness: 'claude',
-          session,
-          model: 'sonnet',
-          effort: 'high',
-          env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '55', CLAUDE_MINI_PCT: '60' },
-        });
+        try {
+          const row = db
+            .prepare(
+              "SELECT value FROM identity_metadata WHERE identity_id = ? AND key = 'resume.launch'"
+            )
+            .get(id) as { value: string };
+          expect(row.value).not.toContain('private prompt');
+          expect(row.value).not.toContain('fixture-secret');
+          expect(JSON.parse(row.value)).toMatchObject({
+            executable: wrapper,
+            harness: 'claude',
+            session,
+            model: 'sonnet',
+            effort: 'high',
+            env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '55', CLAUDE_MINI_PCT: '60' },
+          });
+        } catch (error) {
+          try {
+            const hooks = existsSync(report)
+              ? (JSON.parse(readFileSync(report, 'utf8')) as Array<{
+                  code: number;
+                  stdout: string;
+                  stderr: string;
+                }>)
+              : [];
+            const [hook] = hooks;
+            console.error(
+              'Bound-seat initial SessionStart failure evidence:',
+              JSON.stringify({
+                event: 'SessionStart',
+                session,
+                hook: hook && {
+                  code: hook.code,
+                  stdout: hook.stdout.slice(0, 4096),
+                  stderr: hook.stderr.slice(0, 4096),
+                },
+                binding: db
+                  .prepare(
+                    'SELECT id, runtime_state, runtime_pid, runtime_start_identity, launch_owner_pid, launch_owner_start_identity, observed_provider_session_id FROM bindings WHERE identity_id=?'
+                  )
+                  .get(id),
+                preference: db
+                  .prepare(
+                    'SELECT remembered_harness, provider_session_id FROM identity_session_preferences WHERE identity_id=?'
+                  )
+                  .get(id),
+                learning: db
+                  .prepare(
+                    'SELECT status, step, reason, detail FROM launch_observations WHERE binding_id=(SELECT id FROM bindings WHERE identity_id=?) ORDER BY created_at_ms DESC LIMIT 4'
+                  )
+                  .all(id),
+              })
+            );
+          } catch (captureError) {
+            console.error('Could not capture bound-seat failure evidence:', captureError);
+          }
+          throw error;
+        }
         await run('preset-unnamed', ['resume']);
         await run(
           'preset-explicit',

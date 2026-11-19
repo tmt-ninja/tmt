@@ -8,6 +8,7 @@ import * as privateTmux from '../support/private-tmux.js';
 import { createCliProbe } from '../support/cli-probe.js';
 import { E2EFixture, withE2EFixture, processState } from './harness.js';
 import { spawnRealTmuxCli, releaseRealTmuxCli, readRealTmuxCli } from './real-tmux-caller.js';
+import { waitForFileContent } from './wait-for-file.js';
 
 describe('CLI executable selection', () => {
   it.each(['default', 'explicit', 'shared probe', 'separate peer'])(
@@ -96,6 +97,28 @@ describe('CLI executable selection', () => {
     },
     20_000
   );
+
+  it('does not pass an ambient launch marker to a private pane child', async () => {
+    vi.stubEnv('TMT_LAUNCH_OBSERVATION', 'ambient marker from the test runner');
+    try {
+      await withE2EFixture(async (fixture) => {
+        const pane = fixture.createShellPane('private-env').pane;
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          'if [ "${TMT_LAUNCH_OBSERVATION+x}" = x ]; then printf present; else printf absent; fi > launch-marker',
+        ]);
+        fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+        expect(await waitForFileContent(path.join(fixture.workspace, 'launch-marker'))).toBe(
+          'absent'
+        );
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 
   it('rejects invalid explicit peer selection before allocating a private server or files', () => {
     const roots = () =>

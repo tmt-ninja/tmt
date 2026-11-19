@@ -352,8 +352,32 @@ exit ${'$'}status
         0o755
       );
 
+      const ambient = { ...process.env };
+      // Provider markers: rust/crates/tmt-adapters/src/drivers/{agy,claude,codex,pi}.rs
+      // (session_env) and rust/crates/tmt-adapters/src/drivers/codex/channel_context.rs.
+      // Herdr markers: drivers/herdr/rust/tmt-driver-herdr/src/lib.rs (caller_env).
+      for (const name of [
+        'TMUX',
+        'TMUX_PANE',
+        'HERDR_PANE_ID',
+        'HERDR_SOCKET_PATH',
+        'TMT_LAUNCH_OBSERVATION',
+        'ANTIGRAVITY_AGENT',
+        'ANTIGRAVITY_CONVERSATION_ID',
+        'CLAUDECODE',
+        'CLAUDE_CODE_SESSION_ID',
+        'CLAUDE_PID',
+        'CODEX_THREAD_ID',
+        'CODEX_SANDBOX',
+        'TMT_CODEX_CHANNEL_BINDING',
+        'TMT_CODEX_CHANNEL_GENERATION',
+        'PI_CODING_AGENT',
+        'PI_SESSION_ID',
+      ]) {
+        delete ambient[name];
+      }
       this.env = {
-        ...process.env,
+        ...ambient,
         PATH: `${this.wrapperDir}${path.delimiter}${process.env.PATH ?? ''}`,
         TMT_E2E_SOCKET: this.socket,
         TMUX_TMPDIR: this.socketRoot,
@@ -388,9 +412,6 @@ exit ${'$'}status
       if (options.metadataBarrier) {
         this.enableMetadataBarrier(options.metadataBarrier);
       }
-      delete this.env.TMUX;
-      delete this.env.TMUX_PANE;
-
       this.tmux(['-V']);
       await this.launchPrivateServer();
       this.started = true;
