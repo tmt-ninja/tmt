@@ -1346,7 +1346,11 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           'Enter',
         ]);
         try {
-          await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), board);
+          // Startup already paints the title. Wait for the scoped board before sending keys.
+          await fixture.waitForCapture(
+            (screen) => screen.includes('OPS / UI') && screen.includes('Scope: product'),
+            board
+          );
           fixture.tmux(['send-keys', '-t', board, 'Home', 'Right']);
           fixture.tmux(['send-keys', '-t', board, '/', name, 'Enter']);
           await fixture.waitForCapture((screen) => /1 of 1/.test(screen), board);

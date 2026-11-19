@@ -1896,7 +1896,10 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           .split('\n')
           .find((line) => /^[ \t]*[├└][^│\n]*auth-fix\b/.test(line))
           ?.split('│')[0];
-      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('OPS / UI') && screen.includes('Scope: product'),
+        shell.pane
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, '1']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter']);
@@ -1990,7 +1993,10 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         'tmt ops ui; echo WHEEL_BOARD_EXIT=$?',
         'Enter',
       ]);
-      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('OPS / UI') && screen.includes('SQUAD / AGENT'),
+        shell.pane
+      );
 
       // tmux sends the wheel to the pane only while the pane asks for mouse reports
       // (`mouse_any_flag`); without them its default binding enters copy-mode.
@@ -2074,7 +2080,10 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           'tmt ops ui --squad product; echo PASSTHROUGH_BOARD_EXIT=$?',
           'Enter',
         ]);
-        await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), board.pane);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('OPS / UI') && screen.includes('Scope: product'),
+          board.pane
+        );
         fixture.tmux(['send-keys', '-t', board.pane, '1']);
         await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), board.pane);
         fixture.tmux(['send-keys', '-t', board.pane, '/', 'chat-worker', 'Enter', 'End']);
@@ -2174,7 +2183,10 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         'tmt ops ui --squad product; echo QUOTE_BOARD_EXIT=$?',
         'Enter',
       ]);
-      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('OPS / UI') && screen.includes('Scope: product'),
+        shell.pane
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, '1']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
@@ -2257,7 +2269,10 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         'tmt ops ui --squad product; echo BUSY_BOARD_EXIT=$?',
         'Enter',
       ]);
-      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('OPS / UI') && screen.includes('Scope: product'),
+        shell.pane
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, '1']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
@@ -2498,7 +2513,10 @@ child.stdout.pipe(process.stdout);
         `TMT_EXECUTABLE=${quote(observer)} tmt-ops ui --squad product; echo ANSWER_BOARD_EXIT=$?`,
         'Enter',
       ]);
-      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('OPS / UI') && screen.includes('Scope: product'),
+        shell.pane
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, '1']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
@@ -2596,7 +2614,10 @@ child.stdout.pipe(process.stdout);
           'tmt ops ui --squad product; echo LINK_BOARD_EXIT=$?',
           'Enter',
         ]);
-        await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('OPS / UI') && screen.includes('Scope: product'),
+          shell.pane
+        );
         fixture.tmux(['send-keys', '-t', shell.pane, '1']);
         await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
@@ -2722,7 +2743,10 @@ child.stdout.pipe(process.stdout);
         'tmt ops ui --squad product; echo SCREEN_BOARD_EXIT=$?',
         'Enter',
       ]);
-      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('OPS / UI') && screen.includes('Scope: product'),
+        shell.pane
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, '1']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
@@ -2799,7 +2823,7 @@ child.stdout.pipe(process.stdout);
         'Enter',
       ]);
       await fixture.waitForCapture(
-        (screen) => screen.includes('product') && screen.includes('OPS / UI'),
+        (screen) => screen.includes('Scope: product') && screen.includes('OPS / UI'),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Right', 'Down']);
@@ -2813,7 +2837,7 @@ child.stdout.pipe(process.stdout);
       fixture.tmux(['send-keys', '-t', shell.pane, 'clear; tmt ops ui --squad product', 'Enter']);
       await fixture.waitForCapture(
         (screen) =>
-          screen.includes('product') &&
+          screen.includes('Scope: product') &&
           screen.includes('OPS / UI') &&
           !screen.includes('BOARD_EXIT'),
         shell.pane
