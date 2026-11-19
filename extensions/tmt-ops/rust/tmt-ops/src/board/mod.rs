@@ -799,7 +799,7 @@ fn session(
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
     checklist: impl Fn(checklist::load::Task),
     io: impl Fn(lane::Job),
-    labels_scope: impl Fn(crate::labels::Scope),
+    labels_scope: impl Fn(crate::labels::ReadDemand),
     usage_wants: impl Fn(Option<usage_report::Request>),
     mut suspend: impl FnMut() -> io::Result<()>,
     mut reassert_mouse: impl FnMut() -> io::Result<()>,
@@ -827,7 +827,7 @@ fn session(
     let mut deferred: Option<BoardEvent> = None;
     let mut wanted: Option<usage_report::Request> = None;
     // The labels reader was started with the window the app opens with.
-    let mut labels_published = crate::labels::Scope {
+    let mut labels_published = crate::labels::ReadDemand {
         window: app.digest_window(),
         digest_visible: false,
     };
@@ -962,7 +962,7 @@ fn session(
         spinner = next_spinner;
         marks = next_marks;
         // Window or Digest visibility changes wake the same reader; member selection does not.
-        let labels_want = crate::labels::Scope {
+        let labels_want = crate::labels::ReadDemand {
             window: app.digest_window(),
             digest_visible: app.shell.tab == shell::OpsTab::Digest,
         };

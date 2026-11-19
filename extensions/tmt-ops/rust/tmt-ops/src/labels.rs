@@ -209,14 +209,14 @@ impl Default for Timing {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Scope {
+pub(crate) struct ReadDemand {
     pub window: DigestWindow,
     pub digest_visible: bool,
 }
 
 enum Signal {
     Read,
-    Scope(Scope),
+    Scope(ReadDemand),
     Stop,
 }
 
@@ -232,7 +232,7 @@ enum Wake {
 fn pending(
     wake: &mpsc::Receiver<Signal>,
     first: Option<Signal>,
-    scope: &mut Scope,
+    scope: &mut ReadDemand,
 ) -> Option<Wake> {
     let mut next = Wake::Unchanged;
     for signal in first.into_iter().chain(wake.try_iter()) {
@@ -256,7 +256,7 @@ pub struct Refresh(mpsc::Sender<Signal>);
 
 impl Refresh {
     /// Select the supplier window and whether the Digest panel needs settled counts.
-    pub(crate) fn scope(&self, scope: Scope) {
+    pub(crate) fn scope(&self, scope: ReadDemand) {
         let _ = self.0.send(Signal::Scope(scope));
     }
 
@@ -293,7 +293,7 @@ impl Reader {
             let mut last: Vec<Option<(Snapshot, Instant)>> = vec![None; sources.len()];
             let mut sent = Supplied::default();
             let mut wait = timing.every;
-            let mut scope = Scope {
+            let mut scope = ReadDemand {
                 window: initial_window,
                 digest_visible: false,
             };

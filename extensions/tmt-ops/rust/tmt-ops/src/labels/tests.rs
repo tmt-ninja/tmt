@@ -477,7 +477,7 @@ fn a_savings_window_change_reuses_the_one_reader_and_its_source_argv() {
     let (reader, received) = reader(&fake_core(&scratch, &before), timing);
     let first = next(&received);
     assert_eq!(recorded_calls(&scratch).len(), 1);
-    reader.refresher().scope(Scope {
+    reader.refresher().scope(ReadDemand {
         window: DigestWindow::Week,
         digest_visible: false,
     });
@@ -554,7 +554,7 @@ fi
     eventually("old-window read reached its barrier", || {
         scratch.join("started").exists()
     });
-    reader.refresher().scope(Scope {
+    reader.refresher().scope(ReadDemand {
         window: DigestWindow::Week,
         digest_visible: false,
     });
@@ -608,7 +608,7 @@ fn settled_report_is_read_for_visible_digest_and_keeps_scoped_counts_distinct_fr
     );
     assert!(next(&received).settled(DigestWindow::Day).is_none());
     assert_eq!(recorded_calls(&scratch).len(), 1);
-    reader.refresher().scope(Scope {
+    reader.refresher().scope(ReadDemand {
         window: DigestWindow::Day,
         digest_visible: true,
     });
