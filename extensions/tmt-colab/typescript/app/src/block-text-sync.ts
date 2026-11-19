@@ -40,6 +40,8 @@ export interface TableCell {
 export class BlockTextSync {
   /** The page text that local typing started from. */
   #base: string;
+  /** The person typed in this editor (`changed`). */
+  #changed = false;
   /** What the editor shows now. */
   #local: string;
   /** The op on its way, with the base it was sent with. */
@@ -79,7 +81,14 @@ export class BlockTextSync {
 
   /** The person typed: the editor now shows `text`. */
   typed(text: string): void {
+    if (text !== this.#local) this.#changed = true;
     this.#local = text;
+  }
+
+  /** Whether the person changed the text in this editor, sent or not; the page's own changes
+   * never count. */
+  get changed(): boolean {
+    return this.#changed;
   }
 
   /** The op for typing not sent yet, or none (nothing new, or an op already on its way). */
