@@ -79,7 +79,3 @@
 .shortcut-editor .shortcut-extra {
   margin: 0;
 }
-.shortcut-editor .tmt-ui-field-description {
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-page-subtitle-compact-size);
-}

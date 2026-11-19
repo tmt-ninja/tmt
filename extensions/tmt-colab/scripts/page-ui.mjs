@@ -28,8 +28,10 @@ import { readFile } from 'node:fs/promises';
 // rest (`:focus-within:not(:has(> a:focus:not(:focus-visible)))`): 133,660 -> 133,820 (+160), exact,
 // no headroom (GUI lead approval). A page frame draws neither the shell drawer nor the rail, so
 // #5809's stripping of app chrome recovers these bytes.
+// Field help size: the description and error take the label's size in body weight (#6703):
+// 133,820 -> 133,999 (+179), exact, no headroom (GUI lead approval on #6703).
 // Measured by buildPageUi() with Node v26.12.1.
-export const PAGE_UI_LIMIT = 133_820;
+export const PAGE_UI_LIMIT = 133_999;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the

@@ -149,9 +149,3 @@
   background: transparent;
   color: var(--tmt-ui-color-secondary);
 }
-/* The field's help and error read at its label's size, not the drawer's body size: BrowserField
-   gives them colour only. */
-.project-prefix :is(.tmt-ui-field-description, .tmt-ui-field-error) {
-  font: var(--tmt-ui-host-field-label-weight) var(--tmt-ui-host-field-label-size) /
-    var(--tmt-ui-host-field-label-line-height) var(--tmt-ui-host-field-label-font);
-}

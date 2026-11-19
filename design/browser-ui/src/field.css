@@ -38,6 +38,13 @@
   background: var(--tmt-ui-surface-disabled);
   opacity: 1;
 }
+/* A field's help and error lines read at its label's size in body weight, wherever the field
+   sits (#6703). Only these lines: a field may hold a listbox or chips with their own type, and a
+   page may use the classes alone for a page-level notice at its own size. */
+.tmt-ui-field > :is(.tmt-ui-field-description, .tmt-ui-field-error) {
+  font: 400 var(--tmt-ui-host-field-label-size) / var(--tmt-ui-host-field-label-line-height)
+    var(--tmt-ui-font-body);
+}
 .tmt-ui-field-description {
   color: var(--tmt-ui-color-secondary);
 }
