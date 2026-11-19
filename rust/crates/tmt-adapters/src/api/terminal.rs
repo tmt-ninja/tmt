@@ -536,14 +536,18 @@ pub(super) fn open(paths: &ConfigPaths, storage: &mut Storage, id: &str) -> Resu
                 terminal::TERMINAL_LIMIT
             ),
         )),
-        Err(TerminalError::Unconfirmed { id, cause }) => Err(Fault::detailed(
-            "TERMINAL_OPEN_UNCONFIRMED",
-            format!(
-                "Terminal {id} was not confirmed and may be running; list or close it, do not open again to retry: {cause}"
-            ),
-        )),
+        Err(TerminalError::Unconfirmed { id, cause }) => Err(unconfirmed_open(id, cause)),
         Err(error) => Err(failed(format!("Nothing was started: {error}."))),
     }
+}
+
+fn unconfirmed_open(id: String, cause: std::io::Error) -> Fault {
+    Fault::terminal_open_unconfirmed(
+        format!(
+            "Terminal {id} was not confirmed and may be running; list or close it, do not open again to retry: {cause}"
+        ),
+        id,
+    )
 }
 
 pub(super) fn list(paths: &ConfigPaths, storage: &mut Storage, id: &str) -> Result<Vec<u8>, Fault> {
@@ -696,6 +700,21 @@ mod tests {
         binding::BindingRepository,
         identity::{Lifetime, create_or_resolve},
     };
+
+    #[test]
+    fn an_unconfirmed_open_reports_its_terminal_id_in_the_error_envelope() {
+        let id = "term_11111111111111111111111111111111";
+        let fault = unconfirmed_open(id.into(), std::io::Error::other("fixture timeout"));
+        assert_eq!(fault.status(), 1);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fault.encode()).unwrap(),
+            json!({"error":{
+                "code":"TERMINAL_OPEN_UNCONFIRMED",
+                "message":format!("Terminal {id} was not confirmed and may be running; list or close it, do not open again to retry: fixture timeout"),
+                "terminalId":id,
+            }})
+        );
+    }
 
     #[test]
     fn requests_admit_only_an_exact_canonical_uuid() {

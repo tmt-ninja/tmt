@@ -574,8 +574,11 @@ directory}` once the new supervisor names its owner. `terminalId` and `pane` are
   presence check on any host (`NAME_NOT_FOUND`, `TERMINAL_STREAM_UNAVAILABLE`). A ninth terminal is
   `TERMINAL_LIMIT`; the count and the start are one step per member, so concurrent
   opens cannot pass 8. `TERMINAL_OPEN_FAILED` means nothing was started.
-  `TERMINAL_OPEN_UNCONFIRMED` names the terminal id in its message: it may be running,
-  so a caller lists or closes it and never opens again to retry.
+  `TERMINAL_OPEN_UNCONFIRMED` means the terminal may be running. Its error object
+  includes a string `error.terminalId` in the same format when the ID is known.
+  Callers use that field rather than the human message. A missing or invalid ID
+  leaves the open unconfirmed. List the member's terminals or close a known ID,
+  and never open again to retry.
 - `terminal.run` `{identityId, terminalId, command}` submits one human-confirmed command
   to an existing extra terminal's shell. It answers `{identityId, terminalId, submitted: true}`
   after the supervisor queues the exact command as paste plus Enter. This confirms submission,

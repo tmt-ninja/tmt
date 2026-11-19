@@ -106,7 +106,7 @@ elif wire['operation'] in ('terminal.list','terminal.open','terminal.run'):
     elif op=='terminal.open':
         assert set(wire['input'])=={'identityId'}
         if (root/'terminal-open-lost').exists():
-            print(json.dumps({'error':{'code':'TERMINAL_OPEN_UNCONFIRMED','message':'Terminal '+term+' was not confirmed'}}));sys.exit(1)
+            print(json.dumps({'error':{'code':'TERMINAL_OPEN_UNCONFIRMED','message':'Terminal startup could not be confirmed','terminalId':term}}));sys.exit(1)
         print(json.dumps({'identityId':ident,'terminalId':term,'directory':'private-directory'}))
     else:
         assert set(wire['input'])=={'identityId','terminalId','command'}

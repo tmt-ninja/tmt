@@ -330,14 +330,25 @@ impl CoreClient {
         if success {
             return Ok(document);
         }
-        match (
-            document["error"]["code"].as_str(),
-            document["error"]["message"].as_str(),
-        ) {
-            (Some(code), Some(message)) => Err(RemoteError::new(code, message)),
-            _ => Err(failure("Core failed without a structured error.")),
-        }
+        Err(decode_error(&document, argv))
     }
+}
+
+fn decode_error(document: &Value, argv: &[&str]) -> RemoteError {
+    let error = &document["error"];
+    let (Some(code), Some(message)) = (error["code"].as_str(), error["message"].as_str()) else {
+        return failure("Core failed without a structured error.");
+    };
+    let refusal = RemoteError::new(code, message);
+    if argv == ["api"]
+        && code == "TERMINAL_OPEN_UNCONFIRMED"
+        && let Some(id) = error["terminalId"]
+            .as_str()
+            .filter(|id| crate::canonical::terminal_id(id))
+    {
+        return refusal.with_unconfirmed_terminal_id(id);
+    }
+    refusal
 }
 fn agent_identity_error(error: RemoteError) -> RemoteError {
     match error.code.as_str() {
@@ -376,6 +387,36 @@ fn invocation_error(error: InvokeError) -> RemoteError {
             RemoteError::new("REMOTE_IO", "Remote I/O failed; the door is closed.")
         }
     }
+}
+
+#[test]
+fn core_unconfirmed_open_id_is_canonical_and_private() {
+    let id = "term_11111111111111111111111111111111";
+    let message = format!("Terminal {id} may be running.");
+    let mut document = json!({"error":{"code":"TERMINAL_OPEN_UNCONFIRMED","message":message}});
+    let public = document.clone();
+    let absent = decode_error(&document, &["api"]);
+    assert_eq!(absent.unconfirmed_terminal_id(), None);
+    assert_eq!(absent.json_value(), public);
+    for invalid in [
+        Value::Null,
+        json!(42),
+        json!("term_1"),
+        json!("term_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+    ] {
+        document["error"]["terminalId"] = invalid;
+        assert_eq!(decode_error(&document, &["api"]), absent);
+    }
+    document["error"]["terminalId"] = json!(id);
+    let known = decode_error(&document, &["api"]);
+    assert_eq!(known.unconfirmed_terminal_id(), Some(id));
+    assert_eq!(known.json_value(), public);
+    assert_eq!(decode_error(&document, &["check"]), absent);
+    document["error"]["code"] = json!("TERMINAL_OPEN_FAILED");
+    assert_eq!(
+        decode_error(&document, &["api"]).unconfirmed_terminal_id(),
+        None
+    );
 }
 
 #[cfg(test)]

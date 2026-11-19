@@ -121,6 +121,7 @@ enum FaultDetail {
     MetadataConflicts(tmt_core::identity_metadata::MetadataConflicts),
     /// For an `identity.stop` refusal: whether a TERM was, or may have been, sent.
     Signalled(bool),
+    TerminalOpenId(String),
 }
 impl Fault {
     pub fn new(code: &'static str, message: &'static str) -> Self {
@@ -173,6 +174,12 @@ impl Fault {
         self
     }
 
+    pub(super) fn terminal_open_unconfirmed(message: String, terminal_id: String) -> Self {
+        let mut fault = Self::detailed("TERMINAL_OPEN_UNCONFIRMED", message);
+        fault.detail = Some(Box::new(FaultDetail::TerminalOpenId(terminal_id)));
+        fault
+    }
+
     pub fn status(&self) -> u8 {
         if self.code == "METADATA_CONFLICT" {
             5
@@ -193,6 +200,7 @@ impl Fault {
         match self.detail.as_deref() {
             Some(FaultDetail::MetadataConflicts(current)) => error["current"] = json!(current),
             Some(FaultDetail::Signalled(signalled)) => error["signalled"] = json!(signalled),
+            Some(FaultDetail::TerminalOpenId(id)) => error["terminalId"] = json!(id),
             None => (),
         }
         if self.code == "API_VERSION_UNSUPPORTED" {

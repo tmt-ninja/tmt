@@ -44,6 +44,16 @@ impl RemoteError {
         self.detail = Some(Box::new(ErrorDetail::OwnedRead(failure)));
         self
     }
+    pub(crate) fn with_unconfirmed_terminal_id(mut self, id: &str) -> Self {
+        self.detail = Some(Box::new(ErrorDetail::UnconfirmedTerminalId(id.into())));
+        self
+    }
+    pub(crate) fn unconfirmed_terminal_id(&self) -> Option<&str> {
+        match self.detail.as_deref() {
+            Some(ErrorDetail::UnconfirmedTerminalId(id)) => Some(id),
+            _ => None,
+        }
+    }
     pub fn json_value(&self) -> serde_json::Value {
         let mut value =
             serde_json::json!({"error":{"code":self.code,"message":self.json_message()}});
@@ -250,6 +260,7 @@ enum ErrorDetail {
     DeployPreview(serde_json::Value),
     DeployInputs(crate::deploy_input::RequiredInputs),
     OwnedRead(OwnedReadFailure),
+    UnconfirmedTerminalId(String),
     DeployProvider(DeployProviderDiagnostic),
     CloudProvider(CloudProviderDiagnostic),
     CloudDocument(CloudDocumentReason),
