@@ -114,6 +114,7 @@ pub struct TodoItem {
     pub text: String,
     pub checked: bool,
     pub assignee: Option<String>,
+    pub due: Option<String>,
     /// The state of the Ask this to-do came from, linked by the block's `thread` prop (#6594):
     /// `sent`, `needs-you` (answered, its thread still open) or `answered` (answered, its thread
     /// resolved). `None` for a to-do no Ask made. Display only, owner-local.
@@ -273,6 +274,7 @@ fn fold_details(
                 id: id.clone(),
                 text: cut(text, crate::limits::WORK_TODO_TEXT),
                 checked: block["props"]["checked"] == true,
+                due: block["props"]["due"].as_str().map(str::to_owned),
                 assignee: block["props"]["assignee"]
                     .as_str()
                     .filter(|name| !name.is_empty())

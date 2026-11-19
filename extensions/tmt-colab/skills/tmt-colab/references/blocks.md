@@ -19,6 +19,7 @@ tmt colab block get PAGE BLOCK --json                                  # one blo
 tmt colab block insert PAGE --type heading --props '{"level":2}' --text 'Plan' --json   # prints blockIds
 tmt colab block insert PAGE --type paragraph --text 'First' --after BLOCK --json        # --first, or --parent CARD
 tmt colab block props PAGE BLOCK --set level=3 --unset tone --json
+tmt colab block props PAGE TODO --set due=2026-11-22 --json              # remove the date with --unset due
 tmt colab block move PAGE BLOCK --parent CARD --after SIBLING --json
 tmt colab block delete PAGE BLOCK --json                               # and: block restore PAGE BLOCK
 tmt colab block batch PAGE --file ops.json --json                      # many ops, all or nothing

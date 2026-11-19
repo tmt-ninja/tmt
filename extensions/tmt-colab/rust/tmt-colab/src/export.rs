@@ -485,7 +485,11 @@ impl Bundle {
         Ok(Self {
             contents,
             files,
-            disclosure: DISCLOSURE,
+            disclosure: if content_name == "shell.json" {
+                "This creates an unencrypted copy of the dashboard. Dashboard data is in shell.json. Anyone with these files can read it."
+            } else {
+                DISCLOSURE
+            },
             standalone: derived.map(|derived| derived.outcome),
         })
     }

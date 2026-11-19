@@ -229,7 +229,14 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         &now,
     );
     let closed = store.close();
-    let prepared = prepared?;
+    let prepared = prepared.map_err(|error| {
+        if error.downcast_ref::<Fault>() == Some(&Fault::DuplicateDashboardItem)
+            && let Some(id) = body["itemId"].as_str()
+        {
+            return fail("COLAB_INPUT_INVALID", &format!("Dashboard item {id} already exists. Use a new item ID or update it with item-set."));
+        }
+        error
+    })?;
     closed?;
     let receipt = crate::publish_structured_owned(
         &layout,

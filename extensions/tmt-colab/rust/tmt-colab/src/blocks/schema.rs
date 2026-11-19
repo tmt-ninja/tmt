@@ -170,7 +170,7 @@ fn props_bytes(block_type: &str) -> usize {
 fn int(value: &Value, low: u64, high: u64) -> Result<()> {
     require(value.as_u64().is_some_and(|n| (low..=high).contains(&n)))
 }
-fn date(value: &str) -> bool {
+pub(super) fn date(value: &str) -> bool {
     let b = value.as_bytes();
     b.len() == 10
         && b[4] == b'-'

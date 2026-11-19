@@ -891,6 +891,9 @@ impl Registration {
                         if let Some(number) = numbers.get(&item) {
                             row["number"] = serde_json::json!(number);
                         }
+                        if let Some(due) = todo.due {
+                            row["due"] = due.into();
+                        }
                         if let Some(assignee) = todo.assignee {
                             row["assignee"] = serde_json::json!(assignee);
                         }
@@ -2761,6 +2764,7 @@ mod describe_tests {
             id: id.to_owned(),
             text: format!("Item {id}"),
             checked,
+            due: (id == "t1").then(|| "2026-11-22".to_owned()),
             assignee: checked.then(|| "gui-3".to_owned()),
             ask: None,
         };
@@ -2803,6 +2807,8 @@ mod describe_tests {
         assert!(first[bare]["summary"].get("sectionsOmitted").is_none());
         let todos = &first[bare]["summary"]["todos"];
         assert_eq!(todos[0]["text"], "Item t1");
+        assert_eq!(todos[0]["due"], "2026-11-22");
+        assert!(todos[1].get("due").is_none());
         assert_eq!(todos[0]["assignee"], "gui-3");
         let done_at = todos[0]["doneAtMs"].as_u64().unwrap();
         stamped(done_at);

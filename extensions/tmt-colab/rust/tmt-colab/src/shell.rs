@@ -129,6 +129,9 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
                 order.insert(index, Value::String(key.into()));
             } else {
                 require(items.contains_key(key))?;
+                if action == "item.move" && body.get("beforeId") == Some(&body["itemId"]) {
+                    return Ok(next);
+                }
                 if action == "item.set" {
                     validate_item(&body["item"])?;
                     items.insert(key.into(), body["item"].clone());
