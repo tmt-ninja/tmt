@@ -182,6 +182,8 @@ pub enum StructuredKind {
     Blocks,
     /// One revision-fenced conversion from HTML to an empty blocks page.
     Conversion,
+    /// The page's title (#6709): an owner rename of `meta.title`, which every reader already folds.
+    Title,
 }
 impl StructuredKind {
     /// The `meta` key that holds the value.
@@ -196,6 +198,7 @@ impl StructuredKind {
             Self::WorkFields => "owner",
             Self::Blocks => "blocks",
             Self::Conversion => "convertedAt",
+            Self::Title => "title",
         }
     }
 }
@@ -1386,6 +1389,12 @@ fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<V
             expected["meta"]["creator"] =
                 crate::question_registry::set_creator(&edit.body, &edit.attribution)
                     .map_err(|_| DecodeFault::InvalidInput)?;
+        }
+        StructuredKind::Title if edit.action == "page.title" => {
+            expected["meta"]["title"] = serde_json::json!(
+                crate::page_state::validate_title(&edit.action, &edit.body)
+                    .map_err(|_| DecodeFault::InvalidInput)?
+            );
         }
         StructuredKind::PageState if !shell && edit.action == "page.state" => {
             crate::page_state::validate_action(&edit.action, &edit.body)

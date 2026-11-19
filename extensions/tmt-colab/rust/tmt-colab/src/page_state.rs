@@ -9,6 +9,20 @@ pub(crate) fn validate_action(action: &str, body: &serde_json::Value) -> crate::
     crate::closed::require(crate::decoder::valid_page_state(&body["state"]))
 }
 
+/// A rename (#6709): the new title under the sub-page title grammar (trimmed, non-empty, inert,
+/// within the page title bound), which `page_titles` and every baseline accept.
+pub(crate) fn validate_title<'a>(
+    action: &str,
+    body: &'a serde_json::Value,
+) -> crate::closed::Result<&'a str> {
+    crate::closed::require(action == "page.title")?;
+    crate::closed::keys(body, &["title"], &[])?;
+    let title = crate::subpage_create::title(&body["title"])?;
+    // Stored exactly as sent: a title with outer spaces is refused, not silently changed.
+    crate::closed::require(title.len() == body["title"].as_str().map_or(0, str::len))?;
+    Ok(title)
+}
+
 /// The four optional work fields are signed content, not an authorization grant.
 pub(crate) const WORK_FIELDS: [&str; 4] = ["owner", "priority", "next", "blocked"];
 

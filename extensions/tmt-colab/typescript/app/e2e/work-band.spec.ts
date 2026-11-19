@@ -248,6 +248,72 @@ test('an owner can change the manual page state from More', async ({ page }) => 
   await expect(drawer.getByRole('button', { name: /^Page state:/ })).toContainText('Done');
 });
 
+test('the owner renames the page in its title row, and from More (#6709)', async ({ page }) => {
+  await mount(page);
+  // The title row under the bar is where the page is renamed; the bar only follows it. The status
+  // details the mount opened stay open: the first click on the title closes them, and the field
+  // keeps the focus they would return to their chip.
+  const bar = page.locator('.page-mobile-title:visible');
+  const titleButton = bar.getByRole('button', { name: 'Release plan', exact: true });
+  await expect(titleButton).toHaveText('Release plan');
+  // The heading keeps the title as its name; the button says what it does (#6721).
+  await expect(bar.getByRole('heading', { name: 'Release plan', exact: true })).toBeVisible();
+  await expect(titleButton).toHaveAccessibleDescription('Rename the page');
+  // Escape restores the title and sends nothing.
+  await titleButton.click();
+  const field = bar.getByRole('textbox', { name: 'Page title' });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue('Release plan');
+  await field.fill('Something else');
+  await page.keyboard.press('Escape');
+  await expect(field).toHaveCount(0);
+  await expect(titleButton).toHaveText('Release plan');
+  // An empty or multi-line title says why and sends nothing.
+  await titleButton.click();
+  await field.fill('   ');
+  await page.keyboard.press('Enter');
+  await expect(field).toHaveAttribute('aria-invalid', 'true');
+  await expect(bar.getByRole('alert')).toHaveText('Give the page a title.');
+  await expect(field).toHaveAccessibleDescription('Give the page a title.');
+  expect((await calls(page)).filter((call) => call.action === 'page.title')).toEqual([]);
+  // Enter saves the trimmed title: the bar and the tab follow it.
+  await field.fill('  Launch plan  ');
+  await page.keyboard.press('Enter');
+  await expect(field).toHaveCount(0);
+  await expect(bar.getByRole('button', { name: 'Launch plan', exact: true })).toHaveText(
+    'Launch plan',
+  );
+  await expect(page).toHaveTitle(/^Launch plan · /);
+  await expect(page.locator('.colab-topbar-identity:visible')).toContainText('Launch plan');
+  await expect(page.locator('.colab-topbar-identity:visible .page-title-rename')).toHaveCount(0);
+  expect((await calls(page)).filter((call) => call.action === 'page.title')).toEqual([
+    { page: 'notes', action: 'page.title', body: { title: 'Launch plan' } },
+  ]);
+  // More's Rename… opens the same editor; a change on another device keeps it open with the reason.
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue('Launch plan');
+  await page.evaluate(() => (window.__workPage!.renameStale = true));
+  await field.fill('Launch plan v2');
+  await page.keyboard.press('Enter');
+  await expect(bar.getByRole('alert')).toContainText('changed on another device');
+  await expect(field).toBeVisible();
+  // Leaving the field saves too.
+  await page.keyboard.press('Tab');
+  await expect(field).toHaveCount(0);
+  await expect(bar.getByRole('button', { name: 'Launch plan v2', exact: true })).toBeVisible();
+});
+
+test('a viewer reads the title and cannot rename the page (#6709)', async ({ page }) => {
+  await mount(page, false);
+  const bar = page.locator('.page-mobile-title:visible');
+  await expect(bar).toContainText('Release plan');
+  await expect(bar.locator('.page-title-rename')).toHaveCount(0);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Rename…' })).toHaveCount(0);
+});
+
 for (const state of ['working', 'possibly-stalled'] as const)
   for (const width of [1440, 390])
     for (const theme of ['light', 'dark'] as const)

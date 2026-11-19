@@ -5,7 +5,7 @@ import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageStateMenu, PageWorkBand, showsComputedStatus } from './work-band-live.js';
 import { htmlOutlineSections, liveSections, sectionTotals } from './section-view.js';
-import { MobileWorkTitle } from './work-band.js';
+import { MobileWorkTitle, renameOnOpen } from './work-band.js';
 import { useMedia } from './use-media.js';
 import { Sheet, SheetContent, SheetTitle, UiTheme } from '@tmt/browser-ui/ui';
 import { PageStatusDetails } from './page-status-details.js';
@@ -1607,6 +1607,7 @@ function OpenPage({
   const compactBar = useMedia('(max-width: 900px)');
   const uiTheme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const [manualStateOpen, setManualStateOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const addSubpageDraft = useRef<import('./page-list-search.js').SearchEdit | undefined>(undefined);
   const {
     reset: resetPageLinks,
@@ -1740,6 +1741,26 @@ function OpenPage({
     asks: snapshot.asks,
     threads: snapshot.threads,
   });
+  /** Rename from the title row (#6709): the reason it was not saved, or nothing once it was. */
+  async function renamePage(draft: string): Promise<string | undefined> {
+    const binding = snapshot.binding;
+    if (!binding?.metadataRevision || !binding.metadata) return text.rename.failed;
+    const title = draft.trim();
+    if (!title) return text.rename.empty;
+    if (/\p{Cc}/u.test(title)) return text.rename.oneLine;
+    if (new TextEncoder().encode(title).length > 512) return text.rename.tooLong;
+    const shown = latest.current;
+    if (title === shown.title) return undefined;
+    try {
+      const revision = await binding.metadataRevision(shown, 'title');
+      await binding.metadata('page.title', { title }, revision);
+      return undefined;
+    } catch (error) {
+      return error instanceof Error && 'code' in error && error.code === 'COLAB_STALE_BASE'
+        ? text.rename.changed
+        : text.rename.failed;
+    }
+  }
   async function openConversion(kind: 'convert' | 'revert') {
     const binding = snapshot.binding;
     if (conversionLock.current || !binding?.metadataRevision || !binding.metadata) return;
@@ -2084,6 +2105,21 @@ function OpenPage({
   const statusCoordinator =
     archived || liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  // The owner renames a ready page that is not archived, here or from More (#6709).
+  const canRename =
+    !design &&
+    !!snapshot.binding?.canMetadata?.() &&
+    !!snapshot.binding?.metadata &&
+    !!snapshot.binding?.metadataRevision &&
+    state === 'ready' &&
+    !archived &&
+    !liveError;
+  // The list's Rename… opened this page: its title starts in edit once it can be renamed.
+  useEffect(() => {
+    if (!canRename || renameOnOpen.page !== snapshot.id) return;
+    renameOnOpen.page = undefined;
+    setRenaming(true);
+  }, [canRename, snapshot.id]);
   // Read once, so the annotation windows below keep its narrowing.
   const pageBinding = snapshot.binding;
   // The Annotate control shows for a selection when no window is open.
@@ -3087,6 +3123,7 @@ function OpenPage({
                   !archived &&
                   !liveError
                 }
+                canRename={canRename}
                 parentTitle={hierarchy.parentPage?.title}
                 subpageCount={viewerSubpages && compactBar ? hierarchy.subpageCount : undefined}
                 pin={pin}
@@ -3121,6 +3158,8 @@ function OpenPage({
                     setAddingSubpage(true);
                   } else if (action === 'page-state') {
                     setManualStateOpen(true);
+                  } else if (action === 'rename') {
+                    setRenaming(true);
                   } else if (action === 'put-under') {
                     setChoosingParent(true);
                   } else if (action === 'archive') {
@@ -3358,6 +3397,11 @@ function OpenPage({
               title={view.title || snapshot.title}
               workNumber={snapshot.workNumber}
               onSize={setWorkBandSize}
+              rename={
+                canRename
+                  ? { editing: renaming, onEditing: setRenaming, onSave: renamePage }
+                  : undefined
+              }
             />
             {/* The project picker and the Add sub-page window, opened from the bar, its sheet and
                 the page menu (#6652); neither draws anything until asked. */}

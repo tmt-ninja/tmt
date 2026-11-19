@@ -1183,6 +1183,9 @@ impl Snapshot {
             StructuredKind::PageState if !shell => {
                 crate::page_state::validate_action(&edit.action, &edit.body)
             }
+            StructuredKind::Title => {
+                crate::page_state::validate_title(&edit.action, &edit.body).map(drop)
+            }
             StructuredKind::WorkFields if !shell && edit.action == "page.set" => {
                 crate::page_state::validate_work_edit(&edit.body)
             }

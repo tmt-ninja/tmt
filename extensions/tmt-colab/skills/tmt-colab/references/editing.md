@@ -119,6 +119,9 @@ compare before trying again; never resend blindly.
 `page create --html --file` for a new page. Even a large change must carry current anchors;
 prefer several small find/replace pairs or diff hunks in one patch.
 
+A page's title is not in its source: `tmt colab page title PAGE TITLE` renames it and leaves
+the text, headings included, as written.
+
 A patch replacing more than half the current source applies and reports a `large-patch`
 warning recommending smaller anchored patches. This advice also appears in human output.
 It does not refuse under `--strict`, which checks markup findings.

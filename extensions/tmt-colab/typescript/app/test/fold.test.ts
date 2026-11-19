@@ -444,7 +444,7 @@ it('admits only complete canonical creation preferences without inferring missin
     expect(() => validateProjection({ source: '', title: '', creationRecipient: bad })).toThrow();
   }
 });
-it('the actual Worker preserves both independent baseline encodings through source edits', async () => {
+it('the actual Worker preserves both independent baseline encodings through source edits and a rename', async () => {
   const vectors = JSON.parse(
     readFileSync(new URL('../../../contracts/vectors/baseline-v1.json', import.meta.url), 'utf8'),
   );
@@ -501,6 +501,17 @@ it('the actual Worker preserves both independent baseline encodings through sour
         expect(applied.creationRecipient).toEqual(vector.creationRecipient);
         expect(applied.layout).toBe(vector.layout);
         expect(applied.layoutReason).toBe(vector.layoutReason);
+        // A rename (#6709) stores only a new `meta.title` from another writer, as the native child
+        // writes it. This fold is unchanged by it, so a reader built before the rename existed
+        // folds it the same way: the title changes and nothing else does.
+        const doc = new Y.Doc();
+        Y.applyUpdate(doc, decode(alternate ? vector.alternateUpdate : vector.update));
+        for (const update of edit.updates) Y.applyUpdate(doc, update);
+        const seen = Y.encodeStateVector(doc);
+        doc.getMap('meta').set('title', 'Launch plan 🚀');
+        const renamed = await send({ type: 'apply', updates: [Y.encodeStateAsUpdate(doc, seen)] });
+        expect(renamed.error).toBeUndefined();
+        expect(renamed).toEqual({ ...applied, title: 'Launch plan 🚀' });
       } finally {
         vi.unstubAllGlobals();
       }

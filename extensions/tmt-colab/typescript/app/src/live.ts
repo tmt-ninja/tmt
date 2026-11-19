@@ -1256,8 +1256,8 @@ export class Live implements PageBinding {
   }
   async metadataRevision(
     shown: Pick<PageView, 'creator' | 'questions' | 'pageState'> &
-      Partial<Pick<PageView, 'source' | 'pageType' | 'blocks' | 'convertedAt'>>,
-    scope?: 'page-state' | 'conversion',
+      Partial<Pick<PageView, 'source' | 'pageType' | 'blocks' | 'convertedAt' | 'title'>>,
+    scope?: 'page-state' | 'conversion' | 'title',
   ): Promise<string> {
     const conversion = (value: typeof shown) =>
       canonical({
@@ -1267,11 +1267,16 @@ export class Live implements PageBinding {
       });
     const conversionChanged = () =>
       shown.source !== this.#admitted.source || conversion(shown) !== conversion(this.#admitted);
-    const metadata = (value: Pick<PageView, 'creator' | 'questions' | 'pageState'>) =>
+    const metadata = (
+      value: Pick<PageView, 'creator' | 'questions' | 'pageState'> &
+        Partial<Pick<PageView, 'title'>>,
+    ) =>
       canonical(
         scope === 'page-state'
           ? { pageState: value.pageState ?? 'todo' }
-          : { creator: value.creator, questions: value.questions },
+          : scope === 'title'
+            ? { title: value.title ?? '' }
+            : { creator: value.creator, questions: value.questions },
       );
     const changed = () =>
       scope === 'conversion' ? conversionChanged() : metadata(shown) !== metadata(this.#admitted);

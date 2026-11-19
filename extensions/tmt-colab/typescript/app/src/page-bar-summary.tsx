@@ -23,6 +23,14 @@ import './page-bar-summary.css';
 /** The labels the bar names before a count; the page header's picker names them all. */
 const LABELS = 3;
 
+/** A click that closed the details by opening a field (the title row's rename, #6709) keeps the
+ * focus there: the details return it to their chip only when nothing else took it. */
+function keepEditing(event: Event) {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && active.matches('input, textarea, [contenteditable="true"]'))
+    event.preventDefault();
+}
+
 /**
  * The opened page's summary in the top bar, after its number and title (#6611): its computed status,
  * in the list's and Work home's words, and its projects as labels. It stays in view while the page
@@ -121,6 +129,7 @@ export function PageBarSummary({
                   side="bottom"
                   className="page-bar-sheet"
                   onEscapeKeyDown={keepForMenu}
+                  onCloseAutoFocus={keepEditing}
                 >
                   <SheetTitle className="tmt-ui-visually-hidden">{text.pageBar.details}</SheetTitle>
                   {details(true, close)}
@@ -133,6 +142,7 @@ export function PageBarSummary({
                   align="start"
                   className="page-bar-details"
                   onEscapeKeyDown={keepForMenu}
+                  onCloseAutoFocus={keepEditing}
                 >
                   {details(false, close)}
                 </PopoverContent>

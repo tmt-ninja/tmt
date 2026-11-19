@@ -628,7 +628,27 @@ export async function mountPageList(
   for (const p of state.pages) for (const name of p.projects ?? []) state.projects.add(name);
   /** The pages a lagging list read still shows. */
   let lagging: PageSummary[] | undefined;
-  const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));
+  // An opened page is the owner's: it can be renamed from the list's Rename… (#6709).
+  const snapshots: PageSnapshot[] = state.pages.map((p) => ({
+    ...p,
+    source: '<h1>Fixture</h1>',
+    binding: {
+      subscribe(next) {
+        next({ title: p.title, source: '<h1>Fixture</h1>' });
+        return () => {};
+      },
+      canMetadata: () => true,
+      metadataRevision: async () => `v1:${'c'.repeat(64)}`,
+      metadata: async () => {},
+      async edit() {
+        return { merged: false };
+      },
+      async export() {
+        throw new Error('No export in this fixture');
+      },
+      close() {},
+    },
+  }));
   const transport = localTransport('Studio pages', snapshots);
   let templates = fixtureTemplates();
   const readOrder = (): { revision: number; items: string[] } =>

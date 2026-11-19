@@ -44,6 +44,8 @@ export interface WorkPageHook {
   /** The next attach on this page has an outcome nobody knows. */
   unknownAttach?: boolean;
   metadataCaptures?: number;
+  /** The next rename finds the page changed on another device (#6709). */
+  renameStale?: boolean;
   /** Archives or unarchives a page as the owner list then reports it (#5867). */
   setArchived?(page: string, archived: boolean): void;
 }
@@ -386,7 +388,13 @@ export function mountWorkPage(
     },
     metadata: async (action, body) => {
       hook.calls.push({ page: THIS, action, body });
-      manualState = body.state as PageState;
+      if (action === 'page.title') {
+        if (hook.renameStale) {
+          hook.renameStale = false;
+          throw new SaveRefused('COLAB_STALE_BASE', 'Page metadata changed.');
+        }
+        pageTitle = String(body.title);
+      } else manualState = body.state as PageState;
       publish?.(view());
     },
     async work(action, body) {

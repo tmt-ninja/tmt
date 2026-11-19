@@ -115,6 +115,7 @@ export type MetadataAction =
   | 'question.agent'
   | 'page.set'
   | 'page.state'
+  | 'page.title'
   | 'page.convert'
   | 'page.revert'
   | 'template.set'

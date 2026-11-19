@@ -167,8 +167,8 @@ export interface PageBinding {
   /** Freeze the verified revision when opening an editor, never silently retarget a stale choice. */
   metadataRevision?(
     shown: Pick<PageView, 'creator' | 'questions' | 'pageState'> &
-      Partial<Pick<PageView, 'source' | 'pageType' | 'blocks' | 'convertedAt'>>,
-    scope?: 'page-state' | 'conversion',
+      Partial<Pick<PageView, 'source' | 'pageType' | 'blocks' | 'convertedAt' | 'title'>>,
+    scope?: 'page-state' | 'conversion' | 'title',
   ): Promise<string>;
   metadata?(
     action: MetadataAction,

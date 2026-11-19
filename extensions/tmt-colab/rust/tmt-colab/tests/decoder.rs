@@ -3067,7 +3067,7 @@ fn page_state_metadata_accepts_only_the_three_explicit_values() {
 }
 
 #[test]
-fn page_state_action_preserves_source_and_remains_in_the_next_baseline() {
+fn page_state_and_title_actions_preserve_source_and_state_remains_in_the_next_baseline() {
     use tmt_colab::decoder::{ContentBatch, StructuredEdit, StructuredKind};
     let source = b"<p>the page</p>";
     let mut decoder = owner();
@@ -3155,6 +3155,53 @@ fn page_state_action_preserves_source_and_remains_in_the_next_baseline() {
             )
             .is_err()
     );
+    // A rename (#6709) is one update to `meta.title` alone; a bad title prepares nothing.
+    let rename = |title: serde_json::Value| StructuredEdit {
+        kind: StructuredKind::Title,
+        action: "page.title".into(),
+        body: serde_json::json!({"title": title}),
+        attribution: serde_json::json!({"writerId": WRITER,"timeMs": 1000}),
+    };
+    let ContentBatch::Updates(updates) = decoder
+        .prepare_structured_batch(
+            batch(),
+            &before.projection,
+            &rename("Launch plan".into()),
+            None,
+        )
+        .unwrap()
+        .batch
+    else {
+        panic!("expected update")
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let renamed = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    let mut expected = before.projection.clone();
+    expected["meta"]["title"] = "Launch plan".into();
+    assert_eq!(renamed.projection, expected);
+    for bad in [
+        serde_json::json!(""),
+        serde_json::json!(" padded"),
+        serde_json::json!("two\nlines"),
+        serde_json::json!("x".repeat(513)),
+        serde_json::json!(7),
+    ] {
+        assert!(
+            decoder
+                .prepare_structured_batch(batch(), &before.projection, &rename(bad), None)
+                .is_err()
+        );
+    }
 }
 
 /// A restore that meets the purge (#6004): the epoch baseline drops the tombstones the page no

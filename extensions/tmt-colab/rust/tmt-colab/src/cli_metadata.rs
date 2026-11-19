@@ -70,6 +70,21 @@ pub fn state_command() -> Command {
     .arg(revision())
 }
 
+pub fn title_command() -> Command {
+    crate::cli_work::spec(
+        "title",
+        "Rename a page",
+        "Changes the page's title everywhere it is read live; the page's own text, headings included, stays as written. Messages already sent keep the title they were sent with.",
+        &[Example {
+            command: "tmt colab page title 10000000-0000-4000-8000-000000000001 'Launch plan' --json",
+            note: "Rename a page",
+        }],
+    )
+    .arg(crate::cli_grammar::page())
+    .arg(Arg::new("title").required(true).index(2).value_name("TITLE"))
+    .arg(revision())
+}
+
 pub fn set_command() -> Command {
     let mut command = crate::cli_work::spec(
         "set",
@@ -378,8 +393,16 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
     store.require_current_schema()?;
     let page_id = resolve_page(&store, &key, args.get_one::<String>("page").expect("page"))?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let current = page::read_metadata(&store, &key, &page_id, &mut decoder)?;
+    // A rename needs only the revision, so it reaches a dashboard too, which has no metadata read.
+    let (current, current_revision) = if name == "title" {
+        (None, page::revision(&store, &key, &page_id)?)
+    } else {
+        let read = page::read_metadata(&store, &key, &page_id, &mut decoder)?;
+        let revision = read.revision.clone();
+        (Some(read), revision)
+    };
     if name == "ls" {
+        let current = current.expect("metadata read");
         store.close()?;
         let value = json!({"pageId":page_id,"revision":current.revision,"questions":current.question_states});
         let mut output = tmt_cli_style::stream::stdout(args.get_flag("json"));
@@ -442,6 +465,9 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             identity_verified = Some(!selected.unverified);
         }
         (StructuredKind::WorkFields, "page.set")
+    } else if name == "title" {
+        body["title"] = json!(args.get_one::<String>("title").expect("title"));
+        (StructuredKind::Title, "page.title")
     } else if name == "state" {
         body["state"] = json!(args.get_one::<String>("state").expect("state"));
         (StructuredKind::PageState, "page.state")
@@ -458,7 +484,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             },
         )
     };
-    if name != "creator" && name != "state" && name != "set" {
+    if !matches!(name, "creator" | "state" | "set" | "title") {
         body["id"] = json!(args.get_one::<String>("id").expect("id"));
         for field in if name == "add" {
             &["title", "group"][..]
@@ -475,6 +501,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
     if matches!(name, "add" | "creator")
         && let Some(selector) = args.get_one::<String>("agent")
     {
+        let current = current.as_ref().expect("metadata read");
         let mut stored = Vec::new();
         if let Some(creator) = &current.creator {
             stored.push(creator["agent"].clone());
@@ -535,7 +562,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
     let expected = args
         .get_one::<String>("expected-revision")
         .map(String::as_str)
-        .unwrap_or(&current.revision);
+        .unwrap_or(&current_revision);
     let prepared = page::prepare_structured_publication(
         &store,
         &key,

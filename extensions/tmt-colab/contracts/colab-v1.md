@@ -3553,6 +3553,29 @@ Page progress is derived at read time and never stored in the page or used to ch
 
 `tmt colab page state PAGE todo|in-progress|done [--json]` writes a manual state; `tmt colab show PAGE --json` returns state and progress; `tmt colab ls --json` returns state. Owner page-list rows likewise carry state, not the progress buckets, to stay within the bounded discovery response. The existing owner-only per-page summary-details read carries the state and progress pair when its projection is fresh; pending, unreadable, or shell projections yield no progress. Mounted page reads return this bounded projection when available. A share reader gets its state from the encrypted fold and progress `null`. `ls --state` selects known pages in an explicit state and never matches shells. It succeeds when a page is unreadable and reports those page IDs in the top-level `stateUnavailable` array (and in text output), so callers know the filtered result may be incomplete. The list's stage (below) is derived from the same direct sub-pages.
 
+### Page title (#6709)
+
+`meta.title` is set at create and changes after it only through the owner-device structured
+`page.title` action `{title}`. That action follows the same expected-revision publication path as
+`page.state`, from the owner's CLI and agents (`tmt colab page title PAGE TITLE
+[--expected-revision R] [--json]`) and the owner's paired browser (the title row, and Rename… in
+More).
+
+- **Title.** The title is one line of inert text, 1 to 512 UTF-8 bytes, with no control characters
+  and no surrounding whitespace. Anything else is refused, as are a stale revision and an archived
+  page. The same title again is a no-op (`changed: false`). Shell and blocks pages are renamed like
+  any other page.
+- **Authority.** A share reader or non-owner writer has no rename.
+- **What is stored.** The stored change is an ordinary content update to `meta.title`, an existing
+  key that every reader already folds. No new key or action reaches the wire, so readers from
+  earlier builds show the new title.
+- **What does not change.** The page's own text, an HTML page's headings included, stays as
+  written.
+- **Where the new title appears.** The page header, the tab and the CLI read the fold at once. The
+  page list, search, sub-page rows and `ls` follow when the serve folds the change into
+  [`page_titles`](#local-management-cli-1307) (schema 16). Messages already sent (comments, Ask and Chat
+  requests, notifications) keep the title they were sent with.
+
 ### Work (#4050)
 
 An ordinary HTML page or a [page of blocks](#structured-pages-6004) may carry work: its direct
