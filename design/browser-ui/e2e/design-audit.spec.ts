@@ -46,7 +46,23 @@ test('gallery demos: each field has a visible boundary and label', async ({ page
   const { fields } = await controlBoundaries(page, '.gallery-main');
   expect(fields.measured).toBeGreaterThan(5);
   expect(fields.missingBoundary).toEqual([]);
-  expect(fields.unlabelled).toEqual([]);
+  expect(fields.unlabelled).toEqual([]); // A field's help and error lines read at its label's size wherever the field sits (#6703).
+  const sizes = await page.locator('.gallery-main .tmt-ui-field').evaluateAll((all) =>
+    all.flatMap((field) => {
+      const label = field.querySelector(':scope > .tmt-ui-field-label');
+      const lines = field.querySelectorAll(
+        ':scope > :is(.tmt-ui-field-description, .tmt-ui-field-error)',
+      );
+      return label
+        ? [...lines].map((line) => [
+            getComputedStyle(line).fontSize,
+            getComputedStyle(label).fontSize,
+          ])
+        : [];
+    }),
+  );
+  expect(sizes.length).toBeGreaterThan(0);
+  for (const [line, label] of sizes) expect(line).toBe(label);
 });
 
 test('gallery demos: each focus frame is drawn once and never clipped', async ({ page }) => {
