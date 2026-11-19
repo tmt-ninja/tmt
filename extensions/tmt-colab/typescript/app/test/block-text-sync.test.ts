@@ -33,6 +33,18 @@ describe('a focused block while the page changes', () => {
     expect(sync.flush()).toBeUndefined();
     expect(new BlockTextSync('c', 'x').flush()).toBeUndefined();
   });
+  it("counts only the person's typing as a change, sent or not (#6725)", () => {
+    const sync = new BlockTextSync('b', 'Ship the stack');
+    // Opening the editor, the caret moving and the page's own text change nothing.
+    sync.typed('Ship the stack');
+    sync.remote('Ship the whole stack', 0);
+    expect(sync.changed).toBe(false);
+    sync.typed('Ship the whole stack today');
+    sync.flush();
+    sync.settled(true, 0);
+    expect(sync.pending).toBe(false);
+    expect(sync.changed).toBe(true);
+  });
   it('keeps unsent typing when an agent changes another part, and moves the caret with it', () => {
     const sync = new BlockTextSync('b', 'one two three');
     sync.typed('one two three four');

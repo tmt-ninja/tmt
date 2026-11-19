@@ -540,6 +540,8 @@ export function useBlockEditing(
   const latestDrafts = useRef(drafts);
   latestDrafts.current = drafts;
   const savingDrafts = useRef(new Set<string>());
+  /** Counts blocks deleted elsewhere while open here with nothing unsent; each shows the toast. */
+  const [closedByDelete, setClosedByDelete] = useState(0);
   const [previousPage, setPreviousPage] = useState(pageTree);
   if (previousPage !== pageTree) {
     setPreviousPage(pageTree);
@@ -556,18 +558,27 @@ export function useBlockEditing(
         ?.closest('[contenteditable=true]')
         ?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId === previous.id
     ) {
-      // Preserve the keyed editor in this render, before React can detach it and its selection.
-      const parent = tree.visible(previous.parent) ? previous.parent : PAGE_PARENT;
-      const draft = {
-        block: { ...previous, parent, text: current.text },
-        editing: { ...editing, text: current.text, caret: caret.current },
-      };
-      setDrafts(new Map(drafts).set(previous.id, draft));
       sync.current = undefined;
       setEditing(undefined);
       clearTimeout(timer.current);
+      if (current.changed) {
+        // Preserve the keyed editor in this render, before React can detach it and its selection.
+        const parent = tree.visible(previous.parent) ? previous.parent : PAGE_PARENT;
+        const draft = {
+          block: { ...previous, parent, text: current.text },
+          editing: { ...editing, text: current.text, caret: caret.current },
+        };
+        setDrafts(new Map(drafts).set(previous.id, draft));
+      } else {
+        // Only an editor the person typed in becomes a draft (#6725): one they only opened leaves
+        // with its block, and the status line says why.
+        setClosedByDelete((count) => count + 1);
+      }
     }
   }
+  useEffect(() => {
+    if (closedByDelete) noticeRef.current(strings.blockDelete.remote);
+  }, [closedByDelete]);
   const drawTree = useMemo(
     () => tree.withDrafts([...drafts.values()].map((draft) => draft.block)),
     [tree, drafts],

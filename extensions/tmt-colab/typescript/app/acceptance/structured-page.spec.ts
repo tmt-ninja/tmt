@@ -1452,5 +1452,16 @@ test('remote deletion preserves typing until the person keeps or discards the dr
         await expect(page.getByText('Review rollback plan today before noon')).toHaveCount(0);
       }
     }
+    // An editor that holds nothing unsent is no draft (#6725): the block leaves with the toast.
+    const opened = insert('Review the press note');
+    const block = page.locator(`[data-block-id="${opened}"]`);
+    await block.click();
+    await expect(block.locator('[contenteditable=true]')).toBeFocused();
+    cli('block', 'delete', created.pageId, opened);
+    await expect(
+      page.getByRole('status').filter({ hasText: 'The block was deleted.' }),
+    ).toBeVisible();
+    await expect(block).toHaveCount(0);
+    await expect(notice).toHaveCount(0);
   });
 });
