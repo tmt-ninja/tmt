@@ -30,6 +30,15 @@ pub struct Combined {
 }
 /// What one commit under the writer produced: the publication, the page revision read while no
 /// other writer could run, and the combine that followed it, if one ran.
+/// The writer stream and final content sequence a committed block batch applied through: a tab's
+/// objects hold it once they hold that stream at or past `seq`, whether from the update itself
+/// or from an admitted checkpoint covering it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppliedThrough {
+    pub stream_id: String,
+    pub seq: String,
+}
 pub struct Commit {
     pub committed: crate::page::PublicationCommitted,
     pub revision: Option<String>,
@@ -209,6 +218,9 @@ struct Peer {
     incoming: Option<Incoming>,
     buffered_slot: bool,
     terminal: Option<Code>,
+    /// The peer offered `colab-commit-position-v1` at upgrade: a committed block batch's reply
+    /// names the content it applied through (#6735). A tab without it gets the reply as before.
+    commit_position: bool,
 }
 struct Catchup {
     recipients: WrapRecipients,
@@ -259,6 +271,7 @@ impl Peer {
             incoming: None,
             buffered_slot: false,
             terminal: None,
+            commit_position: false,
         }
     }
     fn end(&mut self, code: Code) {
@@ -1043,7 +1056,8 @@ impl<A: Admission> Server<A> {
                     let status = state
                         .admission
                         .save_status(&job.scope.page, &operation)
-                        .map_err(|_| Code::Denied)?;
+                        .map_err(|_| Code::Denied)?
+                        .without_applied_through();
                     (status, pending)
                 };
                 if pending {
@@ -1936,6 +1950,12 @@ impl<A: Admission> State<A> {
                             crate::page::save::SaveResult::rejected(&operation_id, error.as_ref())
                         })
                 };
+                // A recovered block batch waits on its position as its own reply would (#6735).
+                let reply = if self.peers[&id].commit_position {
+                    reply
+                } else {
+                    reply.without_applied_through()
+                };
                 self.reply_save(id, &scope, "saveresult", &reply)?;
             }
         }
@@ -2124,10 +2144,14 @@ impl<A: Admission> State<A> {
     ) -> Result<SaveFinish, Code> {
         use crate::page::save::{Prepared, SaveResult};
         let operation = job.save.operation_id.clone();
-        let done = (|| -> crate::Result<(SaveResult, Option<_>)> {
+        let done = (|| -> crate::Result<(SaveResult, Option<_>, Option<AppliedThrough>)> {
             let (write, merged) = match prepared? {
                 (Prepared::Unchanged(receipt), _) => {
-                    return Ok((SaveResult::unchanged(&operation, receipt.revision), None));
+                    return Ok((
+                        SaveResult::unchanged(&operation, receipt.revision),
+                        None,
+                        None,
+                    ));
                 }
                 (Prepared::Write(frozen), merged) => (frozen, merged),
             };
@@ -2178,6 +2202,12 @@ impl<A: Admission> State<A> {
                     committed.record.outcome,
                     crate::publication::Outcome::Committed { .. }
                 );
+            // The writer stream and final content sequence of this publication, also on a replay;
+            // a combine keeps that position as covered history.
+            let through = receipt.publication.as_ref().map(|p| AppliedThrough {
+                stream_id: p.stream_id.clone(),
+                seq: p.seq.clone(),
+            });
             let revision = revision.unwrap_or(receipt.revision);
             Ok((
                 match merged {
@@ -2187,9 +2217,10 @@ impl<A: Admission> State<A> {
                     None => SaveResult::committed(&operation, revision),
                 },
                 fan_out.then_some((outputs, combined)),
+                through,
             ))
         })();
-        let (reply, outputs) = match done {
+        let (reply, outputs, through) = match done {
             Ok(done) => done,
             // A page that moved after the hunks were evaluated is evaluated against again.
             Err(error)
@@ -2201,10 +2232,16 @@ impl<A: Admission> State<A> {
             {
                 return Ok(SaveFinish::Retry);
             }
-            Err(error) => (SaveResult::rejected(&operation, error.as_ref()), None),
+            Err(error) => (SaveResult::rejected(&operation, error.as_ref()), None, None),
         };
         // A convert names the page it made in every outcome, so nothing made is lost.
         let reply = reply.with_child(made.child).with_receipt(made.receipt);
+        // A committed block batch names what it applied through, to a peer that asked (#6735).
+        let asked = id.is_some_and(|id| self.peers.get(&id).is_some_and(|p| p.commit_position));
+        let reply = match through {
+            Some(through) if asked && job.blocks.is_some() => reply.with_applied_through(through),
+            _ => reply,
+        };
         // Under this lock hold the commit and the removal are one step for a status request.
         self.unsave(job);
         if let Some(id) = id {
@@ -2928,6 +2965,14 @@ pub struct Connection<S: Read + Write, A> {
     ping_due: Option<Instant>,
 }
 impl<S: Read + Write, A: Admission> Connection<S, A> {
+    /// This peer offered `colab-commit-position-v1`; see `Peer::commit_position`.
+    pub(crate) fn report_commit_positions(&self) {
+        if let Ok(mut state) = self.server.0.lock()
+            && let Some(peer) = state.peers.get_mut(&self.id)
+        {
+            peer.commit_position = true;
+        }
+    }
     pub(crate) fn attach_objects(
         &mut self,
         objects: Result<crate::object_channel::PeerObjects, crate::object_channel::Missing>,

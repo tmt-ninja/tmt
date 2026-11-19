@@ -178,6 +178,12 @@ export class Objects {
     requireValue(held !== undefined || this.#unseen.size < 256);
     this.#unseen.set(key, { stream, namespace, seq, hash });
   }
+  /** Whether the serve announced a content checkpoint of `stream` at `seq` or later that this
+   * view has not admitted: only a catch-up brings that content here (#6735). */
+  noticeCovers(stream: string, seq: bigint): boolean {
+    const notice = this.#unseen.get(`${stream}:content`);
+    return notice !== undefined && notice.seq >= seq && this.head(stream).seq < seq;
+  }
   /** Whether the serve holds a checkpoint this view has not recorded. Notices that a catch-up
    * has since admitted, or a later cut has passed, no longer count. */
   hasUnseenCut(): boolean {

@@ -5422,11 +5422,36 @@ fn work_action(
 /// A page of blocks and a browser peer on it: the `blocks` frame carries ops and, since #6190, an
 /// optional typed attachment change.
 fn blocks_fixture() -> (Running, Layout, Keyring, WebSocket<UnixStream>) {
+    blocks_fixture_offering(false)
+}
+/// `positions`: the upgrade also offers `colab-commit-position-v1` beside `colab-sync-v2`.
+fn blocks_fixture_offering(positions: bool) -> (Running, Layout, Keyring, WebSocket<UnixStream>) {
     let server = Running::start_blocks();
     let layout = Layout::existing(&server.root).unwrap().unwrap();
     let key = Keyring::read(&layout).unwrap();
-    let (socket, head) = server.tunnel();
+    let (socket, head) = if positions {
+        server.open_tunnel(&format!(
+            "{}\r\n{}",
+            owner(DEVICE),
+            UPGRADE.replace(
+                "Sec-WebSocket-Protocol: colab-sync-v2",
+                "Sec-WebSocket-Protocol: colab-sync-v2, colab-commit-position-v1",
+            )
+        ))
+    } else {
+        server.tunnel()
+    };
     assert!(head.starts_with("HTTP/1.1 101"));
+    // The answer names one protocol on one line, whatever was offered: the Remote door refuses a
+    // repeated header with 502 (#6735).
+    let named: Vec<_> = head
+        .lines()
+        .filter(|line| {
+            line.to_ascii_lowercase()
+                .starts_with("sec-websocket-protocol:")
+        })
+        .collect();
+    assert_eq!(named, ["Sec-WebSocket-Protocol: colab-sync-v2"], "{head}");
     let mut peer = WebSocket::from_raw_socket(socket, Role::Client, None);
     hello(&server, &mut peer, DEVICE);
     // Each batch prepares natively, which outlasts the fixture's three-second read timeout when the
@@ -5462,6 +5487,52 @@ fn native_blocks(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> Value {
 }
 
 #[test]
+fn a_tab_that_offers_commit_positions_learns_what_a_committed_batch_applied_through() {
+    let (server, _layout, _key, mut peer) = blocks_fixture_offering(true);
+    let paragraph = |n: u32| {
+        json!({"op": "insert", "id": format!("20000000-0000-4000-8000-{n:012}"),
+            "type": "paragraph", "parent": "root", "after": null, "text": format!("Line {n}")})
+    };
+    let op = |n: u32| format!("71000000-0000-4000-8000-{n:012}");
+    let first = blocks_action(&server, &mut peer, &op(1), json!([paragraph(1)]), None);
+    assert_eq!(first["state"], "committed", "{first}");
+    let through = &first["appliedThrough"];
+    let mut keys: Vec<_> = through.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    assert_eq!(keys, ["seq", "streamId"], "{first}");
+    let seq = |v: &Value| {
+        v["appliedThrough"]["seq"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap()
+    };
+    // The next batch on the same writer stream applies through a later sequence.
+    let second = blocks_action(&server, &mut peer, &op(2), json!([paragraph(2)]), None);
+    assert_eq!(
+        second["appliedThrough"]["streamId"], through["streamId"],
+        "{second}"
+    );
+    assert!(seq(&second) > seq(&first), "{first} {second}");
+    // A status read after a lost reply names the same position, so a recovered batch waits the
+    // same way.
+    send(
+        &mut peer,
+        server.frame("savestatus", json!({"operationId": op(1)})),
+    );
+    let status = receive_acked(&server, &mut peer, "saveresult");
+    assert_eq!(status["state"], "committed", "{status}");
+    assert_eq!(
+        status["appliedThrough"], first["appliedThrough"],
+        "{status}"
+    );
+    // A refused batch applied through nothing.
+    let refused = blocks_action(&server, &mut peer, &op(3), json!([paragraph(1)]), None);
+    assert_eq!(refused["state"], "rejected", "{refused}");
+    assert!(refused.get("appliedThrough").is_none(), "{refused}");
+}
+
+#[test]
 fn a_browser_blocks_frame_carries_an_attachment_change_and_meets_the_same_rules_as_the_command() {
     let (server, layout, key, mut peer) = blocks_fixture();
     let op = |n: u32| format!("70000000-0000-4000-8000-{n:012}");
@@ -5478,6 +5549,15 @@ fn a_browser_blocks_frame_carries_an_attachment_change_and_meets_the_same_rules_
         None,
     );
     assert_eq!(shown["state"], "committed", "{shown}");
+    // A tab that did not offer `colab-commit-position-v1` gets the reply it always got (#6735).
+    assert!(shown.get("appliedThrough").is_none(), "{shown}");
+    send(
+        &mut peer,
+        server.frame("savestatus", json!({"operationId": op(1)})),
+    );
+    let status = receive_acked(&server, &mut peer, "saveresult");
+    assert_eq!(status["state"], "committed", "{status}");
+    assert!(status.get("appliedThrough").is_none(), "{status}");
     // One that names an attachment the page does not hold is refused, whole batch, and nothing of
     // it is on the page.
     let missing = "30000000-0000-4000-8000-00000000000a";

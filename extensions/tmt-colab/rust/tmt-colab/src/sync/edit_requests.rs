@@ -307,7 +307,8 @@ impl<A: Admission> Server<A> {
                 .map_err(|_| Code::Denied)?
                 .admission
                 .save_status(&scope.page, &operation)
-                .map_err(|_| Code::Denied)?;
+                .map_err(|_| Code::Denied)?
+                .without_applied_through();
             let result = if matches!(recovered.state, "committed" | "rejected") {
                 recovered
             } else {

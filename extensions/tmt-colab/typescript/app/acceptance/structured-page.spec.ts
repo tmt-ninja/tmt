@@ -1469,3 +1469,49 @@ test('remote deletion preserves typing until the person keeps or discards the dr
     await expect(notice).toHaveCount(0);
   });
 });
+
+// #6735: once the serve has combined a page's updates into a checkpoint, the page revision a tab
+// computes never equals the serve's, and every batch waited 20 s for it in turn. Past that point a
+// to-do check, among an agent's inserts and the person's typing, lands at once.
+test('past a combine every batch lands at once', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const { page } = await pairBrowser(world, 'combine-author');
+    const colab = world.binaries.colab;
+    const cli = (...args: string[]) => JSON.parse(run(world, colab, [...args, '--json']));
+    const created = cli('page', 'create', '--title', 'Combined', '--structured', '--no-open') as {
+      pageId: string;
+      path: string;
+    };
+    const insert = (type: string, text: string) =>
+      (
+        cli('block', 'insert', created.pageId, '--type', type, '--text', text) as {
+          blockIds: string[];
+        }
+      ).blockIds[0]!;
+    const todo = insert('todo', 'Check me');
+    const typed = insert('paragraph', 'Notes');
+    // Close to the serve's combine point (50 updates on its writer stream) before the page opens.
+    for (let n = 0; n < 44; n++) insert('paragraph', `Agent line ${n}`);
+    await page.goto(new URL(created.path, door.address).href);
+    const checked = () =>
+      !!(cli('block', 'get', created.pageId, todo) as { block: { props?: { checked?: boolean } } })
+        .block.props?.checked;
+    for (let round = 0; round < 8; round++) {
+      const block = page.locator(`[data-block-id="${typed}"]`);
+      await block.click();
+      await block.locator('[contenteditable=true]').press('End');
+      await page.keyboard.type(` w${round}`);
+      await page.keyboard.press('Escape');
+      insert('paragraph', `Agent round ${round}`);
+      const was = checked();
+      await page.locator(`[data-block-id="${todo}"]`).getByRole('checkbox').click();
+      // Well under the 20 s the revision wait took, and with no saving line drawn.
+      await expect.poll(checked, { timeout: 5_000 }).toBe(!was);
+      await expect(page.getByRole('status').filter({ hasText: 'Saving your change' })).toHaveCount(
+        0,
+      );
+    }
+  });
+});

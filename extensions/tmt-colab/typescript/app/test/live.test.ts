@@ -55,6 +55,9 @@ const connectionPlans = vi.hoisted(
 /** Connections the serve upgraded without an object channel; later ones start so too when set. */
 const objectChannel = vi.hoisted(() => ({ missing: new Set<object>(), startMissing: false }));
 const unseen = vi.hoisted(() => ({ cuts: new Set<object>(), startUnseen: false }));
+/** Each connection's objects head of the serve's writer stream, and the head a new one catches up
+ * to (#6735). */
+const streams = vi.hoisted(() => ({ heads: new Map<object, bigint>(), next: 0n }));
 const retryFixture = vi.hoisted(() => ({
   revision: 'v1:revision',
   witnessCuts: 'fixture-cuts',
@@ -68,6 +71,7 @@ const saves = vi.hoisted(() => ({
   batch: vi.fn(),
   batchStatus: vi.fn(),
   metadata: vi.fn(),
+  blocks: vi.fn(),
 }));
 const mutations = vi.hoisted(() => ({
   submitOwn: vi.fn(),
@@ -135,7 +139,11 @@ vi.mock('../src/connection.js', () => ({
       revision: async () => retryFixture.revision,
       cuts: () => (this.witness ? retryFixture.witnessCuts : 'fixture-cuts'),
       hasUnseenCut: () => unseen.cuts.has(this),
+      head: () => ({ seq: streams.heads.get(this) ?? 0n }),
+      noticeCovers: (_stream: string, seq: bigint) =>
+        unseen.cuts.has(this) && (streams.heads.get(this) ?? 0n) < seq,
     };
+    applied = async () => {};
     attachmentSnapshot = async () => {
       throw new Error('reached the snapshot');
     };
@@ -162,6 +170,7 @@ vi.mock('../src/connection.js', () => ({
       retryFixture.witnessNext = false;
       connections.push(this);
       if (unseen.startUnseen) unseen.cuts.add(this);
+      streams.heads.set(this, streams.next);
       if (objectChannel.startMissing) objectChannel.missing.add(this);
       const plan = connectionPlans.shift();
       if (plan) {
@@ -190,6 +199,9 @@ vi.mock('../src/connection.js', () => ({
     }
     saveStatus(operationId: string) {
       return saves.status(this, operationId);
+    }
+    blocks(operationId: string, ops: unknown) {
+      return saves.blocks(this, operationId, ops);
     }
     work(operationId: string, action: string, body: unknown) {
       return saves.work(this, operationId, action, body);
@@ -502,6 +514,65 @@ it('a read fenced by the page revision reopens once when the serve holds a check
     expect(connections).toHaveLength(before + 1);
   } finally {
     unseen.cuts.clear();
+    live.close();
+  }
+});
+it('a block batch waits for what it applied through, never for the page revision (#6735)', async () => {
+  const { live, first } = await liveWithUnseenCut();
+  unseen.cuts.clear();
+  const through = { streamId: 'serve-writer', seq: 7n };
+  // The revision never matches: the serve combined the page after the commit.
+  saves.blocks.mockImplementation(async (_connection, operationId: string) => ({
+    operationId,
+    state: 'committed',
+    revision: 'v1:after-a-combine',
+    appliedThrough: through,
+  }));
+  const settles = async (ms: number, batch: Promise<unknown>) =>
+    Promise.race([
+      batch.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), ms)),
+    ]);
+  try {
+    // The update arrives after the reply: the batch completes on it.
+    streams.heads.set(first, 6n);
+    const arriving = live.blocks([]);
+    expect(await settles(100, arriving)).toBe(false);
+    streams.heads.set(first, 7n);
+    expect(await settles(200, arriving)).toBe(true);
+    // A checkpoint admitted past it (the update was combined): complete at once, nothing reopens.
+    streams.heads.set(first, 9n);
+    expect(await settles(200, live.blocks([]))).toBe(true);
+    expect(connections.at(-1)).toBe(first);
+    // Only a notice of the checkpoint, the update pruned before it arrived: the notice does not
+    // complete the wait; one catch-up does, admitting the checkpoint.
+    streams.heads.set(first, 3n);
+    unseen.cuts.add(first);
+    streams.next = 9n;
+    expect(await settles(1000, live.blocks([]))).toBe(true);
+    expect(first.close).toHaveBeenCalledOnce();
+    expect(streams.heads.get(connections.at(-1)!)).toBe(9n);
+    // A catch-up that still leaves it behind reports the batch as not confirmed: no second wait.
+    const caughtUp = connections.at(-1)!;
+    streams.heads.set(caughtUp, 3n);
+    unseen.cuts.add(caughtUp);
+    streams.next = 3n;
+    unseen.startUnseen = false;
+    await expect(live.blocks([])).rejects.toBeInstanceOf(SaveOutcomeUnknown);
+    expect(caughtUp.close).toHaveBeenCalledOnce();
+    // An older serve names nothing: the revision decides, as before.
+    retryFixture.revision = 'v1:same';
+    saves.blocks.mockImplementation(async (_connection, operationId: string) => ({
+      operationId,
+      state: 'committed',
+      revision: 'v1:same',
+    }));
+    expect(await settles(200, live.blocks([]))).toBe(true);
+  } finally {
+    retryFixture.revision = 'v1:revision';
+    streams.next = 0n;
+    unseen.cuts.clear();
+    saves.blocks.mockReset();
     live.close();
   }
 });

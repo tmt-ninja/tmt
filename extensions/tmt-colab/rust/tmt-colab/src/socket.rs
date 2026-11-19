@@ -53,6 +53,9 @@ const PROTOCOL: &str = "colab-sync-v2";
 /// The protocol a tab from before #5876 offers: it is answered once with `upgradeRequired`, which
 /// that tab already shows, and closed, so a reload picks up the current app.
 const STALE_PROTOCOL: &str = "colab-sync-v1";
+/// Offered beside `colab-sync-v2` by a tab that reads a block batch's commit position (#6735).
+/// Never selected: an older serve ignores it, and the reply stays `colab-sync-v2`.
+const COMMIT_POSITION: &str = "colab-commit-position-v1";
 const POLICY: &str = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 /// Tunnel bounds; colab caps its own tunnels even though the door does too.
@@ -1520,7 +1523,10 @@ fn serve(
             server,
             device.clone(),
             request.prefetched,
-            object_peer,
+            PeerSetup {
+                objects: object_peer,
+                commit_position: request.protocols.iter().any(|p| p == COMMIT_POSITION),
+            },
         );
         let _ = server.update_admission(|a| {
             if let Ok(mut s) = a.0.lock() {
@@ -2003,6 +2009,13 @@ impl Write for Transport {
         self.socket.flush()
     }
 }
+/// What the upgrade settled for the peer before its socket runs.
+struct PeerSetup {
+    objects:
+        std::result::Result<crate::object_channel::PeerObjects, crate::object_channel::Missing>,
+    /// It offered `COMMIT_POSITION`.
+    commit_position: bool,
+}
 fn drive(
     mut socket: UnixStream,
     key: &str,
@@ -2010,11 +2023,12 @@ fn drive(
     server: &Server<OwnerAdmission>,
     device: String,
     prefetched: Vec<u8>,
-    objects: std::result::Result<
-        crate::object_channel::PeerObjects,
-        crate::object_channel::Missing,
-    >,
+    setup: PeerSetup,
 ) {
+    let PeerSetup {
+        objects,
+        commit_position,
+    } = setup;
     let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
     let head = format!(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\nSec-WebSocket-Protocol: {PROTOCOL}\r\n\r\n"
@@ -2038,6 +2052,9 @@ fn drive(
     let Ok(mut connection) = server.connect(transport, device) else {
         return;
     };
+    if commit_position {
+        connection.report_commit_positions();
+    }
     connection.attach_objects(objects);
     loop {
         if received.lock().map_or(true, |last| last.elapsed() >= idle) {

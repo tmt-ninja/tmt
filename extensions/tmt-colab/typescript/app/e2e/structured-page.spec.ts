@@ -204,6 +204,23 @@ test('a key the editor takes while a batch settles is never redrawn away (#6221)
   await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/XY$/);
 });
 
+test('a batch that has not landed after 2 s says so until it does (#6735)', async ({ page }) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="p"]').click();
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await editor.press('End');
+  await page.evaluate(() => window.holdServe(true));
+  await editor.pressSequentially('X', { delay: 20 });
+  await expect.poll(() => page.evaluate(() => window.heldCommits())).toBe(1);
+  const saving = page.getByRole('status').filter({ hasText: 'Saving your change…' });
+  // Not at once: a batch that lands within 2 s draws nothing.
+  await expect(saving).toHaveCount(0);
+  await expect(saving).toBeVisible({ timeout: 5_000 });
+  await page.evaluate(() => window.holdServe(false));
+  await expect(saving).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toMatch(/X$/);
+});
+
 test('a key the editor takes while a batch settles merges with an agent edit the redraw brings (#6221)', async ({
   page,
 }) => {
