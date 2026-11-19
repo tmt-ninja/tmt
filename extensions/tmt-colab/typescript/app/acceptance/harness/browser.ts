@@ -40,7 +40,7 @@ export async function startDoor(world: AcceptanceWorld, port = 0): Promise<Door>
   const ready = await colab.event((value) => value.state === 'mounted');
   if (ready.socket !== path.join(world.dataRoot, 'colab', 'door.sock'))
     throw new Error('Colab mounted outside the isolated data root');
-  world.recordColabServe();
+  await world.recordColabServe();
   // Remote dials the channel itself at start; wait for its ready state, never for a time.
   await expect
     .poll(

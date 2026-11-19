@@ -57,7 +57,7 @@ async function attachedUpgrade(world: AcceptanceWorld): Promise<Upgrade> {
   ]);
   const first = await colab.event((value) => value.state === 'mounted');
   expect(first.door).toBe('attached');
-  world.recordColabServe();
+  await world.recordColabServe();
   const gate = path.join(world.root, 'replacement-may-start');
   const mounted = () =>
     colab.lines.filter((line) => {

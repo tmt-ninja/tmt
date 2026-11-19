@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 
 /** Current holders of one world's exact private lock, never executable-name matches. */
-export function serveLockOwners(lock: string): Set<number> {
+export function serveLockOwners(lock: string, evidence?: (rows: string) => void): Set<number> {
   const found = new Set<number>();
   if (!fs.existsSync(lock)) return found;
   if (process.platform === 'linux') {
@@ -11,7 +11,10 @@ export function serveLockOwners(lock: string): Set<number> {
       try {
         for (const fd of fs.readdirSync(`/proc/${entry}/fd`)) {
           try {
-            if (fs.readlinkSync(`/proc/${entry}/fd/${fd}`) === lock) found.add(Number(entry));
+            if (fs.readlinkSync(`/proc/${entry}/fd/${fd}`) === lock) {
+              found.add(Number(entry));
+              evidence?.(`/proc/${entry}/fd/${fd} -> ${lock}`);
+            }
           } catch {
             // A concurrently closed fd is not ownership evidence.
           }
@@ -23,13 +26,14 @@ export function serveLockOwners(lock: string): Set<number> {
   } else {
     let rows: string;
     try {
-      rows = execFileSync('/usr/sbin/lsof', ['-Fpn', lock], { encoding: 'utf8' });
+      rows = execFileSync('/usr/sbin/lsof', ['-Fpn', lock], { encoding: 'utf8', timeout: 2000 });
     } catch (error) {
       const failure = error as { status?: number; stderr?: string | Buffer };
       // The lock file survives a clean serve exit; lsof returns 1 for no holders.
       if (failure.status === 1 && !String(failure.stderr ?? '').trim()) return found;
       throw error;
     }
+    evidence?.(rows.trim());
     let pid = 0;
     for (const row of rows.split('\n')) {
       if (row.startsWith('p')) pid = Number(row.slice(1));

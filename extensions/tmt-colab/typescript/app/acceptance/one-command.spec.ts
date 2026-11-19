@@ -39,7 +39,7 @@ test('an installed Colab upgrade restarts its owned door on the same link and ad
     ]);
     const first = await colab.event((value) => value.state === 'mounted');
     expect(first.door).toBe('started');
-    world.recordColabServe();
+    await world.recordColabServe();
     const address = String(first.url).replace(/\/x\/colab\/$/, '');
     const origin = String(first.origin);
     const device = await pairBrowser(world, 'upgrade-device');
@@ -83,7 +83,7 @@ exec ${word(world.binaries.colab)} "$@"
       30_000,
     );
     expect(ready).toMatchObject({ door: 'started', origin, url: first.url, opened: false });
-    world.recordColabServe();
+    await world.recordColabServe();
     run(
       world,
       world.binaries.colab,
