@@ -468,7 +468,21 @@ test('a multi-word creator keeps its space in the token and the address, and an 
   await search(page).click();
   await page.keyboard.type('by:nobody');
   await page.keyboard.press('Enter');
-  await page.keyboard.press('Enter');
+  // The Enter that applies the text, and the list read in the same task: a key press is a
+  // discrete event, so the list has drawn what is applied before the route update arrives, and
+  // no later render can rescue a list still showing the draft (#6711).
+  const shownAfterEnter = await search(page).evaluate((field) => {
+    field.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    return document.querySelectorAll('#list-fixture .page-list-table [data-page-id]').length;
+  });
+  expect(shownAfterEnter).toBe(0);
   await expect(rows(page)).toHaveCount(0);
   await expect(app(page).getByText('No pages match', { exact: true })).toBeVisible();
 });
