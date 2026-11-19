@@ -194,3 +194,53 @@ fn prepared_run_refuses_missing_context_without_starting_the_program() {
     assert_eq!(f.whoami_count(), 1);
     assert!(!marker.exists());
 }
+
+#[test]
+fn checklist_reads_use_the_worker_while_mutations_and_jumps_use_the_action_lane() {
+    use crate::board::{
+        app::workspace::tests::{MEMBER, ROOM},
+        conversation_checklist::{Key, State, Subject, Write},
+    };
+    use std::time::Instant;
+
+    let room = Key::room(ROOM);
+    let member = Key {
+        room: ROOM.into(),
+        subject: Subject::Conversation(MEMBER.into()),
+    };
+    let now = Instant::now();
+    for key in [&room, &member] {
+        let task = State::reading().offer(Some(key), now).unwrap();
+        route(
+            Job::Notes(task.clone()),
+            |read| assert_eq!(read, task),
+            |job| panic!("checklist read reached the action lane: {job:?}"),
+        );
+    }
+
+    let mut notes = State::reading();
+    notes.offer(Some(&member), now).unwrap();
+    let mutation = notes
+        .write(
+            &member,
+            Write::Add {
+                title: "Review the draft".into(),
+                body: None,
+                reference: None,
+                inventory: None,
+            },
+        )
+        .unwrap();
+    route(
+        Job::Notes(mutation.clone()),
+        |_| panic!("checklist mutation reached the worker"),
+        |job| assert!(matches!(job, Job::Notes(task) if task == mutation)),
+    );
+    route(
+        Job::Jump {
+            member: MEMBER.into(),
+        },
+        |_| panic!("jump reached the checklist worker"),
+        |job| assert!(matches!(job, Job::Jump { member } if member == MEMBER)),
+    );
+}
