@@ -6755,7 +6755,7 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     `tone: blocked`; needs-you, from a waiting question; then what its pull requests say) and then
     the to-dos: `working` when some are checked, `not-started` when none are. The list's state is
     what the fold alone decides, else `unchecked`; the page's `/api/work-facts` reply carries the
-    same `sections` decided with the facts it read. At most 64 sections are summarised (titles cut
+    same `sections` decided with the facts it read. At most 64 counted sections are summarised (titles cut
     at 256 bytes); a page with more, or whose sections do not fit, carries `sectionsOmitted: true`.
     An HTML page's sections are its `h2` and `h3` outside questions and hidden subtrees, as the
     page outline lists them, keyed `h1`, `h2`, ... in order; they count waiting questions and pull
@@ -6774,11 +6774,11 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     `projectOrders` maps project names to `{revision, items}`; `projectOrdersOmitted` lists
     the names whose complete orders did not fit. Project membership arrays remain strings.
     Work home reads an omitted selected project directly. The CLI direct read
-    `tmt colab work order show PROJECT --json` returns its complete visible order.
+    `tmt colab work order show PROJECT --json` returns its complete visible order: the ranked IDs in `items` and matching `itemDetails` rows with `id`, `number`, and `title` (to-do text for a block).
     Each project holds up to 256 ranked page IDs or `pageId:blockId` keys. The owner preserves
     a rank while an item appears in Now. It omits completed, deleted and moved-away items and
     prunes their stored positions on the next successful move. An unavailable fold cannot
-    establish deletion. A stale revision returns the current order without changing it.
+    establish deletion. A stale CLI move returns `COLAB_ORDER_CONFLICT` with `error.current: {revision, items}`. A move to the same position succeeds with `changed: false` and keeps its revision.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the

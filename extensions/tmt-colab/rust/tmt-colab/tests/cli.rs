@@ -13815,6 +13815,47 @@ fn migration_numbers_pages_even_when_a_log_row_cannot_be_read() {
 }
 
 #[test]
+fn invalid_heading_progress_names_the_values_and_clear_form() {
+    let pilot = Pilot::new(None);
+    let page = pilot.call(&["page", "create", "--title", "Plan", "--no-open", "--json"]);
+    let page = page["pageId"].as_str().unwrap();
+    let block = pilot.call(&[
+        "block", "insert", page, "--type", "heading", "--text", "Scope", "--json",
+    ]);
+    let id = block["blockIds"][0].as_str().unwrap();
+    let error = pilot
+        .command()
+        .args([
+            "block",
+            "props",
+            page,
+            id,
+            "--set",
+            "progress=maybe",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!error.status.success());
+    let reply: Value = serde_json::from_slice(&error.stdout).unwrap();
+    assert!(
+        reply["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("done or off")
+    );
+    pilot.call(&[
+        "block",
+        "props",
+        page,
+        id,
+        "--set",
+        "progress=done",
+        "--json",
+    ]);
+    pilot.call(&["block", "props", page, id, "--set", "progress=", "--json"]);
+}
+#[test]
 fn work_order_moves_a_number_then_reads_the_same_order_offline() {
     let pilot = Pilot::new(None);
     let made = pilot.call(&[
@@ -13840,9 +13881,12 @@ fn work_order_moves_a_number_then_reads_the_same_order_offline() {
         "--json",
     ]);
     assert_eq!(saved, json!({"revision":1,"items":[id]}));
+    let shown = pilot.call(&["work", "order", "show", "Alpha", "--json"]);
+    assert_eq!(shown["items"], saved["items"]);
+    assert_eq!(shown["revision"], saved["revision"]);
     assert_eq!(
-        pilot.call(&["work", "order", "show", "Alpha", "--json"]),
-        saved
+        shown["itemDetails"],
+        json!([{"id":id,"number":"ALPHA-1","title":"Plan"}])
     );
     let stale = pilot
         .command()
@@ -13860,9 +13904,43 @@ fn work_order_moves_a_number_then_reads_the_same_order_offline() {
         .output()
         .unwrap();
     assert!(!stale.status.success());
+    let err: Value = serde_json::from_slice(&stale.stdout).unwrap();
+    assert_eq!(err["error"]["current"], saved);
+    assert_eq!(err["error"]["code"], "COLAB_ORDER_CONFLICT");
+    let noop = pilot.call(&[
+        "work",
+        "order",
+        "move",
+        "Alpha",
+        "ALPHA-1",
+        "--before",
+        "ALPHA-1",
+        "--revision",
+        "1",
+        "--json",
+    ]);
+    assert_eq!(noop["changed"], false);
+    let missing = pilot
+        .command()
+        .args(["work", "order", "show", "Nobody", "--json"])
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+    let err: Value = serde_json::from_slice(&missing.stdout).unwrap();
+    assert!(err["error"]["message"].as_str().unwrap().contains("Nobody"));
+    let readable = pilot
+        .command()
+        .args(["work", "order", "show", "Alpha"])
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8(readable.stdout)
+            .unwrap()
+            .contains("ALPHA-1 Plan")
+    );
     assert_eq!(
         pilot.call(&["work", "order", "show", "Alpha", "--json"]),
-        saved
+        shown
     );
 }
 

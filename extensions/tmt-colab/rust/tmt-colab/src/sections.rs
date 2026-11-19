@@ -42,18 +42,12 @@ pub fn sections(blocks: Option<&Value>) -> (Vec<Section>, bool) {
     let mut found: Vec<Section> = Vec::new();
     // The sections a block falls in: every heading still open above it.
     let mut open: Vec<usize> = Vec::new();
-    let mut omitted = false;
     for (id, block) in order {
         if block["type"] == "heading" {
             let level = u8::try_from(block["props"]["level"].as_u64().unwrap_or(2)).unwrap_or(2);
             // A heading closes every open section of its level or deeper.
             while open.last().is_some_and(|&at| found[at].level >= level) {
                 open.pop();
-            }
-            if found.len() >= SECTIONS {
-                omitted = true;
-                // Its content still counts toward the open parents it falls in.
-                continue;
             }
             found.push(Section {
                 id: id.to_owned(),
@@ -99,7 +93,7 @@ pub fn sections(blocks: Option<&Value>) -> (Vec<Section>, bool) {
             }
         }
     }
-    (found, omitted)
+    counted_sections(found)
 }
 
 /// An HTML page's sections (#6619): each `h2` and `h3` the outline lists, keyed `h1`, `h2`, ... by
@@ -112,17 +106,12 @@ pub fn html_sections(source: &str, open: &BTreeSet<&str>) -> (Vec<Section>, bool
     };
     let mut found: Vec<Section> = Vec::new();
     let mut inside: Vec<usize> = Vec::new();
-    let mut omitted = false;
     for part in parts {
         let mut candidates = Vec::new();
         match part {
             Part::Heading(level, title) => {
                 while inside.last().is_some_and(|&at| found[at].level >= level) {
                     inside.pop();
-                }
-                if found.len() >= SECTIONS {
-                    omitted = true;
-                    continue;
                 }
                 found.push(Section {
                     id: format!("h{}", found.len() + 1),
@@ -160,7 +149,14 @@ pub fn html_sections(source: &str, open: &BTreeSet<&str>) -> (Vec<Section>, bool
             }
         }
     }
-    (found, omitted)
+    counted_sections(found)
+}
+
+fn counted_sections(mut sections: Vec<Section>) -> (Vec<Section>, bool) {
+    sections.retain(Section::counted);
+    let omitted = sections.len() > SECTIONS;
+    sections.truncate(SECTIONS);
+    (sections, omitted)
 }
 
 impl Section {
@@ -360,12 +356,10 @@ mod tests {
                 ("Plan", 2, 2, 3, 0, true),
                 ("Build", 3, 1, 2, 0, true),
                 ("Ship", 2, 0, 0, 1, true),
-                ("About", 2, 0, 0, 0, false),
             ]
         );
         assert_eq!(found[0].state(None, 0), "working");
         assert_eq!(found[1].state(None, 0), "working");
-        assert_eq!(found[3].state(None, 0), "none");
         // A section waiting on a PR is decided only once its facts are known.
         assert_eq!(found[2].folded_state(0), "unchecked");
         assert_eq!(
@@ -443,7 +437,6 @@ mod tests {
                 ("Blocked", "blocked"),
                 ("Asks", "needs-you"),
                 ("Done by hand", "done"),
-                ("Example", "none"),
                 ("Not started", "not-started"),
                 ("All checked", "done"),
             ]
@@ -483,6 +476,20 @@ mod tests {
         );
         assert!(found.iter().all(Section::counted));
         assert_eq!(found[1].state(Some(&[]), 0), "needs-you");
+    }
+
+    #[test]
+    fn only_counted_headings_consume_projection_slots() {
+        let mut blocks = serde_json::Map::new();
+        for i in 0..SECTIONS + 2 {
+            blocks.insert(format!("h{i}"), json!({"type":"heading","parent":"root","pos":format!("{i:03}"), "props":{"level":2,"progress":if i==0 {"off"} else {"done"}}}));
+        }
+        let (rows, omitted) = sections(Some(&Value::Object(blocks.clone())));
+        assert!(omitted);
+        assert_eq!(rows.len(), SECTIONS);
+        assert_eq!(rows.last().unwrap().id, format!("h{SECTIONS}"));
+        blocks.remove(&format!("h{}", SECTIONS + 1));
+        assert!(!sections(Some(&Value::Object(blocks))).1);
     }
 
     #[test]

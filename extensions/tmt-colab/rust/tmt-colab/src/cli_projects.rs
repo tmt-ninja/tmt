@@ -16,7 +16,7 @@ use tmt_colab::{
 };
 use tmt_colab_model::{auth::SPACE_SCOPE_PAGE, values};
 
-use crate::cli_management::{fail, fresh_id, mutate, resolve_page};
+use crate::cli_management::{fail, fresh_id, mutate_with_limit, resolve_page};
 
 macro_rules! command_spec {
     ($name:literal,$summary:literal,$example:literal,$details:literal) => {
@@ -142,13 +142,24 @@ pub(crate) fn send_reply(
     let body = serde_json::to_vec(&json!({"space":key.space_id,"page":page,
         "expectedRevision":"","operationId":operation_id,"operation":operation,
         "payload":values::encode_binary(&serde_json::to_vec(payload)?)}))?;
+    // A complete ranked order can exceed the ordinary acknowledgement even with IDs alone.
+    let limit = if matches!(
+        payload["action"].as_str(),
+        Some("order-show" | "order-move")
+    ) {
+        tmt_colab::limits::DISCOVERY_BYTES
+    } else {
+        crate::IPC_RESPONSE_BYTES
+    };
     let reply: Value =
-        serde_json::from_slice(&mutate(layout, &key.space_id, &body)?).map_err(|_| {
-            fail(
-                "COLAB_OUTCOME_UNKNOWN",
-                "Invalid acknowledgment; inspect the page list before retrying.",
-            )
-        })?;
+        serde_json::from_slice(&mutate_with_limit(layout, &key.space_id, &body, limit)?).map_err(
+            |_| {
+                fail(
+                    "COLAB_OUTCOME_UNKNOWN",
+                    "Invalid acknowledgment; inspect the page list before retrying.",
+                )
+            },
+        )?;
     if reply["operationId"] != operation_id.as_str() {
         return Err(fail(
             "COLAB_OUTCOME_UNKNOWN",

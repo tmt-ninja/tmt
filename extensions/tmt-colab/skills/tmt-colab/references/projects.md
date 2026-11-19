@@ -33,7 +33,7 @@ Ben and leads reorder project work. Read the owner's current order with
 `tmt colab work order show PROJECT --json`. Use its revision with
 `tmt colab work order move PROJECT ITEM --last --revision REV --json`.
 Use `--before ITEM` to insert before another ranked item or `--unrank` to remove the
-position. A stale revision returns the current order for review. Moving an item sends no message.
+position. Read `itemDetails` for numbers and titles. A stale move returns the order in `error.current`; review it before moving again. Moving an item sends no message.
 
 The owner generates the work-number prefix from the project name. Set it with
 `tmt colab project set NAME --prefix PREFIX` before the first number is issued. After issuance the prefix stays fixed, including
