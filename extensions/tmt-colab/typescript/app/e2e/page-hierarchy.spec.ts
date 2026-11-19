@@ -88,6 +88,29 @@ for (const width of [1440, 1100, 800, 390])
       'data-shape',
       'target',
     );
+    // A heading that wraps keeps its mark and count on its first line (#6731): narrowed here so
+    // the heading takes three lines.
+    const lines = await sections.first().evaluate((node) => {
+      (node as HTMLElement).style.maxWidth = '160px';
+      const heading = node.querySelector('h2, h3')!;
+      const range = document.createRange();
+      range.selectNodeContents(heading);
+      const rects = [...range.getClientRects()];
+      const first = rects[0]!;
+      const middle = (box: DOMRect) => (box.top + box.bottom) / 2;
+      const mark = node.querySelector('.structured-section-mark')!.getBoundingClientRect();
+      const count = node.querySelector('.structured-section-count')!.getBoundingClientRect();
+      const box = heading.getBoundingClientRect();
+      return {
+        wrapped: box.height > first.height * 1.5,
+        mark: Math.abs(middle(mark) - (box.top + first.height / 2)),
+        count: middle(count) > box.top && middle(count) < box.top + first.height * 1.3,
+      };
+    });
+    expect(lines.wrapped).toBe(true);
+    expect(lines.mark).toBeLessThanOrEqual(2);
+    expect(lines.count).toBe(true);
+    await sections.first().evaluate((node) => ((node as HTMLElement).style.maxWidth = ''));
     const title = page.locator('.page-mobile-title:visible h1');
     expect((await title.boundingBox())!.width).toBeGreaterThan(40);
     const details = await openDetails(page);

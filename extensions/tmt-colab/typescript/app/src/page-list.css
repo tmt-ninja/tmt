@@ -6,7 +6,10 @@
   flex-direction: column;
   box-sizing: border-box;
   max-width: none;
-  height: calc(100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) - 57px);
+  height: calc(
+    100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) -
+      var(--colab-footer-height, 0px)
+  );
   overflow-y: auto;
   overscroll-behavior: contain;
   /* Control height changes must not move the scroll offset across the observed boundary. */

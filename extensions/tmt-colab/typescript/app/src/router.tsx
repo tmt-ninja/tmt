@@ -454,10 +454,13 @@ function PageFloatingActions({
               <>
                 <MessagesSquare />
                 {comments !== undefined ? (
-                  <span className="dock-count" data-unseen={unseen || undefined}>
-                    {comments}
-                    {unseen && <span aria-hidden="true">•</span>}
-                  </span>
+                  // No open thread draws no number: the name still says (0) (#6731).
+                  (comments > 0 || unseen) && (
+                    <span className="dock-count" data-unseen={unseen || undefined}>
+                      {comments}
+                      {unseen && <span aria-hidden="true">•</span>}
+                    </span>
+                  )
                 ) : (
                   <span className="dock-count" data-pending aria-hidden="true" />
                 )}
@@ -528,6 +531,10 @@ function SelectionAnnotation({
     bottom?: number;
     maxHeight: number;
   } | null>(null);
+  /** On a phone the window opens over the page's lower part; the page then moves its quote above
+   * it, once per opening (#6731), and never fights the reader's own scrolling after. */
+  const phoneRevealed = useRef(false);
+  if (!expanded) phoneRevealed.current = false;
   useEffect(() => {
     const notice = noticeVisible
       ? host?.parentElement?.querySelector<HTMLElement>('.tmt-ui-notice')
@@ -581,6 +588,18 @@ function SelectionAnnotation({
                 maxHeight: below,
               },
         );
+        if (frame && rectangle && !phoneRevealed.current) {
+          phoneRevealed.current = true;
+          const quoteTop = frame.top + rectangle.y;
+          const quoteBottom = quoteTop + rectangle.height;
+          requestAnimationFrame(() => {
+            const box = element.current?.getBoundingClientRect();
+            if (!box || quoteBottom + 8 <= box.top) return;
+            // Move the quote just above the window, without lifting its start under the chrome.
+            const lift = Math.min(quoteBottom + 8 - box.top, quoteTop - (inset + 8));
+            if (lift > 0) window.scrollBy({ top: lift, behavior: 'instant' });
+          });
+        }
         return;
       }
       if (!frame || !rectangle) {

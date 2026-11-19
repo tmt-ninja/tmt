@@ -1,5 +1,5 @@
 import { backToPageList, showAllPages } from '../test/home-list.js';
-import { pageAction } from '../test/page-actions.js';
+import { commentsAction, pageAction } from '../test/page-actions.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import {
@@ -2379,6 +2379,14 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
     page.locator('.page-mobile-title').getByRole('heading', { name: 'Checkpoint', exact: true }),
   ).toBeVisible();
   await expect(page.getByTestId('comments-panel')).toContainText('No comments yet.');
+  // No thread yet: the comments mark, not the caught-up check, and a hint the page can follow;
+  // the dock draws no 0 while its name still says it (#6731).
+  await expect(page.getByTestId('comments-empty')).toContainText(
+    'Select text on the page, or turn on Selection mode, to start a thread.',
+  );
+  await expect(page.getByTestId('comments-empty').locator('svg[data-none]')).toHaveCount(1);
+  await expect(page.locator('.dock-count')).toHaveCount(0);
+  await expect(commentsAction(page)).toHaveAccessibleName('Comments (0)');
   await expect(page.getByTestId('comment-entry')).toHaveCount(0);
   await (await pageAction(page, 'Source')).click();
   await expect(page.getByRole('textbox')).toHaveValue('<p>after tail</p>' + 'x'.repeat(300_000));

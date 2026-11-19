@@ -525,7 +525,7 @@ export const text = {
   commentsViews: 'Comment views',
   commentsViewOpen: 'Open',
   commentsEmptyNone: 'No comments yet.',
-  commentsEmptyNoneHint: 'Select text to start a thread, or comment on the page.',
+  commentsEmptyNoneHint: 'Select text on the page, or turn on Selection mode, to start a thread.',
   commentsEmptyTitle: 'Nothing waiting here.',
   commentsEmptyCaughtUp: 'You are caught up in this view.',
   /** The Comments panel's pressed toggle: resolved threads are hidden until it is on. */
