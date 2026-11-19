@@ -1383,9 +1383,9 @@ test('remote deletion preserves typing until the person keeps or discards the dr
     const first = insert('Review launch notes');
     const second = insert('Review rollback plan');
     await page.goto(new URL(created.path, door.address).href);
-    const notice = page.getByText('This block was deleted while you were editing it.', {
-      exact: true,
-    });
+    const notice = page
+      .getByRole('status')
+      .filter({ hasText: 'This block was deleted while you were editing it.' });
     for (const [id, action] of [
       [first, 'Keep as a new block'],
       [second, 'Discard'],

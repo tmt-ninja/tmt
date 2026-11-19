@@ -2722,10 +2722,5 @@ button.discussion-quote:focus-visible {
 }
 
 .deleted-draft-notice {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--tmt-ui-space-xs);
-  padding: var(--tmt-ui-space-s);
-  border-inline-start: 2px solid currentColor;
+  font-size: var(--tmt-ui-caption-size);
 }

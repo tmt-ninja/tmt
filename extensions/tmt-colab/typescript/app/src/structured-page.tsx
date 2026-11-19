@@ -11,7 +11,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { Plus } from 'lucide-react';
+import { BrowserAction, BrowserNotice } from '@tmt/browser-ui/react';
+import { Plus, TriangleAlert } from 'lucide-react';
 import {
   Block,
   blockActions,
@@ -662,13 +663,32 @@ function Blocks({
       />
       {rest.drafts?.has(block.id) && (
         <div className="deleted-draft-notice">
-          <span role="status">{strings.blockDelete.draft}</span>
-          <Button size="sm" onClick={() => rest.onKeepDraft?.(block.id)}>
-            {strings.blockDelete.keep}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => rest.onDiscardDraft?.(block.id)}>
-            {strings.blockDelete.discard}
-          </Button>
+          <BrowserNotice
+            tone="waiting"
+            variant="tinted"
+            announcement="status"
+            mark={<TriangleAlert size="1em" />}
+            stateLabel={strings.blockDelete.draft}
+            body={null}
+            actions={
+              <>
+                <BrowserAction
+                  type="button"
+                  variant="primary"
+                  presentation="compact"
+                  label={strings.blockDelete.keep}
+                  onActivate={() => rest.onKeepDraft?.(block.id)}
+                />
+                <BrowserAction
+                  type="button"
+                  variant="text"
+                  presentation="compact"
+                  label={strings.blockDelete.discard}
+                  onActivate={() => rest.onDiscardDraft?.(block.id)}
+                />
+              </>
+            }
+          />
         </div>
       )}
       {rest.blockMenu?.id === block.id && (
