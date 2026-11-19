@@ -359,5 +359,15 @@ const STARTER =
  * without live blocks. */
 export function renderBlocks(blocks: unknown, surface: Surface = 'export'): string {
   const body = children(obj(blocks), 'root', surface);
-  return body === '' ? body : STARTER + body;
+  if (body === '') return '';
+  if (surface === 'reader') {
+    // The frame reserves a marker lane. Size the reading column against the full viewport
+    // so its left edge matches the title in the outer document.
+    return (
+      STARTER +
+      '<style>body{box-sizing:border-box;width:min(1280px,calc(100vw - 32px));margin-inline:max(16px,calc((100vw - 1280px)/2)) 0}table{width:100%}</style>' +
+      body
+    );
+  }
+  return STARTER + body;
 }

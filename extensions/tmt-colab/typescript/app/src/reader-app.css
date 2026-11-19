@@ -137,3 +137,9 @@
   background: var(--tmt-ui-surface-sheet);
   box-shadow: var(--tmt-ui-shadow-overlay);
 }
+
+.workspace[data-reader-blocks] > .page-mobile-title {
+  width: min(1280px, 100% - 32px);
+  margin-inline: auto;
+  padding-inline: 0;
+}

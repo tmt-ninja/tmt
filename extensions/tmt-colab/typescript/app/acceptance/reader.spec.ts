@@ -1002,6 +1002,20 @@ test('a structured share link renders admitted blocks and follows owner edits', 
     await expect(body.locator('code')).toHaveText('tmt colab ls --json');
     colab(world, ['block', 'insert', pageId, '--type', 'paragraph', '--text', 'Ready for review.']);
     await expect(body.getByText('Ready for review.')).toBeVisible();
+    for (const width of [1440, 390]) {
+      await reader.page.setViewportSize({ width, height: 900 });
+      const title = reader.page
+        .getByRole('heading', { name: 'Release checklist', exact: true })
+        .last();
+      const heading = body.getByRole('heading', { name: 'Release handoff' });
+      const bounds = await title.boundingBox();
+      expect(bounds).not.toBeNull();
+      const left = Math.max(16, (width - 1280) / 2);
+      await expect.poll(async () => (await heading.boundingBox())?.x).toBe(left);
+      expect(bounds!.x).toBe(left);
+      if (width === 390)
+        expect((await body.getByRole('table').boundingBox())?.width).toBe(width - 32);
+    }
     const captures = process.env.COLAB_READER_CAPTURE_DIR;
     if (captures) {
       await mkdir(captures, { recursive: true });
@@ -1019,6 +1033,8 @@ test('a structured share link renders admitted blocks and follows owner edits', 
             await page.setViewportSize({ width, height: 900 });
             await page.emulateMedia({ colorScheme: theme });
             await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+            if (name === 'reader')
+              await expect.poll(() => body.locator('html').getAttribute('data-theme')).toBe(theme);
             await page.screenshot({ path: path.join(captures, `${name}-${width}-${theme}.png`) });
           }
         }

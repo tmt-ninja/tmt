@@ -386,8 +386,8 @@ export function ReaderApp({
           <ShellNotice pageId={state.pageId} />
         ) : state.kind === 'ready' ? (
           <section className="page">
-            <div className="workspace">
-              {phone && (
+            <div className="workspace" data-reader-blocks={structured || undefined}>
+              {(phone || structured) && (
                 <MobileWorkTitle title={title || text.unknownPageTitle} onSize={setWorkBandSize} />
               )}
               <div className="canvas">
