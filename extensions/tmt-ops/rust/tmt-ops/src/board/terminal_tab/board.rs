@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     action::{OpsUiAction, Verb},
-    board::app::{App, CopyFeedback, Effect, Request, TerminalKey, TerminalOp, event_name},
+    board::app::{App, CopyFeedback, Effect, Request, TerminalKeyOwner, TerminalOp, event_name},
 };
 use ratatui::{
     crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
@@ -315,16 +315,19 @@ impl App {
 
     /// While the frame is up every key is the program's, byte for byte, except the back key; a
     /// dialog or a menu takes its own keys first.
-    pub(in crate::board) fn frame_key(&mut self, key: KeyEvent) -> Option<TerminalKey> {
+    pub(in crate::board) fn frame_key(
+        &mut self,
+        key: KeyEvent,
+    ) -> Option<(Effect, TerminalKeyOwner)> {
         self.terminal.framed()?;
         if self.back_key(key) {
-            return Some(TerminalKey::Board(self.close_member_frame()));
+            return Some((self.close_member_frame(), TerminalKeyOwner::Board));
         }
         if let Some(dialog) = self.frame_dialog() {
-            return Some(TerminalKey::Board(self.dialog_key(dialog, key)));
+            return Some((self.dialog_key(dialog, key), TerminalKeyOwner::Board));
         }
         if let Some(menu) = self.terminal.menu() {
-            return Some(TerminalKey::Board(self.frame_menu_key(menu, key)));
+            return Some((self.frame_menu_key(menu, key), TerminalKeyOwner::Board));
         }
         if self
             .terminal_view()
@@ -333,9 +336,9 @@ impl App {
             if key.code == KeyCode::Enter {
                 self.terminal.reattach();
             }
-            return Some(TerminalKey::Board(Effect::None));
+            return Some((Effect::None, TerminalKeyOwner::Board));
         }
-        Some(TerminalKey::Child)
+        Some((Effect::None, TerminalKeyOwner::Child))
     }
 
     fn dialog_key(&mut self, dialog: Dialog, key: KeyEvent) -> Effect {

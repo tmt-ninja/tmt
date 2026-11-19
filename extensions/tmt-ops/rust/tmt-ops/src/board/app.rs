@@ -302,8 +302,8 @@ impl Request {
 }
 
 /// What owns a key intercepted by a member terminal surface.
-pub(in crate::board) enum TerminalKey {
-    Board(Effect),
+pub(in crate::board) enum TerminalKeyOwner {
+    Board,
     Child,
 }
 
@@ -4489,22 +4489,19 @@ impl App {
             self.invalidate_frame_geometry();
             return Effect::None;
         }
-        if let Some(destination) = self
+        if let Some((effect, owner)) = self
             .frame_key(key)
             .or_else(|| self.terminal_typing_key(key))
         {
-            return match destination {
-                TerminalKey::Board(effect) => effect,
-                TerminalKey::Child => {
-                    *repaint = false;
-                    if let Some(bytes) =
-                        tmt_tui::components::terminal::key_bytes(&key, self.terminal.modes())
-                    {
-                        self.terminal.send(&bytes);
-                    }
-                    Effect::None
+            if matches!(owner, TerminalKeyOwner::Child) {
+                *repaint = false;
+                if let Some(bytes) =
+                    tmt_tui::components::terminal::key_bytes(&key, self.terminal.modes())
+                {
+                    self.terminal.send(&bytes);
                 }
-            };
+            }
+            return effect;
         }
         self.set_notice(None, false);
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {

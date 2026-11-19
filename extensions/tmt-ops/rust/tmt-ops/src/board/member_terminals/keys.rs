@@ -6,7 +6,7 @@ use super::Row;
 use crate::{
     action::OpsUiAction,
     board::{
-        app::{App, Choice, Effect, TerminalKey},
+        app::{App, Choice, Effect, TerminalKeyOwner},
         terminal_tab::{discovery::Address, tab::Condition},
         workspace::OpsTarget,
     },
@@ -159,7 +159,10 @@ impl App {
 
     /// While typing in the right panel every key is the terminal's, byte for byte, except the
     /// back key, which returns to the list.
-    pub(in crate::board) fn terminal_typing_key(&mut self, key: KeyEvent) -> Option<TerminalKey> {
+    pub(in crate::board) fn terminal_typing_key(
+        &mut self,
+        key: KeyEvent,
+    ) -> Option<(Effect, TerminalKeyOwner)> {
         if self.framed() {
             return None;
         }
@@ -167,9 +170,9 @@ impl App {
         if self.back_key(key) {
             self.terminals.set_typing(None);
             self.focus = 0;
-            return Some(TerminalKey::Board(Effect::None));
+            return Some((Effect::None, TerminalKeyOwner::Board));
         }
-        Some(TerminalKey::Child)
+        Some((Effect::None, TerminalKeyOwner::Child))
     }
 
     pub(in crate::board) fn terminal_typing_paste(&mut self, text: &str) -> Option<Effect> {
