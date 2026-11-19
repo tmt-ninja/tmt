@@ -115,6 +115,10 @@ export function LiveStructuredPage({
   );
   const {
     tree,
+    drafts,
+    changeDraft,
+    keepDraft,
+    discardDraft,
     editing,
     focus,
     focusCell,
@@ -167,6 +171,10 @@ export function LiveStructuredPage({
     <StructuredPage
       anchorBlock={hash.startsWith('block-') ? hash.slice(6) : hash}
       tree={tree}
+      drafts={drafts}
+      onDraftChange={changeDraft}
+      onKeepDraft={keepDraft}
+      onDiscardDraft={discardDraft}
       todoNumbers={todoNumbers}
       annotationMode={annotationMode}
       sections={sections}

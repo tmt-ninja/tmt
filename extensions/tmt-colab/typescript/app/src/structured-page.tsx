@@ -11,7 +11,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { Plus } from 'lucide-react';
+import { BrowserAction, BrowserNotice } from '@tmt/browser-ui/react';
+import { Plus, TriangleAlert } from 'lucide-react';
 import {
   Block,
   blockActions,
@@ -111,6 +112,10 @@ export function blockLabel(block: BlockRecord): string {
 
 export interface StructuredPageProps {
   tree: BlockTree;
+  drafts?: ReadonlyMap<string, { editing: NonNullable<StructuredPageProps['editing']> }>;
+  onDraftChange?(id: string, text: string, caret: number): void;
+  onKeepDraft?(id: string): void;
+  onDiscardDraft?(id: string): void;
   todoNumbers?: Readonly<Record<string, string>>;
   /** Selection mode annotates the block instead of starting an edit. */
   annotationMode?: boolean;
@@ -329,6 +334,7 @@ export function StructuredPage(props: StructuredPageProps) {
       <BlockDocument
         ref={root}
         onKeyDown={(event) => {
+          if ((event.target as HTMLElement).closest('[data-deleted-draft]')) return;
           if (typesInto(event)) setHovered(undefined);
           if (props.onPageKey?.(event)) event.preventDefault();
         }}
@@ -510,6 +516,7 @@ function Blocks({
     <Block
       key={block.id}
       data-block-id={block.id}
+      data-deleted-draft={rest.drafts?.has(block.id) || undefined}
       label={blockLabel(block)}
       kind={KIND[block.type]}
       level={block.type === 'heading' ? headingLevel(block) : undefined}
@@ -566,6 +573,7 @@ function Blocks({
       }}
       readonly={rest.readonly}
       onClick={(event) => {
+        if (rest.drafts?.has(block.id)) return;
         // A click on the handle or a menu inside the block is theirs, not a click on the block.
         const target = event.target as HTMLElement;
         // The handle, a menu and a control in the block (a to-do's checkbox) take their own click.
@@ -629,6 +637,7 @@ function Blocks({
         </div>
       )}
       {!rest.readonly &&
+        !rest.drafts?.has(block.id) &&
         !drag &&
         (pointer.hovered === block.id || rest.selectionFocus === block.id) && (
           <BlockHandle
@@ -640,7 +649,48 @@ function Blocks({
             onGripPointerDown={(event) => pointer.startDrag(block.id, event)}
           />
         )}
-      <Content block={block} {...rest} pointer={pointer} tree={tree} />
+      <Content
+        block={block}
+        {...rest}
+        pointer={pointer}
+        tree={tree}
+        {...(rest.drafts?.has(block.id) && {
+          editing: rest.drafts.get(block.id)!.editing,
+          onTyped: rest.onDraftChange,
+          onKey: undefined,
+          onPasteUrl: undefined,
+        })}
+      />
+      {rest.drafts?.has(block.id) && (
+        <div className="deleted-draft-notice">
+          <BrowserNotice
+            tone="waiting"
+            variant="tinted"
+            announcement="status"
+            mark={<TriangleAlert size="1em" />}
+            stateLabel={strings.blockDelete.draft}
+            body={null}
+            actions={
+              <>
+                <BrowserAction
+                  type="button"
+                  variant="primary"
+                  presentation="compact"
+                  label={strings.blockDelete.keep}
+                  onActivate={() => rest.onKeepDraft?.(block.id)}
+                />
+                <BrowserAction
+                  type="button"
+                  variant="text"
+                  presentation="compact"
+                  label={strings.blockDelete.discard}
+                  onActivate={() => rest.onDiscardDraft?.(block.id)}
+                />
+              </>
+            }
+          />
+        </div>
+      )}
       {rest.blockMenu?.id === block.id && (
         <ActionsPopover
           block={block}

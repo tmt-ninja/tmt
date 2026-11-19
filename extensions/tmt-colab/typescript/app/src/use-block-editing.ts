@@ -534,6 +534,120 @@ export function useBlockEditing(
   );
   showRef.current = show;
 
+  const [drafts, setDrafts] = useState<
+    ReadonlyMap<string, { block: BlockRecord; editing: Editing }>
+  >(new Map());
+  const latestDrafts = useRef(drafts);
+  latestDrafts.current = drafts;
+  const savingDrafts = useRef(new Set<string>());
+  const [previousPage, setPreviousPage] = useState(pageTree);
+  if (previousPage !== pageTree) {
+    setPreviousPage(pageTree);
+    const current = sync.current;
+    const previous = current && previousPage.get(current.id);
+    if (
+      current &&
+      previous &&
+      previousPage.visible(previous.id) &&
+      !pageTree.visible(previous.id) &&
+      !current.cell &&
+      editing?.id === previous.id &&
+      document.activeElement
+        ?.closest('[contenteditable=true]')
+        ?.closest<HTMLElement>('[data-block-id]')?.dataset.blockId === previous.id
+    ) {
+      // Preserve the keyed editor in this render, before React can detach it and its selection.
+      const parent = tree.visible(previous.parent) ? previous.parent : PAGE_PARENT;
+      const draft = {
+        block: { ...previous, parent, text: current.text },
+        editing: { ...editing, text: current.text, caret: caret.current },
+      };
+      setDrafts(new Map(drafts).set(previous.id, draft));
+      sync.current = undefined;
+      setEditing(undefined);
+      clearTimeout(timer.current);
+    }
+  }
+  const drawTree = useMemo(
+    () => tree.withDrafts([...drafts.values()].map((draft) => draft.block)),
+    [tree, drafts],
+  );
+  const changeDraft = (id: string, text: string, at: number) => {
+    setDrafts((now) => {
+      const draft = now.get(id);
+      return draft
+        ? new Map(now).set(id, { ...draft, editing: { ...draft.editing, text, caret: at } })
+        : now;
+    });
+  };
+  const removeDraft = (id: string) =>
+    setDrafts((now) => {
+      const next = new Map(now);
+      next.delete(id);
+      return next;
+    });
+  const keepDraft = async (id: string) => {
+    const draft = drafts.get(id);
+    if (!draft || !isBlockType(draft.block.type) || savingDrafts.current.has(id)) return;
+    savingDrafts.current.add(id);
+    const newId = crypto.randomUUID();
+    const parent = tree.visible(draft.block.parent) ? draft.block.parent : PAGE_PARENT;
+    const siblings = drawTree.children(parent);
+    const after = siblings
+      .slice(
+        0,
+        siblings.findIndex((item) => item.id === id),
+      )
+      .reverse()
+      .find((item) => tree.visible(item.id))?.id;
+    const op = insertBlock(tree, {
+      id: newId,
+      type: draft.block.type,
+      parent,
+      after,
+      props: draft.block.props,
+      text: draft.editing.text,
+    });
+    const saved = await out(undefined, [op], undefined, false);
+    savingDrafts.current.delete(id);
+    if (!saved) {
+      noticeRef.current(strings.blockEdit.notApplied);
+      return;
+    }
+    const latest = latestDrafts.current.get(id)?.editing ?? draft.editing;
+    removeDraft(id);
+    arriving.current = newId;
+    const replacement = new BlockTextSync(newId, draft.editing.text);
+    replacement.typed(latest.text);
+    open(replacement, latest.caret);
+    if (replacement.pending) flush();
+  };
+  const discardDraft = (id: string) => {
+    if (savingDrafts.current.has(id)) return;
+    const siblings = drawTree.flat();
+    const index = siblings.findIndex((block) => block.id === id);
+    const next = [...siblings.slice(index + 1), ...siblings.slice(0, index).reverse()].find(
+      (block) => tree.visible(block.id),
+    );
+    removeDraft(id);
+    if (next) setSelection(selectBlock(next.id));
+    else
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLElement>(
+            '[data-slot="block-document"] button, .page-floating-actions button',
+          )
+          ?.focus(),
+      );
+  };
+
+  useEffect(() => {
+    const id = blockMenu?.id ?? selection?.focus;
+    if (!id || !pageTree.get(id)?.deleted || drafts.has(id)) return;
+    setBlockMenu(undefined);
+    noticeRef.current(strings.blockDelete.remote);
+  }, [pageTree, blockMenu, selection, drafts]);
+
   // A selected block the page no longer draws leaves the selection.
   useEffect(() => {
     setSelection((now) => settleSelection(tree, now));
@@ -1506,7 +1620,11 @@ export function useBlockEditing(
 
   useEffect(() => () => clearTimeout(timer.current), []);
   return {
-    tree,
+    tree: drawTree,
+    drafts,
+    changeDraft,
+    keepDraft,
+    discardDraft,
     editing,
     focus,
     focusCell,

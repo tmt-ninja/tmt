@@ -2720,3 +2720,7 @@ button.discussion-quote:focus-visible {
   color: var(--tmt-ui-color-secondary);
   font-variant-numeric: tabular-nums;
 }
+
+.deleted-draft-notice {
+  font-size: var(--tmt-ui-caption-size);
+}

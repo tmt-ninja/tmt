@@ -2557,6 +2557,12 @@ function OpenPage({
     () => (view.pageType === 'blocks' && view.blocks ? blockTree(view.blocks).tree.flat() : []),
     [view.pageType, view.blocks],
   );
+  useEffect(() => {
+    const anchor = annotationRef.current?.selector;
+    if (!anchor || !('block' in anchor) || !view.blocks?.[anchor.block]?.deleted) return;
+    closeRef.current(true);
+    showTemplateToast(text.blockDelete.remote);
+  }, [view.blocks, annotationRef, closeRef, showTemplateToast]);
   const sectionsById = useMemo(
     () => new Map((view.workFacts?.sections ?? []).map((section) => [section.id, section])),
     [view.workFacts?.sections],

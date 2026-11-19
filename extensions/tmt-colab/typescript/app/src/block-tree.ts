@@ -88,6 +88,11 @@ export class BlockTree {
     return top;
   }
 
+  /** Draw local recovery drafts without adding them to the page used for writes. */
+  withDrafts(drafts: readonly BlockRecord[]): BlockTree {
+    return drafts.length ? new BlockTree([...this.#blocks.values(), ...drafts]) : this;
+  }
+
   /** A block by ID, drawn or not (a deleted block is still known, so it can be restored). */
   get(id: string): BlockRecord | undefined {
     return this.#blocks.get(id);

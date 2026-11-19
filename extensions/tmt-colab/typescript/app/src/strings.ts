@@ -120,6 +120,10 @@ export const text = {
     newColumn: (count: number) => `Column ${count}`,
   },
   blockDelete: {
+    remote: 'The block was deleted.',
+    draft: 'This block was deleted while you were editing it.',
+    keep: 'Keep as a new block',
+    discard: 'Discard',
     deleted: (count: number) => (count === 1 ? 'Deleted 1 block' : `Deleted ${count} blocks`),
     undo: 'Undo',
   },
