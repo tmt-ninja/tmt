@@ -976,12 +976,25 @@ async function consume(directory, index) {
     '--cargo-metadata',
     path.resolve('target/nextest/cargo-metadata.json'),
   ];
+  // Nextest classifies LEAK as a pass, then verifyExecution rejects it.
+  // Keep capture enabled and surface the fixture's writer packet for these two cases.
+  const config = path.resolve(directory, 'execution-config.toml');
+  writeFileSync(
+    config,
+    `[[profile.default.overrides]]
+platform = 'cfg(target_os = "linux")'
+filter = 'binary_id(=tmt-cli::external_host) and (test(=session_switch::a_clear_start_that_beats_its_end_is_held_until_the_process_names_its_session) or test(=session_switch::a_cleared_member_whose_start_was_lost_continues_on_its_next_stop_and_gets_its_digest))'
+success-output = "immediate"
+`
+  );
   await runWorkspacePhase(
     directory,
     'nextest-execution',
     'cargo-nextest',
     [
       'nextest',
+      '--config-file',
+      config,
       'run',
       ...metadata,
       '--no-fail-fast',
