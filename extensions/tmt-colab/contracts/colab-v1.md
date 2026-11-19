@@ -6985,16 +6985,19 @@ paths refuse the same input with the same code.
   compiled templates first. The browser refuses any other shape.
 - `page.new` is a device-signed management request of the owner device. Its frame names the space
   scope page and the empty revision: a new page reads no membership head, and the owner makes it at
-  its own head. Its payload is exactly `{pageId, title, template}` with an optional `creator`
-  selection `{agent:{id,name}}`; `title` is the sub-page title grammar within the page title bound,
-  and `template` a selector of at most 64 bytes (a compiled name, a user template's name, or its
-  page's ID). `pageId` must be the name-based ID over the space and the operation ID: SHA-256 of
+  its own head. Its payload is `{pageId, title}` with an optional `template`, an optional `project` (#6707)
+  and an optional `creator` selection `{agent:{id,name}}`; `title` is the sub-page title grammar
+  within the page title bound, `template` a selector of at most 64 bytes (a compiled name, a user
+  template's name, or its page's ID), and `project` a project name under the [Projects](#projects-3747)
+  rules, which the page starts in (the page list sends the one project its view is filtered to).
+  Without `template` the page is a page of blocks with no blocks yet, as `page create` makes by
+  default; its creator selection is recorded as for a template's page. `pageId` must be the name-based ID over the space and the operation ID: SHA-256 of
   `tmt-colab/page-new/v1`, a zero byte, the space ID, a zero byte and the operation ID, the first 16
   bytes with UUID version 4 and variant 10 bits, as a lowercase UUID. The creation is recorded under
   the ID derived the same way from `tmt-colab/page-new-create/v1`. The serve checks the signature
   against the owner's current registered devices under the management lock (a revoked device is
   `DENIED`), recomputes `pageId` (`INVALID` on a mismatch), resolves the template itself, and runs
-  `page.create` with the template's source, with its question agents set to the creator (none
+  `page.create` (in `project` when named) with the template's source, with its question agents set to the creator (none
   when anonymous), the template's layout, and `fromTemplate` as a CLI create from it records. The
   caller never sends a source or a layout; a payload that does is `INVALID`. An unknown or
   ambiguous template, or a bad title, is `INVALID`; a user template that changed while it was read

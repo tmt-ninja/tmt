@@ -39,6 +39,8 @@ declare global {
     /** `refuse`: the owner refuses the next statement; `refuse-second`: the one after the first it
      * accepts; `unverified`: its log cannot be read back. */
     __operationMode?: 'refuse' | 'refuse-second' | 'unverified';
+    /** The next list read after a page operation is taken before the owner folded it (#6707). */
+    __listLags?: boolean;
     /** What `window.open` was asked for, since the fixture replaces it. */
     __opened: { url: string; target: string; features: string }[];
     /** How many times the router has read the list. */
@@ -393,6 +395,7 @@ export async function mountPageList(
   window.__pinRefusal = undefined;
   window.__pageOperations = [];
   window.__operationMode = undefined;
+  window.__listLags = undefined;
   window.__opened = [];
   window.__listReads = 0;
   window.open = (url, target, features) => {
@@ -623,6 +626,8 @@ export async function mountPageList(
     ];
   }
   for (const p of state.pages) for (const name of p.projects ?? []) state.projects.add(name);
+  /** The pages a lagging list read still shows. */
+  let lagging: PageSummary[] | undefined;
   const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));
   const transport = localTransport('Studio pages', snapshots);
   let templates = fixtureTemplates();
@@ -690,6 +695,7 @@ export async function mountPageList(
         throw new ManagementError('DENIED');
       }
       window.__pageOperations.push({ operation, pageId: value.pageId });
+      if (window.__listLags && !lagging) lagging = state.pages;
       state.pages =
         operation === 'page.delete'
           ? state.pages.filter((p) => p.id !== value.pageId)
@@ -897,7 +903,11 @@ export async function mountPageList(
                 : { names: automaticPins(state.pages), automatic: true },
             }
           : {}),
-        pages: state.pages,
+        pages: (() => {
+          const read = lagging ?? state.pages;
+          lagging = undefined;
+          return read;
+        })(),
       };
     },
   });

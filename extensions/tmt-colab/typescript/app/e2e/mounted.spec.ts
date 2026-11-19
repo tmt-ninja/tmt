@@ -670,7 +670,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     ]);
     expect(checkBox!.width).toBeLessThan(48);
     expect(labelBox!.x + labelBox!.width).toBeLessThanOrEqual(bodyBox!.x + bodyBox!.width + 1);
-    await expect(keepLabel).toContainText('Keep on this computer until I delete it');
+    await expect(keepLabel).toContainText('No expiry: links and grants keep working');
     await managementBody.evaluate((node) => (node.scrollTop = 0));
     if (scrollCaptures)
       await page.screenshot({ path: `${scrollCaptures}/manage-top-${width}-${theme}.png` });
@@ -941,21 +941,27 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     .getByRole('button', { name: /^More for/ })
     .click();
   await manage.click();
-  await expect(dialog.getByLabel('Days after the last change')).toBeVisible();
-  await dialog.getByLabel('Days after the last change').fill('14');
+  await expect(dialog.getByLabel('Days without a page update before access expires')).toBeVisible();
+  await dialog.getByLabel('Days without a page update before access expires').fill('14');
   await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
-  await expect(dialog).toContainText('Access expires after 14 days without a page update');
-  await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
-  await expect(dialog.getByRole('status')).toContainText('Done.');
-  await dialog.getByRole('button', { name: 'Manage another change' }).click();
-  await expect(dialog.getByLabel('Days after the last change')).toHaveValue('14');
-  await dialog.getByLabel('Keep on this computer until I delete it').check();
-  await expect(dialog.getByLabel('Days after the last change')).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
+  await expect(dialog).toContainText(
+    'After 14 days without a page update, the shared copy expires and links and grants stop working.',
+  );
   await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
   await expect(dialog.getByRole('status')).toContainText('Done.');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
-  await expect(dialog.getByLabel('Keep on this computer until I delete it')).toBeChecked();
+  await expect(dialog.getByLabel('Days without a page update before access expires')).toHaveValue(
+    '14',
+  );
+  await dialog.getByLabel('No expiry: links and grants keep working').check();
+  await expect(dialog.getByLabel('Days without a page update before access expires')).toHaveCount(
+    0,
+  );
+  await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('Done.');
+  await dialog.getByRole('button', { name: 'Manage another change' }).click();
+  await expect(dialog.getByLabel('No expiry: links and grants keep working')).toBeChecked();
   await dialog.getByRole('button', { name: 'Archive and stop edits…', exact: true }).click();
   await expect(dialog).toContainText('stop new writes');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();

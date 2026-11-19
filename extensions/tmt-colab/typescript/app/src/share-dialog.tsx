@@ -321,6 +321,10 @@ export function ShareDialog({
             <section aria-label="Page lifecycle">
               <h3>Retention and lifecycle</h3>
               <RetentionHint page={view.page} />
+              <p className="retention-scope">
+                Expiry ends access through links and grants. It never deletes your copy on this
+                computer.
+              </p>
               <form
                 key={view.revision}
                 onSubmit={(e) => {
@@ -333,9 +337,10 @@ export function ShareDialog({
                   review(
                     { operation: 'retention.set', value: { pageId, days } },
                     'Set access expiry',
+                    // Expiry ends the shared copy, so links and grants; never the owner's local copy (#6707).
                     days === null
-                      ? 'Keep this page on this computer until you delete it.'
-                      : `Access expires after ${days} days without a page update. Expiry does not delete your local copy.`,
+                      ? 'Links and grants keep working with no expiry. Expiry never deletes your copy on this computer.'
+                      : `After ${days} days without a page update, the shared copy expires and links and grants stop working. Expiry never deletes your copy on this computer.`,
                   );
                 }}
               >
@@ -344,11 +349,11 @@ export function ShareDialog({
                     checked={forever}
                     onChange={(e) => setForever(e.target.checked)}
                   />
-                  Keep on this computer until I delete it
+                  No expiry: links and grants keep working
                 </label>
                 {!forever && (
                   <label>
-                    Days after the last change
+                    Days without a page update before access expires
                     <input
                       name="days"
                       type="number"
