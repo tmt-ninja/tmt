@@ -270,7 +270,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             };
             // The markup check runs on the result, before the write takes its snapshot.
             let checked = crate::cli_page_check::checked(&edited)?;
-            let warnings = crate::cli_page_check::gate(
+            let (warnings, hints) = crate::cli_page_check::gate(
                 &checked,
                 args,
                 crate::cli_page_check::Attachments::Page {
@@ -319,6 +319,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     return crate::print_receipt(
                         receipt,
                         &warnings,
+                        &hints,
                         args.get_flag("json"),
                         "PAGE PATCHED",
                         released.as_ref(),

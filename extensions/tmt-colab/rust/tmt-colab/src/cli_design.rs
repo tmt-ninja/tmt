@@ -120,6 +120,81 @@ fn not_found(operand: &str) -> Box<dyn std::error::Error + Send + Sync> {
     )
 }
 
+/// The rules for a lock come solely from the exact bytes recorded on the owner root.
+fn locked_rules(
+    source: &str,
+    lock: &str,
+    read: impl FnOnce(&str) -> Option<Vec<u8>>,
+) -> Option<Value> {
+    let (version, hash) = lock.split_once('#')?;
+    let attachment = tmt_colab::design_bundle::release_attachment(source, version, hash)?;
+    let bundle = serde_json::from_slice(&read(&attachment)?).ok()?;
+    matches_release(&bundle, &json!({"version":version, "bundle":hash})).then_some(bundle)
+}
+
+/// Read only the pinned root and the pages it names, through the local owner store.
+pub fn rules_for_pin(pin: &str) -> Option<Value> {
+    let (id, lock) = pin
+        .split_once('@')
+        .map_or((pin, None), |(id, lock)| (id, Some(lock)));
+    tmt_colab_model::values::core_id(id).ok()?;
+    let root = crate::core::data_root(&std::sync::atomic::AtomicBool::new(false)).ok()?;
+    let layout = Layout::existing(&root).ok()??;
+    if !layout.running().ok()? {
+        return None;
+    }
+    let key = Keyring::read(&layout).ok()?;
+    let store = Store::read(&layout).ok()?;
+    store.require_current_schema().ok()?;
+    let mut decoder = Decoder::new(std::env::current_exe().ok()?).ok()?;
+    let generation = store.write_generation().ok()?;
+    let root_page = page::read(&store, &key, id, &mut decoder).ok()?;
+    let config = config(&root_page.source)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    let bundle = if let Some(lock) = lock {
+        locked_rules(&root_page.source, lock, |attachment| {
+            let selector = tmt_colab::attachments::resolve(
+                &store,
+                &key,
+                id,
+                attachment,
+                &mut decoder,
+                deadline,
+            )
+            .ok()?;
+            store.close().ok()?;
+            Some(
+                tmt_colab::attachments::ipc::read(&layout, id, &selector)
+                    .ok()?
+                    .bytes,
+            )
+        })?
+    } else {
+        let prefix = config["prefix"].as_str()?;
+        let mut components = Vec::new();
+        for entry in config["components"].as_array()? {
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
+            let page_id = entry["page"].as_str()?;
+            let doc = page::read(&store, &key, page_id, &mut decoder).ok()?;
+            let marker = r#"<script type="application/json" data-tmt-ds="component">"#;
+            let (_, tail) = doc.source.split_once(marker)?;
+            let component: Value = serde_json::from_str(tail.split_once("</script>")?.0).ok()?;
+            let tag = component["tag"].as_str()?;
+            let props = component["props"].as_object()?;
+            components.push(json!({"tag":format!("{prefix}-{tag}"),"props":props}));
+        }
+        if store.write_generation().ok()? != generation {
+            return None;
+        }
+        json!({"prefix":prefix,"components":components})
+    };
+    bundle["prefix"].as_str()?;
+    bundle["components"].as_array()?;
+    Some(bundle)
+}
+
 pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let (mode, args) = args.subcommand().expect("required subcommand");
     // Before the first page there is no space yet; the built-in system is still there.
@@ -322,4 +397,35 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         tmt_cli_style::detail::write(&mut output, terminal, "DESIGN SYSTEMS", &rows)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pin_tests {
+    use super::*;
+    #[test]
+    fn a_lock_requires_the_recorded_version_and_hash_and_the_verified_attachment_bytes() {
+        let mut bundle = json!({"version":"1.0.0","prefix":"linden","components":[]});
+        let hash = tmt_colab::design_bundle::bundle_hash(&bundle).unwrap();
+        bundle["hash"] = json!(hash);
+        let root = format!(
+            r#"<script type="application/json" data-tmt-ds="design-system">{{"releases":[{{"version":"1.0.0","bundle":"{hash}","attachment":"saved"}}]}}</script>"#
+        );
+        let lock = format!("1.0.0#{hash}");
+        assert_eq!(
+            locked_rules(&root, &lock, |id| {
+                assert_eq!(id, "saved");
+                serde_json::to_vec(&bundle).ok()
+            }),
+            Some(bundle.clone())
+        );
+        assert!(
+            locked_rules(&root, &format!("2.0.0#{hash}"), |_| panic!(
+                "unrecorded version"
+            ))
+            .is_none()
+        );
+        assert!(locked_rules(&root, "1.0.0#wrong", |_| panic!("unrecorded hash")).is_none());
+        bundle["prefix"] = json!("changed");
+        assert!(locked_rules(&root, &lock, |_| serde_json::to_vec(&bundle).ok()).is_none());
+    }
 }

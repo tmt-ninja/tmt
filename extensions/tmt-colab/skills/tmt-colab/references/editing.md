@@ -174,3 +174,8 @@ catalog offline. `multiple-ds-pins` means keep one pin. For `unknown-ds-release`
 `lockMeta` from `design show tmt-gui`. For `ds-prefix-mismatch` or `unknown-ds-component`,
 choose a listed tag. For `invalid-ds-prop`, remove the unknown prop or use the value in the
 finding’s fix. Create and write report these warnings; `--strict` refuses the change.
+
+For a space system, start `tmt colab serve` to check component markup. A following pin checks
+the current component pages. A locked pin checks the published bundle identified by its version
+and hash. `space-design-unchecked` means the checker could not read the required rules; check
+again with the serve running and the pinned system available.

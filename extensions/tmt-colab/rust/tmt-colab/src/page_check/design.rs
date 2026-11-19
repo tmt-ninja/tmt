@@ -141,13 +141,59 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
             return;
         }
     }
-    let prefix = format!("{}-", RELEASE["prefix"].as_str().unwrap());
+    components(tree, elements, &RELEASE, system, &mut warn);
+}
+
+pub fn space_findings(source: &str, system: &str, bundle: &Value) -> Vec<Finding> {
+    let Ok(tree) = Tree::parse(source) else {
+        return Vec::new();
+    };
+    let mut counts = std::collections::HashMap::new();
+    let elements = tree
+        .elements()
+        .into_iter()
+        .map(|id| {
+            let ordinal = counts.entry(tree.name(id)).or_insert(0);
+            *ordinal += 1;
+            (id, *ordinal)
+        })
+        .collect::<Vec<_>>();
+    let mut findings = Vec::new();
+    components(
+        &tree,
+        &elements,
+        bundle,
+        system,
+        &mut |id, ordinal, code, fix| {
+            findings.push(Finding {
+                element: tree.name(id).to_owned(),
+                ordinal,
+                id: tree.attr(id, "data-id").map(str::to_owned),
+                questions_skipped: None,
+                line: tree.line(id),
+                severity: Severity::Warning,
+                code,
+                fix: Some(fix),
+            })
+        },
+    );
+    findings
+}
+
+fn components(
+    tree: &Tree,
+    elements: &[(Id, usize)],
+    bundle: &Value,
+    system: &str,
+    warn: &mut impl FnMut(Id, usize, &'static str, String),
+) {
+    let prefix = format!("{}-", bundle["prefix"].as_str().unwrap());
     for &(id, ordinal) in elements {
         let tag = tree.name(id);
         if !tag.contains('-') || PAGE_ELEMENTS.iter().any(|own| own == tag) {
             continue;
         }
-        let Some(component) = RELEASE["components"]
+        let Some(component) = bundle["components"]
             .as_array()
             .unwrap()
             .iter()
@@ -162,7 +208,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                 id,
                 ordinal,
                 code,
-                nearest(tag, &prefix, RELEASE["components"].as_array().unwrap()).map_or_else(
+                nearest(tag, &prefix, bundle["components"].as_array().unwrap()).map_or_else(
                     || {
                         format!(
                             "Replace <{tag}> with a tag listed by tmt colab design show {system}."
