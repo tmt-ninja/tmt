@@ -65,7 +65,9 @@ impl<'a> WorkMembership<'a> {
         let (page, block) = item
             .split_once(':')
             .map_or((item, None), |(p, b)| (p, Some(b)));
-        let row = self.0[page];
+        let Some(row) = self.0.get(page) else {
+            return serde_json::json!({"id":item,"number":null,"title":null});
+        };
         if let Some(id) = block {
             let todo = row["summary"]["todos"]
                 .as_array()
@@ -235,6 +237,18 @@ impl super::Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_catalog_row_keeps_the_item_id_without_labels() {
+        let catalog = serde_json::json!({"pages":[]});
+        let membership = WorkMembership::from_catalog(&catalog);
+        for id in ["missing", "missing:block"] {
+            assert_eq!(
+                membership.label(id),
+                serde_json::json!({"id":id,"number":null,"title":null})
+            );
+        }
+    }
 
     #[test]
     fn moves_refuse_stale_revisions_and_prune_done_items_on_write() {
