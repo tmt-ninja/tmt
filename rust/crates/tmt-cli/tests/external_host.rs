@@ -3519,8 +3519,12 @@ fn agy_first_prompt_admission_resume_turn_started_and_session_start_first() {
 
     // 1. PreInvocation(1) first on `tmt run --model ... agy --conversation=<id>` admits,
     // associates the launch preset, settles learning, and records TurnStarted.
-    {
-        let fixture = Fixture::delivering("agy-preinvocation-admit");
+    for snapshot_unavailable in [false, true] {
+        let fixture = Fixture::delivering(if snapshot_unavailable {
+            "agy-preinvocation-snapshot-unavailable"
+        } else {
+            "agy-preinvocation-admit"
+        });
         bind(&fixture, fixture.approve());
         let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
             .as_str()
@@ -3552,34 +3556,81 @@ fn agy_first_prompt_admission_resume_turn_started_and_session_start_first() {
             "{before:#}"
         );
 
-        let pre1 = peer.hook_command(
-            serde_json::json!({
-                "hookEventName": "PreInvocation",
-                "conversationId": conversation,
-                "invocationNum": 1,
-                "modelName": "auto",
-                "lastUserInput": "hello from conversation"
-            }),
-            &[],
-        );
-        assert!(pre1.2.is_empty(), "{pre1:?}");
-        assert_eq!(pre1.0, 0, "{pre1:?}");
-        let out: Value = serde_json::from_str(&pre1.1).unwrap();
-        assert!(
-            out["injectSteps"][0]["systemMessage"]["systemMessage"]
-                .as_str()
-                .is_some(),
-            "{out:#}"
-        );
+        support::with_launch_failure_packet(
+            &fixture.state().join("tmt.db"),
+            &[u64::from(peer.child.id()), pid],
+            || {
+                let prior_session = snapshot_unavailable.then(|| session_state(&fixture));
+                let calls_before = fixture.calls().len();
+                let unavailable = fixture.root.join("driver/unreachable");
+                if snapshot_unavailable {
+                    fs::write(&unavailable, "").unwrap();
+                }
 
-        let list = fixture.json(&["ls", "--json"]);
-        let after = worker(&list);
-        assert_eq!(after["session"]["unbound"], false, "{after:#}");
-        assert!(after["session"]["learning"].is_null(), "{after:#}");
-        assert_eq!(
-            after["session"]["activity"]["state"], "working",
-            "{after:#}"
+                let (status, stdout, stderr) = peer.hook_command(
+                    serde_json::json!({
+                        "hookEventName": "PreInvocation",
+                        "conversationId": conversation,
+                        "invocationNum": 1,
+                        "modelName": "auto",
+                        "lastUserInput": "hello from conversation"
+                    }),
+                    &[],
+                );
+                let hook_diagnostic = || stderr.chars().take(4096).collect::<String>();
+                assert_eq!(
+                    status,
+                    0,
+                    "agy PreInvocation(1): stderr={:?}",
+                    hook_diagnostic()
+                );
+                if let Some(prior_session) = prior_session {
+                    assert_eq!(stdout, "{}");
+                    assert_eq!(stderr, HOOK_UNAVAILABLE);
+                    let calls = fixture.calls();
+                    assert!(
+                        calls[calls_before..].iter().any(|call| call == "snapshot"),
+                        "PreInvocation(1) must reach the unavailable pane snapshot: {calls:?}"
+                    );
+                    fs::remove_file(unavailable).unwrap();
+                    assert_eq!(session_state(&fixture), prior_session);
+                    let list = fixture.json(&["ls", "--json"]);
+                    let after = worker(&list);
+                    assert_eq!(after["session"]["unbound"], true, "{after:#}");
+                    assert_eq!(
+                        after["session"]["activity"], before["session"]["activity"],
+                        "{after:#}"
+                    );
+                    assert_eq!(after["resume"], before["resume"], "{after:#}");
+                    return;
+                }
+
+                assert!(
+                    stderr.is_empty(),
+                    "agy PreInvocation(1) after exact Running row {before:#}: exit={status}, stdout={stdout:?}, stderr={:?}",
+                    hook_diagnostic()
+                );
+                let out: Value = serde_json::from_str(&stdout).unwrap();
+                assert!(
+                    out["injectSteps"][0]["systemMessage"]["systemMessage"]
+                        .as_str()
+                        .is_some(),
+                    "{out:#}"
+                );
+
+                let list = fixture.json(&["ls", "--json"]);
+                let after = worker(&list);
+                assert_eq!(after["session"]["unbound"], false, "{after:#}");
+                assert!(after["session"]["learning"].is_null(), "{after:#}");
+                assert_eq!(
+                    after["session"]["activity"]["state"], "working",
+                    "{after:#}"
+                );
+            },
         );
+        if snapshot_unavailable {
+            continue;
+        }
 
         let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
         let session = tmt_core::binding::session::RememberedSession {

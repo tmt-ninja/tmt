@@ -170,28 +170,7 @@ pub(super) fn wait_with_launch_diagnostics<T: std::fmt::Debug>(
                 Err(error) => format!("unavailable: {error}"),
             }
         };
-        let producer = rusqlite::Connection::open_with_flags(
-            fixture.state().join("tmt.db"),
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .and_then(|db| {
-            db.busy_timeout(std::time::Duration::ZERO)?;
-            use rusqlite::OptionalExtension;
-            db.query_row(
-                "SELECT status, step, reason, detail FROM launch_observations
-                 WHERE owner_pid = ? ORDER BY created_at_ms DESC LIMIT 1",
-                [owner_pid as i64],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                    ))
-                },
-            )
-            .optional()
-        });
+        let producer = launch_observation(fixture, owner_pid);
         eprintln!(
             "launch admission: {context}, owner={owner_pid}, last missing={missing:?}\nlaunch observation (status, step, reason, detail): {producer:?}\nhook status: {:?}\nhook stderr: {:?}\nlaunch stderr: {:?}",
             bounded("switch.hook.status"),
@@ -199,6 +178,51 @@ pub(super) fn wait_with_launch_diagnostics<T: std::fmt::Debug>(
             bounded("launched.err"),
         );
         std::panic::resume_unwind(panic);
+    }
+}
+
+pub(super) fn launch_observation(
+    fixture: &Fixture,
+    owner_pid: u64,
+) -> rusqlite::Result<Option<LaunchObservation>> {
+    rusqlite::Connection::open_with_flags(
+        fixture.state().join("tmt.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .and_then(|db| {
+        db.busy_timeout(std::time::Duration::ZERO)?;
+        use rusqlite::OptionalExtension;
+        db.query_row(
+            "SELECT status, step, reason, detail FROM launch_observations
+                 WHERE owner_pid = ? ORDER BY created_at_ms DESC LIMIT 1",
+            [owner_pid as i64],
+            |row| {
+                Ok(LaunchObservation {
+                    status: row.get(0)?,
+                    step: row.get(1)?,
+                    reason: row.get(2)?,
+                    detail: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+    })
+}
+
+#[derive(Debug)]
+pub(super) struct LaunchObservation {
+    status: String,
+    step: Option<String>,
+    reason: Option<String>,
+    detail: Option<String>,
+}
+
+impl LaunchObservation {
+    pub(super) fn foreground_unverified(&self) -> bool {
+        self.status == "intent"
+            && self.step.as_deref() == Some("provider_verification")
+            && self.reason.as_deref() == Some("not_admitted")
+            && self.detail.is_none()
     }
 }
 
