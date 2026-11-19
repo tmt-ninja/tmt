@@ -10,16 +10,14 @@ it.each(['claude', 'codex'] as const)(
     await withE2EFixture(
       async (fixture) => {
         const session = '11111111-1111-4111-8111-111111111111';
+        const waitForFlush = {
+          node: process.execPath,
+          script: path.resolve('test/support/wait-hook-flush.mjs'),
+          directory: fixture.globalDir,
+        };
         const hook = (event: string, turn = 'a', id = session) => ({
           args: ['__hook', provider],
-          waitForFlush:
-            event === 'Stop'
-              ? {
-                  node: process.execPath,
-                  script: path.resolve('test/support/wait-hook-flush.mjs'),
-                  directory: fixture.globalDir,
-                }
-              : undefined,
+          waitForFlush: event === 'Stop' ? waitForFlush : undefined,
           input: {
             hook_event_name: event,
             session_id: id,
@@ -54,7 +52,8 @@ it.each(['claude', 'codex'] as const)(
                 // a repeated one and the turn's own Stop are duplicates.
                 hook('Interrupt', 'a'),
                 list,
-                hook('Interrupt', 'b'),
+                // The matching Interrupt queues its activity update like Stop.
+                { ...hook('Interrupt', 'b'), waitForFlush },
                 list,
                 hook('Interrupt', 'b'),
                 list,
