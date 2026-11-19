@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "colab",
   "channel": "alpha",
-  "version": "0.1.0-alpha.491",
-  "tag": "tmt-colab-v0.1.0-alpha.491",
+  "version": "0.1.0-alpha.492",
+  "tag": "tmt-colab-v0.1.0-alpha.492",
   "record": {
-    "url": "https://github.com/tmt-ninja/tmt/releases/download/tmt-colab-v0.1.0-alpha.491/tmt-release-record.json",
+    "url": "https://github.com/tmt-ninja/tmt/releases/download/tmt-colab-v0.1.0-alpha.492/tmt-release-record.json",
     "size": 1608,
-    "sha256": "410fa86dfab90d372c78d17d3d3d48d61fcb1ddcb19a9ad9a3696ac3eaea367f"
+    "sha256": "abc5e3e1c2844c29944f27ea2745e277f5399254cdb96c35eedb034f0d17ec5a"
   }
 }
