@@ -2002,7 +2002,8 @@ pub fn run(
     interaction: tmt_cli_style::Interaction,
 ) -> Result<Option<i32>, SquadError> {
     let core = core.with_api_session()?;
-    let trace = timing::Trace::from_env();
+    let timing_reports = timing::Reports::default();
+    let trace = timing::Trace::from_env(&timing_reports);
     let startup = trace.as_ref().map(timing::Trace::startup);
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
@@ -2020,7 +2021,9 @@ pub fn run(
     // Once admitted, paint the opening chrome before configuration, worker setup
     // and the terminal background query. A later failure drops the guard and
     // restores the terminal before the error is reported.
-    let mut guard = terminal::Guard::enter(terminal::Crossterm::default()).map_err(failed)?;
+    let mut guard =
+        terminal::Guard::enter(terminal::Crossterm::with_timing_reports(&timing_reports))
+            .map_err(failed)?;
     let links = hyperlinks::Links::default();
     let mut screen = Terminal::new(terminal::Backend::with_links(io::stdout(), links.clone()))
         .map_err(failed)?;
@@ -2124,7 +2127,7 @@ pub fn run(
     };
     app.workspace.visibility.scope = scope.into_iter().map(|squad| squad.room_id).collect();
     app.timing = trace.map(timing::Ui::new);
-    app.navigation_trace = timing::Trace::navigation_from_env();
+    app.navigation_trace = timing::Trace::navigation_from_env(&timing_reports);
     app.migration_notice = core.paths.board_notice();
     app.set_notice(
         crate::migration::paths(&core, None)?
@@ -2240,6 +2243,7 @@ pub fn run(
         // Reap the API session before exec, which does not run destructors.
         drop(worker);
         drop(core);
+        timing_reports.flush();
         return Err(app.reload.restart(&resume, crate::status::now_ms()));
     }
     if signal.is_none()
@@ -2249,6 +2253,7 @@ pub fn run(
         // terminal modes are restored before Core takes the foreground.
         drop(worker);
         drop(core);
+        timing_reports.flush();
         // A signal arriving during cleanup cancels the handoff too.
         if let Some(signal) = terminal::stop_signal(&stop) {
             return Ok(Some(signal));

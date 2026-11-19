@@ -12,13 +12,14 @@ fn records(buffer: &Mutex<Vec<u8>>) -> Vec<Value> {
 
 #[test]
 fn opt_in_values_preserve_file_paths() {
+    let reports = Reports::default();
     for value in [None, Some(OsStr::new("")), Some(OsStr::new("0"))] {
         assert!(matches!(destination(value), Destination::Off));
-        assert!(Trace::open(destination(value)).is_none());
+        assert!(Trace::open(destination(value), &reports).is_none());
     }
     assert!(matches!(
         destination(Some(OsStr::new("1"))),
-        Destination::Stderr
+        Destination::BoardCache
     ));
     let Destination::File(path) = destination(Some(OsStr::new("my trace.jsonl"))) else {
         panic!()
@@ -78,8 +79,9 @@ fn file_sink_appends_private_complete_records_and_rejects_symlinks() {
     ));
     std::fs::create_dir(&root).unwrap();
     let path = root.join("trace");
+    let reports = Reports::default();
     for _ in 0..2 {
-        let trace = Trace::open(Destination::File(path.clone())).unwrap();
+        let trace = Trace::open(Destination::File(path.clone()), &reports).unwrap();
         trace
             .startup()
             .emit("stage", "startup.Config::load", Duration::ZERO, true);
@@ -92,9 +94,18 @@ fn file_sink_appends_private_complete_records_and_rejects_symlinks() {
     );
     let link = root.join("link");
     symlink(&path, &link).unwrap();
-    assert!(Trace::open(Destination::File(link)).is_none());
-    assert!(Trace::open(Destination::File(root.clone())).is_none());
+    assert!(Trace::open(Destination::File(link), &reports).is_none());
+    assert!(Trace::open(Destination::File(root.clone()), &reports).is_none());
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(DEFAULT_LIMIT)
+        .unwrap();
+    let mut capped = open_file(&path, Some(DEFAULT_LIMIT)).unwrap();
+    assert!(capped.write(b"{}\n").is_err());
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), DEFAULT_LIMIT);
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -131,7 +142,14 @@ fn sink_failure_disables_further_writes_without_changing_work_results() {
         crate::id::new_v4().unwrap()
     ));
     std::fs::write(&path, b"preserved").unwrap();
-    let trace = Trace::new(Sink::File(File::open(&path).unwrap()));
+    let failure = Arc::new(Mutex::new(None));
+    let trace = Trace::new(
+        Sink::File {
+            file: File::open(&path).unwrap(),
+            limit: None,
+        },
+        failure.clone(),
+    );
     let load = trace.load(Some("product"), 0);
     for _ in 0..2 {
         assert_eq!(
@@ -140,6 +158,7 @@ fn sink_failure_disables_further_writes_without_changing_work_results() {
         );
         assert!(matches!(*trace.0.sink.lock().unwrap(), Sink::Disabled));
     }
+    assert!(failure.lock().unwrap().is_some());
     assert_eq!(std::fs::read(&path).unwrap(), b"preserved");
     std::fs::remove_file(path).unwrap();
 }
@@ -173,13 +192,14 @@ fn worker_and_ui_records_share_one_complete_line_writer() {
 
 #[test]
 fn navigation_is_file_only_and_off_without_a_path() {
+    let reports = Reports::default();
     for value in [None, Some(OsStr::new("")), Some(OsStr::new("0"))] {
-        assert!(Trace::navigation_destination(value).is_none());
+        assert!(Trace::navigation_destination(value, &reports).is_none());
     }
     let root = std::env::temp_dir().join(format!("ops-key-trace-{}", crate::id::new_v4().unwrap()));
     std::fs::create_dir(&root).unwrap();
     let missing = root.join("missing").join("trace");
-    assert!(Trace::navigation_destination(Some(missing.as_os_str())).is_none());
+    assert!(Trace::navigation_destination(Some(missing.as_os_str()), &reports).is_none());
     assert!(!missing.exists());
     std::fs::remove_dir(root).unwrap();
 }
@@ -252,4 +272,91 @@ fn navigation_trace_distinguishes_pane_switch_from_refresh() {
     assert_eq!(after.len(), 2);
     assert_eq!(after[0]["effect"], "none");
     assert_eq!(after[1]["effect"], "refresh");
+}
+
+#[test]
+fn active_board_trace_keeps_diagnostics_off_the_tty() {
+    use crate::board::terminal::{Crossterm, Guard};
+
+    const CHILD: &str = "TMT_OPS_TEST_TIMING_PTY";
+    if let Some(root) = std::env::var_os(CHILD) {
+        let root = std::path::PathBuf::from(root);
+        let read_only = root.join("readonly");
+        std::fs::write(&read_only, "").unwrap();
+        let reports = Reports::default();
+        let mut screen = Guard::enter(Crossterm::with_timing_reports(&reports)).unwrap();
+        let live = Trace::from_env(&reports).unwrap();
+        live.startup().emit("stage", "live", Duration::ZERO, true);
+        let failed = Trace::new(
+            Sink::File {
+                file: File::open(read_only).unwrap(),
+                limit: None,
+            },
+            reports.failure.clone(),
+        );
+        let load = failed.startup();
+        load.emit("stage", "fail", Duration::ZERO, true);
+        load.emit("stage", "repeat", Duration::ZERO, true);
+        screen.restore().unwrap();
+        let trace_file = crate::cache::directory("board")
+            .unwrap()
+            .join("timing.jsonl");
+        if trace_file.exists() {
+            std::fs::copy(trace_file, root.join("trace.jsonl")).unwrap();
+        }
+        return;
+    }
+
+    let root = crate::test_support::Scratch::new("trace-pty");
+    let output = std::process::Command::new("/usr/bin/python3")
+        .args([
+            "-c",
+            r#"
+import errno, fcntl, os, pty, select, signal, subprocess, sys, termios
+master, slave = pty.openpty()
+os.setsid()
+signal.signal(signal.SIGHUP, signal.SIG_IGN)
+fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+try:
+    with subprocess.Popen([sys.argv[1], '--exact',
+        'board::timing::tests::active_board_trace_keeps_diagnostics_off_the_tty',
+        '--nocapture'], stdin=slave, stdout=slave, stderr=slave) as child:
+        os.close(slave)
+        try:
+            while select.select([master], [], [], 8)[0]:
+                try:
+                    data = os.read(master, 65536)
+                except OSError as error:
+                    if error.errno != errno.EIO:
+                        raise
+                    break
+                if not data:
+                    break
+                sys.stdout.buffer.write(data)
+            assert child.wait(timeout=2) == 0
+        finally:
+            if child.poll() is None:
+                child.kill()
+finally:
+    os.close(master)
+"#,
+        ])
+        .arg(std::env::current_exe().unwrap())
+        .env(CHILD, root.as_ref().as_os_str())
+        .env("TMPDIR", root.as_ref().as_os_str())
+        .env(ENV, "1")
+        .output()
+        .unwrap();
+    let tty = String::from_utf8(output.stdout).unwrap();
+    assert!(output.status.success(), "{tty}\n{:?}", output.stderr);
+    let (_, active) = tty.split_once("\x1b[?1049h").expect("board entered");
+    let (active, restored) = active.split_once("\x1b[?1049l").expect("board restored");
+    assert!(
+        !active.contains("\"stage\"") && !active.contains("timing trace disabled"),
+        "{active:?}"
+    );
+    assert_eq!(restored.matches("Ops timing trace disabled:").count(), 1);
+    let logged: Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("trace.jsonl")).unwrap()).unwrap();
+    assert_eq!(logged["stage"], "live");
 }

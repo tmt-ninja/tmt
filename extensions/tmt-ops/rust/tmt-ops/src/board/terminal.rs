@@ -85,11 +85,21 @@ fn tmux_shift_enter() -> bool {
 }
 
 #[derive(Default)]
-pub struct Crossterm {
+pub struct Crossterm<'a> {
     enhanced: bool,
     /// tmux was asked for Shift+Enter (see `tmux_shift_enter`).
     shift_enter: bool,
     output: Option<io::Stdout>,
+    timing_reports: Option<&'a super::timing::Reports>,
+}
+
+impl<'a> Crossterm<'a> {
+    pub(super) fn with_timing_reports(reports: &'a super::timing::Reports) -> Self {
+        Self {
+            timing_reports: Some(reports),
+            ..Self::default()
+        }
+    }
 }
 
 fn push_keyboard(output: &mut io::Stdout) -> io::Result<()> {
@@ -107,7 +117,7 @@ fn request_shift_enter(output: &mut io::Stdout) -> io::Result<()> {
     write_modify_other_keys(output, true)
 }
 
-impl Screen for Crossterm {
+impl Screen for Crossterm<'_> {
     fn enable_keyboard_enhancement(&mut self) -> io::Result<bool> {
         // A missing/unsupported reply is a capability observation, not a failure.
         // This runs before the input reader; crossterm queries share its queue.
@@ -126,6 +136,9 @@ impl Screen for Crossterm {
     }
 
     fn enter(&mut self) -> io::Result<()> {
+        if let Some(reports) = self.timing_reports {
+            reports.screen_entered();
+        }
         enable_raw_mode()?;
         let output = self.output.get_or_insert_with(io::stdout);
         execute!(
@@ -165,6 +178,12 @@ impl Screen for Crossterm {
             Show
         );
         let raw = disable_raw_mode();
+        if screen.is_ok()
+            && raw.is_ok()
+            && let Some(reports) = self.timing_reports
+        {
+            reports.screen_restored();
+        }
         keyboard.and(screen).and(raw)
     }
 }

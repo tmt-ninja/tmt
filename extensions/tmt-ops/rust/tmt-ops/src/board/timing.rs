@@ -3,10 +3,12 @@
 
 use serde_json::json;
 use std::{
+    cell::Cell,
     ffi::OsStr,
-    fs::{File, OpenOptions},
+    fs::{DirBuilder, File, OpenOptions},
     io::{self, Write},
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+    path::Path,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -15,10 +17,11 @@ use std::{
 };
 
 const ENV: &str = "TMT_OPS_TIMING_TRACE";
+const DEFAULT_LIMIT: u64 = 8 * 1024 * 1024;
 
 enum Destination {
     Off,
-    Stderr,
+    BoardCache,
     File(std::path::PathBuf),
 }
 
@@ -26,14 +29,16 @@ fn destination(value: Option<&OsStr>) -> Destination {
     match value {
         None => Destination::Off,
         Some(value) if value.is_empty() || value == "0" => Destination::Off,
-        Some(value) if value == "1" => Destination::Stderr,
+        Some(value) if value == "1" => Destination::BoardCache,
         Some(value) => Destination::File(value.into()),
     }
 }
 
 enum Sink {
-    Stderr,
-    File(File),
+    File {
+        file: File,
+        limit: Option<u64>,
+    },
     Disabled,
     #[cfg(test)]
     Buffer(Arc<Mutex<Vec<u8>>>),
@@ -42,12 +47,12 @@ enum Sink {
 impl Sink {
     fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
         match self {
-            Self::Stderr => {
-                let mut stream = tmt_cli_style::stream::stderr();
-                stream.write_all(bytes)?;
-                stream.flush()
-            }
-            Self::File(file) => {
+            Self::File { file, limit } => {
+                if let Some(limit) = *limit
+                    && file.metadata()?.len().saturating_add(bytes.len() as u64) > limit
+                {
+                    return Err(io::Error::other("board timing log reached its 8 MiB limit"));
+                }
                 file.write_all(bytes)?;
                 file.flush()
             }
@@ -65,74 +70,129 @@ struct State {
     started: Instant,
     next: AtomicU64,
     sink: Mutex<Sink>,
+    failure: Arc<Mutex<Option<io::Error>>>,
 }
 
 #[derive(Clone)]
 pub(super) struct Trace(Arc<State>);
 
-fn report(error: &io::Error) {
-    let _ = writeln!(
-        tmt_cli_style::stream::stderr(),
-        "Ops timing trace disabled: {error}"
-    );
+/// One failure for the invocation. Workers retain the error without owning stderr.
+#[derive(Default)]
+pub(super) struct Reports {
+    failure: Arc<Mutex<Option<io::Error>>>,
+    screen_owned: Cell<bool>,
+}
+
+impl Reports {
+    pub fn screen_entered(&self) {
+        self.screen_owned.set(true);
+    }
+
+    pub fn screen_restored(&self) {
+        self.screen_owned.set(false);
+    }
+
+    pub fn flush(&self) {
+        if !self.screen_owned.get()
+            && let Some(error) = self.failure.lock().unwrap().take()
+        {
+            let _ = writeln!(
+                tmt_cli_style::stream::stderr(),
+                "Ops timing trace disabled: {error}"
+            );
+        }
+    }
+}
+
+impl Drop for Reports {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}
+
+fn open_file(path: &Path, limit: Option<u64>) -> io::Result<Sink> {
+    let file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(io::Error::other("trace destination must be a regular file"));
+    }
+    if limit.is_some() {
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(io::Error::other("board timing log must be private"));
+        }
+        // Hold the nonblocking exclusive lock for this default sink so two
+        // boards cannot both append a record across the hard size cap.
+        file.try_lock().map_err(io::Error::from)?;
+    }
+    Ok(Sink::File { file, limit })
+}
+
+fn open_default() -> io::Result<Sink> {
+    let directory = crate::cache::directory("board")
+        .ok_or_else(|| io::Error::other("no Ops board cache directory"))?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&directory)?;
+    open_file(&directory.join("timing.jsonl"), Some(DEFAULT_LIMIT))
 }
 
 impl Trace {
-    pub fn from_env() -> Option<Self> {
-        Self::open(destination(std::env::var_os(ENV).as_deref()))
+    pub fn from_env(reports: &Reports) -> Option<Self> {
+        Self::open(destination(std::env::var_os(ENV).as_deref()), reports)
     }
 
-    fn open(destination: Destination) -> Option<Self> {
+    fn open(destination: Destination, reports: &Reports) -> Option<Self> {
         let sink = match destination {
             Destination::Off => return None,
-            Destination::Stderr => Sink::Stderr,
-            Destination::File(path) => match OpenOptions::new()
-                .append(true)
-                .create(true)
-                .mode(0o600)
-                .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
-                .open(path)
-                .and_then(|file| {
-                    if file.metadata()?.is_file() {
-                        Ok(file)
-                    } else {
-                        Err(io::Error::other("trace destination must be a regular file"))
-                    }
-                }) {
-                Ok(file) => Sink::File(file),
-                Err(error) => {
-                    report(&error);
-                    return None;
-                }
-            },
+            Destination::BoardCache => open_default(),
+            Destination::File(path) => open_file(&path, None),
         };
-        Some(Self::new(sink))
+        match sink {
+            Ok(sink) => Some(Self::new(sink, reports.failure.clone())),
+            Err(error) => {
+                reports.failure.lock().unwrap().get_or_insert(error);
+                None
+            }
+        }
     }
 
-    fn new(sink: Sink) -> Self {
+    fn new(sink: Sink, failure: Arc<Mutex<Option<io::Error>>>) -> Self {
         Self(Arc::new(State {
             started: Instant::now(),
             next: AtomicU64::new(1),
             sink: Mutex::new(sink),
+            failure,
         }))
     }
 
     #[cfg(test)]
     pub fn buffer() -> (Self, Arc<Mutex<Vec<u8>>>) {
         let buffer = Arc::new(Mutex::new(Vec::new()));
-        (Self::new(Sink::Buffer(buffer.clone())), buffer)
+        (
+            Self::new(Sink::Buffer(buffer.clone()), Arc::default()),
+            buffer,
+        )
     }
 
     /// Test evidence only. Resolve once at interactive startup, never per key.
-    pub fn navigation_from_env() -> Option<Self> {
-        Self::navigation_destination(std::env::var_os("TMT_OPS_TEST_KEY_TRACE").as_deref())
+    pub fn navigation_from_env(reports: &Reports) -> Option<Self> {
+        Self::navigation_destination(
+            std::env::var_os("TMT_OPS_TEST_KEY_TRACE").as_deref(),
+            reports,
+        )
     }
 
-    fn navigation_destination(value: Option<&OsStr>) -> Option<Self> {
+    fn navigation_destination(value: Option<&OsStr>, reports: &Reports) -> Option<Self> {
         match value {
             None => None,
             Some(value) if value.is_empty() || value == "0" => None,
-            Some(path) => Self::open(Destination::File(path.into())),
+            Some(path) => Self::open(Destination::File(path.into()), reports),
         }
     }
 
@@ -152,7 +212,7 @@ impl Trace {
         bytes.push(b'\n');
         if let Err(error) = sink.write(&bytes) {
             *sink = Sink::Disabled;
-            report(&error);
+            self.0.failure.lock().unwrap().get_or_insert(error);
         }
     }
 
