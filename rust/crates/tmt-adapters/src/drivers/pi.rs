@@ -1709,4 +1709,141 @@ runCase([
         assert!(captured[1].get("final_text").is_none());
         assert!(captured[2].get("final_text").is_none());
     }
+
+    #[test]
+    fn extension_registers_tmt_commands_and_handles_skill_dispatch_and_failures() {
+        let dir = TestDirectory::new();
+        let fake_tmt = dir.path.join("tmt-stub.sh");
+        fs::write(&fake_tmt, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&fake_tmt, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let ext_path = dir.path.join(EXTENSION_FILE_NAME);
+        let rendered = render_extension(fake_tmt.to_str().unwrap(), true).unwrap();
+        fs::write(&ext_path, rendered).unwrap();
+
+        let driver_path = dir.path.join("commands-driver.mjs");
+        let driver = r##"
+import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+
+const [extFile, expectedBin] = process.argv.slice(2);
+const commands = new Map();
+const sent = [];
+let execMock = async () => ({ code: 0, killed: false, stdout: '', stderr: '' });
+let sendMock = (text, options) => {
+  sent.push({ text, options });
+};
+
+const pi = {
+  on() {},
+  registerCommand(name, options) {
+    commands.set(name, options);
+  },
+  exec(bin, args, options) {
+    return execMock(bin, args, options);
+  },
+  sendUserMessage(text, options) {
+    return sendMock(text, options);
+  },
+};
+
+const mod = await import(pathToFileURL(extFile).href);
+mod.default(pi);
+
+assert.deepEqual([...commands.keys()].sort(), ['tmt', 'tmt-inbox']);
+for (const name of ['tmt', 'tmt-inbox']) {
+  const cmd = commands.get(name);
+  assert.equal(typeof cmd.description, 'string');
+  assert.ok(cmd.description.length > 0);
+  assert.equal(cmd.getArgumentCompletions, undefined);
+}
+
+const notifications = [];
+const makeCtx = (idle = true) => ({
+  isIdle: () => idle,
+  ui: {
+    notify(message, level) {
+      notifications.push({ message, level });
+    },
+  },
+});
+
+// 1. /tmt strips YAML frontmatter, preserves body `---`, and appends args when idle
+execMock = async (bin, args, options) => {
+  assert.equal(bin, expectedBin);
+  assert.deepEqual(args, ['learn', '--skill', 'tmt']);
+  assert.equal(options?.timeout, 5000);
+  return {
+    code: 0,
+    killed: false,
+    stdout: "---\nname: tmt\ndescription: 'TMT'\n---\n\n# TMT\nUse tmt.\n\n---\nSection 2\n",
+    stderr: '',
+  };
+};
+await commands.get('tmt').handler('  talk reviewer ping  ', makeCtx(true));
+assert.equal(sent.length, 1);
+assert.equal(sent[0].text, "# TMT\nUse tmt.\n\n---\nSection 2\n\ntalk reviewer ping");
+assert.equal(sent[0].options, undefined);
+
+// 2. /tmt-inbox while busy sets deliverAs: 'followUp'
+execMock = async (bin, args) => {
+  assert.equal(bin, expectedBin);
+  assert.deepEqual(args, ['learn', '--skill', 'tmt-inbox']);
+  return {
+    code: 0,
+    killed: false,
+    stdout: "---\r\nname: tmt-inbox\r\n---\r\n# TMT inbox\r\nCheck inbox.",
+    stderr: '',
+  };
+};
+await commands.get('tmt-inbox').handler('', makeCtx(false));
+assert.equal(sent.length, 2);
+assert.equal(sent[1].text, "# TMT inbox\r\nCheck inbox.");
+assert.deepEqual(sent[1].options, { deliverAs: 'followUp' });
+assert.equal(notifications.length, 0);
+
+// 3. Failure paths notify via ctx.ui.notify and never throw or send messages
+execMock = async () => ({ code: 1, killed: false, stdout: '', stderr: 'boom' });
+await commands.get('tmt').handler('', makeCtx(true));
+
+execMock = async () => ({ code: 0, killed: true, stdout: '# TMT', stderr: '' });
+await commands.get('tmt').handler('', makeCtx(true));
+
+execMock = async () => ({ code: 0, killed: false, stdout: "---\nname: tmt\n---\n   \n", stderr: '' });
+await commands.get('tmt').handler('', makeCtx(true));
+
+execMock = async () => {
+  throw new Error('spawn failed');
+};
+await commands.get('tmt-inbox').handler('', makeCtx(true));
+
+execMock = async () => ({ code: 0, killed: false, stdout: '# TMT\nBody', stderr: '' });
+sendMock = () => {
+  throw new Error('compaction active');
+};
+await commands.get('tmt').handler('', makeCtx(true));
+
+assert.equal(sent.length, 2);
+assert.equal(notifications.length, 5);
+assert.ok(notifications.every((n) => n.level === 'error' && typeof n.message === 'string' && n.message.length > 0));
+assert.match(notifications[0].message, /boom/);
+assert.match(notifications[3].message, /spawn failed/);
+assert.match(notifications[4].message, /compaction active/);
+"##;
+        fs::write(&driver_path, driver).unwrap();
+
+        let output = std::process::Command::new("node")
+            .args([
+                driver_path.to_str().unwrap(),
+                ext_path.to_str().unwrap(),
+                fake_tmt.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "node extension command test failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
