@@ -6941,8 +6941,8 @@ describe('close and delete through Core', () => {
           await painted('⏎ to message worker');
           tmux(['send-keys', '-t', pane, 'x']);
           await painted('Delete worker');
-          // Select Cancel to leave the identity untouched; Delete is the default.
-          tmux(['send-keys', '-t', pane, 'Right', 'Enter']);
+          // The default Cancel leaves the identity untouched.
+          tmux(['send-keys', '-t', pane, 'Enter']);
           await vi.waitFor(() => expect(screen()).not.toContain('Delete worker'), {
             timeout: 10_000,
             interval: 50,
@@ -6950,7 +6950,7 @@ describe('close and delete through Core', () => {
           expect(await active(worker)).toBe(true);
           tmux(['send-keys', '-t', pane, 'x']);
           await painted('Delete worker');
-          tmux(['send-keys', '-t', pane, 'Enter']);
+          tmux(['send-keys', '-t', pane, 'Left', 'Enter']);
           if (binding === 'offline') {
             // Core proves an unbound saved identity is not running, so the
             // confirmed close may automatically proceed to guarded removal.

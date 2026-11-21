@@ -358,7 +358,7 @@ fn crud_keys_keep_create_uppercase_and_remove_distinct_from_leave() {
 }
 
 #[test]
-fn delete_member_opens_on_delete_and_is_frozen_to_the_displayed_name() {
+fn delete_member_reviews_the_frozen_displayed_name() {
     let mut app = board();
     member_menu_action(&mut app, OpsUiAction::RemoveMember);
     for width in [80, 150] {
@@ -366,7 +366,7 @@ fn delete_member_opens_on_delete_and_is_frozen_to_the_displayed_name() {
         assert!(text.contains("Delete worker"));
         assert!(text.contains("worker stops and leaves the board."));
         assert!(text.contains("Its conversation and notes are kept."));
-        assert!(text.contains("⏎ delete · Esc cancel"));
+        assert!(text.contains("← ⏎ delete · Esc cancel"));
         assert!(!text.contains("Copy command"));
         assert!(!text.contains("tmt rm"));
     }
@@ -386,9 +386,10 @@ fn delete_member_opens_on_delete_and_is_frozen_to_the_displayed_name() {
         Effect::None,
         "no copy-only lifecycle command"
     );
+    key(&mut app, KeyCode::Left);
     assert!(
         matches!(key(&mut app, KeyCode::Enter), Effect::Act(_)),
-        "initial Enter deletes"
+        "Left from Cancel then Enter deletes the frozen member"
     );
 }
 
@@ -791,6 +792,7 @@ fn close_delete_explicit_confirm_dispatches_once_instead_of_copying_a_command() 
     let _no_commands = crate::runner::forbid_commands();
     member_menu_action(&mut app, OpsUiAction::RemoveMember);
     paint(&app, 100, 36);
+    key(&mut app, KeyCode::Left);
     let effect = key(&mut app, KeyCode::Enter);
     assert!(
         matches!(&effect, Effect::Act(request) if !matches!(request, Request::Copy { .. })),

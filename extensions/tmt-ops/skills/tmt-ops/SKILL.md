@@ -1115,8 +1115,8 @@ clear its lead, rename it, pin it or open Timers through the named controls or
 Manage. `N` creates from a name, optional lead and explicit members. `m` moves an
 agent to another squad in place; `tmt ops squad add` joins a second squad.
 
-Rename and membership reviews show the human CLI equivalents. Rename still
-executes the UUID/expected-name check; `c` copies its displayed command.
+Membership reviews show what changes. Rename uses the UUID and expected-name
+check; `c` copies the reviewed command.
 Management reviews freeze exact room/identity UUIDs and revisions and show timer
 impact. Non-destructive reviews open on the apply button, so Enter applies what was
 reviewed; Leave squad and Close and delete open on Cancel. ←→ move between Cancel and

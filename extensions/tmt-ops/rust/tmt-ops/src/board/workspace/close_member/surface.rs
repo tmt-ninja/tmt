@@ -46,7 +46,10 @@ fn hints(draft: &Draft) -> &'static str {
     match draft.close.as_ref().and_then(|c| c.result.as_ref()) {
         Some(Outcome::Refused { .. }) => "← ⏎ delete · z jump · Esc cancel",
         Some(_) => "Esc close",
-        None => "⏎ delete · Esc cancel",
+        None if draft.review.focus == tmt_tui::components::Focus::Buttons(0) => {
+            "⏎ delete · Esc cancel"
+        }
+        None => "← ⏎ delete · Esc cancel",
     }
 }
 fn text(draft: &Draft) -> Vec<(String, Role)> {
@@ -203,8 +206,19 @@ pub(in crate::board::workspace) fn render(frame: &mut Frame, app: &App, draft: &
             .map(|(text, _)| unicode_width::UnicodeWidthStr::width(text.as_str()))
             .max()
             .unwrap_or(0);
-        let title = draft.member.as_ref().unwrap().name.chars().count() + 9;
-        let footer = usize::from(make_dialog(false).footer_width());
+        let title =
+            unicode_width::UnicodeWidthStr::width(draft.member.as_ref().unwrap().name.as_str()) + 9;
+        let dialog = make_dialog(false);
+        let footer = if !compact && draft.stage == Stage::Review && close.result.is_none() {
+            Dialog {
+                hints: "← ⏎ delete · Esc cancel".into(),
+                ..dialog
+            }
+            .footer_width()
+        } else {
+            dialog.footer_width()
+        };
+        let footer = usize::from(footer);
         (text.max(title).max(footer) + 4).min(90) as u16
     };
     let content = if compact {

@@ -14,7 +14,10 @@ use ratatui::{
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
-use tmt_tui::components::{KeyHint, Modal, Placement, footer as fit_hints, strip};
+use tmt_tui::components::{
+    Button, Dialog, DialogKind, DialogState, Focus, KeyHint, Modal, Placement, footer as fit_hints,
+    strip,
+};
 
 pub(in crate::board) fn safe(text: &str) -> String {
     tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
@@ -1828,54 +1831,10 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         },
     };
     let bounds = if short { frame.area() } else { body };
-    // A review is as wide as its longest line, title or button row; a form keeps 80.
-    let wide = if draft.stage == Stage::Fields {
-        80
-    } else {
-        let text = draft.review();
-        let longest = text
-            .lines()
-            .map(unicode_width::UnicodeWidthStr::width)
-            .chain([unicode_width::UnicodeWidthStr::width(draft.title().as_str()) + 4])
-            .max()
-            .unwrap_or(0);
-        // The button row keeps room for its whole hints: the action, Cancel, Discard.
-        let label = draft
-            .operation
-            .as_ref()
-            .map_or(0, |operation| operation.confirm_label().chars().count());
-        let buttons = label + 2 + 9 + if draft.reopened { 10 } else { 0 };
-        let hints = unicode_width::UnicodeWidthStr::width(
-            whole_hints(&review_hints(draft, false), 200).as_str(),
-        );
-        (longest.max(buttons + 2 + hints) + 4).min(80) as u16
-    };
-    // CRUD dialogs keep two cells of body margin on every edge at 80 and 150.
-    // The shared Modal still owns chrome and interior geometry.
-    let areas_for = |height: u16| {
-        if crud && !short {
-            let width = wide.min(bounds.width.saturating_sub(4));
-            let height = height.min(bounds.height.saturating_sub(4));
-            Modal {
-                title: draft.title(),
-                placement: Placement::Body,
-            }
-            .areas(
-                Rect::new(
-                    bounds.x + (bounds.width - width) / 2,
-                    bounds.y + (bounds.height - height) / 2,
-                    width,
-                    height,
-                ),
-                [width, height],
-                true,
-                false,
-            )
-        } else {
-            modal.areas(bounds, [wide, height], true, false)
-        }
-    };
-    let probe = areas_for(26);
+    use super::manage::{Kind, ReviewButton};
+    use crate::board::app::Overlay;
+    use unicode_width::UnicodeWidthStr as Width;
+    let fields = draft.stage == Stage::Fields;
     let publication = matches!(
         draft.operation,
         Some(super::manage::Change::PublishLeads(_) | super::manage::Change::PreviewLeads(_))
@@ -1903,6 +1862,89 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         ),
         Stage::Result(text) => text.clone(),
     };
+    let order: &[ReviewButton] = if review {
+        super::manage::review_buttons(draft.reopened)
+    } else if draft.reopened && fields {
+        &[ReviewButton::Cancel, ReviewButton::Discard]
+    } else {
+        &[ReviewButton::Cancel]
+    };
+    let apply_label = draft
+        .operation
+        .as_ref()
+        .map(|operation| operation.confirm_label())
+        .unwrap_or_default();
+    let mut dialog = Dialog {
+        title: modal.title.clone(),
+        kind: if fields {
+            DialogKind::Form
+        } else {
+            DialogKind::Confirm
+        },
+        placement: modal.placement,
+        hints: String::new(),
+        buttons: order
+            .iter()
+            .map(|slot| match slot {
+                ReviewButton::Apply => {
+                    Button::primary(apply_label).destructive(draft.kind == Kind::Remove)
+                }
+                ReviewButton::Cancel => {
+                    Button::secondary(if review || fields { "Cancel" } else { "Close" })
+                }
+                ReviewButton::Discard => Button::secondary("Discard"),
+            })
+            .collect(),
+    };
+    let action_hints = review.then(|| review_hints(draft, false));
+    let hints = action_hints.as_deref().unwrap_or(if fields {
+        &[("Esc", "cancel"), ("Enter", "next")]
+    } else {
+        &[
+            ("Esc", "close"),
+            ("Read:", "arrows/PgUp/PgDn"),
+            ("no", "automatic retry"),
+        ]
+    });
+    dialog.hints = whole_hints(hints, 200);
+    let wide = text
+        .lines()
+        .map(Width::width)
+        .chain([
+            Width::width(dialog.title.as_str()) + 4,
+            usize::from(dialog.footer_width()),
+            if fields { 40 } else { 0 },
+        ])
+        .max()
+        .unwrap_or_default()
+        .saturating_add(4)
+        .min(80) as u16;
+    // CRUD dialogs keep two cells of body margin on every edge at 80 and 150.
+    // The shared Modal still owns chrome and interior geometry.
+    let areas_for = |height: u16| {
+        if crud && !short {
+            let width = wide.min(bounds.width.saturating_sub(4));
+            let height = height.min(bounds.height.saturating_sub(4));
+            Modal {
+                title: draft.title(),
+                placement: Placement::Body,
+            }
+            .areas(
+                Rect::new(
+                    bounds.x + (bounds.width - width) / 2,
+                    bounds.y + (bounds.height - height) / 2,
+                    width,
+                    height,
+                ),
+                [width, height],
+                true,
+                false,
+            )
+        } else {
+            modal.areas(bounds, [wide, height], true, false)
+        }
+    };
+    let probe = areas_for(26);
     let rename_id = draft.operation.as_ref().and_then(|change| match change {
         super::manage::Change::RenameMember(request) => Some(format!("ID {}", request.identity_id)),
         _ => None,
@@ -1935,33 +1977,98 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         .saturating_add(4)
         .min(26) as u16;
     let areas = areas_for(demand_height);
-    // Same admission rule as board::confirm: no action while its full question is hidden.
-    if publication && review && lines.len() > usize::from(areas.content.height) {
-        Modal {
-            title: "Enlarge to review · Esc close".into(),
-            placement: modal.placement,
+    let readable = areas.content.height > 1;
+    let complete = readable && lines.len() <= usize::from(areas.content.height);
+    // A reversible editor can still be cancelled if its contents do not fit.
+    // A destructive or publication review must show every material consequence.
+    let compact = publication && review && lines.len() > usize::from(areas.content.height);
+    if compact {
+        dialog.title = "Enlarge to review · Esc close".into();
+        dialog.buttons = vec![Button::secondary("Cancel")];
+        dialog.hints.clear();
+    } else {
+        for (slot, button) in order.iter().zip(&mut dialog.buttons) {
+            let enabled = match slot {
+                ReviewButton::Apply => {
+                    !apply_label.is_empty()
+                        && readable
+                        && (!matches!(draft.kind, Kind::RenameMember | Kind::Remove) || complete)
+                }
+                _ => !review || readable,
+            };
+            *button = (*button).enabled(enabled);
         }
-        .paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-        let buttons = [crate::board::buttons::Button::secondary("Cancel").focused(true)];
-        let painted = crate::board::buttons::paint(
-            app,
-            frame.buffer_mut(),
-            areas.footer,
-            &buttons,
-            tmt_cli_style::grid::Align::Left,
-            Some(crate::board::app::Overlay::Workspace),
-        );
-        draft.controls.set([painted[0], None, None]);
-        app.input_band.set(Some(areas.outer));
-        app.peek_areas
-            .set(crate::board::app::Overlay::Workspace, Some(areas.outer));
-        return;
+        dialog.hints.clear();
     }
-    modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+    let state = if compact {
+        DialogState {
+            focus: Focus::Buttons(0),
+        }
+    } else if review {
+        draft.review
+    } else {
+        let focused = if fields {
+            draft.fields_button
+        } else {
+            Some(ReviewButton::Cancel)
+        };
+        DialogState {
+            focus: Focus::Buttons(
+                order
+                    .iter()
+                    .position(|slot| Some(*slot) == focused)
+                    .unwrap_or(order.len()),
+            ),
+        }
+    };
+    let hits = crate::board::buttons::paint_dialog(
+        app,
+        frame.buffer_mut(),
+        &dialog,
+        areas,
+        &state,
+        Overlay::Workspace,
+    );
+    if !compact {
+        // Workspace reviews admit complete hint phrases in the room left by the
+        // controls that actually fit, even when a trailing button was clipped.
+        let start = hits
+            .buttons
+            .iter()
+            .flatten()
+            .map(|area| area.right())
+            .max()
+            .unwrap_or(areas.footer.x)
+            .saturating_add(2)
+            .min(areas.footer.right());
+        let available = areas.footer.right() - start;
+        let hints = if review && matches!(state.focus, Focus::Buttons(0)) {
+            whole_hints(&review_hints(draft, true), available)
+        } else {
+            whole_hints(hints, available)
+        };
+        strip::paint_right(
+            frame.buffer_mut(),
+            Rect::new(start, areas.footer.y, available, areas.footer.height),
+            Line::styled(hints, look.role(Role::Dim)),
+        );
+    }
+    let mut controls = [None; 3];
+    if compact {
+        controls[ReviewButton::Cancel as usize] = hits.buttons[0];
+    } else {
+        for ((slot, button), area) in order.iter().zip(&dialog.buttons).zip(hits.buttons) {
+            controls[*slot as usize] = area.filter(|_| button.is_enabled());
+        }
+    }
+    draft.controls.set(controls);
     app.input_band.set(Some(areas.outer));
     app.peek_areas
         .set(crate::board::app::Overlay::Workspace, Some(areas.outer));
-    if draft.stage == Stage::Fields {
+    if compact {
+        return;
+    }
+    if fields {
         let prompt_height = (lines
             .len()
             .min(usize::from(areas.content.height.saturating_sub(1))))
@@ -2012,151 +2119,6 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 ),
             );
         }
-    }
-    // Fields keep focus in the editor; Pending and Result have one button, which Enter chooses.
-    let focused = match draft.stage {
-        // Review paints its focus from `draft.review` with its button order.
-        Stage::Review => None,
-        Stage::Pending | Stage::Result(_) => Some("cancel"),
-        Stage::Fields => match draft.fields_button {
-            Some(super::manage::ReviewButton::Cancel) => Some("cancel"),
-            Some(super::manage::ReviewButton::Discard) => Some("discard"),
-            _ => None,
-        },
-    };
-    if review {
-        let apply_label = draft
-            .operation
-            .as_ref()
-            .map(|operation| operation.confirm_label())
-            .unwrap_or_default();
-        let apply_enabled = !apply_label.is_empty()
-            && areas.content.height > 1
-            && (draft.kind != super::manage::Kind::RenameMember
-                || (draft.scroll.borrow().offset() == 0
-                    && lines.len() <= usize::from(areas.content.height)));
-        use super::manage::ReviewButton;
-        let order = super::manage::review_buttons(draft.reopened);
-        let cursor = match draft.review.focus {
-            tmt_tui::components::Focus::Buttons(index) => order.get(index).copied(),
-            tmt_tui::components::Focus::Field(_) => None,
-        };
-        let readable = areas.content.height > 1;
-        let buttons: Vec<_> = order
-            .iter()
-            .map(|slot| {
-                let (label, enabled) = match slot {
-                    ReviewButton::Cancel => ("Cancel", readable),
-                    ReviewButton::Discard => ("Discard", readable),
-                    ReviewButton::Apply => (apply_label, apply_enabled),
-                };
-                let button = if *slot == ReviewButton::Apply {
-                    crate::board::buttons::Button::primary(label)
-                        .destructive(draft.kind == super::manage::Kind::Remove)
-                } else {
-                    crate::board::buttons::Button::secondary(label)
-                };
-                button.focused(cursor == Some(*slot)).enabled(enabled)
-            })
-            .collect();
-        let painted = crate::board::buttons::paint(
-            app,
-            frame.buffer_mut(),
-            areas.footer,
-            &buttons,
-            tmt_cli_style::grid::Align::Left,
-            Some(crate::board::app::Overlay::Workspace),
-        );
-        let mut controls = [None; 3];
-        for ((slot, button), rect) in order.iter().zip(&buttons).zip(&painted) {
-            controls[*slot as usize] = rect.filter(|_| button.is_enabled());
-        }
-        draft.controls.set(controls);
-        let start = painted
-            .iter()
-            .flatten()
-            .map(|area| area.right())
-            .max()
-            .unwrap_or(areas.footer.x)
-            .saturating_add(2)
-            .min(areas.footer.right());
-        if start < areas.footer.right() {
-            let hint = Rect::new(
-                start,
-                areas.footer.y,
-                areas.footer.right() - start,
-                areas.footer.height,
-            );
-            strip::paint_right(
-                frame.buffer_mut(),
-                hint,
-                Line::styled(
-                    whole_hints(
-                        &review_hints(draft, cursor == Some(ReviewButton::Apply)),
-                        hint.width,
-                    ),
-                    look.role(Role::Dim),
-                ),
-            );
-        }
-    } else {
-        let label = if draft.stage == Stage::Fields {
-            "Cancel"
-        } else {
-            "Close"
-        };
-        // A reopened form offers Discard beside Cancel while it is still being filled in.
-        let discard = draft.reopened && draft.stage == Stage::Fields;
-        let mut buttons = vec![
-            crate::board::buttons::Button::secondary(label).focused(focused == Some("cancel")),
-        ];
-        if discard {
-            buttons.push(
-                crate::board::buttons::Button::secondary("Discard")
-                    .focused(focused == Some("discard")),
-            );
-        }
-        let painted = crate::board::buttons::paint(
-            app,
-            frame.buffer_mut(),
-            areas.footer,
-            &buttons,
-            tmt_cli_style::grid::Align::Left,
-            Some(crate::board::app::Overlay::Workspace),
-        );
-        let width = painted
-            .iter()
-            .flatten()
-            .map(|area| area.right() + 1 - areas.footer.x)
-            .max()
-            .unwrap_or(0);
-        let mut controls = [None; 3];
-        controls[super::manage::ReviewButton::Cancel as usize] = painted[0];
-        controls[super::manage::ReviewButton::Discard as usize] = painted.get(1).copied().flatten();
-        draft.controls.set(controls);
-        let hints: &[(&str, &str)] = if draft.stage == Stage::Fields {
-            &[("Esc", "cancel"), ("Enter", "next")]
-        } else {
-            &[
-                ("Esc", "close"),
-                ("Read:", "arrows/PgUp/PgDn"),
-                ("no", "automatic retry"),
-            ]
-        };
-        let remaining = Rect {
-            x: areas
-                .footer
-                .x
-                .saturating_add(width)
-                .min(areas.footer.right()),
-            width: areas.footer.width.saturating_sub(width),
-            ..areas.footer
-        };
-        strip::paint_left(
-            frame.buffer_mut(),
-            remaining,
-            Line::styled(whole_hints(hints, remaining.width), look.role(Role::Muted)),
-        );
     }
 }
 

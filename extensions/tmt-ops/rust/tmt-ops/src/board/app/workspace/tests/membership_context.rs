@@ -319,10 +319,7 @@ fn chosen_room_freezes_current_revision_and_only_its_member_timer_impact() {
     assert_eq!(app.workspace_form.as_ref().unwrap().timer_impact, Some(2));
     assert_eq!(app.workspace_confirm(), Effect::None);
     let text = paint(&app, 80, 24).join("\n");
-    assert!(
-        text.contains("2 of its timers pause until you resume them."),
-        "{text}"
-    );
+    assert!(text.contains("2 timers pause until resumed."), "{text}");
     key(&mut app, KeyCode::End);
     key(&mut app, KeyCode::Left);
     let effect = key(&mut app, KeyCode::Enter);
