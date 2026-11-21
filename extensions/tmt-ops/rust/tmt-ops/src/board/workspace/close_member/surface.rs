@@ -248,14 +248,10 @@ pub(in crate::board::workspace) fn render(frame: &mut Frame, app: &App, draft: &
     );
     let mut scroll = draft.scroll.borrow_mut();
     scroll.update(areas.content, lines.len(), None);
-    let readable = areas.content.width >= 20
-        && areas.content.height >= 3
-        && scroll
-            .offset()
-            .saturating_add(usize::from(areas.content.height))
-            >= lines.len();
+    let readable =
+        !compact && areas.content.width >= 20 && lines.len() <= usize::from(areas.content.height);
     let dialog = make_dialog(readable);
-    let hits = crate::board::buttons::paint_dialog(
+    let mut hits = crate::board::buttons::paint_dialog(
         app,
         frame.buffer_mut(),
         &dialog,
@@ -289,6 +285,13 @@ pub(in crate::board::workspace) fn render(frame: &mut Frame, app: &App, draft: &
                 look.role(Role::Muted),
             ),
         );
+    }
+    // The shared painter reports geometry for disabled chips too. Keep only
+    // enabled rectangles in the map used by keyboard and mouse activation.
+    for (button, rect) in dialog.buttons.iter().zip(&mut hits.buttons) {
+        if !button.is_enabled() {
+            *rect = None;
+        }
     }
     let mut controls = [None; 3];
     for (i, rect) in hits.buttons.iter().enumerate().take(3) {
