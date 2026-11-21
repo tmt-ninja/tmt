@@ -232,7 +232,9 @@ impl tmt_cli_style::Render for Report {
         if let Some(hint) = &self.1 {
             value["pickerHint"] = hint.as_str().into();
         }
-        if let Some(ext) = &self.2 {
+        if let Some(ext) = &self.2
+            && ext.status != PiExtensionStatus::Skipped
+        {
             value["piExtension"] = serde_json::json!({
                 "status": ext.status.label(),
                 "path": ext.path,

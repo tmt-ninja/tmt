@@ -80,7 +80,10 @@ fn pi_extension_consent_refresh_uninstall_and_foreign_protection_in_private_worl
     // 1. `--yes` alone never authorizes a new provider extension scope.
     let (ok, doc, stderr) = world.run(&["install", "pi", "--yes", "--json"]);
     assert!(ok, "install pi --yes failed: {stderr}");
-    assert_eq!(doc["piExtension"]["status"], "skipped");
+    assert!(
+        doc.get("piExtension").is_none(),
+        "skipped extension should not alter install --json schema: {doc}"
+    );
     assert!(
         !ext_dir.exists(),
         "--yes alone must not create extension dir"
