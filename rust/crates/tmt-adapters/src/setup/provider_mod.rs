@@ -48,9 +48,9 @@ pub fn for_driver(provider: &str) -> Option<&'static ProviderMod> {
         .and_then(|lifecycle| lifecycle.provider_mod())
 }
 
-fn digest(provider_mod: &ProviderMod) -> String {
+fn digest_files(files: &[(&str, &[u8])]) -> String {
     let mut framed = Vec::new();
-    for (path, bytes) in provider_mod.files {
+    for (path, bytes) in files {
         framed.extend_from_slice(format!("{path}\0{}\0", bytes.len()).as_bytes());
         framed.extend_from_slice(bytes);
     }
@@ -93,7 +93,7 @@ fn marked(directory: &Path) -> bool {
         .is_some_and(|marker| marker.owner == OWNER)
 }
 
-fn state_at(target: &Path, provider_mod: &ProviderMod) -> io::Result<ModState> {
+pub(crate) fn state_for_files(target: &Path, files: &[(&str, &[u8])]) -> io::Result<ModState> {
     let Some(parent) = target.parent() else {
         return Ok(ModState::Foreign);
     };
@@ -115,8 +115,8 @@ fn state_at(target: &Path, provider_mod: &ProviderMod) -> io::Result<ModState> {
     let recorded = bounded_file::read_no_follow(&target.join(MARKER), MARKER_LIMIT)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<ModMarker>(&bytes).ok());
-    let identical = recorded.is_some_and(|marker| marker.digest == digest(provider_mod))
-        && provider_mod.files.iter().all(|(path, bytes)| {
+    let identical = recorded.is_some_and(|marker| marker.digest == digest_files(files))
+        && files.iter().all(|(path, bytes)| {
             bounded_file::read_no_follow(&target.join(path), bytes.len() + 1)
                 .is_ok_and(|current| current == *bytes)
         });
@@ -125,6 +125,18 @@ fn state_at(target: &Path, provider_mod: &ProviderMod) -> io::Result<ModState> {
     } else {
         ModState::Stale
     })
+}
+
+pub(crate) fn is_managed(target: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(target) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+        Ok(metadata) => Ok(metadata.is_dir() && marked(target)),
+    }
+}
+
+fn state_at(target: &Path, provider_mod: &ProviderMod) -> io::Result<ModState> {
+    state_for_files(target, provider_mod.files)
 }
 
 /// Where the mod goes for a provider whose settings file is `settings`.
@@ -301,7 +313,11 @@ pub fn pending_removal(provider: &str, settings: &Path) -> io::Result<Option<Pen
     pending(provider, settings, false)
 }
 
-fn publish(target: &Path, provider_mod: &ProviderMod, replacing: bool) -> io::Result<()> {
+pub(crate) fn publish_files(
+    target: &Path,
+    files: &[(&str, &[u8])],
+    replacing: bool,
+) -> io::Result<()> {
     let parent = target
         .parent()
         .ok_or_else(|| io::Error::other("The mod path has no parent."))?;
@@ -309,12 +325,12 @@ fn publish(target: &Path, provider_mod: &ProviderMod, replacing: bool) -> io::Re
     let stage = parent.join(format!(".tmt-mod-{}", Uuid::new_v4()));
     let built = (|| {
         fs::create_dir(&stage)?;
-        for (path, bytes) in provider_mod.files {
+        for (path, bytes) in files {
             atomic_write(&stage.join(path), bytes)?;
         }
         let marker = ModMarker {
             owner: OWNER.to_owned(),
-            digest: digest(provider_mod),
+            digest: digest_files(files),
         };
         atomic_write(
             &stage.join(MARKER),
@@ -347,6 +363,10 @@ fn publish(target: &Path, provider_mod: &ProviderMod, replacing: bool) -> io::Re
     }
 }
 
+fn publish(target: &Path, provider_mod: &ProviderMod, replacing: bool) -> io::Result<()> {
+    publish_files(target, provider_mod.files, replacing)
+}
+
 /// Moves TMT's directory away, putting it back and failing when it turns out not to be TMT's
 /// after all (it changed since it was checked).
 fn set_aside(target: &Path) -> io::Result<PathBuf> {
@@ -365,7 +385,7 @@ fn set_aside(target: &Path) -> io::Result<PathBuf> {
     Ok(old)
 }
 
-fn take(target: &Path) -> io::Result<()> {
+pub(crate) fn take(target: &Path) -> io::Result<()> {
     if !exists(target)? {
         return Ok(());
     }

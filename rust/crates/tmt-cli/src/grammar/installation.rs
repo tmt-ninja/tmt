@@ -148,7 +148,13 @@ pub(in crate::grammar) fn install(names: Vec<&'static str>) -> Command {
                 "Only for Claude" => "tmt install claude",
             ]
         )),
-        &["force", "dir"],
+        &["force", "dir", "yes"],
+    )
+    .arg(
+        Arg::new("extension")
+            .long("extension")
+            .action(ArgAction::SetTrue)
+            .help("Install or refresh the Pi user extension after consent"),
     )
     .arg(
         operand("agent", false)

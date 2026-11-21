@@ -4,6 +4,7 @@
 
 mod caller;
 mod caller_session;
+pub mod user_extension;
 
 use crate::process::CommandRunner;
 pub use crate::runtime::hook_protocol::{CONTEXT_LIMIT, HOOK_INPUT_LIMIT};
@@ -1845,5 +1846,115 @@ assert.match(notifications[4].message, /compaction active/);
             "node extension command test failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[test]
+    fn extension_guard_deduplicates_user_and_launch_copies_and_upgrades_state() {
+        let dir = TestDirectory::new();
+        let capture = dir.path.join("hooks.jsonl");
+        let user_tmt = dir.path.join("tmt-user.sh");
+        let launch_tmt = dir.path.join("tmt-launch.sh");
+        let make_stub = |path: &Path, label: &str| {
+            let script = format!(
+                "#!/bin/sh\npayload=$(cat)\nprintf '%s\\t%s\\n' '{label}' \"$payload\" >> \"{}\"\n",
+                capture.display()
+            );
+            fs::write(path, script).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        };
+        make_stub(&user_tmt, "user");
+        make_stub(&launch_tmt, "launch");
+
+        let user_ext = dir.path.join("index.js");
+        let launch_ext = dir.path.join("tmt-pi-extension-ready.mjs");
+        fs::write(
+            &user_ext,
+            render_extension(user_tmt.to_str().unwrap(), false).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &launch_ext,
+            render_extension(launch_tmt.to_str().unwrap(), true).unwrap(),
+        )
+        .unwrap();
+
+        let driver_path = dir.path.join("guard-driver.mjs");
+        let driver = r##"
+import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+
+const [userExt, launchExt, expectedLaunchBin] = process.argv.slice(2);
+const handlers = new Map();
+const commands = new Map();
+const execCalls = [];
+
+const pi = {
+  on(event, fn) {
+    const list = handlers.get(event) ?? [];
+    list.push(fn);
+    handlers.set(event, list);
+  },
+  registerCommand(name, options) {
+    assert.equal(commands.has(name), false, `duplicate command registration: ${name}`);
+    commands.set(name, options);
+  },
+  async exec(bin, args) {
+    execCalls.push({ bin, args });
+    return { code: 0, killed: false, stdout: '# TMT\nBody', stderr: '' };
+  },
+  sendUserMessage() {},
+};
+
+const userMod = await import(pathToFileURL(userExt).href);
+userMod.default(pi);
+const launchMod = await import(pathToFileURL(launchExt).href);
+launchMod.default(pi);
+
+assert.equal(handlers.get('session_start')?.length, 1);
+assert.deepEqual([...commands.keys()].sort(), ['tmt', 'tmt-inbox']);
+
+const ctx = {
+  mode: 'tui',
+  isIdle: () => true,
+  sessionManager: {
+    getSessionId: () => 'sess-guard-1',
+    getSessionFile: () => '/tmp/sess-guard-1.jsonl',
+  },
+};
+for (const fn of handlers.get('session_start')) {
+  fn({ reason: 'startup' }, ctx);
+}
+await commands.get('tmt').handler('', ctx);
+assert.equal(execCalls.length, 1);
+assert.equal(execCalls[0].bin, expectedLaunchBin);
+"##;
+        fs::write(&driver_path, driver).unwrap();
+
+        let output = std::process::Command::new("node")
+            .args([
+                driver_path.to_str().unwrap(),
+                user_ext.to_str().unwrap(),
+                launch_ext.to_str().unwrap(),
+                launch_tmt.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "node guard test failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let lines: Vec<String> = fs::read_to_string(&capture)
+            .unwrap()
+            .lines()
+            .map(ToOwned::to_owned)
+            .collect();
+        assert_eq!(lines.len(), 1, "expected 1 hook call, got: {lines:?}");
+        let (which, json) = lines[0].split_once('\t').unwrap();
+        assert_eq!(which, "launch");
+        let payload: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(payload["event"], "session_start");
+        assert_eq!(payload["startup_ready"], true);
     }
 }

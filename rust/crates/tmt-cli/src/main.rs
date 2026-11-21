@@ -428,7 +428,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             target,
             directory,
             force,
+            extension,
+            yes,
         } => {
+            let mode = parsed.mode;
             return output
                 .as_ref()
                 .expect("paired output")
@@ -436,6 +439,32 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                     target.as_deref(),
                     directory.as_deref(),
                     force,
+                    extension,
+                    |entry_path| {
+                        // `--yes` alone never authorizes a new provider extension scope.
+                        if !extension && (yes || !consent::interactive(mode)) {
+                            return Ok(None);
+                        }
+                        let question = format!(
+                            "Pi extension preview:\n  path: {}\n  scope: lifecycle hooks and /tmt, /tmt-inbox commands for plain pi\nInstall the TMT Pi extension",
+                            entry_path.display()
+                        );
+                        consent::ask(
+                            extension && yes,
+                            mode,
+                            consent::Consent {
+                                code: "PI_EXTENSION_CONSENT_REQUIRED",
+                                refusal: "Installing the Pi extension needs explicit --extension --yes in non-interactive mode.",
+                                question: &question,
+                                declined: "Pi extension was not installed.",
+                            },
+                            |error| {
+                                output::Failure::new("ERROR", error.to_string(), 1)
+                                    .caused_by(error)
+                            },
+                        )
+                        .map(Some)
+                    },
                 ));
         }
         Invocation::Setup {

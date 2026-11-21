@@ -255,6 +255,8 @@ pub enum Invocation {
         target: Option<String>,
         directory: Option<String>,
         force: bool,
+        extension: bool,
+        yes: bool,
     },
     Setup {
         provider: Option<String>,
