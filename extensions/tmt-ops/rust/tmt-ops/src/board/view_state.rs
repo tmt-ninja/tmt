@@ -92,6 +92,7 @@ pub(super) struct Controls {
     digest_window: crate::config::DigestWindow,
     chart: (u32, super::overview::chart::model::Each),
     order: Order,
+    usage_rows: Option<u16>,
 }
 impl Controls {
     pub(super) fn capture(app: &App) -> Self {
@@ -102,6 +103,7 @@ impl Controls {
             digest_window: app.digest_window,
             chart: app.usage_chart.borrow().chart_controls(),
             order: app.workspace_order(),
+            usage_rows: app.usage_chart.borrow().remembered_rows(),
         }
     }
     pub(super) fn apply(&self, app: &mut App) {
@@ -115,6 +117,7 @@ impl Controls {
         app.usage_chart
             .borrow_mut()
             .restore_chart_controls(self.chart.0, self.chart.1);
+        app.usage_chart.borrow_mut().restore_rows(self.usage_rows);
         app.workspace.order = Some(self.order);
         app.overview_rows.borrow_mut().clear();
     }
@@ -125,7 +128,7 @@ impl Controls {
             "digestWindow": self.digest_window.label(),
             "chart": {"rangeMinutes": self.chart.0, "eachMinutes": match self.chart.1 { super::overview::chart::model::Each::Auto => None, super::overview::chart::model::Each::Fixed(n) => Some(n) }},
             "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
-            "reversed": self.order.reversed })
+            "reversed": self.order.reversed, "usageRows": self.usage_rows })
     }
     pub(super) fn decode(value: &Value) -> Option<Self> {
         use crate::config::OpsSort;
@@ -148,6 +151,12 @@ impl Controls {
                 .and_then(Value::as_str)
                 .and_then(crate::config::DigestWindow::parse)
                 .unwrap_or_default(),
+            usage_rows: value["usageRows"].as_u64().and_then(|rows| {
+                let rows = u16::try_from(rows).ok()?;
+                (1..=super::overview::chart::host::MAX_REMEMBERED_ROWS)
+                    .contains(&rows)
+                    .then_some(rows)
+            }),
             order: Order {
                 agents: match value["sort"].as_str()? {
                     "name" => OpsSort::Name,

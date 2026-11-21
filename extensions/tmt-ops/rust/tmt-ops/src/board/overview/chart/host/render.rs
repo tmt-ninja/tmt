@@ -59,6 +59,40 @@ fn title(app: &App, data: &Series, selection: Selection) -> String {
     }
 }
 
+/// Quota accounts occupy rows in the same series as providers. Count the
+/// displayed union once, and hold room for the time axis during an empty read.
+fn reserve_overview_rows(app: &App, state: &mut State, data: &Series) -> u16 {
+    let rows = project::spark_rows(&display(app, data, state.selection));
+    let displayed = rows.rows.len().max(1).min(usize::from(MAX_REMEMBERED_ROWS)) as u16;
+    let observed = !rows.no_data && app.view.as_ref().is_some_and(|view| !view.history_pending);
+    let known_tools = app
+        .workspace_snapshot()
+        .into_iter()
+        .flat_map(|snapshot| snapshot.roster.members.keys())
+        .filter_map(|id| app.references.agents.get(id)?.runtime.as_deref())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        .min(usize::from(MAX_REMEMBERED_ROWS)) as u16;
+    // A new view may have no roster tool observations at all. Reserve the
+    // usual two provider slots until the first complete chart arrives.
+    let first = state.remembered_rows.unwrap_or(2);
+    state.reserved_rows = state
+        .reserved_rows
+        .max(displayed)
+        .max(known_tools)
+        .max(first);
+    if observed
+        && (!quotas_visible(app) || app.limits.is_some())
+        && app.workspace_snapshot().is_some_and(|snapshot| {
+            snapshot.roster.observation == crate::board::workspace::OpsObservation::Complete
+        })
+    {
+        state.remembered_rows = Some(displayed);
+    }
+    // Usage header, column headings, axis and a gap before the roster.
+    state.reserved_rows + 4
+}
+
 /// Overview's full-width Usage band precedes the existing body panes. This
 /// admission uses a fixed target minimum, so pane placement never recurses.
 pub(in crate::board) fn overview_demand(app: &App, width: u16, height: u16, now: u64) -> u16 {
@@ -67,10 +101,9 @@ pub(in crate::board) fn overview_demand(app: &App, width: u16, height: u16, now:
     }
     let mut state = app.usage_chart.borrow_mut();
     resolve(app, &mut state, width, now);
-    let selection = state.selection;
     let source = Rc::clone(state.observed.as_ref().expect("refreshed source"));
-    let rows = chart_rows(app, &source, selection) + 1; // header breathing row and trailing gap
-    if width >= 40 && fits_chart(app, &source, selection, width) && height >= rows + 7 {
+    let rows = reserve_overview_rows(app, &mut state, &source);
+    if width >= 40 && height >= rows + 7 {
         rows
     } else {
         1
@@ -93,7 +126,7 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
         .buckets
         .iter()
         .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0));
-    if (positive || app.shell.tab == OpsTab::Agents)
+    let painted = if (positive || app.shell.tab == OpsTab::Agents)
         && area.width >= 40
         && fits_chart(app, &data, state.selection, area.width)
         && area.height >= chart_rows(app, &data, state.selection)
@@ -103,7 +136,7 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
         {
             state.release_focus();
         }
-        paint_chart(frame, app, &mut state, area, look, now);
+        paint_chart(frame, app, &mut state, area, look, now)
     } else {
         // Digest opens this chart explicitly. Its empty summary must retain
         // Range/Each focus between u and Enter, just like a populated chart.
@@ -123,6 +156,18 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
             None,
             state.each,
         );
+        1
+    };
+    if app.shell.tab == OpsTab::Agents && area.height > painted + 1 {
+        let placeholders = Rect::new(
+            area.x,
+            area.y + painted,
+            area.width,
+            area.height - painted - 1,
+        );
+        frame
+            .buffer_mut()
+            .set_style(placeholders, look.role(tmt_cli_style::Role::Dim));
     }
     if state.focus == Some(Focus::Quota)
         && !state

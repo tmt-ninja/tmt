@@ -1236,3 +1236,29 @@ fn quota_group_admits_both_whole_choices_or_none_and_authored_navigation_wins() 
         assert_eq!(app.usage_chart.borrow().quota_window, before);
     });
 }
+
+#[test]
+fn overview_usage_keeps_the_list_origin_when_history_arrives() {
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let mut app = board();
+        let area = Rect::new(0, 0, 160, 36);
+        let list_top = |app: &App| app.workspace_placement(area).unwrap().list.unwrap().y;
+        let pending = app.overview_usage_band(area);
+        let pending_list = list_top(&app);
+
+        fixtures::populate(&mut app);
+        app.set_limits(Vec::new());
+
+        assert!(pending.height > 1);
+        assert_eq!(app.overview_usage_band(area), pending);
+        assert_eq!(list_top(&app), pending_list);
+
+        let controls = crate::board::view_state::Controls::capture(&app);
+        let controls = crate::board::view_state::Controls::decode(&controls.json()).unwrap();
+        assert!(app.usage_chart.borrow().remembered_rows().is_some());
+        let mut reopened = board();
+        controls.apply(&mut reopened);
+        assert_eq!(reopened.overview_usage_band(area), pending);
+        assert_eq!(list_top(&reopened), pending_list);
+    });
+}
