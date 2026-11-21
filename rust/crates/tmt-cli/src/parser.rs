@@ -989,6 +989,8 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 target,
                 directory,
                 force: flag(m, "force"),
+                extension: flag(m, "extension"),
+                yes: flag(m, "yes"),
             }
         }
         _ => unreachable!("grammar and typed translation must agree"),

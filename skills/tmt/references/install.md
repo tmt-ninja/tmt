@@ -34,11 +34,20 @@ Plugin settings are never modified.
 Native `tmt upgrade` refreshes recorded managed skills. For a manual binary
 replacement, run `tmt install` again. Reload or restart the agent afterwards.
 For an existing conversation, run `tmt learn --skill` and read its complete output
-before using remembered commands. Pi exposes `/tmt` and `/tmt-inbox` via
-`tmt run` and can load `/skill:tmt` and `/skill:tmt-inbox` from installed
-skills; OpenCode uses its `skill` tool. Installation does not bypass provider
-permissions or guarantee that a running conversation has refreshed its
-instructions.
+before using remembered commands. Pi exposes `/tmt`, `/tmt-inbox`, and lifecycle
+hooks (`tmt __hook pi`) via `tmt run` or via the optional user extension at
+`<agent-dir>/extensions/tmt/index.js` (offered by `tmt install pi` with preview
+and explicit consent; `--yes` alone never authorizes a new provider extension
+scope, while `--extension --yes` opts in non-interactively, and `settings.json`
+is never edited). Pi can also load `/skill:tmt` and `/skill:tmt-inbox` from
+installed skills; OpenCode uses its `skill` tool. When the Pi extension is
+installed, `tmt upgrade` refreshes it and `tmt uninstall` removes it cleanly
+(foreign directories are preserved). Pi's `startupReady` capability is fixed at
+install or refresh time, so upgrading Pi takes effect after the next
+`tmt upgrade` or `tmt install pi`; when both the user extension and
+`tmt run --extension` are active, TMT registers hooks and commands only once.
+Installation does not bypass provider permissions or guarantee that a running
+conversation has refreshed its instructions.
 
 ### View and install the bundled skill
 

@@ -14,7 +14,7 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    drivers::Registry,
+    drivers::{Registry, pi},
     native_install::{self, Product, ProductRemoval},
     setup::{
         record,
@@ -50,6 +50,7 @@ fn failure(error: impl std::error::Error + 'static) -> Failure {
 
 struct Plan {
     hooks: Vec<HookStep>,
+    pi_extension: pi::user_extension::UninstallPlan,
     skills: SkillsRemoval,
     products: Vec<(Product, ProductRemoval)>,
     data: PathBuf,
@@ -65,6 +66,9 @@ impl Plan {
                 rows.push(("hooks", planned.change.path.clone()));
             }
             rows.extend(removal::mod_target(step).map(|path| ("mod", path)));
+        }
+        if let pi::user_extension::UninstallPlan::Managed(path) = &self.pi_extension {
+            rows.push(("extension", path.clone()));
         }
         rows.extend(
             self.skills
@@ -103,6 +107,9 @@ impl Plan {
             {
                 rows.push((settings.clone(), reason.clone()));
             }
+        }
+        if let pi::user_extension::UninstallPlan::Foreign(path) = &self.pi_extension {
+            rows.push((path.clone(), "it is not TMT's extension".into()));
         }
         rows.extend(
             self.skills
@@ -195,6 +202,7 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
     let plan = Plan {
         hooks: removal::plan_hook_removal(&paths.global_dir, &environment, &drivers)
             .map_err(failure)?,
+        pi_extension: pi::user_extension::plan_uninstall(&environment).map_err(failure)?,
         skills: skill_installation::plan_uninstall(&environment, &paths.global_dir)
             .map_err(failure)?,
         products: products_in_removal_order()
@@ -302,6 +310,7 @@ fn remove(
         }
         removed.extend(provider_mod);
     }
+    removed.extend(pi::user_extension::uninstall(environment)?);
     removed.extend(skill_installation::uninstall(environment, &plan.data)?.removed);
     for (product, _) in &plan.products {
         removed.extend(native_install::remove_product(prefix, *product)?.removed);
@@ -414,6 +423,7 @@ mod presentation_tests {
         let prefix = Path::new("/prefix");
         Plan {
             hooks: Vec::new(),
+            pi_extension: pi::user_extension::UninstallPlan::Absent,
             skills: SkillsRemoval::default(),
             products: products_in_removal_order()
                 .map(|product| {

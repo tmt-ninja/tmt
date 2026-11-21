@@ -374,6 +374,8 @@ mod tests {
                 target: None,
                 directory: None,
                 force: false,
+                extension: false,
+                yes: false,
             },
             Invocation::Upgrade {
                 channel: None,

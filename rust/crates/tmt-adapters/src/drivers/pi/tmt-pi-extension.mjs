@@ -9,9 +9,16 @@ import { spawnSync } from 'node:child_process';
 
 const HOOK_BIN = __TMT_HOOK_BIN__;
 const STARTUP_READY = __TMT_STARTUP_READY__;
+const GUARD_KEY = Symbol.for('tmt.pi.extension.v1');
 const HOOK_INPUT_LIMIT = 64 * 1024;
 const FINAL_TEXT_LIMIT = 16 * 1024;
 const PLACEHOLDER_MODELS = new Set(['unknown', 'auto', 'default']);
+
+function extensionState() {
+  const existing = globalThis[GUARD_KEY];
+  if (existing && typeof existing === 'object') return existing;
+  return { hookBin: HOOK_BIN, startupReady: Boolean(STARTUP_READY) };
+}
 
 const EVENTS = [
   'session_start',
@@ -51,7 +58,8 @@ function notifyError(ctx, message) {
 }
 
 async function runSkillCommand(pi, name, args, ctx) {
-  if (!HOOK_BIN) {
+  const { hookBin } = extensionState();
+  if (!hookBin) {
     notifyError(ctx, `/${name}: tmt binary path is unavailable.`);
     return;
   }
@@ -61,7 +69,7 @@ async function runSkillCommand(pi, name, args, ctx) {
   }
   let result;
   try {
-    result = await pi.exec(HOOK_BIN, ['learn', '--skill', name], { timeout: 5000 });
+    result = await pi.exec(hookBin, ['learn', '--skill', name], { timeout: 5000 });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     notifyError(ctx, `Failed to load /${name} skill: ${detail}`);
@@ -165,7 +173,8 @@ function encodeBoundedPayload(payload) {
 }
 
 function sendHook(eventName, event, ctx) {
-  if (!HOOK_BIN) return;
+  const { hookBin, startupReady } = extensionState();
+  if (!hookBin) return;
   const sessionId = ctx?.sessionManager?.getSessionId?.();
   if (typeof sessionId !== 'string' || !sessionId) return;
   const sessionFile = ctx?.sessionManager?.getSessionFile?.() ?? null;
@@ -173,7 +182,7 @@ function sendHook(eventName, event, ctx) {
   const payload = {
     event: eventName,
     idle: ctx?.isIdle?.() === true,
-    startup_ready: STARTUP_READY && ctx?.mode === 'tui' && ctx?.isIdle?.() === true,
+    startup_ready: startupReady && ctx?.mode === 'tui' && ctx?.isIdle?.() === true,
     session_id: sessionId,
     session_file: typeof sessionFile === 'string' ? sessionFile : null,
     reason: typeof event?.reason === 'string' ? event.reason : null,
@@ -209,7 +218,7 @@ function sendHook(eventName, event, ctx) {
   const input = encodeBoundedPayload(payload);
   if (input === null) return;
   try {
-    spawnSync(HOOK_BIN, ['__hook', 'pi'], {
+    spawnSync(hookBin, ['__hook', 'pi'], {
       input,
       stdio: ['pipe', 'ignore', 'ignore'],
       timeout: 5000,
@@ -221,6 +230,16 @@ function sendHook(eventName, event, ctx) {
 
 export default function (pi) {
   if (!pi) return;
+  const existing = globalThis[GUARD_KEY];
+  if (existing && typeof existing === 'object') {
+    if (HOOK_BIN) existing.hookBin = HOOK_BIN;
+    existing.startupReady = Boolean(existing.startupReady || STARTUP_READY);
+    return;
+  }
+  globalThis[GUARD_KEY] = {
+    hookBin: HOOK_BIN,
+    startupReady: Boolean(STARTUP_READY),
+  };
   if (typeof pi.on === 'function') {
     for (const name of EVENTS) {
       pi.on(name, (event, ctx) => sendHook(name, event, ctx));

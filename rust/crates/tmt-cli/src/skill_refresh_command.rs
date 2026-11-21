@@ -8,7 +8,8 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    skill_installation::{self, RefreshReport},
+    drivers::pi,
+    skill_installation::{self, ProviderEnvironment, RefreshReport, RefreshedSkill},
 };
 
 /// One recovery line per preserved target. Move the entry, never its source,
@@ -30,6 +31,21 @@ pub(crate) fn conflict_hint(target: &Path) -> String {
         quote(&target.to_string_lossy()),
         quote(&name)
     )
+}
+
+fn refresh_pi_extension(report: &mut RefreshReport) -> io::Result<()> {
+    let environment = ProviderEnvironment::capture()?;
+    let launcher = pi::user_extension::detect_launcher()?;
+    let startup_ready = pi::user_extension::detect_startup_ready();
+    if let Some(outcome) =
+        pi::user_extension::refresh_if_installed(&environment, &launcher, startup_ready)?
+    {
+        report.refreshed.push(RefreshedSkill {
+            target: outcome.entry_path(),
+            changed: outcome.changed(),
+        });
+    }
+    Ok(())
 }
 
 fn document(report: &RefreshReport) -> Value {
@@ -90,7 +106,15 @@ pub fn execute(managed: bool, mode: OutputMode) -> io::Result<u8> {
         } else {
             Ok(skill_installation::refresh(&paths.global_dir))
         } {
-            Ok(Ok(report)) => (report, None),
+            Ok(Ok(mut report)) => {
+                if let Err(error) = refresh_pi_extension(&mut report) {
+                    let failure =
+                        Failure::new("SKILL_REFRESH_FAILED", error.to_string(), 1).caused_by(error);
+                    (report, Some(failure))
+                } else {
+                    (report, None)
+                }
+            }
             Ok(Err(mut error)) => {
                 let report = std::mem::take(&mut error.report);
                 let failure =
