@@ -38,6 +38,78 @@ fn checklist_cap(app: &App) -> Option<Span<'static>> {
     }
 }
 
+/// Member panels give the destinations their own row, independent of the title.
+pub(super) fn paint_member_tabs(buffer: &mut Buffer, app: &App, area: Rect, target: &OpsTarget) {
+    use crate::action::OpsUiAction;
+    let checklist = conversation_checklist::Key::of(target);
+    let checklist_label = checklist.as_ref().map_or("Checklist".into(), |key| {
+        conversation_checklist::chip(app.notes.summary(key))
+    });
+    let entries = [
+        (
+            "Talk",
+            RightTab::Talk,
+            keycap::key(app, OpsUiAction::PaneTalk, "T"),
+        ),
+        (
+            "Measure",
+            RightTab::Measure,
+            keycap::key(app, OpsUiAction::PaneMeasure, "M"),
+        ),
+        (
+            checklist_label.as_str(),
+            RightTab::Checklist,
+            if app.composer_projection().is_some_and(|p| p.focused) {
+                (!app.bindings().contains_key("ctrl-l")).then(|| "^L".into())
+            } else {
+                keycap::key(app, OpsUiAction::MemberNotes, "C")
+            },
+        ),
+    ];
+    let entries = &entries[..if checklist.is_some() { 3 } else { 2 }];
+    let labels: Vec<_> = entries.iter().map(|(label, _, _)| *label).collect();
+    let keys: Vec<_> = entries.iter().map(|(_, _, key)| key.clone()).collect();
+    let selected = entries
+        .iter()
+        .position(|(_, tab, _)| *tab == app.right_tab)
+        .unwrap_or(entries.len());
+    let (full, full_hits) =
+        super::tab_strip::line(&labels, &keys, selected, area, app.look(), false);
+    let (text, hits) = if full_hits.len() == entries.len() {
+        (full, full_hits)
+    } else {
+        let labels = &["Talk", "Measure", "Checklist"][..entries.len()];
+        let (compact, hits) =
+            super::tab_strip::line(labels, &keys, selected, area, app.look(), true);
+        if hits.len() == entries.len() {
+            (compact, hits)
+        } else {
+            let labels = ["Talk", "Meas", "List"];
+            super::tab_strip::line(
+                &labels[..entries.len()],
+                &keys,
+                selected,
+                area,
+                app.look(),
+                true,
+            )
+        }
+    };
+    strip::paint_left(buffer, area, text);
+    for (index, hit) in hits {
+        let tab = entries[index].1;
+        if tab == RightTab::Checklist && app.workspace_selection_visible() {
+            app.workspace_action_hits
+                .borrow_mut()
+                .push((hit, target.clone(), Choice::MemberNotes));
+        } else if tab != RightTab::Checklist && app.workspace_strip_enabled() {
+            app.workspace_strip_hits
+                .borrow_mut()
+                .push((hit, Choice::RightTab(tab)));
+        }
+    }
+}
+
 /// Paints the control on `rule` and returns what is left of the rule for its own title.
 /// Inactive controls yield to the title and state. When Checklist is active, its chip instead
 /// survives narrow widths: the inactive tabs go first, then its label shortens if necessary.

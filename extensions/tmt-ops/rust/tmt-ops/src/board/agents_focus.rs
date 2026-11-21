@@ -1,7 +1,7 @@
 //! Selection-driven Agents focus over the acquired workspace and existing sessions.
 use super::{
     app::{App, RowTarget},
-    conversation, conversation_checklist, identity_line, input_field, key_value,
+    conversation, identity_line, input_field, key_value,
     overview::{cron_counts::CronCountScope, timers},
     section_rule, spark_row,
     stat_tiles::{self, Tile},
@@ -212,29 +212,35 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         member_state(app, selected, usize::from(area.width.saturating_sub(8)))
     };
-    let title_rule = crate::board::talk_measure::paint(
-        frame.buffer_mut(),
-        app,
-        Rect {
-            height: area.height.min(1),
-            ..area
-        },
-        Some(selected),
-        section_rule::needed(title, note.width()),
-    );
-    if matches!(selected, OpsTarget::Member { .. })
-        && let Some(area) = section_rule::note_area(title, note.width(), title_rule)
-    {
-        app.push_unread_row_hit(area, selected);
-    }
-    section_rule::paint(
-        frame.buffer_mut(),
-        title_rule,
-        title,
-        note,
-        app.focused() == Pane::Replies,
-        app.look(),
-    );
+    let member_header = matches!(selected, OpsTarget::Member { .. }) && raw.is_some();
+    let content_y = if let Some(row) = raw.filter(|_| member_header) {
+        member::render_header(frame, app, area, title, row, selected, squad)
+    } else {
+        let title_rule = crate::board::talk_measure::paint(
+            frame.buffer_mut(),
+            app,
+            Rect {
+                height: area.height.min(1),
+                ..area
+            },
+            Some(selected),
+            section_rule::needed(title, note.width()),
+        );
+        if matches!(selected, OpsTarget::Member { .. })
+            && let Some(area) = section_rule::note_area(title, note.width(), title_rule)
+        {
+            app.push_unread_row_hit(area, selected);
+        }
+        section_rule::paint(
+            frame.buffer_mut(),
+            title_rule,
+            title,
+            note,
+            app.focused() == Pane::Replies,
+            app.look(),
+        );
+        area.y.saturating_add(1).min(area.bottom())
+    };
     if app.right_tab == crate::board::shell::RightTab::Talk
         && app.input.is_none()
         && let OpsTarget::Member { identity_id, .. } = selected
@@ -337,11 +343,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
         }
         app.conversation.borrow_mut().active = None;
-        let action = app.provider_answer_hint().filter(|_| area.height >= 3);
+        let action = app
+            .provider_answer_hint()
+            .filter(|_| area.bottom().saturating_sub(content_y) >= 2);
         if let Some(label) = action {
             let hit = Rect::new(
                 area.x + 1,
-                area.y + 1,
+                content_y,
                 (label.chars().count() as u16).min(area.width.saturating_sub(1)),
                 1,
             );
@@ -356,12 +364,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 );
             }
         }
-        let reserved = 1 + u16::from(action.is_some());
+        let body_top = content_y + u16::from(action.is_some());
         let body = Rect::new(
             area.x,
-            area.y.saturating_add(reserved),
+            body_top,
             area.width,
-            area.height.saturating_sub(reserved),
+            area.bottom().saturating_sub(body_top),
         );
         app.scrolls
             .show(frame, Pane::Replies, body, &lines, app.look());
@@ -369,10 +377,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     if app.right_tab == crate::board::shell::RightTab::Checklist
         && let Some(controller) = &app.notes_overlay
-        && let Some(row) = raw
+        && raw.is_some()
     {
-        let mut y = area.y.saturating_add(1);
-        member::render(frame, app, area, &mut y, row, selected, squad);
+        let y = content_y;
         controller.render_page(
             frame,
             app,
@@ -396,16 +403,28 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     let metadata = Rect::new(
         area.x,
-        area.y.saturating_add(area.height.min(1)),
+        content_y,
         area.width,
-        area.height.saturating_sub(1 + reserved),
+        area.bottom()
+            .saturating_sub(content_y)
+            .saturating_sub(reserved),
     );
     let mut y = metadata.y;
     match selected {
         OpsTarget::DigestAll | OpsTarget::Hidden | OpsTarget::Terminal { .. } => {}
         OpsTarget::Member { .. } => {
             if let Some(row) = raw {
-                member::render(frame, app, metadata, &mut y, row, selected, squad);
+                if super::conversation_checklist::Key::of(selected).is_none()
+                    && let Some(link) =
+                        conversation::link_preview(app, row, &app.workspace_bindings())
+                {
+                    line(
+                        frame,
+                        metadata,
+                        &mut y,
+                        neutral(format!(" link {}", link.value), app.look()),
+                    );
+                }
                 if !app.work.stale
                     && let OpsTarget::Member { identity_id, .. } = selected
                     && let Some(list) = &app.work.list
@@ -446,11 +465,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if remaining == 0 {
         return;
     }
-    if y == area.y + 1 {
+    if !member_header && y == area.y + 1 {
         // At the smallest heights metadata has yielded entirely. The optional
         // exchange rule yields too, keeping one gap below the focus title.
         blank(area, &mut y);
-    } else {
+    } else if !member_header || app.screen_mode() {
         let shown = recipient
             .as_ref()
             .filter(|_| app.screen_mode() && retained.is_none());

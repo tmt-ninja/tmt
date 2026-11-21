@@ -1385,7 +1385,7 @@ impl App {
             .map_or([None; N], |(meter, _)| meter.member_trend(id, now))
     }
 
-    fn member_usage_observation(
+    pub(super) fn member_usage_observation(
         &self,
         id: &str,
         window: crate::config::TokenWindow,

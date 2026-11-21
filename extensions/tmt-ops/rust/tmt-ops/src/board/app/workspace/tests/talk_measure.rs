@@ -42,22 +42,23 @@ fn measure_and_talk_keys_directly_select_both_scopes() {
 }
 
 #[test]
-fn focused_strip_never_clips_the_checklist_chip_at_120_and_shows_both_at_160() {
+fn focused_strip_keeps_all_tabs_and_the_member_state_at_both_widths() {
     let mut app = board();
     press(&mut app, KeyCode::Enter);
-    let text = paint(&app, 120, 36).join("\n");
-    let line = text.lines().find(|line| line.contains("Measure")).unwrap();
-    assert!(line.contains("● working"), "{line}");
-    assert!(
-        !line.contains("^L  Check"),
-        "the chip never paints partially: {line}"
-    );
-    let wide = paint(&app, 160, 36).join("\n");
-    let line = wide.lines().find(|line| line.contains("Measure")).unwrap();
-    assert!(
-        line.contains("Measure   ^L") && line.contains("● working"),
-        "{line}"
-    );
+    for width in [120, 160] {
+        let rows = paint(&app, width, 36);
+        let tabs = rows
+            .iter()
+            .position(|line| line.contains("Measure"))
+            .unwrap();
+        let line = &rows[tabs];
+        assert!(
+            line.contains("T  Talk") && line.contains("M  Measure"),
+            "{line}"
+        );
+        assert!(line.contains("^L  Checklist"), "{line}");
+        assert!(rows[tabs + 1].contains("● working"), "{}", rows[tabs + 1]);
+    }
 }
 
 #[test]

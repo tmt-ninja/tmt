@@ -142,15 +142,11 @@ fn conversation_has_one_title_and_stack_separator_while_uuid_draft_survives_focu
                     .map(|x| buffer[(x, y)].symbol())
                     .collect::<String>()
             };
-            assert!(line(pane.y).contains("worker"));
-            assert!(!line(pane.y).contains("Conversation ·"));
-            assert!(matches!(buffer[(pane.x, pane.y)].symbol(), "─" | "▸"));
-            assert_eq!(
-                (pane.y..pane.bottom())
-                    .filter(|y| line(*y).contains("Conversation"))
-                    .count(),
-                1
-            );
+            let tabs = (pane.y..pane.bottom())
+                .find(|y| line(*y).contains("Talk"))
+                .expect("the member tabs");
+            assert!(line(tabs + 1).contains("worker"));
+            assert!((pane.y..pane.bottom()).all(|y| !line(y).contains("── Conversation")));
             drop(state);
             assert!(app.input.is_none(), "pane focus does not start typing");
             let projection = app.composer_projection().unwrap();

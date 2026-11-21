@@ -12,27 +12,6 @@ pub(in crate::board) struct Member<'a> {
     pub label: Option<&'a str>,
 }
 
-/// Cell range of the observed host, before clipping to the painted line.
-pub(in crate::board) fn member_host_range(data: &Member<'_>) -> Option<(usize, usize)> {
-    use unicode_width::UnicodeWidthStr;
-    let host = crate::board::notes::single_line(data.host?);
-    if host.is_empty() {
-        return None;
-    }
-    let prefix = format!(
-        " {} · ",
-        [
-            data.squad,
-            if data.lead { "lead" } else { "member" },
-            data.runtime.unwrap_or("—"),
-            data.model.unwrap_or("—"),
-        ]
-        .map(crate::board::notes::single_line)
-        .join(" · ")
-    );
-    Some((prefix.width(), host.width()))
-}
-
 pub(in crate::board) fn member(data: &Member<'_>, look: Look) -> Line<'static> {
     let mut text = format!(
         " {}",

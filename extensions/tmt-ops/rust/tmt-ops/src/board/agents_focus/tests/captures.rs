@@ -365,8 +365,8 @@ fn approved_focus_geometry_has_cell_captures_at_both_widths_and_all_looks() {
                         text.contains("8 squads · 28 agents"),
                         "{selected}/{width}: {text}"
                     );
-                    assert!(text.contains("Conversation"));
                     if selected == "tmt-night" {
+                        assert!(text.contains("── Conversation"));
                         let pane_text = buffer
                             .content
                             .chunks(usize::from(width))
@@ -387,6 +387,18 @@ fn approved_focus_geometry_has_cell_captures_at_both_widths_and_all_looks() {
                             usage.find("night-muse ").unwrap() < usage.find("night-1 ").unwrap()
                         );
                     }
+                    if selected != "tmt-night" {
+                        assert!(
+                            !text.contains("── Conversation"),
+                            "{selected}/{width}: {text}"
+                        );
+                        assert!(
+                            text.contains("Talk")
+                                && text.contains("Measure")
+                                && text.contains("Checklist"),
+                            "{selected}/{width}: {text}"
+                        );
+                    }
                     assert!(
                         !text.contains("all parties")
                             && !text.contains("since ")
@@ -394,7 +406,7 @@ fn approved_focus_geometry_has_cell_captures_at_both_widths_and_all_looks() {
                     );
                     let pane = app.conversation.borrow().pane.unwrap();
                     if width == 148 {
-                        assert_eq!((pane.x, pane.y, pane.width), (71, 8, 77));
+                        assert_eq!((pane.x, pane.y, pane.width), (71, 9, 77));
                     } else {
                         assert_eq!(pane.x, 0);
                         assert!(pane.y > 8);

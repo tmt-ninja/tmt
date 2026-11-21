@@ -1,93 +1,208 @@
 //! Member identity and observed statistics; conversation retains its session.
 use super::*;
 
-pub(super) fn render(
+pub(super) fn render_header(
     frame: &mut Frame,
     app: &App,
     area: Rect,
-    y: &mut u16,
+    name: &str,
     row: &serde_json::Value,
     target: &OpsTarget,
     squad: Option<&OpsSquad>,
-) {
-    let OpsTarget::Member {
-        identity_id: id, ..
-    } = target
-    else {
-        return;
+) -> u16 {
+    use ratatui::style::Modifier;
+    use unicode_width::UnicodeWidthStr;
+
+    let OpsTarget::Member { identity_id, .. } = target else {
+        return area.y;
     };
     let look = app.look();
-    let observed = app.references.agents.get(id);
-    let host = row["pane"]["location"]["host"].as_str().map(|host| {
+    let mut y = area.y;
+    let tab = Rect::new(area.x, y, area.width, area.height.min(1));
+    crate::board::talk_measure::paint_member_tabs(frame.buffer_mut(), app, tab, target);
+    y += tab.height;
+    if y >= area.bottom() {
+        return y;
+    }
+
+    let mut status = app
+        .workspace_snapshot()
+        .and_then(|snapshot| super::super::workspace::member_target_row(&snapshot.roster, target))
+        .and_then(|row| app.activity_label(&row))
+        .map_or_else(
+            || neutral("?", look),
+            |label| {
+                let mark = if label.state == "working" {
+                    Span::styled("●", look.role(Role::Working))
+                } else {
+                    state_cell::mark(Some(label.state), look)
+                };
+                Line::from(vec![
+                    mark,
+                    Span::styled(format!(" {}", label.state), look.role(Role::Muted)),
+                ])
+            },
+        );
+    let count = app.unread_target(target);
+    let unread = state_cell::unread(count, look).unwrap_or_else(|| neutral("○ 0 unread", look));
+    if status.width() + unread.width() + 3 < usize::from(area.width) {
+        status.spans.push(Span::raw("  "));
+    } else {
+        status = Line::default();
+    }
+    let unread_start = status.width();
+    status.spans.extend(unread.spans);
+    let status_width = status.width().min(usize::from(area.width)) as u16;
+    let name_width = area.width.saturating_sub(status_width);
+    let name_area = Rect::new(area.x, y, name_width, 1);
+    let name = super::super::notes::single_line(name);
+    let scope = squad.map_or_else(
+        || "COMMON POOL".to_owned(),
+        |squad| super::super::notes::single_line(&squad.name).to_uppercase(),
+    );
+    let label = format!("   {scope} / MEMBER");
+    let mut title = vec![Span::styled(
+        format!(
+            " {}",
+            super::super::view::fit(&name, usize::from(name_width.saturating_sub(1))).trim_end()
+        ),
+        look.role(Role::Text).add_modifier(Modifier::BOLD),
+    )];
+    if title[0].width() + label.width() < usize::from(name_width) {
+        title.push(Span::styled(label, look.role(Role::Muted)));
+    }
+    strip::paint_left(frame.buffer_mut(), name_area, Line::from(title));
+    let status_area = Rect::new(name_area.right(), y, status_width, 1);
+    strip::paint_left(frame.buffer_mut(), status_area, status);
+    if unread_start < usize::from(status_width) {
+        app.push_unread_row_hit(
+            Rect::new(
+                status_area.x + unread_start as u16,
+                y,
+                status_width - unread_start as u16,
+                1,
+            ),
+            target,
+        );
+    }
+    y += 1;
+
+    let observed = app.references.agents.get(identity_id);
+    let runtime = observed
+        .and_then(|agent| agent.runtime.as_deref())
+        .or_else(|| row["runningDriver"].as_str());
+    let model = observed
+        .and_then(|agent| agent.model.as_deref())
+        .or_else(|| row["fields"]["model"].as_str());
+    let effort = row["resume"]["launch"]["effort"].as_str();
+    let driver = row["pane"]["location"]["host"].as_str();
+    let context = observed.and_then(|agent| agent.context).and_then(|usage| {
+        usage
+            .window_tokens
+            .filter(|window| *window > 0)
+            .map(|window| {
+                let percent =
+                    (u128::from(usage.used_tokens) * 100 / u128::from(window)).min(100) as usize;
+                let full = (percent * 8 + 50) / 100;
+                vec![
+                    Span::styled("ctx ", look.role(Role::Muted)),
+                    Span::styled("█".repeat(full), look.role(Role::Working)),
+                    Span::styled("░".repeat(8 - full), look.role(Role::Dim)),
+                    Span::styled(format!(" {percent}%"), look.role(Role::Working)),
+                ]
+            })
+    });
+    let provider = runtime.map_or_else(
+        || "—".into(),
+        |id| super::super::limits::Provider::named(id).label(),
+    );
+    let provider_role = match runtime {
+        Some("claude") => Role::Waiting,
+        Some("codex") => Role::Working,
+        Some("gemini") => Role::Accent,
+        _ => Role::Muted,
+    };
+    use tmt_cli_style::theme::screen::{Fill, fill};
+    let provider_style =
+        fill(&look.theme, provider_role, look.depth, Fill::Solid).add_modifier(Modifier::BOLD);
+    let provider_style = if provider_style.bg.is_none() {
+        provider_style.add_modifier(Modifier::REVERSED)
+    } else {
+        provider_style
+    };
+    let model = model.map_or_else(
+        || "—".into(),
+        |model| effort.map_or_else(|| model.into(), |effort| format!("{model} · {effort}")),
+    );
+    let tokens = app
+        .member_usage_observation(
+            identity_id,
+            crate::config::TokenWindow::HOUR,
+            crate::status::now_instant(),
+        )
+        .map_or_else(
+            || "—".into(),
+            |(_, reading)| format!("{} tok 1h", token_label(Some(reading))),
+        );
+    let host_label = driver.map(|host| {
         row["pane"]["target"]
             .as_str()
             .filter(|target| !target.is_empty())
             .map_or_else(|| host.to_owned(), |target| format!("{host} {target}"))
     });
-    let identity = identity_line::Member {
-        squad: squad.map_or("Common pool", |squad| squad.name.as_str()),
-        lead: squad.is_some_and(|squad| squad.lead.as_deref() == Some(id)),
-        runtime: observed
-            .and_then(|agent| agent.runtime.as_deref())
-            .or_else(|| observed.filter(|agent| agent.basic).map(|_| "basic")),
-        model: observed
-            .and_then(|agent| agent.model.as_deref())
-            .or_else(|| row["fields"]["model"].as_str()),
-        host: host.as_deref(),
-        label: app.workspace_snapshot().and_then(|snapshot| {
-            snapshot
-                .preferences
-                .labels
-                .members
-                .get(id)
-                .and_then(|label_id| {
-                    snapshot
-                        .preferences
-                        .labels
-                        .definitions
-                        .iter()
-                        .find(|label| &label.id == label_id)
-                        .map(|label| label.name.as_str())
-                })
-        }),
-    };
-    let line_y = *y;
-    let host_range = identity_line::member_host_range(&identity);
-    line(frame, area, y, identity_line::member(&identity, look));
-    if *y > line_y
-        && app.workspace_selection_visible()
-        && let Some((start, width)) = host_range
-        && let Some(action) = app.bindings().get("z").cloned()
-        && start < usize::from(area.width)
-    {
-        let visible = width.min(usize::from(area.width) - start);
-        if visible > 0 {
-            app.workspace_action_hits.borrow_mut().push((
-                Rect::new(area.x + start as u16, line_y, visible as u16, 1),
-                target.clone(),
-                crate::board::app::Choice::Action(action),
-            ));
+    let fields = [
+        vec![Span::styled(
+            format!(" {} ", super::super::notes::single_line(&provider)),
+            provider_style,
+        )],
+        vec![Span::styled(
+            super::super::notes::single_line(&model),
+            look.role(Role::Accent),
+        )],
+        vec![Span::styled(
+            super::super::notes::single_line(host_label.as_deref().unwrap_or("—")),
+            look.role(Role::Waiting),
+        )],
+        context.unwrap_or_else(|| vec![Span::styled("—", look.role(Role::Dim))]),
+        vec![Span::styled(tokens, look.role(Role::Text))],
+    ];
+    let mut info = vec![Span::raw(" ")];
+    let mut used = 1;
+    let mut driver_hit = None;
+    for (index, field) in fields.into_iter().enumerate() {
+        let width: usize = field.iter().map(Span::width).sum();
+        let separator = if index == 0 {
+            ""
+        } else if index == 1 {
+            " "
+        } else {
+            "  ·  "
+        };
+        let start = used + separator.width();
+        if start + width > usize::from(area.width) {
+            break;
         }
+        if index == 2 && driver.is_some() {
+            driver_hit = Some(Rect::new(area.x + start as u16, y, width as u16, 1));
+        }
+        info.push(Span::styled(separator, look.role(Role::Dim)));
+        info.extend(field);
+        used = start + width;
     }
-    // A squad member's Checklist is a chip on the Talk/Measure row (#5992); one of the Common
-    // pool has no room, so it keeps the link line.
-    if conversation_checklist::Key::of(target).is_none() {
-        blank(area, y);
-        let link = conversation::link_preview(app, row, &app.workspace_bindings());
-        line(
-            frame,
-            area,
-            y,
-            neutral(
-                format!(
-                    " link {}",
-                    link.as_ref().map_or("—", |link| link.value.as_str())
-                ),
-                look,
-            ),
-        );
+    let info_y = y;
+    line(frame, area, &mut y, Line::from(info));
+    if y > info_y
+        && app.workspace_selection_visible()
+        && let Some(hit) = driver_hit
+        && let Some(action) = app.bindings().get("z").cloned()
+    {
+        app.workspace_action_hits.borrow_mut().push((
+            hit,
+            target.clone(),
+            crate::board::app::Choice::Action(action),
+        ));
     }
-    blank(area, y);
+    y
 }
 
 /// The four Measure cells of one agent: TOK 1h, STATE, DIGEST and TIMERS.
