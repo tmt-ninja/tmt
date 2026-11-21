@@ -1,12 +1,12 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 47a16e590dd17b2cccbab079da0ac5f31677f35d
+sourceRevision: 8e3b6ab18ab1ff3ad10a01d5402a926cc31e54a1
 title: Driver
 ---
 
 import { Cmd } from "../../components/Cmd";
 import { components as Mdx } from "../../components/mdx";
-import { Soon, Tag } from "../../components/marks";
+import { Tag } from "../../components/marks";
 
 driver 是 tmt 對某種程式的了解。_host_ driver 認得 agent 所在的位置，也知道如何輸入訊息。_runtime_ driver 認得某個 agent 程式：如何啟動、恢復，以及回報它的對話。
 
@@ -34,7 +34,9 @@ $ tmt setup                      # optional: connect every agent found, after yo
 - [Codex](/drivers/codex)：runtime driver，即使多個窗格共用同一個 Codex 伺服器，也能安全運作。
 - agy：Antigravity CLI 的內建 runtime driver，支援精確恢復對話與啟動時的 context。
 
-Pi 也有內建 runtime driver。`tmt run <name> pi` 在每次啟動時提供整合，不會在 Pi 的全域設定檔安裝 lifecycle hook。
+Pi 也有內建 runtime driver。`tmt run <name> pi` 在每次啟動時提供整合，包括將對應 TMT skill 載入對話的 `/tmt` 與 `/tmt-inbox` 指令；不會在 Pi 的全域設定檔安裝 lifecycle hook。
+
+Cursor Agent 已內建透過 `cursor-agent` 進行的基本偵測，可從專用互動程序識別呼叫端。目前尚無 lifecycle hook、用量計數或精確恢復對話功能。程序證據不明確時會拒絕識別；通用的 `agent` 執行檔不會被識別為 Cursor。
 
 <Mdx.h3 id="herdr-ships-with-tmt-approved-on-first-use">Herdr：隨 tmt 提供，首次使用時核准</Mdx.h3>
 
@@ -70,9 +72,5 @@ $ tmt driver install ./tmt-driver-screen  # shows what it will run, then asks
 $ tmt driver ls                          # approved host drivers: ok, changed or missing
 $ tmt driver rm screen
 `}</Cmd>
-
-最先規劃的幾個：
-
-<Soon items={[["Cursor Agent", "runtime"]]} />
 
 要自行開發，請看[建立 driver](/develop/drivers)。

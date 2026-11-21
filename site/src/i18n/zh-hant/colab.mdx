@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/colab.mdx
-sourceRevision: 02526f246774b8c3e9f654b067865a7cc8032221
+sourceRevision: 842568a6a5e4599e19d9fef08845d3e9ad821eda
 title: Colab：全隊共用的一頁
 ---
 
@@ -8,10 +8,8 @@ import { ColabPage } from "../../chapter-scenes/ColabPage";
 import { components as Mdx } from "../../components/mdx";
 import { Callout } from "../../components/marks";
 
-<Callout title="進行中。">
-  Colab
-  還在開發，尚未發布。這頁說明開發所依循的設計（[#828](https://github.com/tmt-ninja/tmt/issues/828)）。
-  超出目前可執行功能的內容，都會明確標示。
+<Callout title="Colab 已可使用；下方是設計示意圖。">
+  現在可透過 CLI 建立、讀取與更新頁面。下方呈現的是設計，不是目前介面的截圖。
 </Callout>
 
 <ColabPage />
@@ -22,14 +20,10 @@ import { Callout } from "../../components/marks";
 
 <Mdx.h3 id="how-a-browser-reaches-an-agent">瀏覽器如何連到 agent</Mdx.h3>
 
-頁面不會在你的機器上開啟連接埠。你在瀏覽器裡寫的訊息，會由機器上的 tmt listener 接收。它向外連線，把訊息轉成本機的 `tmt talk`，再把 agent 的 `tmt reply` 寫回頁面。這和 tmt 其他地方使用的 request、reply 與 receipt 一樣；頁面只是另一個發起請求的入口。
+Colab 作為本機服務執行，透過 Remote 掛載。瀏覽器經由該入口連線；向 agent 傳送訊息需要擁有者授予傳送權限。Remote 將請求交給本機 agent，再傳回與 receipt 綁定的回覆。暫緩的傳送須等待本機核准，狀態不確定的傳送不得自動重複。
 
 <Mdx.h3 id="where-it-runs">在哪裡執行</Mdx.h3>
 
-Colab 的目標是讓你自行架設，一次使用一種 backend，開發順序如下：
+執行 `tmt colab serve`，在背景啟動本機 space。它會連接已執行的 Remote door，或啟動一個。指令會顯示 space 連結；`tmt colab stop` 停止該 space。頁面內容以加密形式儲存在本機。
 
-1. **本機。** 自己機器上的服務，給一個人與其 agent 使用。
-2. **Firestore。** 自己的 Firebase 專案，讓隊友與其他機器加入。
-3. **Cloudflare。** 自己帳號裡的 Workers 與 Durable Objects，隨時可連線。
-
-每種 backend 都是獨立的開發項目，目前都尚未發布。[Remote](/extensions/remote) 的配對、授權與不重送規則也適用於 Colab。
+瀏覽器配對與 Firestore 部署由 [Remote](/extensions/remote) 負責。配對、分享與傳送權限是分別作出的選擇，由機器擁有者決定。

@@ -1,5 +1,5 @@
 import { Cmd } from "../components/Cmd";
-import { Soon, Tag } from "../components/marks";
+import { Tag } from "../components/marks";
 
 A driver is what tmt knows about one kind of program. A _host_ driver knows where agents live and how to type into them. A _runtime_ driver knows one agent program: how it starts, resumes and reports its conversations.
 
@@ -27,7 +27,9 @@ Without setup, every agent still works: tmt talks to it through its pane. `tmt s
 - [Codex](/drivers/codex): a runtime driver, safe even when several panes share one Codex server.
 - agy: the built-in runtime driver for the Antigravity CLI, with exact resume and start-of-session context.
 
-Pi also has a built-in runtime driver. `tmt run <name> pi` supplies its per-launch integration; it does not install lifecycle hooks in a global Pi settings file.
+Pi also has a built-in runtime driver. `tmt run <name> pi` supplies its per-launch integration, including `/tmt` and `/tmt-inbox` commands that load the corresponding TMT skill into the conversation; it does not install lifecycle hooks in a global Pi settings file.
+
+Cursor Agent has basic built-in detection through `cursor-agent` and can identify a caller from a dedicated interactive process. It does not yet have lifecycle hooks, usage counters or exact resume. Ambiguous process evidence is refused; the generic `agent` executable is not recognized as Cursor.
 
 ### Herdr: ships with tmt, approved on first use
 
@@ -61,9 +63,5 @@ $ tmt driver install ./tmt-driver-screen  # shows what it will run, then asks
 $ tmt driver ls                          # approved host drivers: ok, changed or missing
 $ tmt driver rm screen
 `}</Cmd>
-
-The first ones planned:
-
-<Soon items={[["Cursor Agent", "runtime"]]} />
 
 To write one, see [Build a driver](/develop/drivers).

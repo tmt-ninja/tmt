@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/colab.mdx
-sourceRevision: 02526f246774b8c3e9f654b067865a7cc8032221
+sourceRevision: 842568a6a5e4599e19d9fef08845d3e9ad821eda
 title: チームで共有する1つのページ
 ---
 
@@ -8,9 +8,9 @@ import { ColabPage } from "../../chapter-scenes/ColabPage";
 import { Callout } from "../../components/marks";
 import { components as Mdx } from "../../components/mdx";
 
-<Callout title="開発中です。">
-  Colab
-  は開発中で、まだリリースされていません。このページは開発の基になる設計（[#828](https://github.com/tmt-ninja/tmt/issues/828)）を説明します。現在使える機能を超える部分は、その旨を明記します。
+<Callout title="Colab は利用できます。以下は設計の模式図です。">
+  CLI
+  でページの作成、読み取り、更新ができます。以下は設計を示す図で、現在の画面のキャプチャではありません。
 </Callout>
 
 <ColabPage />
@@ -21,14 +21,10 @@ import { components as Mdx } from "../../components/mdx";
 
 <Mdx.h3 id="how-a-browser-reaches-an-agent">ブラウザーから agent へ届ける仕組み</Mdx.h3>
 
-ページがユーザーのマシンでポートを開くことはありません。マシン上の tmt の listener が外向きに接続し、ブラウザーに書かれたメッセージを受け取り、ローカルの `tmt talk` に変換します。そして agent の `tmt reply` をページへ書き戻します。tmt のほかの場所と同じリクエスト、reply、receipt を使います。ページはリクエストを始めるもう1つの入口です。
+Colab は Remote にマウントされるローカルサービスとして動作します。ブラウザーはその入口から接続し、agent にメッセージを送るには所有者の送信許可が必要です。Remote がリクエストをローカルの agent に届け、receipt に紐づいた返信を返します。保留された送信はローカルでの承認を待ち、不確かな送信を自動で繰り返してはいけません。
 
 <Mdx.h3 id="where-it-runs">実行する場所</Mdx.h3>
 
-Colab は自分でホストする想定で、次の順に backend を1つずつ進めます。
+`tmt colab serve` でローカル space をバックグラウンドで起動します。起動済みの Remote door に接続するか、新たに起動します。コマンドは space のリンクを表示し、`tmt colab stop` は space を停止します。ページの内容は暗号化してローカルに保存されます。
 
-1. **ローカル。** 自分のマシン上のサービスで、1人とその agent が使います。
-2. **Firestore。** 自分の Firebase プロジェクトで、チームメイトやほかのマシンも参加できます。
-3. **Cloudflare。** 自分のアカウントの Workers と Durable Objects で、常時アクセスできるようにします。
-
-各 backend は別々の開発項目で、どれもまだリリースされていません。[Remote](/extensions/remote) のペアリング、権限付与、再送禁止のルールが適用されます。
+ブラウザーのペアリングと Firestore へのデプロイは [Remote](/extensions/remote) が担当します。ペアリング、共有、送信許可は別々の選択で、マシンの所有者が行います。
