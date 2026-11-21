@@ -539,6 +539,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
             } = &row.target
             {
                 if let Some(terminal) = app.terminals.row(identity_id, terminal_id) {
+                    if selected {
+                        app.selection_ink_regions.borrow_mut().push(stripe);
+                    }
                     crate::board::tree_row::paint_terminal(
                         frame.buffer_mut(),
                         stripe,
@@ -549,7 +552,6 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                             last: !continues(&rows, index + 1, row.depth),
                             trunk: continues(&rows, index + 1, row.depth.saturating_sub(1)),
                             selected,
-                            live: columns::activity_style(app, "running"),
                         },
                         look,
                     );

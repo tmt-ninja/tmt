@@ -291,6 +291,37 @@ mod board {
                 ("Terminal 2", rows[at].depth + 1)
             ]
         );
+        app.terminals.finished(
+            Completed::Listed(vec![(
+                MEMBER.into(),
+                List::Terminals(vec![terminal(2, 20, true)]),
+            )]),
+            0,
+        );
+        select(&mut app, &member, 2);
+        let mut screen =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        screen
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let buffer = screen.backend().buffer();
+        for (name, state) in [("›_ Terminal 1", "ended"), ("›_ Terminal 2", "running")] {
+            let row = buffer
+                .content
+                .chunks(160)
+                .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
+                .find(|line| line.contains(name))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            assert!(
+                row.split('│').next().unwrap().trim_end().ends_with(state),
+                "{row}"
+            );
+            assert!(
+                !row.contains(&format!("● {state}")) && !row.contains(&format!("○ {state}")),
+                "{row}"
+            );
+        }
+        app.workspace.selected = Some(member);
         press(&mut app, KeyCode::Left);
         assert!(app.terminals.folded(MEMBER));
         assert!(
