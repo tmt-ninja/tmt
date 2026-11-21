@@ -110,7 +110,7 @@ jobs:
         with:
           packages: musl-tools
       - name: Install pinned Rust
-        run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
+        run: sh "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 30 rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -150,7 +150,7 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.tmt-packaging/bin:$PATH"
           started=$SECONDS
-          cargo +1.97.0 fetch --manifest-path rust/Cargo.toml --locked
+          sh "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 30 cargo +1.97.0 fetch --manifest-path rust/Cargo.toml --locked
           TMT_NATIVE_REAL_CARGO=$(command -v cargo)
           export TMT_NATIVE_REAL_CARGO CARGO="$PWD/scripts/native-cargo.sh"
           dist plan --tag "$RELEASE_TAG" --target "$TARGET" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
@@ -229,7 +229,7 @@ jobs:
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
       - name: Install pinned Rust
-        run: rustup toolchain install 1.97.0 --profile minimal
+        run: sh "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 30 rustup toolchain install 1.97.0 --profile minimal
       - name: Inject the reviewed draft version and verify its source/lock contract
         id: version
         uses: ./.github/actions/inject-release-version
@@ -411,7 +411,7 @@ jobs:
             pnpm --filter tmt --fail-if-no-match install --frozen-lockfile --ignore-scripts
           fi
       - name: Install pinned Rust for version-only resolution
-        run: rustup toolchain install 1.97.0 --profile minimal
+        run: sh "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 30 rustup toolchain install 1.97.0 --profile minimal
       - name: Inject the reviewed draft version and verify its source/lock contract
         id: version
         uses: ./.github/actions/inject-release-version
@@ -598,7 +598,7 @@ jobs:
         working-directory: typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install the pinned metadata toolchain
-        run: rustup toolchain install 1.97.0 --profile minimal
+        run: sh "$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 30 rustup toolchain install 1.97.0 --profile minimal
       - name: Restore dependency cache for locked source acquisition
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
