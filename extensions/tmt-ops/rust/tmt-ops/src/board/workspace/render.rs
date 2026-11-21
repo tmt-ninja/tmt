@@ -24,7 +24,7 @@ pub(in crate::board) fn safe(text: &str) -> String {
 }
 /// Whether a row at `depth` follows from `from` before the tree climbs above `depth`: the
 /// branch at that depth goes on (`├` and `│`) rather than ending (`└`).
-fn continues(rows: &[super::OpsTreeRow], from: usize, depth: u8) -> bool {
+fn continues(rows: &[super::OpsTreeRow], from: usize, depth: usize) -> bool {
     rows.get(from..)
         .unwrap_or_default()
         .iter()
@@ -959,7 +959,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                     expanded,
                     last: !continues(&rows, index + 1, row.depth),
                     folds: matches!(&row.target, OpsTarget::Member { identity_id, .. }
-                        if !app.terminals.rows(identity_id).is_empty()),
+                        if expanded || !app.terminals.rows(identity_id).is_empty()
+                            || app.workspace.member_folded(&row.target)
+                                && app.workspace.member_has_children(&row.target, &snapshot.roster)),
                     state,
                     state_primary_width,
                     state_attention,

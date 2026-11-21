@@ -196,8 +196,10 @@ pub(in crate::board) fn paint_terminal(
             AgentsField::Agent => {
                 // The member's own indent, then its line and this terminal's branch.
                 let indent = "  ".repeat(
-                    usize::from(row.source.depth.saturating_sub(2))
-                        .min(usize::from(cell.width) / 2),
+                    row.source
+                        .depth
+                        .saturating_sub(2)
+                        .min(usize::from(cell.width.saturating_sub(11)) / 2),
                 );
                 let branch = format!(
                     "{indent}{}{}",
@@ -250,10 +252,6 @@ pub(in crate::board) fn paint(
         let mut line = match field {
             AgentsField::Agent => {
                 let member = matches!(row.source.target, OpsTarget::Member { .. });
-                // Rows inside the Hidden group sit one level further in.
-                let indent = "  ".repeat(usize::from(
-                    row.source.depth.saturating_sub(u8::from(member)),
-                ));
                 let branch = if member {
                     match (row.last, row.folds, row.expanded) {
                         (true, false, _) => "  └ ",
@@ -268,7 +266,12 @@ pub(in crate::board) fn paint(
                 } else {
                     "▸ "
                 };
-                let branch = format!("{indent}{branch}");
+                let indent = row
+                    .source
+                    .depth
+                    .saturating_sub(usize::from(member))
+                    .min(usize::from(cell.width).saturating_sub(branch.width() + 3) / 2);
+                let branch = format!("{}{branch}", "  ".repeat(indent));
                 let offset = 1 + branch.width();
                 let show_label =
                     member && row.label.is_some() && offset + 4 <= usize::from(cell.width);

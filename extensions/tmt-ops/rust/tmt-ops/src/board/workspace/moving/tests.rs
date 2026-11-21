@@ -56,6 +56,10 @@ fn press(app: &mut App, code: KeyCode) -> Effect {
     app.key(KeyEvent::new(code, KeyModifiers::NONE))
 }
 
+fn lift_membership(app: &mut App) -> Effect {
+    app.perform(&crate::action::Action::parse("move-membership").unwrap())
+}
+
 fn room(id: &str, name: &str, revision: u64) -> RoomTarget {
     RoomTarget {
         id: id.into(),
@@ -84,9 +88,9 @@ fn lines(app: &App, width: u16) -> Vec<String> {
 }
 
 #[test]
-fn m_then_up_moves_a_squad_membership_to_the_squad_above() {
+fn move_to_squad_then_up_moves_a_squad_membership_to_the_squad_above() {
     let mut app = app();
-    assert_eq!(press(&mut app, KeyCode::Char('m')), Effect::None);
+    assert_eq!(lift_membership(&mut app), Effect::None);
     assert_eq!(app.moving.as_ref().unwrap().target.as_deref(), Some(ROOM));
     press(&mut app, KeyCode::Up);
     assert_eq!(
@@ -104,7 +108,7 @@ fn m_then_up_moves_a_squad_membership_to_the_squad_above() {
 #[test]
 fn common_pool_is_the_last_target_and_moving_there_leaves_the_squad() {
     let mut app = app();
-    press(&mut app, KeyCode::Char('m'));
+    lift_membership(&mut app);
     press(&mut app, KeyCode::Down);
     assert_eq!(
         app.moving.as_ref().unwrap().target,
@@ -127,7 +131,7 @@ fn a_pool_agent_joins_the_squad_it_is_moved_to() {
         room_id: None,
         identity_id: SPARE.into(),
     });
-    press(&mut app, KeyCode::Char('m'));
+    lift_membership(&mut app);
     assert_eq!(app.moving.as_ref().unwrap().target, None);
     press(&mut app, KeyCode::Up);
     assert_eq!(
@@ -144,7 +148,7 @@ fn a_pool_agent_joins_the_squad_it_is_moved_to() {
 #[test]
 fn esc_puts_it_back_other_keys_are_ignored_and_the_same_squad_is_a_no_op() {
     let mut app = app();
-    press(&mut app, KeyCode::Char('m'));
+    lift_membership(&mut app);
     for code in [
         KeyCode::Char('n'),
         KeyCode::Char('x'),
@@ -157,7 +161,7 @@ fn esc_puts_it_back_other_keys_are_ignored_and_the_same_squad_is_a_no_op() {
     assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
     assert!(app.moving.is_none());
     assert_eq!(app.workspace.selected, Some(worker()));
-    press(&mut app, KeyCode::Char('m'));
+    lift_membership(&mut app);
     assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
     assert!(app.moving.is_none());
     assert_eq!(app.notice.as_deref(), Some("worker stays in product."));
@@ -173,7 +177,7 @@ fn the_result_is_one_status_line_and_a_refused_move_changes_nothing() {
             .collect()
     };
     let before = rows(&app);
-    press(&mut app, KeyCode::Char('m'));
+    lift_membership(&mut app);
     press(&mut app, KeyCode::Up);
     press(&mut app, KeyCode::Enter);
     app.finished_workspace(Err(crate::core::SquadError::new(
@@ -183,7 +187,7 @@ fn the_result_is_one_status_line_and_a_refused_move_changes_nothing() {
     assert_eq!(app.notice.as_deref(), Some("Not applied: The room changed"));
     assert!(app.moving.is_none());
     assert_eq!(rows(&app), before);
-    press(&mut app, KeyCode::Char('m'));
+    lift_membership(&mut app);
     press(&mut app, KeyCode::Up);
     press(&mut app, KeyCode::Enter);
     app.finished_workspace(Ok(crate::membership::Outcome {
@@ -197,7 +201,7 @@ fn the_result_is_one_status_line_and_a_refused_move_changes_nothing() {
 fn the_list_paints_the_lifted_line_and_its_old_place_at_every_width() {
     for width in [160, 100, 80] {
         let mut app = app();
-        press(&mut app, KeyCode::Char('m'));
+        lift_membership(&mut app);
         let shown = lines(&app, width).join("\n");
         assert!(shown.contains("⇅ worker  → product"), "{width}: {shown}");
         assert!(!shown.contains("· moving"), "{width}: {shown}");
@@ -236,4 +240,167 @@ fn the_list_paints_the_lifted_line_and_its_old_place_at_every_width() {
             shown.last()
         );
     }
+}
+
+pub(in crate::board) fn nesting_board() -> App {
+    let mut app = app();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.observation = OpsObservation::Complete;
+    snapshot.roster.membership_complete = true;
+    for squad in &mut snapshot.roster.squads {
+        squad.observation = OpsObservation::Complete;
+        squad.members.push(SPARE.into());
+    }
+    snapshot
+        .roster
+        .squads
+        .iter_mut()
+        .find(|squad| squad.room_id == INFRA)
+        .unwrap()
+        .members
+        .push(MEMBER.into());
+    app.workspace.expanded.insert(INFRA.into());
+    app
+}
+
+fn finish_save(app: &mut App, effect: Effect, root: &std::path::Path) {
+    let Effect::Act(Request::MemberPlacement(save)) = effect else {
+        panic!("expected a display-placement save, got {effect:?}");
+    };
+    let written = save.write(root).unwrap();
+    save.finish(app, Ok(written));
+}
+
+#[test]
+fn drop_nests_under_the_previous_member_and_outdent_returns_to_root() {
+    let mut app = nesting_board();
+    let temporary =
+        std::env::temp_dir().join(format!("ops-placement-{}", crate::id::new_v4().unwrap()));
+    let depth = |app: &App, target: &OpsTarget| {
+        app.workspace_rows()
+            .iter()
+            .find(|row| &row.target == target)
+            .unwrap()
+            .depth
+    };
+    let root = depth(&app, &worker());
+    let other = OpsTarget::Member {
+        room_id: Some(INFRA.into()),
+        identity_id: MEMBER.into(),
+    };
+    press(&mut app, KeyCode::Char('m'));
+    press(&mut app, KeyCode::Right);
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(
+        depth(&app, &worker()),
+        root,
+        "cancel leaves the original layout"
+    );
+    press(&mut app, KeyCode::Char('m'));
+    press(&mut app, KeyCode::Right);
+    let drop = press(&mut app, KeyCode::Enter);
+    finish_save(&mut app, drop, &temporary);
+    assert_eq!(depth(&app, &worker()), root + 1);
+    assert_eq!(
+        depth(&app, &other),
+        root,
+        "the other squad's appearance did not move"
+    );
+
+    let mut reopened = nesting_board();
+    reopened.workspace.placements = super::super::placement::Placements::load(&temporary).unwrap();
+    assert_eq!(depth(&reopened, &worker()), root + 1);
+    let parent = OpsTarget::Member {
+        room_id: Some(ROOM.into()),
+        identity_id: SPARE.into(),
+    };
+    reopened.workspace.selected = Some(parent.clone());
+    press(&mut reopened, KeyCode::Left);
+    assert!(
+        !reopened
+            .workspace_rows()
+            .iter()
+            .any(|row| row.target == worker())
+    );
+    reopened.search = "worker".into();
+    reopened.workspace_reconcile();
+    assert_eq!(depth(&reopened, &worker()), root + 1);
+    assert_eq!(depth(&reopened, &parent), root);
+    assert!(reopened.workspace.member_folded(&parent));
+    reopened.workspace.selected = Some(worker());
+    reopened.search.clear();
+    reopened.workspace_reconcile();
+    assert!(
+        !reopened.workspace.member_folded(&parent),
+        "selected result stays visible"
+    );
+
+    // The only other root is currently a descendant. It cannot become its
+    // ancestor's parent, even when that subtree is moved.
+    reopened.workspace.selected = Some(parent);
+    press(&mut reopened, KeyCode::Char('m'));
+    press(&mut reopened, KeyCode::Right);
+    assert_eq!(press(&mut reopened, KeyCode::Enter), Effect::None);
+
+    app.workspace.selected = Some(worker());
+    press(&mut app, KeyCode::Char('m'));
+    press(&mut app, KeyCode::Left);
+    let drop = press(&mut app, KeyCode::Enter);
+    finish_save(&mut app, drop, &temporary);
+    assert_eq!(depth(&app, &worker()), root);
+
+    press(&mut app, KeyCode::Char('m'));
+    press(&mut app, KeyCode::Right);
+    let drop = press(&mut app, KeyCode::Enter);
+    finish_save(&mut app, drop, &temporary);
+    let make_observed = |app: &mut App, observation| {
+        let squad = app
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .squads
+            .iter_mut()
+            .find(|squad| squad.room_id == ROOM)
+            .unwrap();
+        squad.members.retain(|id| id != SPARE);
+        squad.observation = observation;
+    };
+    make_observed(&mut app, OpsObservation::Partial);
+    assert_eq!(app.prune_member_placement(), Effect::None);
+    make_observed(&mut app, OpsObservation::Complete);
+    let cleanup = app.prune_member_placement();
+    finish_save(&mut app, cleanup, &temporary);
+    assert_eq!(depth(&app, &worker()), root);
+    assert_eq!(depth(&app, &other), root);
+    std::fs::remove_dir_all(temporary).unwrap();
+}
+
+pub(in crate::board) fn nesting_scene(scene: &str, look: crate::look::Look) -> App {
+    let mut app = nesting_board();
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
+    press(&mut app, KeyCode::Char('m'));
+    press(&mut app, KeyCode::Right);
+    if scene != "agents-nesting-lifted" {
+        let Effect::Act(Request::MemberPlacement(save)) = press(&mut app, KeyCode::Enter) else {
+            panic!("the fixture nests worker under spare");
+        };
+        let next = save.next.clone();
+        save.finish(&mut app, Ok(next));
+        crate::board::member_terminals::scenes::listed_rows(&mut app);
+        if scene == "agents-nesting-folded" {
+            app.workspace.selected = Some(OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: SPARE.into(),
+            });
+            press(&mut app, KeyCode::Left);
+        }
+    }
+    app
 }

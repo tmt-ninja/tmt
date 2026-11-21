@@ -7,7 +7,7 @@
 use crate::{board::workspace::OpsTarget, core::Core};
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, VecDeque},
     path::PathBuf,
     time::Duration,
 };
@@ -130,7 +130,6 @@ struct Member {
 pub(in crate::board) struct Terminals {
     members: BTreeMap<String, Member>,
     /// Members whose terminal rows are folded away.
-    folded: BTreeSet<String>,
     /// Terminal actions the person confirmed, in order.
     queued: VecDeque<Task>,
     /// A task is on the lane; the next waits for its result.
@@ -153,7 +152,6 @@ impl Default for Terminals {
     fn default() -> Self {
         Self {
             members: BTreeMap::new(),
-            folded: BTreeSet::new(),
             queued: VecDeque::new(),
             out: false,
             swept: false,
@@ -211,23 +209,6 @@ impl Terminals {
 
     pub(in crate::board) fn set_typing(&mut self, terminal: Option<&str>) {
         self.typing = terminal.map(str::to_owned);
-    }
-
-    pub(in crate::board) fn folded(&self, identity: &str) -> bool {
-        self.folded.contains(identity)
-    }
-
-    /// Folds or unfolds `identity`'s terminals; false when it has none.
-    pub(in crate::board) fn toggle_fold(&mut self, identity: &str, unfold: bool) -> bool {
-        if self.rows(identity).is_empty() || self.folded(identity) != unfold {
-            return false;
-        }
-        if unfold {
-            self.folded.remove(identity);
-        } else {
-            self.folded.insert(identity.to_owned());
-        }
-        true
     }
 
     pub(in crate::board) fn run(&mut self, identity: &str, terminal: Option<&str>, command: &str) {
@@ -308,7 +289,6 @@ impl Terminals {
             } => {
                 let terminal = opened.id.clone();
                 self.add(&identity, opened);
-                self.folded.remove(&identity);
                 Applied {
                     select: Some((identity, terminal)),
                     notice: None,
@@ -332,7 +312,6 @@ impl Terminals {
             } => {
                 if let Some(opened) = opened {
                     self.add(&identity, opened);
-                    self.folded.remove(&identity);
                 }
                 self.expire(&identity);
                 Applied {

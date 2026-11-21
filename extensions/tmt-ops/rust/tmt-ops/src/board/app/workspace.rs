@@ -468,12 +468,14 @@ impl App {
         }
         self.workspace_snapshot()
             .map(|snapshot| {
-                let mut rows = self.workspace.rows(&snapshot.roster, &snapshot.preferences);
+                let draft = self.moving.as_ref().and_then(|moving| moving.order());
+                let mut rows = self.workspace.rows_with_draft(&snapshot.roster, &snapshot.preferences, draft);
                 let unread = self.unread_identities();
                 if !unread.is_empty() {
                     for siblings in rows.chunk_by_mut(|a, b| {
                         matches!((&a.target, &b.target),
-                            (OpsTarget::Member { room_id: a, .. }, OpsTarget::Member { room_id: b, .. }) if a == b)
+                            (OpsTarget::Member { room_id: a, .. }, OpsTarget::Member { room_id: b, .. }) if a == b && self.workspace.placements.group(a.as_deref()).is_none()
+                                && draft.is_none_or(|(room, _)| room != a.as_deref()))
                     }) {
                         siblings.sort_by_key(|row| std::cmp::Reverse(matches!(&row.target,
                             OpsTarget::Member { identity_id, .. } if unread.contains(identity_id.as_str()))));
@@ -948,6 +950,9 @@ impl App {
                 // Search temporarily reveals collapsed matches. Clearing keeps
                 // this exact occurrence visible in the full list as well.
                 if self.shell.tab == OpsTab::Agents {
+                    if let Some(target) = self.workspace.selected.clone() {
+                        self.workspace.reveal_member_ancestors(&target);
+                    }
                     match self.workspace.selected.as_ref() {
                         Some(OpsTarget::Member {
                             room_id: Some(room),
@@ -1030,6 +1035,7 @@ impl App {
         self.conversation_return.get_or_insert(self.shell.tab);
         self.shell.tab = OpsTab::Agents;
         self.right_tab = super::super::shell::RightTab::Talk;
+        self.workspace.reveal_member_ancestors(target);
         if let OpsTarget::Member {
             room_id: Some(room),
             ..
@@ -1318,8 +1324,15 @@ impl App {
                 if let OpsTarget::Member { identity_id, .. } = &target {
                     if action == Inspect {
                         self.show_conversation_of(&target);
-                    } else if self.terminals.toggle_fold(identity_id, action == Expand) {
+                    } else if !self.terminals.rows(identity_id).is_empty()
+                        || self.workspace_snapshot().is_some_and(|snapshot| {
+                            self.workspace
+                                .member_has_children(&target, &snapshot.roster)
+                        })
+                    {
+                        self.workspace.set_member_folded(&target, action == Fold);
                         self.invalidate_frame_geometry();
+                        self.workspace_reconcile();
                     }
                 } else if let OpsTarget::Terminal {
                     room_id,
@@ -1327,13 +1340,16 @@ impl App {
                     ..
                 } = &target
                 {
-                    // Folding from a terminal folds its member's terminals and selects the member.
-                    if action == Fold && self.terminals.toggle_fold(identity_id, false) {
-                        self.workspace.selected = Some(OpsTarget::Member {
+                    // A terminal leaf folds its owner branch and selects the owner.
+                    if action == Fold {
+                        let parent = OpsTarget::Member {
                             room_id: room_id.clone(),
                             identity_id: identity_id.clone(),
-                        });
+                        };
+                        self.workspace.set_member_folded(&parent, true);
+                        self.workspace.selected = Some(parent);
                         self.invalidate_frame_geometry();
+                        self.workspace_reconcile();
                     }
                 } else {
                     let expanded = match &target {
@@ -1380,7 +1396,7 @@ impl App {
             }
             RenameMember => return self.workspace_begin(Kind::RenameMember),
             RemoveMember => return self.workspace_begin(Kind::RemoveMember),
-            Manage | CreateSquad | RemoveMembership | MoveMembership => {
+            Manage | CreateSquad | RemoveMembership | MoveMembership | OrderMember => {
                 return self.workspace_management(action);
             }
             ResizePane | Agents | Work | DigestDashboard | Orchestration | QuotaDetails
@@ -1492,10 +1508,11 @@ impl App {
         match action {
             OpsUiAction::CreateSquad => self.workspace_begin(Kind::Create),
             OpsUiAction::RemoveMembership => self.workspace_begin(Kind::Remove),
-            OpsUiAction::MoveMembership => self.begin_move(),
+            OpsUiAction::MoveMembership => self.begin_move(false),
+            OpsUiAction::OrderMember => self.begin_move(true),
             OpsUiAction::Manage => {
                 if self.workspace_selected_member().is_some() {
-                    return self.begin_move();
+                    return self.begin_move(false);
                 }
                 if !self.workspace_selection_visible() {
                     return self.say("Select a visible squad explicitly.");

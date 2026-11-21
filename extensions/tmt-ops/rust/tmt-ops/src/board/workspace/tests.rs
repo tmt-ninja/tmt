@@ -336,7 +336,7 @@ fn search_counts_match_expanded_rows_across_visibility_pins_and_partial_rosters(
                         };
                         let identities = |query| {
                             workspace
-                                .project_rows(&roster, &preferences, query, true)
+                                .project_rows(&roster, &preferences, query, true, None)
                                 .into_iter()
                                 .filter_map(|row| match row.target {
                                     OpsTarget::Member { identity_id, .. } => Some(identity_id),

@@ -466,6 +466,12 @@ pub(super) enum ActionOutcome {
     CloseMember(Box<workspace::close_member::Completed>),
     Message(String),
     WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
+    MemberPlacement(
+        Box<(
+            workspace::placement::Save,
+            Result<workspace::placement::Placements, String>,
+        )>,
+    ),
     LabelEdit(Box<Result<crate::config::OpsPreferences, String>>),
     Send(Box<conversation::outgoing::Completed>),
     SendNow(Box<conversation::SendNowDone>),
@@ -691,6 +697,12 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             return Ok(ActionOutcome::SendNow(Box::new(
                 conversation::SendNowDone { request, outcome },
             )));
+        }
+        Request::MemberPlacement(save) => {
+            let result = crate::migration::state_root(core)
+                .map_err(|error| error.message)
+                .and_then(|root| save.write(&root));
+            return Ok(ActionOutcome::MemberPlacement(Box::new((*save, result))));
         }
         Request::WorkspacePreferences {
             expected,
@@ -1199,7 +1211,7 @@ fn session(
                             }
                             app.apply(*snapshot);
                             dirty = true;
-                            Effect::None
+                            app.prune_member_placement()
                         } else {
                             Effect::None
                         }
@@ -1507,6 +1519,10 @@ fn session(
                             }
                             Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
                             Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
+                            Ok(ActionOutcome::MemberPlacement(completed)) => {
+                                let (save, result) = *completed;
+                                save.finish(app, result);
+                            }
                             Ok(ActionOutcome::WorkspacePreferences(completed)) => {
                                 let (preferences, message) = *completed;
                                 app.finished_workspace_preferences(preferences, message);
@@ -2104,6 +2120,16 @@ pub fn run(
     let keyboard_enhanced = guard.enable_keyboard_enhancement().map_err(failed)?;
     links.enable(hyperlinks::detect());
     let mut app = App::new(squad);
+    let placement = crate::migration::state_root(&core)
+        .map_err(|error| error.message)
+        .and_then(|root| workspace::placement::Placements::load(&root));
+    let placement_notice = match placement {
+        Ok(placements) => {
+            app.workspace.placements = placements;
+            None
+        }
+        Err(error) => Some(format!("Member placement unavailable: {error}")),
+    };
     // Dropped files' first bytes are read away from the paste and draw paths.
     app.composer.probe = Some(composer::files::Probe::spawn({
         let events = events.clone();
@@ -2142,6 +2168,7 @@ pub fn run(
             .filter(|_| app.migration_notice.is_none())
             .or_else(|| config.obsolete_board_notice().map(str::to_owned))
             .or(startup_notice)
+            .or(placement_notice)
             .or_else(|| crate::hotkeys::offer_once(&config, invoker_tmux).map(str::to_owned)),
         false,
     );

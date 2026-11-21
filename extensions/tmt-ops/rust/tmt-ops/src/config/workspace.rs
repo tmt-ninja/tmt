@@ -504,7 +504,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("o", "open"),
             ("x", "remove-member"),
             ("C", "member-checklist"),
-            ("m", "move-membership"),
+            ("m", "order-member"),
             ("D", "digest"),
             ("t", "terminal-new"),
         ]),

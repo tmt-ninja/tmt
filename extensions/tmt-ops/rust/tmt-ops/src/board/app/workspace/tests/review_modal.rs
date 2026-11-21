@@ -610,7 +610,7 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
                 room_id: Some(ROOM.into()),
                 identity_id: MEMBER.into(),
             });
-            key(&mut app, KeyCode::Char('m'));
+            app.perform(&crate::action::Action::parse("move-membership").unwrap());
             if scene == "crud-moving-pool" {
                 key(&mut app, KeyCode::Down);
             }
