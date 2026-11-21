@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/dev-driver.mdx
-sourceRevision: 2f1c334ff6656d2ad4875d88c83a6720ca36f2d4
+sourceRevision: bc8b33e541380c68048a99bbcc02d35ae2775d08
 title: driver を作る
 ---
 
@@ -21,7 +21,9 @@ driver は、端末の host や agent プログラムの扱い方を tmt に教�
   <dt>runtime driver</dt>
   <dd>
     agent を認識し、hook を読み、起動や再開を組み立てます。Claude Code、Codex、agy、Pi
-    には組み込みの runtime driver があります。
+    には組み込みの runtime driver があります。 Cursor Agent
+    は基本的な検出と呼び出し元の識別に対応しますが、lifecycle hook
+    や正確な会話の再開には対応していません。
   </dd>
 </Terms>
 

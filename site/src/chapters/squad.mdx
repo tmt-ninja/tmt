@@ -24,7 +24,7 @@ Ops uses your configured user identity for the board. `tmt ops squad me` shows i
 
 ### The workspace
 
-**Agents** shows a full-width Usage band above a squad/member tree and the selected conversation. Select a squad to inspect its members, or a member for **Talk**, **Measure** and **Checklist**. The Common pool contains identities with no Ops squad membership; a pool member has no squad conversation checklist. **Digest** opens a separate view of batching and usage. **Orchestration** shows Core's plans and effective policies; see [Orchestration](/working/orchestration).
+**Agents** shows a full-width Usage band above a squad/member tree and the selected conversation. Select a squad to inspect its members, or a member for **Talk**, **Measure** and **Checklist**. The Common pool contains identities with no Ops squad membership; a pool member has no squad conversation checklist. **Work** shows Colab's work list. **Digest** opens a separate view of batching and usage. **Orchestration** shows Core's plans and effective policies; see [Orchestration](/working/orchestration).
 
 <Code>{`
 OPS / UI · Agents
@@ -42,18 +42,22 @@ Common pool            │ Message to builder
 
 The board refreshes information in the background. Missing readings mean unknown, not idle or zero. The attention summary stays visible across views.
 
-| Default key     | In the workspace                                                          |
-| --------------- | ------------------------------------------------------------------------- |
-| `1` / `2` / `3` | Agents / Digest / Orchestration, while an editor is not consuming the key |
-| `T` / `M` / `C` | Talk / Measure / the selected member's Checklist                          |
-| Enter           | Focus the selected conversation's composer                                |
-| Tab / Shift+Tab | Move pane focus; an active editor or dialog handles its own keys first    |
-| `e`             | Edit the selected member or squad                                         |
-| `l`             | Choose a private board label for a member                                 |
-| `,` / `?`       | Settings / effective help                                                 |
-| Ctrl+R          | Refresh                                                                   |
+| Default key           | In the workspace                                                                 |
+| --------------------- | -------------------------------------------------------------------------------- |
+| `1` / `2` / `3` / `4` | Agents / Work / Digest / Orchestration, while an editor is not consuming the key |
+| `T` / `M` / `C`       | Talk / Measure / the selected member's Checklist                                 |
+| Enter                 | Focus the selected conversation's composer                                       |
+| Tab / Shift+Tab       | Move pane focus; an active editor or dialog handles its own keys first           |
+| `r`                   | Rename the selected member or squad                                              |
+| `l`                   | Choose a private board label for a member                                        |
+| `,` / `?`             | Settings / effective help                                                        |
+| Ctrl+R                | Refresh                                                                          |
 
 Read the footer and `?` for the keys available on the selected target. Your configured bindings take precedence. Click a pane to focus it; the focused control is marked with `▸`.
+
+### Colab work on the board
+
+In **Work**, press `p` to select a project, `d` to choose the Done period and `c` to show recent completions. Enter opens the selected page when its link is available. In a selected project, `m` lets you move eligible numbered work after confirmation. If the order changed elsewhere, the board shows the current order without retrying your move. Work requires Colab 0.1.0-alpha.478 or later; ordering requires alpha.481 or later.
 
 ### Talk without losing your place
 
@@ -61,11 +65,15 @@ Enter sends from the composer. Alt+Enter or Ctrl+J inserts a newline; Shift+Ente
 
 Reading older output pauses follow. **Jump to latest** or End returns to the newest messages. Replies and pane output are labeled separately. If delivery is uncertain, inspect the request before sending again.
 
+When a member has a waiting provider form, **◆ form** marks it. Press `f` or choose **Answer form** to answer a complete form that Core supports. Only people answer these forms. Truncated, stale or terminal-only forms stay read-only; use the member's terminal for terminal-only answers. Check an unconfirmed send there before doing anything else; Ops never resends it.
+
 ### Checklists belong to a room
 
 Each room has a checklist, and each member can have a separate conversation checklist within it. Lists stay with the room and member when you rename them.
 
 Select a member and press **C** for Checklist. In a chat editor, **Ctrl+L** opens that list while keeping your draft and caret; Esc returns to the editor. Links and todos appear with their authors and ages. Archived items are hidden.
+
+Type `#` in Talk to choose an item from that member's Checklist; Enter or Tab inserts its reference. From Checklist, `r` quotes the selected item into Talk. A resolved reference in the conversation offers **Open in checklist**.
 
 <Code>{`
 Checklist · builder
@@ -102,9 +110,11 @@ For more checklist actions, run `tmt ops squad checklist --help`.
 
 ### Read usage as observations
 
-Choose **Token window** in Settings to see completed-request totals. Input plus output counts cached input once. Check the coverage marks: missing readings are not zero, and token totals are not prices.
+The Agents tree has one **TOK** column. Its **Range** cycles through 5m, 10m, 1h, 3h, 6h, 1d and 7d; **TOK range** in Settings selects the same interval. A recent observed increase makes the figure bold. Input plus output counts cached input once. Missing readings are not zero, and token totals are not prices. Click the **TOK** heading or a figure to switch between tokens and an uncached-input list-price estimate, not a bill.
 
 Digest's **Est. ctx avoided** is an estimate of context input avoided by batching, not measured billed tokens, turns or money saved. Its range is separate from the Agents token window. Read coverage alongside any total.
+
+The Digest **Saved** detail also shows settled message and batch counts for its selected range. Partial or stale coverage is marked alongside those counts.
 
 ### Make it yours
 
