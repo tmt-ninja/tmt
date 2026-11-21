@@ -13,6 +13,7 @@ import {
   type ShellModule,
 } from '../src/shell.js';
 import { moduleIcon } from '../src/shell-icons.js';
+import { rememberedMenu } from '../src/shell-host.js';
 
 const origin = 'http://127.0.0.1:50711';
 const colab: ShellModule = {
@@ -280,4 +281,38 @@ it('selects one visible row: a current child while its parent is open, else the 
   expect(visibleCurrent(menu)?.id).toBe('member');
   expect(visibleCurrent(tree('none', true))).toBeUndefined();
   expect(visibleCurrent(undefined)).toBeUndefined();
+});
+
+it('draws a remembered menu shape only when every part of it is well formed (#6750)', () => {
+  const shape = {
+    groups: [
+      { label: false, action: false, add: false, alert: false, icon: null, rows: ['list', null] },
+      { label: true, action: true, add: false, alert: false, icon: 'bookmark', rows: [] },
+    ],
+    settings: 'settings',
+  };
+  const menu = rememberedMenu({ colab: shape }, 'colab')!;
+  expect(menu.placeholder).toBe(true);
+  expect(menu.groups.map((group) => group.items.map((item) => item.icon ?? null))).toEqual([
+    ['list', null],
+    [],
+  ]);
+  expect(menu.groups[1]!.fallbackIcon).toBe('bookmark');
+  expect(menu.settings?.icon).toBe('settings');
+  expect(JSON.stringify(menu)).not.toMatch(/[A-Za-z]{4,}\s[A-Za-z]/);
+  for (const stored of [
+    null,
+    [],
+    'colab',
+    { colab: null },
+    { colab: { groups: [null], settings: false } },
+    { colab: { groups: ['x'], settings: false } },
+    { colab: { groups: [{ ...shape.groups[0], rows: 'list' }], settings: false } },
+    { colab: { groups: [{ ...shape.groups[0], rows: ['not-an-icon'] }], settings: false } },
+    { colab: { groups: [{ ...shape.groups[0], label: 'Shortcuts' }], settings: false } },
+    { colab: { groups: [], settings: 'Colab settings' } },
+    { colab: { groups: Array.from({ length: 17 }, () => shape.groups[1]), settings: false } },
+    { other: shape },
+  ])
+    expect(rememberedMenu(stored, 'colab')).toBeUndefined();
 });

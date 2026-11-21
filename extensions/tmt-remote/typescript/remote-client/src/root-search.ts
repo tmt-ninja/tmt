@@ -164,7 +164,9 @@ export class RootSearch {
     const lifetime = this.lifetime;
     const current = () => !this.closed && lifetime === this.lifetime && mine === this.request;
     if (!this.entry) {
-      this.options.failed('Search is not available until this door describes Colab.');
+      this.options.failed(
+        'Search works once this browser is paired and Colab is running on your machine.',
+      );
       return;
     }
     try {

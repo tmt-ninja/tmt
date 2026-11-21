@@ -51,6 +51,31 @@ export function createShellTopBar(
     active?.dispose();
     active = undefined;
   };
+  const shortcutKeys = () => /Mac|iPhone|iPad|iPod/.test(view.navigator.platform);
+  // The rail's Search row is drawn whenever the root's controls are installed, whatever module
+  // shows and whether or not it has adopted the bar, so it never arrives after first paint (#6750);
+  // the app installs them in the same task as its first route. A host without controls draws no
+  // row, never a dead one. A mounted bar routes it through its own opener, else the root's.
+  let openFromRail: (opener: HTMLButtonElement) => void = (opener) =>
+    void options?.openSearch(opener);
+  const sidebarSearch = railSearch && document.createElement('button');
+  if (railSearch && sidebarSearch) {
+    const command = shortcutKeys();
+    sidebarSearch.type = 'button';
+    sidebarSearch.className = 'tmt-ui-rail-search';
+    sidebarSearch.setAttribute('aria-label', 'Search TMT');
+    sidebarSearch.setAttribute('aria-haspopup', 'dialog');
+    sidebarSearch.setAttribute('aria-keyshortcuts', command ? 'Meta+K' : 'Control+K');
+    const sidebarLabel = document.createElement('span');
+    sidebarLabel.className = 'tmt-ui-rail-label';
+    sidebarLabel.textContent = 'Search';
+    const sidebarHint = document.createElement('kbd');
+    sidebarHint.textContent = command ? '⌘K' : 'Ctrl K';
+    sidebarSearch.append(createIcon('search', document), sidebarLabel, sidebarHint);
+    sidebarSearch.onclick = (event) => {
+      if (event.isTrusted) openFromRail(sidebarSearch);
+    };
+  }
   function mount() {
     const header = document.createElement('header');
     header.className = 'tmt-ui-topbar';
@@ -77,7 +102,7 @@ export function createShellTopBar(
     search.dataset.variant = 'text';
     search.setAttribute('aria-label', 'Search TMT');
     search.setAttribute('aria-haspopup', 'dialog');
-    const command = /Mac|iPhone|iPad|iPod/.test(view.navigator.platform);
+    const command = shortcutKeys();
     search.setAttribute('aria-keyshortcuts', command ? 'Meta+K' : 'Control+K');
     const searchMark = document.createElement('span');
     searchMark.className = c.iconActionIcon;
@@ -86,19 +111,6 @@ export function createShellTopBar(
     hint.textContent = command ? '⌘K' : 'Ctrl K';
     searchMark.append(createIcon('search', document), hint);
     search.append(searchMark);
-    const sidebarSearch = document.createElement('button');
-    sidebarSearch.type = 'button';
-    sidebarSearch.className = 'tmt-ui-rail-search';
-    sidebarSearch.setAttribute('aria-label', 'Search TMT');
-    sidebarSearch.setAttribute('aria-haspopup', 'dialog');
-    sidebarSearch.setAttribute('aria-keyshortcuts', command ? 'Meta+K' : 'Control+K');
-    const sidebarLabel = document.createElement('span');
-    sidebarLabel.className = 'tmt-ui-rail-label';
-    sidebarLabel.textContent = 'Search';
-    const sidebarHint = document.createElement('kbd');
-    sidebarHint.textContent = hint.textContent;
-    sidebarSearch.append(createIcon('search', document), sidebarLabel, sidebarHint);
-    railSearch?.replaceChildren(sidebarSearch);
     const remote = document.createElement('button');
     remote.type = 'button';
     remote.setAttribute('aria-haspopup', 'dialog');
@@ -252,7 +264,7 @@ export function createShellTopBar(
     // The root owns the dialog; the leaf mirrors its open state while the root's promise is pending.
     let searchRound = 0;
     const searchExpanded = (open: boolean | undefined) => {
-      for (const button of [search, sidebarSearch])
+      for (const button of sidebarSearch ? [search, sidebarSearch] : [search])
         if (open === undefined) button.removeAttribute('aria-expanded');
         else button.setAttribute('aria-expanded', String(open));
     };
@@ -272,9 +284,8 @@ export function createShellTopBar(
     search.onclick = (event) => {
       if (event.isTrusted) openSearch(search);
     };
-    sidebarSearch.onclick = (event) => {
-      if (event.isTrusted) openSearch(sidebarSearch);
-    };
+    const openFromRoot = openFromRail;
+    openFromRail = openSearch;
     const shortcut = (event: KeyboardEvent) => {
       if (
         !event.isTrusted ||
@@ -299,7 +310,9 @@ export function createShellTopBar(
         );
       if (editing) return;
       event.preventDefault();
-      openSearch(view.matchMedia('(max-width: 900px)').matches ? search : sidebarSearch);
+      openSearch(
+        view.matchMedia('(max-width: 900px)').matches || !sidebarSearch ? search : sidebarSearch,
+      );
     };
     document.addEventListener('keydown', shortcut);
     root.dataset.topbar = '';
@@ -340,7 +353,7 @@ export function createShellTopBar(
         scrim?.remove();
         scrim = undefined;
         dialog.remove();
-        railSearch?.replaceChildren();
+        openFromRail = openFromRoot;
         root.prepend(navigation);
         delete root.dataset.topbar;
         header.remove();
@@ -354,6 +367,10 @@ export function createShellTopBar(
       options = next;
       if (!next) clear();
       else active?.update();
+      // Kept in place while installed, so a focused row keeps its focus across updates.
+      if (!next) railSearch?.replaceChildren();
+      else if (sidebarSearch && sidebarSearch.parentNode !== railSearch)
+        railSearch!.replaceChildren(sidebarSearch);
     },
     topBarReady: () => !disposed && options !== undefined,
     setTopBar(): ShellTopBar {
@@ -369,6 +386,7 @@ export function createShellTopBar(
       disposed = true;
       clear();
       options = undefined;
+      railSearch?.replaceChildren();
     },
   };
 }

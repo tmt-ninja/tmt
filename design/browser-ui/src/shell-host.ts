@@ -15,6 +15,7 @@ import {
   type ShellTopBar,
 } from './shell.js';
 import { createBusyMark } from './static.js';
+import { shellIconNodes, type ShellIcon } from './shell-icons.js';
 
 /**
  * The one TMT web app (#3937, spec c5ccd17a): one document, one `mountShell` instance and one
@@ -126,6 +127,127 @@ export interface ShellHost {
   sessionChanging(): void;
   dispose(): void;
 }
+
+/** The shape of the menu each route set last in this browser, so the rail draws the same rows in
+ * its first frame, in a new tab too, and never moves when the module's menu arrives (#6750). Only
+ * the shape is kept (groups, which parts exist, each row's glyph name from the fixed icon set),
+ * never a label: a row may be a sealed page title. It is local storage of this door's origin (one
+ * owner), and a session change drops it. */
+const MENU_KEY = 'tmt-shell-menu-v1';
+const MENU_ROUTES = 16;
+const MENU_GROUPS = 16;
+const MENU_ROWS = 64;
+interface MenuShape {
+  groups: {
+    label: boolean;
+    action: boolean;
+    add: boolean;
+    alert: boolean;
+    icon: ShellIcon | null;
+    rows: (ShellIcon | null)[];
+  }[];
+  settings: ShellIcon | null | false;
+}
+const glyph = (value: unknown): ShellIcon | undefined =>
+  typeof value === 'string' && Object.hasOwn(shellIconNodes, value)
+    ? (value as ShellIcon)
+    : undefined;
+const plain = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+function menuShapes(): Record<string, unknown> {
+  try {
+    const stored = JSON.parse(localStorage.getItem(MENU_KEY) ?? '{}') as unknown;
+    return plain(stored) ? stored : {};
+  } catch {
+    return {};
+  }
+}
+function keepMenuShape(route: string, menu: ShellMenu | undefined) {
+  const shapes = menuShapes();
+  delete shapes[route];
+  if (menu && !menu.placeholder)
+    shapes[route] = {
+      groups: menu.groups.slice(0, MENU_GROUPS).map((group) => ({
+        label: Boolean(group.label),
+        action: Boolean(group.action),
+        add: Boolean(group.add),
+        alert: Boolean(group.alert),
+        icon: group.fallbackIcon ?? null,
+        rows: group.items
+          .flatMap((item) => [item, ...(item.expanded ? (item.children ?? []) : [])])
+          .slice(0, MENU_ROWS)
+          .map((item) => item.icon ?? null),
+      })),
+      settings: menu.settings ? (menu.settings.icon ?? null) : false,
+    };
+  const kept = Object.entries(shapes).slice(-MENU_ROUTES);
+  try {
+    localStorage.setItem(MENU_KEY, JSON.stringify(Object.fromEntries(kept)));
+  } catch {
+    // Without storage the menu arrives with its module, as before.
+  }
+}
+function forgetMenuShapes() {
+  try {
+    localStorage.removeItem(MENU_KEY);
+  } catch {
+    // Nothing was kept.
+  }
+}
+const flag = (value: unknown) => typeof value === 'boolean';
+const mark = (value: unknown) => value === null || glyph(value) !== undefined;
+/** A stored shape exactly as `keepMenuShape` writes it, within its caps; anything else, from an
+ * older build or a damaged store, is no shape at all, so it costs one shift and never breaks a
+ * route. */
+function menuShape(value: unknown): MenuShape | undefined {
+  if (!plain(value) || !Array.isArray(value.groups) || value.groups.length > MENU_GROUPS)
+    return undefined;
+  if (value.settings !== false && !mark(value.settings)) return undefined;
+  for (const group of value.groups as unknown[])
+    if (
+      !plain(group) ||
+      !flag(group.label) ||
+      !flag(group.action) ||
+      !flag(group.add) ||
+      !flag(group.alert) ||
+      !mark(group.icon) ||
+      !Array.isArray(group.rows) ||
+      group.rows.length > MENU_ROWS ||
+      !group.rows.every(mark)
+    )
+      return undefined;
+  return value as unknown as MenuShape;
+}
+/** Blank rows in the shape `stored` keeps for `route`; a malformed entry draws nothing. */
+export function rememberedMenu(stored: unknown, route: string): ShellMenu | undefined {
+  const shape =
+    plain(stored) && Object.hasOwn(stored, route) ? menuShape(stored[route]) : undefined;
+  if (!shape) return undefined;
+  const blank = '\u00a0';
+  const inert = { label: blank, onActivate() {} };
+  let row = 0;
+  const entry = (icon: ShellIcon | null) => ({
+    id: `placeholder:${row++}`,
+    label: blank,
+    href: '',
+    current: false,
+    ...(icon ? { icon } : {}),
+  });
+  return {
+    title: '',
+    placeholder: true,
+    groups: shape.groups.map((group) => ({
+      ...(group.label ? { label: blank } : {}),
+      ...(group.action ? { action: inert } : {}),
+      ...(group.add ? { add: inert } : {}),
+      ...(group.alert ? { alert: { message: blank, retry: inert } } : {}),
+      ...(group.icon ? { fallbackIcon: group.icon } : {}),
+      items: group.rows.map(entry),
+    })),
+    ...(shape.settings === false ? {} : { settings: entry(shape.settings) }),
+  };
+}
+const placeholderMenu = (route: string) => rememberedMenu(menuShapes(), route);
 
 export function matchRoute(routes: readonly ShellRoute[], pathname: string) {
   let best: ShellRoute | undefined;
@@ -294,6 +416,20 @@ export function startShellHost(
     options.layerHost,
   );
   const paint = () => controls.update(view());
+  /** While the module has not adopted the shared top bar, the host draws it as soon as the root's
+   * controls are installed, its title in the title slot, so Search and the Remote chip never
+   * arrive after first paint (#6750). The module's adoption takes the same bar and replaces the
+   * title. */
+  const drawTopBar = () => {
+    const placeholder = bar.querySelector(':scope > [data-shell-placeholder]');
+    if (!placeholder || !controls.topBarReady()) return;
+    const title = placeholder.querySelector('.tmt-ui-title');
+    const top = controls.setTopBar();
+    if (title) {
+      title.setAttribute('data-shell-placeholder', '');
+      top.title.replaceChildren(title);
+    } else top.title.replaceChildren();
+  };
 
   const describe = (known?: string) => {
     if (asked) return;
@@ -314,20 +450,25 @@ export function startShellHost(
     bar,
     tools: controls.tools,
     topBarReady: () => !disposed && current?.generation === mine && controls.topBarReady(),
-    setTopBar: () =>
-      current?.generation === mine
-        ? controls.setTopBar()
-        : {
-            title: document.createElement('div'),
-            actions: document.createElement('div'),
-            status: document.createElement('div'),
-          },
+    setTopBar: () => {
+      if (current?.generation !== mine)
+        return {
+          title: document.createElement('div'),
+          actions: document.createElement('div'),
+          status: document.createElement('div'),
+        };
+      const top = controls.setTopBar();
+      // The title the host drew while the module loaded gives way to the module's own.
+      top.title.querySelector(':scope > [data-shell-placeholder]')?.remove();
+      return top;
+    },
     basePath: route.paths.at(-1)!,
     answer: () => answer,
     setMenu(next, handler) {
       if (current?.generation !== mine) return;
       menu = next;
       select = handler;
+      keepMenuShape(route.id, next);
       paint();
     },
     setTitle(title) {
@@ -539,6 +680,7 @@ export function startShellHost(
     menu = undefined;
     select = undefined;
     if (revive(route)) return;
+    menu = placeholderMenu(route.id);
     const mine = ++generation;
     current = { route, generation: mine };
     // The bar names the module at once, as a title; the module's own header replaces it when it
@@ -554,6 +696,7 @@ export function startShellHost(
       placeholder.append(title);
     }
     bar.replaceChildren(placeholder);
+    drawTopBar();
     main.replaceChildren();
     main.dataset.route = route.id;
     paint();
@@ -623,7 +766,10 @@ export function startShellHost(
   window.addEventListener('popstate', popstate);
   void show();
   return {
-    setCommonControls: controls.setCommonControls,
+    setCommonControls(options) {
+      controls.setCommonControls(options);
+      if (options) drawTopBar();
+    },
     navigate: (href, options) => void go(href, options),
     redescribe: () =>
       new Promise((resolve) => {
@@ -634,7 +780,10 @@ export function startShellHost(
         describe();
       }),
     route: (pathname) => matchRoute(routes, pathname),
-    sessionChanging: releaseKept,
+    sessionChanging() {
+      forgetMenuShapes();
+      releaseKept();
+    },
     dispose() {
       if (disposed) return;
       disposed = true;

@@ -12,7 +12,13 @@ function scaffold() {
 }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function harness(options: { keep: readonly string[]; failSuspend?: string; failResume?: string }) {
+function harness(options: {
+  keep: readonly string[];
+  failSuspend?: string;
+  failResume?: string;
+  rail?: string;
+  gate?: () => Promise<void> | undefined;
+}) {
   const log: string[] = [];
   const slots = new Map<string, ShellSlot>();
   let sessions = 0;
@@ -20,35 +26,38 @@ function harness(options: { keep: readonly string[]; failSuspend?: string; failR
   const routes: ShellRoute[] = ['a', 'b', 'c', 'd'].map((id) => ({
     id,
     paths: [`/keep-${id}/`],
-    rail: 'home',
+    rail: options.rail ?? 'home',
     quiet: true,
     keep: options.keep.includes(id),
-    load: async () => ({
-      mount(slot) {
-        log.push(`mount ${id}`);
-        slots.set(id, slot);
-        const node = document.createElement('p');
-        node.textContent = `content ${id}`;
-        // A frame reloads if it is ever removed or moved: the kept module's area stays in place.
-        const frame = document.createElement('iframe');
-        frame.srcdoc = `<p>${id}</p>`;
-        slot.main.append(node, frame);
-        slot.setTitle(id);
-        if (!options.keep.includes(id)) return () => log.push(`release ${id}`);
-        return {
-          release: () => log.push(`release ${id}`),
-          suspend() {
-            if (options.failSuspend === id) throw new Error('suspend failed');
-            log.push(`suspend ${id}`);
-          },
-          resume(next) {
-            if (options.failResume === id) throw new Error('resume failed');
-            slots.set(id, next);
-            log.push(`resume ${id}`);
-          },
-        };
-      },
-    }),
+    load: async () => (
+      await options.gate?.(),
+      {
+        mount(slot) {
+          log.push(`mount ${id}`);
+          slots.set(id, slot);
+          const node = document.createElement('p');
+          node.textContent = `content ${id}`;
+          // A frame reloads if it is ever removed or moved: the kept module's area stays in place.
+          const frame = document.createElement('iframe');
+          frame.srcdoc = `<p>${id}</p>`;
+          slot.main.append(node, frame);
+          slot.setTitle(id);
+          if (!options.keep.includes(id)) return () => log.push(`release ${id}`);
+          return {
+            release: () => log.push(`release ${id}`),
+            suspend() {
+              if (options.failSuspend === id) throw new Error('suspend failed');
+              log.push(`suspend ${id}`);
+            },
+            resume(next) {
+              if (options.failResume === id) throw new Error('resume failed');
+              slots.set(id, next);
+              log.push(`resume ${id}`);
+            },
+          };
+        },
+      }
+    ),
   }));
   const root = scaffold();
   history.replaceState(null, '', '/keep-a/');
@@ -175,6 +184,92 @@ export async function sessionChangeReleasesFirst() {
   } finally {
     host.dispose();
     root.remove();
+  }
+}
+
+/** A route's last menu is drawn in its next first frame (#6750): same geometry, blank, inert and
+ * hidden, never its labels in storage, and a session change drops it. */
+export async function remembersMenuShape() {
+  const key = 'tmt-shell-menu-v1';
+  // A damaged entry from another build draws no placeholder and never stops the route.
+  localStorage.setItem(key, JSON.stringify({ a: { groups: [null], settings: false } }));
+  let gate: Promise<void> | undefined;
+  const { host, root, go, slots, main } = harness({ keep: [], rail: 'mod', gate: () => gate });
+  const geometry = () => {
+    const sub = root.querySelector<HTMLElement>('.tmt-ui-rail-sub');
+    if (!sub) return [];
+    const top = sub.getBoundingClientRect().top;
+    return [...sub.querySelectorAll<HTMLElement>('li, .tmt-ui-rail-sub-group')].map((node) => {
+      const box = node.getBoundingClientRect();
+      return [Math.round(box.top - top), Math.round(box.height)];
+    });
+  };
+  const menu = {
+    title: 'Module',
+    groups: [
+      {
+        items: [
+          {
+            id: 'p',
+            icon: 'list' as const,
+            label: 'Sealed title',
+            href: '/keep-a/p',
+            current: true,
+          },
+          { id: 'q', label: 'Second page', href: '/keep-a/q', current: false },
+        ],
+      },
+      { label: 'Shortcuts', action: { label: 'Manage', onActivate() {} }, items: [] },
+    ],
+    settings: {
+      id: 's',
+      icon: 'settings' as const,
+      label: 'Module settings',
+      href: '/keep-a/s',
+      current: false,
+    },
+  };
+  try {
+    await settle();
+    await settle();
+    const damaged = {
+      drawn: main(),
+      placeholder: root.querySelectorAll('.tmt-ui-rail-sub[data-placeholder]').length,
+    };
+    slots.get('a')!.setMenu(menu);
+    const real = geometry();
+    await go('b');
+    let release!: () => void;
+    gate = new Promise((resolve) => (release = resolve));
+    host.navigate('/keep-a/');
+    await settle();
+    const sub = root.querySelector<HTMLElement>('.tmt-ui-rail-sub');
+    const first = {
+      same: JSON.stringify(geometry()) === JSON.stringify(real) && real.length > 0,
+      inert: sub?.inert,
+      hidden: sub?.getAttribute('aria-hidden'),
+      text: sub?.textContent?.trim(),
+    };
+    const stored = localStorage.getItem(key) ?? '';
+    release();
+    await settle();
+    await settle();
+    slots.get('a')!.setMenu(menu);
+    const replaced = root.querySelector('.tmt-ui-rail-sub')?.hasAttribute('data-placeholder');
+    host.sessionChanging();
+    return {
+      damaged,
+      first,
+      labelsStored: ['Sealed', 'Second', 'Module', 'Shortcuts', 'keep-a'].filter((word) =>
+        stored.includes(word),
+      ),
+      replaced,
+      dropped: localStorage.getItem(key),
+    };
+  } finally {
+    host.dispose();
+    root.remove();
+    localStorage.removeItem(key);
   }
 }
 

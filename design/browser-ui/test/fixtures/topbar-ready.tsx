@@ -33,9 +33,14 @@ export function nativeReadiness() {
   const states: boolean[] = [];
   try {
     states.push(controls.topBarReady());
+    // The rail's Search row is drawn as soon as controls are installed, before any bar is adopted,
+    // and never without them (#6750).
+    const railSearch = () => root.querySelectorAll('nav.tmt-ui-rail .tmt-ui-rail-search').length;
+    const railSearchRows = [railSearch()];
     const missingRefused = refuses(controls.setTopBar, 'install common controls');
     controls.setCommonControls(common);
     states.push(controls.topBarReady());
+    railSearchRows.push(railSearch());
     // A read does not adopt or change the legacy header.
     const barsBeforeAdoption = root.querySelectorAll('.tmt-ui-topbar').length;
     controls.setTopBar().actions.append(document.createTextNode('Native action'));
@@ -44,6 +49,7 @@ export function nativeReadiness() {
     states.push(controls.topBarReady());
     controls.setCommonControls(undefined);
     states.push(controls.topBarReady());
+    railSearchRows.push(railSearch());
     const clearedRefused = refuses(controls.setTopBar, 'install common controls');
     controls.setCommonControls(common);
     states.push(controls.topBarReady());
@@ -53,6 +59,7 @@ export function nativeReadiness() {
     states.push(controls.topBarReady());
     return {
       states,
+      railSearchRows,
       barsBeforeAdoption,
       action,
       missingRefused,
@@ -117,6 +124,8 @@ export async function hostedReadiness() {
     const installed = first.topBarReady();
     first.setTopBar().actions.textContent = 'First action';
     host.navigate('/ready-second/');
+    // With controls installed the host draws the shared bar at once, before the module adopts it.
+    const barAtFirstPaint = root.querySelectorAll('.tmt-ui-topbar').length;
     await mounts[1];
     const second = slots[1]!;
     const stale = first.topBarReady();
@@ -134,6 +143,7 @@ export async function hostedReadiness() {
     read(second);
     return {
       before,
+      barAtFirstPaint,
       installed,
       stale,
       cleared,

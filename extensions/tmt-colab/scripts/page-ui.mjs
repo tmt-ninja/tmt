@@ -30,8 +30,11 @@ import { readFile } from 'node:fs/promises';
 // #5809's stripping of app chrome recovers these bytes.
 // Field help size: the description and error take the label's size in body weight (#6703):
 // 133,820 -> 133,999 (+179), exact, no headroom (GUI lead approval on #6703).
+// Top-bar control size: the shell's Search and common controls carry their own square, so a
+// module's value never resizes them (#6750): 133,999 -> 134,059 (+60), exact, no headroom (GUI lead
+// approval on #6750).
 // Measured by buildPageUi() with Node v26.12.1.
-export const PAGE_UI_LIMIT = 133_999;
+export const PAGE_UI_LIMIT = 134_059;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the

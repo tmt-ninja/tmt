@@ -128,6 +128,9 @@ export interface ShellMenuGroup {
 export interface ShellMenu {
   title: string;
   groups: ShellMenuGroup[];
+  /** Host-drawn stand-in with the shape of the menu this route set last (#6750): blank, inert and
+   * hidden from assistive technology until the module's own menu replaces it. */
+  placeholder?: boolean;
   /** Module settings, always last after a hairline. */
   settings?: ShellMenuItem;
 }
@@ -879,7 +882,11 @@ export function mountShell(
   const nested = (menuView: ShellMenu, selected: ShellMenuItem | undefined) => {
     const list = document.createElement('ul');
     list.className = 'tmt-ui-rail-sub';
-    list.setAttribute('aria-label', menuView.title);
+    if (menuView.placeholder) {
+      list.dataset.placeholder = '';
+      list.setAttribute('aria-hidden', 'true');
+      list.inert = true;
+    } else list.setAttribute('aria-label', menuView.title);
     walk(list);
     menuView.groups.forEach((group, index) => {
       const controls =

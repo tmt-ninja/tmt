@@ -4644,6 +4644,26 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 		active?.dispose();
 		active = void 0;
 	};
+	const shortcutKeys = () => /Mac|iPhone|iPad|iPod/.test(view.navigator.platform);
+	let openFromRail = (opener) => void options?.openSearch(opener);
+	const sidebarSearch = railSearch && document.createElement("button");
+	if (railSearch && sidebarSearch) {
+		const command = shortcutKeys();
+		sidebarSearch.type = "button";
+		sidebarSearch.className = "tmt-ui-rail-search";
+		sidebarSearch.setAttribute("aria-label", "Search TMT");
+		sidebarSearch.setAttribute("aria-haspopup", "dialog");
+		sidebarSearch.setAttribute("aria-keyshortcuts", command ? "Meta+K" : "Control+K");
+		const sidebarLabel = document.createElement("span");
+		sidebarLabel.className = "tmt-ui-rail-label";
+		sidebarLabel.textContent = "Search";
+		const sidebarHint = document.createElement("kbd");
+		sidebarHint.textContent = command ? "⌘K" : "Ctrl K";
+		sidebarSearch.append(createIcon("search", document), sidebarLabel, sidebarHint);
+		sidebarSearch.onclick = (event) => {
+			if (event.isTrusted) openFromRail(sidebarSearch);
+		};
+	}
 	function mount() {
 		const header = document.createElement("header");
 		header.className = "tmt-ui-topbar";
@@ -4670,7 +4690,7 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 		search.dataset.variant = "text";
 		search.setAttribute("aria-label", "Search TMT");
 		search.setAttribute("aria-haspopup", "dialog");
-		const command = /Mac|iPhone|iPad|iPod/.test(view.navigator.platform);
+		const command = shortcutKeys();
 		search.setAttribute("aria-keyshortcuts", command ? "Meta+K" : "Control+K");
 		const searchMark = document.createElement("span");
 		searchMark.className = browserUiClasses.iconActionIcon;
@@ -4679,19 +4699,6 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 		hint.textContent = command ? "⌘K" : "Ctrl K";
 		searchMark.append(createIcon("search", document), hint);
 		search.append(searchMark);
-		const sidebarSearch = document.createElement("button");
-		sidebarSearch.type = "button";
-		sidebarSearch.className = "tmt-ui-rail-search";
-		sidebarSearch.setAttribute("aria-label", "Search TMT");
-		sidebarSearch.setAttribute("aria-haspopup", "dialog");
-		sidebarSearch.setAttribute("aria-keyshortcuts", command ? "Meta+K" : "Control+K");
-		const sidebarLabel = document.createElement("span");
-		sidebarLabel.className = "tmt-ui-rail-label";
-		sidebarLabel.textContent = "Search";
-		const sidebarHint = document.createElement("kbd");
-		sidebarHint.textContent = hint.textContent;
-		sidebarSearch.append(createIcon("search", document), sidebarLabel, sidebarHint);
-		railSearch?.replaceChildren(sidebarSearch);
 		const remote = document.createElement("button");
 		remote.type = "button";
 		remote.setAttribute("aria-haspopup", "dialog");
@@ -4843,7 +4850,7 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 		};
 		let searchRound = 0;
 		const searchExpanded = (open) => {
-			for (const button of [search, sidebarSearch]) if (open === void 0) button.removeAttribute("aria-expanded");
+			for (const button of sidebarSearch ? [search, sidebarSearch] : [search]) if (open === void 0) button.removeAttribute("aria-expanded");
 			else button.setAttribute("aria-expanded", String(open));
 		};
 		const openSearch = (opener) => {
@@ -4861,14 +4868,13 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 		search.onclick = (event) => {
 			if (event.isTrusted) openSearch(search);
 		};
-		sidebarSearch.onclick = (event) => {
-			if (event.isTrusted) openSearch(sidebarSearch);
-		};
+		const openFromRoot = openFromRail;
+		openFromRail = openSearch;
 		const shortcut = (event) => {
 			if (!event.isTrusted || scope && (!(event.target instanceof Node) || !scope.contains(event.target)) || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 || event.key.toLowerCase() !== "k" || event.altKey || event.shiftKey || (command ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey)) return;
 			if (event.composedPath().some((node) => node instanceof view.HTMLElement && (node.isContentEditable || node.closest("input,textarea,select,[role=\"textbox\"],[role=\"combobox\"]")))) return;
 			event.preventDefault();
-			openSearch(view.matchMedia("(max-width: 900px)").matches ? search : sidebarSearch);
+			openSearch(view.matchMedia("(max-width: 900px)").matches || !sidebarSearch ? search : sidebarSearch);
 		};
 		document.addEventListener("keydown", shortcut);
 		root.dataset.topbar = "";
@@ -4906,7 +4912,7 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 				scrim?.remove();
 				scrim = void 0;
 				dialog.remove();
-				railSearch?.replaceChildren();
+				openFromRail = openFromRoot;
 				root.prepend(navigation);
 				delete root.dataset.topbar;
 				header.remove();
@@ -4920,6 +4926,8 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 			options = next;
 			if (!next) clear();
 			else active?.update();
+			if (!next) railSearch?.replaceChildren();
+			else if (sidebarSearch && sidebarSearch.parentNode !== railSearch) railSearch.replaceChildren(sidebarSearch);
 		},
 		topBarReady: () => !disposed && options !== void 0,
 		setTopBar() {
@@ -4934,6 +4942,7 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 			disposed = true;
 			clear();
 			options = void 0;
+			railSearch?.replaceChildren();
 		}
 	};
 }
@@ -5527,7 +5536,11 @@ function mountShell(root, view, select, layerHost) {
 	const nested = (menuView, selected) => {
 		const list = document.createElement("ul");
 		list.className = "tmt-ui-rail-sub";
-		list.setAttribute("aria-label", menuView.title);
+		if (menuView.placeholder) {
+			list.dataset.placeholder = "";
+			list.setAttribute("aria-hidden", "true");
+			list.inert = true;
+		} else list.setAttribute("aria-label", menuView.title);
 		walk(list);
 		menuView.groups.forEach((group, index) => {
 			const controls = group.reorder || group.items.some((item) => item.actions?.length) ? interactions(() => latest.menu?.groups[index]) : void 0;
@@ -6794,6 +6807,94 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	});
 }
 var KEPT_FOR = 6e5;
+/** The shape of the menu each route set last in this browser, so the rail draws the same rows in
+* its first frame, in a new tab too, and never moves when the module's menu arrives (#6750). Only
+* the shape is kept (groups, which parts exist, each row's glyph name from the fixed icon set),
+* never a label: a row may be a sealed page title. It is local storage of this door's origin (one
+* owner), and a session change drops it. */
+var MENU_KEY = "tmt-shell-menu-v1";
+var MENU_GROUPS = 16;
+var MENU_ROWS = 64;
+var glyph = (value) => typeof value === "string" && Object.hasOwn(shellIconNodes, value) ? value : void 0;
+var plain$1 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+function menuShapes() {
+	try {
+		const stored = JSON.parse(localStorage.getItem(MENU_KEY) ?? "{}");
+		return plain$1(stored) ? stored : {};
+	} catch {
+		return {};
+	}
+}
+function keepMenuShape(route, menu) {
+	const shapes = menuShapes();
+	delete shapes[route];
+	if (menu && !menu.placeholder) shapes[route] = {
+		groups: menu.groups.slice(0, MENU_GROUPS).map((group) => ({
+			label: Boolean(group.label),
+			action: Boolean(group.action),
+			add: Boolean(group.add),
+			alert: Boolean(group.alert),
+			icon: group.fallbackIcon ?? null,
+			rows: group.items.flatMap((item) => [item, ...item.expanded ? item.children ?? [] : []]).slice(0, MENU_ROWS).map((item) => item.icon ?? null)
+		})),
+		settings: menu.settings ? menu.settings.icon ?? null : false
+	};
+	const kept = Object.entries(shapes).slice(-16);
+	try {
+		localStorage.setItem(MENU_KEY, JSON.stringify(Object.fromEntries(kept)));
+	} catch {}
+}
+function forgetMenuShapes() {
+	try {
+		localStorage.removeItem(MENU_KEY);
+	} catch {}
+}
+var flag = (value) => typeof value === "boolean";
+var mark$1 = (value) => value === null || glyph(value) !== void 0;
+/** A stored shape exactly as `keepMenuShape` writes it, within its caps; anything else, from an
+* older build or a damaged store, is no shape at all, so it costs one shift and never breaks a
+* route. */
+function menuShape(value) {
+	if (!plain$1(value) || !Array.isArray(value.groups) || value.groups.length > MENU_GROUPS) return void 0;
+	if (value.settings !== false && !mark$1(value.settings)) return void 0;
+	for (const group of value.groups) if (!plain$1(group) || !flag(group.label) || !flag(group.action) || !flag(group.add) || !flag(group.alert) || !mark$1(group.icon) || !Array.isArray(group.rows) || group.rows.length > MENU_ROWS || !group.rows.every(mark$1)) return void 0;
+	return value;
+}
+/** Blank rows in the shape `stored` keeps for `route`; a malformed entry draws nothing. */
+function rememberedMenu(stored, route) {
+	const shape = plain$1(stored) && Object.hasOwn(stored, route) ? menuShape(stored[route]) : void 0;
+	if (!shape) return void 0;
+	const blank = "\xA0";
+	const inert = {
+		label: blank,
+		onActivate() {}
+	};
+	let row = 0;
+	const entry = (icon) => ({
+		id: `placeholder:${row++}`,
+		label: blank,
+		href: "",
+		current: false,
+		...icon ? { icon } : {}
+	});
+	return {
+		title: "",
+		placeholder: true,
+		groups: shape.groups.map((group) => ({
+			...group.label ? { label: blank } : {},
+			...group.action ? { action: inert } : {},
+			...group.add ? { add: inert } : {},
+			...group.alert ? { alert: {
+				message: blank,
+				retry: inert
+			} } : {},
+			...group.icon ? { fallbackIcon: group.icon } : {},
+			items: group.rows.map(entry)
+		})),
+		...shape.settings === false ? {} : { settings: entry(shape.settings) }
+	};
+}
+var placeholderMenu = (route) => rememberedMenu(menuShapes(), route);
 function matchRoute(routes, pathname) {
 	let best;
 	let length = -1;
@@ -6900,6 +7001,20 @@ function startShellHost(root, routes, options = {}) {
 		return go(href);
 	}, options.layerHost);
 	const paint = () => controls.update(view());
+	/** While the module has not adopted the shared top bar, the host draws it as soon as the root's
+	* controls are installed, its title in the title slot, so Search and the Remote chip never
+	* arrive after first paint (#6750). The module's adoption takes the same bar and replaces the
+	* title. */
+	const drawTopBar = () => {
+		const placeholder = bar.querySelector(":scope > [data-shell-placeholder]");
+		if (!placeholder || !controls.topBarReady()) return;
+		const title = placeholder.querySelector(".tmt-ui-title");
+		const top = controls.setTopBar();
+		if (title) {
+			title.setAttribute("data-shell-placeholder", "");
+			top.title.replaceChildren(title);
+		} else top.title.replaceChildren();
+	};
 	const describe = (known) => {
 		if (asked) return;
 		asked = true;
@@ -6918,10 +7033,15 @@ function startShellHost(root, routes, options = {}) {
 		bar,
 		tools: controls.tools,
 		topBarReady: () => !disposed && current?.generation === mine && controls.topBarReady(),
-		setTopBar: () => current?.generation === mine ? controls.setTopBar() : {
-			title: document.createElement("div"),
-			actions: document.createElement("div"),
-			status: document.createElement("div")
+		setTopBar: () => {
+			if (current?.generation !== mine) return {
+				title: document.createElement("div"),
+				actions: document.createElement("div"),
+				status: document.createElement("div")
+			};
+			const top = controls.setTopBar();
+			top.title.querySelector(":scope > [data-shell-placeholder]")?.remove();
+			return top;
 		},
 		basePath: route.paths.at(-1),
 		answer: () => answer,
@@ -6929,6 +7049,7 @@ function startShellHost(root, routes, options = {}) {
 			if (current?.generation !== mine) return;
 			menu = next;
 			select = handler;
+			keepMenuShape(route.id, next);
 			paint();
 		},
 		setTitle(title) {
@@ -7111,6 +7232,7 @@ function startShellHost(root, routes, options = {}) {
 		menu = void 0;
 		select = void 0;
 		if (revive(route)) return;
+		menu = placeholderMenu(route.id);
 		const mine = ++generation;
 		current = {
 			route,
@@ -7127,6 +7249,7 @@ function startShellHost(root, routes, options = {}) {
 			placeholder.append(title);
 		}
 		bar.replaceChildren(placeholder);
+		drawTopBar();
 		main.replaceChildren();
 		main.dataset.route = route.id;
 		paint();
@@ -7177,7 +7300,10 @@ function startShellHost(root, routes, options = {}) {
 	window.addEventListener("popstate", popstate);
 	show();
 	return {
-		setCommonControls: controls.setCommonControls,
+		setCommonControls(options) {
+			controls.setCommonControls(options);
+			if (options) drawTopBar();
+		},
 		navigate: (href, options) => void go(href, options),
 		redescribe: () => new Promise((resolve) => {
 			if (disposed) return resolve(void 0);
@@ -7187,7 +7313,10 @@ function startShellHost(root, routes, options = {}) {
 			describe();
 		}),
 		route: (pathname) => matchRoute(routes, pathname),
-		sessionChanging: releaseKept,
+		sessionChanging() {
+			forgetMenuShapes();
+			releaseKept();
+		},
 		dispose() {
 			if (disposed) return;
 			disposed = true;
@@ -15154,7 +15283,7 @@ var RootSearch = class {
 		const lifetime = this.lifetime;
 		const current = () => !this.closed && lifetime === this.lifetime && mine === this.request;
 		if (!this.entry) {
-			this.options.failed("Search is not available until this door describes Colab.");
+			this.options.failed("Search works once this browser is paired and Colab is running on your machine.");
 			return;
 		}
 		try {

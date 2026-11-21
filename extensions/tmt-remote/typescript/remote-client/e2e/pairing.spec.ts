@@ -5970,7 +5970,7 @@ test('the root prefetches one confined search entry and owns one shortcut across
   expect(imports).toBe(0);
   await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
   await expect(page.locator('.root-search-status')).toHaveText(
-    'Search is not available until this door describes Colab.',
+    'Search works once this browser is paired and Colab is running on your machine.',
   );
   expect(imports).toBe(0);
 
