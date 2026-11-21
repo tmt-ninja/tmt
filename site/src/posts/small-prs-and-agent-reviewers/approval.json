@@ -1,0 +1,11 @@
+{
+  "decision": "approved",
+  "method": "owner-instruction",
+  "approvedBy": "Ben Hsieh",
+  "instruction": "Ben on Colab page 553c5d10, 2026-11-22: fix it yourselves, judge whether it suits marketing, then publish it.",
+  "pageId": "553c5d10-c8de-4323-acf9-655f4e813ea4",
+  "pageRevision": "v1:52c55ebd786d3c16fdbdc35d19aa98f456332700833c684ef2dd19353cfb38bf",
+  "sourceSha256": "38442dd9c292b26d80ba5ec3df12c5a54cbda38acd3b04214f9b5e6613aef99a",
+  "approvedAt": "2026-11-21T16:53:28.322Z",
+  "artifactSha256": "b95d9b85a940ef11187920981b31d4f82dacbb1dbe8d5a9466a3e44983774364"
+}
