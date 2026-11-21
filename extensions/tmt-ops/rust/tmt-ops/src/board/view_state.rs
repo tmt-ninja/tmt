@@ -92,8 +92,12 @@ pub(super) struct Controls {
     digest_window: crate::config::DigestWindow,
     chart: (u32, super::overview::chart::model::Each),
     order: Order,
-    usage_rows: Option<u16>,
+    usage_rows: Vec<String>,
 }
+pub(super) fn usage_row_name(name: &str) -> String {
+    super::notes::single_line(name).chars().take(24).collect()
+}
+
 impl Controls {
     pub(super) fn capture(app: &App) -> Self {
         Self {
@@ -103,7 +107,7 @@ impl Controls {
             digest_window: app.digest_window,
             chart: app.usage_chart.borrow().chart_controls(),
             order: app.workspace_order(),
-            usage_rows: app.usage_chart.borrow().remembered_rows(),
+            usage_rows: app.usage_chart.borrow().remembered_rows().to_vec(),
         }
     }
     pub(super) fn apply(&self, app: &mut App) {
@@ -117,7 +121,9 @@ impl Controls {
         app.usage_chart
             .borrow_mut()
             .restore_chart_controls(self.chart.0, self.chart.1);
-        app.usage_chart.borrow_mut().restore_rows(self.usage_rows);
+        app.usage_chart
+            .borrow_mut()
+            .restore_rows(self.usage_rows.clone());
         app.workspace.order = Some(self.order);
         app.overview_rows.borrow_mut().clear();
     }
@@ -151,12 +157,15 @@ impl Controls {
                 .and_then(Value::as_str)
                 .and_then(crate::config::DigestWindow::parse)
                 .unwrap_or_default(),
-            usage_rows: value["usageRows"].as_u64().and_then(|rows| {
-                let rows = u16::try_from(rows).ok()?;
-                (1..=super::overview::chart::host::MAX_REMEMBERED_ROWS)
-                    .contains(&rows)
-                    .then_some(rows)
-            }),
+            usage_rows: value["usageRows"]
+                .as_array()
+                .filter(|rows| {
+                    rows.len() <= usize::from(super::overview::chart::host::MAX_REMEMBERED_ROWS)
+                })
+                .into_iter()
+                .flatten()
+                .map(|name| usage_row_name(name.as_str().unwrap_or("—")))
+                .collect(),
             order: Order {
                 agents: match value["sort"].as_str()? {
                     "name" => OpsSort::Name,

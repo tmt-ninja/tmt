@@ -121,6 +121,7 @@ pub struct Scene {
     quota_width: u16,
     spark_width: u16,
     no_data: bool,
+    pending: bool,
     name_width: u16,
 }
 
@@ -176,6 +177,24 @@ impl Scene {
         quota_width: u16,
         scale: u64,
     ) -> Result<Self, String> {
+        Self::build(data, width, quota_width, scale, false)
+    }
+
+    pub fn pending(data: &Data, width: u16, quota_width: u16) -> Result<Self, String> {
+        Self::build(data, width, quota_width, 0, true)
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.pending
+    }
+
+    fn build(
+        data: &Data,
+        width: u16,
+        quota_width: u16,
+        scale: u64,
+        pending: bool,
+    ) -> Result<Self, String> {
         if data.buckets == 0 || data.rows.iter().any(|row| row.values.len() != data.buckets) {
             return Err("Spark rows must share one nonempty bucket grid".into());
         }
@@ -224,8 +243,9 @@ impl Scene {
             let mut pieces =
                 vec![json!({"id":format!("{prefix}name-{provider}"),"text":format!("{name} ")})];
             for (index, reading) in row.values.iter().enumerate() {
-                let glyph = if data.no_data
-                    || row.total == "—" && row.values.iter().all(Option::is_none)
+                let glyph = if pending {
+                    "░"
+                } else if data.no_data || row.total == "—" && row.values.iter().all(Option::is_none)
                 {
                     " "
                 } else {
@@ -249,7 +269,7 @@ impl Scene {
             }
             rows.push(json!({"id":format!("provider-{provider}"),"pieces":pieces}));
         }
-        if !data.no_data && data.show_axis {
+        if (pending || !data.no_data) && data.show_axis {
             rows.push(json!({"id":"time","pieces":[{"id":"axis-padding","text":" ".repeat(name_width+1)},{"id":"time-ticks","text":time_ticks(&data.axis,spark_width)}]}));
         }
         let row_count = rows.len() as u16;
@@ -262,6 +282,7 @@ impl Scene {
             quota_width,
             spark_width: spark_width as u16,
             no_data: data.no_data,
+            pending,
             name_width: data.name_width,
         })
     }
@@ -295,7 +316,9 @@ impl Scene {
                 .and_then(|id| id.last())
                 .map(String::as_str)
                 .unwrap_or("");
-            let role = if id.starts_with("spark-")
+            let role = if self.pending {
+                Role::Dim
+            } else if id.starts_with("spark-")
                 || id.starts_with("share-")
                 || id.starts_with("muted-")
                 || id.starts_with("heading-")
@@ -343,7 +366,7 @@ impl Scene {
                 ),
             );
         }
-        if self.no_data {
+        if self.no_data && !self.pending {
             crate::board::empty_state::paint(
                 buffer,
                 Rect::new(

@@ -51,12 +51,23 @@ pub(super) fn quotas_visible(app: &App) -> bool {
 }
 fn title(app: &App, data: &Series, selection: Selection) -> String {
     let title = project::summary(data, selection.range_minutes);
-    if app.shell.tab == OpsTab::Agents && app.view.as_ref().is_some_and(|view| view.history_pending)
-    {
+    if history_pending(app) {
         format!("{title} · Updating usage…")
     } else {
         title
     }
+}
+
+fn history_pending(app: &App) -> bool {
+    app.shell.tab == OpsTab::Agents && app.view.as_ref().is_some_and(|view| view.history_pending)
+}
+
+fn known_tools(app: &App) -> std::collections::BTreeSet<&str> {
+    app.workspace_snapshot()
+        .into_iter()
+        .flat_map(|snapshot| snapshot.roster.members.keys())
+        .filter_map(|id| app.references.agents.get(id)?.runtime.as_deref())
+        .collect()
 }
 
 /// Quota accounts occupy rows in the same series as providers. Count the
@@ -65,17 +76,12 @@ fn reserve_overview_rows(app: &App, state: &mut State, data: &Series) -> u16 {
     let rows = project::spark_rows(&display(app, data, state.selection));
     let displayed = rows.rows.len().max(1).min(usize::from(MAX_REMEMBERED_ROWS)) as u16;
     let observed = !rows.no_data && app.view.as_ref().is_some_and(|view| !view.history_pending);
-    let known_tools = app
-        .workspace_snapshot()
-        .into_iter()
-        .flat_map(|snapshot| snapshot.roster.members.keys())
-        .filter_map(|id| app.references.agents.get(id)?.runtime.as_deref())
-        .collect::<std::collections::BTreeSet<_>>()
-        .len()
-        .min(usize::from(MAX_REMEMBERED_ROWS)) as u16;
-    // A new view may have no roster tool observations at all. Reserve the
-    // usual two provider slots until the first complete chart arrives.
-    let first = state.remembered_rows.unwrap_or(2);
+    let known_tools = known_tools(app).len().min(usize::from(MAX_REMEMBERED_ROWS)) as u16;
+    let first = if state.remembered_rows.is_empty() {
+        2
+    } else {
+        state.remembered_rows.len() as u16
+    };
     state.reserved_rows = state
         .reserved_rows
         .max(displayed)
@@ -87,7 +93,12 @@ fn reserve_overview_rows(app: &App, state: &mut State, data: &Series) -> u16 {
             snapshot.roster.observation == crate::board::workspace::OpsObservation::Complete
         })
     {
-        state.remembered_rows = Some(displayed);
+        state.remembered_rows = rows
+            .rows
+            .iter()
+            .take(usize::from(displayed))
+            .map(|row| crate::board::view_state::usage_row_name(&row.name))
+            .collect();
     }
     // Usage header, column headings, axis and a gap before the roster.
     state.reserved_rows + 4
@@ -126,7 +137,9 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
         .buckets
         .iter()
         .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0));
-    let painted = if (positive || app.shell.tab == OpsTab::Agents)
+    let pending = history_pending(app);
+    let painted = if !pending
+        && (positive || app.shell.tab == OpsTab::Agents)
         && area.width >= 40
         && fits_chart(app, &data, state.selection, area.width)
         && area.height >= chart_rows(app, &data, state.selection)
@@ -140,10 +153,14 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
     } else {
         // Digest opens this chart explicitly. Its empty summary must retain
         // Range/Each focus between u and Enter, just like a populated chart.
-        if !app.usage_controls
-            && (app.shell.tab != OpsTab::Digest
-                || !matches!(state.focus, Some(Focus::Range | Focus::Each)))
-        {
+        let release_focus = if pending {
+            matches!(state.focus, Some(Focus::Bars | Focus::Quota))
+        } else {
+            !app.usage_controls
+                && (app.shell.tab != OpsTab::Digest
+                    || !matches!(state.focus, Some(Focus::Range | Focus::Each)))
+        };
+        if release_focus {
             state.release_focus();
         }
         let title = title(app, &data, state.selection);
@@ -156,7 +173,11 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
             None,
             state.each,
         );
-        1
+        if pending {
+            paint_pending(frame, app, &mut state, area, look)
+        } else {
+            1
+        }
     };
     if app.shell.tab == OpsTab::Agents && area.height > painted + 1 {
         let placeholders = Rect::new(
@@ -183,6 +204,75 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
             .push(crate::board::view::ClockSurface::UsageChart);
     }
 }
+fn paint_pending(
+    frame: &mut Frame,
+    app: &App,
+    state: &mut State,
+    area: Rect,
+    look: crate::look::Look,
+) -> u16 {
+    use crate::board::spark_row::{Data, Row, plot_layout};
+
+    let slots = usize::from(area.height.saturating_sub(4).min(state.reserved_rows));
+    if slots == 0 {
+        return 1;
+    }
+    let names = if state.remembered_rows.is_empty() {
+        known_tools(app).into_iter().map(project::label).collect()
+    } else {
+        state.remembered_rows.clone()
+    };
+    let name_width = names
+        .iter()
+        .take(slots)
+        .map(|name| unicode_width::UnicodeWidthStr::width(name.as_str()).min(24) as u16)
+        .fold(8, u16::max);
+    let rows = names
+        .into_iter()
+        .chain(std::iter::repeat("—".into()))
+        .take(slots)
+        .map(|name| Row {
+            name,
+            values: vec![None],
+            total: "—".into(),
+            share: "—".into(),
+            muted: true,
+            quota: false,
+        })
+        .collect();
+    let data = Data {
+        rows,
+        name_width,
+        share_caption: "% of all".into(),
+        show_axis: true,
+        axis: crate::board::overview::chart::format::axis(state.selection.range_minutes),
+        buckets: 1,
+        no_data: true,
+    };
+    let (track, quota_width) = plot_layout(area.width, &data, quotas_visible(app));
+    if track == 0 {
+        return 1;
+    }
+    if state.scene.as_ref().is_none_or(|(key, width, _, scene)| {
+        key != &data
+            || *width != area.width
+            || !scene.is_pending()
+            || scene.quota_width() != quota_width
+    }) {
+        let scene =
+            Scene::pending(&data, area.width, quota_width).expect("bounded pending spark rows");
+        state.scene = Some((data, area.width, 0, scene));
+    }
+    let scene = &state.scene.as_ref().unwrap().3;
+    let plot = Rect::new(area.x, area.y + 1, area.width, scene.rows());
+    let mut buffer = Buffer::empty(plot);
+    scene
+        .paint(&mut buffer, &look.theme, look.depth, &[], None)
+        .expect("bounded pending spark rows");
+    frame.buffer_mut().merge(&buffer);
+    1 + plot.height
+}
+
 pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, _body: Rect) {
     let look = app.look();
     let mut state = app.usage_chart.borrow_mut();
@@ -305,6 +395,7 @@ fn paint_chart(
                 || *width != area.width
                 || *old_scale != scale
                 || scene.quota_width() != quota_width
+                || scene.is_pending()
         })
     {
         let scene = Scene::with_scale(&rows, area.width, quota_width, scale)

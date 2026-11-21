@@ -67,19 +67,19 @@ pub(in crate::board) struct State {
     visible: bool,
     hover: Option<usize>,
     observed: Option<Rc<Series>>,
-    remembered_rows: Option<u16>,
+    remembered_rows: Vec<String>,
     reserved_rows: u16,
     // The scene key includes all display values, coverage and solved dimensions.
     scene: Option<(crate::board::spark_row::Data, u16, u64, Scene)>,
 }
 impl State {
-    pub(in crate::board) fn remembered_rows(&self) -> Option<u16> {
-        self.remembered_rows
+    pub(in crate::board) fn remembered_rows(&self) -> &[String] {
+        &self.remembered_rows
     }
 
-    pub(in crate::board) fn restore_rows(&mut self, rows: Option<u16>) {
+    pub(in crate::board) fn restore_rows(&mut self, rows: Vec<String>) {
+        self.reserved_rows = rows.len() as u16;
         self.remembered_rows = rows;
-        self.reserved_rows = rows.unwrap_or_default();
     }
 
     pub(in crate::board) fn chart_controls(&self) -> (u32, Each) {

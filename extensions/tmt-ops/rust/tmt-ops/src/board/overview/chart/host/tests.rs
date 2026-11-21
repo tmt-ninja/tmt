@@ -1255,10 +1255,74 @@ fn overview_usage_keeps_the_list_origin_when_history_arrives() {
 
         let controls = crate::board::view_state::Controls::capture(&app);
         let controls = crate::board::view_state::Controls::decode(&controls.json()).unwrap();
-        assert!(app.usage_chart.borrow().remembered_rows().is_some());
+        assert!(!app.usage_chart.borrow().remembered_rows().is_empty());
         let mut reopened = board();
         controls.apply(&mut reopened);
         assert_eq!(reopened.overview_usage_band(area), pending);
         assert_eq!(list_top(&reopened), pending_list);
+    });
+}
+
+#[test]
+fn pending_usage_shows_dim_placeholder_rows_until_an_empty_read_settles() {
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let mut app = board();
+        app.usage_chart
+            .borrow_mut()
+            .restore_rows(vec!["Claude".into(), "Codex".into()]);
+        let area = Rect::new(0, 0, 160, 36);
+        let paint = |app: &App| {
+            let band = app.overview_usage_band(area);
+            let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+            terminal
+                .draw(|frame| render_panel(frame, app, band, fixtures::NOW))
+                .unwrap();
+            terminal.backend().buffer().clone()
+        };
+        app.view.as_mut().unwrap().history_pending = true;
+        let pending = paint(&app);
+        let text = |buffer: &Buffer| {
+            buffer
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+        };
+        let pending_text = text(&pending);
+        assert!(pending_text.contains("Updating usage…"));
+        assert!(!pending_text.contains("No token observations yet"));
+        assert!(pending_text.contains("Claude") && pending_text.contains("Codex"));
+        assert!(pending_text.contains("░░░"), "{pending_text}");
+        let dim = app.look().role(tmt_cli_style::Role::Dim);
+        assert!(
+            pending
+                .content
+                .iter()
+                .filter(|cell| cell.symbol() == "░")
+                .all(|cell| cell.fg == dim.fg.unwrap_or(ratatui::style::Color::Reset))
+        );
+        assert!(
+            pending_text.contains("now"),
+            "the dim axis reserves its row"
+        );
+        app.usage_chart.borrow_mut().restore_rows(Vec::new());
+        let cold = paint(&app);
+        assert!(text(&cold).contains("Updating usage…"));
+        assert!(!text(&cold).contains("No token observations yet"));
+        assert_eq!(
+            cold.content
+                .iter()
+                .filter(|cell| cell.symbol() == "░")
+                .count(),
+            pending
+                .content
+                .iter()
+                .filter(|cell| cell.symbol() == "░")
+                .count(),
+            "the cold start reserves the default two provider tracks"
+        );
+
+        app.view.as_mut().unwrap().history_pending = false;
+        assert!(text(&paint(&app)).contains("No token observations yet"));
     });
 }
