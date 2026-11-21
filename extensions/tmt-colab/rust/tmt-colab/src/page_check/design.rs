@@ -9,6 +9,50 @@ use super::{
 };
 use crate::design_bundle::BUILT_IN_BUNDLE;
 
+static TEXTS: LazyLock<Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!(
+        "../../../../../../design/systems/finding-texts.json"
+    ))
+    .expect("design finding texts")
+});
+
+// Substitute only in the template: an attribute value may itself contain a placeholder.
+fn fill(mut template: &str, fields: &[(&str, &str)]) -> String {
+    let mut result = String::new();
+    while let Some((before, rest)) = template.split_once('{') {
+        let Some((name, after)) = rest.split_once('}') else {
+            break;
+        };
+        result.push_str(before);
+        if let Some((_, value)) = fields.iter().find(|(key, _)| *key == name) {
+            result.push_str(value);
+        } else {
+            result.push('{');
+            result.push_str(name);
+            result.push('}');
+        }
+        template = after;
+    }
+    result.push_str(template);
+    result
+}
+
+pub fn design_message(code: &str, tag: &str) -> Option<String> {
+    Some(fill(
+        TEXTS["codes"][code]["message"].as_str()?,
+        &[("tag", tag)],
+    ))
+}
+
+fn fix(code: &str, variant: &str, fields: &[(&str, &str)]) -> String {
+    fill(
+        TEXTS["codes"][code]["fix"][variant]
+            .as_str()
+            .unwrap_or("Check the component definition with tmt colab design show."),
+        fields,
+    )
+}
+
 static RELEASE: LazyLock<Value> =
     LazyLock::new(|| serde_json::from_str(BUILT_IN_BUNDLE).expect("generated design release"));
 static PAGE_ELEMENTS: LazyLock<Vec<String>> = LazyLock::new(|| {
@@ -134,9 +178,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                 pin,
                 ordinal,
                 "unknown-ds-release",
-                format!(
-                    "Use the lockMeta from tmt colab design show {system}, or follow its draft."
-                ),
+                fix("unknown-ds-release", "lock", &[("system", system)]),
             );
             return;
         }
@@ -209,12 +251,8 @@ fn components(
                 ordinal,
                 code,
                 nearest(tag, &prefix, bundle["components"].as_array().unwrap()).map_or_else(
-                    || {
-                        format!(
-                            "Replace <{tag}> with a tag listed by tmt colab design show {system}."
-                        )
-                    },
-                    |near| format!("Did you mean <{near}>?"),
+                    || fix(code, "list", &[("tag", tag), ("system", system)]),
+                    |near| fix(code, "near", &[("near", near)]),
                 ),
             );
             continue;
@@ -226,8 +264,10 @@ fn components(
                         id,
                         ordinal,
                         "invalid-ds-prop",
-                        format!(
-                            "Remove the unknown {name} attribute from <{tag}> or choose a prop listed by tmt colab design show {system}."
+                        fix(
+                            "invalid-ds-prop",
+                            "unknown",
+                            &[("prop", name), ("tag", tag), ("system", system)],
                         ),
                     );
                 }
@@ -245,7 +285,16 @@ fn components(
                         id,
                         ordinal,
                         "invalid-ds-prop",
-                        format!("<{tag}> received {name}={value:?}. Choose one of {accepted}."),
+                        fix(
+                            "invalid-ds-prop",
+                            "allowed",
+                            &[
+                                ("tag", tag),
+                                ("prop", name),
+                                ("value", value),
+                                ("allowed", &accepted),
+                            ],
+                        ),
                     );
                 }
             } else if prop["type"] == "boolean" && !value.is_empty() && value != name {
@@ -253,8 +302,10 @@ fn components(
                     id,
                     ordinal,
                     "invalid-ds-prop",
-                    format!(
-                        "<{tag}> received {name}={value:?}. Use the bare attribute, an empty value or {name:?}, or remove it."
+                    fix(
+                        "invalid-ds-prop",
+                        "boolean",
+                        &[("tag", tag), ("prop", name), ("value", value)],
                     ),
                 );
             }
@@ -265,6 +316,66 @@ fn components(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unknown_and_unclosed_placeholders_remain_visible() {
+        assert_eq!(
+            fill("{future}/{tag}/{tail", &[("tag", "button")]),
+            "{future}/button/{tail"
+        );
+    }
+
+    #[test]
+    fn shared_templates_use_only_fields_supplied_by_their_callers() {
+        assert_eq!(
+            fix("invalid-ds-prop", "missing", &[]),
+            "Check the component definition with tmt colab design show."
+        );
+        for (code, entry) in TEXTS["codes"].as_object().unwrap() {
+            let message = design_message(code, "sample").unwrap();
+            assert!(!message.contains(['{', '}']), "{code}: {message}");
+            for variant in entry["fix"].as_object().unwrap().keys() {
+                let names: &[&str] = match (code.as_str(), variant.as_str()) {
+                    ("unknown-ds-release", "lock") => &["system"],
+                    ("ds-prefix-mismatch" | "unknown-ds-component", "list") => &["tag", "system"],
+                    ("ds-prefix-mismatch" | "unknown-ds-component", "near") => &["near"],
+                    ("invalid-ds-prop", "unknown") => &["prop", "tag", "system"],
+                    ("invalid-ds-prop", "allowed") => &["tag", "prop", "value", "allowed"],
+                    ("invalid-ds-prop", "boolean") => &["tag", "prop", "value"],
+                    _ => panic!("Check the caller fields for {code}/{variant}"),
+                };
+                let fields: Vec<_> = names.iter().map(|&name| (name, "sample")).collect();
+                let rendered = fix(code, variant, &fields);
+                assert!(
+                    !rendered.contains(['{', '}']),
+                    "{code}/{variant}: {rendered}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn nearest_tag_matches_the_frame_vectors() {
+        let cases: Vec<Value> = serde_json::from_str(include_str!(
+            "../../../../contracts/vectors/design-nearest-tag-v1.json"
+        ))
+        .unwrap();
+        for case in cases {
+            let tags: Vec<_> = case["tags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tag| serde_json::json!({"tag":tag}))
+                .collect();
+            assert_eq!(
+                nearest(
+                    case["tag"].as_str().unwrap(),
+                    case["prefix"].as_str().unwrap(),
+                    &tags
+                ),
+                case["near"].as_str(),
+                "{case}"
+            );
+        }
+    }
     #[test]
     fn typo_and_enum_repairs_name_the_component_and_rejected_value() {
         let report = crate::page_check::check(r#"<meta name="tmt-ds" content="tmt-gui"><tmt-ui-buton></tmt-ui-buton><tmt-ui-button variant="garbage"></tmt-ui-button><tmt-ui-completely-unrelated></tmt-ui-completely-unrelated>"#).unwrap();
@@ -283,6 +394,13 @@ mod tests {
                 .unwrap()
                 .contains("Did you mean")
         );
+    }
+
+    #[test]
+    fn rejected_attribute_value_is_inserted_verbatim() {
+        let report = crate::page_check::check(r#"<meta name="tmt-ds" content="tmt-gui"><tmt-ui-button variant='{allowed}"'></tmt-ui-button>"#).unwrap();
+        let fix = report.findings[0].fix.as_deref().unwrap();
+        assert!(fix.contains(r#"variant="{allowed}""."#), "{fix}");
     }
 
     #[test]

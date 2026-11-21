@@ -9,7 +9,7 @@
 
 mod anchors;
 mod design;
-pub use design::space_findings;
+pub use design::{design_message, space_findings};
 mod group;
 mod hints;
 mod image;

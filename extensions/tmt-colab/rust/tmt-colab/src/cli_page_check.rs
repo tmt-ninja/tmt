@@ -81,16 +81,15 @@ fn kib(bytes: usize) -> usize {
 }
 
 /// The sentence for one reason code. The code is the stable part; this wording may improve.
-fn message(code: &str) -> String {
+fn message(code: &str, tag: &str) -> String {
+    if let Some(text) = tmt_colab::page_check::design_message(code, tag) {
+        return text;
+    }
     if let Some(reason) = tmt_colab::question_registry::reason(code) {
         return reason.into();
     }
     match code {
         "multiple-ds-pins" => "The page names more than one design system.".into(),
-        "unknown-ds-release" => "This build does not carry the pinned release.".into(),
-        "ds-prefix-mismatch" => "The tag belongs to another design system.".into(),
-        "unknown-ds-component" => "The pinned system has no component with this tag.".into(),
-        "invalid-ds-prop" => "The component does not accept this attribute or value.".into(),
         "page-too-deep" => format!(
             "The page nests deeper than {PAGE_DEPTH} elements, where a browser stops nesting; nothing after this element was checked."
         ),
@@ -225,7 +224,7 @@ fn finding_json(finding: &Finding) -> Value {
         "ordinal": finding.ordinal,
         "id": finding.id,
         "line": finding.line,
-        "message": message(finding.code),
+        "message": message(finding.code, &finding.element),
     });
     if let Some(skipped) = finding.questions_skipped {
         value["questionsSkipped"] = json!(skipped);
@@ -278,7 +277,7 @@ fn describe(finding: &Finding) -> String {
         finding.element,
         finding.ordinal,
         id,
-        message(finding.code),
+        message(finding.code, &finding.element),
         skipped
     );
     finding.fix.as_ref().map_or(description.clone(), |fix| {
