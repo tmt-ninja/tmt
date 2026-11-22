@@ -1324,3 +1324,78 @@ fn colab_work_6809_section_progress_contract_and_narrow_widths() {
         }
     }
 }
+
+#[test]
+fn colab_work_collapsed_saved_view_clears_inspector_focus_and_opens_page() {
+    let now = 1_800_000_000_000_u64;
+    let document = owner_list(now);
+    let mut app = board();
+    let view = crate::config::WorkView {
+        name: "Collapsed".into(),
+        project: Some("Colab".into()),
+        query: String::new(),
+        filter: None,
+        detail_collapsed: true,
+        default: false,
+    };
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .work_views = vec![view];
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    let _guard = crate::runner::forbid_commands();
+    let key = |app: &mut App, code: KeyCode| {
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            code,
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ))
+    };
+
+    key(&mut app, KeyCode::Char('2'));
+
+    // 1. Chip path: Tab focuses section 1, then applying a collapsed view clears focus.
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Down);
+    assert!(app.work.inspector_focused);
+    assert_eq!(app.work.inspector_cursor, 1);
+    app.work_hit(surface::Hit::View(ViewSelection::Saved("Collapsed".into())));
+    assert!(app.work.detail_collapsed);
+    assert!(!app.work.inspector_focused);
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: None,
+        })
+    );
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.work.inspector_cursor, 0);
+    assert_ne!(app.work.selected.as_deref(), Some(PAGE));
+
+    // 2. `v` + Enter path: expand, Tab + Down to focus section, open `v`, press Enter.
+    key(&mut app, KeyCode::Char(' '));
+    key(&mut app, KeyCode::Home);
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Down);
+    assert!(app.work.inspector_focused);
+    key(&mut app, KeyCode::Char('v'));
+    key(&mut app, KeyCode::Enter);
+    assert!(app.work.detail_collapsed);
+    assert!(!app.work.inspector_focused);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('o')),
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: None,
+        })
+    );
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.work.inspector_cursor, 0);
+    assert_ne!(app.work.selected.as_deref(), Some(PAGE));
+}

@@ -898,7 +898,7 @@ fn paint_inspector(
 }
 
 fn selected_section(state: &super::State, item: &super::Item) -> Option<usize> {
-    (state.inspector_focused && !item.sections.is_empty())
+    (!state.detail_collapsed && state.inspector_focused && !item.sections.is_empty())
         .then(|| state.inspector_cursor.min(item.sections.len() - 1))
 }
 
@@ -1641,7 +1641,7 @@ impl App {
         hit.map(|hit| self.work_hit(hit))
     }
 
-    fn work_hit(&mut self, hit: Hit) -> Effect {
+    pub(super) fn work_hit(&mut self, hit: Hit) -> Effect {
         if let Hit::Move(key) = hit {
             return self.open_work_order(&key);
         }
@@ -1791,6 +1791,9 @@ impl App {
         }
         self.work.searching = false;
         self.work.detail_collapsed = default_view.detail_collapsed;
+        if self.work.detail_collapsed {
+            self.work.inspector_focused = false;
+        }
         self.work.active_view = ViewSelection::Saved(default_view.name);
         self.work.selected = None;
         self.work.inspector_cursor = 0;
@@ -1810,6 +1813,9 @@ impl App {
             }
             self.work.searching = false;
             self.work.detail_collapsed = view.detail_collapsed;
+            if self.work.detail_collapsed {
+                self.work.inspector_focused = false;
+            }
         }
         self.work.active_view = selection;
         self.work.selected = None;
