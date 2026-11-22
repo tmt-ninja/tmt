@@ -1929,7 +1929,7 @@ impl App {
                     hints: "⏎ apply · d set default · x delete · s save · Esc close".into(),
                 };
                 let rows_h = views.len().clamp(3, 12) as u16 + 2;
-                let width = dialog.footer_width().max(64).min(body.width);
+                let width = (dialog.footer_width() + 4).max(66).min(body.width);
                 let areas = dialog.areas(body, [width, rows_h], false);
                 let painted = dialog.paint(areas, state, frame.buffer_mut(), d_look);
                 let c = areas.content;
