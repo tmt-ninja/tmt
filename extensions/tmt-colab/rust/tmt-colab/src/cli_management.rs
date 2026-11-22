@@ -1411,6 +1411,19 @@ fn run_once(
         let graph = tmt_colab::work_links::Graph(&found);
         attach_hierarchy_warnings(&graph, &mut page);
         attach_state_progress(&mut page, &graph, &archived);
+        if json_output {
+            let mut source = tmt_colab::page::save::open_source(
+                root,
+                tmt_colab::decoder::Config::new(std::env::current_exe()?),
+            )?;
+            let now = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())
+                .map_err(|_| input("Local clock is beyond the supported range."))?;
+            if let Ok(projection) = tmt_colab::summary::summarize_details(&mut source, &id)
+                && let Some(progress) = tmt_colab::sections::progress(&projection.sections, now)
+            {
+                page["sectionProgress"] = json!(progress);
+            }
+        }
         attach_computed_status(&mut page, &store, &key, None);
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));

@@ -230,6 +230,21 @@ impl Section {
     }
 }
 
+/// Count the same bounded, fold-decided sections on the selected page and in Work.
+pub fn progress(sections: &[Section], now_ms: u64) -> Option<crate::page_state::Progress> {
+    let mut progress = crate::page_state::Progress::default();
+    for section in sections.iter().filter(|section| section.counted()) {
+        match section.folded_state(now_ms) {
+            "done" => progress.done += 1,
+            "not-started" => progress.todo += 1,
+            "unchecked" => progress.unknown += 1,
+            _ => progress.in_progress += 1,
+        }
+        progress.total += 1;
+    }
+    (progress.total != 0).then_some(progress)
+}
+
 /// The counted sections as the owner list and the page's status read carry them: `{id, title,
 /// level, done, total, state, manual?}`, with `state` from `state_of`.
 pub fn summary(sections: &[Section], state_of: impl Fn(&Section) -> &'static str) -> Value {

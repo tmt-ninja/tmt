@@ -418,11 +418,11 @@ impl Registration {
     /// page does.
     pub fn pages(&self, context: Option<&str>) -> std::result::Result<Vec<u8>, Code> {
         Context::parse(context)?;
-        self.local_pages()
+        self.project_pages(true, false)
     }
 
     pub(crate) fn local_pages(&self) -> std::result::Result<Vec<u8>, Code> {
-        self.project_pages(true)
+        self.project_pages(true, true)
     }
 
     /// The native caller holds the owner lifecycle lock and opens a read-only source.
@@ -443,12 +443,16 @@ impl Registration {
         let mut service = Self::new(source.store, source.keyring, decoder_program)?;
         service.summaries = cache;
         service
-            .project_pages(false)
+            .project_pages(false, true)
             .map_err(|code| std::io::Error::other(code.text()).into())
     }
 
-    fn project_pages(&self, serving: bool) -> std::result::Result<Vec<u8>, Code> {
-        let mut catalog = self.work_catalog(true, serving)?;
+    fn project_pages(
+        &self,
+        serving: bool,
+        section_progress: bool,
+    ) -> std::result::Result<Vec<u8>, Code> {
+        let mut catalog = self.work_catalog(true, serving, section_progress)?;
         let orders = self.visible_project_orders(&catalog)?;
         // The mandatory omitted-name list has already been budgeted. Moving a name from
         // that array into the map pays for the name itself; allow for the colon and comma.
@@ -535,7 +539,7 @@ impl Registration {
     )> {
         self.prepare_order(name, &[])?;
         let catalog = self
-            .work_catalog(false, self.order_source.is_none())
+            .work_catalog(false, self.order_source.is_none(), false)
             .map_err(|code| std::io::Error::other(code.text()))?;
         let membership = crate::store::project_orders::WorkMembership::from_catalog(&catalog);
         let order = self
@@ -559,7 +563,7 @@ impl Registration {
         }
         self.prepare_order(project, &extra)?;
         let catalog = self
-            .work_catalog(false, self.order_source.is_none())
+            .work_catalog(false, self.order_source.is_none(), false)
             .map_err(|code| std::io::Error::other(code.text()))?;
         let membership = crate::store::project_orders::WorkMembership::from_catalog(&catalog);
         self.store
@@ -595,6 +599,7 @@ impl Registration {
         &self,
         bounded: bool,
         serving: bool,
+        section_progress: bool,
     ) -> std::result::Result<serde_json::Value, Code> {
         let CatalogRead {
             mut catalog,
@@ -626,6 +631,13 @@ impl Registration {
             .iter()
             .map(|(id, (state, _))| (id.clone(), state.clone()))
             .collect();
+        let sections: std::collections::BTreeMap<_, _> = fresh
+            .keys()
+            .filter_map(|id| {
+                let (sections, omitted) = self.summaries.sections(id, fingerprints.get(id)?)?;
+                (!sections.is_empty() || omitted).then_some((id.clone(), (sections, omitted)))
+            })
+            .collect();
         let status = |page: &str| statuses.get(page).cloned();
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
@@ -644,6 +656,13 @@ impl Registration {
             };
             page["state"] = serde_json::json!(graph.page_state(&id));
             page["summary"] = summary.json();
+            if section_progress
+                && let Some(progress) = sections
+                    .get(&id)
+                    .and_then(|(sections, _)| crate::sections::progress(sections, now))
+            {
+                page["summary"]["sectionProgress"] = serde_json::json!(progress);
+            }
             if let Some(state) = statuses.get(&id) {
                 page["summary"]["status"] = serde_json::json!(state);
             }
@@ -667,17 +686,18 @@ impl Registration {
             }
         }
         catalog["listToken"] = serde_json::json!(list_token(&fingerprints)?);
-        if bounded {
-            crate::page_titles::attach_to_catalog(&mut catalog, &titles);
-        } else {
-            for row in catalog["pages"].as_array_mut().into_iter().flatten() {
-                if let Some(title) = row["pageId"].as_str().and_then(|id| titles.get(id)) {
-                    row["title"] = serde_json::json!(title);
+        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+            if let Some(id) = page["pageId"].as_str() {
+                let omit_todos = bounded && todos.contains_key(id);
+                let omit_sections = sections.contains_key(id);
+                if omit_todos {
+                    page["summary"]["todosOmitted"] = serde_json::json!(true);
+                }
+                if omit_sections {
+                    page["summary"]["sectionsOmitted"] = serde_json::json!(true);
                 }
             }
         }
-        // Work fields are optional display data. Keep the complete catalog within the existing
-        // discovery bound even when every page has the longest allowed notes.
         if bounded {
             catalog["projectPrefixes"] = serde_json::json!(
                 self.store
@@ -686,6 +706,13 @@ impl Registration {
             );
             catalog["projectOrders"] = serde_json::json!({});
             catalog["projectOrdersOmitted"] = catalog["projects"].clone();
+            crate::page_titles::attach_to_catalog(&mut catalog, &titles);
+        } else {
+            for row in catalog["pages"].as_array_mut().into_iter().flatten() {
+                if let Some(title) = row["pageId"].as_str().and_then(|id| titles.get(id)) {
+                    row["title"] = serde_json::json!(title);
+                }
+            }
         }
         let mut used = serde_json::to_vec(&catalog)
             .map_err(|_| Code::Unavailable)?
@@ -722,44 +749,36 @@ impl Registration {
                 + 16;
             if !bounded || used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
                 page["summary"]["todos"] = items;
+                if bounded {
+                    page["summary"]
+                        .as_object_mut()
+                        .expect("fresh summary")
+                        .remove("todosOmitted");
+                }
                 used += cost;
-            } else {
-                page["summary"]["todosOmitted"] = serde_json::json!(true);
-                used += 24;
             }
         }
         // Sections come after the to-dos within the same bound (#6619): the counted ones, with the
         // status the fold alone decides.
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
-            let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
-                continue;
-            };
-            if !page["summary"].is_object() {
-                continue;
-            }
-            let Some((sections, omitted)) = fingerprints
-                .get(&id)
-                .and_then(|fingerprint| self.summaries.sections(&id, fingerprint))
+            let Some((sections, omitted)) = page["pageId"].as_str().and_then(|id| sections.get(id))
             else {
                 continue;
             };
-            let rows = crate::sections::summary(&sections, |section| section.folded_state(now));
-            if rows.as_array().is_none_or(Vec::is_empty) && !omitted {
-                continue;
-            }
+            let rows = crate::sections::summary(sections, |section| section.folded_state(now));
             let cost = serde_json::to_vec(&rows)
                 .map_err(|_| Code::Unavailable)?
                 .len()
                 + 40;
             if used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
                 page["summary"]["sections"] = rows;
-                if omitted {
-                    page["summary"]["sectionsOmitted"] = serde_json::json!(true);
+                if !omitted {
+                    page["summary"]
+                        .as_object_mut()
+                        .expect("fresh summary")
+                        .remove("sectionsOmitted");
                 }
                 used += cost;
-            } else {
-                page["summary"]["sectionsOmitted"] = serde_json::json!(true);
-                used += 27;
             }
         }
         Ok(catalog)
@@ -2688,6 +2707,71 @@ mod describe_tests {
         assert_ne!(changed_content, committed);
         assert_eq!(token(), changed_content);
         writer.close().unwrap();
+    }
+
+    #[test]
+    fn work_section_progress_fits_at_the_page_limit() {
+        use serde_json::json;
+        let root = std::env::temp_dir().join(format!("colab-work-progress-{}", std::process::id()));
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let key = Keyring::open(&layout).unwrap();
+        let store = Store::open(&layout).unwrap();
+        for index in 0..crate::limits::PAGES {
+            store
+                .create_page(&format!("00000000-0000-4000-8000-{index:012}"))
+                .unwrap();
+        }
+        let mut service =
+            Registration::new(store, key, std::path::PathBuf::from("/unused-decoder")).unwrap();
+        service.genesis().unwrap();
+        let (_, fingerprints) = service.owner_catalog_fingerprinted().unwrap();
+        let mut projection = SummaryProjection::from(Summary {
+            comments: 0,
+            waiting: false,
+            needs_you: 0,
+            author: None,
+            work: None,
+        });
+        let title = "x".repeat(crate::sections::SECTION_TITLE);
+        let blocks: serde_json::Map<String, serde_json::Value> = (0..crate::sections::SECTIONS)
+            .map(|index| {
+                (
+                    format!("h{index}"),
+                    json!({
+                        "type":"heading","parent":"root","pos":format!("{index:03}"),
+                        "props":{"level":2,"progress":"done"},"text":{"s":title,"marks":[]}
+                    }),
+                )
+            })
+            .collect();
+        projection.sections = crate::sections::sections(Some(&blocks.into())).0;
+        for (page, fingerprint) in &fingerprints {
+            service
+                .summaries
+                .put(page, fingerprint, Some(projection.clone()));
+        }
+        let bytes = service.local_pages().unwrap();
+        assert!(bytes.len() <= crate::limits::DISCOVERY_BYTES);
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let rows = value["pages"].as_array().unwrap();
+        assert_eq!(rows.len(), crate::limits::PAGES);
+        let expected = json!({"done":64,"inProgress":0,"todo":0,"unknown":0,"total":64});
+        assert!(
+            rows.iter()
+                .all(|row| row["summary"]["sectionProgress"] == expected)
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row["summary"]["sectionsOmitted"] == true)
+        );
+        service.close().unwrap();
     }
 
     /// A page's work row and parent are resolved across the pages the cache holds fresh.

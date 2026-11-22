@@ -7,7 +7,10 @@ from its computed status and progress. Open the status in the page top bar to se
 Use `subpage ls PAGE` for freshly folded sub-page work.
 
 Use `tmt colab ls --json --work` for owner Work home summaries, including each page’s counted `sections` and
-project orders. A running serve reads its owner list; an offline read folds the local store.
+project orders. Each `summary.sectionProgress` counts the same bounded headings as
+`show --json`'s `page.sectionProgress` and is absent without counted sections.
+`show --json`'s `page.progress` counts direct sub-pages. A running serve reads its owner list.
+An offline read folds the local store.
 A to-do in `summary.todos` includes `due` as YYYY-MM-DD when set. Set it with
 `tmt colab block props PAGE BLOCK --set due=2026-11-22`, or remove it with `--unset due`.
 Plain `ls --json` skips these extras. `sectionsOmitted` flags an incomplete section listing.

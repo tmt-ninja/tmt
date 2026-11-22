@@ -6862,6 +6862,13 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     local store, uses fold-only status, and reports retained times without stamping them.
     Both paths include the bounded owner list’s `projectOrders` and `projectOrdersOmitted`
     with `--work`. Plain `ls --json` omits both fields.
+  - `pages[].summary.sectionProgress` and `tmt colab show PAGE --json`'s
+    `page.sectionProgress` use the same fold-only reducer over at most 64 counted sections.
+    The object has integer `done`, `inProgress`, `todo`, `unknown`, and `total` counts.
+    A section in state `done` counts as done, `not-started` as to do, and `unchecked` as unknown.
+    Other counted states count as in progress. The aggregate holds no titles and is omitted without
+    counted sections or a readable section projection. The selected page's separate `progress`
+    field describes direct sub-pages.
   - `doneAtMs` and `blockedSinceMs` are the page's last admitted activity (`lastUpdateAtMs`, never
     later than the read) when an owner list read first saw its status `done` or a non-empty
     `blocked` field, so work already done when the list first sees it keeps the time of its last
