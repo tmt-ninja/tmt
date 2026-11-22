@@ -8,37 +8,41 @@ use ratatui::{
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
-use tmt_tui::components::strip;
+use tmt_tui::components::{
+    design_system::{
+        self as ds, CellGrid, Component, Gauge, GaugeProps, MoreDirection, MoreHint, MoreHintProps,
+        PaneRule, PaneRuleProps, SectionRule, SectionRuleProps, Sparkline, SparklineProps, Token,
+    },
+    design_system_ratatui, strip,
+};
 
 use crate::board::{
     app::{App, Choice, Effect, Menu, MenuEntry},
     shell::OpsTab,
-    view::{fit, scene},
+    view::fit,
 };
 
-use super::{Item, List, Status};
+use super::{Item, List, Progress, Status};
 
 #[derive(Clone, Debug)]
 pub(in crate::board) enum Hit {
     Row(String),
     Open(String),
     Move(String),
+    Talk(String),
     Project,
     Recent,
     More(Option<String>),
     Period,
+    ToggleDetail,
+    Search,
+    Section(usize),
 }
 
 const MAX_ROWS: usize = 5;
 const DAY: i64 = 86_400_000;
 const HOUR: i64 = 3_600_000;
-const GUTTER: usize = 3;
-const NUMBER: usize = 13;
-const STATUS: usize = 22;
-const OWNER: usize = 16;
-const AGE: usize = 5;
 const WIDE: usize = 145;
-const TABLE: usize = 69;
 const PERIODS: [&str; 3] = ["Today", "7 days", "30 days"];
 
 fn in_project(item: &Item, project: Option<&str>) -> bool {
@@ -105,26 +109,6 @@ fn counts(items: impl Iterator<Item = Status>, include_zeros: bool) -> String {
     words.join(" · ")
 }
 
-fn wrap_counts(summary: &str, width: usize) -> Vec<String> {
-    use unicode_width::UnicodeWidthStr;
-
-    const SEPARATOR: &str = " · ";
-    let mut lines = Vec::new();
-    let mut line = String::new();
-    for item in summary.split(SEPARATOR) {
-        if !line.is_empty() {
-            if line.width() + SEPARATOR.width() + item.width() > width {
-                lines.push(std::mem::take(&mut line));
-            } else {
-                line.push_str(SEPARATOR);
-            }
-        }
-        line.push_str(item);
-    }
-    lines.push(line);
-    lines
-}
-
 fn local_start(now: i64, zone: &jiff::tz::TimeZone, days_back: i32) -> Option<i64> {
     let date = jiff::Timestamp::from_millisecond(now)
         .ok()?
@@ -156,23 +140,28 @@ fn done_counts<'a>(
     totals
 }
 
-fn done_chart(list: &List, state: &super::State, now: i64, zone: &jiff::tz::TimeZone) -> String {
+fn done_buckets(
+    list: &List,
+    state: &super::State,
+    now: i64,
+    zone: &jiff::tz::TimeZone,
+) -> (Vec<Option<u64>>, u64) {
     let days = [1, 7, 30][state.period];
     let start = |days_back| local_start(now, zone, days_back).unwrap_or(now);
-    let from = if days == 1 { start(0) } else { start(days - 1) };
-    let hours = if days == 1 {
-        jiff::Timestamp::from_millisecond(now).map_or(1, |timestamp| {
-            usize::try_from(timestamp.to_zoned(zone.clone()).hour()).unwrap_or(0) + 1
-        })
+    let from = if days == 1 {
+        now.saturating_sub(11 * HOUR)
     } else {
-        days as usize
+        start(days - 1)
     };
+    let buckets = if days == 1 { 12 } else { days as usize };
     let bounds: Vec<_> = if days == 1 {
-        (0..hours).map(|index| from + index as i64 * HOUR).collect()
+        (0..buckets)
+            .map(|index| from + index as i64 * HOUR)
+            .collect()
     } else {
         (0..days).rev().map(start).collect()
     };
-    let mut cells = vec![0_u32; bounds.len()];
+    let mut cells = vec![0_u64; bounds.len()];
     for at in list
         .items
         .iter()
@@ -185,12 +174,8 @@ fn done_chart(list: &List, state: &super::State, now: i64, zone: &jiff::tz::Time
             cells[index] += 1;
         }
     }
-    let top = cells.iter().copied().max().unwrap_or(0).max(1);
-    let bars = ['·', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-    cells
-        .iter()
-        .map(|&count| bars[(count * 8).div_ceil(top) as usize])
-        .collect()
+    let scale = cells.iter().copied().max().unwrap_or(0).max(1);
+    (cells.into_iter().map(Some).collect(), scale)
 }
 
 fn rows<'a>(
@@ -200,26 +185,11 @@ fn rows<'a>(
     zone: &jiff::tz::TimeZone,
     width: usize,
     roster: Option<&crate::board::workspace::OpsRoster>,
+    query: &str,
 ) -> Vec<Row<'a>> {
     let filter = state.project.as_deref();
-    let summary = counts(
-        list.items
-            .iter()
-            .filter(|item| in_project(item, filter))
-            .map(|item| item.status),
-        true,
-    );
-    let mut rows: Vec<_> = wrap_counts(
-        &summary,
-        if width == 0 {
-            usize::MAX
-        } else {
-            width.saturating_sub(1).max(1)
-        },
-    )
-    .into_iter()
-    .map(|text| Row::label(text, Role::Muted))
-    .collect();
+    let trimmed = query.trim();
+    let mut rows = Vec::new();
     if list.missing > 0 || list.omitted > 0 {
         let mut notes = Vec::new();
         if list.missing > 0 {
@@ -236,35 +206,13 @@ fn rows<'a>(
     }
     if list.items.is_empty() && list.missing == 0 {
         rows.push(Row::label("No work yet.", Role::Muted));
+        return rows;
     }
-    let visible = || list.items.iter().filter(|item| in_project(item, filter));
-    let moving: std::collections::BTreeSet<_> = visible()
-        .filter(|item| item.status == Status::Working)
-        .filter_map(|item| item.owner_name(roster))
-        .collect();
-    let oldest = |status, timestamp: fn(&Item) -> Option<i64>| {
-        visible()
-            .filter(|item| item.status == status)
-            .filter_map(|item| Some((timestamp(item)?, &item.key, item)))
-            .min_by_key(|&(at, key, _)| (at, key))
-            .map(|(_, _, item)| item.number.as_deref().unwrap_or(&item.title))
+    let visible = || {
+        list.items
+            .iter()
+            .filter(|item| in_project(item, filter) && item.matches_query(trimmed, roster))
     };
-    let mut overview = Vec::new();
-    if !moving.is_empty() {
-        overview.push(format!(
-            "Moving · {}",
-            moving.into_iter().collect::<Vec<_>>().join(", ")
-        ));
-    }
-    if let Some(item) = oldest(Status::Blocked, |item| item.blocked_since.or(item.last)) {
-        overview.push(format!("Stuck longest · {item}"));
-    }
-    if let Some(item) = oldest(Status::Stalled, |item| item.last) {
-        overview.push(format!("Quietest · {item}"));
-    }
-    if !overview.is_empty() {
-        rows.push(Row::label(overview.join("   "), Role::Muted));
-    }
     let selected_project = filter.map(Some);
     let mut groups = std::collections::BTreeMap::<Option<&str>, Vec<&Item>>::new();
     for item in visible() {
@@ -276,7 +224,6 @@ fn rows<'a>(
             }
         }
     }
-    let mut headings = false;
     for project in list
         .projects
         .iter()
@@ -306,14 +253,6 @@ fn rows<'a>(
             ),
             Role::Muted,
         ));
-        if !headings && !open.is_empty() {
-            headings = true;
-            let heading = table_cells(
-                width,
-                ["NUMBER", "STATUS", "TITLE", "OWNER", "AGE", "NEXT / REASON"],
-            );
-            rows.push(Row::label(format!("  {heading}"), Role::Dim));
-        }
         let order = project.and_then(|name| list.orders.get(name));
         if let Some(order) = order
             && filter.is_some()
@@ -354,14 +293,14 @@ fn rows<'a>(
                 .collect::<Vec<_>>()
                 .join(" → ")
         });
-        let expanded = state.expanded.contains(&project.map(str::to_owned));
+        let expanded = !trimmed.is_empty() || state.expanded.contains(&project.map(str::to_owned));
         let count = open.len();
         rows.extend(
             open.into_iter()
                 .take(if expanded { count } else { MAX_ROWS })
                 .map(|item| Row::item(item, &section)),
         );
-        if count > MAX_ROWS {
+        if count > MAX_ROWS && trimmed.is_empty() {
             rows.push(Row {
                 label: if expanded {
                     "Enter Show fewer".into()
@@ -374,98 +313,87 @@ fn rows<'a>(
                 selection: Some(format!("more:{section}")),
             });
         }
-        if let Some(preview) = preview {
-            let preview = if preview.is_empty() {
-                "No ranked items"
-            } else {
-                &preview
-            };
+        if let Some(preview) = preview
+            && !preview.is_empty()
+        {
             rows.push(Row::label(format!("Next: {preview}"), Role::Muted));
         }
     }
-    let [today, week, month] = done_counts(
-        list.items.iter().filter(|item| in_project(item, filter)),
-        now,
-        zone,
-    );
-    rows.push(Row {
-        label: format!(
-            "── Done · Today {today} · 7 days {week} · 30 days {month} ──   c {}",
-            if state.recent {
-                "Hide recently done"
-            } else {
-                "Recently done"
-            }
-        ),
-        role: Role::Muted,
-        item: None,
-        hit: Some(Hit::Recent),
-        selection: None,
-    });
-    rows.push(Row {
-        label: format!(
-            "d {}  {}",
-            PERIODS[state.period],
-            done_chart(list, state, now, zone)
-        ),
-        role: Role::Text,
-        item: None,
-        hit: Some(Hit::Period),
-        selection: None,
-    });
-    if state.recent {
-        let mut done: Vec<_> = list
-            .items
-            .iter()
-            .filter(|item| {
-                item.status == Status::Done
-                    && item.done.is_some_and(|at| at <= now)
-                    && in_project(item, filter)
-            })
-            .collect();
-        done.sort_by_key(|item| (std::cmp::Reverse(item.done), &item.key));
-        rows.extend(
-            done.into_iter()
-                .take(10)
-                .map(|item| Row::item(item, "done")),
+    if trimmed.is_empty() {
+        let [today, week, month] = done_counts(
+            list.items.iter().filter(|item| in_project(item, filter)),
+            now,
+            zone,
         );
+        rows.push(Row {
+            label: format!(
+                "── Done · Today {today} · 7 days {week} · 30 days {month} ──   c {}",
+                if state.recent {
+                    "Hide recently done"
+                } else {
+                    "Recently done"
+                }
+            ),
+            role: Role::Muted,
+            item: None,
+            hit: Some(Hit::Recent),
+            selection: None,
+        });
+        if state.recent {
+            let mut done: Vec<_> = list
+                .items
+                .iter()
+                .filter(|item| {
+                    item.status == Status::Done
+                        && item.done.is_some_and(|at| at <= now)
+                        && in_project(item, filter)
+                })
+                .collect();
+            done.sort_by_key(|item| (std::cmp::Reverse(item.done), &item.key));
+            rows.extend(
+                done.into_iter()
+                    .take(10)
+                    .map(|item| Row::item(item, "done")),
+            );
+        }
+    } else if !rows.iter().any(|row| row.item.is_some()) {
+        rows.push(Row::label(
+            format!("No matching work for \"{trimmed}\"."),
+            Role::Muted,
+        ));
     }
     rows
 }
 
-fn title_width(width: usize) -> usize {
-    if width >= WIDE {
-        42
-    } else {
-        width.saturating_sub(GUTTER + NUMBER + STATUS + OWNER + AGE + 4)
+fn paint_ds<C: Component>(frame: &mut Frame, app: &App, area: Rect, props: &C::Props) {
+    if area.is_empty() {
+        return;
     }
-}
-
-fn table_cells(width: usize, [number, status, title, owner, age, detail]: [&str; 6]) -> String {
-    if width < TABLE {
-        return format!("{} {} {title}", fit(number, NUMBER), fit(status, STATUS));
-    }
-    let width_left = title_width(width);
-    let main = format!(
-        "{} {} {} {} {}",
-        fit(number, NUMBER),
-        fit(status, STATUS),
-        fit(title, width_left),
-        fit(owner, OWNER),
-        fit(age, AGE),
+    let mut grid = CellGrid::new(ds::Size {
+        width: area.width,
+        height: area.height,
+    });
+    let _ = C::render(
+        props,
+        ds::Rect {
+            x: 0,
+            y: 0,
+            width: area.width,
+            height: area.height,
+        },
+        &mut grid,
     );
-    if width >= WIDE {
-        format!("{main} {detail}")
-    } else {
-        main
-    }
+    design_system_ratatui::paint(
+        &grid,
+        area,
+        frame.buffer_mut(),
+        &app.look().theme,
+        app.look().depth,
+    );
 }
 
-fn row_text(item: &Item, width: usize, owned: &str, now: i64) -> String {
-    use unicode_width::UnicodeWidthStr;
-    let number = item.number.as_deref().unwrap_or("—");
-    let status = item.status.marked_label();
-    let age = item.last.filter(|at| *at <= now).map_or_else(
+fn age_label(at: Option<i64>, now: i64) -> String {
+    at.filter(|at| *at <= now).map_or_else(
         || "—".into(),
         |at| {
             let minutes = (now - at) / 60_000;
@@ -475,34 +403,23 @@ fn row_text(item: &Item, width: usize, owned: &str, now: i64) -> String {
                 _ => format!("{}d", minutes / 1440),
             }
         },
-    );
-    let available = if width >= TABLE {
-        title_width(width)
-    } else {
-        width.saturating_sub(GUTTER + NUMBER + STATUS + 2)
-    };
-    let title = item.parent.as_ref().map_or_else(
-        || item.title.clone(),
-        |parent| {
-            let separator = " · ";
-            let context = parent.width() + separator.width();
-            if available <= context {
-                item.title.clone()
-            } else {
-                let shown = fit(&item.title, available - context);
-                format!("{}{separator}{parent}", shown.trim_end())
-            }
-        },
-    );
-    let detail = if item.status == Status::Done {
-        item.release.as_deref()
-    } else {
-        item.next.as_deref()
-    };
-    table_cells(
-        width,
-        [number, &status, &title, owned, &age, detail.unwrap_or("")],
     )
+}
+
+fn mini_bar(progress: Option<Progress>, width: usize) -> (String, String) {
+    match progress {
+        Some(progress) if progress.total > 0 => {
+            let filled = ((progress.done.min(progress.total) * width as u64 + progress.total / 2)
+                / progress.total) as usize;
+            let bar = format!(
+                "{}{}",
+                "▓".repeat(filled.min(width)),
+                "░".repeat(width.saturating_sub(filled))
+            );
+            (bar, format!("{}/{}", progress.done, progress.total))
+        }
+        _ => ("░".repeat(width), "—".into()),
+    }
 }
 
 fn role(status: Status) -> Role {
@@ -511,6 +428,394 @@ fn role(status: Status) -> Role {
         Status::Stalled | Status::NeedsYou => Role::Waiting,
         Status::Unchecked | Status::Unknown => Role::Muted,
         _ => Role::Text,
+    }
+}
+
+fn ascii_mode(app: &App) -> bool {
+    matches!(
+        app.cron_glyphs,
+        crate::board::overview::cron_counts::GlyphSet::Ascii
+    )
+}
+
+fn paint_dashboard_band(
+    frame: &mut Frame,
+    app: &App,
+    list: &List,
+    state: &super::State,
+    area: Rect,
+    now: i64,
+    zone: &jiff::tz::TimeZone,
+    roster: Option<&crate::board::workspace::OpsRoster>,
+) -> u16 {
+    let filter = state.project.as_deref();
+    let query = app.search.as_str().trim();
+    if state.detail_collapsed || !query.is_empty() {
+        let label =
+            filter.unwrap_or_else(|| list.projects.first().map(String::as_str).unwrap_or("all"));
+        let progress = filter
+            .and_then(|name| list.project_progress(name))
+            .or_else(|| {
+                list.projects
+                    .first()
+                    .and_then(|name| list.project_progress(name))
+            });
+        let (numerator, denominator, ratio) = match progress {
+            Some(p) => (p.done, p.total, format!("{}/{} chapters", p.done, p.total)),
+            None => (0, 0, "—".into()),
+        };
+        let mut details = vec![ratio];
+        if let Some(name) = filter {
+            details.push(format!("project:{name}"));
+        }
+        if !query.is_empty() {
+            details.push(format!("query:{query}"));
+        }
+        paint_ds::<Gauge>(
+            frame,
+            app,
+            Rect::new(area.x, area.y, area.width, 1),
+            &GaugeProps {
+                label: label.into(),
+                label_width: 9,
+                numerator,
+                denominator,
+                total: Some(details.join(" · ")),
+                filled_role: Token(Role::Working),
+                rest_role: Token(Role::Dim),
+            },
+        );
+        return 1;
+    }
+    if area.width < 96 || area.height < 16 {
+        return 0;
+    }
+    let left_w = (area.width / 2).saturating_sub(1);
+    let right_x = area.x + left_w + 1;
+    let right_w = area.width.saturating_sub(left_w + 1);
+    let ascii = ascii_mode(app);
+    let look = app.look();
+
+    paint_ds::<PaneRule>(
+        frame,
+        app,
+        Rect::new(area.x, area.y, left_w, 1),
+        &PaneRuleProps {
+            title: "Projects".into(),
+            note: Some("chapters".into()),
+            note_role: Some(Token(Role::Dim)),
+            focused: false,
+            ascii,
+        },
+    );
+    paint_ds::<PaneRule>(
+        frame,
+        app,
+        Rect::new(right_x, area.y, right_w, 1),
+        &PaneRuleProps {
+            title: "Squad Pulse".into(),
+            note: Some(PERIODS[state.period].into()),
+            note_role: Some(Token(Role::Dim)),
+            focused: false,
+            ascii,
+        },
+    );
+
+    let projects: Vec<&str> = match filter {
+        Some(name) => vec![name],
+        None => list.projects.iter().take(4).map(String::as_str).collect(),
+    };
+    let rows_used = projects.len().max(4).min(4) as u16;
+    for (idx, project) in projects.iter().enumerate() {
+        let y = area.y + 1 + idx as u16;
+        let progress = list.project_progress(project);
+        let (numerator, denominator, ratio) = match progress {
+            Some(p) => (p.done, p.total, format!("{}/{}", p.done, p.total)),
+            None => (0, 0, "—".into()),
+        };
+        let mut needs = 0_usize;
+        let mut working = 0_usize;
+        let mut blocked = 0_usize;
+        for item in &list.items {
+            if item.projects.iter().any(|p| p == project) {
+                match item.status {
+                    Status::NeedsYou => needs += 1,
+                    Status::Working => working += 1,
+                    Status::Blocked => blocked += 1,
+                    _ => {}
+                }
+            }
+        }
+        let mut total = vec![ratio];
+        if needs > 0 {
+            total.push(format!("◆{needs}"));
+        }
+        if working > 0 {
+            total.push(format!("●{working}"));
+        }
+        if blocked > 0 {
+            total.push(format!("✗{blocked}"));
+        }
+        paint_ds::<Gauge>(
+            frame,
+            app,
+            Rect::new(area.x, y, left_w, 1),
+            &GaugeProps {
+                label: (*project).into(),
+                label_width: 8,
+                numerator,
+                denominator,
+                total: Some(total.join(" ")),
+                filled_role: Token(Role::Working),
+                rest_role: Token(Role::Dim),
+            },
+        );
+    }
+
+    // Right column: Velocity Sparkline + status counts + Active + Stuck.
+    let (points, scale) = done_buckets(list, state, now, zone);
+    let label = " Velocity ";
+    let label_w = label.len() as u16;
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect::new(right_x, area.y + 1, label_w.min(right_w), 1),
+        Line::styled(label, look.role(Role::Muted)),
+    );
+    if right_w > label_w {
+        paint_ds::<Sparkline>(
+            frame,
+            app,
+            Rect::new(right_x + label_w, area.y + 1, right_w - label_w, 1),
+            &SparklineProps {
+                points,
+                scale,
+                unavailable: false,
+            },
+        );
+    }
+    let visible = || list.items.iter().filter(|item| in_project(item, filter));
+    let working_count = visible().filter(|i| i.status == Status::Working).count();
+    let needs_count = visible().filter(|i| i.status == Status::NeedsYou).count();
+    let blocked_count = visible().filter(|i| i.status == Status::Blocked).count();
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect::new(right_x, area.y + 2, right_w, 1),
+        Line::from(vec![
+            Span::styled(" ● ", look.role(Role::Working)),
+            Span::styled(format!("{working_count} working  "), look.role(Role::Muted)),
+            Span::styled("◆ ", look.role(Role::Waiting)),
+            Span::styled(format!("{needs_count} needs you  "), look.role(Role::Muted)),
+            Span::styled("✗ ", look.role(Role::Blocked)),
+            Span::styled(format!("{blocked_count} blocked"), look.role(Role::Muted)),
+        ]),
+    );
+    let active_owners: std::collections::BTreeSet<_> = visible()
+        .filter(|i| i.status == Status::Working)
+        .filter_map(|i| i.owner_name(roster))
+        .collect();
+    let active_text = if active_owners.is_empty() {
+        "—".into()
+    } else {
+        active_owners.into_iter().collect::<Vec<_>>().join(", ")
+    };
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect::new(right_x, area.y + 3, right_w, 1),
+        Line::styled(
+            fit(&format!(" Active   {active_text}"), usize::from(right_w)),
+            look.role(Role::Muted),
+        ),
+    );
+    let stuck = visible()
+        .filter(|i| matches!(i.status, Status::Blocked | Status::Stalled))
+        .min_by_key(|i| (i.blocked_since.or(i.last).unwrap_or(i64::MAX), &i.key))
+        .map(|i| {
+            let num = i.number.as_deref().unwrap_or(&i.title);
+            let owner = i.owner_name(roster).unwrap_or("unassigned");
+            let age = age_label(i.blocked_since.or(i.last), now);
+            format!("{num} ({owner} · {age})")
+        })
+        .unwrap_or_else(|| "—".into());
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect::new(right_x, area.y + 4, right_w, 1),
+        Line::styled(
+            fit(&format!(" Stuck    {stuck}"), usize::from(right_w)),
+            look.role(Role::Muted),
+        ),
+    );
+
+    1 + rows_used
+}
+
+fn inspector_line(frame: &mut Frame, area: Rect, y: &mut u16, line: Line<'static>) {
+    if *y < area.bottom() {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(area.x, *y, area.width, 1),
+            line,
+        );
+        *y += 1;
+    }
+}
+
+fn paint_inspector(
+    frame: &mut Frame,
+    app: &App,
+    state: &super::State,
+    item: &Item,
+    area: Rect,
+    roster: Option<&crate::board::workspace::OpsRoster>,
+    hits: &mut Vec<(Rect, Hit)>,
+) {
+    if area.is_empty() {
+        return;
+    }
+    let look = app.look();
+    let width = usize::from(area.width);
+    let number = item.number.as_deref().unwrap_or(&item.title);
+    paint_ds::<PaneRule>(
+        frame,
+        app,
+        Rect::new(area.x, area.y, area.width, 1),
+        &PaneRuleProps {
+            title: format!("Detail · {number}"),
+            note: Some("Tab focus · Space collapse".into()),
+            note_role: Some(Token(Role::Dim)),
+            focused: state.inspector_focused,
+            ascii: ascii_mode(app),
+        },
+    );
+    let mut y = area.y + 1;
+
+    let needs_answer = item.needs_you > 0 || item.status == Status::NeedsYou;
+    let mut status_spans = vec![Span::styled(
+        format!(" {}", item.status.marked_label().to_uppercase()),
+        look.role(role(item.status)).add_modifier(Modifier::BOLD),
+    )];
+    if needs_answer {
+        status_spans.push(Span::styled("  answer in Colab", look.role(Role::Muted)));
+    }
+    inspector_line(frame, area, &mut y, Line::from(status_spans));
+    if let Some(next) = &item.next {
+        inspector_line(
+            frame,
+            area,
+            &mut y,
+            Line::styled(fit(&format!(" {next}"), width), look.role(Role::Text)),
+        );
+    }
+
+    if y < area.bottom() {
+        let (numerator, denominator, total_label) = match item.progress {
+            Some(p) => (p.done, p.total, format!("{}/{} verified", p.done, p.total)),
+            None => (0, 0, "—".into()),
+        };
+        paint_ds::<Gauge>(
+            frame,
+            app,
+            Rect::new(area.x, y, area.width, 1),
+            &GaugeProps {
+                label: " Chapters".into(),
+                label_width: 10,
+                numerator,
+                denominator,
+                total: Some(total_label),
+                filled_role: Token(Role::Working),
+                rest_role: Token(Role::Dim),
+            },
+        );
+        y += 1;
+    }
+
+    if item.sections.is_empty() {
+        let msg = if item.sections_omitted || item.progress.is_some() {
+            "   More sections in Colab · o open"
+        } else {
+            "   No chapters in snapshot · —"
+        };
+        inspector_line(
+            frame,
+            area,
+            &mut y,
+            Line::styled(fit(msg, width), look.role(Role::Muted)),
+        );
+    } else {
+        for (idx, section) in item.sections.iter().enumerate() {
+            if y >= area.bottom().saturating_sub(2) {
+                let remaining = item.sections.len().saturating_sub(idx);
+                if remaining > 0 && y < area.bottom() {
+                    paint_ds::<MoreHint>(
+                        frame,
+                        app,
+                        Rect::new(area.x, y, area.width, 1),
+                        &MoreHintProps {
+                            count: remaining as u64,
+                            direction: MoreDirection::Down,
+                            ascii: ascii_mode(app),
+                        },
+                    );
+                    y += 1;
+                }
+                break;
+            }
+            let active = state.inspector_focused && state.inspector_cursor == idx;
+            let cursor = if active { " ▸ " } else { "   " };
+            let mark = section.state.mark();
+            let ratio = if section.total > 0 {
+                format!("{}/{}", section.done, section.total)
+            } else {
+                "—".into()
+            };
+            let line_rect = Rect::new(area.x, y, area.width, 1);
+            let text = format!("{cursor}{mark}  {}  {ratio}", section.title);
+            let style = look.selected(active, look.role(role(section.state)));
+            strip::paint_left(
+                frame.buffer_mut(),
+                line_rect,
+                Line::styled(fit(&text, width), style),
+            );
+            hits.push((line_rect, Hit::Section(idx)));
+            y += 1;
+        }
+        if item.sections_omitted && y < area.bottom().saturating_sub(2) {
+            inspector_line(
+                frame,
+                area,
+                &mut y,
+                Line::styled(
+                    fit("   More sections in Colab · o open", width),
+                    look.role(Role::Muted),
+                ),
+            );
+        }
+    }
+
+    if y < area.bottom() {
+        let owner = item.owner_name(roster).unwrap_or("unassigned");
+        inspector_line(
+            frame,
+            area,
+            &mut y,
+            Line::styled(
+                fit(&format!(" Owner   ● {owner}"), width),
+                look.role(Role::Muted),
+            ),
+        );
+    }
+    if y < area.bottom() {
+        let mut actions = vec![Span::styled("  o / ⏎  Open Colab", look.role(Role::Text))];
+        if roster.is_some_and(|r| item.owner_target(r).is_some()) {
+            actions.push(Span::styled("   t  Talk", look.role(Role::Text)));
+        }
+        if needs_answer {
+            actions.push(Span::styled("   · answer in Colab", look.role(Role::Muted)));
+        }
+        let action_rect = Rect::new(area.x, y, area.width, 1);
+        strip::paint_left(frame.buffer_mut(), action_rect, Line::from(actions));
+        if !state.stale && item.can_open {
+            hits.push((action_rect, Hit::Open(item.key.clone())));
+        }
     }
 }
 
@@ -523,34 +828,45 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let mut hits = state.hits.borrow_mut();
     let width = usize::from(area.width);
     let band = |offset| Rect::new(area.x, area.y + offset, area.width, 1);
-    let project = format!(" p  {}", state.project.as_deref().unwrap_or("All projects"));
-    let project_width = unicode_width::UnicodeWidthStr::width(project.as_str());
-    let project_width = project_width.min(width.saturating_sub(10));
+
+    // Row 0: project/filter controls on left + `/` search field on right.
+    let project_label = format!(" p  {}", state.project.as_deref().unwrap_or("All projects"));
+    let recent_label = if state.recent {
+        "  c  Hide done"
+    } else {
+        "  c  Done"
+    };
+    let period_label = format!("  d  {}", PERIODS[state.period]);
+    let search_w = (area.width / 3).clamp(18, 34).min(area.width);
+    let left_w = area.width.saturating_sub(search_w);
+    let controls_text = format!("{project_label}{recent_label}{period_label}");
     strip::paint_left(
         frame.buffer_mut(),
-        band(0),
+        Rect::new(area.x, area.y, left_w, 1),
         Line::styled(
-            format!(
-                "{}{}",
-                scene::rule("Work", width - project_width),
-                fit(&project, project_width)
-            ),
+            fit(&controls_text, usize::from(left_w)),
             look.role(Role::Muted),
         ),
     );
-    if project_width > 0 {
-        hits.push((
-            Rect::new(
-                area.right() - project_width as u16,
-                area.y,
-                project_width as u16,
-                1,
-            ),
-            Hit::Project,
-        ));
+    let p_w = unicode_width::UnicodeWidthStr::width(project_label.as_str()).min(usize::from(left_w))
+        as u16;
+    if p_w > 0 {
+        hits.push((Rect::new(area.x, area.y, p_w, 1), Hit::Project));
     }
-    super::super::pane_chrome::mark_focused_rule(frame.buffer_mut(), app, Some(band(0)), None);
-    let mut top = 1;
+    let search_rect = Rect::new(area.x + left_w, area.y, search_w, 1);
+    hits.push((search_rect, Hit::Search));
+    super::super::search_field::paint(
+        frame.buffer_mut(),
+        search_rect,
+        &app.search,
+        app.searching,
+        Some("/"),
+        look,
+        None,
+    );
+
+    let mut top = 1_u16;
+    let now = crate::status::now_ms() as i64;
     let order_notice = state
         .order_notice
         .as_ref()
@@ -560,7 +876,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         && top < area.height
     {
         let label = if state.stale {
-            format!(" Stale · {notice}")
+            let age = age_label(state.last_read_at, now);
+            format!(" Stale · read {age} ago · {notice}")
         } else {
             format!(" {notice}")
         };
@@ -581,73 +898,220 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         }
         return;
     };
-    let now = crate::status::now_ms() as i64;
     let utc = jiff::tz::TimeZone::UTC;
     let zone = app.local_zone.as_ref().unwrap_or(&utc);
     let roster = app.workspace_snapshot().map(|snapshot| &snapshot.roster);
-    let rows = rows(list, state, now, zone, width, roster);
+
+    top += paint_dashboard_band(
+        frame,
+        app,
+        list,
+        state,
+        Rect::new(
+            area.x,
+            area.y + top,
+            area.width,
+            area.height.saturating_sub(top),
+        ),
+        now,
+        zone,
+        roster,
+    );
+
+    let rows = rows(list, state, now, zone, width, roster, app.search.as_str());
     let selected_row = state.selected.as_ref().and_then(|key| {
         rows.iter()
             .position(|row| row.selection.as_ref() == Some(key))
     });
     let selected = selected_row.or_else(|| rows.iter().position(|row| row.selection.is_some()));
-    let reserved = u16::from(
-        selected.and_then(|index| rows[index].item).is_some()
-            && area.height.saturating_sub(top) >= 4,
+    let selected_item = selected.and_then(|index| rows[index].item);
+
+    let split = !state.detail_collapsed && area.width >= 96 && selected_item.is_some();
+    let collapsed_bar = u16::from(
+        state.detail_collapsed && selected_item.is_some() && area.height.saturating_sub(top) >= 5,
     );
-    let count = usize::from(area.height.saturating_sub(top + reserved));
-    let offset = selected.map_or(0, |index| (index + 1).saturating_sub(count));
-    for (index, row) in rows.iter().enumerate().skip(offset).take(count) {
-        let line = band(top + (index - offset) as u16);
-        if let Some(item) = row.item {
-            let active = selected == Some(index);
-            let owned = item
-                .owner_name(roster)
-                .map(crate::board::notes::single_line);
-            let prefix = if active { " › " } else { "   " };
-            let style = look.selected(active, look.role(Role::Text));
-            let text = format!(
-                "{prefix}{}",
-                row_text(item, width, owned.as_deref().unwrap_or("—"), now)
-            );
-            strip::paint_left(
-                frame.buffer_mut(),
-                line,
-                Line::styled(fit(&text, width), style),
-            );
-            if width >= TABLE {
-                let area = Rect::new(
-                    line.x + (GUTTER + NUMBER + 1) as u16,
-                    line.y,
-                    STATUS as u16,
-                    1,
-                );
-                let style = look.selected(active, look.role(role(item.status)));
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    area,
-                    Line::styled(fit(&item.status.marked_label(), STATUS), style),
-                );
-            }
-            if let Some(key) = &row.selection {
-                hits.push((line, Hit::Row(key.clone())));
-            }
+    let reserved = u16::from(selected_item.is_some() && area.height.saturating_sub(top) >= 4);
+    let body_h = area.height.saturating_sub(top + reserved + collapsed_bar);
+    let list_w = if split {
+        (area.width / 2).saturating_sub(1)
+    } else {
+        area.width
+    };
+    let list_area = Rect::new(area.x, area.y + top, list_w, body_h);
+
+    if !list_area.is_empty() {
+        let open_count = rows.iter().filter(|r| r.item.is_some()).count();
+        let list_title = if !app.search.as_str().trim().is_empty() {
+            format!("Work · {} matches", open_count)
         } else {
-            strip::paint_left(
-                frame.buffer_mut(),
-                line,
-                Line::styled(
-                    fit(&format!(" {}", row.label), width),
-                    look.selected(selected == Some(index), look.role(row.role)),
-                ),
-            );
-            if let Some(hit) = row.hit.clone() {
-                hits.push((line, hit));
+            "Work".into()
+        };
+        let list_note = if state.detail_collapsed {
+            format!("{open_count} open · Space to open inspector")
+        } else {
+            format!("{open_count} open · j/k move")
+        };
+        paint_ds::<PaneRule>(
+            frame,
+            app,
+            Rect::new(list_area.x, list_area.y, list_area.width, 1),
+            &PaneRuleProps {
+                title: list_title,
+                note: Some(list_note),
+                note_role: Some(Token(Role::Dim)),
+                focused: !state.inspector_focused,
+                ascii: ascii_mode(app),
+            },
+        );
+        let content_top = list_area.y + 1;
+        let content_bottom = list_area.bottom();
+        let row_height = |row: &Row<'_>| if row.item.is_some() { 2_u16 } else { 1_u16 };
+        let avail_h = content_bottom.saturating_sub(content_top);
+        let mut offset = 0_usize;
+        if let Some(sel) = selected {
+            let mut needed = 0_u16;
+            for idx in (0..=sel).rev() {
+                let h = row_height(&rows[idx]);
+                if needed + h > avail_h {
+                    offset = idx + 1;
+                    break;
+                }
+                needed += h;
             }
         }
+        let mut y = content_top;
+        let mut clipped_below = 0_u64;
+        for (index, row) in rows.iter().enumerate().skip(offset) {
+            let h = row_height(row);
+            if y + h > content_bottom {
+                clipped_below = rows[index..]
+                    .iter()
+                    .filter(|r| r.selection.is_some())
+                    .count() as u64;
+                break;
+            }
+            if let Some(item) = row.item {
+                let active = selected == Some(index);
+                let prefix = if active { " ▸ " } else { "   " };
+                let mark = item.status.mark();
+                let number = item.number.as_deref().unwrap_or("—");
+                let owner = item
+                    .owner_name(roster)
+                    .map(crate::board::notes::single_line)
+                    .unwrap_or_else(|| "—".into());
+                let (bar, ratio) = mini_bar(item.progress, 6);
+                let age = age_label(item.last, now);
+                let line1_rect = Rect::new(list_area.x, y, list_area.width, 1);
+                let line2_rect = Rect::new(list_area.x, y + 1, list_area.width, 1);
+                let lw = usize::from(list_area.width);
+                let right_meta = format!("{owner}  {bar} {ratio}  {age}");
+                let left_title = format!("{prefix}{mark} {number:<8} {}", item.title);
+                let line1_text = if !split && lw > right_meta.len() + 20 {
+                    format!(
+                        "{} {}",
+                        fit(&left_title, lw - right_meta.len() - 1),
+                        right_meta
+                    )
+                } else {
+                    fit(&left_title, lw)
+                };
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    line1_rect,
+                    Line::styled(
+                        line1_text,
+                        look.selected(active, look.role(role(item.status))),
+                    ),
+                );
+                let line2_text = if !split {
+                    let reason = item
+                        .next
+                        .as_deref()
+                        .or(item.release.as_deref())
+                        .or(item.parent.as_deref())
+                        .unwrap_or_else(|| item.status.label());
+                    fit(&format!("            {reason}"), lw)
+                } else {
+                    fit(
+                        &format!("            {owner:<12} {bar} {ratio:<5} {age}"),
+                        lw,
+                    )
+                };
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    line2_rect,
+                    Line::styled(line2_text, look.selected(active, look.role(Role::Muted))),
+                );
+                if let Some(key) = &row.selection {
+                    hits.push((
+                        Rect::new(list_area.x, y, list_area.width, 2),
+                        Hit::Row(key.clone()),
+                    ));
+                }
+                y += 2;
+            } else {
+                let line_rect = Rect::new(list_area.x, y, list_area.width, 1);
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    line_rect,
+                    Line::styled(
+                        fit(&format!(" {}", row.label), usize::from(list_area.width)),
+                        look.selected(selected == Some(index), look.role(row.role)),
+                    ),
+                );
+                if let Some(hit) = row.hit.clone() {
+                    hits.push((line_rect, hit));
+                }
+                y += 1;
+            }
+        }
+        if clipped_below > 0 && content_bottom > content_top {
+            paint_ds::<MoreHint>(
+                frame,
+                app,
+                Rect::new(list_area.x, content_bottom - 1, list_area.width, 1),
+                &MoreHintProps {
+                    count: clipped_below,
+                    direction: MoreDirection::Down,
+                    ascii: ascii_mode(app),
+                },
+            );
+        }
     }
+
+    if split && let Some(item) = selected_item {
+        let right_x = area.x + list_w + 1;
+        let right_w = area.width.saturating_sub(list_w + 1);
+        paint_inspector(
+            frame,
+            app,
+            state,
+            item,
+            Rect::new(right_x, area.y + top, right_w, body_h),
+            roster,
+            &mut hits,
+        );
+    } else if collapsed_bar != 0
+        && let Some(item) = selected_item
+    {
+        let number = item.number.as_deref().unwrap_or(&item.title);
+        let bar_rect = Rect::new(area.x, area.y + top + body_h, area.width, 1);
+        paint_ds::<SectionRule>(
+            frame,
+            app,
+            bar_rect,
+            &SectionRuleProps {
+                title: format!("Detail · {number}"),
+                note: Some("collapsed · Space to expand split inspector".into()),
+                note_role: Some(Token(Role::Dim)),
+                focused: false,
+            },
+        );
+        hits.push((bar_rect, Hit::ToggleDetail));
+    }
+
     if reserved != 0
-        && let Some(item) = selected.and_then(|selected| rows[selected].item)
+        && let Some(item) = selected_item
     {
         let line = band(area.height - 1);
         let can_open = !state.stale && item.can_open;
@@ -730,36 +1194,78 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
 impl App {
     pub(in crate::board) fn work_key(&mut self, key: KeyEvent) -> Option<Effect> {
         if self.shell.tab != OpsTab::Work
+            || self.searching
             || key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
             return None;
         }
+        if key.code == KeyCode::Esc && !self.work.inspector_focused {
+            return None;
+        }
         if !matches!(
             key.code,
             KeyCode::Up
                 | KeyCode::Down
+                | KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Tab
+                | KeyCode::Esc
                 | KeyCode::Home
                 | KeyCode::End
                 | KeyCode::PageUp
                 | KeyCode::PageDown
                 | KeyCode::Enter
-                | KeyCode::Char('p' | 'c' | 'd' | 'm' | '/')
+                | KeyCode::Char(' ' | 'j' | 'k' | 'o' | 't' | 'p' | 'c' | 'd' | 'm' | '/')
         ) {
             return None;
         }
+        if key.code == KeyCode::Char('/') {
+            self.work.inspector_focused = false;
+            self.searching = true;
+            return Some(Effect::None);
+        }
+        if key.code == KeyCode::Char(' ') {
+            self.work.detail_collapsed = !self.work.detail_collapsed;
+            if self.work.detail_collapsed {
+                self.work.inspector_focused = false;
+            }
+            return Some(Effect::None);
+        }
+        if key.code == KeyCode::Esc && self.work.inspector_focused {
+            self.work.inspector_focused = false;
+            return Some(Effect::None);
+        }
+        if key.code == KeyCode::Left && self.work.inspector_focused {
+            self.work.inspector_focused = false;
+            return Some(Effect::None);
+        }
+        let roster = self
+            .view
+            .as_ref()
+            .and_then(|view| view.home.as_ref())
+            .map(|home| &home.workspace.roster);
+        let query = self.search.as_str().to_owned();
         let state = &mut self.work;
         let Some(list) = &state.list else {
             return matches!(
                 key.code,
-                KeyCode::Char('/' | 'p' | 'c' | 'd' | 'm') | KeyCode::Enter
+                KeyCode::Char('p' | 'c' | 'd' | 'm' | 'o' | 't') | KeyCode::Enter
             )
             .then_some(Effect::None);
         };
         let utc = jiff::tz::TimeZone::UTC;
         let zone = self.local_zone.as_ref().unwrap_or(&utc);
-        let rows = rows(list, state, crate::status::now_ms() as i64, zone, 0, None);
+        let rows = rows(
+            list,
+            state,
+            crate::status::now_ms() as i64,
+            zone,
+            0,
+            roster,
+            &query,
+        );
         let items: Vec<_> = rows.iter().filter(|row| row.selection.is_some()).collect();
         let index = state
             .selected
@@ -770,31 +1276,65 @@ impl App {
                     .position(|row| row.selection.as_ref() == Some(key))
             })
             .unwrap_or(0);
+        if matches!(key.code, KeyCode::Tab | KeyCode::Right) {
+            if !state.detail_collapsed && items.get(index).and_then(|r| r.item).is_some() {
+                state.inspector_focused = if key.code == KeyCode::Tab {
+                    !state.inspector_focused
+                } else {
+                    true
+                };
+                state.inspector_cursor = 0;
+            }
+            return Some(Effect::None);
+        }
         match key.code {
             KeyCode::Up
             | KeyCode::Down
+            | KeyCode::Char('k' | 'j')
             | KeyCode::Home
             | KeyCode::End
             | KeyCode::PageUp
             | KeyCode::PageDown => {
+                if state.inspector_focused
+                    && let Some(item) = items.get(index).and_then(|row| row.item)
+                {
+                    let end = item.sections.len().saturating_sub(1);
+                    state.inspector_cursor = match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            state.inspector_cursor.saturating_sub(1)
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => (state.inspector_cursor + 1).min(end),
+                        KeyCode::Home => 0,
+                        _ => end,
+                    };
+                    return Some(Effect::None);
+                }
                 let end = items.len().saturating_sub(1);
                 let index = match key.code {
-                    KeyCode::Up => index.saturating_sub(1),
-                    KeyCode::Down => (index + 1).min(end),
+                    KeyCode::Up | KeyCode::Char('k') => index.saturating_sub(1),
+                    KeyCode::Down | KeyCode::Char('j') => (index + 1).min(end),
                     KeyCode::Home => 0,
                     KeyCode::PageUp => index.saturating_sub(5),
                     KeyCode::PageDown => (index + 5).min(end),
                     _ => end,
                 };
                 state.selected = items.get(index).and_then(|row| row.selection.clone());
+                state.inspector_cursor = 0;
             }
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Char('o') => {
                 let hit = items.get(index).and_then(|row| {
                     row.item
                         .map(|item| Hit::Open(item.key.clone()))
                         .or_else(|| row.hit.clone())
                 });
                 return Some(hit.map_or(Effect::None, |hit| self.work_hit(hit)));
+            }
+            KeyCode::Char('t') => {
+                let key = items
+                    .get(index)
+                    .and_then(|row| row.item)
+                    .map(|item| item.key.clone());
+                return Some(key.map_or(Effect::None, |key| self.work_hit(Hit::Talk(key))));
             }
             KeyCode::Char('p') => return Some(self.work_hit(Hit::Project)),
             KeyCode::Char('c') => return Some(self.work_hit(Hit::Recent)),
@@ -806,7 +1346,6 @@ impl App {
                     .map(|item| item.key.clone());
                 return Some(key.map_or(Effect::None, |key| self.work_hit(Hit::Move(key))));
             }
-            KeyCode::Char('/') => {}
             _ => return None,
         }
         Some(Effect::None)
@@ -840,12 +1379,36 @@ impl App {
         if let Hit::Move(key) = hit {
             return self.open_work_order(&key);
         }
+        if let Hit::Search = hit {
+            self.work.inspector_focused = false;
+            self.searching = true;
+            return Effect::None;
+        }
+        if let Hit::Talk(key) = hit {
+            let target = self
+                .work
+                .list
+                .as_ref()
+                .and_then(|list| list.items.iter().find(|item| item.key == key))
+                .and_then(|item| {
+                    self.workspace_snapshot()
+                        .and_then(|snapshot| item.owner_target(&snapshot.roster))
+                });
+            if let Some(target) = target {
+                self.workspace.selected = Some(target.clone());
+                self.show_conversation_of(&target);
+            }
+            return Effect::None;
+        }
         let state = &mut self.work;
         let Some(list) = &state.list else {
             return Effect::None;
         };
         match hit {
-            Hit::Row(key) => state.selected = Some(key),
+            Hit::Row(key) => {
+                state.selected = Some(key);
+                state.inspector_cursor = 0;
+            }
             Hit::Open(key) => {
                 if !state.stale
                     && let Some(item) = list
@@ -864,6 +1427,7 @@ impl App {
                 let next = previous.map_or(0, |index| index + 1);
                 state.project = list.projects.get(next).cloned();
                 state.selected = None;
+                state.inspector_cursor = 0;
             }
             Hit::Recent => state.recent = !state.recent,
             Hit::More(project) => {
@@ -872,7 +1436,17 @@ impl App {
                 }
             }
             Hit::Period => state.period = (state.period + 1) % 3,
-            Hit::Move(_) => unreachable!("move handled above"),
+            Hit::ToggleDetail => {
+                state.detail_collapsed = !state.detail_collapsed;
+                if state.detail_collapsed {
+                    state.inspector_focused = false;
+                }
+            }
+            Hit::Section(idx) => {
+                state.inspector_focused = true;
+                state.inspector_cursor = idx;
+            }
+            Hit::Move(_) | Hit::Search | Hit::Talk(_) => unreachable!("handled above"),
         }
         Effect::None
     }
