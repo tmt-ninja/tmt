@@ -58,7 +58,7 @@ with Core's usual 15 seconds and 1 MiB per call:
   evidence: `no_evidence` (found, no successful read in the rollup), `not_found`, or
   `read_failed` (its batch failed or contradicted itself; a warning says why).
   Unavailable is never reported as a seat with zero. A `no_evidence` row carries
-  Core's `cause` when Core gave one (`no_binding`, `no_agent`, `no_sampler`,
+  Core's `cause` when Core gave one (`no_binding`, `no_agent`, `no_sampler`, `idle`,
   `not_sampled`; [meaning](../../../contracts/extension-api.md#consumption-history)):
   why nothing is being sampled right now. A value this build does not know is passed
   through, and a reader must tolerate one. The other reasons carry no cause.

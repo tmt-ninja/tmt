@@ -30,7 +30,7 @@ test('provider usage renders native records independently of prices and allowanc
   const card = page.locator('#digest-provider-usage');
   await expect(card.getByRole('heading')).toHaveText('Provider usage');
   await expect(card.locator('tbody tr')).toHaveCount(4);
-  await expect(card.locator('tbody tr').first()).toContainText('OpenAI');
+  await expect(card.locator('tbody tr').first()).toContainText('Codex');
   const agy = card.locator('tbody tr').filter({ has: page.locator('th [title="agy"]') });
   await expect(agy).toContainText('$0.00015');
   await expect(agy.getByRole('cell').first()).toHaveText('100');
@@ -41,7 +41,27 @@ test('provider usage renders native records independently of prices and allowanc
   await expect(card).toContainText('A recorded model has no list price.');
   await expect(card).toContainText('Input cost estimate (list price)');
   await expect(card).toContainText('2026-11-15');
-  await expect(page.locator('#digest-provider-agy')).toHaveCount(0);
+  // Every provider with recorded usage has an allowance card (#6751 A); agy reports no window, so
+  // its card says so beside its usage, with no meter and never 0%.
+  const agyCard = page.locator('#digest-provider-agy');
+  // One sentence says it, with the heading's name form; no second label beside the name.
+  await expect(agyCard.locator('.digest-provider-label')).toHaveText(/^○\s*Agy$/);
+  await expect(agyCard).toContainText('No allowance reported by Agy.');
+  await expect(agyCard.locator('.digest-provider-usage')).toContainText(
+    'tokens in the last 7 days',
+  );
+  await expect(agyCard.locator('.tmt-ui-meter')).toHaveCount(0);
+  await expect(agyCard).not.toContainText('%');
+  await expect(agyCard.locator('.digest-provider-symbol')).toHaveText('○');
+  // The name keeps the heading size of a card with a meter; only the percent is small.
+  const nameSize = (id: string) =>
+    page
+      .locator(
+        `#digest-provider-${id} > .digest-provider-label strong, #digest-provider-${id} > .digest-provider .digest-provider-label strong`,
+      )
+      .first()
+      .evaluate((node) => getComputedStyle(node).fontSize);
+  expect(await nameSize('agy')).toBe(await nameSize('codex'));
   for (const width of [1440, 390])
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width, height: 1000 });
@@ -81,7 +101,7 @@ test('provider usage renders native records independently of prices and allowanc
   });
   await page.getByRole('tab', { name: '30d', exact: true }).click();
   await expect(card.locator('tbody tr')).toHaveCount(4);
-  await expect(card.locator('tbody tr').first()).toContainText('OpenAI');
+  await expect(card.locator('tbody tr').first()).toContainText('Codex');
   await expect(card).toContainText('The cost evidence could not be read.');
   await expect(card).toContainText('constructor');
   await expect(card).not.toContainText('function Object');
@@ -326,6 +346,8 @@ test('hovering a large-fleet plot names the six leading seats and neutral Other'
   const plot = page.locator('#digest-tokens .tmt-ui-chart-plot');
   const tip = page.locator('#digest-tokens .tmt-ui-chart-tip');
   await expect(tip).toBeHidden();
+  // The coverage banner leads the page (#6751 F), so the plot may start below the fold.
+  await plot.scrollIntoViewIfNeeded();
   const box = (await plot.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await expect(tip).toBeVisible();
@@ -344,7 +366,12 @@ test('the sample report paints every card once, in the reference order, with the
 }) => {
   const errors = await open(page);
   await expect(page.locator('#digest-sections .digest-card')).toHaveCount(5);
-  const headings = await page.locator('#digest-sections h2').allTextContents();
+  // The sample has partial seats, so the coverage banner leads, ahead of every card (#6751 F).
+  await expect(page.locator('#digest-sections > :first-child')).toHaveId('digest-coverage');
+  await expect(page.locator('#digest-coverage h2')).toHaveText(
+    '1 of 6 seats covers only part of this range. Totals are lower bounds.',
+  );
+  const headings = await page.locator('#digest-sections .digest-card h2').allTextContents();
   expect(headings).toEqual([
     'Allowance',
     'Provider usage',
@@ -471,14 +498,15 @@ test('Lines uses the same seat colours, preserves missing runs and switches rang
   await expect(page.locator('#digest-activity')).toHaveCount(0);
 });
 
-test('allowance retains observed OpenAI windows and omits providers without records', async ({
+test('allowance retains observed Codex windows and omits providers without records', async ({
   page,
 }) => {
   await open(page);
   const openai = page.locator('#digest-provider-codex');
   const primary = openai.locator(':scope > .digest-provider');
-  await expect(primary.locator('.digest-provider-label strong')).toHaveText(['OpenAI', '55% left']);
+  await expect(primary.locator('.digest-provider-label strong')).toHaveText(['Codex', '55% left']);
   await expect(primary.locator('.digest-provider-symbol')).toHaveAttribute('aria-hidden', 'true');
+  await expect(primary.locator('.digest-provider-symbol')).toHaveText('●');
   await expect(primary.locator('.digest-window-observation')).toBeVisible();
   await expect(primary).toContainText('Observed 10m ago');
   await expect(primary).toContainText('Reported by core-1, feat-1');
@@ -497,7 +525,7 @@ test('allowance retains observed OpenAI windows and omits providers without reco
   const other = openai.locator('.digest-other-windows');
   await expect(other).not.toHaveAttribute('open');
   await expect(other.locator(':scope > summary')).toHaveText(
-    'Other OpenAI windows seen this week (2)',
+    'Other Codex windows seen this week (2)',
   );
   await other.locator(':scope > summary').focus();
   await page.keyboard.press('Enter');
@@ -874,6 +902,19 @@ test('unavailable seats make the reported total a lower bound and missing allowa
   page,
 }) => {
   await open(page, '?missing-evidence');
+  // Coverage first (#6751 F): the count and the cause lead the page, above every number.
+  const covered = page.locator('#digest-sections > :first-child');
+  await expect(covered).toHaveId('digest-coverage');
+  await expect(covered.getByRole('heading')).toHaveText(
+    '1 seat has no usage in this range. Totals are lower bounds.',
+  );
+  await expect(covered.locator('[data-cause="not_sampled"]')).toHaveText(
+    /1 running, but no sample accepted yet\s*missing-seat/,
+  );
+  // An idle seat is listed apart and is not counted as a gap in the heading.
+  await expect(covered.locator('[data-cause="idle"]')).toHaveText(
+    /1 idle, with no recent turn \(not a gap\)\s*idle-seat/,
+  );
   await expect(page.locator('.digest-total-label')).toContainText('lower bound');
   await expect(page.locator('#digest-tokens')).toContainText('Unavailable seats are not included');
   await expect(page.locator('#digest-allowance')).toContainText(
@@ -982,10 +1023,12 @@ test('a window disappears when the owner clock reaches its reset even if its obs
   await expect(page.locator('#digest-provider-codex > .digest-provider')).toContainText('55% left');
   await page.clock.fastForward(60_000);
   await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(2);
-  await expect(page.locator('#digest-allowance')).toContainText(
-    'No weekly allowance observations have been reported.',
-  );
-  await expect(page.locator('#digest-provider-codex .tmt-ui-meter')).toHaveCount(0);
+  // The meter and percent go; the card stays with its usage and says the window has reset.
+  const codex = page.locator('#digest-provider-codex');
+  await expect(codex).toContainText('The weekly window has reset; no new one is reported yet.');
+  await expect(codex).toContainText('4K tokens in the last 7 days');
+  await expect(codex.locator('.tmt-ui-meter')).toHaveCount(0);
+  await expect(codex).not.toContainText('% left');
 });
 
 test('4781 merges Activity into selected Stacked/Lines and shares seat order with the Messages heatmap', async ({
@@ -1077,33 +1120,61 @@ for (const failure of ['invalid', 'read', 'write'] as const)
     expect(errors).toEqual([]);
   });
 
-for (const width of [1440, 390])
-  test(`provider carousel has equal heights, a next-card cue and working navigation at ${width}`, async ({
-    page,
-  }) => {
-    const errors = await open(page, '?providers=4', { width, height: 900 });
-    const region = page.getByRole('region', { name: 'Provider allowances' });
-    const cards = region.locator('.digest-provider-group');
-    await expect(cards).toHaveCount(4);
-    const boxes = await cards.evaluateAll((nodes) =>
-      nodes.map((node) => node.getBoundingClientRect().toJSON()),
-    );
-    expect(
-      Math.max(...boxes.map((box) => box.height)) - Math.min(...boxes.map((box) => box.height)),
-    ).toBeLessThan(1);
-    const frame = (await region.boundingBox())!;
-    const peeking = boxes[width === 390 ? 1 : 2]!;
-    expect(peeking.x).toBeLessThan(frame.x + frame.width);
-    expect(peeking.right).toBeGreaterThan(frame.x + frame.width);
-    await expect(page.getByRole('button', { name: 'Previous provider' })).toBeDisabled();
-    await page.getByRole('button', { name: 'Next provider' }).click();
-    await expect.poll(() => region.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
-    await expect(page.getByRole('button', { name: 'Previous provider' })).toBeEnabled();
-    expect(await region.evaluate((node) => getComputedStyle(node).scrollSnapType)).toContain(
-      'mandatory',
-    );
-    expect(errors).toEqual([]);
-  });
+test('at 1440 every provider card is whole in view: three across, the fourth wraps, no arrows', async ({
+  page,
+}) => {
+  const errors = await open(page, '?providers=4', { width: 1440, height: 900 });
+  const region = page.getByRole('region', { name: 'Provider allowances' });
+  const cards = region.locator('.digest-provider-group');
+  await expect(cards).toHaveCount(4);
+  const frame = (await region.boundingBox())!;
+  const boxes = await cards.evaluateAll((nodes) =>
+    nodes.map((node) => node.getBoundingClientRect().toJSON()),
+  );
+  // Hiding a provider is what Ben reported (#6751): nothing is clipped or scrolled away.
+  for (const box of boxes) {
+    expect(box.x).toBeGreaterThanOrEqual(frame.x - 1);
+    expect(box.right).toBeLessThanOrEqual(frame.x + frame.width + 1);
+  }
+  expect(new Set(boxes.slice(0, 3).map((box) => Math.round(box.y))).size).toBe(1);
+  expect(boxes[3]!.y).toBeGreaterThan(boxes[0]!.y);
+  expect(await region.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(
+    1,
+  );
+  await expect(page.getByRole('button', { name: 'Next provider' })).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('at 390 the provider carousel has equal heights, a next-card cue, a count and working navigation', async ({
+  page,
+}) => {
+  const width = 390;
+  const errors = await open(page, '?providers=4', { width, height: 900 });
+  const region = page.getByRole('region', { name: 'Provider allowances' });
+  const cards = region.locator('.digest-provider-group');
+  await expect(cards).toHaveCount(4);
+  const boxes = await cards.evaluateAll((nodes) =>
+    nodes.map((node) => node.getBoundingClientRect().toJSON()),
+  );
+  expect(
+    Math.max(...boxes.map((box) => box.height)) - Math.min(...boxes.map((box) => box.height)),
+  ).toBeLessThan(1);
+  const frame = (await region.boundingBox())!;
+  const peeking = boxes[1]!;
+  expect(peeking.x).toBeLessThan(frame.x + frame.width);
+  expect(peeking.right).toBeGreaterThan(frame.x + frame.width);
+  const count = page.locator('.digest-carousel-count');
+  await expect(count).toHaveText('1 of 4');
+  await expect(page.getByRole('button', { name: 'Previous provider' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Next provider' }).click();
+  await expect.poll(() => region.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
+  await expect(count).toHaveText('2 of 4');
+  await expect(page.getByRole('button', { name: 'Previous provider' })).toBeEnabled();
+  expect(await region.evaluate((node) => getComputedStyle(node).scrollSnapType)).toContain(
+    'mandatory',
+  );
+  expect(errors).toEqual([]);
+});
 
 test('changing seat order during a pending range never restores the preceding range', async ({
   page,

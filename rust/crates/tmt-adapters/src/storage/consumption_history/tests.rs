@@ -1370,12 +1370,55 @@ fn an_identity_that_reports_nothing_says_why_from_its_binding_alone() {
         "UPDATE bindings SET observed_provider_session_id='session' WHERE identity_id=?",
     );
     assert_eq!(cause(&mut storage), Some(json!("no_sampler")));
-    // Owned and admitted, yet nothing sampled: hook missing, wrapper too old, or too new.
+    // Owned and admitted, nothing recorded: no evidence of a turn either way, so it is
+    // not called idle (a driver may record no activity at all).
     update(
         &storage,
         "UPDATE bindings SET launch_owner_pid=13, launch_owner_start_identity='o' WHERE identity_id=?",
     );
     assert_eq!(cause(&mut storage), Some(json!("not_sampled")));
+    // A turn recorded for the exact bound session and process, yet nothing sampled: hook
+    // missing, wrapper too old, or too new.
+    let activity = |at: u64| {
+        json!({"activity": {
+            "session": "session", "pid": 12, "start": "s", "state": "idle",
+            "turn": null, "sinceMs": at, "lastActivityMs": at,
+        }})
+        .to_string()
+    };
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO identity_session_preferences(identity_id,remembered_harness,runtime_mode,provider_session_id,driver_state_version,driver_state)
+             VALUES(?1,'codex','default','session',3,?2)
+             ON CONFLICT(identity_id) DO UPDATE SET remembered_harness='codex',provider_session_id='session',driver_state_version=3,driver_state=?2",
+            rusqlite::params![id, activity(15000)],
+        )
+        .unwrap();
+    assert_eq!(cause(&mut storage), Some(json!("not_sampled")));
+    // That turn is older than the retained range at a later read: idle again.
+    let later = storage
+        .consumption_history(
+            std::slice::from_ref(&id),
+            &[5000],
+            120,
+            super::HISTORY_MS + 20000,
+            false,
+            None,
+        )
+        .unwrap();
+    assert_eq!(later["identities"][0]["cause"], "idle");
+    // Activity of another process or session says nothing about this session.
+    update(
+        &storage,
+        "UPDATE bindings SET runtime_pid=14 WHERE identity_id=?",
+    );
+    assert_eq!(cause(&mut storage), Some(json!("not_sampled")));
+    update(
+        &storage,
+        "UPDATE bindings SET runtime_pid=12 WHERE identity_id=?",
+    );
     // No binding at all: offline or never bound.
     update(&storage, "DELETE FROM bindings WHERE identity_id=?");
     assert_eq!(cause(&mut storage), Some(json!("no_binding")));

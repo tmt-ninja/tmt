@@ -7910,7 +7910,7 @@ function isLimitAccount(value) {
 	return typeof account?.key === "string" && ACCOUNT_KEY.test(account.key) && typeof account.label === "string" && ACCOUNT_LABEL.test(account.label);
 }
 /** One plain sentence per reason, each saying what the person can do. */
-var REASONS$1 = {
+var REASONS$2 = {
 	not_installed: "Digest is not installed on your machine. Run `tmt extension install digest`, then reload this page.",
 	core_unavailable: "TMT on your machine did not answer. This page tries again shortly.",
 	timeout: "Your machine took too long to read usage. This page tries again shortly.",
@@ -7965,7 +7965,7 @@ function reportFromAnswers(range, digest, allowance) {
 			range,
 			sample: false,
 			...allowance,
-			unavailable: REASONS$1[reason]
+			unavailable: REASONS$2[reason]
 		};
 	}
 	const document = digest.payload.report;
@@ -7973,7 +7973,7 @@ function reportFromAnswers(range, digest, allowance) {
 		range,
 		sample: false,
 		...allowance,
-		unavailable: REASONS$1.unknown
+		unavailable: REASONS$2.unknown
 	};
 	return {
 		range,
@@ -8101,16 +8101,119 @@ function exchange(doc) {
 		value: (from, to) => pairs.get(`${from}>${to}`) ?? 0
 	};
 }
-var PROVIDER_LABELS = {
-	claude: "Claude",
-	codex: "OpenAI"
-};
+/** A driver's name as Core reports it, capitalised: no provider is special-cased (#6751). */
 function providerLabel$1(provider) {
-	return Object.hasOwn(PROVIDER_LABELS, provider) ? PROVIDER_LABELS[provider] : provider;
+	return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
-/** One hue per source, shared by its meter and history. */
-function providerStyle(provider) {
-	return provider === "claude" ? 1 : provider === "codex" ? 2 : 0;
+/** Usable allowance windows: a named source and a well-formed account, or none. */
+var sourced = (limit) => typeof limit.provider === "string" && limit.provider.length > 0 && (limit.account == null || isLimitAccount(limit.account));
+/** Weekly windows still active at the owner's read time, from a named source. */
+var activeWeekly = (doc) => doc.limits.filter((limit) => sourced(limit) && limit.windowMinutes === 10080 && limit.resetsAtMs > doc.observedAtMs);
+/** Every provider the report knows, sorted: a recorded driver share or an active weekly window.
+* A window that has reset is no evidence of a provider on its own. */
+function providerSources(doc) {
+	return [.../* @__PURE__ */ new Set([...(providerRecords(doc) ?? []).map((row) => row.driver), ...activeWeekly(doc).map((limit) => limit.provider)])].sort();
+}
+var CHART_HUES = 7;
+/** One hue per source, shared by its meter and history, in the sources' order (1 to 7, then again). */
+function providerStyles(doc) {
+	return new Map(providerSources(doc).map((source, at) => [source, at % CHART_HUES + 1]));
+}
+/** Why a provider shows no current window: Core's reason for it, a window that has reset, or no
+* allowance at all. A provider with an allowance source and no window is a read gap, not "none". */
+function allowanceNote(doc, source, others) {
+	switch ((doc.limitsUnavailable ?? []).find((entry) => entry?.provider === source || entry?.line === source)?.reason) {
+		case void 0: break;
+		case "no_source": return noAllowance(source);
+		case "expired": return "The weekly window has reset; no new one is reported yet.";
+		case "not_observed":
+		case "none_observed": return "Allowance has not been observed yet.";
+		default: return "Allowance could not be read just now.";
+	}
+	if (others) return "No current seat has reported an active weekly window.";
+	if (doc.limits.some((limit) => limit.provider === source && limit.resetsAtMs <= doc.observedAtMs)) return "The weekly window has reset; no new one is reported yet.";
+	return noAllowance(source);
+}
+var noAllowance = (source) => `No allowance reported by ${providerLabel$1(source)}.`;
+/** The driver whose credits the report carries (digest `usage-v1.md`: the Codex credit balance). */
+var CREDITS_DRIVER = "codex";
+/** The newest observed balance in the window; null without a well-formed point. */
+function latestCredits(doc) {
+	const points = Array.isArray(doc.credits?.points) ? doc.credits.points : [];
+	let latest = null;
+	for (const point of points) {
+		if (!point || !Number.isSafeInteger(point.observedAtMs) || typeof point.hasCredits !== "boolean" || typeof point.unlimited !== "boolean" || typeof point.balance !== "string" || !/^-?\d{1,15}(\.\d{1,20})?$/.test(point.balance)) continue;
+		if (latest && latest.observedAtMs >= point.observedAtMs) continue;
+		latest = {
+			balance: point.unlimited ? "unlimited" : point.hasCredits ? point.balance : null,
+			observedAtMs: point.observedAtMs
+		};
+	}
+	return latest;
+}
+/** A balance for reading: digits grouped, cut (never rounded) to two places; `unlimited` as is. */
+function creditText(balance) {
+	const match = /^(-?)(\d+)(?:\.(\d*))?$/.exec(balance);
+	if (!match) return balance;
+	const digits = (match[3] ?? "").slice(0, 2).replace(/0+$/, "");
+	return `${match[1]}${BigInt(match[2]).toLocaleString("en-US")}${digits ? `.${digits}` : ""}`;
+}
+/** Core's causes, in words the person can act on; an unknown one is shown as Core wrote it. */
+var CAUSES = {
+	no_binding: "not running under TMT",
+	no_agent: "no agent session in its pane",
+	no_sampler: "started outside tmt run, so only its Stop hook reports",
+	not_sampled: "running, but no sample accepted yet"
+};
+var REASONS$1 = {
+	not_found: "not found",
+	read_failed: "could not be read"
+};
+/** The banner's one-line heading: seats with no usage, seats with only part of the range, or,
+* with no gap at all, the idle seats. Counts agree with their verbs. */
+function coverageHeading(seen) {
+	const plural = (count, one, many) => count === 1 ? one : many;
+	const parts = [seen.missingSeats ? `${seen.missingSeats} ${plural(seen.missingSeats, "seat has", "seats have")} no usage in this range` : "", seen.partialSeats ? `${seen.partialSeats} of ${seen.seats} ${plural(seen.seats, "seat", "seats")} ${plural(seen.partialSeats, "covers", "cover")} only part of ${seen.missingSeats ? "it" : "this range"}` : ""].filter(Boolean);
+	if (parts.length) return `${parts.join("; ")}. Totals are lower bounds.`;
+	return `${seen.idle.length} ${plural(seen.idle.length, "seat was", "seats were")} idle, with no recent turn.`;
+}
+/** What the report cannot see, for the top of the page (#6751 F). */
+function coverage(doc) {
+	const groups = /* @__PURE__ */ new Map();
+	const idle = [];
+	for (const seat of doc.usage.unavailable) {
+		const cause = typeof seat.cause === "string" && seat.cause ? seat.cause : void 0;
+		if (cause === "idle") {
+			idle.push(seatName({
+				...seat,
+				id: seat.id ?? ""
+			}));
+			continue;
+		}
+		const id = cause ?? (typeof seat.reason === "string" ? seat.reason : "unknown");
+		const words = cause ? Object.hasOwn(CAUSES, cause) ? CAUSES[cause] : `cause "${cause}"` : Object.hasOwn(REASONS$1, id) ? REASONS$1[id] : "no usage evidence";
+		const gap = groups.get(id) ?? {
+			id,
+			words,
+			seats: []
+		};
+		gap.seats.push(seatName({
+			...seat,
+			id: seat.id ?? ""
+		}));
+		groups.set(id, gap);
+	}
+	const missing = [...groups.values()].map((gap) => ({
+		...gap,
+		seats: gap.seats.sort((a, b) => a.localeCompare(b))
+	})).sort((a, b) => b.seats.length - a.seats.length || a.id.localeCompare(b.id));
+	return {
+		missing,
+		idle: idle.sort((a, b) => a.localeCompare(b)),
+		missingSeats: missing.reduce((sum, gap) => sum + gap.seats.length, 0),
+		partialSeats: doc.usage.seats.filter((seat) => !seat.coverage.complete).length,
+		seats: doc.usage.seats.length
+	};
 }
 /** Exact source/window/reset identity, also used for history and stable disclosure IDs. */
 function windowKey(window) {
@@ -8120,7 +8223,7 @@ function windowKey(window) {
 /** Weekly windows still active at the owner's read time. Unknown sources stay explicit. */
 function allowance(doc) {
 	const seats = new Map([...doc.usage.seats, ...doc.usage.unavailable].map((seat) => [seat.id, seat]));
-	const active = doc.limits.filter((limit) => typeof limit.provider === "string" && limit.provider.length > 0 && limit.windowMinutes === 10080 && limit.resetsAtMs > doc.observedAtMs && (limit.account == null || isLimitAccount(limit.account)));
+	const active = activeWeekly(doc);
 	const accounts = /* @__PURE__ */ new Map();
 	for (const limit of active) if (limit.account) accounts.set(limit.provider, (accounts.get(limit.provider) ?? /* @__PURE__ */ new Set()).add(limit.account.key));
 	return active.map((limit) => ({
@@ -8140,10 +8243,11 @@ function allowance(doc) {
 }
 /** One chart per exact source/window/reset, never borrowed by another window. */
 function historyCharts(doc, zone) {
+	const styles = providerStyles(doc);
 	return (doc.limitHistory ?? []).filter((history) => history.points.length > 1).map((history) => ({
 		title: "Weekly percent left",
 		kind: "line",
-		style: providerStyle(history.provider),
+		style: styles.get(history.provider) ?? 0,
 		x: history.points.map((point) => stamp(point.atMs, "7d", zone)),
 		series: [{
 			key: windowKey(history),
@@ -8160,17 +8264,42 @@ function historyCharts(doc, zone) {
 }
 function providers(doc, zone) {
 	const charts = new Map(historyCharts(doc, zone).map((chart) => [chart.series[0].key, chart]));
+	const styles = providerStyles(doc);
 	return allowance(doc).map((row) => ({
 		...row,
-		style: providerStyle(row.source),
+		style: styles.get(row.source) ?? 0,
 		chart: charts.get(row.key)
 	}));
 }
-/** Most recent current-seat observation leads; retired-only windows remain in the disclosure. */
+/**
+* One group per provider the report knows (#6751 A), in the sources' order: its windows with the
+* most recent current-seat observation leading (retired-only windows stay in the disclosure), or
+* none at all for a provider that reports no allowance.
+*/
 function providerGroups(doc) {
-	const views = doc ? providers(doc) : [];
-	return [...new Set(views.map((view) => view.source))].flatMap((source) => {
+	if (!doc) return [];
+	const views = providers(doc);
+	const shares = new Map((providerRecords(doc) ?? []).map((row) => [row.driver, row.totals]));
+	const credits = latestCredits(doc);
+	const extra = (source) => ({
+		usage: shares.get(source) ?? null,
+		credits: source === CREDITS_DRIVER ? credits : null
+	});
+	return providerSources(doc).flatMap((source) => {
 		const windows = views.filter((view) => view.source === source);
+		if (!windows.length) {
+			const note = allowanceNote(doc, source, false);
+			return [{
+				id: source,
+				source,
+				label: providerLabel$1(source),
+				primary: void 0,
+				other: [],
+				windowless: note === noAllowance(source),
+				note,
+				...extra(source)
+			}];
+		}
 		return (new Set(windows.flatMap((view) => view.accountKey ? [view.accountKey] : [])).size > 1 ? [...new Set(windows.map((view) => view.accountKey))] : [void 0]).map((account) => {
 			const own = account === void 0 ? windows : windows.filter((view) => view.accountKey === account);
 			const primary = own.find((view) => view.current);
@@ -8179,7 +8308,10 @@ function providerGroups(doc) {
 				source,
 				label: account === void 0 ? providerLabel$1(source) : own[0].provider,
 				primary,
-				other: own.filter((view) => view !== primary)
+				other: own.filter((view) => view !== primary),
+				windowless: false,
+				note: primary ? null : allowanceNote(doc, source, true),
+				...extra(source)
 			};
 		});
 	});
@@ -8386,6 +8518,48 @@ function providerRow(view, nowMs) {
 	row.append(label, meter, metadata, details);
 	return row;
 }
+/** A provider's usage in the allowance week and, where the report carries it, its credits. */
+function providerFacts(group, nowMs) {
+	const facts = [];
+	if (group.usage) facts.push(el$1("p", "usage-note digest-provider-usage", `${compactCount(tokensOf(group.usage))} tokens in the last 7 days`));
+	if (group.credits) facts.push(el$1("p", "usage-note digest-provider-credits", `${group.credits.balance === null ? "No credits" : `Credits: ${creditText(group.credits.balance)}`} · observed ${observedAgo(group.credits.observedAtMs, nowMs)}`));
+	return facts;
+}
+/** Coverage first (#6751 F): which seats the report cannot see, and why, above every number. */
+function coverageNotice(doc) {
+	const seen = coverage(doc);
+	if (!seen.missingSeats && !seen.partialSeats && !seen.idle.length) return void 0;
+	const gap = seen.missingSeats > 0 || seen.partialSeats > 0;
+	const node = el$1("section", `${browserUiClasses.banner} digest-coverage`);
+	node.id = "digest-coverage";
+	if (gap) node.dataset.tone = "waiting";
+	const head = el$1("div", browserUiClasses.bannerHead);
+	const title = el$1("h2", "digest-coverage-title", coverageHeading(seen));
+	title.id = "digest-coverage-title";
+	node.setAttribute("aria-labelledby", title.id);
+	head.append(title);
+	node.append(head);
+	const rows = [...seen.missing.map((gap) => [
+		gap.id,
+		`${gap.seats.length} ${gap.words}`,
+		gap.seats
+	]), ...seen.idle.length ? [[
+		"idle",
+		`${seen.idle.length} idle, with no recent turn (not a gap)`,
+		seen.idle
+	]] : []];
+	if (rows.length) {
+		const list = el$1("ul", "digest-coverage-causes");
+		for (const [id, words, seats] of rows) {
+			const item = el$1("li", "digest-coverage-cause");
+			item.dataset.cause = id;
+			item.append(el$1("strong", void 0, words), el$1("span", "usage-note", seats.join(", ")));
+			list.append(item);
+		}
+		node.append(list);
+	}
+	return node;
+}
 function allowanceRow(report, state) {
 	const doc = report.allowance;
 	const intro = el$1("div", "digest-allowance-intro");
@@ -8403,16 +8577,16 @@ function allowanceRow(report, state) {
 		node.append(intro, el$1("p", "usage-note", report.allowanceUnavailable ?? "No weekly allowance observations have been reported."));
 		return node;
 	}
-	if (providers.length > 2) groups.dataset.many = "";
 	for (const group of providers) {
 		const host = el$1("div", "digest-provider-group");
 		host.id = `digest-provider-${encodeURIComponent(group.id)}`;
 		if (group.primary) host.append(providerRow(group.primary, doc.observedAtMs));
 		else {
 			const label = el$1("div", "digest-provider-label");
-			label.append(el$1("strong", void 0, group.label), el$1("span", void 0, "○ not reported"));
-			host.append(label, el$1("p", "usage-note", report.allowanceUnavailable ?? "No current seat has reported an active weekly window."));
+			label.append(el$1("strong", void 0, group.label));
+			host.append(label, el$1("p", "usage-note", report.allowanceUnavailable ?? group.note ?? ""));
 		}
+		host.append(...providerFacts(group, doc.observedAtMs));
 		if (group.other.length) {
 			const other = el$1("details", `${browserUiClasses.disclosure} digest-other-windows`);
 			other.id = `${host.id}-other`;
@@ -8421,14 +8595,16 @@ function allowanceRow(report, state) {
 			other.append(summary, ...group.other.map((view) => providerRow(view, doc.observedAtMs)));
 			host.append(other);
 		}
-		const symbol = el$1("span", "digest-provider-symbol", group.source === "claude" ? "✳" : group.source === "codex" ? "⌘" : "○");
+		const symbol = el$1("span", "digest-provider-symbol", group.primary ? group.primary.stale ? "◐" : "●" : "○");
 		symbol.setAttribute("aria-hidden", "true");
 		host.querySelector(".digest-provider-label")?.prepend(symbol);
 		groups.append(host);
 	}
 	const controls = el$1("div", "digest-carousel-controls");
+	const count = el$1("span", "digest-carousel-count");
 	const previous = el$1("button", browserUiClasses.action, "←");
 	const next = el$1("button", browserUiClasses.action, "→");
+	const step = () => (groups.firstElementChild?.getBoundingClientRect().width ?? groups.clientWidth) + (Number.parseFloat(getComputedStyle(groups).columnGap) || 0);
 	for (const [button, name, direction] of [[
 		previous,
 		"Previous provider",
@@ -8443,9 +8619,8 @@ function allowanceRow(report, state) {
 		button.setAttribute("aria-label", name);
 		button.setAttribute("aria-controls", groups.id);
 		button.addEventListener("click", () => {
-			const step = (groups.firstElementChild?.getBoundingClientRect().width ?? groups.clientWidth) + Number.parseFloat(getComputedStyle(groups).columnGap);
 			groups.scrollBy({
-				left: direction * step,
+				left: direction * step(),
 				behavior: "smooth"
 			});
 		});
@@ -8456,6 +8631,8 @@ function allowanceRow(report, state) {
 		groups.tabIndex = overflow ? 0 : -1;
 		previous.disabled = groups.scrollLeft <= 1;
 		next.disabled = groups.scrollLeft + groups.clientWidth >= groups.scrollWidth - 1;
+		const at = next.disabled ? providers.length : Math.round(groups.scrollLeft / step()) + 1;
+		count.textContent = `${Math.min(at, providers.length)} of ${providers.length}`;
 	};
 	groups.addEventListener("scroll", sync);
 	const observer = new ResizeObserver(sync);
@@ -8464,7 +8641,7 @@ function allowanceRow(report, state) {
 		observer.disconnect();
 		groups.removeEventListener("scroll", sync);
 	});
-	controls.append(previous, next);
+	controls.append(count, previous, next);
 	intro.append(controls);
 	node.append(intro, groups);
 	if (report.allowanceUnavailable) node.append(el$1("p", "usage-note", report.allowanceUnavailable));
@@ -8881,7 +9058,8 @@ function digestPage(source = createDigestSource(), signal) {
 		good = report;
 		const doc = report.document;
 		state.dispose.splice(0).forEach((dispose) => dispose());
-		panel.replaceChildren(allowanceRow(report, state), providerUsageCard(doc), tokensCard(doc, state), exchangeCard(doc, state), coverageCard());
+		const covered = coverageNotice(doc);
+		panel.replaceChildren(...covered ? [covered] : [], allowanceRow(report, state), providerUsageCard(doc), tokensCard(doc, state), exchangeCard(doc, state), coverageCard());
 		for (const detail of panel.querySelectorAll("details[id]")) detail.open = disclosures.get(detail.id) ?? false;
 		const scroll = document.getElementById("digest-exchange-scroll");
 		if (scroll) scroll.scrollLeft = matrixLeft;

@@ -5,7 +5,7 @@
 //! held.
 
 mod attention;
-mod delivery;
+pub(super) mod delivery;
 mod digest;
 mod digest_journal;
 pub(super) mod digest_wake;

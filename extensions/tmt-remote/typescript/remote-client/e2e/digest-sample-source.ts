@@ -29,7 +29,20 @@ const sampleSource: DigestSource = {
         series: seat.series.map((point) => ({ ...point, complete: true })),
       }));
       document.usage.unavailable = [
-        { id: 'missing-seat', name: 'missing-seat', retired: false, reason: 'not_sampled' },
+        {
+          id: 'missing-seat',
+          name: 'missing-seat',
+          retired: false,
+          reason: 'no_evidence',
+          cause: 'not_sampled',
+        },
+        {
+          id: 'idle-seat',
+          name: 'idle-seat',
+          retired: false,
+          reason: 'no_evidence',
+          cause: 'idle',
+        },
       ];
       allowance.limits = [];
       document.limitsUnavailable = [{ line: 'claude', reason: 'not_sampled' }];
