@@ -68,6 +68,8 @@ mod rollup_account_tests;
 #[cfg(test)]
 mod room_tests;
 #[cfg(test)]
+mod saved_terminal_tests;
+#[cfg(test)]
 mod session_detail_tests;
 #[cfg(test)]
 mod session_tests;
@@ -467,6 +469,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "admit PerLaunch runtimes (pi) in retained finals",
         "schema/096.sql"
+    ),
+    migration!(
+        "retain standalone terminal command results",
+        "schema/097.sql"
     ),
 ];
 

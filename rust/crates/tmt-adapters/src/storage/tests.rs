@@ -191,7 +191,7 @@ fn open_enforces_connection_features_and_private_files() {
         storage.health().unwrap(),
         StorageHealth {
             path: fixture.database.clone(),
-            schema_version: 96,
+            schema_version: 97,
             journal_mode: "wal",
             foreign_keys: true,
             busy_timeout_ms: 5000,
