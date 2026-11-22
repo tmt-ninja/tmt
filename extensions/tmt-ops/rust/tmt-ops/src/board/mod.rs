@@ -1243,6 +1243,7 @@ fn session(
                                 app.selected_request = refresh::SelectedRequest::Ready(None);
                             }
                             app.apply(*snapshot);
+                            app.apply_default_work_view();
                             app.standalone.refresh_due = true;
                             dirty = true;
                             app.prune_member_placement()

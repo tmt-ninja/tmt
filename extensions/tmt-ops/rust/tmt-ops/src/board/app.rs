@@ -3535,7 +3535,11 @@ impl App {
             Choice::SavingsUnit => self.cycle_savings_unit(),
             Choice::TokMoney | Choice::TokUnit => self.toggle_tok_money(),
             Choice::ClearSearch => {
-                super::search_field::clear(&mut self.search, &mut self.searching);
+                if self.shell.tab == super::shell::OpsTab::Work {
+                    super::search_field::clear(&mut self.work.search, &mut self.work.searching);
+                } else {
+                    super::search_field::clear(&mut self.search, &mut self.searching);
+                }
                 self.clamp();
                 self.invalidate_frame_geometry();
                 Effect::None
@@ -3674,8 +3678,13 @@ impl App {
                 .overlay_event(&Event::Paste(text.to_owned()))
                 .unwrap_or(Effect::None);
         }
-        if self.searching && self.input.is_none() && !self.modal_open() {
-            if !super::search_field::paste(&mut self.search, text) {
+        if self.is_searching() && self.input.is_none() && !self.modal_open() {
+            let search = if self.shell.tab == super::shell::OpsTab::Work {
+                &mut self.work.search
+            } else {
+                &mut self.search
+            };
+            if !super::search_field::paste(search, text) {
                 return self.say("Search exceeds 4,096 bytes; query unchanged.");
             }
             self.clamp();
@@ -4231,7 +4240,7 @@ impl App {
     }
 
     pub(super) fn button_owner_is_active(&self, owner: Option<Overlay>) -> bool {
-        self.menu.is_none() && self.overlay() == owner && (owner.is_some() || !self.searching)
+        self.menu.is_none() && self.overlay() == owner && (owner.is_some() || !self.is_searching())
     }
 
     pub(in crate::board) fn usage_controls_active(&self) -> bool {
@@ -4657,7 +4666,11 @@ impl App {
                     return effect;
                 }
             }
-            self.searching = false;
+            if self.shell.tab == super::shell::OpsTab::Work {
+                self.work.searching = false;
+            } else {
+                self.searching = false;
+            }
             let effect = self.perform(&action);
             return if effect == Effect::None {
                 cleanup
@@ -4695,7 +4708,7 @@ impl App {
         }
         if self.input.is_none()
             && !self.modal_open()
-            && !self.searching
+            && !self.is_searching()
             && let Some(effect) = self.member_link_key(key)
         {
             return effect;
@@ -4777,7 +4790,12 @@ impl App {
         if !typing && let Some(effect) = self.work_key(key) {
             return effect;
         }
-        if let Some(input) = super::search_field::key(&mut self.search, &mut self.searching, key) {
+        let (search, searching) = if self.shell.tab == super::shell::OpsTab::Work {
+            (&mut self.work.search, &mut self.work.searching)
+        } else {
+            (&mut self.search, &mut self.searching)
+        };
+        if let Some(input) = super::search_field::key(search, searching, key) {
             self.clamp();
             match input {
                 super::search_field::Input::Previous => {
@@ -4987,10 +5005,10 @@ impl App {
         };
         let resize_changed = self.pane_resize.move_pointer(
             (event.column, event.row).into(),
-            !self.modal_open() && self.input.is_none() && !self.searching && !self.loading(),
+            !self.modal_open() && self.input.is_none() && !self.is_searching() && !self.loading(),
         );
         let chart_changed = if self.usage_controls_active()
-            || (!self.modal_open() && self.input.is_none() && !self.searching)
+            || (!self.modal_open() && self.input.is_none() && !self.is_searching())
         {
             super::overview::chart::host::pointer(self, event)
         } else {
@@ -5007,7 +5025,7 @@ impl App {
                 .as_ref()
                 .is_some_and(|notes| notes.move_pointer((event.column, event.row).into()));
         let control =
-            if self.loading() || self.modal_open() || self.input.is_some() || self.searching {
+            if self.loading() || self.modal_open() || self.input.is_some() || self.is_searching() {
                 None
             } else {
                 self.workspace_strip_hits
@@ -5030,7 +5048,7 @@ impl App {
             && self.overlay().is_none()
             && self.menu.is_none()
             && self.input.is_none()
-            && !self.searching
+            && !self.is_searching()
             && self
                 .composer
                 .unread_hit
@@ -5049,15 +5067,15 @@ impl App {
             && self.overlay().is_none()
             && self.menu.is_none()
             && self.input.is_none()
-            && !self.searching)
-            .then(|| {
-                self.unread_hits
-                    .borrow()
-                    .iter()
-                    .find(|hit| hit.area.contains((event.column, event.row).into()))
-                    .map(|hit| hit.area)
-            })
-            .flatten();
+            && !self.is_searching())
+        .then(|| {
+            self.unread_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.area.contains((event.column, event.row).into()))
+                .map(|hit| hit.area)
+        })
+        .flatten();
         let count_changed = count != self.unread_hover.replace(count);
         let changed = unread_overlay_changed
             || chart_changed
@@ -5362,7 +5380,7 @@ impl App {
             }
             return Effect::None;
         }
-        if !self.searching
+        if !self.is_searching()
             && let Some(effect) = super::overview::chart::host::mouse(self, event)
         {
             return effect;
@@ -5377,7 +5395,7 @@ impl App {
             if let Some(choice) = strip {
                 // The current frame's painter owns admission on either tab; geometry
                 // invalidation retires its hits before a destination or layout changes.
-                if !self.searching {
+                if !self.is_searching() {
                     self.focus_strip(event.column, event.row);
                     return self.choose(choice);
                 }
@@ -5524,7 +5542,7 @@ impl App {
                 && self.shell.tab == super::shell::OpsTab::Agents
                 && !self.loading()
                 && !self.modal_open()
-                && !self.searching)
+                && !self.is_searching())
         {
             return Effect::None;
         }

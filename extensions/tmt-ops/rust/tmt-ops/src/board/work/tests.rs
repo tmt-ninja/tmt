@@ -422,9 +422,9 @@ fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
     assert_eq!(key(&mut app, KeyCode::Char('2')), Effect::None);
     assert_eq!(app.shell.tab, OpsTab::Work);
     assert_eq!(key(&mut app, KeyCode::Char('/')), Effect::None);
-    assert!(app.searching);
+    assert!(app.work.searching);
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
-    assert!(!app.searching);
+    assert!(!app.work.searching);
     assert_eq!(
         key(&mut app, KeyCode::Enter),
         Effect::OpenWorkPage(PAGE.into())
@@ -579,7 +579,7 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
             app.apply_default_work_view();
             if scene == "work-view-chip" {
                 app.work.detail_collapsed = false;
-                app.search.clear();
+                app.work.search.clear();
             } else if scene == "work-view-save" {
                 app.work.view_draft_name = "Remote follow-up".into();
                 app.work.view_draft_default = true;
@@ -883,7 +883,7 @@ fn colab_work_saved_views_chip_row_dialogs_and_default_reopen() {
         .apply(Instant::now(), List::decode(&document).map_err(Into::into));
     reopened.apply_default_work_view();
     assert_eq!(reopened.work.project.as_deref(), Some("Colab"));
-    assert_eq!(reopened.search.as_str(), "protocol");
+    assert_eq!(reopened.work.search.as_str(), "protocol");
     assert!(reopened.work.detail_collapsed);
     assert_eq!(
         reopened.work.active_view,
@@ -1093,7 +1093,8 @@ fn colab_work_w168_dashboard_search_space_collapse_and_inspector() {
 
     // `/` live search filters cards and Esc clears.
     key(&mut app, KeyCode::Char('/'));
-    assert!(app.searching);
+    assert!(app.work.searching);
+    assert!(!app.searching);
     for ch in "W-91".chars() {
         key(&mut app, KeyCode::Char(ch));
     }
@@ -1101,14 +1102,37 @@ fn colab_work_w168_dashboard_search_space_collapse_and_inspector() {
     assert!(filtered.iter().any(|l| l.contains("W-91")));
     assert!(!filtered.iter().any(|l| l.contains("CORE-88")));
     key(&mut app, KeyCode::Esc);
-    assert!(!app.searching);
-    assert!(app.search.is_empty());
+    assert!(!app.work.searching);
+    assert!(app.work.search.is_empty());
 
-    // `t` jumps to the bound owner's Talk tab in Agents.
-    key(&mut app, KeyCode::Home);
+    // `t` jumps to the bound owner's Talk tab in Agents without leaking Work search.
+    app.search.insert("worker", 4096);
+    key(&mut app, KeyCode::Char('/'));
+    for ch in "COLAB-119".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Char('t'));
     assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
+    assert_eq!(app.search.as_str(), "worker");
+    assert_eq!(app.work.search.as_str(), "COLAB-119");
+    assert!(matches!(
+        &app.workspace.selected,
+        Some(crate::board::workspace::OpsTarget::Member { identity_id, .. }) if identity_id == MEMBER
+    ));
+
+    // If the Agents filter would hide the bound member, `t` clears it so the member is selected.
+    key(&mut app, KeyCode::Char('2'));
+    app.search.clear();
+    app.search.insert("no-such-agent", 4096);
+    key(&mut app, KeyCode::Char('t'));
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert!(app.search.is_empty());
+    assert!(matches!(
+        &app.workspace.selected,
+        Some(crate::board::workspace::OpsTarget::Member { identity_id, .. }) if identity_id == MEMBER
+    ));
 }
 
 #[test]

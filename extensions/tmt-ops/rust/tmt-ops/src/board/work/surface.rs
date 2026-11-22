@@ -476,7 +476,7 @@ fn paint_dashboard_band(
 ) -> u16 {
     let state = &app.work;
     let filter = state.project.as_deref();
-    let query = app.search.as_str().trim();
+    let query = app.work.search.as_str().trim();
     if state.detail_collapsed || !query.is_empty() {
         let label =
             filter.unwrap_or_else(|| list.projects.first().map(String::as_str).unwrap_or("all"));
@@ -934,8 +934,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     super::super::search_field::paint(
         frame.buffer_mut(),
         search_rect,
-        &app.search,
-        app.searching,
+        &app.work.search,
+        app.work.searching,
         Some("/"),
         look,
         None,
@@ -1136,7 +1136,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             zone,
             width,
             roster,
-            query: app.search.as_str(),
+            query: app.work.search.as_str(),
             view_filter,
         },
     );
@@ -1167,7 +1167,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             .filter_map(|r| r.item.map(|item| item.key.as_str()))
             .collect::<std::collections::BTreeSet<_>>()
             .len();
-        let trimmed_query = app.search.as_str().trim();
+        let trimmed_query = app.work.search.as_str().trim();
         let list_title = if !trimmed_query.is_empty() {
             if open_count == 1 {
                 "Work · 1 match".into()
@@ -1438,7 +1438,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
 impl App {
     pub(in crate::board) fn work_key(&mut self, key: KeyEvent) -> Option<Effect> {
         if self.shell.tab != OpsTab::Work
-            || self.searching
+            || self.work.searching
             || key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
@@ -1475,7 +1475,7 @@ impl App {
         }
         if key.code == KeyCode::Char('/') {
             self.work.inspector_focused = false;
-            self.searching = true;
+            self.work.searching = true;
             return Some(Effect::None);
         }
         if key.code == KeyCode::Char(' ') {
@@ -1499,7 +1499,7 @@ impl App {
             .and_then(|view| view.home.as_ref())
             .map(|home| &home.workspace.roster);
         let views = saved_views(self).to_vec();
-        let query = self.search.as_str().to_owned();
+        let query = self.work.search.as_str().to_owned();
         let state = &mut self.work;
         let Some(list) = &state.list else {
             return matches!(
@@ -1638,7 +1638,7 @@ impl App {
         }
         if let Hit::Search = hit {
             self.work.inspector_focused = false;
-            self.searching = true;
+            self.work.searching = true;
             return Effect::None;
         }
         if let Hit::SaveView = hit {
@@ -1666,8 +1666,16 @@ impl App {
                         .and_then(|snapshot| item.owner_target(&snapshot.roster))
                 });
             if let Some(target) = target {
+                self.work.searching = false;
                 self.workspace.selected = Some(target.clone());
                 self.show_conversation_of(&target);
+                if !self.search.is_empty()
+                    && !self.workspace_rows().iter().any(|row| row.target == target)
+                {
+                    super::super::search_field::clear(&mut self.search, &mut self.searching);
+                    self.workspace.selected = Some(target);
+                    self.workspace_reconcile();
+                }
             }
             return Effect::None;
         }
@@ -1767,11 +1775,11 @@ impl App {
         };
         self.work.default_view_applied = true;
         self.work.project = default_view.project.clone();
-        self.search.clear();
+        self.work.search.clear();
         if !default_view.query.is_empty() {
-            self.search.insert(&default_view.query, 4096);
+            self.work.search.insert(&default_view.query, 4096);
         }
-        self.searching = false;
+        self.work.searching = false;
         self.work.detail_collapsed = default_view.detail_collapsed;
         self.work.active_view = ViewSelection::Saved(default_view.name);
         self.work.selected = None;
@@ -1786,11 +1794,11 @@ impl App {
                 .cloned()
         {
             self.work.project = view.project;
-            self.search.clear();
+            self.work.search.clear();
             if !view.query.is_empty() {
-                self.search.insert(&view.query, 4096);
+                self.work.search.insert(&view.query, 4096);
             }
-            self.searching = false;
+            self.work.searching = false;
             self.work.detail_collapsed = view.detail_collapsed;
         }
         self.work.active_view = selection;
@@ -1822,7 +1830,7 @@ impl App {
         let entry = WorkView {
             name: name.clone(),
             project: self.work.project.clone(),
-            query: self.search.as_str().trim().to_owned(),
+            query: self.work.search.as_str().trim().to_owned(),
             filter,
             detail_collapsed: self.work.detail_collapsed,
             default: self.work.view_draft_default,
@@ -1906,7 +1914,7 @@ impl App {
                         look.selected(focused_def, look.role(Role::Text)),
                     ),
                 );
-                let query = self.search.as_str().trim();
+                let query = self.work.search.as_str().trim();
                 let proj = self.work.project.as_deref().unwrap_or("All projects");
                 strip::paint_left(
                     frame.buffer_mut(),

@@ -79,6 +79,8 @@ pub(in crate::board) struct State {
     pub detail_collapsed: bool,
     pub inspector_focused: bool,
     pub inspector_cursor: usize,
+    pub search: tmt_tui::components::Editor,
+    pub searching: bool,
     pub active_view: ViewSelection,
     pub default_view_applied: bool,
     pub view_dialog: Option<ViewDialog>,
