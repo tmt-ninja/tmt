@@ -633,6 +633,7 @@ impl Registration {
             .collect();
         let sections: std::collections::BTreeMap<_, _> = fresh
             .keys()
+            .filter(|_| section_progress)
             .filter_map(|id| {
                 let (sections, omitted) = self.summaries.sections(id, fingerprints.get(id)?)?;
                 (!sections.is_empty() || omitted).then_some((id.clone(), (sections, omitted)))
@@ -686,18 +687,17 @@ impl Registration {
             }
         }
         catalog["listToken"] = serde_json::json!(list_token(&fingerprints)?);
-        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
-            if let Some(id) = page["pageId"].as_str() {
-                let omit_todos = bounded && todos.contains_key(id);
-                let omit_sections = sections.contains_key(id);
-                if omit_todos {
-                    page["summary"]["todosOmitted"] = serde_json::json!(true);
-                }
-                if omit_sections {
-                    page["summary"]["sectionsOmitted"] = serde_json::json!(true);
+        if bounded && !section_progress {
+            crate::page_titles::attach_to_catalog(&mut catalog, &titles);
+        } else if !bounded {
+            for row in catalog["pages"].as_array_mut().into_iter().flatten() {
+                if let Some(title) = row["pageId"].as_str().and_then(|id| titles.get(id)) {
+                    row["title"] = serde_json::json!(title);
                 }
             }
         }
+        // Work fields are optional display data. Keep the complete catalog within the existing
+        // discovery bound even when every page has the longest allowed notes.
         if bounded {
             catalog["projectPrefixes"] = serde_json::json!(
                 self.store
@@ -706,17 +706,21 @@ impl Registration {
             );
             catalog["projectOrders"] = serde_json::json!({});
             catalog["projectOrdersOmitted"] = catalog["projects"].clone();
-            crate::page_titles::attach_to_catalog(&mut catalog, &titles);
+        }
+        // The native Work snapshot reserves room for omission flags. Inserting the
+        // aggregate before optional text must not let those flags overflow the reply.
+        let reserve = if section_progress {
+            24 * todos.len() + 27 * sections.len()
         } else {
-            for row in catalog["pages"].as_array_mut().into_iter().flatten() {
-                if let Some(title) = row["pageId"].as_str().and_then(|id| titles.get(id)) {
-                    row["title"] = serde_json::json!(title);
-                }
-            }
+            0
+        };
+        if section_progress {
+            crate::page_titles::attach_to_catalog_reserved(&mut catalog, &titles, reserve);
         }
         let mut used = serde_json::to_vec(&catalog)
             .map_err(|_| Code::Unavailable)?
-            .len();
+            .len()
+            + reserve;
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             let Some(fields) = page["pageId"]
                 .as_str()
@@ -749,36 +753,48 @@ impl Registration {
                 + 16;
             if !bounded || used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
                 page["summary"]["todos"] = items;
-                if bounded {
-                    page["summary"]
-                        .as_object_mut()
-                        .expect("fresh summary")
-                        .remove("todosOmitted");
-                }
                 used += cost;
+            } else {
+                page["summary"]["todosOmitted"] = serde_json::json!(true);
+                if !section_progress {
+                    used += 24;
+                }
             }
         }
         // Sections come after the to-dos within the same bound (#6619): the counted ones, with the
         // status the fold alone decides.
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
-            let Some((sections, omitted)) = page["pageId"].as_str().and_then(|id| sections.get(id))
+            let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
+                continue;
+            };
+            if !page["summary"].is_object() {
+                continue;
+            }
+            let Some((sections, omitted)) = fingerprints
+                .get(&id)
+                .and_then(|fingerprint| self.summaries.sections(&id, fingerprint))
             else {
                 continue;
             };
-            let rows = crate::sections::summary(sections, |section| section.folded_state(now));
+            let rows = crate::sections::summary(&sections, |section| section.folded_state(now));
+            if rows.as_array().is_none_or(Vec::is_empty) && !omitted {
+                continue;
+            }
             let cost = serde_json::to_vec(&rows)
                 .map_err(|_| Code::Unavailable)?
                 .len()
                 + 40;
             if used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
                 page["summary"]["sections"] = rows;
-                if !omitted {
-                    page["summary"]
-                        .as_object_mut()
-                        .expect("fresh summary")
-                        .remove("sectionsOmitted");
+                if omitted {
+                    page["summary"]["sectionsOmitted"] = serde_json::json!(true);
                 }
                 used += cost;
+            } else {
+                page["summary"]["sectionsOmitted"] = serde_json::json!(true);
+                if !section_progress {
+                    used += 27;
+                }
             }
         }
         Ok(catalog)
@@ -2752,6 +2768,16 @@ mod describe_tests {
             })
             .collect();
         projection.sections = crate::sections::sections(Some(&blocks.into())).0;
+        projection.todo_items = (0..crate::limits::WORK_TODOS)
+            .map(|index| crate::summary::TodoItem {
+                id: format!("t{index}"),
+                text: "x".repeat(crate::limits::WORK_TODO_TEXT),
+                checked: false,
+                due: None,
+                assignee: None,
+                ask: None,
+            })
+            .collect();
         for (page, fingerprint) in &fingerprints {
             service
                 .summaries
@@ -2770,6 +2796,10 @@ mod describe_tests {
         assert!(
             rows.iter()
                 .any(|row| row["summary"]["sectionsOmitted"] == true)
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row["summary"]["todosOmitted"] == true)
         );
         service.close().unwrap();
     }
