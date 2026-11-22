@@ -104,13 +104,19 @@ it('lines break at a missing observation and a reference stays a separate dashed
   expect(model.grid.at(-1)!.label).toBe('100');
 });
 
-it('bars skip a missing column and never draw below the axis', () => {
+it('bars skip a missing column, never draw below the axis and stay clear of the tick labels', () => {
   const model = seriesModel({ title: 't', kind: 'bars', x, series: [series[0]!] }, 640);
   expect(model.marks).toHaveLength(4);
   for (const mark of model.marks) {
     expect(mark.rect!.height).toBeGreaterThanOrEqual(0);
     expect(mark.rect!.y + mark.rect!.height).toBeCloseTo(model.bottom, 5);
+    // Each bar sits inside the plot: never over the y axis labels on its left.
+    expect(mark.rect!.x).toBeGreaterThanOrEqual(model.grid[0]!.x1);
+    expect(mark.rect!.x + mark.rect!.width).toBeLessThanOrEqual(model.grid[0]!.x2);
   }
+  // A pointer maps to the bar under it: the first column is where the first bar's centre is.
+  expect(model.left).toBeCloseTo(model.xs[0]!, 5);
+  expect(model.xs[1]! - model.xs[0]!).toBeCloseTo(model.step, 5);
 });
 
 it('a single column and a very narrow width still give finite geometry', () => {

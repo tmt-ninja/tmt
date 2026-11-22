@@ -99,6 +99,17 @@ fn the_frozen_vector_joins_to_the_documented_report_and_csv() {
 }
 
 #[test]
+fn a_sleeping_hour_is_no_data_beside_a_measured_zero() {
+    let case = vector_at(2);
+    let document = model::document(&report(&case)).unwrap();
+    let series = &document["usage"]["seats"][0]["series"];
+    assert_eq!(series, &case["expected"]["series"]);
+    // Both quiet hours have no tokens; only Core's coverage tells the read zero from no data.
+    assert_eq!(series[1]["coveredMs"], 3_600_000);
+    assert_eq!(series[2]["coveredMs"], 0);
+}
+
+#[test]
 fn provider_usage_and_refusals_preserve_the_hand_calculated_records() {
     let base = vector_at(1);
     let document = model::document(&report(&base)).unwrap();

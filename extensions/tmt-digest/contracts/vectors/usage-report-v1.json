@@ -530,6 +530,7 @@
                 {
                   "fromMs": 1799913600000,
                   "toMs": 1799917200000,
+                  "coveredMs": 3600000,
                   "input": 400,
                   "output": 80,
                   "cached": 250,
@@ -538,6 +539,7 @@
                 {
                   "fromMs": 1799917200000,
                   "toMs": 1799920800000,
+                  "coveredMs": 3600000,
                   "input": 600,
                   "output": 120,
                   "cached": 350,
@@ -582,6 +584,7 @@
                 {
                   "fromMs": 1799913600000,
                   "toMs": 1799917200000,
+                  "coveredMs": 3600000,
                   "input": 2000,
                   "output": 300,
                   "cached": 1500,
@@ -591,6 +594,7 @@
                 {
                   "fromMs": 1799917200000,
                   "toMs": 1799920800000,
+                  "coveredMs": 3600000,
                   "input": 3000,
                   "output": 500,
                   "cached": 1500,
@@ -623,6 +627,7 @@
                 {
                   "fromMs": 1799913600000,
                   "toMs": 1799917200000,
+                  "coveredMs": 1800000,
                   "input": 100,
                   "output": 20,
                   "cached": 0,
@@ -662,6 +667,7 @@
                 {
                   "fromMs": 1799913600000,
                   "toMs": 1799917200000,
+                  "coveredMs": 3600000,
                   "input": 50,
                   "output": 10,
                   "cached": 0,
@@ -1630,6 +1636,7 @@
                 {
                   "fromMs": 1799913600000,
                   "toMs": 1799917200000,
+                  "coveredMs": 3600000,
                   "input": 400,
                   "output": 80,
                   "cached": 250,
@@ -1638,6 +1645,7 @@
                 {
                   "fromMs": 1799917200000,
                   "toMs": 1799920800000,
+                  "coveredMs": 3600000,
                   "input": 600,
                   "output": 120,
                   "cached": 350,
@@ -1682,6 +1690,7 @@
                 {
                   "fromMs": 1799913600000,
                   "toMs": 1799917200000,
+                  "coveredMs": 3600000,
                   "input": 2000,
                   "output": 300,
                   "cached": 1500,
@@ -1691,6 +1700,7 @@
                 {
                   "fromMs": 1799917200000,
                   "toMs": 1799920800000,
+                  "coveredMs": 3600000,
                   "input": 3000,
                   "output": 500,
                   "cached": 1500,
@@ -1730,6 +1740,7 @@
                 {
                   "fromMs": 1799913600000,
                   "toMs": 1799917200000,
+                  "coveredMs": 1800000,
                   "input": 100,
                   "output": 20,
                   "cached": 0,
@@ -1768,6 +1779,7 @@
                 {
                   "fromMs": 1799913600000,
                   "toMs": 1799917200000,
+                  "coveredMs": 3600000,
                   "input": 50,
                   "output": 10,
                   "cached": 0,
@@ -2238,6 +2250,145 @@
             }
           ]
         }
+      }
+    },
+    {
+      "name": "a sleeping-host hour next to a measured-zero hour",
+      "note": "Series abbreviated to three hours. Core lists every bucket: the first hour was read and moved tokens, the second was read and moved none (a measured zero), and nobody read the third (the host slept: no tokens, no coverage), which is no data, never 0. The report passes Core's coveredMs through unchanged so a reader can tell the two apart.",
+      "asOfMs": 1800000060000,
+      "since": "24h",
+      "labels": [
+        {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "name": "claude-seat",
+          "retired": false
+        }
+      ],
+      "ids": [
+        "10000000-0000-4000-8000-000000000001"
+      ],
+      "totals": {
+        "identities": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "found": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 86400000,
+                "resolutionMs": 300000,
+                "availableFromMs": 1799913600000,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1800000000000,
+                    "inputTokens": 40,
+                    "outputTokens": 4,
+                    "cachedInputTokens": 10,
+                    "coveredMs": 7200000,
+                    "complete": false,
+                    "gap": true,
+                    "discontinuous": false
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "series": {
+        "identities": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "found": true,
+            "windows": [
+              {
+                "windowMs": 86400000,
+                "fromMs": 1799913600000,
+                "toMs": 1800000000000,
+                "bucketMs": 3600000,
+                "resolutionMs": 300000,
+                "availableFromMs": 1799913600000,
+                "retainedFromMs": 1799913600000,
+                "buckets": [
+                  {
+                    "fromMs": 1799913600000,
+                    "toMs": 1799917200000,
+                    "inputTokens": 40,
+                    "outputTokens": 4,
+                    "cachedInputTokens": 10,
+                    "coveredMs": 3600000,
+                    "complete": true,
+                    "gap": false,
+                    "discontinuous": false
+                  },
+                  {
+                    "fromMs": 1799917200000,
+                    "toMs": 1799920800000,
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedInputTokens": 0,
+                    "coveredMs": 3600000,
+                    "complete": true,
+                    "gap": false,
+                    "discontinuous": false
+                  },
+                  {
+                    "fromMs": 1799920800000,
+                    "toMs": 1799924400000,
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedInputTokens": 0,
+                    "coveredMs": 0,
+                    "complete": false,
+                    "gap": true,
+                    "discontinuous": false
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "flow": {
+        "sinceMs": 1799913600000,
+        "observedAtMs": 1800000060000,
+        "bucketMs": 86400000,
+        "rows": []
+      },
+      "expected": {
+        "series": [
+          {
+            "input": 40,
+            "output": 4,
+            "cached": 10,
+            "fromMs": 1799913600000,
+            "toMs": 1799917200000,
+            "coveredMs": 3600000,
+            "complete": true
+          },
+          {
+            "input": 0,
+            "output": 0,
+            "cached": 0,
+            "fromMs": 1799917200000,
+            "toMs": 1799920800000,
+            "coveredMs": 3600000,
+            "complete": true
+          },
+          {
+            "input": 0,
+            "output": 0,
+            "cached": 0,
+            "fromMs": 1799920800000,
+            "toMs": 1799924400000,
+            "coveredMs": 0,
+            "complete": false
+          }
+        ]
       }
     }
   ]

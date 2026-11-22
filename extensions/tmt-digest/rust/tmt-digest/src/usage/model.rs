@@ -85,6 +85,9 @@ struct Point {
     from_ms: u64,
     to_ms: u64,
     tokens: Tokens,
+    /// Core's verified read coverage of the bucket: zero tokens with zero coverage
+    /// is unknown, never a measured zero.
+    covered_ms: u64,
     complete: bool,
     /// The newest credits Core saw in the bucket, and the service tier of its
     /// newest token-moving read; each None when Core observed none.
@@ -471,6 +474,8 @@ pub fn usage(
                 from_ms: number(&point["fromMs"]).ok_or_else(|| invalid("consumption series"))?,
                 to_ms: number(&point["toMs"]).ok_or_else(|| invalid("consumption series"))?,
                 tokens: Tokens::read(point).ok_or_else(|| invalid("consumption series"))?,
+                covered_ms: number(&point["coveredMs"])
+                    .ok_or_else(|| invalid("consumption series"))?,
                 complete: point["complete"] == true,
                 credits: credit(&point["credits"])?,
                 service_tier: tier(&point["serviceTier"])?,
@@ -723,6 +728,7 @@ fn seat_json(seat: &Seat) -> Value {
             let mut row = point.tokens.json();
             row["fromMs"] = json!(point.from_ms);
             row["toMs"] = json!(point.to_ms);
+            row["coveredMs"] = json!(point.covered_ms);
             row["complete"] = json!(point.complete);
             if let Some(tier) = &point.service_tier {
                 row["serviceTier"] = json!(tier);

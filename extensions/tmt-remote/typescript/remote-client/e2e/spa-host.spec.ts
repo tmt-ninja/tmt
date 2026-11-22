@@ -1470,7 +1470,7 @@ test.describe('the Digest route on the owner reads', () => {
       });
       const cards = page.locator('#digest-sections .tmt-ui-card');
       await expect(cards.first()).toBeVisible();
-      await expect(cards).toHaveCount(6);
+      await expect(cards).toHaveCount(8);
       // This older report has seat usage but no provider projection; it is not zero usage.
       await expect(page.locator('#digest-provider-usage')).toContainText(
         'Provider usage is unavailable in this report.',
@@ -1478,13 +1478,12 @@ test.describe('the Digest route on the owner reads', () => {
       await expect(page.locator('#digest-activity')).toHaveCount(0);
       await expect(cards.first()).toHaveCSS('border-radius', '2px');
       const provider = page.locator('.digest-provider').first();
-      const details = provider.locator('details');
       await expect(provider.locator('.digest-provider-label')).toContainText('% left');
-      await expect(details).not.toHaveAttribute('open');
-      await details.locator('summary').click();
+      // #6751 B: the runway's facts are in view, with no disclosure to open first.
+      await expect(provider.locator('details')).toHaveCount(0);
       await expect(provider.locator('.tmt-ui-status-tile-label')).toHaveText([
-        'Elapsed',
-        'Pace',
+        'Left',
+        'Runs out',
         'Resets in',
       ]);
       const headline = page.locator('.tmt-ui-topbar-navigation h1');
@@ -1516,7 +1515,8 @@ test.describe('the Digest route on the owner reads', () => {
       await expect(page.locator('#digest-missing .digest-gap dd')).toHaveText(
         Array(4).fill('Not connected'),
       );
-      await expect(page.locator('.digest-provider details').first()).toHaveAttribute('open', '');
+      // The week's history stays in view across the range switch.
+      await expect(page.locator('.digest-provider .tmt-ui-chart').first()).toBeVisible();
       const heading = page.locator('#digest-ranking-rows .tmt-ui-table[data-numeric] th').nth(1);
       await expect(heading).toHaveText('Tokens');
       expect((await heading.boundingBox())!.height).toBeLessThan(40);

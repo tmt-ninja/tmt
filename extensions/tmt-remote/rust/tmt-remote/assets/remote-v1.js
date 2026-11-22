@@ -7925,8 +7925,9 @@ function seriesModel(options, width) {
 		top: MARGIN.top,
 		bottom: height - MARGIN.bottom
 	};
-	const step = columns > 1 ? (inner.right - inner.left) / (columns - 1) : 0;
-	const xAt = (i) => columns > 1 ? inner.left + i * step : (inner.left + inner.right) / 2;
+	const banded = options.kind === "bars";
+	const step = banded ? (inner.right - inner.left) / Math.max(1, columns) : columns > 1 ? (inner.right - inner.left) / (columns - 1) : 0;
+	const xAt = (i) => banded ? inner.left + (i + .5) * step : columns > 1 ? inner.left + i * step : (inner.left + inner.right) / 2;
 	const yAt = (v) => inner.bottom - Math.min(v, max) / max * (inner.bottom - inner.top);
 	const xs = options.x.map((_, i) => xAt(i));
 	const marks = [];
@@ -7936,7 +7937,7 @@ function seriesModel(options, width) {
 		d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt), options.curve)
 	}));
 	else if (options.kind === "bars") {
-		const bar = Math.max(1, Math.min(24, (inner.right - inner.left) / columns - 2));
+		const bar = Math.max(1, Math.min(24, step - 2));
 		options.series[0].values.forEach((v, i) => {
 			if (v == null) return;
 			const y = yAt(v);
@@ -8009,7 +8010,7 @@ function seriesModel(options, width) {
 		top: inner.top,
 		bottom: inner.bottom,
 		step,
-		left: inner.left,
+		left: xAt(0),
 		values: (at) => options.series.map((layer) => cell(layer, at)),
 		readout: (at) => `${options.x[at]}: ${options.series.map((layer) => `${layer.label} ${cell(layer, at)}`).join(", ")}`,
 		legend: options.series.map((layer, i) => ({
@@ -8866,12 +8867,17 @@ function historyCharts(doc, zone) {
 }
 function providers(doc, zone) {
 	const charts = new Map(historyCharts(doc, zone).map((chart) => [chart.series[0].key, chart]));
+	const histories = new Map((doc.limitHistory ?? []).map((history) => [windowKey(history), history]));
 	const styles = providerStyles(doc);
-	return allowance(doc).map((row) => ({
-		...row,
-		style: styles.get(row.source) ?? 0,
-		chart: charts.get(row.key)
-	}));
+	return allowance(doc).map((row) => {
+		const history = histories.get(row.key);
+		return {
+			...row,
+			style: styles.get(row.source) ?? 0,
+			chart: charts.get(row.key),
+			runway: history && !row.stale ? runway(history, doc.observedAtMs) : null
+		};
+	});
 }
 /**
 * One group per provider the report knows (#6751 A), in the sources' order: its windows with the
@@ -8929,6 +8935,210 @@ function resetsIn(resetsAtMs, nowMs) {
 	if (ms <= 0) return "now";
 	if (ms >= DAY$1) return `${Math.floor(ms / DAY$1)}d ${Math.floor(ms % DAY$1 / HOUR$1)}h`;
 	return `${Math.max(1, Math.floor(ms / HOUR$1))}h`;
+}
+/** Cached input as a share of input, in percent to one decimal; null without input. */
+function cachedRatio(totals) {
+	return totals.input > 0 ? Math.round(totals.cached / totals.input * 1e3) / 10 : null;
+}
+var percentOf = (part, whole) => whole > 0 ? Math.round(part / whole * 1e3) / 10 : 0;
+var plus = (a, b) => ({
+	input: a.input + b.input,
+	output: a.output + b.output,
+	cached: a.cached + b.cached
+});
+var NONE = {
+	input: 0,
+	output: 0,
+	cached: 0
+};
+/** A seat's tokens by model as Core attributed them, and what no model row covers. A seat Core
+* attributed none of (`byModel` null or absent) is all unattributed: no model is guessed. */
+function attribution(seat) {
+	if (!Array.isArray(seat.byModel)) return {
+		models: [],
+		rest: seat.totals
+	};
+	return {
+		models: seat.byModel.map((row) => [row.modelId, {
+			input: row.input,
+			output: row.output,
+			cached: row.cached
+		}]),
+		rest: seat.unattributed ?? NONE
+	};
+}
+/** #6751 C: token share by model over every seat, with the cached-input ratio. On tokens only:
+* a cost weighting waits for a price row for every model, never an estimate. */
+function modelShares(doc) {
+	const byModel = /* @__PURE__ */ new Map();
+	let rest = NONE;
+	let restSeats = 0;
+	let all = NONE;
+	for (const seat of doc.usage.seats) {
+		const { models, rest: own } = attribution(seat);
+		for (const [model, totals] of models) {
+			const row = byModel.get(model) ?? {
+				totals: NONE,
+				seats: 0
+			};
+			byModel.set(model, {
+				totals: plus(row.totals, totals),
+				seats: row.seats + 1
+			});
+		}
+		if (tokensOf(own) > 0) {
+			rest = plus(rest, own);
+			restSeats++;
+		}
+		all = plus(all, seat.totals);
+	}
+	const whole = tokensOf(all);
+	const shareOf = (totals) => ({
+		totals,
+		tokens: tokensOf(totals),
+		share: percentOf(tokensOf(totals), whole),
+		cachedRatio: cachedRatio(totals)
+	});
+	return {
+		models: [...byModel].map(([model, row]) => ({
+			model,
+			...shareOf(row.totals),
+			seats: row.seats
+		})).sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model)),
+		unattributed: tokensOf(rest) > 0 ? {
+			...shareOf(rest),
+			seats: restSeats
+		} : null,
+		cachedRatio: cachedRatio(all),
+		partial: doc.usage.seats.some((seat) => !seat.coverage.complete)
+	};
+}
+/** #6751 C: each seat's share of the range and its model mix, largest seat first. */
+function seatMix(doc) {
+	const whole = doc.usage.seats.reduce((sum, seat) => sum + tokensOf(seat.totals), 0);
+	return doc.usage.seats.map((seat) => {
+		const tokens = tokensOf(seat.totals);
+		const { models, rest } = attribution(seat);
+		return {
+			id: seat.id,
+			name: seatName(seat),
+			tokens,
+			share: percentOf(tokens, whole),
+			cachedRatio: cachedRatio(seat.totals),
+			models: models.map(([model, totals]) => ({
+				model,
+				tokens: tokensOf(totals)
+			})).sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model)).map(({ model, tokens: own }) => ({
+				model,
+				share: percentOf(own, tokens)
+			})),
+			unattributed: percentOf(tokensOf(rest), tokens),
+			partial: !seat.coverage.complete
+		};
+	}).sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name));
+}
+/** Series buckets per range: hourly for a day, daily for longer. */
+var BUCKETS = {
+	"24h": 24,
+	"7d": 7,
+	"30d": 30
+};
+/** Every bucket's start in Core's window, so one that no seat has a reading for stays in place;
+* null without a window, or when a reading falls off its grid. */
+function bucketStarts(doc, observed) {
+	const window = doc.window;
+	if (!window || !(window.toMs > window.fromMs)) return null;
+	const step = (window.toMs - window.fromMs) / BUCKETS[doc.since];
+	if (!Number.isSafeInteger(step)) return null;
+	const starts = Array.from({ length: BUCKETS[doc.since] }, (_, at) => window.fromMs + at * step);
+	const grid = new Set(starts);
+	for (const at of observed) if (!grid.has(at)) return null;
+	return starts;
+}
+/** #6751 E: all seats together per bucket: hourly for `24h`, daily for `7d` and `30d`. A bucket
+* of Core's window that no seat has a reading for is null, never 0; an older report without the
+* window has only the buckets some seat read. */
+function trend(doc, zone) {
+	const buckets = /* @__PURE__ */ new Map();
+	for (const seat of doc.usage.seats) for (const point of seat.series) {
+		if (point.coveredMs === 0 && tokensOf(point) === 0) continue;
+		const bucket = buckets.get(point.fromMs) ?? {
+			totals: NONE,
+			partial: false
+		};
+		buckets.set(point.fromMs, {
+			totals: plus(bucket.totals, point),
+			partial: bucket.partial || !point.complete
+		});
+	}
+	const startsMs = bucketStarts(doc, buckets.keys()) ?? [...buckets.keys()].sort((a, b) => a - b);
+	const x = startsMs.map((at) => stamp(at, doc.since, zone));
+	const read = (at) => buckets.get(at);
+	const tokens = startsMs.map((at) => {
+		const bucket = read(at);
+		return bucket ? tokensOf(bucket.totals) : null;
+	});
+	let peak = null;
+	tokens.forEach((value, at) => {
+		if (value !== null && value > 0 && (!peak || value > peak.tokens)) peak = {
+			at: x[at],
+			tokens: value
+		};
+	});
+	return {
+		x,
+		startsMs,
+		tokens,
+		cachedRatio: startsMs.map((at) => {
+			const bucket = read(at);
+			return bucket ? cachedRatio(bucket.totals) : null;
+		}),
+		partial: startsMs.map((at) => read(at)?.partial ?? false),
+		peak
+	};
+}
+/** The recent pace looks back a day (ms), and needs six hours of samples (ms) to stand on. */
+var RUNWAY_RECENT_MS = 864e5;
+var RUNWAY_RECENT_MIN_MS = 216e5;
+/**
+* #6751 B: where a weekly window is headed from its sampled history. The pace is the change over
+* the last day of samples when they span six hours, else the window's average since its start
+* (every window starts full). Null without a sample inside the window before its reset.
+*/
+function runway(history, nowMs) {
+	const startsAtMs = history.resetsAtMs - history.windowMinutes * 6e4;
+	const points = history.points.filter((point) => point.atMs <= nowMs && point.atMs < history.resetsAtMs).filter((point) => point.atMs >= startsAtMs).sort((a, b) => a.atMs - b.atMs);
+	const last = points.at(-1);
+	if (!last) return null;
+	const recent = points.find((point) => point.atMs >= last.atMs - RUNWAY_RECENT_MS);
+	let basis;
+	let perMs;
+	if (last.atMs - recent.atMs >= RUNWAY_RECENT_MIN_MS) {
+		basis = "recent";
+		perMs = (recent.percentLeft - last.percentLeft) / (last.atMs - recent.atMs);
+	} else if (last.atMs > startsAtMs) {
+		basis = "window";
+		perMs = (100 - last.percentLeft) / (last.atMs - startsAtMs);
+	} else return null;
+	perMs = Math.max(0, perMs);
+	const projected = last.percentLeft - perMs * (history.resetsAtMs - last.atMs);
+	const emptyAtMs = projected < 0 ? Math.round(last.atMs + last.percentLeft / perMs) : null;
+	return {
+		basis,
+		perHour: Math.round(perMs * HOUR$1 * 100) / 100,
+		fromAtMs: last.atMs,
+		fromLeft: last.percentLeft,
+		resetsAtMs: history.resetsAtMs,
+		leftAtReset: emptyAtMs === null ? Math.round(projected * 10) / 10 : 0,
+		emptyAtMs
+	};
+}
+/** The runway in words, against the owner's clock. */
+function runwayWords(projection, nowMs) {
+	const pace = projection.basis === "recent" ? "the last day's pace" : "this window's average pace";
+	if (projection.emptyAtMs !== null) return `At ${pace} it runs out in ${resetsIn(projection.emptyAtMs, nowMs)}, ${resetsIn(projection.resetsAtMs, projection.emptyAtMs)} before the reset.`;
+	if (projection.perHour === 0) return `No use at ${pace}: ${Math.round(projection.fromLeft)}% left at the reset.`;
+	return `At ${pace} about ${Math.round(projection.leftAtReset)}% is left at the reset.`;
 }
 /** A figure the report could not give: never shown as zero. */
 var UNKNOWN$1 = "Unknown";
@@ -9057,15 +9267,17 @@ function notAvailable(note, text) {
 //#endregion
 //#region src/digest-page.ts
 /**
-* The Digest usage report follows the concept website: provider allowance cards, the token
-* chart and seat legend, a full-width Messages heatmap, what Digest saved, and a coverage/method
-* footer. It depends only on DigestSource; product data comes from the existing owner reads. Samples are injected
+* The Digest usage report follows the concept website: provider allowance cards with each
+* window's runway, the token chart and seat legend, usage share by model and by seat, the trend,
+* a full-width Messages heatmap, what Digest saved, and a coverage/method footer. It depends only on DigestSource; product data comes from the existing owner reads. Samples are injected
 * by tests, the gallery and local development. Range and view state belong to this mounted page.
 */
 /** The terminal Digest's own cadence: the usage read refreshes once a minute. */
 var REFRESH_MS$1 = 6e4;
 /** Distinct series a chart draws; the rest fold into one neutral `Other`. */
 var SERIES_KEPT = 6;
+/** Models the share card names; the rest fold into one `Other` row. */
+var MODELS_KEPT = 4;
 /** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
 var OTHER_STEP = 7;
 function el$1(name, className, text) {
@@ -9173,13 +9385,57 @@ function tabChoice(label, controls, options, initial, change) {
 	header.append(list);
 	return header;
 }
-/** One numeric fact inside a provider's history disclosure. */
-function tile(label, value) {
+/** One fact in a card: a number by default, a word or a time with `numeric: false`; a tone adds
+* the leaf's dot before the value. */
+function tile(label, value, options = {}) {
 	const node = el$1("div", browserUiClasses.statusTile);
-	const figure = el$1("dd", browserUiClasses.statusTileValue, value);
-	figure.dataset.numeric = value === "0" ? "zero" : "count";
+	const figure = el$1("dd", browserUiClasses.statusTileValue);
+	if (options.tone) {
+		node.dataset.tone = options.tone;
+		const dot = el$1("span", browserUiClasses.statusTileDot);
+		dot.setAttribute("aria-hidden", "true");
+		figure.append(dot);
+	}
+	figure.append(value);
+	if (options.numeric ?? true) figure.dataset.numeric = value === "0" ? "zero" : "count";
 	node.append(el$1("dt", browserUiClasses.statusTileLabel, label), figure);
 	return node;
+}
+/** A weekday, day and time in the owner's zone: when a window runs out. */
+function clock$1(ms) {
+	return new Date(ms).toLocaleString("en-GB", {
+		weekday: "short",
+		day: "numeric",
+		month: "short",
+		hour: "2-digit",
+		minute: "2-digit"
+	});
+}
+/** #6751 B: where the window is headed, in words, or why there is no runway. */
+function runwayText(view, nowMs) {
+	if (view.stale) return "No runway: the latest reading of this window is stale.";
+	if (view.runway) return view.runway.emptyAtMs === null ? `Lasts to the reset. ${runwayWords(view.runway, nowMs)}` : runwayWords(view.runway, nowMs);
+	return view.chart ? "No runway yet: this window has too few readings." : "No runway: the weekly history is not served yet.";
+}
+/** #6751 B: what is left, when it runs out or what is left at the reset, and when it resets. */
+function runwayTiles(view, nowMs) {
+	const runway = view.runway;
+	const empty = runway?.emptyAtMs ?? null;
+	const tone = runway ? empty === null ? "working" : "blocked" : void 0;
+	return [
+		tile("Left", `${view.leftPercent}%`, tone ? { tone } : {}),
+		empty !== null ? tile("Runs out", clock$1(empty), {
+			tone: "blocked",
+			numeric: false
+		}) : tile("At the reset", runway ? `${Math.round(runway.leftAtReset)}% left` : "—", {
+			...tone ? { tone } : {},
+			numeric: false
+		}),
+		tile("Resets in", view.stale ? "stale" : resetsIn(view.resetsAtMs, nowMs), {
+			tone: "muted",
+			numeric: false
+		})
+	];
 }
 /** A group of bare tiles for use inside a card. */
 function bareTiles(...tiles) {
@@ -9199,13 +9455,11 @@ function providerRow(view, nowMs) {
 	const fill = el$1("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${view.style}`);
 	fill.style.setProperty("--tmt-ui-meter-fill", String(Math.max(0, Math.min(100, view.leftPercent))));
 	meter.append(fill);
-	const details = el$1("details", `${browserUiClasses.disclosure} digest-provider-details`);
-	details.id = `${row.id}-history`;
-	const summary = el$1("summary", void 0, "Weekly history and pace");
-	summary.id = `${details.id}-summary`;
-	details.append(summary);
-	details.append(view.chart ? createSeriesChart(view.chart) : el$1("p", "usage-note", "The weekly history is not served yet; this shows the latest window."));
-	details.append(bareTiles(tile("Elapsed", view.elapsedPercent === null ? "—" : `${Math.round(view.elapsedPercent)}%`), tile("Pace", view.paceDeltaPoints === null ? "—" : `${view.paceDeltaPoints > 0 ? "+" : ""}${view.paceDeltaPoints.toFixed(1)} pts`), tile("Resets in", view.stale ? "stale" : resetsIn(view.resetsAtMs, nowMs))));
+	const words = el$1("p", "usage-note digest-runway", runwayText(view, nowMs));
+	const history = el$1("div", "digest-provider-history");
+	history.id = `${row.id}-history`;
+	if (view.chart) history.append(createSeriesChart(view.chart));
+	history.append(bareTiles(...runwayTiles(view, nowMs)));
 	const observation = el$1("p", "usage-note digest-window-observation", `Observed ${observedAgo(view.observedAtMs, nowMs)}`);
 	observation.dataset.observedAt = String(view.observedAtMs);
 	const reset = new Date(view.resetsAtMs).toLocaleString("en-GB", {
@@ -9217,7 +9471,7 @@ function providerRow(view, nowMs) {
 	});
 	const metadata = el$1("div", "digest-provider-metadata");
 	metadata.append(observation, el$1("p", "usage-note", `Resets ${reset}`), el$1("p", "usage-note digest-reporters", `Reported by ${view.reporters.join(", ") || "unknown seats"}`));
-	row.append(label, meter, metadata, details);
+	row.append(label, meter, words, history, metadata);
 	return row;
 }
 /** A provider's usage in the allowance week and, where the report carries it, its credits. */
@@ -9493,12 +9747,113 @@ function seatLabel(name, partial) {
 	if (partial) node.append(el$1("span", "digest-partial", "*"));
 	return node;
 }
+/** The seats the token chart draws as hues, with their step; the rest share the neutral one. */
+function seatHues(doc, lines) {
+	const layers = tokenSeries(doc).layers;
+	return new Map(topLayers(layers, lines ? layers.length : SERIES_KEPT).filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at % 7]));
+}
+/** One share as a labelled meter: the name and its percent over a bar, and a detail line. */
+function shareMeter(name, share, style, detail) {
+	const row = el$1("div", "digest-share");
+	const head = el$1("div", "digest-share-head");
+	const label = typeof name === "string" ? el$1("span", "digest-share-name", name) : name;
+	head.append(label, el$1("span", "digest-share-value", `${share}%`));
+	const meter = el$1("div", browserUiClasses.meter);
+	meter.setAttribute("role", "img");
+	meter.setAttribute("aria-label", `${label.textContent}: ${share}% of tokens`);
+	const fill = el$1("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${style}`);
+	fill.style.setProperty("--tmt-ui-meter-fill", String(Math.max(0, Math.min(100, share))));
+	meter.append(fill);
+	row.append(head, meter);
+	if (detail) row.append(el$1("p", "usage-note digest-share-detail", detail));
+	return row;
+}
+var shareSum = (rows) => Math.round(rows.reduce((sum, row) => sum + row.share, 0) * 10) / 10;
+/** A seat's model mix in one line: its two largest models, then the rest and what no model covers. */
+function mixText(seat) {
+	const parts = seat.models.slice(0, 2).map((model) => `${model.model} ${model.share}%`);
+	const rest = shareSum(seat.models.slice(2));
+	if (rest > 0) parts.push(`other ${rest}%`);
+	if (seat.unattributed > 0) parts.push(`no model ${seat.unattributed}%`);
+	return parts.length ? parts.join(" · ") : void 0;
+}
+/** #6751 C: token share by model and by seat, with the cached-input ratio. */
+function sharesCard(doc) {
+	const id = "digest-shares";
+	const title = "Usage share";
+	const subtitle = "Tokens in this range, by model and by seat.";
+	const seats = seatMix(doc).filter((seat) => seat.tokens > 0);
+	if (!seats.length) return card$1(id, title, [el$1("p", "usage-note", "No token observations in this range.")], { subtitle });
+	const shares = modelShares(doc);
+	const byModel = el$1("div", "digest-share-group");
+	byModel.id = "digest-shares-models";
+	byModel.append(el$1("h3", "digest-share-title", "By model"));
+	shares.models.slice(0, MODELS_KEPT).forEach((model, at) => byModel.append(shareMeter(model.model, model.share, at % 7)));
+	const restModels = shares.models.slice(MODELS_KEPT);
+	if (restModels.length) byModel.append(shareMeter(`Other (${restModels.length} ${restModels.length === 1 ? "model" : "models"})`, shareSum(restModels), OTHER_STEP));
+	if (shares.unattributed) byModel.append(shareMeter("No model recorded", shares.unattributed.share, OTHER_STEP, shares.models.length ? `Core recorded no model for part of ${shares.unattributed.seats} ${shares.unattributed.seats === 1 ? "seat's" : "seats'"} tokens.` : "Core recorded no model for these tokens."));
+	byModel.append(bareTiles(tile("Cached input", shares.cachedRatio === null ? "—" : `${shares.cachedRatio}% of input`, {
+		tone: "info",
+		numeric: false
+	})));
+	const bySeat = el$1("div", "digest-share-group tmt-ui-chart-seats");
+	bySeat.id = "digest-shares-seats";
+	bySeat.append(el$1("h3", "digest-share-title", "By seat"));
+	const hue = seatHues(doc, false);
+	for (const seat of seats.slice(0, SERIES_KEPT)) bySeat.append(shareMeter(seatLabel(seat.name, seat.partial), seat.share, hue.get(seat.id) ?? OTHER_STEP, mixText(seat)));
+	const restSeats = seats.slice(SERIES_KEPT);
+	if (restSeats.length) bySeat.append(shareMeter(`Other (${restSeats.length} seats)`, shareSum(restSeats), OTHER_STEP));
+	const groups = el$1("div", "digest-share-groups");
+	groups.append(byModel, bySeat);
+	const notes = [];
+	if (seats.some((seat) => seat.partial)) notes.push(el$1("p", "usage-note", "* Partial: some of this range has no data for the seat."));
+	if (doc.usage.unavailable.length) notes.push(el$1("p", "usage-note", "Unavailable seats are not included in these shares."));
+	const price = el$1("p", "usage-note digest-share-cost", "Shares are of tokens, input plus output. Cost needs each model's output and cached-input prices, which the price table does not have yet (");
+	const issue = el$1("a", void 0, "#6855");
+	issue.href = "https://github.com/tmt-ninja/tmt/issues/6855";
+	issue.target = "_blank";
+	issue.rel = "noreferrer";
+	price.append(issue, ").");
+	notes.push(price);
+	return card$1(id, title, [groups, ...notes], { subtitle });
+}
+/** #6751 E: every seat together per bucket; a bucket no seat read stays blank, never 0. */
+function trendCard(doc) {
+	const id = "digest-trend";
+	const title = "Trend";
+	const hourly = doc.since === "24h";
+	const unit = hourly ? "hour" : "day";
+	const subtitle = `Every seat together, ${unit} by ${unit}.`;
+	const data = trend(doc);
+	if (!data.tokens.some((value) => value !== null)) return card$1(id, title, [el$1("p", "usage-note", "No token observations in this range.")], { subtitle });
+	const host = el$1("div", "digest-trend-chart");
+	host.append(createSeriesChart({
+		title: hourly ? "Tokens per hour" : "Tokens per day",
+		kind: "bars",
+		x: data.x,
+		series: [{
+			key: "tokens",
+			label: "tokens",
+			values: data.tokens
+		}],
+		empty: "No token observations in this range."
+	}));
+	const unread = data.tokens.filter((value) => value === null).length;
+	const read = data.tokens.filter((value) => value !== null);
+	const body = [host, bareTiles(tile(`Busiest ${unit}`, data.peak ? `${compactCount(data.peak.tokens)} at ${data.peak.at}` : "—", { numeric: false }), tile(`Average ${unit}`, compactCount(Math.round(read.reduce((sum, value) => sum + value, 0) / read.length)), { numeric: false }), ...unread ? [tile("No data", `${unread} ${unread === 1 ? unit : `${unit}s`}`, {
+		tone: "muted",
+		numeric: false
+	})] : [])];
+	if (unread) body.push(el$1("p", "usage-note", `No seat has a reading for ${unread} ${unread === 1 ? unit : `${unit}s`} of this range: ${unread === 1 ? "it is" : "they are"} left blank, never counted as zero.`));
+	if (data.partial.some(Boolean)) body.push(el$1("p", "usage-note", "Some buckets are incomplete: they are lower bounds."));
+	if (doc.usage.unavailable.length) body.push(el$1("p", "usage-note", "Unavailable seats are not included in this trend."));
+	return card$1(id, title, body, { subtitle });
+}
 function legendTable(doc, state) {
 	const ranked = rankRows(doc);
 	const rows = [...ranked].sort((a, b) => (state.order === "usage" ? b.tokens - a.tokens : 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 	const view = ranking(ranked, SERIES_KEPT);
-	const chartLayers = state.lines ? topLayers(tokenSeries(doc).layers, tokenSeries(doc).layers.length) : topLayers(tokenSeries(doc).layers, SERIES_KEPT);
-	const hue = new Map(chartLayers.filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at % 7]));
+	const hue = seatHues(doc, state.lines);
 	function legendSeat(id, name, partial) {
 		const label = el$1("span", "digest-legend-seat");
 		const dot = el$1("span", `tmt-ui-status-tile-dot tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
@@ -9823,7 +10178,7 @@ function digestPage(source = createDigestSource(), signal) {
 		state.dispose.splice(0).forEach((dispose) => dispose());
 		const covered = coverageNotice(doc);
 		const saved = savingsCard(report);
-		panel.replaceChildren(...covered ? [covered] : [], allowanceRow(report, state), providerUsageCard(doc), tokensCard(doc, state), exchangeCard(doc, state), ...saved ? [saved] : [], coverageCard());
+		panel.replaceChildren(...covered ? [covered] : [], allowanceRow(report, state), providerUsageCard(doc), tokensCard(doc, state), sharesCard(doc), trendCard(doc), exchangeCard(doc, state), ...saved ? [saved] : [], coverageCard());
 		for (const detail of panel.querySelectorAll("details[id]")) detail.open = disclosures.get(detail.id) ?? false;
 		const scroll = document.getElementById("digest-exchange-scroll");
 		if (scroll) scroll.scrollLeft = matrixLeft;

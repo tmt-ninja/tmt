@@ -1,7 +1,7 @@
 /**
- * The Digest usage report follows the concept website: provider allowance cards, the token
- * chart and seat legend, a full-width Messages heatmap, what Digest saved, and a coverage/method
- * footer. It depends only on DigestSource; product data comes from the existing owner reads. Samples are injected
+ * The Digest usage report follows the concept website: provider allowance cards with each
+ * window's runway, the token chart and seat legend, usage share by model and by seat, the trend,
+ * a full-width Messages heatmap, what Digest saved, and a coverage/method footer. It depends only on DigestSource; product data comes from the existing owner reads. Samples are injected
  * by tests, the gallery and local development. Range and view state belong to this mounted page.
  */
 import { compactCount, createSeriesChart, topLayers } from '@tmt/browser-ui/chart';
@@ -22,18 +22,23 @@ import {
   providerGroups,
   providerLabel,
   observedAgo,
+  modelShares,
   ranking,
   rankRows,
   resetsIn,
+  runwayWords,
   savingsView,
+  seatMix,
   tokenSeries,
   tokensOf,
+  trend,
   creditText,
   type ProviderGroup,
   type ProviderView,
+  type SeatMix,
 } from './digest-view.js';
 import { notAvailable } from './not-available.js';
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
+import { browserUiClasses as ui, type BrowserStatusTone } from '@tmt/browser-ui/static';
 import { whileVisible } from './owner-reads.js';
 
 /** The terminal Digest's own cadence: the usage read refreshes once a minute. */
@@ -43,6 +48,8 @@ export { compactCount as formatTokens };
 
 /** Distinct series a chart draws; the rest fold into one neutral `Other`. */
 const SERIES_KEPT = 6;
+/** Models the share card names; the rest fold into one `Other` row. */
+const MODELS_KEPT = 4;
 /** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
 const OTHER_STEP = 7;
 
@@ -187,13 +194,72 @@ function tabChoice<T extends string>(
   return header;
 }
 
-/** One numeric fact inside a provider's history disclosure. */
-function tile(label: string, value: string): HTMLElement {
+/** One fact in a card: a number by default, a word or a time with `numeric: false`; a tone adds
+ * the leaf's dot before the value. */
+function tile(
+  label: string,
+  value: string,
+  options: { tone?: BrowserStatusTone; numeric?: boolean } = {},
+): HTMLElement {
   const node = el('div', ui.statusTile);
-  const figure = el('dd', ui.statusTileValue, value);
-  figure.dataset.numeric = value === '0' ? 'zero' : 'count';
+  const figure = el('dd', ui.statusTileValue);
+  if (options.tone) {
+    node.dataset.tone = options.tone;
+    const dot = el('span', ui.statusTileDot);
+    dot.setAttribute('aria-hidden', 'true');
+    figure.append(dot);
+  }
+  figure.append(value);
+  if (options.numeric ?? true) figure.dataset.numeric = value === '0' ? 'zero' : 'count';
   node.append(el('dt', ui.statusTileLabel, label), figure);
   return node;
+}
+
+/** A weekday, day and time in the owner's zone: when a window runs out. */
+function clock(ms: number): string {
+  return new Date(ms).toLocaleString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/** #6751 B: where the window is headed, in words, or why there is no runway. */
+function runwayText(view: ProviderView, nowMs: number): string {
+  if (view.stale) return 'No runway: the latest reading of this window is stale.';
+  if (view.runway)
+    return view.runway.emptyAtMs === null
+      ? `Lasts to the reset. ${runwayWords(view.runway, nowMs)}`
+      : runwayWords(view.runway, nowMs);
+  return view.chart
+    ? 'No runway yet: this window has too few readings.'
+    : 'No runway: the weekly history is not served yet.';
+}
+
+/** #6751 B: what is left, when it runs out or what is left at the reset, and when it resets. */
+function runwayTiles(view: ProviderView, nowMs: number): HTMLElement[] {
+  const runway = view.runway;
+  const empty = runway?.emptyAtMs ?? null;
+  const tone: BrowserStatusTone | undefined = runway
+    ? empty === null
+      ? 'working'
+      : 'blocked'
+    : undefined;
+  return [
+    tile('Left', `${view.leftPercent}%`, tone ? { tone } : {}),
+    empty !== null
+      ? tile('Runs out', clock(empty), { tone: 'blocked', numeric: false })
+      : tile('At the reset', runway ? `${Math.round(runway.leftAtReset)}% left` : '—', {
+          ...(tone ? { tone } : {}),
+          numeric: false,
+        }),
+    tile('Resets in', view.stale ? 'stale' : resetsIn(view.resetsAtMs, nowMs), {
+      tone: 'muted',
+      numeric: false,
+    }),
+  ];
 }
 
 /** A group of bare tiles for use inside a card. */
@@ -221,32 +287,13 @@ function providerRow(view: ProviderView, nowMs: number): HTMLElement {
     String(Math.max(0, Math.min(100, view.leftPercent))),
   );
   meter.append(fill);
-  const details = el('details', `${ui.disclosure} digest-provider-details`);
-  details.id = `${row.id}-history`;
-  const summary = el('summary', undefined, 'Weekly history and pace');
-  summary.id = `${details.id}-summary`;
-  details.append(summary);
-  details.append(
-    view.chart
-      ? createSeriesChart(view.chart)
-      : el(
-          'p',
-          'usage-note',
-          'The weekly history is not served yet; this shows the latest window.',
-        ),
-  );
-  details.append(
-    bareTiles(
-      tile('Elapsed', view.elapsedPercent === null ? '—' : `${Math.round(view.elapsedPercent)}%`),
-      tile(
-        'Pace',
-        view.paceDeltaPoints === null
-          ? '—'
-          : `${view.paceDeltaPoints > 0 ? '+' : ''}${view.paceDeltaPoints.toFixed(1)} pts`,
-      ),
-      tile('Resets in', view.stale ? 'stale' : resetsIn(view.resetsAtMs, nowMs)),
-    ),
-  );
+  // #6751 B: the runway in words under the meter, then the week's history and its facts in view.
+  // The card's most useful line reads as its body text, like the provider's own note lines.
+  const words = el('p', 'usage-note digest-runway', runwayText(view, nowMs));
+  const history = el('div', 'digest-provider-history');
+  history.id = `${row.id}-history`;
+  if (view.chart) history.append(createSeriesChart(view.chart));
+  history.append(bareTiles(...runwayTiles(view, nowMs)));
   const observation = el(
     'p',
     'usage-note digest-window-observation',
@@ -270,7 +317,7 @@ function providerRow(view: ProviderView, nowMs: number): HTMLElement {
       `Reported by ${view.reporters.join(', ') || 'unknown seats'}`,
     ),
   );
-  row.append(label, meter, metadata, details);
+  row.append(label, meter, words, history, metadata);
   return row;
 }
 
@@ -640,6 +687,198 @@ function seatLabel(name: string, partial: boolean): HTMLElement {
   return node;
 }
 
+/** The seats the token chart draws as hues, with their step; the rest share the neutral one. */
+function seatHues(doc: UsageDocument, lines: boolean): Map<string, number> {
+  const layers = tokenSeries(doc).layers;
+  return new Map(
+    topLayers(layers, lines ? layers.length : SERIES_KEPT)
+      .filter((layer) => layer.key !== 'other')
+      .map((layer, at) => [layer.key, at % 7]),
+  );
+}
+
+/** One share as a labelled meter: the name and its percent over a bar, and a detail line. */
+function shareMeter(
+  name: string | HTMLElement,
+  share: number,
+  style: number,
+  detail?: string,
+): HTMLElement {
+  const row = el('div', 'digest-share');
+  const head = el('div', 'digest-share-head');
+  const label = typeof name === 'string' ? el('span', 'digest-share-name', name) : name;
+  head.append(label, el('span', 'digest-share-value', `${share}%`));
+  const meter = el('div', ui.meter);
+  meter.setAttribute('role', 'img');
+  meter.setAttribute('aria-label', `${label.textContent}: ${share}% of tokens`);
+  const fill = el('div', `${ui.meterFill} tmt-ui-chart-s${style}`);
+  fill.style.setProperty('--tmt-ui-meter-fill', String(Math.max(0, Math.min(100, share))));
+  meter.append(fill);
+  row.append(head, meter);
+  if (detail) row.append(el('p', 'usage-note digest-share-detail', detail));
+  return row;
+}
+
+const shareSum = (rows: readonly { share: number }[]) =>
+  Math.round(rows.reduce((sum, row) => sum + row.share, 0) * 10) / 10;
+
+/** A seat's model mix in one line: its two largest models, then the rest and what no model covers. */
+function mixText(seat: SeatMix): string | undefined {
+  const parts = seat.models.slice(0, 2).map((model) => `${model.model} ${model.share}%`);
+  const rest = shareSum(seat.models.slice(2));
+  if (rest > 0) parts.push(`other ${rest}%`);
+  if (seat.unattributed > 0) parts.push(`no model ${seat.unattributed}%`);
+  return parts.length ? parts.join(' · ') : undefined;
+}
+
+/** #6751 C: token share by model and by seat, with the cached-input ratio. */
+function sharesCard(doc: UsageDocument): HTMLElement {
+  const id = 'digest-shares';
+  const title = 'Usage share';
+  const subtitle = 'Tokens in this range, by model and by seat.';
+  const seats = seatMix(doc).filter((seat) => seat.tokens > 0);
+  if (!seats.length)
+    return card(id, title, [el('p', 'usage-note', 'No token observations in this range.')], {
+      subtitle,
+    });
+  const shares = modelShares(doc);
+  const byModel = el('div', 'digest-share-group');
+  byModel.id = 'digest-shares-models';
+  byModel.append(el('h3', 'digest-share-title', 'By model'));
+  shares.models
+    .slice(0, MODELS_KEPT)
+    .forEach((model, at) => byModel.append(shareMeter(model.model, model.share, at % 7)));
+  const restModels = shares.models.slice(MODELS_KEPT);
+  if (restModels.length)
+    byModel.append(
+      shareMeter(
+        `Other (${restModels.length} ${restModels.length === 1 ? 'model' : 'models'})`,
+        shareSum(restModels),
+        OTHER_STEP,
+      ),
+    );
+  if (shares.unattributed)
+    byModel.append(
+      shareMeter(
+        'No model recorded',
+        shares.unattributed.share,
+        OTHER_STEP,
+        shares.models.length
+          ? `Core recorded no model for part of ${shares.unattributed.seats} ${shares.unattributed.seats === 1 ? "seat's" : "seats'"} tokens.`
+          : 'Core recorded no model for these tokens.',
+      ),
+    );
+  byModel.append(
+    bareTiles(
+      tile('Cached input', shares.cachedRatio === null ? '—' : `${shares.cachedRatio}% of input`, {
+        tone: 'info',
+        numeric: false,
+      }),
+    ),
+  );
+  // The seats palette, as the token chart and its legend draw seats.
+  const bySeat = el('div', 'digest-share-group tmt-ui-chart-seats');
+  bySeat.id = 'digest-shares-seats';
+  bySeat.append(el('h3', 'digest-share-title', 'By seat'));
+  // A seat keeps the hue the token chart draws it in; the folded rest is neutral.
+  const hue = seatHues(doc, false);
+  for (const seat of seats.slice(0, SERIES_KEPT))
+    bySeat.append(
+      shareMeter(
+        seatLabel(seat.name, seat.partial),
+        seat.share,
+        hue.get(seat.id) ?? OTHER_STEP,
+        mixText(seat),
+      ),
+    );
+  const restSeats = seats.slice(SERIES_KEPT);
+  if (restSeats.length)
+    bySeat.append(shareMeter(`Other (${restSeats.length} seats)`, shareSum(restSeats), OTHER_STEP));
+  const groups = el('div', 'digest-share-groups');
+  groups.append(byModel, bySeat);
+  const notes: HTMLElement[] = [];
+  if (seats.some((seat) => seat.partial))
+    notes.push(el('p', 'usage-note', '* Partial: some of this range has no data for the seat.'));
+  if (doc.usage.unavailable.length)
+    notes.push(el('p', 'usage-note', 'Unavailable seats are not included in these shares.'));
+  // Ben asked for tokens and cost (#6751 C); cost waits for output and cache prices (#6855).
+  const price = el(
+    'p',
+    'usage-note digest-share-cost',
+    "Shares are of tokens, input plus output. Cost needs each model's output and cached-input prices, which the price table does not have yet (",
+  );
+  const issue = el('a', undefined, '#6855');
+  issue.href = 'https://github.com/tmt-ninja/tmt/issues/6855';
+  issue.target = '_blank';
+  issue.rel = 'noreferrer';
+  price.append(issue, ').');
+  notes.push(price);
+  return card(id, title, [groups, ...notes], { subtitle });
+}
+
+/** #6751 E: every seat together per bucket; a bucket no seat read stays blank, never 0. */
+function trendCard(doc: UsageDocument): HTMLElement {
+  const id = 'digest-trend';
+  const title = 'Trend';
+  const hourly = doc.since === '24h';
+  const unit = hourly ? 'hour' : 'day';
+  const subtitle = `Every seat together, ${unit} by ${unit}.`;
+  const data = trend(doc);
+  if (!data.tokens.some((value) => value !== null))
+    return card(id, title, [el('p', 'usage-note', 'No token observations in this range.')], {
+      subtitle,
+    });
+  const host = el('div', 'digest-trend-chart');
+  host.append(
+    createSeriesChart({
+      title: hourly ? 'Tokens per hour' : 'Tokens per day',
+      kind: 'bars',
+      x: data.x,
+      series: [{ key: 'tokens', label: 'tokens', values: data.tokens }],
+      empty: 'No token observations in this range.',
+    }),
+  );
+  const unread = data.tokens.filter((value) => value === null).length;
+  const read = data.tokens.filter((value): value is number => value !== null);
+  const body: Node[] = [
+    host,
+    bareTiles(
+      tile(
+        `Busiest ${unit}`,
+        data.peak ? `${compactCount(data.peak.tokens)} at ${data.peak.at}` : '—',
+        { numeric: false },
+      ),
+      tile(
+        `Average ${unit}`,
+        compactCount(Math.round(read.reduce((sum, value) => sum + value, 0) / read.length)),
+        { numeric: false },
+      ),
+      // Only when some bucket has no reading: "0 hours" says nothing.
+      ...(unread
+        ? [
+            tile('No data', `${unread} ${unread === 1 ? unit : `${unit}s`}`, {
+              tone: 'muted',
+              numeric: false,
+            }),
+          ]
+        : []),
+    ),
+  ];
+  if (unread)
+    body.push(
+      el(
+        'p',
+        'usage-note',
+        `No seat has a reading for ${unread} ${unread === 1 ? unit : `${unit}s`} of this range: ${unread === 1 ? 'it is' : 'they are'} left blank, never counted as zero.`,
+      ),
+    );
+  if (data.partial.some(Boolean))
+    body.push(el('p', 'usage-note', 'Some buckets are incomplete: they are lower bounds.'));
+  if (doc.usage.unavailable.length)
+    body.push(el('p', 'usage-note', 'Unavailable seats are not included in this trend.'));
+  return card(id, title, body, { subtitle });
+}
+
 function legendTable(doc: UsageDocument, state: DigestViewState): HTMLElement {
   const ranked = rankRows(doc);
   const rows = [...ranked].sort(
@@ -649,13 +888,7 @@ function legendTable(doc: UsageDocument, state: DigestViewState): HTMLElement {
       a.id.localeCompare(b.id),
   );
   const view = ranking(ranked, SERIES_KEPT);
-  const chartLayers = state.lines
-    ? topLayers(tokenSeries(doc).layers, tokenSeries(doc).layers.length)
-    : topLayers(tokenSeries(doc).layers, SERIES_KEPT);
-  // The seats the token chart draws as hues keep that hue here; the rest share the neutral step.
-  const hue = new Map(
-    chartLayers.filter((layer) => layer.key !== 'other').map((layer, at) => [layer.key, at % 7]),
-  );
+  const hue = seatHues(doc, state.lines);
   function legendSeat(id: string, name: string, partial: boolean): HTMLElement {
     const label = el('span', 'digest-legend-seat');
     const dot = el('span', `tmt-ui-status-tile-dot tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
@@ -1051,6 +1284,8 @@ export function digestPage(
       allowanceRow(report, state),
       providerUsageCard(doc),
       tokensCard(doc, state),
+      sharesCard(doc),
+      trendCard(doc),
       exchangeCard(doc, state),
       ...(saved ? [saved] : []),
       coverageCard(),

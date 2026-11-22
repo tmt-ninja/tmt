@@ -449,16 +449,25 @@ export function historyCharts(doc: UsageDocument, zone?: string): SeriesChartOpt
 export interface ProviderView extends AllowanceRow {
   style: number;
   chart: SeriesChartOptions | undefined;
+  /** Where the window is headed at the read's time (#6751 B); null when stale or unsampled. */
+  runway: Runway | null;
 }
 
 export function providers(doc: UsageDocument, zone?: string): ProviderView[] {
   const charts = new Map(historyCharts(doc, zone).map((chart) => [chart.series[0]!.key, chart]));
+  const histories = new Map(
+    (doc.limitHistory ?? []).map((history) => [windowKey(history), history]),
+  );
   const styles = providerStyles(doc);
-  return allowance(doc).map((row) => ({
-    ...row,
-    style: styles.get(row.source) ?? 0,
-    chart: charts.get(row.key),
-  }));
+  return allowance(doc).map((row) => {
+    const history = histories.get(row.key);
+    return {
+      ...row,
+      style: styles.get(row.source) ?? 0,
+      chart: charts.get(row.key),
+      runway: history && !row.stale ? runway(history, doc.observedAtMs) : null,
+    };
+  });
 }
 
 export interface ProviderGroup {
@@ -687,30 +696,59 @@ export interface Trend {
   peak: { at: string; tokens: number } | null;
 }
 
-/** #6751 E: all seats together per bucket: hourly for `24h`, daily for `7d` and `30d`. */
+/** Series buckets per range: hourly for a day, daily for longer. */
+const BUCKETS: Record<UsageDocument['since'], number> = { '24h': 24, '7d': 7, '30d': 30 };
+
+/** Every bucket's start in Core's window, so one that no seat has a reading for stays in place;
+ * null without a window, or when a reading falls off its grid. */
+function bucketStarts(doc: UsageDocument, observed: Iterable<number>): number[] | null {
+  const window = doc.window;
+  if (!window || !(window.toMs > window.fromMs)) return null;
+  const step = (window.toMs - window.fromMs) / BUCKETS[doc.since];
+  if (!Number.isSafeInteger(step)) return null;
+  const starts = Array.from({ length: BUCKETS[doc.since] }, (_, at) => window.fromMs + at * step);
+  const grid = new Set(starts);
+  for (const at of observed) if (!grid.has(at)) return null;
+  return starts;
+}
+
+/** #6751 E: all seats together per bucket: hourly for `24h`, daily for `7d` and `30d`. A bucket
+ * of Core's window that no seat has a reading for is null, never 0; an older report without the
+ * window has only the buckets some seat read. */
 export function trend(doc: UsageDocument, zone?: string): Trend {
   const buckets = new Map<number, { totals: UsageTotals; partial: boolean }>();
   for (const seat of doc.usage.seats)
     for (const point of seat.series) {
+      // Core lists every bucket: one with no tokens and no coverage was not read (#6751 E).
+      if (point.coveredMs === 0 && tokensOf(point) === 0) continue;
       const bucket = buckets.get(point.fromMs) ?? { totals: NONE, partial: false };
       buckets.set(point.fromMs, {
         totals: plus(bucket.totals, point),
         partial: bucket.partial || !point.complete,
       });
     }
-  const startsMs = [...buckets.keys()].sort((a, b) => a - b);
+  const grid = bucketStarts(doc, buckets.keys());
+  const startsMs = grid ?? [...buckets.keys()].sort((a, b) => a - b);
   const x = startsMs.map((at) => stamp(at, doc.since, zone));
-  const tokens = startsMs.map((at) => tokensOf(buckets.get(at)!.totals));
+  const read = (at: number) => buckets.get(at);
+  const tokens = startsMs.map((at) => {
+    const bucket = read(at);
+    return bucket ? tokensOf(bucket.totals) : null;
+  });
   let peak: Trend['peak'] = null;
   tokens.forEach((value, at) => {
-    if (value > 0 && (!peak || value > peak.tokens)) peak = { at: x[at]!, tokens: value };
+    if (value !== null && value > 0 && (!peak || value > peak.tokens))
+      peak = { at: x[at]!, tokens: value };
   });
   return {
     x,
     startsMs,
     tokens,
-    cachedRatio: startsMs.map((at) => cachedRatio(buckets.get(at)!.totals)),
-    partial: startsMs.map((at) => buckets.get(at)!.partial),
+    cachedRatio: startsMs.map((at) => {
+      const bucket = read(at);
+      return bucket ? cachedRatio(bucket.totals) : null;
+    }),
+    partial: startsMs.map((at) => read(at)?.partial ?? false),
     peak,
   };
 }

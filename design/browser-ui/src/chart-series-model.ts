@@ -108,8 +108,19 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
     top: MARGIN.top,
     bottom: height - MARGIN.bottom,
   };
-  const step = columns > 1 ? (inner.right - inner.left) / (columns - 1) : 0;
-  const xAt = (i: number) => (columns > 1 ? inner.left + i * step : (inner.left + inner.right) / 2);
+  // Bars sit in equal bands, so the first and last stay inside the plot, clear of the tick labels.
+  const banded = options.kind === 'bars';
+  const step = banded
+    ? (inner.right - inner.left) / Math.max(1, columns)
+    : columns > 1
+      ? (inner.right - inner.left) / (columns - 1)
+      : 0;
+  const xAt = (i: number) =>
+    banded
+      ? inner.left + (i + 0.5) * step
+      : columns > 1
+        ? inner.left + i * step
+        : (inner.left + inner.right) / 2;
   const yAt = (v: number) => inner.bottom - (Math.min(v, max) / max) * (inner.bottom - inner.top);
   const xs = options.x.map((_, i) => xAt(i));
   const marks: SeriesMark[] = [];
@@ -122,7 +133,7 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
       }),
     );
   } else if (options.kind === 'bars') {
-    const bar = Math.max(1, Math.min(24, (inner.right - inner.left) / columns - 2));
+    const bar = Math.max(1, Math.min(24, step - 2));
     options.series[0]!.values.forEach((v, i) => {
       if (v == null) return;
       const y = yAt(v);
@@ -194,7 +205,8 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
     top: inner.top,
     bottom: inner.bottom,
     step,
-    left: inner.left,
+    // Where the first column sits: a pointer maps to the nearest column from here.
+    left: xAt(0),
     values: (at) => options.series.map((layer) => cell(layer, at)),
     readout: (at) =>
       `${options.x[at]}: ${options.series.map((layer) => `${layer.label} ${cell(layer, at)}`).join(', ')}`,

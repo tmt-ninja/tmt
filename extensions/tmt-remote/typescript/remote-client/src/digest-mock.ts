@@ -78,15 +78,76 @@ const late = (index: number, seats: number) =>
 const lowerBound = (index: number, seats: number) =>
   late(index, seats) || (seats > SEATS.length && index === 1);
 
-function seat(index: number, range: UsageRange, seats: number = SEATS.length): UsageSeat {
-  const spec = seatSpec(index);
-  const next = random(100 + index);
+/** The window a range reads, bucketed evenly: hourly for 24h, daily after. */
+function rangeWindow(range: UsageRange) {
   const step = range === '24h' ? HOUR : DAY;
   const count = range === '24h' ? 24 : range === '7d' ? 7 : 30;
-  const start = Math.floor(MOCK_NOW_MS / step) * step - count * step;
+  const fromMs = Math.floor(MOCK_NOW_MS / step) * step - count * step;
+  return { step, count, fromMs, toMs: fromMs + count * step };
+}
+
+/** The 24h buckets the host slept through (`asleep`): no seat has a reading for them. */
+const ASLEEP = new Set([15, 16, 17, 18, 19]);
+
+/** The models a family's seats run, with their part of its tokens (#6751 C). */
+const MODELS: Record<string, readonly (readonly [string, number])[]> = {
+  claude: [
+    ['claude-opus-5-5', 0.7],
+    ['claude-fable-5-2', 0.3],
+  ],
+  gpt: [
+    ['gpt-6.2-sol', 0.8],
+    ['gpt-6.2-astra', 0.2],
+  ],
+};
+
+/** Core's attribution of a seat's totals: night-1 has a quarter no model row covers. */
+function attributed(
+  index: number,
+  line: string,
+  totals: UsageSeat['totals'],
+): Pick<UsageSeat, 'byModel' | 'unattributed'> {
+  const covered = index === 5 ? 0.75 : 1;
+  const part = (value: number, share: number) => Math.round(value * covered * share);
+  const byModel = MODELS[line]!.map(([modelId, share]) => ({
+    modelId,
+    input: part(totals.input, share),
+    output: part(totals.output, share),
+    cached: part(totals.cached, share),
+  }));
+  const rest = (key: 'input' | 'output' | 'cached') =>
+    totals[key] - byModel.reduce((sum, row) => sum + row[key], 0);
+  const unattributed = { input: rest('input'), output: rest('output'), cached: rest('cached') };
+  return unattributed.input + unattributed.output > 0 ? { byModel, unattributed } : { byModel };
+}
+
+function seat(
+  index: number,
+  range: UsageRange,
+  seats: number = SEATS.length,
+  asleep = false,
+): UsageSeat {
+  const spec = seatSpec(index);
+  const next = random(100 + index);
+  const { step, count, fromMs: start } = rangeWindow(range);
   const series: UsagePoint[] = [];
   for (let at = 0; at < count; at++) {
     if (late(index, seats) && at < count / 2) continue;
+    if (asleep && range === '24h' && ASLEEP.has(at)) {
+      next();
+      next();
+      // Core still lists the hour: no tokens and no coverage, which is no data.
+      series.push({
+        fromMs: start + at * step,
+        toMs: start + (at + 1) * step,
+        input: 0,
+        output: 0,
+        cached: 0,
+        coveredMs: 0,
+        complete: false,
+      });
+      continue;
+    }
     const quiet = next() < 0.2;
     const input = quiet ? 0 : Math.round(next() * 90_000 * spec.scale * (step / HOUR) ** 0.5);
     const output = Math.round(input * 0.12);
@@ -96,6 +157,7 @@ function seat(index: number, range: UsageRange, seats: number = SEATS.length): U
       input,
       output,
       cached: Math.round(input * 0.6),
+      coveredMs: lowerBound(index, seats) && at === count / 2 ? step / 2 : step,
       complete: !(lowerBound(index, seats) && at === count / 2),
     });
   }
@@ -113,13 +175,14 @@ function seat(index: number, range: UsageRange, seats: number = SEATS.length): U
     retired: false,
     totals,
     lines: [spec.line],
+    ...attributed(index, spec.line, totals),
     series,
     coverage: {
-      coveredMs: series.length * step,
+      coveredMs: series.reduce((sum, point) => sum + (point.coveredMs ?? 0), 0),
       windowMs: count * step,
       startsAtMs: series[0]?.fromMs ?? null,
       complete: series.length === count && series.every((point) => point.complete),
-      gap: series.length !== count,
+      gap: series.length !== count || series.some((point) => point.coveredMs === 0),
     },
   };
 }
@@ -195,18 +258,27 @@ const limits: LimitWindow[] = [
   },
 ];
 
+/** Four-hourly samples over eight days. The current window used `burst` points in its last day
+ * alone, so at that pace it runs out before its reset (#6751 B); the others last to theirs. */
 function limitHistory(): LimitHistory[] {
   return [
-    { left: 26, end: 40 },
-    { left: 55, end: 100 },
-    { left: 62, end: 80 },
-  ].map(({ left, end }) => ({
+    { left: 26, end: 40, burst: 0 },
+    { left: 55, end: 100, burst: 20 },
+    { left: 62, end: 80, burst: 0 },
+  ].map(({ left, end, burst }) => ({
     provider: 'codex',
     windowMinutes: 10080,
     resetsAtMs: MOCK_NOW_MS + end * HOUR,
     points: Array.from({ length: 8 * 6 }, (_, at) => ({
       atMs: MOCK_NOW_MS - (47 - at) * 4 * HOUR,
-      percentLeft: Math.max(0, 100 - ((100 - left) * (at + 1)) / 48 - (at === 20 ? 2 : 0)),
+      percentLeft: Math.max(
+        0,
+        (!burst
+          ? 100 - ((100 - left) * (at + 1)) / 48
+          : at < 42
+            ? 100 - ((100 - left - burst) * (at + 1)) / 42
+            : left + burst - (burst * (at - 41)) / 6) - (at === 20 ? 2 : 0),
+      ),
     })).filter((_, at) => at !== 20 && at !== 21),
   }));
 }
@@ -216,16 +288,22 @@ export interface MockShape {
   seats?: number;
   /** Only the OpenAI weekly window, as a team on one provider sees. */
   oneProvider?: boolean;
+  /** The host slept for five hours of the 24h range: no seat has a reading for them. */
+  asleep?: boolean;
 }
 
 export function mockDocument(range: UsageRange, shape: MockShape = {}): UsageDocument {
   const count = shape.seats ?? SEATS.length;
+  const seats = Array.from({ length: count }, (_, index) =>
+    seat(index, range, count, shape.asleep),
+  );
   return {
     version: 1,
     observedAtMs: MOCK_NOW_MS,
     since: range,
+    window: { fromMs: rangeWindow(range).fromMs, toMs: rangeWindow(range).toMs },
     usage: {
-      seats: Array.from({ length: count }, (_, index) => seat(index, range, count)),
+      seats,
       unavailable: [],
     },
     limits: shape.oneProvider

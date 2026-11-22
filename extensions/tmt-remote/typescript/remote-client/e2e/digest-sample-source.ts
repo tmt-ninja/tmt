@@ -1,6 +1,7 @@
 /**
  * Test-only stand-in for `digest-source.ts` in the shell harness: the product module with the
- * sample. `?seats=<n>` and `?one-provider` pick the sample's shape; `?savings=partial|mixed|unpriced|older|unavailable|long`
+ * sample. `?seats=<n>`, `?one-provider` and `?asleep` pick the sample's shape; `?no-tokens` and
+ * `?older-usage` the usage a report can lack; `?savings=partial|mixed|unpriced|older|unavailable|long`
  * the state of what Digest saved.
  */
 import { mockDocument, mockSavings, type MockShape } from '../src/digest-mock.js';
@@ -10,7 +11,11 @@ export { USAGE_RANGES, providerRecords } from '../src/digest-source.js';
 export function sampleShape(search = location.search): MockShape {
   const params = new URLSearchParams(search);
   const seats = Number(params.get('seats'));
-  return { ...(seats > 0 ? { seats } : {}), oneProvider: params.has('one-provider') };
+  return {
+    ...(seats > 0 ? { seats } : {}),
+    oneProvider: params.has('one-provider'),
+    asleep: params.has('asleep'),
+  };
 }
 
 const sampleSource: DigestSource = {
@@ -47,6 +52,24 @@ const sampleSource: DigestSource = {
       ];
       allowance.limits = [];
       document.limitsUnavailable = [{ line: 'claude', reason: 'not_sampled' }];
+    }
+    // `?no-tokens`: no seat has a reading in the range, so every seat is unavailable.
+    if (new URLSearchParams(location.search).has('no-tokens')) {
+      document.usage.unavailable = document.usage.seats.map((seat) => ({
+        id: seat.id,
+        name: seat.name,
+        retired: false,
+        reason: 'no_evidence' as const,
+        cause: 'not_sampled' as const,
+      }));
+      document.usage.seats = [];
+    }
+    // `?older-usage`: a Digest from before Core's model attribution and window reached the report.
+    if (new URLSearchParams(location.search).has('older-usage')) {
+      delete document.window;
+      document.usage.seats = document.usage.seats.map(
+        ({ byModel: _byModel, unattributed: _unattributed, ...seat }) => seat,
+      );
     }
     const count = Number(new URLSearchParams(location.search).get('providers'));
     for (let at = 1; at < count; at++)
