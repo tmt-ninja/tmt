@@ -263,39 +263,34 @@ pub(super) fn lines(app: &App, width: u16) -> Vec<(Option<usize>, String)> {
         return vec![(None, "Loading raw metadata…".into())];
     };
     if let Some(preview) = &draft.preview {
-        for (focus, label, old, next) in [(
-            0,
-            format!(
-                "[{}] Replace state: {}{}{}",
-                if draft.replace_state { "x" } else { " " },
-                &draft.state[..draft.state.cursor()],
-                if draft.focus == 0 { "▏" } else { "" },
-                &draft.state[draft.state.cursor()..]
-            ),
-            &preview.state,
-            if draft.replace_state {
-                format!("{:?}", draft.state.as_str())
-            } else {
-                "(unchanged)".into()
+        let label = format!(
+            "[{}] Replace state: {}{}{}",
+            if draft.replace_state { "x" } else { " " },
+            &draft.state[..draft.state.cursor()],
+            if draft.focus == 0 { "▏" } else { "" },
+            &draft.state[draft.state.cursor()..]
+        );
+        let next = if draft.replace_state {
+            format!("{:?}", draft.state.as_str())
+        } else {
+            "(unchanged)".into()
+        };
+        let old = preview.state.as_ref().map_or_else(
+            || "(absent)".into(),
+            |value| {
+                if status_update::valid_value(value) {
+                    format!("{value:?}")
+                } else {
+                    format!("{value:?} (unsupported value)")
+                }
             },
-        )] {
-            let old = old.as_ref().map_or_else(
-                || "(absent)".into(),
-                |value| {
-                    if status_update::valid_value(value) {
-                        format!("{value:?}")
-                    } else {
-                        format!("{value:?} (unsupported value)")
-                    }
-                },
-            );
-            lines.push((Some(focus), label));
-            if width >= tmt_cli_style::breakpoint::LG.cells {
-                lines.push((Some(focus), format!("  Old: {old} → New: {next}")));
-            } else {
-                lines.push((Some(focus), format!("  Old: {old}")));
-                lines.push((Some(focus), format!("  New: {next}")));
-            }
+        );
+        lines.push((Some(0), label));
+        if width >= tmt_cli_style::breakpoint::LG.cells {
+            lines.push((Some(0), format!("  Old: {old} → New: {next}")));
+        } else {
+            lines.push((Some(0), format!("  Old: {old}")));
+            lines.push((Some(0), format!("  New: {next}")));
         }
         lines.push((
             Some(1),

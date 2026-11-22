@@ -3923,7 +3923,7 @@ sort = ["state", "-name"]
         for layout in ["crew", "pr-queue", "minimal"] {
             let config = read(&format!("[squad.x]\nlayout = \"{layout}\"\n"));
             if layout == "crew" {
-                assert_eq!(config.rows("x").unwrap().columns.len(), 8);
+                assert_eq!(config.rows("x").unwrap().columns.len(), 7);
             } else {
                 assert_eq!(config.rows("x").unwrap(), previous_rows);
             }
@@ -4617,11 +4617,11 @@ filter = "not pending"
             for selected in 0..3 {
                 rows.select_window(selected);
                 let metadata = rows.value();
-                assert_eq!(metadata["columns"][2]["min"], 20);
-                let priorities: Vec<_> = rows.columns[5..]
+                let priorities: Vec<_> = rows.columns[4..]
                     .iter()
                     .map(|column| column.priority.unwrap())
                     .collect();
+                assert_eq!(priorities.len(), 3);
                 assert_eq!(
                     priorities[selected],
                     *priorities.iter().min().unwrap(),
@@ -4650,16 +4650,15 @@ filter = "not pending"
             for selected in 0..3 {
                 rows.select_window(selected);
                 let metadata = rows.value();
-                assert_eq!(metadata["columns"][4]["from"], "session.model");
-                assert_eq!(metadata["columns"][4]["max"], 8);
-                assert_eq!(metadata["columns"][2]["min"], 20);
-                assert_eq!(metadata["columns"][5 + selected]["priority"], 1);
+                assert_eq!(metadata["columns"][3]["from"], "session.model");
+                assert_eq!(metadata["columns"][3]["max"], 8);
+                assert_eq!(metadata["columns"][4 + selected]["priority"], 1);
                 assert_eq!(
-                    metadata["columns"][5 + selected]["from"],
+                    metadata["columns"][4 + selected]["from"],
                     format!("usage.w{}", selected + 1)
                 );
                 assert_eq!(
-                    metadata["columns"][3]["field"],
+                    metadata["columns"][2]["field"],
                     if layout == "crew" { "pr_link" } else { "pr" }
                 );
             }
@@ -4707,7 +4706,7 @@ filter = "not pending"
         );
         assert_eq!(source, "board.tok");
         assert_eq!(
-            config.rows("other").unwrap().columns[5..]
+            config.rows("other").unwrap().columns[4..]
                 .iter()
                 .map(|column| column.title.as_str())
                 .collect::<Vec<_>>(),

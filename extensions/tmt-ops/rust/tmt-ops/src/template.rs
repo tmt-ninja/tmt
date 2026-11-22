@@ -577,8 +577,9 @@ mod tests {
             "fields": {"topic": "rotate; $(rm -rf ~)", "pr_link": "https://example.com/pull/412"}
         });
         let fill = |text: &str| Template::parse(text).unwrap().fill(&row);
+        assert_eq!(fill(DEFAULT_COPY).unwrap(), "auth-fix (blocked)");
         assert_eq!(
-            fill(DEFAULT_COPY).unwrap(),
+            fill("{name}: {topic} ({state})").unwrap(),
             "auth-fix: rotate; $(rm -rf ~) (blocked)"
         );
         assert_eq!(

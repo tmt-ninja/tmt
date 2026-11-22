@@ -263,7 +263,7 @@ fn retired_board_fields_refuse_mixed_writes_and_clears_before_core_calls() {
                 "sol",
                 &["state=review".into(), format!("{field}={value}")],
             );
-            let error = result.err().expect("a retired field refuses the batch");
+            let error = result.expect_err("a retired field refuses the batch");
             assert_eq!(error.code, "SQUAD_FIELD_RETIRED");
             assert!(error.message.contains(field));
             assert!(error.message.contains("state"));
