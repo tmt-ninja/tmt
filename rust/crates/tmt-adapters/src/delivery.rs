@@ -232,7 +232,9 @@ pub fn current(
 }
 
 /// Ended is not a permanent ban on this pane. A new independently verified
-/// runtime can replace it; the old incarnation or a live shell cannot.
+/// runtime can replace it; the old incarnation or a live shell cannot. Without a
+/// replacement, a conclusively gone recorded runtime is settled as Ended: its
+/// launch owner may have died before any exit path ran (#6761).
 fn recover(
     storage: &mut Storage,
     registry: &RuntimeRegistry,
@@ -241,34 +243,39 @@ fn recover(
     let Some(binding) = &entry.binding else {
         return Ok(());
     };
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let lost = match &binding.session.key {
+        Some(key) => {
+            let gone =
+                observe_runtime_process(&SupervisedProbeRunner, key.incarnation.pid(), deadline)
+                    .is_ok_and(|value| value.matches(&key.incarnation) == RuntimeLiveness::Gone);
+            if !gone {
+                return Ok(());
+            }
+            Some(key)
+        }
+        None => None,
+    };
     let preferences = storage
         .with_binding_transaction(|records| records.session_preferences(&entry.identity.id))?;
-    let Some(driver) = preferences
+    let replacement = preferences
         .preferred_harness
         .as_ref()
         .and_then(|id| registry.lifecycle(id))
+        .and_then(|driver| driver.observe_replacement(binding.pane_pid, deadline))
+        .and_then(|process| {
+            binding.session.admit(
+                ObservedSessionKey {
+                    incarnation: process,
+                    provider_session: None,
+                },
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+        });
+    let Some(next) =
+        replacement.or_else(|| lost.and_then(|key| binding.session.record_runtime_lost(key)))
     else {
-        return Ok(());
-    };
-    let deadline = Instant::now() + Duration::from_secs(1);
-    if let Some(key) = &binding.session.key {
-        let gone = observe_runtime_process(&SupervisedProbeRunner, key.incarnation.pid(), deadline)
-            .is_ok_and(|value| value.matches(&key.incarnation) == RuntimeLiveness::Gone);
-        if !gone {
-            return Ok(());
-        }
-    }
-    let Some(process) = driver.observe_replacement(binding.pane_pid, deadline) else {
-        return Ok(());
-    };
-    let Some(next) = binding.session.admit(
-        ObservedSessionKey {
-            incarnation: process,
-            provider_session: None,
-        },
-        SessionTransition::Started,
-        RuntimeLiveness::Alive,
-    ) else {
         return Ok(());
     };
     let changed = storage.with_binding_transaction(|records| {
