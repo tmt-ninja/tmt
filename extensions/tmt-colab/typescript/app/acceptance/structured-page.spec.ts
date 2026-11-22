@@ -648,7 +648,7 @@ test('a page of blocks keeps typing while Colab is stopped, says so, and sends i
   });
 });
 
-test('typing kept while Colab is stopped survives the page being archived meanwhile, and is offered once it is restored (#6795)', async () => {
+test('typing kept while Colab is stopped survives the page being archived meanwhile, and lands once when it is restored (#6795, #6820)', async () => {
   test.setTimeout(240_000);
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -711,20 +711,148 @@ test('typing kept while Colab is stopped survives the page being archived meanwh
       await page.waitForFunction(() => (window as Window & { durable?: boolean }).durable);
       run(world, colab, ['archive', created.pageId]);
     });
-    // Back, but archived: the text cannot land, and the page says it is kept, not lost.
+    // Back, but archived: the text cannot land, and the page says it is kept, not lost. The page
+    // draws what it holds, not the text that has not landed (#6820).
     await expect(page.locator('.page-attention[data-attention="archived"]')).toBeVisible({
       timeout: 60_000,
     });
     await expect(
       page.getByText(`${text.archiveAnnouncement} ${text.archivedDraftsKept}`),
     ).toBeVisible({ timeout: 30_000 });
+    await expect(block).toHaveText('Before');
+    // Wherever the person has scrolled, the block line says where the text went.
+    await expect(page.getByText(text.blockEdit.kept)).toBeVisible();
     expect(texts()).toEqual(['Before']);
-    // Restored: the page offers the kept text, and Keep lands it once.
+    // Restored: the kept text lands once by itself, so nothing is left to choose. The page offers
+    // what is still unlanded only after its own sends settle, so it never shows an offer and
+    // withdraws it (#6820).
+    await page.evaluate(() => {
+      const w = window as Window & { offers?: number[] };
+      w.offers = [];
+      window.addEventListener('colab:block-drafts-offered', (event) =>
+        w.offers!.push((event as CustomEvent<{ count: number }>).detail.count),
+      );
+    });
     run(world, colab, ['unarchive', created.pageId]);
-    const offer = page.getByRole('status').filter({ hasText: text.blockEdit.restored });
-    await expect(offer).toBeVisible({ timeout: 60_000 });
-    await offer.getByRole('button', { name: text.blockEdit.keepRestored }).click();
+    await expect(page.locator('.page-connection .status-label')).toHaveText('Live', {
+      timeout: 60_000,
+    });
+    await page.waitForFunction(
+      () => ((window as Window & { offers?: number[] }).offers ?? []).length > 0,
+    );
     await expect.poll(texts, { timeout: 30_000 }).toEqual(['Before after']);
+    await expect(page.getByRole('status').filter({ hasText: text.blockEdit.restored })).toHaveCount(
+      0,
+    );
+    await expect(block).toHaveText('Before after');
+    // The status region says what is true now.
+    await expect(page.locator('.archive-announcement')).toHaveText(text.restoreAnnouncement);
+  });
+});
+
+test('typing whose block is deleted while the page is archived is offered once it is restored, and stays until chosen (#6820)', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'structured-held-archived-gone');
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const created = JSON.parse(
+      run(world, colab, [
+        'page',
+        'create',
+        '--title',
+        'Archived and deleted meanwhile',
+        '--structured',
+        '--json',
+        '--no-open',
+      ]),
+    ) as { pageId: string; path: string };
+    const id = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          created.pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'Before',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+    const texts = () =>
+      (
+        JSON.parse(run(world, colab, ['block', 'ls', created.pageId, '--json'])) as {
+          blocks: { depth: number; text?: { s: string } }[];
+        }
+      ).blocks
+        .filter((block) => block.depth === 0 && block.text)
+        .map((block) => block.text!.s);
+    const page = await browser.context.newPage();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(new URL(created.path, `${door.address}/`).href);
+    const block = page.locator(`[data-block-id="${id}"]`);
+    await expect(block).toHaveText('Before', { timeout: 30_000 });
+    await expect(page.locator('.page-connection .status-label')).toHaveText('Live', {
+      timeout: 30_000,
+    });
+    await page.evaluate(() => {
+      window.addEventListener('colab:block-draft-durable', () => {
+        (window as Window & { durable?: boolean }).durable = true;
+      });
+    });
+    await restartColab(world, door, async () => {
+      await expect(page.locator('.page-attention[data-attention="reconnecting"]')).toBeVisible({
+        timeout: 30_000,
+      });
+      await block.click();
+      await block.locator('[contenteditable="true"]').press(textEnd);
+      await page.keyboard.type(' after');
+      await page.waitForFunction(() => (window as Window & { durable?: boolean }).durable);
+      run(world, colab, ['block', 'delete', created.pageId, id]);
+      run(world, colab, ['archive', created.pageId]);
+    });
+    await expect(page.locator('.page-attention[data-attention="archived"]')).toBeVisible({
+      timeout: 60_000,
+    });
+    expect(texts()).toEqual([]);
+    await page.evaluate(() => {
+      const w = window as Window & { offers?: number[] };
+      w.offers = [];
+      window.addEventListener('colab:block-drafts-offered', (event) =>
+        w.offers!.push((event as CustomEvent<{ count: number }>).detail.count),
+      );
+    });
+    run(world, colab, ['unarchive', created.pageId]);
+    await expect(page.locator('.page-connection .status-label')).toHaveText('Live', {
+      timeout: 60_000,
+    });
+    // The typing has no block to land in: once the page's own sends settle it is offered in its
+    // place, and the offer stays through a later change to the page until the person chooses.
+    const offer = page.getByRole('status').filter({ hasText: text.blockDelete.draft });
+    await expect(offer).toBeVisible({ timeout: 30_000 });
+    // As for any block deleted while it was being edited, the kept text draws in its place.
+    await expect(block).toContainText('Before after');
+    run(world, colab, [
+      'block',
+      'insert',
+      created.pageId,
+      '--type',
+      'paragraph',
+      '--text',
+      'Later',
+    ]);
+    await expect(page.getByText('Later', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(offer).toBeVisible();
+    expect(texts()).toEqual(['Later']);
+    await offer.getByRole('button', { name: text.blockDelete.keep }).click();
+    await expect
+      .poll(texts, { timeout: 30_000 })
+      .toEqual(expect.arrayContaining(['Later', 'Before after']));
+    expect(texts()).toHaveLength(2);
+    await expect(offer).toHaveCount(0);
   });
 });
 

@@ -325,6 +325,8 @@ declare global {
     holdDraftSaves(hold: boolean): void;
     /** The connection drops (`true`) and comes back (`false`), as the live page's `held` (#6795). */
     reconnect(hold: boolean): void;
+    /** The page stops taking edits (`true`, archived) and takes them again (`false`) (#6820). */
+    stopEdits(stop: boolean): void;
     releaseDraftSave(): void;
     /** The serve's marks on a block's text now. */
     serveMarks(id: string): readonly Mark[] | undefined;
@@ -863,6 +865,10 @@ export function mount(
   let reconnecting = false;
   const reconnected: (() => void)[] = [];
   const heldListeners = new Set<(held: boolean) => void>();
+  const blockedListeners = new Set<(blocked: boolean) => void>();
+  window.stopEdits = (stop) => {
+    for (const listener of blockedListeners) listener(stop);
+  };
   window.reconnect = (hold) => {
     reconnecting = hold;
     for (const listener of heldListeners) listener(hold);
@@ -921,6 +927,11 @@ export function mount(
     useEffect(() => {
       heldListeners.add(setHeld);
       return () => void heldListeners.delete(setHeld);
+    }, []);
+    const [blocked, setBlocked] = useState(false);
+    useEffect(() => {
+      blockedListeners.add(setBlocked);
+      return () => void blockedListeners.delete(setBlocked);
     }, []);
     const [pageThreads, setPageThreads] = useState(threads);
     const [listed, setListed] = useState(descriptors);
@@ -996,6 +1007,7 @@ export function mount(
       drafts,
       undefined,
       held,
+      blocked,
     );
     return (
       <section ref={subscribe}>
@@ -1067,7 +1079,7 @@ export function mount(
           onInsertFirst={insertFirst}
           onOpenFirstPicker={openFirstPicker}
           failedFirstText={failedFirstText}
-          readonly={content === 'empty-reader'}
+          readonly={content === 'empty-reader' || blocked}
           onMove={move}
           mention={mention}
           onPickMention={pickMention}

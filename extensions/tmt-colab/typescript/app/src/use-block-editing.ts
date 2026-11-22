@@ -364,6 +364,9 @@ export function useBlockEditing(
   fits?: (ops: readonly BlockOp[]) => boolean,
   /** The page is reconnecting (#6795): typed text waits for it, anything else is refused at once. */
   held = false,
+  /** The page takes no edits now (archived, ended): it is drawn as it holds, without this tab's
+   * batches on their way, which land or fail once it takes edits again (#6820). */
+  blocked = false,
 ) {
   /** This tab's batches on their way: the page draws them at once and drops each when the page's
    * view shows it (`shownAt`: the view order of its commit), or when it was refused (#6249). A
@@ -385,9 +388,11 @@ export function useBlockEditing(
    * the serve would refuse is left out. */
   const tree = useMemo(() => {
     // A batch the view shows already is in `records`: it is not drawn on top again.
-    const drawing = pending.filter(
-      (batch) => batch.shownAt === undefined || seq === undefined || batch.shownAt > seq,
-    );
+    const drawing = blocked
+      ? []
+      : pending.filter(
+          (batch) => batch.shownAt === undefined || seq === undefined || batch.shownAt > seq,
+        );
     let drawn: readonly BlockRecord[] = records;
     for (const batch of drawing)
       try {
@@ -396,7 +401,7 @@ export function useBlockEditing(
         // Drawn without it; the serve refuses it too, and the page stays as it shows.
       }
     return drawing.length ? new BlockTree(drawn) : pageTree;
-  }, [records, pending, pageTree, seq]);
+  }, [records, pending, pageTree, seq, blocked]);
   const treeRef = useRef(tree);
   treeRef.current = tree;
   // A batch the page's view shows now is the page's own: it is no longer drawn on top (#6249).
@@ -2086,6 +2091,12 @@ export function useBlockEditing(
     toast:
       toast ??
       shownRefusal(refusals[0], retryRefused) ??
+      // The page stopped taking edits with typing of this tab not landed: it leaves the drawn page,
+      // so the line a held batch's refusal shows says where it is, wherever the person has
+      // scrolled (#6820).
+      (blocked && (pending.length > 0 || !!sync.current?.pending)
+        ? { count: 0, notice: strings.blockEdit.kept, id: 0 }
+        : undefined) ??
       (slow > 0 ? { count: 0, notice: strings.blockEdit.saving, id: 0 } : undefined),
     undo,
     attach,

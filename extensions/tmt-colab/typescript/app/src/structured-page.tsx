@@ -1515,7 +1515,7 @@ function Table({
         rows={rows.map((row, index) =>
           columns.map((column) => {
             const value = row.cells?.[column.id] ?? '';
-            return editing?.id === row.id && editing.column === column.id ? (
+            return !readonly && editing?.id === row.id && editing.column === column.id ? (
               <BlockTextEditor
                 key={column.id}
                 textFits={textFits}
@@ -1579,8 +1579,10 @@ function Content({
   onKey,
   ...rest
 }: StructuredPageProps & { block: BlockRecord; pointer: Pointer }): ReactNode {
-  // Only the block being typed in shows its placeholder: an empty block at rest reads as space.
-  const typing = editing?.id === block.id;
+  // Only the block being typed in shows its placeholder: an empty block at rest reads as space. A
+  // page that takes no edits draws what it holds: typing that has not landed waits, kept, unshown
+  // (#6820).
+  const typing = !rest.readonly && editing?.id === block.id;
   const placeholder =
     block.type === 'paragraph'
       ? strings.blockText.paragraph

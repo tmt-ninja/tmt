@@ -226,9 +226,11 @@ export const text = {
   archiveReadOnlyHint: 'Archived pages can be read, not changed.',
   archivePosting: 'Archived page: read only. Nothing can be posted.',
   archiveAnnouncement: 'This page was archived. It is now read only.',
+  /** Said when a page restored elsewhere (the CLI, another device) can be edited again (#6820). */
+  restoreAnnouncement: 'This page was restored. You can edit it again.',
   /** Typing kept on this device when the page was archived (#6795). */
   archivedDraftsKept:
-    'What you typed on this page is kept on this device and offered when the page is restored.',
+    'What you typed on this page is kept on this device until the page is restored.',
   unsentDraft: 'Unsent draft',
   copyDraft: 'Copy',
   copyDraftFailed: 'Could not copy. Select the draft and copy it manually.',
