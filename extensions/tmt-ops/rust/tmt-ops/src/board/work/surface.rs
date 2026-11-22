@@ -497,13 +497,6 @@ fn paint_dashboard_band(
             Some(p) => (p.done, p.total, format!("{}/{} chapters", p.done, p.total)),
             None => (0, 0, "—".into()),
         };
-        let mut details = vec![ratio];
-        if let Some(name) = filter {
-            details.push(format!("project:{name}"));
-        }
-        if !query.is_empty() {
-            details.push(format!("query:{query}"));
-        }
         if denominator > 0 {
             paint_ds::<Gauge>(
                 frame,
@@ -514,7 +507,7 @@ fn paint_dashboard_band(
                     label_width: 9,
                     numerator,
                     denominator,
-                    total: Some(details.join(" · ")),
+                    total: Some(ratio),
                     filled_role: Token(Role::Working),
                     rest_role: Token(Role::Dim),
                 },
@@ -524,10 +517,7 @@ fn paint_dashboard_band(
                 frame.buffer_mut(),
                 Rect::new(area.x, area.y, area.width, 1),
                 Line::styled(
-                    fit(
-                        &format!("{label:<9} {}", details.join(" · ")),
-                        usize::from(area.width),
-                    ),
+                    fit(&format!("{label:<9} {ratio}"), usize::from(area.width)),
                     app.look().role(Role::Muted),
                 ),
             );
@@ -1169,15 +1159,33 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             .filter_map(|r| r.item.map(|item| item.key.as_str()))
             .collect::<std::collections::BTreeSet<_>>()
             .len();
-        let list_title = if !app.search.as_str().trim().is_empty() {
-            format!("Work · {} matches", open_count)
+        let trimmed_query = app.search.as_str().trim();
+        let list_title = if !trimmed_query.is_empty() {
+            if open_count == 1 {
+                "Work · 1 match".into()
+            } else {
+                format!("Work · {open_count} matches")
+            }
         } else {
             "Work".into()
         };
+        let mut note_parts = Vec::new();
+        if state.detail_collapsed || !trimmed_query.is_empty() {
+            if let Some(project) = state.project.as_deref() {
+                note_parts.push(format!("project:{project}"));
+            }
+            if !trimmed_query.is_empty() {
+                note_parts.push(format!("query:{trimmed_query}"));
+            }
+        }
         let list_note = if state.detail_collapsed {
-            format!("{open_count} open · Space to open inspector")
+            note_parts.push(format!("{open_count} open"));
+            note_parts.push("Space detail".into());
+            note_parts.join(" · ")
         } else {
-            format!("{open_count} open · j/k move")
+            note_parts.push(format!("{open_count} open"));
+            note_parts.push("j/k move".into());
+            note_parts.join(" · ")
         };
         paint_ds::<PaneRule>(
             frame,
@@ -1330,7 +1338,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             bar_rect,
             &SectionRuleProps {
                 title: format!("Detail · {number}"),
-                note: Some("collapsed · Space to expand split inspector".into()),
+                note: Some("Space detail".into()),
                 note_role: Some(Token(Role::Dim)),
                 focused: false,
             },
@@ -1845,9 +1853,9 @@ impl App {
                     kind: DialogKind::Form,
                     placement: tmt_tui::components::Placement::Center,
                     buttons: buttons.to_vec(),
-                    hints: "Enter save · Esc cancel".into(),
+                    hints: "Tab/↑↓ field · ←→ toggle · Enter save · Esc cancel".into(),
                 };
-                let areas = dialog.areas(body, [54, 7], false);
+                let areas = dialog.areas(body, [62, 8], false);
                 let mut painted = dialog.paint(areas, state, frame.buffer_mut(), d_look);
                 let c = areas.content;
                 let name_area = Rect::new(c.x, c.y, c.width, 1);
@@ -1876,11 +1884,11 @@ impl App {
                     Line::styled(
                         fit(
                             &format!(
-                                " Default on open: {}",
+                                " [{}] Default on open",
                                 if self.work.view_draft_default {
-                                    "yes"
+                                    "x"
                                 } else {
-                                    "no"
+                                    " "
                                 }
                             ),
                             usize::from(c.width),
@@ -1918,10 +1926,11 @@ impl App {
                     kind: DialogKind::List,
                     placement: tmt_tui::components::Placement::Center,
                     buttons: buttons.to_vec(),
-                    hints: "⏎ apply · d default · x delete · s save · Esc close".into(),
+                    hints: "⏎ apply · d set default · x delete · s save · Esc close".into(),
                 };
                 let rows_h = views.len().clamp(3, 12) as u16 + 2;
-                let areas = dialog.areas(body, [62, rows_h], false);
+                let width = dialog.footer_width().max(64).min(body.width);
+                let areas = dialog.areas(body, [width, rows_h], false);
                 let painted = dialog.paint(areas, state, frame.buffer_mut(), d_look);
                 let c = areas.content;
                 if views.is_empty() {
@@ -1962,6 +1971,31 @@ impl App {
                         );
                     }
                 }
+                *hits.borrow_mut() = painted;
+            }
+            ViewDialog::ConfirmDelete { name, state, hits } => {
+                let buttons = [
+                    Button::primary("Delete").destructive(true),
+                    Button::secondary("Cancel"),
+                ];
+                let dialog = Dialog {
+                    title: "Delete saved view".into(),
+                    kind: DialogKind::Confirm,
+                    placement: tmt_tui::components::Placement::Center,
+                    buttons: buttons.to_vec(),
+                    hints: "y delete · Esc cancel".into(),
+                };
+                let areas = dialog.areas(body, [52, 5], false);
+                let painted = dialog.paint(areas, state, frame.buffer_mut(), d_look);
+                let c = areas.content;
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(c.x, c.y, c.width, 1),
+                    Line::styled(
+                        fit(&format!(" Delete \"{name}\"?"), usize::from(c.width)),
+                        look.role(Role::Text),
+                    ),
+                );
                 *hits.borrow_mut() = painted;
             }
         }
@@ -2066,24 +2100,22 @@ impl App {
                             }
                         }
                         KeyCode::Char('x') => {
-                            if *cursor < views.len() {
-                                let mut next = views.clone();
-                                let removed = next.remove(*cursor);
-                                *cursor = (*cursor).min(next.len().saturating_sub(1));
-                                if matches!(&self.work.active_view, ViewSelection::Saved(n) if n == &removed.name)
-                                {
-                                    self.work.active_view = ViewSelection::All;
-                                }
-                                self.work.view_dialog = Some(dialog);
-                                Effect::Act(Request::WorkViews {
-                                    expected: views,
-                                    next,
-                                    saved: format!("Deleted view \"{}\".", removed.name),
-                                })
+                            if let Some(target) = views.get(*cursor) {
+                                let buttons = [
+                                    Button::primary("Delete").destructive(true),
+                                    Button::secondary("Cancel"),
+                                ];
+                                let mut confirm = DialogState::new(&[], &buttons);
+                                confirm.focus = Focus::Buttons(1);
+                                self.work.view_dialog = Some(ViewDialog::ConfirmDelete {
+                                    name: target.name.clone(),
+                                    state: confirm,
+                                    hits: Default::default(),
+                                });
                             } else {
                                 self.work.view_dialog = Some(dialog);
-                                Effect::None
                             }
+                            Effect::None
                         }
                         _ => {
                             self.work.view_dialog = Some(dialog);
@@ -2097,6 +2129,45 @@ impl App {
                     | DialogInput::Field(_, _) => {
                         self.work.view_dialog = Some(dialog);
                         Effect::None
+                    }
+                }
+            }
+            ViewDialog::ConfirmDelete { name, state, .. } => {
+                let buttons = [
+                    Button::primary("Delete").destructive(true),
+                    Button::secondary("Cancel"),
+                ];
+                if key.code == KeyCode::Char('y') {
+                    let mut next = views.clone();
+                    next.retain(|v| v.name != *name);
+                    if matches!(&self.work.active_view, ViewSelection::Saved(n) if n == name) {
+                        self.work.active_view = ViewSelection::All;
+                    }
+                    Effect::Act(Request::WorkViews {
+                        expected: views,
+                        next,
+                        saved: format!("Deleted view \"{name}\"."),
+                    })
+                } else {
+                    match state.key(DialogKind::Confirm, &key, &[], &buttons) {
+                        DialogInput::Choose(0) => {
+                            let mut next = views.clone();
+                            next.retain(|v| v.name != *name);
+                            if matches!(&self.work.active_view, ViewSelection::Saved(n) if n == name)
+                            {
+                                self.work.active_view = ViewSelection::All;
+                            }
+                            Effect::Act(Request::WorkViews {
+                                expected: views,
+                                next,
+                                saved: format!("Deleted view \"{name}\"."),
+                            })
+                        }
+                        DialogInput::Choose(1) | DialogInput::Cancel => Effect::None,
+                        _ => {
+                            self.work.view_dialog = Some(dialog);
+                            Effect::None
+                        }
                     }
                 }
             }
@@ -2124,6 +2195,33 @@ impl App {
                 let buttons = [Button::secondary("Close")];
                 match state.mouse(&event, &h, &buttons) {
                     DialogInput::Choose(0) | DialogInput::Cancel => Effect::None,
+                    _ => {
+                        self.work.view_dialog = Some(dialog);
+                        Effect::None
+                    }
+                }
+            }
+            ViewDialog::ConfirmDelete { name, state, hits } => {
+                let h = hits.borrow().clone();
+                let buttons = [
+                    Button::primary("Delete").destructive(true),
+                    Button::secondary("Cancel"),
+                ];
+                let views = saved_views(self).to_vec();
+                match state.mouse(&event, &h, &buttons) {
+                    DialogInput::Choose(0) => {
+                        let mut next = views.clone();
+                        next.retain(|v| v.name != *name);
+                        if matches!(&self.work.active_view, ViewSelection::Saved(n) if n == name) {
+                            self.work.active_view = ViewSelection::All;
+                        }
+                        Effect::Act(Request::WorkViews {
+                            expected: views,
+                            next,
+                            saved: format!("Deleted view \"{name}\"."),
+                        })
+                    }
+                    DialogInput::Choose(1) | DialogInput::Cancel => Effect::None,
                     _ => {
                         self.work.view_dialog = Some(dialog);
                         Effect::None

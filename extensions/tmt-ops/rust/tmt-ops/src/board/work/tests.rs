@@ -1016,11 +1016,7 @@ fn colab_work_w168_dashboard_search_space_collapse_and_inspector() {
     key(&mut app, KeyCode::Char(' '));
     assert!(app.work.detail_collapsed);
     let collapsed = draw(&app);
-    assert!(
-        collapsed
-            .iter()
-            .any(|l| l.contains("collapsed · Space to expand"))
-    );
+    assert!(collapsed.iter().any(|l| l.contains("Space detail")));
     key(&mut app, KeyCode::Char(' '));
     assert!(!app.work.detail_collapsed);
 

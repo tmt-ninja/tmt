@@ -41,6 +41,11 @@ pub(in crate::board) enum ViewDialog {
         cursor: usize,
         hits: RefCell<DialogHits>,
     },
+    ConfirmDelete {
+        name: String,
+        state: DialogState,
+        hits: RefCell<DialogHits>,
+    },
 }
 
 #[derive(Debug, Default)]
