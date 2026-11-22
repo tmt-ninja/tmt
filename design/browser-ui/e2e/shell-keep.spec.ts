@@ -106,6 +106,9 @@ test('a route draws its last menu shape in its first frame, blank and inert, nev
     damaged: { drawn: 'content a', placeholder: 0 },
     first: { same: true, inert: true, hidden: 'true', text: '' },
     labelsStored: [],
+    keptWhileHidden: true,
+    nested: 8,
+    oldKept: null,
     replaced: false,
     dropped: null,
   });

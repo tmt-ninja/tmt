@@ -1688,7 +1688,7 @@ function settings(value) {
 	valid$6(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
 	return row;
 }
-function device(value, activity = false) {
+function device$1(value, activity = false) {
 	const row = object$4(value);
 	exact(row, [
 		"clientId",
@@ -1761,7 +1761,7 @@ function parseManagementOutcome(value, operationId) {
 		valid$6(Object.keys(result).length === 1);
 		if (Object.hasOwn(result, "settings")) settings(result.settings);
 		else if (Object.hasOwn(result, "removed")) valid$6(integer$1(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
-		else device(result.device);
+		else device$1(result.device);
 	} else {
 		exact(row, [
 			"operationId",
@@ -1838,7 +1838,7 @@ function management(session, options = {}) {
 				valid$6(Array.isArray(row.devices) && row.devices.length <= page.limit);
 				const ids = /* @__PURE__ */ new Set();
 				for (const entry of row.devices) {
-					const item = device(entry, true);
+					const item = device$1(entry, true);
 					valid$6(!item.revoked && !ids.has(item.clientId));
 					ids.add(item.clientId);
 				}
@@ -5534,13 +5534,10 @@ function mountShell(root, view, select, layerHost) {
 		next?.focus();
 	});
 	const nested = (menuView, selected) => {
+		if (menuView.placeholder) return blankMenu(menuView.placeholder);
 		const list = document.createElement("ul");
 		list.className = "tmt-ui-rail-sub";
-		if (menuView.placeholder) {
-			list.dataset.placeholder = "";
-			list.setAttribute("aria-hidden", "true");
-			list.inert = true;
-		} else list.setAttribute("aria-label", menuView.title);
+		list.setAttribute("aria-label", menuView.title);
 		walk(list);
 		menuView.groups.forEach((group, index) => {
 			const controls = group.reorder || group.items.some((item) => item.actions?.length) ? interactions(() => latest.menu?.groups[index]) : void 0;
@@ -5678,6 +5675,8 @@ function mountShell(root, view, select, layerHost) {
 	};
 	setDrawer(false);
 	render(view);
+	/** The menu list measured last: an update that keeps it drew the same rows. */
+	let measured;
 	return {
 		tools,
 		setCommonControls: topBar.setCommonControls,
@@ -5685,6 +5684,12 @@ function mountShell(root, view, select, layerHost) {
 		setTopBar: topBar.setTopBar,
 		clearTopBar: topBar.clear,
 		update: render,
+		menuGeometry() {
+			const list = rail.querySelector("ul.tmt-ui-rail-sub:not([data-placeholder])");
+			if (!list?.getClientRects().length || list === measured) return void 0;
+			measured = list;
+			return geometryOf(list);
+		},
 		dispose() {
 			for (const controls of menuInteractions) controls.dispose();
 			menuInteractions = [];
@@ -5703,6 +5708,99 @@ function mountShell(root, view, select, layerHost) {
 			menu.remove();
 		}
 	};
+}
+var units = (pixels) => Math.round(pixels * 64);
+var tall = (element) => units(element.getBoundingClientRect().height);
+/** The drawn menu `list` as `blankMenu` draws it back: its sections, each row's own height (above
+* any children) and depth, and the settings row. Heading-less groups draw their rows straight into
+* the list, so a run of them is one group here; it draws the same. */
+function geometryOf(list) {
+	const rows = (items) => [...items].flatMap((row) => {
+		const children = row.querySelector(":scope > .tmt-ui-rail-sub-children");
+		if (!children) return [{
+			height: tall(row),
+			depth: 0
+		}];
+		return [{
+			height: units(children.getBoundingClientRect().top - parseFloat(getComputedStyle(children).marginTop) - row.getBoundingClientRect().top),
+			depth: 0
+		}, ...[...children.children].map((child) => ({
+			height: tall(child),
+			depth: 1
+		}))];
+	});
+	const groups = [];
+	let settings = null;
+	let loose;
+	for (const item of list.children) {
+		const heading = item.querySelector(":scope > .tmt-ui-rail-sub-group");
+		const entries = item.querySelector(":scope > .tmt-ui-rail-sub-items");
+		if (item.classList.contains("tmt-ui-rail-settings")) settings = tall(item);
+		else if (heading && entries) {
+			loose = void 0;
+			groups.push({
+				head: tall(heading),
+				rows: rows(entries.children)
+			});
+		} else {
+			if (!loose) groups.push(loose = {
+				head: null,
+				rows: []
+			});
+			loose.rows.push(...rows([item]));
+		}
+	}
+	return {
+		groups,
+		settings
+	};
+}
+/** A block exactly `height` layout units tall, padding and border included. */
+function sized(tag, height, className) {
+	const block = document.createElement(tag);
+	if (className) block.className = className;
+	block.style.boxSizing = "border-box";
+	block.style.minHeight = "0";
+	block.style.height = `${height / 64}px`;
+	return block;
+}
+/** Blank, inert rows of exactly `geometry`, in the real tree's lists so its gaps are the same. */
+function blankMenu(geometry) {
+	const list = document.createElement("ul");
+	list.className = "tmt-ui-rail-sub";
+	list.dataset.placeholder = "";
+	list.setAttribute("aria-hidden", "true");
+	list.inert = true;
+	for (const group of geometry.groups) {
+		let entries = list;
+		if (group.head !== null) {
+			const section = document.createElement("li");
+			entries = document.createElement("ul");
+			entries.className = "tmt-ui-rail-sub-items";
+			section.append(sized("div", group.head, "tmt-ui-rail-sub-group"), entries);
+			list.append(section);
+		}
+		const branches = [];
+		for (const { height, depth } of group.rows) if (depth === 1 && branches.length) branches.at(-1).children.push(height);
+		else branches.push({
+			height,
+			children: []
+		});
+		for (const { height, children } of branches) {
+			if (!children.length) {
+				entries.append(sized("li", height));
+				continue;
+			}
+			const row = document.createElement("li");
+			const nested = document.createElement("ul");
+			nested.className = "tmt-ui-rail-sub-children";
+			nested.append(...children.map((child) => sized("li", child)));
+			row.append(sized("div", height), nested);
+			entries.append(row);
+		}
+	}
+	if (geometry.settings !== null) list.append(sized("li", geometry.settings, "tmt-ui-rail-settings"));
+	return list;
 }
 /** What an update may change on a kept rail node; anything else is a different rail. */
 var PATCHED = /* @__PURE__ */ new Set([
@@ -6807,15 +6905,19 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	});
 }
 var KEPT_FOR = 6e5;
-/** The shape of the menu each route set last in this browser, so the rail draws the same rows in
-* its first frame, in a new tab too, and never moves when the module's menu arrives (#6750). Only
-* the shape is kept (groups, which parts exist, each row's glyph name from the fixed icon set),
-* never a label: a row may be a sealed page title. It is local storage of this door's origin (one
-* owner), and a session change drops it. */
-var MENU_KEY = "tmt-shell-menu-v1";
+/** The drawn geometry of the menu each route set last in this browser, so the rail draws the same
+* rows in its first frame, in a new tab too, and never moves when the module's menu arrives
+* (#6750). The host measures the menu once drawn (`ShellControls.menuGeometry`) and keeps only
+* heights and depths, never a label (a row may be a sealed page title), a glyph or a kind of row,
+* so the placeholder matches every row kind by construction (#6757). It is local storage of this
+* door's origin (one owner), and a session change drops it; the first v2 write removes v1's
+* glyph-and-flag shapes. A changed font size or zoom costs one shift, then the next measure holds. */
+var MENU_KEY = "tmt-shell-menu-v2";
+var OLD_MENU_KEYS = ["tmt-shell-menu-v1"];
 var MENU_GROUPS = 16;
 var MENU_ROWS = 64;
-var glyph = (value) => typeof value === "string" && Object.hasOwn(shellIconNodes, value) ? value : void 0;
+/** The tallest part kept: 1000px. */
+var MENU_HEIGHT = 64e3;
 var plain$1 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 function menuShapes() {
 	try {
@@ -6825,73 +6927,52 @@ function menuShapes() {
 		return {};
 	}
 }
-function keepMenuShape(route, menu) {
+/** Keeps `geometry` for `route`: null drops it (the module set no menu), undefined keeps what was
+* measured before (nothing drawn to measure, like a closed phone drawer). Writes only a change. */
+function keepMenuShape(route, geometry) {
+	if (geometry === void 0) return;
 	const shapes = menuShapes();
+	const before = JSON.stringify(shapes[route] ?? null);
 	delete shapes[route];
-	if (menu && !menu.placeholder) shapes[route] = {
-		groups: menu.groups.slice(0, MENU_GROUPS).map((group) => ({
-			label: Boolean(group.label),
-			action: Boolean(group.action),
-			add: Boolean(group.add),
-			alert: Boolean(group.alert),
-			icon: group.fallbackIcon ?? null,
-			rows: group.items.flatMap((item) => [item, ...item.expanded ? item.children ?? [] : []]).slice(0, MENU_ROWS).map((item) => item.icon ?? null)
+	if (geometry) shapes[route] = {
+		groups: geometry.groups.slice(0, MENU_GROUPS).map((group) => ({
+			head: group.head,
+			rows: group.rows.slice(0, MENU_ROWS)
 		})),
-		settings: menu.settings ? menu.settings.icon ?? null : false
+		settings: geometry.settings
 	};
+	if (JSON.stringify(shapes[route] ?? null) === before) return;
 	const kept = Object.entries(shapes).slice(-16);
 	try {
 		localStorage.setItem(MENU_KEY, JSON.stringify(Object.fromEntries(kept)));
+		for (const old of OLD_MENU_KEYS) localStorage.removeItem(old);
 	} catch {}
 }
 function forgetMenuShapes() {
 	try {
-		localStorage.removeItem(MENU_KEY);
+		for (const key of [MENU_KEY, ...OLD_MENU_KEYS]) localStorage.removeItem(key);
 	} catch {}
 }
-var flag = (value) => typeof value === "boolean";
-var mark$1 = (value) => value === null || glyph(value) !== void 0;
-/** A stored shape exactly as `keepMenuShape` writes it, within its caps; anything else, from an
+var height = (value) => Number.isInteger(value) && value >= 0 && value <= MENU_HEIGHT;
+var exactly = (value, ...keys) => Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+/** A stored geometry exactly as `keepMenuShape` writes it, within its caps; anything else, from an
 * older build or a damaged store, is no shape at all, so it costs one shift and never breaks a
 * route. */
 function menuShape(value) {
-	if (!plain$1(value) || !Array.isArray(value.groups) || value.groups.length > MENU_GROUPS) return void 0;
-	if (value.settings !== false && !mark$1(value.settings)) return void 0;
-	for (const group of value.groups) if (!plain$1(group) || !flag(group.label) || !flag(group.action) || !flag(group.add) || !flag(group.alert) || !mark$1(group.icon) || !Array.isArray(group.rows) || group.rows.length > MENU_ROWS || !group.rows.every(mark$1)) return void 0;
+	if (!plain$1(value) || !exactly(value, "groups", "settings") || !Array.isArray(value.groups) || value.groups.length > MENU_GROUPS || value.settings !== null && !height(value.settings)) return void 0;
+	for (const group of value.groups) {
+		if (!plain$1(group) || !exactly(group, "head", "rows") || group.head !== null && !height(group.head) || !Array.isArray(group.rows) || group.rows.length > MENU_ROWS) return void 0;
+		for (const [index, row] of group.rows.entries()) if (!plain$1(row) || !exactly(row, "height", "depth") || !height(row.height) || row.depth !== 0 && row.depth !== 1 || index === 0 && row.depth === 1) return void 0;
+	}
 	return value;
 }
-/** Blank rows in the shape `stored` keeps for `route`; a malformed entry draws nothing. */
+/** Blank rows of the geometry `stored` keeps for `route`; a malformed entry draws nothing. */
 function rememberedMenu(stored, route) {
 	const shape = plain$1(stored) && Object.hasOwn(stored, route) ? menuShape(stored[route]) : void 0;
-	if (!shape) return void 0;
-	const blank = "\xA0";
-	const inert = {
-		label: blank,
-		onActivate() {}
-	};
-	let row = 0;
-	const entry = (icon) => ({
-		id: `placeholder:${row++}`,
-		label: blank,
-		href: "",
-		current: false,
-		...icon ? { icon } : {}
-	});
-	return {
+	return shape && {
 		title: "",
-		placeholder: true,
-		groups: shape.groups.map((group) => ({
-			...group.label ? { label: blank } : {},
-			...group.action ? { action: inert } : {},
-			...group.add ? { add: inert } : {},
-			...group.alert ? { alert: {
-				message: blank,
-				retry: inert
-			} } : {},
-			...group.icon ? { fallbackIcon: group.icon } : {},
-			items: group.rows.map(entry)
-		})),
-		...shape.settings === false ? {} : { settings: entry(shape.settings) }
+		groups: [],
+		placeholder: shape
 	};
 }
 var placeholderMenu = (route) => rememberedMenu(menuShapes(), route);
@@ -6968,6 +7049,8 @@ function startShellHost(root, routes, options = {}) {
 	/** Suspended modules by route, least recently used first. */
 	const kept = /* @__PURE__ */ new Map();
 	let menu;
+	/** The frame after which the menu just set is measured. */
+	let measuring = 0;
 	let select;
 	let asked = false;
 	let settled = false;
@@ -7049,8 +7132,12 @@ function startShellHost(root, routes, options = {}) {
 			if (current?.generation !== mine) return;
 			menu = next;
 			select = handler;
-			keepMenuShape(route.id, next);
 			paint();
+			if (!next) return keepMenuShape(route.id, null);
+			cancelAnimationFrame(measuring);
+			measuring = requestAnimationFrame(() => setTimeout(() => {
+				if (current?.generation === mine && menu === next) keepMenuShape(route.id, controls.menuGeometry());
+			}));
 		},
 		setTitle(title) {
 			if (current?.generation === mine) document.title = `${title} · TMT`;
@@ -9381,32 +9468,56 @@ function commandCopy(text) {
 /** The composer's own module, served beside the SDK (see vite.composer.config.ts). */
 var COMPOSER = "/sdk/ops-composer-v1.js";
 /** Where this tab keeps unsent words, so a reload brings them back (#6757): plain text in this
-* tab's sessionStorage, like the members page's unsent names, gone when the tab closes, never sent
-* anywhere, and cleared when the session changes or the browser is no longer paired. */
-var STORE = "tmt-ops-drafts-v1";
+* tab's sessionStorage, like the members page's unsent names, gone when the tab closes and never
+* sent anywhere. The words are tagged with this browser's device (its Remote client id): after a
+* reload they show only once the page has read the same device, so a reload under another pairing
+* shows none. They are cleared when the session changes or the browser is no longer paired. */
+var STORE = "tmt-ops-drafts-v2";
+var OLD_STORES = ["tmt-ops-drafts-v1"];
 var utf8$4 = new TextEncoder();
 var keepable = (text) => text.trim() !== "" && utf8$4.encode(text).length <= 65536;
 function readStore() {
 	try {
-		const data = JSON.parse(sessionStorage.getItem(STORE) ?? "[]");
-		if (!Array.isArray(data)) return /* @__PURE__ */ new Map();
-		const rows = data.filter((item) => Array.isArray(item) && item.length === 2 && typeof item[0] === "string" && typeof item[1] === "string" && keepable(item[1]));
-		return new Map(rows.slice(-50));
+		const data = JSON.parse(sessionStorage.getItem(STORE) ?? "null");
+		if (!data || typeof data !== "object" || Array.isArray(data)) return void 0;
+		const { device, drafts: rows } = data;
+		if (typeof device !== "string" || !device || device.length > 128 || !Array.isArray(rows)) return void 0;
+		return {
+			device,
+			drafts: rows.filter((item) => Array.isArray(item) && item.length === 2 && typeof item[0] === "string" && typeof item[1] === "string" && keepable(item[1])).slice(-50)
+		};
 	} catch {
-		return /* @__PURE__ */ new Map();
+		return;
 	}
 }
-function writeStore() {
-	const kept = [...drafts].filter(([, text]) => keepable(text));
-	try {
-		if (kept.length) sessionStorage.setItem(STORE, JSON.stringify(kept));
-		else sessionStorage.removeItem(STORE);
-	} catch {}
-}
+/** The words kept from before a reload, held unshown until the page knows this browser's device. */
+var held = readStore();
+/** This browser's device once the page has read it; until then words stay in their boxes only. */
+var device;
 /** The unsent words of each place (`channel:<squad>` or a member id), for the rail's draft mark
 * and for the box after a reload; every box on the page reports here. */
-var drafts = readStore();
+var drafts = /* @__PURE__ */ new Map();
 var draftListeners = /* @__PURE__ */ new Set();
+var changed = () => {
+	for (const listener of draftListeners) listener();
+};
+/** Saves the words for this device. A refused write (the tab's quota) drops the place typed in
+* longest ago and tries again, so the newest words that fit are kept. */
+function writeStore() {
+	if (device === void 0) return;
+	const kept = [...drafts].filter(([, text]) => keepable(text));
+	try {
+		for (const old of OLD_STORES) sessionStorage.removeItem(old);
+	} catch {}
+	for (let from = 0; from <= kept.length; from++) try {
+		if (from === kept.length) sessionStorage.removeItem(STORE);
+		else sessionStorage.setItem(STORE, JSON.stringify({
+			device,
+			drafts: kept.slice(from)
+		}));
+		return;
+	} catch {}
+}
 var hasDraft = (key) => drafts.has(key);
 /** Calls `listener` whenever a place gains or loses its draft; returns the unsubscribe. */
 function onDrafts(listener) {
@@ -9421,22 +9532,46 @@ function keepDraft(key, text) {
 	const dropped = [...drafts.keys()].slice(0, Math.max(0, drafts.size - 50));
 	for (const old of dropped) drafts.delete(old);
 	writeStore();
-	if (had === drafts.has(key) && !dropped.length) return;
-	for (const listener of draftListeners) listener();
+	if (had !== drafts.has(key) || dropped.length) changed();
+}
+/** The page has read this browser's device: words kept for it come back (never over words typed
+* since), and words kept for another device are dropped. `null` is no pairing at all. */
+function draftsFor(id) {
+	if (id === null) return forgetDrafts();
+	device = id;
+	const restored = held?.device === id ? held.drafts.filter(([key]) => !drafts.has(key)) : [];
+	held = void 0;
+	const now = [...drafts];
+	drafts.clear();
+	for (const [key, text] of [...restored, ...now].slice(-50)) drafts.set(key, text);
+	writeStore();
+	if (restored.length) changed();
 }
 /** The session changed, or this browser is no longer paired: no unsent words stay for the next
-* one to see. */
+* one to see, and new words stay in their boxes until the page reads the device again. */
 function forgetDrafts() {
 	const had = drafts.size > 0;
 	drafts.clear();
-	writeStore();
-	if (had) for (const listener of draftListeners) listener();
+	held = void 0;
+	device = void 0;
+	try {
+		for (const key of [STORE, ...OLD_STORES]) sessionStorage.removeItem(key);
+	} catch {}
+	if (had) changed();
 }
 /** The composer is a lazily loaded React island, so pages that never open a channel skip it. */
 function composerSlot(host) {
 	let handle;
 	let wanted;
 	let loading = false;
+	onDrafts(() => {
+		if (!wanted) return;
+		wanted = {
+			...wanted,
+			saved: drafts.get(wanted.key)
+		};
+		handle?.update(wanted);
+	});
 	return { show(shown) {
 		const options = {
 			...shown,
@@ -13670,10 +13805,14 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 	return orchestrationApi(await shell.session());
 }, historyTalk, channelPort, ownDevice = async () => {
 	if (!shell.session) return null;
-	return (await management(await shell.session()).devices({
+	const own = (await management(await shell.session()).devices({
 		cursor: null,
 		limit: 100
-	})).devices.find((device) => device.thisBrowser)?.name ?? null;
+	})).devices.find((device) => device.thisBrowser);
+	return own && {
+		name: own.name,
+		id: own.clientId
+	};
 }, formsConnect = async () => {
 	if (!shell.session) throw new FormsNotAllowed("No signed browser session.");
 	return forms(await shell.session());
@@ -13681,7 +13820,10 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 	const main = document.getElementById("ops-section");
 	const note = document.getElementById("ops-note");
 	if (!main || !note) return;
-	ownDevice().then((name) => knowOwnDevice(name), () => knowOwnDevice(null));
+	ownDevice().then((own) => {
+		knowOwnDevice(own?.name ?? null);
+		if (own !== void 0) draftsFor(own && own.id);
+	}, () => knowOwnDevice(null));
 	let board;
 	const current = () => {
 		const asked = opsPlace(location.hash);
@@ -13713,6 +13855,7 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 		paintMenu();
 	}, historyRead, historyTalk);
 	const paintMenu = () => {
+		if (!board) return;
 		const section = current();
 		shell.setMenu(opsMenu(section, board, location.pathname, {
 			collapsed: collapsedSquads,

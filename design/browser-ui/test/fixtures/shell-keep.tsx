@@ -11,6 +11,8 @@ function scaffold() {
   return root;
 }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+/** The host measures a menu after the frame that draws it. */
+const drawn = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 
 function harness(options: {
   keep: readonly string[];
@@ -189,19 +191,29 @@ export async function sessionChangeReleasesFirst() {
 
 /** A route's last menu is drawn in its next first frame (#6750): same geometry, blank, inert and
  * hidden, never its labels in storage, and a session change drops it. */
+/** A mark taller than a row's text line, as a host's leading mark can be. */
+const tallMark = () => {
+  const node = document.createElement('span');
+  node.style.display = 'block';
+  node.style.height = '23.4px';
+  return node;
+};
 export async function remembersMenuShape() {
-  const key = 'tmt-shell-menu-v1';
-  // A damaged entry from another build draws no placeholder and never stops the route.
-  localStorage.setItem(key, JSON.stringify({ a: { groups: [null], settings: false } }));
+  const key = 'tmt-shell-menu-v2';
+  // A damaged entry from another build draws no placeholder and never stops the route; the v1 key
+  // is removed by the first v2 write (#6757).
+  localStorage.setItem(key, JSON.stringify({ a: { groups: [null], settings: null } }));
+  localStorage.setItem('tmt-shell-menu-v1', JSON.stringify({ a: { groups: [], settings: false } }));
   let gate: Promise<void> | undefined;
   const { host, root, go, slots, main } = harness({ keep: [], rail: 'mod', gate: () => gate });
   const geometry = () => {
     const sub = root.querySelector<HTMLElement>('.tmt-ui-rail-sub');
     if (!sub) return [];
     const top = sub.getBoundingClientRect().top;
+    // Exactly, in layout units: the placeholder matches by construction, not to a pixel.
     return [...sub.querySelectorAll<HTMLElement>('li, .tmt-ui-rail-sub-group')].map((node) => {
       const box = node.getBoundingClientRect();
-      return [Math.round(box.top - top), Math.round(box.height)];
+      return [Math.round((box.top - top) * 64), Math.round(box.height * 64)];
     });
   };
   const menu = {
@@ -217,6 +229,26 @@ export async function remembersMenuShape() {
             current: true,
           },
           { id: 'q', label: 'Second page', href: '/keep-a/q', current: false },
+          // An open branch, as Ops draws a squad with its members (#6757).
+          {
+            id: 't',
+            label: 'Squad',
+            href: '/keep-a/t',
+            current: false,
+            expanded: true,
+            toggle() {},
+            children: [
+              {
+                id: 'm1',
+                label: 'Member one',
+                href: '/keep-a/m1',
+                current: false,
+                // A taller row the shape knows nothing about, as Ops draws a member's state.
+                leading: { node: tallMark(), label: 'Working' },
+              },
+              { id: 'm2', label: 'Member two', href: '/keep-a/m2', current: false },
+            ],
+          },
         ],
       },
       { label: 'Shortcuts', action: { label: 'Manage', onActivate() {} }, items: [] },
@@ -238,6 +270,7 @@ export async function remembersMenuShape() {
     };
     slots.get('a')!.setMenu(menu);
     const real = geometry();
+    await drawn();
     await go('b');
     let release!: () => void;
     gate = new Promise((resolve) => (release = resolve));
@@ -251,18 +284,38 @@ export async function remembersMenuShape() {
       text: sub?.textContent?.trim(),
     };
     const stored = localStorage.getItem(key) ?? '';
+    const oldKept = localStorage.getItem('tmt-shell-menu-v1');
     release();
     await settle();
     await settle();
     slots.get('a')!.setMenu(menu);
     const replaced = root.querySelector('.tmt-ui-rail-sub')?.hasAttribute('data-placeholder');
+    // A hidden rail (a closed phone drawer) has nothing to measure: what was measured stays.
+    const measured = localStorage.getItem(key);
+    root.style.display = 'none';
+    slots.get('a')!.setMenu({ ...menu, groups: menu.groups.slice(1) });
+    await drawn();
+    const keptWhileHidden = localStorage.getItem(key) === measured;
+    root.style.display = '';
     host.sessionChanging();
     return {
       damaged,
       first,
-      labelsStored: ['Sealed', 'Second', 'Module', 'Shortcuts', 'keep-a'].filter((word) =>
-        stored.includes(word),
-      ),
+      labelsStored: [
+        'Sealed',
+        'Second',
+        'Module',
+        'Shortcuts',
+        'keep-a',
+        'Squad',
+        'Member',
+        'Working',
+        'list',
+        'icon',
+      ].filter((word) => stored.includes(word)),
+      keptWhileHidden,
+      nested: real.length,
+      oldKept,
       replaced,
       dropped: localStorage.getItem(key),
     };
@@ -270,6 +323,7 @@ export async function remembersMenuShape() {
     host.dispose();
     root.remove();
     localStorage.removeItem(key);
+    localStorage.removeItem('tmt-shell-menu-v1');
   }
 }
 

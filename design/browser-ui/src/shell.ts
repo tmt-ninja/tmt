@@ -125,12 +125,23 @@ export interface ShellMenuGroup {
   /** Request moving fromId to the current index of toId; the host supplies the resulting order. */
   reorder?(fromId: string, toId: string): void;
 }
+/** One CSS pixel in layout units: the rail is measured in Chromium's own layout unit, so a row's
+ * height (14px at a 1.3 line height is 18.2px) is kept exactly and never adds up rounding. */
+export const LAYOUT_UNIT = 64;
+/** A drawn module menu's geometry, in layout units (#6757): per group the height of its heading
+ * (null: it has none), per row its height above any children and its depth (1: a child of the
+ * last row of depth 0), and the settings row's height (null: none). Nothing else: no label, glyph
+ * or kind of row, so it matches every present and future row by construction. */
+export interface ShellMenuGeometry {
+  groups: { head: number | null; rows: { height: number; depth: 0 | 1 }[] }[];
+  settings: number | null;
+}
 export interface ShellMenu {
   title: string;
   groups: ShellMenuGroup[];
-  /** Host-drawn stand-in with the shape of the menu this route set last (#6750): blank, inert and
-   * hidden from assistive technology until the module's own menu replaces it. */
-  placeholder?: boolean;
+  /** Host-drawn stand-in for the menu this route set last (#6750): blank, inert rows of exactly its
+   * drawn geometry, hidden from assistive technology until the module's own menu replaces it. */
+  placeholder?: ShellMenuGeometry;
   /** Module settings, always last after a hairline. */
   settings?: ShellMenuItem;
 }
@@ -448,6 +459,10 @@ export interface ShellControls {
   /** The route owner releases the active action slot and transient common UI. */
   clearTopBar(): void;
   update(view: ShellView): void;
+  /** The drawn module menu's geometry; undefined when there is nothing new to keep: none is drawn,
+   * the rail is hidden (a closed phone drawer), or the rows are the ones measured last (an update
+   * that kept every element only changed text and attributes, never a one-line row's height). */
+  menuGeometry(): ShellMenuGeometry | undefined;
   dispose(): void;
 }
 
@@ -880,13 +895,10 @@ export function mountShell(
       next?.focus();
     });
   const nested = (menuView: ShellMenu, selected: ShellMenuItem | undefined) => {
+    if (menuView.placeholder) return blankMenu(menuView.placeholder);
     const list = document.createElement('ul');
     list.className = 'tmt-ui-rail-sub';
-    if (menuView.placeholder) {
-      list.dataset.placeholder = '';
-      list.setAttribute('aria-hidden', 'true');
-      list.inert = true;
-    } else list.setAttribute('aria-label', menuView.title);
+    list.setAttribute('aria-label', menuView.title);
     walk(list);
     menuView.groups.forEach((group, index) => {
       const controls =
@@ -1099,6 +1111,8 @@ export function mountShell(
   };
   setDrawer(false);
   render(view);
+  /** The menu list measured last: an update that keeps it drew the same rows. */
+  let measured: Element | undefined;
   return {
     tools,
     setCommonControls: topBar.setCommonControls,
@@ -1106,6 +1120,12 @@ export function mountShell(
     setTopBar: topBar.setTopBar,
     clearTopBar: topBar.clear,
     update: render,
+    menuGeometry() {
+      const list = rail.querySelector('ul.tmt-ui-rail-sub:not([data-placeholder])');
+      if (!list?.getClientRects().length || list === measured) return undefined;
+      measured = list;
+      return geometryOf(list);
+    },
     dispose() {
       for (const controls of menuInteractions) controls.dispose();
       menuInteractions = [];
@@ -1124,6 +1144,87 @@ export function mountShell(
       menu.remove();
     },
   };
+}
+
+const units = (pixels: number) => Math.round(pixels * LAYOUT_UNIT);
+const tall = (element: Element) => units(element.getBoundingClientRect().height);
+/** The drawn menu `list` as `blankMenu` draws it back: its sections, each row's own height (above
+ * any children) and depth, and the settings row. Heading-less groups draw their rows straight into
+ * the list, so a run of them is one group here; it draws the same. */
+function geometryOf(list: Element): ShellMenuGeometry {
+  const rows = (items: Iterable<Element>) =>
+    [...items].flatMap((row) => {
+      const children = row.querySelector(':scope > .tmt-ui-rail-sub-children');
+      if (!children) return [{ height: tall(row), depth: 0 as const }];
+      const top =
+        children.getBoundingClientRect().top - parseFloat(getComputedStyle(children).marginTop);
+      return [
+        { height: units(top - row.getBoundingClientRect().top), depth: 0 as const },
+        ...[...children.children].map((child) => ({ height: tall(child), depth: 1 as const })),
+      ];
+    });
+  const groups: ShellMenuGeometry['groups'] = [];
+  let settings: number | null = null;
+  let loose: ShellMenuGeometry['groups'][number] | undefined;
+  for (const item of list.children) {
+    const heading = item.querySelector(':scope > .tmt-ui-rail-sub-group');
+    const entries = item.querySelector(':scope > .tmt-ui-rail-sub-items');
+    if (item.classList.contains('tmt-ui-rail-settings')) settings = tall(item);
+    else if (heading && entries) {
+      loose = undefined;
+      groups.push({ head: tall(heading), rows: rows(entries.children) });
+    } else {
+      if (!loose) groups.push((loose = { head: null, rows: [] }));
+      loose.rows.push(...rows([item]));
+    }
+  }
+  return { groups, settings };
+}
+/** A block exactly `height` layout units tall, padding and border included. */
+function sized<K extends 'li' | 'div'>(tag: K, height: number, className?: string) {
+  const block = document.createElement(tag);
+  if (className) block.className = className;
+  block.style.boxSizing = 'border-box';
+  block.style.minHeight = '0';
+  block.style.height = `${height / LAYOUT_UNIT}px`;
+  return block;
+}
+/** Blank, inert rows of exactly `geometry`, in the real tree's lists so its gaps are the same. */
+function blankMenu(geometry: ShellMenuGeometry) {
+  const list = document.createElement('ul');
+  list.className = 'tmt-ui-rail-sub';
+  list.dataset.placeholder = '';
+  list.setAttribute('aria-hidden', 'true');
+  list.inert = true;
+  for (const group of geometry.groups) {
+    let entries = list;
+    if (group.head !== null) {
+      const section = document.createElement('li');
+      entries = document.createElement('ul');
+      entries.className = 'tmt-ui-rail-sub-items';
+      section.append(sized('div', group.head, 'tmt-ui-rail-sub-group'), entries);
+      list.append(section);
+    }
+    const branches: { height: number; children: number[] }[] = [];
+    for (const { height, depth } of group.rows)
+      if (depth === 1 && branches.length) branches.at(-1)!.children.push(height);
+      else branches.push({ height, children: [] });
+    for (const { height, children } of branches) {
+      if (!children.length) {
+        entries.append(sized('li', height));
+        continue;
+      }
+      const row = document.createElement('li');
+      const nested = document.createElement('ul');
+      nested.className = 'tmt-ui-rail-sub-children';
+      nested.append(...children.map((child) => sized('li', child)));
+      row.append(sized('div', height), nested);
+      entries.append(row);
+    }
+  }
+  if (geometry.settings !== null)
+    list.append(sized('li', geometry.settings, 'tmt-ui-rail-settings'));
+  return list;
 }
 
 /** What an update may change on a kept rail node; anything else is a different rail. */
