@@ -314,17 +314,22 @@ Boards started before this behavior shipped need one manual restart.
 ## Board appearance
 
 The board opens one `OPS / UI` shell with `1 Agents`, `2 Work`, `3 Digest` and
-`4 Orchestration`. Work shows the owner list from Colab 0.1.0-alpha.478 or
-later. Use `p` for project, `d` for the Done period, `c` for recent
-completions, and Enter to open the selected page when a link is available.
-Project ordering requires Colab 0.1.0-alpha.481 or later. In a selected project,
-`m` opens Move for eligible numbered work. Confirm to change its position.
+`4 Orchestration`. Work shows the Projects chapter gauges (from Colab with section
+progress, or `—` when absent), Squad Pulse, and 2-line work cards. Use `/` to
+search, `p` for project, `d` for the Done period, `c` for recent completions,
+`Space` to collapse or expand the read-only Detail inspector, `Tab` to focus its
+sections, `o` or `Enter` to open the selected page when a link is available, and
+`t` to jump to the bound owner's Talk tab. Press `v` to manage saved views or use
+`+ Save` to store the current filter in Ops config (with an optional default on
+open). Project ordering requires Colab 0.1.0-alpha.481 or later. In a selected
+project, `m` opens Move for eligible numbered work. Confirm to change its position.
 If the order changed elsewhere, Work shows the current order without retrying.
 Shortcut caps precede tab and filter labels and show effective configured keys;
 unbound actions have no cap. Selected tabs use a brighter neutral cap.
 Agents holds the whole workspace: a full-width Usage band (global usage and provider
 limits) above two columns. The left column is the squad/member tree; the right
-column shows the selected target as Talk or Measure. `T` opens Talk, `M` opens
+column shows the selected target as Talk or Measure. In Talk, a pinned Work line
+summarizes the member's top item (`w` expands). `T` opens Talk, `M` opens
 Measure, and `C` opens the selected member's Checklist; controls sit on the
 pane's top rule. The shell attention bar stays global.
 On a member, `l` opens board labels: `1`–`9` choose the first nine, `0` clears,
