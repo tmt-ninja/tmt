@@ -1118,7 +1118,14 @@ fn colab_work_short_inspector_keeps_the_keyboard_section_visible() {
         last.contains("more ↑") && !last.contains("more ↓"),
         "{last}"
     );
-    assert!(last.contains("Open page"), "{last}");
+    assert!(last.contains("Open block"), "{last}");
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: Some("heading-24".into()),
+        })
+    );
 }
 
 #[test]
