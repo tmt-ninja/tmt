@@ -201,6 +201,64 @@ fn a_reader_shows_an_unrecorded_exit_as_ended_once_its_processes_are_gone() {
     assert_eq!(row(&fixture), stale);
 }
 
+/// A launch owner killed before it could record anything, then its agent, leaves a
+/// `running` row no exit path will write (#6761). The next delivery probe sees the
+/// recorded runtime gone with no replacement and settles the row as ended, keeping
+/// its key and owner, so storage-only readers such as `consumption.history` no
+/// longer report a live seat that is merely unsampled.
+#[test]
+fn a_delivery_probe_settles_a_runtime_lost_with_its_launch_owner() {
+    let (fixture, mut run, admitted) = admitted_run("exit-lost");
+    // The admitted provider session a real agent reports, so the row reads as a
+    // sampled seat (`not_sampled`) while it stays running.
+    mutate(
+        &fixture,
+        "UPDATE bindings SET observed_provider_session_id = 'lost-session'",
+    );
+    run.kill();
+    run.owned[0].kill();
+    wait_until("the agent ends", || run.owned[0].ended());
+    assert_eq!(row(&fixture).unwrap().state, "running");
+    let talk = fixture.tmt(&["talk", "worker", "hello", "--detach", "--json"]);
+    assert!(talk.status.success(), "{talk:?}");
+    let queued: Value = serde_json::from_slice(&talk.stdout).unwrap();
+    assert_eq!(queued["offline"], true, "{queued}");
+    assert_eq!(
+        row(&fixture),
+        Some(Row {
+            state: "ended".into(),
+            transition: Some("ended".into()),
+            ..admitted
+        })
+    );
+    let id: String = rusqlite::Connection::open_with_flags(
+        fixture.state().join("tmt.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap()
+    .query_row(
+        "SELECT id FROM identities WHERE name = 'worker'",
+        [],
+        |row| row.get(0),
+    )
+    .unwrap();
+    let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
+    let history = storage
+        .consumption_history(
+            std::slice::from_ref(&id),
+            &[3_600_000],
+            12,
+            tmt_adapters::request_runtime::wall_time_ms(),
+            false,
+            None,
+        )
+        .unwrap();
+    storage.close().unwrap();
+    let entry = &history["identities"][0];
+    assert_eq!(entry["reporting"], false, "{history}");
+    assert_eq!(entry["cause"], "no_agent", "{history}");
+}
+
 /// A native-shaped peer, invoked only by this test's private npm launcher.
 #[test]
 fn native_peer() {

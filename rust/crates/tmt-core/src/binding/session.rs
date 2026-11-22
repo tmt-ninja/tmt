@@ -386,6 +386,21 @@ impl BindingSessionState {
         })
     }
 
+    /// The exact recorded runtime is conclusively gone and nothing recorded its end: its
+    /// launch owner died first (SIGKILL, crash, host loss), so no exit path ran (#6761).
+    /// Settle that incarnation as Ended, keeping its key and owner like a recorded exit.
+    /// The caller has observed `key` itself as gone; any other or no key refuses.
+    pub fn record_runtime_lost(&self, key: &ObservedSessionKey) -> Option<Self> {
+        if self.key.as_ref() != Some(key) || self.state == RuntimeState::Ended {
+            return None;
+        }
+        Some(Self {
+            state: RuntimeState::Ended,
+            last_transition: Some(SessionTransition::Ended),
+            ..self.clone()
+        })
+    }
+
     /// A foreground launch needs live evidence for both processes. Hooks use
     /// `admit` instead and cannot replace ownership on an existing incarnation.
     /// Attaching an owner after the exact provider key ended keeps that observation.
@@ -1538,6 +1553,57 @@ mod tests {
                 RuntimeLiveness::Alive,
             )
             .unwrap()
+    }
+
+    #[test]
+    fn a_lost_runtime_ends_only_its_exact_unended_incarnation() {
+        let recorded = key("lost-start", "session-a");
+        let running = launched_running(&recorded);
+        let lost = running.record_runtime_lost(&recorded).unwrap();
+        assert_eq!(lost.state, RuntimeState::Ended);
+        assert_eq!(lost.last_transition, Some(SessionTransition::Ended));
+        assert_eq!(lost.key, running.key);
+        assert_eq!(lost.launch_owner, running.launch_owner);
+        // A provider end awaiting its next session settles too.
+        let awaiting = running
+            .transition(&recorded, SessionTransition::Ended, None)
+            .unwrap();
+        assert_eq!(
+            awaiting.record_runtime_lost(&recorded).unwrap().state,
+            RuntimeState::Ended
+        );
+        // Already ended, another incarnation, or no key: nothing to settle.
+        assert!(lost.record_runtime_lost(&recorded).is_none());
+        assert!(
+            running
+                .record_runtime_lost(&key("other-start", "session-a"))
+                .is_none()
+        );
+        assert!(
+            BindingSessionState::default()
+                .record_runtime_lost(&recorded)
+                .is_none()
+        );
+        // The lost incarnation never comes back; a new verified process may.
+        assert!(
+            lost.admit(
+                recorded.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive
+            )
+            .is_none()
+        );
+        let replacement = key("new-start", "session-b");
+        assert_eq!(
+            lost.admit(
+                replacement,
+                SessionTransition::Started,
+                RuntimeLiveness::Alive
+            )
+            .unwrap()
+            .state,
+            RuntimeState::Running
+        );
     }
 
     #[test]
