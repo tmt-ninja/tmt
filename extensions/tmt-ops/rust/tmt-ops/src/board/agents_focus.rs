@@ -95,6 +95,257 @@ fn share(reading: Option<super::rate::Reading>, total: Option<(u128, bool)>) -> 
         )
 }
 
+const TALK_WORK_TOGGLE: char = 'w';
+
+#[derive(Clone, Copy)]
+enum WorkControl {
+    Toggle,
+    Open,
+}
+
+#[derive(Default)]
+pub(super) struct TalkWork {
+    target: Option<(OpsTarget, String)>,
+    expanded: bool,
+    toggle_hit: Option<Rect>,
+    open_hit: Option<Rect>,
+}
+
+impl TalkWork {
+    pub(super) fn clear_hits(&mut self) {
+        self.toggle_hit = None;
+        self.open_hit = None;
+    }
+
+    fn matches(&self, member: &OpsTarget, item: &super::work::Item) -> bool {
+        self.target
+            .as_ref()
+            .is_some_and(|(target, key)| target == member && key == &item.key)
+    }
+}
+
+fn talk_work_item(app: &App) -> Option<(&OpsTarget, &super::work::Item, usize)> {
+    use super::shell::{OpsTab, RightTab};
+    if app.shell.tab != OpsTab::Agents
+        || app.right_tab != RightTab::Talk
+        || app.screen_mode()
+        || app.workspace_retained_search_target().is_some()
+        || !app.workspace_selection_visible()
+    {
+        return None;
+    }
+    let member = app.workspace.selected.as_ref()?;
+    let OpsTarget::Member { identity_id, .. } = member else {
+        return None;
+    };
+    let snapshot = app.workspace_snapshot()?;
+    if !snapshot.rows.get(member)?["plainProgram"].is_null() {
+        return None;
+    }
+    let list = app.work.list.as_ref()?;
+    let (item, count) = list
+        .bindings(&snapshot.roster)
+        .get(identity_id.as_str())
+        .copied()?;
+    Some((member, item, count))
+}
+
+fn talk_work_action(app: &mut App, control: WorkControl) -> Option<super::app::Effect> {
+    use super::app::Effect;
+    let (member, item, _) = talk_work_item(app)?;
+    let mut work = app.talk_work.borrow_mut();
+    if !work.matches(member, item) {
+        return None;
+    }
+    match control {
+        WorkControl::Toggle if work.toggle_hit.is_some() => {
+            work.expanded = !work.expanded;
+            drop(work);
+            app.invalidate_frame_geometry();
+            Some(Effect::None)
+        }
+        WorkControl::Open if work.open_hit.is_some() && !app.work.stale && item.can_open => {
+            Some(Effect::OpenWorkPage(item.page.clone()))
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn talk_work_key(
+    app: &mut App,
+    key: ratatui::crossterm::event::KeyEvent,
+) -> Option<super::app::Effect> {
+    use ratatui::crossterm::event::{KeyCode, KeyEventKind};
+    if !key.modifiers.is_empty()
+        || key.kind != KeyEventKind::Press
+        || app.focused() != Pane::Replies
+    {
+        return None;
+    }
+    match key.code {
+        KeyCode::Char(TALK_WORK_TOGGLE) => talk_work_action(app, WorkControl::Toggle),
+        KeyCode::Enter | KeyCode::Char('o') => talk_work_action(app, WorkControl::Open),
+        KeyCode::Esc if app.talk_work.borrow().expanded => {
+            let (member, item, _) = talk_work_item(app)?;
+            if !app.talk_work.borrow().matches(member, item) {
+                return None;
+            }
+            app.talk_work.borrow_mut().expanded = false;
+            app.invalidate_frame_geometry();
+            Some(super::app::Effect::None)
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn talk_work_mouse(
+    app: &mut App,
+    event: ratatui::crossterm::event::MouseEvent,
+) -> Option<super::app::Effect> {
+    use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+    if event.kind != MouseEventKind::Down(MouseButton::Left) {
+        return None;
+    }
+    let point = (event.column, event.row).into();
+    let control = {
+        let work = app.talk_work.borrow();
+        if work.toggle_hit.is_some_and(|rect| rect.contains(point)) {
+            WorkControl::Toggle
+        } else if work.open_hit.is_some_and(|rect| rect.contains(point)) {
+            WorkControl::Open
+        } else {
+            return None;
+        }
+    };
+    talk_work_action(app, control)
+}
+
+fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
+    use super::work::Status;
+    use unicode_width::UnicodeWidthStr;
+
+    let Some((member, item, count)) = talk_work_item(app) else {
+        *app.talk_work.borrow_mut() = TalkWork::default();
+        return;
+    };
+    if *y >= area.bottom() {
+        return;
+    }
+    let mut work = app.talk_work.borrow_mut();
+    if !work.matches(member, item) {
+        *work = TalkWork {
+            target: Some((member.clone(), item.key.clone())),
+            ..TalkWork::default()
+        };
+    }
+
+    let room = area.bottom() - *y;
+    let toggle = if work.expanded { "Collapse" } else { "Expand" };
+    let hint = format!(" {TALK_WORK_TOGGLE} {toggle}");
+    let hint_width = hint.width() as u16;
+    let show_toggle = room >= 3 && area.width >= hint_width + 24;
+    let expanded = show_toggle && work.expanded;
+    let marker = if expanded { "▾" } else { "▸" };
+    let progress = item.progress.map_or_else(
+        || "—".to_owned(),
+        |progress| format!("{}/{}", progress.done, progress.total),
+    );
+    let more = if count > 1 {
+        format!(" +{}", count - 1)
+    } else {
+        String::new()
+    };
+    let stale = if app.work.stale { " · stale" } else { "" };
+    let role = match item.status {
+        Status::NeedsYou => Role::Waiting,
+        Status::Blocked => Role::Blocked,
+        _ => Role::Muted,
+    };
+    if show_toggle {
+        let hit = Rect::new(area.right() - hint_width, *y, hint_width, 1);
+        strip::paint_left(
+            frame.buffer_mut(),
+            hit,
+            Line::styled(hint, app.look().role(Role::Link)),
+        );
+        if !app.modal_open() {
+            work.toggle_hit = Some(hit);
+        }
+    }
+    let summary = Rect::new(
+        area.x,
+        area.y,
+        area.width - if show_toggle { hint_width } else { 0 },
+        area.height,
+    );
+    line(
+        frame,
+        summary,
+        y,
+        Line::from(vec![
+            Span::styled(
+                format!(" {marker} Work {}  ", item.number.as_deref().unwrap_or("—")),
+                app.look().role(Role::Text),
+            ),
+            Span::styled(item.status.marked_label(), app.look().role(role)),
+            Span::styled(
+                format!("  {progress}{more}{stale}"),
+                app.look().role(Role::Muted),
+            ),
+        ]),
+    );
+    if !expanded {
+        return;
+    }
+
+    line(frame, area, y, neutral(" WORK DETAILS", app.look()));
+    let can_open = !app.work.stale && item.can_open;
+    let show_more = item.sections_omitted || (item.progress.is_some() && item.sections.is_empty());
+    let remaining = area.bottom() - *y;
+    let section_rows =
+        usize::from(remaining.saturating_sub(u16::from(can_open) + u16::from(show_more)));
+    let more_sections = item.sections.len() > section_rows;
+    let section_rows = section_rows.saturating_sub(usize::from(more_sections && !show_more));
+    let next = item
+        .sections
+        .iter()
+        .position(|section| section.state != Status::Done);
+    for (index, section) in item.sections.iter().take(section_rows).enumerate() {
+        let pointer = if next == Some(index) { " ← next" } else { "" };
+        let head = format!(" {} ", section.state.mark());
+        let title = super::view::fit(
+            &section.title,
+            usize::from(area.width).saturating_sub(head.width() + pointer.width()),
+        );
+        line(
+            frame,
+            area,
+            y,
+            neutral(format!("{head}{}{pointer}", title.trim_end()), app.look()),
+        );
+    }
+    if show_more || more_sections {
+        line(
+            frame,
+            area,
+            y,
+            neutral(" More sections in Colab", app.look()),
+        );
+    }
+    let open = " o Open in Colab";
+    if can_open && *y < area.bottom() && area.width >= open.width() as u16 {
+        if !app.modal_open() {
+            work.open_hit = Some(Rect::new(area.x, *y, open.width() as u16, 1));
+        }
+        line(
+            frame,
+            area,
+            y,
+            Line::styled(open, app.look().role(Role::Link)),
+        );
+    }
+}
+
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if area.is_empty() {
         return;
@@ -396,22 +647,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         && app.composer_projection().is_some_and(|projection| {
             projection.key.is_some() && (projection.focused || app.composer_start().is_some())
         });
-    let reserved = if admitted_input {
+    let input_rows = admitted_input.then(|| {
         app.composer_rows(
             area.width.saturating_sub(input_field::GUTTER * 2),
             input_field::padded(frame.area().height),
-        ) + 3
-    } else {
-        2
-    };
-    let metadata = Rect::new(
-        area.x,
-        content_y,
-        area.width,
-        area.bottom()
-            .saturating_sub(content_y)
-            .saturating_sub(reserved),
-    );
+        )
+    });
+    let metadata = conversation::layout::talk_metadata(area, content_y, input_rows);
     let mut y = metadata.y;
     match selected {
         OpsTarget::DigestAll
@@ -420,6 +662,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         | OpsTarget::LocalTerminals
         | OpsTarget::SavedTerminal(_) => {}
         OpsTarget::Member { .. } => {
+            paint_talk_work(frame, app, metadata, &mut y);
             if let Some(row) = raw {
                 if super::conversation_checklist::Key::of(selected).is_none()
                     && let Some(link) =
@@ -430,26 +673,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                         metadata,
                         &mut y,
                         neutral(format!(" link {}", link.value), app.look()),
-                    );
-                }
-                if !app.work.stale
-                    && let OpsTarget::Member { identity_id, .. } = selected
-                    && let Some(list) = &app.work.list
-                    && let Some((item, count)) =
-                        list.bindings(&snapshot.roster).get(identity_id.as_str())
-                {
-                    let detail = item
-                        .next
-                        .as_ref()
-                        .map_or(String::new(), |text| format!(" · {text}"));
-                    line(
-                        frame,
-                        metadata,
-                        &mut y,
-                        neutral(
-                            format!(" Work · {}{detail}", super::work::chip(item, *count)),
-                            app.look(),
-                        ),
                     );
                 }
             }

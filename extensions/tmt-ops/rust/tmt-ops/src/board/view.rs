@@ -227,6 +227,7 @@ pub(in crate::board) fn render_frame(
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.work.hits.borrow_mut().clear();
+    app.talk_work.borrow_mut().clear_hits();
     app.scrolls.begin_frame();
     if app.framed() {
         super::terminal_tab::paint::frame(frame, app);
