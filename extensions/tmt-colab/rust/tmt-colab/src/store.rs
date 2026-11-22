@@ -622,56 +622,16 @@ impl Store {
         envelope: &Envelope<'_>,
         signer: Option<&str>,
     ) -> StoreResult<Accepted> {
-        validate(envelope)?;
-        let s = envelope.scope;
-        let epoch = s.epoch.to_string();
-        let seq = sequence(envelope.seq);
-        let digest = Sha256::digest(envelope.bytes).to_vec();
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        current(&tx, s)?;
-        unfrozen(&tx, s)?;
-        let head: Option<Vec<u8>> = tx
-            .query_row(
-                "SELECT hash FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=?",
-                params![s.page, epoch, s.stream, seq],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if head.as_deref() != Some(envelope.previous.as_slice()) {
-            return Err(Fault::Gap);
+        let accepted = checkpoint_in(&tx, envelope, signer)?;
+        if accepted == Accepted::Replay {
+            return Ok(accepted);
         }
-        let old: Option<(Vec<u8>,Vec<u8>)> = tx.query_row("SELECT hash,digest FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq=?",
-            params![s.page,epoch,s.stream,envelope.namespace.name(),seq], |r| Ok((r.get(0)?,r.get(1)?))).optional()?;
-        if let Some((hash, stored)) = old {
-            return if hash == envelope.hash && stored == digest {
-                Ok(Accepted::Replay)
-            } else {
-                Err(Fault::Conflict)
-            };
-        }
-        let latest: Option<String> = tx.query_row(
-            "SELECT max(seq) FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=?",
-            params![s.page,epoch,s.stream,envelope.namespace.name()], |r| r.get(0))?;
-        if latest.is_some_and(|latest| seq <= latest) {
-            return Err(Fault::StaleCheckpoint);
-        }
-        tx.execute(
-            "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,signer) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            params![
-                s.page,
-                epoch,
-                s.stream,
-                envelope.namespace.name(),
-                seq,
-                envelope.hash.as_slice(),
-                digest,
-                envelope.previous.as_slice(),
-                envelope.bytes,
-                signer
-            ],
-        )?;
+        let s = envelope.scope;
+        let epoch = s.epoch.to_string();
+        let seq = sequence(envelope.seq);
         // Sequence/hash continuity belongs to the shared stream, not a namespace.
         // Receipt rows survive pruning, so this test remains valid after compaction.
         let paired: bool = tx.query_row(
@@ -689,8 +649,9 @@ impl Store {
         if paired {
             schema::reclaim(&self.connection);
         }
-        Ok(Accepted::New)
+        Ok(accepted)
     }
+
     /// Install a verified checkpoint pair (or owner fold pair) for a stream this machine holds
     /// nothing of, so its tail can follow from the sequence after it. A fold brings the update it
     /// binds, which is stored as the receipt at that sequence and kept un-pruned like a local fold's
@@ -1317,6 +1278,64 @@ enum Equivocation {
     /// The original is refused and the stream is untouched.
     Refuse,
 }
+/// Stage a checkpoint in the caller's transaction. The caller owns pruning and capacity.
+fn checkpoint_in(
+    tx: &Connection,
+    envelope: &Envelope<'_>,
+    signer: Option<&str>,
+) -> StoreResult<Accepted> {
+    validate(envelope)?;
+    let s = envelope.scope;
+    let epoch = s.epoch.to_string();
+    let seq = sequence(envelope.seq);
+    let digest = Sha256::digest(envelope.bytes).to_vec();
+    current(tx, s)?;
+    unfrozen(tx, s)?;
+    let head: Option<Vec<u8>> = tx
+        .query_row(
+            "SELECT hash FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=?",
+            params![s.page, epoch, s.stream, seq],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if head.as_deref() != Some(envelope.previous.as_slice()) {
+        return Err(Fault::Gap);
+    }
+    let old: Option<(Vec<u8>,Vec<u8>)> = tx.query_row("SELECT hash,digest FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq=?",
+            params![s.page,epoch,s.stream,envelope.namespace.name(),seq], |r| Ok((r.get(0)?,r.get(1)?))).optional()?;
+    if let Some((hash, stored)) = old {
+        return if hash == envelope.hash && stored == digest {
+            Ok(Accepted::Replay)
+        } else {
+            Err(Fault::Conflict)
+        };
+    }
+    let latest: Option<String> = tx.query_row(
+        "SELECT max(seq) FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=?",
+        params![s.page, epoch, s.stream, envelope.namespace.name()],
+        |r| r.get(0),
+    )?;
+    if latest.is_some_and(|latest| seq <= latest) {
+        return Err(Fault::StaleCheckpoint);
+    }
+    tx.execute(
+            "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,signer) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            params![
+                s.page,
+                epoch,
+                s.stream,
+                envelope.namespace.name(),
+                seq,
+                envelope.hash.as_slice(),
+                digest,
+                envelope.previous.as_slice(),
+                envelope.bytes,
+                signer
+            ],
+        )?;
+    Ok(Accepted::New)
+}
+
 fn append_in(
     tx: &Connection,
     envelope: &Envelope<'_>,
