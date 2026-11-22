@@ -478,6 +478,10 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "work-order-all",
     "work-order-project",
     "work-order-conflict",
+    "work-view-chip",
+    "work-view-collapsed",
+    "work-view-save",
+    "work-view-manage",
 ];
 
 pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
@@ -551,6 +555,39 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
         if scene == "work-stale" {
             app.work
                 .apply(Instant::now(), Err("Colab owner list unavailable.".into()));
+        }
+        if matches!(
+            scene,
+            "work-view-chip" | "work-view-collapsed" | "work-view-save" | "work-view-manage"
+        ) {
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .preferences
+                .work_views = vec![crate::config::WorkView {
+                name: "Remote follow-up".into(),
+                project: Some("Colab".into()),
+                query: "protocol".into(),
+                filter: None,
+                detail_collapsed: scene == "work-view-collapsed",
+                default: true,
+            }];
+            app.apply_default_work_view();
+            if scene == "work-view-chip" {
+                app.work.detail_collapsed = false;
+                app.search.clear();
+            } else if scene == "work-view-save" {
+                app.work.view_draft_name = "Remote follow-up".into();
+                app.work.view_draft_default = true;
+                key(&mut app, KeyCode::Char('v'));
+                key(&mut app, KeyCode::Char('s'));
+            } else if scene == "work-view-manage" {
+                key(&mut app, KeyCode::Char('v'));
+            }
         }
     }
     if scene == "agents-work" {

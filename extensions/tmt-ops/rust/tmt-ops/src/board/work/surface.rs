@@ -1164,7 +1164,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let list_area = Rect::new(area.x, area.y + top, list_w, body_h);
 
     if !list_area.is_empty() {
-        let open_count = rows.iter().filter(|r| r.item.is_some()).count();
+        let open_count = rows
+            .iter()
+            .filter_map(|r| r.item.map(|item| item.key.as_str()))
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
         let list_title = if !app.search.as_str().trim().is_empty() {
             format!("Work · {} matches", open_count)
         } else {
