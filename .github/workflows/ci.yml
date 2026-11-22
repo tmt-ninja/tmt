@@ -400,7 +400,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/colab-chrome-results"
           PLAYWRIGHT_JSON_OUTPUT_FILE="$RUNNER_TEMP/colab-chrome-results/list.json" \
             pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/chrome.spec.ts --list --reporter=json
-          pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/chrome.spec.ts --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-chrome-results/traces"
+          pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/chrome.spec.ts --workers=1 --reporter=list,json,../../../../design/browser-ui/e2e/web-server-reporter.ts --output "$RUNNER_TEMP/colab-chrome-results/traces"
           node scripts/colab-native-spec-report.mjs "$RUNNER_TEMP/colab-chrome-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"
       - name: Record browser disk usage after failure
         if: failure()

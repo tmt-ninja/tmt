@@ -263,7 +263,7 @@ jobs:
             echo 'No component spec files selected for this shard.' >&2
             exit 1
           fi
-          pnpm --filter @tmt/colab-app --fail-if-no-match test:browser "${files[@]}" --reporter=dot,json --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
+          pnpm --filter @tmt/colab-app --fail-if-no-match test:browser "${files[@]}" --reporter=dot,json,../../../../design/browser-ui/e2e/web-server-reporter.ts --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
       - name: Upload run log and failure traces
         if: always()
         uses: actions/upload-artifact@v4
@@ -367,7 +367,7 @@ jobs:
           trap 'mv "$RUNNER_TEMP/colab-served-checkout" ../extensions/tmt-colab/typescript/app/dist' EXIT
           PLAYWRIGHT_JSON_OUTPUT_FILE="$RUNNER_TEMP/colab-served-results/list.json" \
             pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/served.spec.ts --list --reporter=json
-          pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/served.spec.ts --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-served-results/traces"
+          pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/served.spec.ts --workers=1 --reporter=list,json,../../../../design/browser-ui/e2e/web-server-reporter.ts --output "$RUNNER_TEMP/colab-served-results/traces"
           node scripts/colab-native-spec-report.mjs "$RUNNER_TEMP/colab-served-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"
 
   colab-acceptance:
