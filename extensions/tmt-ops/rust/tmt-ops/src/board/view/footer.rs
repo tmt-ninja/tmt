@@ -775,6 +775,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
         return fit_hints(
             [
                 ("/", "search"),
+                ("v", "views"),
                 ("↑↓", "move"),
                 ("Space", "detail"),
                 ("Tab", "focus"),

@@ -9,20 +9,23 @@ use ratatui::{
 };
 use tmt_cli_style::Role;
 use tmt_tui::components::{
+    Button, Dialog, DialogInput, DialogKind, DialogLook, DialogState, FieldKind, Focus,
     design_system::{
-        self as ds, CellGrid, Component, Gauge, GaugeProps, MoreDirection, MoreHint, MoreHintProps,
-        PaneRule, PaneRuleProps, SectionRule, SectionRuleProps, Sparkline, SparklineProps, Token,
+        self as ds, CellGrid, Chip, ChipRow, ChipRowProps, Component, Gauge, GaugeProps,
+        MoreDirection, MoreHint, MoreHintProps, PaneRule, PaneRuleProps, SectionRule,
+        SectionRuleProps, Sparkline, SparklineProps, Token,
     },
     design_system_ratatui, strip,
 };
 
 use crate::board::{
-    app::{App, Choice, Effect, Menu, MenuEntry},
+    app::{App, Choice, Effect, Menu, MenuEntry, Request},
     shell::OpsTab,
     view::fit,
 };
+use crate::config::WorkView;
 
-use super::{Item, List, Progress, Status};
+use super::{Item, List, Progress, Status, ViewDialog, ViewSelection};
 
 #[derive(Clone, Debug)]
 pub(in crate::board) enum Hit {
@@ -37,6 +40,8 @@ pub(in crate::board) enum Hit {
     ToggleDetail,
     Search,
     Section(usize),
+    View(ViewSelection),
+    SaveView,
 }
 
 const MAX_ROWS: usize = 5;
@@ -178,6 +183,31 @@ fn done_buckets(
     (cells.into_iter().map(Some).collect(), scale)
 }
 
+fn saved_views<'a>(app: &'a App) -> &'a [WorkView] {
+    app.workspace_snapshot()
+        .map_or(&[], |snapshot| snapshot.preferences.work_views.as_slice())
+}
+
+fn active_filter<'a>(state: &super::State, views: &'a [WorkView]) -> Option<&'a str> {
+    match &state.active_view {
+        ViewSelection::All => None,
+        ViewSelection::NeedsYou => Some("needs-you"),
+        ViewSelection::Blocked => Some("blocked"),
+        ViewSelection::Saved(name) => views
+            .iter()
+            .find(|view| view.name == *name)
+            .and_then(|view| view.filter.as_deref()),
+    }
+}
+
+fn matches_view(item: &Item, filter: Option<&str>) -> bool {
+    match filter {
+        Some("needs-you") => item.status == Status::NeedsYou || item.needs_you > 0,
+        Some("blocked") => item.status == Status::Blocked,
+        _ => true,
+    }
+}
+
 fn rows<'a>(
     list: &'a List,
     state: &super::State,
@@ -186,6 +216,7 @@ fn rows<'a>(
     width: usize,
     roster: Option<&crate::board::workspace::OpsRoster>,
     query: &str,
+    view_filter: Option<&str>,
 ) -> Vec<Row<'a>> {
     let filter = state.project.as_deref();
     let trimmed = query.trim();
@@ -209,9 +240,11 @@ fn rows<'a>(
         return rows;
     }
     let visible = || {
-        list.items
-            .iter()
-            .filter(|item| in_project(item, filter) && item.matches_query(trimmed, roster))
+        list.items.iter().filter(|item| {
+            in_project(item, filter)
+                && matches_view(item, view_filter)
+                && item.matches_query(trimmed, roster)
+        })
     };
     let selected_project = filter.map(Some);
     let mut groups = std::collections::BTreeMap::<Option<&str>, Vec<&Item>>::new();
@@ -964,7 +997,151 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         roster,
     );
 
-    let rows = rows(list, state, now, zone, width, roster, app.search.as_str());
+    let views = saved_views(app);
+    if area.height.saturating_sub(top) >= 8 {
+        let all_count = list
+            .items
+            .iter()
+            .filter(|item| {
+                item.status != Status::Done && in_project(item, state.project.as_deref())
+            })
+            .count();
+        let needs_count = list
+            .items
+            .iter()
+            .filter(|item| {
+                item.status != Status::Done
+                    && in_project(item, state.project.as_deref())
+                    && (item.status == Status::NeedsYou || item.needs_you > 0)
+            })
+            .count();
+        let blocked_count = list
+            .items
+            .iter()
+            .filter(|item| {
+                item.status != Status::Done
+                    && in_project(item, state.project.as_deref())
+                    && item.status == Status::Blocked
+            })
+            .count();
+        let mut chips = vec![
+            Chip {
+                id: 0,
+                label: format!("All ({all_count})"),
+                gap: " ".into(),
+                enabled: true,
+            },
+            Chip {
+                id: 1,
+                label: format!("Needs you ({needs_count})"),
+                gap: " ".into(),
+                enabled: true,
+            },
+        ];
+        let mut selected_chip = match &state.active_view {
+            ViewSelection::All => Some(0),
+            ViewSelection::NeedsYou => Some(1),
+            _ => None,
+        };
+        for (idx, view) in views.iter().enumerate() {
+            let chip_idx = chips.len();
+            if matches!(&state.active_view, ViewSelection::Saved(name) if name == &view.name) {
+                selected_chip = Some(chip_idx);
+            }
+            let label = if view.default {
+                format!("{} *", view.name)
+            } else {
+                view.name.clone()
+            };
+            chips.push(Chip {
+                id: (2 + idx) as u64,
+                label,
+                gap: " ".into(),
+                enabled: true,
+            });
+        }
+        let blocked_idx = chips.len();
+        if state.active_view == ViewSelection::Blocked {
+            selected_chip = Some(blocked_idx);
+        }
+        let blocked_id = (2 + views.len()) as u64;
+        chips.push(Chip {
+            id: blocked_id,
+            label: format!("Blocked ({blocked_count})"),
+            gap: " ".into(),
+            enabled: true,
+        });
+        let save_id = blocked_id + 1;
+        chips.push(Chip {
+            id: save_id,
+            label: "+ Save".into(),
+            gap: String::new(),
+            enabled: true,
+        });
+        let chip_area = Rect::new(area.x, area.y + top, area.width, 1);
+        let mut grid = CellGrid::new(ds::Size {
+            width: chip_area.width,
+            height: 1,
+        });
+        let chip_hits = ChipRow::render(
+            &ChipRowProps {
+                label: " View  ".into(),
+                chips,
+                selected: selected_chip,
+                cursor: None,
+                active: false,
+            },
+            ds::Rect {
+                x: 0,
+                y: 0,
+                width: chip_area.width,
+                height: 1,
+            },
+            &mut grid,
+        );
+        design_system_ratatui::paint(
+            &grid,
+            chip_area,
+            frame.buffer_mut(),
+            &app.look().theme,
+            app.look().depth,
+        );
+        for (rect, id) in chip_hits {
+            let mapped = Rect::new(
+                chip_area.x + rect.x,
+                chip_area.y + rect.y,
+                rect.width,
+                rect.height,
+            );
+            let hit = if id == 0 {
+                Hit::View(ViewSelection::All)
+            } else if id == 1 {
+                Hit::View(ViewSelection::NeedsYou)
+            } else if id == blocked_id {
+                Hit::View(ViewSelection::Blocked)
+            } else if id == save_id {
+                Hit::SaveView
+            } else if let Some(view) = views.get((id - 2) as usize) {
+                Hit::View(ViewSelection::Saved(view.name.clone()))
+            } else {
+                continue;
+            };
+            hits.push((mapped, hit));
+        }
+        top += 1;
+    }
+
+    let view_filter = active_filter(state, views);
+    let rows = rows(
+        list,
+        state,
+        now,
+        zone,
+        width,
+        roster,
+        app.search.as_str(),
+        view_filter,
+    );
     let selected_row = state.selected.as_ref().and_then(|key| {
         rows.iter()
             .position(|row| row.selection.as_ref() == Some(key))
@@ -1264,9 +1441,17 @@ impl App {
                 | KeyCode::PageUp
                 | KeyCode::PageDown
                 | KeyCode::Enter
-                | KeyCode::Char(' ' | 'j' | 'k' | 'o' | 't' | 'p' | 'c' | 'd' | 'm' | '/')
+                | KeyCode::Char(' ' | 'j' | 'k' | 'o' | 't' | 'p' | 'c' | 'd' | 'm' | 'v' | '/')
         ) {
             return None;
+        }
+        if key.code == KeyCode::Char('v') {
+            self.work.view_dialog = Some(ViewDialog::Manage {
+                state: DialogState::new(&[], &[Button::secondary("Close")]),
+                cursor: 0,
+                hits: Default::default(),
+            });
+            return Some(Effect::None);
         }
         if key.code == KeyCode::Char('/') {
             self.work.inspector_focused = false;
@@ -1293,17 +1478,19 @@ impl App {
             .as_ref()
             .and_then(|view| view.home.as_ref())
             .map(|home| &home.workspace.roster);
+        let views = saved_views(self).to_vec();
         let query = self.search.as_str().to_owned();
         let state = &mut self.work;
         let Some(list) = &state.list else {
             return matches!(
                 key.code,
-                KeyCode::Char('p' | 'c' | 'd' | 'm' | 'o' | 't') | KeyCode::Enter
+                KeyCode::Char('p' | 'c' | 'd' | 'm' | 'o' | 't' | 'v') | KeyCode::Enter
             )
             .then_some(Effect::None);
         };
         let utc = jiff::tz::TimeZone::UTC;
         let zone = self.local_zone.as_ref().unwrap_or(&utc);
+        let view_filter = active_filter(state, &views);
         let rows = rows(
             list,
             state,
@@ -1312,6 +1499,7 @@ impl App {
             0,
             roster,
             &query,
+            view_filter,
         );
         let items: Vec<_> = rows.iter().filter(|row| row.selection.is_some()).collect();
         let index = state
@@ -1431,6 +1619,20 @@ impl App {
             self.searching = true;
             return Effect::None;
         }
+        if let Hit::SaveView = hit {
+            self.work.view_dialog = Some(ViewDialog::Save {
+                state: DialogState::new(
+                    &[FieldKind::Text, FieldKind::Choice],
+                    &[Button::primary("Save"), Button::secondary("Cancel")],
+                ),
+                hits: Default::default(),
+            });
+            return Effect::None;
+        }
+        if let Hit::View(selection) = hit {
+            self.apply_work_view_selection(selection);
+            return Effect::None;
+        }
         if let Hit::Talk(key) = hit {
             let target = self
                 .work
@@ -1493,7 +1695,9 @@ impl App {
                 state.inspector_focused = true;
                 state.inspector_cursor = idx;
             }
-            Hit::Move(_) | Hit::Search | Hit::Talk(_) => unreachable!("handled above"),
+            Hit::Move(_) | Hit::Search | Hit::Talk(_) | Hit::View(_) | Hit::SaveView => {
+                unreachable!("handled above")
+            }
         }
         Effect::None
     }
@@ -1530,6 +1734,400 @@ impl App {
         } else {
             self.say("Project order changed · choose the move again.")
         }
+    }
+
+    pub(in crate::board) fn apply_default_work_view(&mut self) {
+        if self.work.default_view_applied {
+            return;
+        }
+        let Some(default_view) = saved_views(self).iter().find(|view| view.default).cloned() else {
+            return;
+        };
+        self.work.default_view_applied = true;
+        self.work.project = default_view.project.clone();
+        self.search.clear();
+        if !default_view.query.is_empty() {
+            self.search.insert(&default_view.query, 4096);
+        }
+        self.searching = false;
+        self.work.detail_collapsed = default_view.detail_collapsed;
+        self.work.active_view = ViewSelection::Saved(default_view.name);
+        self.work.selected = None;
+        self.work.inspector_cursor = 0;
+    }
+
+    pub(in crate::board) fn apply_work_view_selection(&mut self, selection: ViewSelection) {
+        if let ViewSelection::Saved(name) = &selection
+            && let Some(view) = saved_views(self)
+                .iter()
+                .find(|view| &view.name == name)
+                .cloned()
+        {
+            self.work.project = view.project;
+            self.search.clear();
+            if !view.query.is_empty() {
+                self.search.insert(&view.query, 4096);
+            }
+            self.searching = false;
+            self.work.detail_collapsed = view.detail_collapsed;
+        }
+        self.work.active_view = selection;
+        self.work.selected = None;
+        self.work.inspector_cursor = 0;
+    }
+
+    fn save_current_work_view(&mut self) -> Effect {
+        let name = self.work.view_draft_name.trim().to_owned();
+        if name.is_empty() || name.len() > 48 {
+            return self.say("Saved view name must be 1–48 bytes.");
+        }
+        let expected = saved_views(self).to_vec();
+        let mut next = expected.clone();
+        if self.work.view_draft_default {
+            for view in &mut next {
+                view.default = false;
+            }
+        }
+        let filter = match &self.work.active_view {
+            ViewSelection::NeedsYou => Some("needs-you".to_owned()),
+            ViewSelection::Blocked => Some("blocked".to_owned()),
+            ViewSelection::Saved(existing) => expected
+                .iter()
+                .find(|v| v.name == *existing)
+                .and_then(|v| v.filter.clone()),
+            ViewSelection::All => None,
+        };
+        let entry = WorkView {
+            name: name.clone(),
+            project: self.work.project.clone(),
+            query: self.search.as_str().trim().to_owned(),
+            filter,
+            detail_collapsed: self.work.detail_collapsed,
+            default: self.work.view_draft_default,
+        };
+        if let Some(pos) = next.iter().position(|v| v.name.eq_ignore_ascii_case(&name)) {
+            next[pos] = entry;
+        } else if next.len() >= crate::config::MAX_WORK_VIEWS {
+            return self.say("At most 16 saved views are allowed.");
+        } else {
+            next.push(entry);
+        }
+        self.work.view_dialog = None;
+        self.work.active_view = ViewSelection::Saved(name.clone());
+        Effect::Act(Request::WorkViews {
+            expected,
+            next,
+            saved: format!("Saved view \"{name}\"."),
+        })
+    }
+
+    pub(in crate::board) fn render_work_view_dialog(&self, frame: &mut Frame, body: Rect) {
+        let Some(dialog_state) = &self.work.view_dialog else {
+            return;
+        };
+        let look = self.look();
+        let d_look = DialogLook {
+            theme: &look.theme,
+            depth: look.depth,
+            active: true,
+            hovered: None,
+        };
+        let views = saved_views(self);
+        match dialog_state {
+            ViewDialog::Save { state, hits } => {
+                let buttons = [Button::primary("Save"), Button::secondary("Cancel")];
+                let dialog = Dialog {
+                    title: "Save Work view".into(),
+                    kind: DialogKind::Form,
+                    placement: tmt_tui::components::Placement::Center,
+                    buttons: buttons.to_vec(),
+                    hints: "Enter save · Esc cancel".into(),
+                };
+                let areas = dialog.areas(body, [54, 7], false);
+                let mut painted = dialog.paint(areas, state, frame.buffer_mut(), d_look);
+                let c = areas.content;
+                let name_area = Rect::new(c.x, c.y, c.width, 1);
+                let def_area = Rect::new(c.x, c.y + 1, c.width, 1);
+                let summary_area = Rect::new(c.x, c.y + 3, c.width, 1);
+                let focused_name = state.focus == Focus::Field(0);
+                let focused_def = state.focus == Focus::Field(1);
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    name_area,
+                    Line::styled(
+                        fit(
+                            &format!(
+                                " Name: {}{}",
+                                self.work.view_draft_name,
+                                if focused_name { "▏" } else { "" }
+                            ),
+                            usize::from(c.width),
+                        ),
+                        look.selected(focused_name, look.role(Role::Text)),
+                    ),
+                );
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    def_area,
+                    Line::styled(
+                        fit(
+                            &format!(
+                                " Default on open: {}",
+                                if self.work.view_draft_default {
+                                    "yes"
+                                } else {
+                                    "no"
+                                }
+                            ),
+                            usize::from(c.width),
+                        ),
+                        look.selected(focused_def, look.role(Role::Text)),
+                    ),
+                );
+                let query = self.search.as_str().trim();
+                let proj = self.work.project.as_deref().unwrap_or("All projects");
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    summary_area,
+                    Line::styled(
+                        fit(
+                            &format!(
+                                " Scope: {proj} · query: {}",
+                                if query.is_empty() { "—" } else { query }
+                            ),
+                            usize::from(c.width),
+                        ),
+                        look.role(Role::Muted),
+                    ),
+                );
+                painted.fields = vec![name_area, def_area];
+                *hits.borrow_mut() = painted;
+            }
+            ViewDialog::Manage {
+                state,
+                cursor,
+                hits,
+            } => {
+                let buttons = [Button::secondary("Close")];
+                let dialog = Dialog {
+                    title: "Saved Work views".into(),
+                    kind: DialogKind::List,
+                    placement: tmt_tui::components::Placement::Center,
+                    buttons: buttons.to_vec(),
+                    hints: "⏎ apply · d default · x delete · s save · Esc close".into(),
+                };
+                let rows_h = views.len().clamp(3, 12) as u16 + 2;
+                let areas = dialog.areas(body, [62, rows_h], false);
+                let painted = dialog.paint(areas, state, frame.buffer_mut(), d_look);
+                let c = areas.content;
+                if views.is_empty() {
+                    strip::paint_left(
+                        frame.buffer_mut(),
+                        Rect::new(c.x, c.y, c.width, 1),
+                        Line::styled(
+                            " No saved views yet. Press s to save current.",
+                            look.role(Role::Muted),
+                        ),
+                    );
+                } else {
+                    for (idx, view) in views.iter().enumerate() {
+                        if idx as u16 >= c.height {
+                            break;
+                        }
+                        let active = *cursor == idx;
+                        let mark = if view.default { "* " } else { "  " };
+                        let proj = view.project.as_deref().unwrap_or("All");
+                        let q = if view.query.is_empty() {
+                            "—"
+                        } else {
+                            &view.query
+                        };
+                        let line = format!(
+                            "{} {}{}  ({proj} · {q})",
+                            if active { "▸" } else { " " },
+                            mark,
+                            view.name
+                        );
+                        strip::paint_left(
+                            frame.buffer_mut(),
+                            Rect::new(c.x, c.y + idx as u16, c.width, 1),
+                            Line::styled(
+                                fit(&line, usize::from(c.width)),
+                                look.selected(active, look.role(Role::Text)),
+                            ),
+                        );
+                    }
+                }
+                *hits.borrow_mut() = painted;
+            }
+        }
+    }
+
+    pub(in crate::board) fn work_view_dialog_key(&mut self, key: KeyEvent) -> Option<Effect> {
+        let mut dialog = self.work.view_dialog.take()?;
+        let views = saved_views(self).to_vec();
+        let effect = match &mut dialog {
+            ViewDialog::Save { state, .. } => {
+                let buttons = [Button::primary("Save"), Button::secondary("Cancel")];
+                match state.key(
+                    DialogKind::Form,
+                    &key,
+                    &[FieldKind::Text, FieldKind::Choice],
+                    &buttons,
+                ) {
+                    DialogInput::Field(0, ev) => {
+                        match ev.code {
+                            KeyCode::Backspace => {
+                                self.work.view_draft_name.pop();
+                            }
+                            KeyCode::Char(ch)
+                                if !ch.is_control() && self.work.view_draft_name.len() < 48 =>
+                            {
+                                self.work.view_draft_name.push(ch);
+                            }
+                            _ => {}
+                        }
+                        self.work.view_dialog = Some(dialog);
+                        Effect::None
+                    }
+                    DialogInput::Field(1, ev) => {
+                        if matches!(ev.code, KeyCode::Left | KeyCode::Right | KeyCode::Char(' ')) {
+                            self.work.view_draft_default = !self.work.view_draft_default;
+                        }
+                        self.work.view_dialog = Some(dialog);
+                        Effect::None
+                    }
+                    DialogInput::Choose(0) => self.save_current_work_view(),
+                    DialogInput::Choose(1) | DialogInput::Cancel => Effect::None,
+                    DialogInput::Choose(_)
+                    | DialogInput::Moved
+                    | DialogInput::Ignored
+                    | DialogInput::Content(_)
+                    | DialogInput::Field(_, _) => {
+                        self.work.view_dialog = Some(dialog);
+                        Effect::None
+                    }
+                }
+            }
+            ViewDialog::Manage { state, cursor, .. } => {
+                let buttons = [Button::secondary("Close")];
+                match state.key(DialogKind::List, &key, &[], &buttons) {
+                    DialogInput::Content(ev) => match ev.code {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            *cursor = cursor.saturating_sub(1);
+                            self.work.view_dialog = Some(dialog);
+                            Effect::None
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if !views.is_empty() {
+                                *cursor = (*cursor + 1).min(views.len() - 1);
+                            }
+                            self.work.view_dialog = Some(dialog);
+                            Effect::None
+                        }
+                        KeyCode::Enter => {
+                            if let Some(view) = views.get(*cursor) {
+                                self.apply_work_view_selection(ViewSelection::Saved(
+                                    view.name.clone(),
+                                ));
+                            }
+                            Effect::None
+                        }
+                        KeyCode::Char('s') => {
+                            self.work.view_dialog = Some(ViewDialog::Save {
+                                state: DialogState::new(
+                                    &[FieldKind::Text, FieldKind::Choice],
+                                    &[Button::primary("Save"), Button::secondary("Cancel")],
+                                ),
+                                hits: Default::default(),
+                            });
+                            Effect::None
+                        }
+                        KeyCode::Char('d') => {
+                            if let Some(target) = views.get(*cursor) {
+                                let name = target.name.clone();
+                                let mut next = views.clone();
+                                for v in &mut next {
+                                    v.default = v.name == name;
+                                }
+                                self.work.view_dialog = Some(dialog);
+                                Effect::Act(Request::WorkViews {
+                                    expected: views,
+                                    next,
+                                    saved: format!("Default view set to \"{name}\"."),
+                                })
+                            } else {
+                                self.work.view_dialog = Some(dialog);
+                                Effect::None
+                            }
+                        }
+                        KeyCode::Char('x') => {
+                            if *cursor < views.len() {
+                                let mut next = views.clone();
+                                let removed = next.remove(*cursor);
+                                *cursor = (*cursor).min(next.len().saturating_sub(1));
+                                if matches!(&self.work.active_view, ViewSelection::Saved(n) if n == &removed.name)
+                                {
+                                    self.work.active_view = ViewSelection::All;
+                                }
+                                self.work.view_dialog = Some(dialog);
+                                Effect::Act(Request::WorkViews {
+                                    expected: views,
+                                    next,
+                                    saved: format!("Deleted view \"{}\".", removed.name),
+                                })
+                            } else {
+                                self.work.view_dialog = Some(dialog);
+                                Effect::None
+                            }
+                        }
+                        _ => {
+                            self.work.view_dialog = Some(dialog);
+                            Effect::None
+                        }
+                    },
+                    DialogInput::Choose(0) | DialogInput::Cancel => Effect::None,
+                    DialogInput::Moved
+                    | DialogInput::Ignored
+                    | DialogInput::Choose(_)
+                    | DialogInput::Field(_, _) => {
+                        self.work.view_dialog = Some(dialog);
+                        Effect::None
+                    }
+                }
+            }
+        };
+        Some(effect)
+    }
+
+    pub(in crate::board) fn work_view_dialog_mouse(&mut self, event: MouseEvent) -> Option<Effect> {
+        let mut dialog = self.work.view_dialog.take()?;
+        let effect = match &mut dialog {
+            ViewDialog::Save { state, hits } => {
+                let h = hits.borrow().clone();
+                let buttons = [Button::primary("Save"), Button::secondary("Cancel")];
+                match state.mouse(&event, &h, &buttons) {
+                    DialogInput::Choose(0) => self.save_current_work_view(),
+                    DialogInput::Choose(1) | DialogInput::Cancel => Effect::None,
+                    _ => {
+                        self.work.view_dialog = Some(dialog);
+                        Effect::None
+                    }
+                }
+            }
+            ViewDialog::Manage { state, hits, .. } => {
+                let h = hits.borrow().clone();
+                let buttons = [Button::secondary("Close")];
+                match state.mouse(&event, &h, &buttons) {
+                    DialogInput::Choose(0) | DialogInput::Cancel => Effect::None,
+                    _ => {
+                        self.work.view_dialog = Some(dialog);
+                        Effect::None
+                    }
+                }
+            }
+        };
+        Some(effect)
     }
 }
 

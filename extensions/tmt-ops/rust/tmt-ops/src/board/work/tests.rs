@@ -756,6 +756,140 @@ fn colab_work_captures_align_headings_and_show_bound_chips() {
 }
 
 #[test]
+fn colab_work_saved_views_chip_row_dialogs_and_default_reopen() {
+    let now: u64 = 1_800_000_000_000;
+    let document = owner_list(now);
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+
+    let draw = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(120)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+    };
+
+    // Built-in View chips render and filter by Needs you.
+    let lines = draw(&app);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("All (") && l.contains("Needs you (") && l.contains("+ Save"))
+    );
+    app.apply_work_view_selection(ViewSelection::NeedsYou);
+    let needs_lines = draw(&app);
+    assert!(needs_lines.iter().any(|l| l.contains("COLAB-140")));
+    assert!(!needs_lines.iter().any(|l| l.contains("CORE-88")));
+
+    // `v` opens the Saved Work views List dialog; `s` switches to Save Form dialog; Esc preserves draft.
+    key(&mut app, KeyCode::Char('v'));
+    assert!(matches!(
+        app.work.view_dialog,
+        Some(ViewDialog::Manage { .. })
+    ));
+    key(&mut app, KeyCode::Char('s'));
+    assert!(matches!(
+        app.work.view_dialog,
+        Some(ViewDialog::Save { .. })
+    ));
+    for ch in "Colab follow-up".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    key(&mut app, KeyCode::Esc);
+    assert!(app.work.view_dialog.is_none());
+    assert_eq!(app.work.view_draft_name, "Colab follow-up");
+
+    // Reopening Save dialog retains draft and Enter submits Request::WorkViews.
+    key(&mut app, KeyCode::Char('v'));
+    key(&mut app, KeyCode::Char('s'));
+    app.work.view_draft_default = true;
+    let Effect::Act(crate::board::app::Request::WorkViews { next, .. }) =
+        key(&mut app, KeyCode::Enter)
+    else {
+        panic!("submitting Save view dialog must emit Request::WorkViews");
+    };
+    assert_eq!(next.len(), 1);
+    assert_eq!(next[0].name, "Colab follow-up");
+    assert!(next[0].default);
+
+    // Default view applies on startup/reopen against a fresh snapshot.
+    let mut reopened = board();
+    reopened.shell.tab = OpsTab::Work;
+    reopened
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .work_views = vec![crate::config::WorkView {
+        name: "Colab follow-up".into(),
+        project: Some("Colab".into()),
+        query: "protocol".into(),
+        filter: None,
+        detail_collapsed: true,
+        default: true,
+    }];
+    reopened
+        .work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    reopened.apply_default_work_view();
+    assert_eq!(reopened.work.project.as_deref(), Some("Colab"));
+    assert_eq!(reopened.search.as_str(), "protocol");
+    assert!(reopened.work.detail_collapsed);
+    assert_eq!(
+        reopened.work.active_view,
+        ViewSelection::Saved("Colab follow-up".into())
+    );
+    let reopened_lines = draw(&reopened);
+    assert!(
+        reopened_lines
+            .iter()
+            .any(|l| l.contains("Colab follow-up *"))
+    );
+}
+
+#[test]
+fn the_work_views_dialog_follows_the_close_rule() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    key(&mut app, KeyCode::Char('v'));
+    key(&mut app, KeyCode::Char('s'));
+    key(&mut app, KeyCode::Char('X'));
+    let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    assert!(app.work.view_dialog.is_some());
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        },
+        Instant::now(),
+    );
+    assert!(
+        app.work.view_dialog.is_none(),
+        "outside click closes dialog"
+    );
+    assert_eq!(app.work.view_draft_name, "X", "draft survives reopen");
+}
+
+#[test]
 fn colab_work_decodes_sections_and_honest_unknown_progress() {
     let mut document = owner_list(1_800_000_000_000);
     document["pages"][0]["summary"]

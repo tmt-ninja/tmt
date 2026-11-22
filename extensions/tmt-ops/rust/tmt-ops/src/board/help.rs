@@ -352,6 +352,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
             "Colab work",
             &[
                 ("/", "search work items"),
+                ("v", "manage saved work views"),
                 ("↑↓", "select a work item or chapter"),
                 ("Space", "collapse or expand the detail inspector"),
                 ("Tab", "focus or leave the detail inspector"),

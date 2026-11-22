@@ -12,6 +12,7 @@ use std::{
 };
 
 use ratatui::layout::Rect;
+use tmt_tui::components::{DialogHits, DialogState};
 
 pub(super) use model::{Item, List, Progress, Status};
 pub(super) use order::{Job as OrderJob, Move as OrderMove, Reply as OrderReply, run as run_order};
@@ -19,6 +20,28 @@ pub(super) use surface::render;
 
 const WITHIN: Duration = Duration::from_secs(3);
 const REFRESH_EVERY: Duration = Duration::from_secs(60);
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(in crate::board) enum ViewSelection {
+    #[default]
+    All,
+    NeedsYou,
+    Blocked,
+    Saved(String),
+}
+
+#[derive(Debug)]
+pub(in crate::board) enum ViewDialog {
+    Save {
+        state: DialogState,
+        hits: RefCell<DialogHits>,
+    },
+    Manage {
+        state: DialogState,
+        cursor: usize,
+        hits: RefCell<DialogHits>,
+    },
+}
 
 #[derive(Debug, Default)]
 pub(in crate::board) struct State {
@@ -37,6 +60,11 @@ pub(in crate::board) struct State {
     pub detail_collapsed: bool,
     pub inspector_focused: bool,
     pub inspector_cursor: usize,
+    pub active_view: ViewSelection,
+    pub default_view_applied: bool,
+    pub view_dialog: Option<ViewDialog>,
+    pub view_draft_name: String,
+    pub view_draft_default: bool,
     pub expanded: std::collections::BTreeSet<Option<String>>,
     pub hits: RefCell<Vec<(Rect, surface::Hit)>>,
     order_pending: bool,
