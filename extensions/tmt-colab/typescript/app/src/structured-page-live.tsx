@@ -157,6 +157,8 @@ export function LiveStructuredPage({
     columnAction,
     pasteUrl,
     pasteStructure,
+    textFits,
+    onFull,
     check,
     authoring,
     author,
@@ -193,7 +195,16 @@ export function LiveStructuredPage({
     mention,
     pickMention,
     hoverMention,
-  } = useBlockEditing(records, send, seq, files, agents, mentionPages, recovery);
+  } = useBlockEditing(
+    records,
+    send,
+    seq,
+    files,
+    agents,
+    mentionPages,
+    recovery,
+    binding?.blocksFit?.bind(binding),
+  );
   useBlocker({
     disabled: !write,
     enableBeforeUnload: () => recovery?.unsafe() ?? false,
@@ -326,6 +337,8 @@ export function LiveStructuredPage({
       onRowAction={rowAction}
       onColumnAction={columnAction}
       onPasteUrl={pasteUrl}
+      textFits={textFits}
+      onFull={onFull}
       onPasteStructure={pasteStructure}
       onChecked={check}
       authoring={authoring}

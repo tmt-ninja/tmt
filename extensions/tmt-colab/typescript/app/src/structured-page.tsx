@@ -74,6 +74,7 @@ import { StructuredImages } from './block-images.js';
 import type { DocumentImageInput } from './document-images.js';
 import type { Theme } from './theme.js';
 import { Button, Input } from '@tmt/browser-ui/ui';
+import { BLOCK_CELL_BYTES } from './blocks.js';
 import { BlockTextEditor, type TextRange } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 import { text as strings } from './strings.js';
@@ -194,6 +195,8 @@ export interface StructuredPageProps {
   /** The person focused a table's cell, by its row and column. */
   onFocusCell?(table: string, row: string, column: string): void;
   /** A key in the focused cell (Tab, Shift+Tab, Esc); true when the page took it. */
+  textFits?(value: string): boolean;
+  onFull?(cell?: boolean): void;
   onCellKey?(event: KeyboardEvent, text: string): boolean;
   /** An empty table's Add a row. */
   onAddRow?(table: string): void;
@@ -459,6 +462,7 @@ export function StructuredPage(props: StructuredPageProps) {
           <EmptyDocument
             readonly={props.readonly}
             onInsert={props.onInsertFirst}
+            onFull={props.onFull}
             onOpenPicker={props.onOpenFirstPicker}
             menu={props.menu?.id === 'empty' ? props.menu : undefined}
             onPick={props.onPick}
@@ -508,6 +512,7 @@ function EmptyDocument({
   readonly,
   onInsert,
   onOpenPicker,
+  onFull,
   menu,
   onPick,
   onHover,
@@ -517,6 +522,7 @@ function EmptyDocument({
   readonly?: boolean;
   onInsert?(text: string): Promise<boolean>;
   onOpenPicker?(): void;
+  onFull?(): void;
   menu?: InsertMenu;
   onPick?(entry: string): void;
   onHover?(entry: string): void;
@@ -550,6 +556,7 @@ function EmptyDocument({
       </div>
       {editing ? (
         <BlockTextEditor
+          onFull={onFull}
           label="Empty paragraph"
           text={draft}
           caret={[...draft].length}
@@ -1350,6 +1357,8 @@ function Table({
   onTyped,
   readonly,
   onFocusCell,
+  textFits,
+  onFull,
   onCellKey,
   onAddRow,
   onRowAction,
@@ -1503,6 +1512,9 @@ function Table({
             return editing?.id === row.id && editing.column === column.id ? (
               <BlockTextEditor
                 key={column.id}
+                textFits={textFits}
+                maxBytes={BLOCK_CELL_BYTES}
+                onFull={() => onFull?.(true)}
                 label={strings.blockTable.cell(column.name, index + 1)}
                 text={editing.text}
                 caret={editing.caret}
@@ -1571,6 +1583,8 @@ function Content({
         : undefined;
   const text = typing ? (
     <BlockTextEditor
+      textFits={rest.textFits}
+      onFull={() => rest.onFull?.()}
       label={blockLabel(block)}
       text={editing.text}
       // Marks drawn for the text the page holds; for other text they wait until it does.

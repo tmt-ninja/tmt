@@ -13,49 +13,49 @@
       "path": "assets/colab-runtime-base-f0e20756cbafac7e.js",
       "sha256": "f0e20756cbafac7eab097b2208b7244f7c1ddba6d01ab6d00e7a9f7b1ddd1586",
       "length": 303735,
-      "gzip": 81228
+      "gzip": 80903
     },
     {
       "name": "react",
       "path": "assets/colab-runtime-react-d120dc5d6a705312.js",
       "sha256": "d120dc5d6a705312dca418174285fe608a78a0dcddaaaff8b2aa1740b6e51336",
       "length": 227278,
-      "gzip": 71619
+      "gzip": 71436
     },
     {
       "name": "ui",
       "path": "assets/colab-runtime-ui-b8a98386949b885c.js",
       "sha256": "b8a98386949b885cfec3d25511c6329e70098a159245e70a093c45768b525877",
       "length": 253839,
-      "gzip": 72908
+      "gzip": 72863
     },
     {
       "name": "browser",
       "path": "assets/colab-runtime-browser-a88d958cb2bbdce4.js",
       "sha256": "a88d958cb2bbdce4f36ffed5f0798054eae31a6f77c4d335c13409aa9b2aa4e4",
       "length": 115727,
-      "gzip": 34770
+      "gzip": 34673
     },
     {
       "name": "blocks",
       "path": "assets/colab-runtime-blocks-c1d7bfd9c1aaa9aa.js",
       "sha256": "c1d7bfd9c1aaa9aa66d66552966a328399b12d42dd5b80e22f6ea429ddd4165d",
       "length": 57074,
-      "gzip": 16200
+      "gzip": 16197
     },
     {
       "name": "rich-input",
       "path": "assets/colab-runtime-rich-input-b3ed0324a17d1ed5.js",
       "sha256": "b3ed0324a17d1ed5af60d50dde86ea178210c57f0091bb091372e28e1586092f",
       "length": 225951,
-      "gzip": 71174
+      "gzip": 71213
     },
     {
       "name": "docs",
       "path": "assets/colab-runtime-docs-195916e1c7fbe53f.js",
       "sha256": "195916e1c7fbe53fa64888623264cfcdff247856d4cf233d02c953e5657fc786",
       "length": 238810,
-      "gzip": 65054
+      "gzip": 64993
     },
     {
       "name": "terminal-frame",
@@ -63,11 +63,11 @@
       "path": "assets/colab-runtime-terminal-7636591c14f80df0.wasm",
       "sha256": "7636591c14f80df0c01c5d872184af11b0198b29baf42ca2b0ba12e3873d3dec",
       "length": 485673,
-      "gzip": 144146,
+      "gzip": 143077,
       "glue": {
         "sha256": "51bdfaaed1b6a47565545e9ff2ef2897ee21acfa0e08c8bf165262aeb9be7044",
         "length": 9454,
-        "gzip": 2554
+        "gzip": 2550
       }
     }
   ],

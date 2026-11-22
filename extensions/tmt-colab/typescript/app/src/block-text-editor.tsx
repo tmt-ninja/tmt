@@ -20,7 +20,8 @@ import {
 import { textMerge } from '@tmt/colab-client';
 import { linkHref } from '@tmt/browser-ui/blocks';
 import { caretThrough } from './block-text-sync.js';
-import type { Mark } from './blocks.js';
+import { BLOCK_TEXT_BYTES, type Mark } from './blocks.js';
+import { byteLength } from './closed.js';
 
 /** The editor's update tag for text the page sent, so the change is not reported back as typing. */
 const PAGE_TAG = 'tmt-block-page-text';
@@ -203,6 +204,9 @@ export interface BlockTextEditorProps {
    * when the editor opens on `text`. */
   from?: string;
   /** The person typed: the editor's text and caret now. */
+  textFits?(value: string): boolean;
+  maxBytes?: number;
+  onFull?(): void;
   onTyped(text: string, caret: number): void;
   /** Keys the block handles (Enter, Backspace at the start, Escape, the format keys); return true
    * to take one. `range` is the selection as scalar offsets, empty for a caret. */
@@ -238,6 +242,9 @@ function Editor({
   version,
   from,
   onTyped,
+  textFits,
+  maxBytes = BLOCK_TEXT_BYTES,
+  onFull,
   onKey,
   onPasteUrl,
   onPasteStructure,
@@ -245,6 +252,7 @@ function Editor({
   placeholder,
 }: BlockTextEditorProps) {
   const [editor] = useLexicalComposerContext();
+  const refused = useRef(false);
   const typed = useRef(onTyped);
   typed.current = onTyped;
   /** The text the last redraw from the page set. */
@@ -255,18 +263,36 @@ function Editor({
   const shownTexts = useRef<{ editor?: LexicalEditor; texts: Set<string> }>({ texts: new Set() });
   useEffect(
     () =>
-      editor.registerUpdateListener(({ tags, dirtyElements, dirtyLeaves, editorState }) => {
-        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
-        editorState.read(() => {
-          const now = $text();
-          if (shownTexts.current.editor === editor) shownTexts.current.texts.add(now);
-          // Lexical can commit a keystroke in the same update as a redraw from the page: the tag
-          // alone would hide that typing, so only the exact text the page set is not reported.
-          if (tags.has(PAGE_TAG) && now === pageText.current) return;
-          typed.current(now, $caret());
-        });
-      }),
-    [editor],
+      editor.registerUpdateListener(
+        ({ tags, dirtyElements, dirtyLeaves, editorState, prevEditorState }) => {
+          if (
+            tags.has('tmt-block-refused-input') ||
+            (dirtyElements.size === 0 && dirtyLeaves.size === 0)
+          )
+            return;
+          const value = editorState.read($text);
+          if (tags.has(PAGE_TAG) && value === pageText.current) return;
+          if (
+            value !== prevEditorState.read($text) &&
+            (byteLength(value) > maxBytes || textFits?.(value) === false)
+          ) {
+            editor.setEditorState(prevEditorState, { tag: 'tmt-block-refused-input' });
+            if (!refused.current) onFull?.();
+            refused.current = true;
+            return;
+          }
+          if (value !== prevEditorState.read($text)) refused.current = false;
+          editorState.read(() => {
+            const now = $text();
+            if (shownTexts.current.editor === editor) shownTexts.current.texts.add(now);
+            // Lexical can commit a keystroke in the same update as a redraw from the page: the tag
+            // alone would hide that typing, so only the exact text the page set is not reported.
+            if (tags.has(PAGE_TAG) && now === pageText.current) return;
+            typed.current(now, $caret());
+          });
+        },
+      ),
+    [editor, maxBytes, onFull, textFits],
   );
   useEffect(() => {
     const [now, at] = editor.getEditorState().read(() => [$text(), $caret()]);
@@ -311,6 +337,25 @@ function Editor({
       { tag: [PAGE_TAG, HISTORY_MERGE_TAG] },
     );
   }, [editor, marks, text]);
+  useEffect(() => {
+    const root = editor.getRootElement();
+    if (!root) return;
+    const beforeInput = (event: InputEvent) => {
+      if (!event.cancelable || !event.inputType.startsWith('insert') || !event.data) return;
+      const value = root.textContent ?? '';
+
+      const { from, to } = domRange(root, value);
+      const next =
+        value.slice(0, utf16Offset(value, from)) + event.data + value.slice(utf16Offset(value, to));
+      if (byteLength(next) <= maxBytes && textFits?.(next) !== false) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!refused.current) onFull?.();
+      refused.current = true;
+    };
+    root.addEventListener('beforeinput', beforeInput, true);
+    return () => root.removeEventListener('beforeinput', beforeInput, true);
+  }, [editor, maxBytes, onFull, textFits]);
   useEffect(() => editor.focus(), [editor]);
   return (
     <ContentEditable

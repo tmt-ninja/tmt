@@ -1930,3 +1930,101 @@ test('past a combine every batch lands at once', async () => {
     }
   });
 });
+
+test('typing at a block or cell byte limit keeps the last allowed key after reload', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'limited-author');
+    world.linkExtensions();
+    const cli = (args: string[], input?: string) => run(world, world.binaries.colab, args, input);
+    const { pageId, path } = JSON.parse(
+      cli(['page', 'create', '--title', 'Full fields', '--no-open', '--json']),
+    );
+    const paragraph = crypto.randomUUID(),
+      table = crypto.randomUUID(),
+      row = crypto.randomUUID();
+    const almostFull = (bytes: number) =>
+      '界'.repeat(Math.floor((bytes - 1) / 3)) + 'a'.repeat((bytes - 1) % 3);
+    const longId = crypto.randomUUID();
+    const longText = almostFull(65536);
+    const blockText = almostFull(32626),
+      cellText = almostFull(4096);
+    cli(
+      ['block', 'batch', pageId, '--file', '-', '--json'],
+      JSON.stringify([
+        { op: 'insert', type: 'paragraph', parent: 'root', id: paragraph, text: blockText },
+        {
+          op: 'insert',
+          type: 'paragraph',
+          parent: 'root',
+          id: longId,
+          after: paragraph,
+          text: longText,
+        },
+        {
+          op: 'insert',
+          type: 'table',
+          parent: 'root',
+          id: table,
+          after: paragraph,
+          props: { columns: [{ id: 'task', name: 'Task' }] },
+        },
+        { op: 'table', action: 'add-row', id: table, row, cells: { task: cellText } },
+      ]),
+    );
+    const page = await browser.context.newPage();
+    await page.goto(new URL(path, door.address).href);
+    for (const [target, initial, notice] of [
+      [
+        page.locator(`[data-block-id="${paragraph}"]`),
+        blockText,
+        'This block is too long to edit here. Split it into smaller blocks.',
+      ],
+      [
+        page.locator(`[data-cell-row="${row}"]`),
+        cellText,
+        'This cell is full. Move part of the text to another cell.',
+      ],
+    ] as const) {
+      await target.click();
+      const editor = page.locator('[contenteditable="true"]');
+      await editor.press(textEnd);
+      await editor.pressSequentially('XY');
+      await expect(page.getByText(notice, { exact: true })).toBeVisible();
+      await expect(editor).toHaveText(initial + 'X');
+      await expect
+        .poll(() => editor.evaluate((el) => el.ownerDocument.getSelection()?.anchorOffset))
+        .toBe(initial.length + 1);
+      await expect
+        .poll(
+          () => {
+            const blocks = JSON.parse(cli(['block', 'ls', pageId, '--json'])).blocks as {
+              id: string;
+              text?: { s: string };
+              cells?: Record<string, { s: string }>;
+            }[];
+            return initial === blockText
+              ? blocks.find((b) => b.id === paragraph)?.text?.s
+              : blocks.find((b) => b.id === row)?.cells?.task?.s;
+          },
+          { timeout: 30000 },
+        )
+        .toBe(initial + 'X');
+      await page.reload();
+      await expect(target).toHaveText(initial + 'X');
+    }
+    const long = page.locator(`[data-block-id="${longId}"]`);
+    await long.click();
+    const field = long.locator('[contenteditable="true"]');
+    await field.press(textEnd);
+    await field.pressSequentially('Z');
+    await expect(
+      page.getByText('This block is too long to edit here. Split it into smaller blocks.', {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(field).toHaveText(longText);
+    await page.reload();
+    await expect(long).toHaveText(longText);
+  });
+});

@@ -41,7 +41,7 @@ import type {
 import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask-remote.js';
 import { classify, SYNC_DISCONNECTED } from './connection-state.js';
 import { Admission } from './admission.js';
-import { Connection, SAVE_REPLY_MS } from './connection.js';
+import { blockFrameFits, Connection, SAVE_REPLY_MS } from './connection.js';
 import { Writer, type OwnCompaction } from './writer.js';
 import {
   SAVE_REOPEN_MS,
@@ -1282,6 +1282,13 @@ export class Live implements PageBinding {
         () => this.#todosInserting.delete(todo.block),
       );
     }
+  }
+
+  blocksFit(ops: readonly BlockOp[]) {
+    return blockFrameFits(
+      { space: this.bootstrap.space, page: this.page.pageId, epoch: this.page.epoch },
+      ops,
+    );
   }
 
   async blocks(

@@ -152,6 +152,8 @@ export const text = {
     saving: 'Saving your change…',
     pasteTooLarge: (blocks: number) =>
       `That paste would make more than ${blocks} blocks, so it went in as plain text.`,
+    blockFull: 'This block is too long to edit here. Split it into smaller blocks.',
+    cellFull: 'This cell is full. Move part of the text to another cell.',
     pasteTooLong: (kib: number) =>
       `That paste would make a block longer than ${kib} KB, so nothing was pasted. Paste a shorter part.`,
   },
