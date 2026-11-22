@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import {
@@ -78,7 +79,7 @@ function diagnosticPath(value: string): string {
     ? value
     : `[path exceeds 256 bytes; sha256=${createHash('sha256').update(value).digest('hex')}]`;
 }
-function reportDiagnostic(scope: 'call' | 'sandbox', diagnostic: object): void {
+function reportDiagnostic(scope: 'call' | 'sandbox' | 'test timeout', diagnostic: object): void {
   try {
     const text = JSON.stringify(diagnostic);
     // Never emit raw output, stdin, environment or unrelated process facts. The one /proc
@@ -100,6 +101,30 @@ function reportDiagnostic(scope: 'call' | 'sandbox', diagnostic: object): void {
     // Observation/reporting failure cannot replace an original error or interrupt disposal.
   }
 }
+const caseCalls = new AsyncLocalStorage<CliDiagnostic[]>();
+
+export function captureCliCase(
+  run: () => Promise<void>,
+  registerTimeoutReport: (report: () => void) => void
+): Promise<void> {
+  const calls: CliDiagnostic[] = [];
+  registerTimeoutReport(() => {
+    if (!calls.length) return;
+    const recentCalls = calls.map(
+      ({ callId, argv, deadlineMs, events, omittedEvents, cleanup }) => ({
+        callId,
+        argv,
+        deadlineMs,
+        events,
+        omittedEvents,
+        cleanup,
+      })
+    );
+    reportDiagnostic('test timeout', { recentCalls });
+  });
+  return caseCalls.run(calls, run);
+}
+
 const lifecycleKey = Symbol('sandbox process lifetime');
 interface ActiveRun {
   result: Promise<CliResult>;
@@ -251,6 +276,11 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
   // Clones share one sequence. Two recent calls provide context without retaining output bodies.
   lifetime.diagnostics.push(diagnostic);
   if (lifetime.diagnostics.length > 2) lifetime.diagnostics.shift();
+  const recent = caseCalls.getStore();
+  if (recent) {
+    recent.push(diagnostic);
+    if (recent.length > 2) recent.shift();
+  }
   const record = (
     phase: string,
     detail: { pid?: number; status?: number | null; signal?: string | null } = {}
@@ -416,6 +446,9 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     let finishing = false;
     let settled = false;
     let cleanupDeadline = 0;
+    let nestedCleanupPending = false;
+    let nestedInspected = false;
+    let nestedCleanupError: Error | undefined;
     const groupExists = (group: number): boolean => {
       if (!groups.has(group)) return false;
       try {
@@ -483,16 +516,53 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       if (server.listening) server.close(complete);
       else complete();
     };
+    const stopNested = (): boolean => {
+      if (!failure || process.platform !== 'linux' || child?.pid === undefined) return true;
+      if (nestedCleanupError || nestedCleanupPending) return false;
+      const root = realpathSync(sandbox.root);
+      const session = child.pid;
+      const residents = sessionResidents(root, session).filter(({ group }) => !groups.has(group));
+      if (!residents.length) return true;
+      const remaining = Math.floor(cleanupDeadline - performance.now());
+      if (remaining <= 0) return false;
+      // The native fixture pins each PID before validating and signalling it.
+      // A process from another launch can share this sandbox but not this session.
+      nestedCleanupPending = true;
+      execFile(
+        neutralParent,
+        [
+          'neutral-stop-residents',
+          root,
+          String(session),
+          String(remaining),
+          ...residents.slice(0, 64).map(({ pid, start }) => `${pid}:${start}`),
+        ],
+        { timeout: remaining, killSignal: 'SIGKILL', maxBuffer: 4096 },
+        (error) => {
+          nestedCleanupPending = false;
+          if (error)
+            nestedCleanupError = new Error('Could not stop nested CLI processes.', {
+              cause: error,
+            });
+        }
+      );
+      return false;
+    };
     const pollCleanup = (): void => {
       if (settled) return;
+      let nestedAbsent = false;
       try {
         for (const group of groups) groupExists(group);
+        if (groups.size === 0 || !nestedInspected) {
+          nestedInspected = true;
+          nestedAbsent = stopNested();
+        }
       } catch (error) {
         // A transient probe failure is not proof of exit. Keep polling until
         // absence is confirmed or the cleanup deadline expires.
         inspectionError = error;
       }
-      if (closed && groups.size === 0) {
+      if (closed && groups.size === 0 && nestedAbsent) {
         // A denied signal or initial probe can race with group exit. Require
         // direct-child close and a subsequent ESRCH probe before excusing it.
         finish(cleanupPermissionDenied && !cleanupOtherFailure ? undefined : cleanupError);
@@ -501,7 +571,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
       if (performance.now() >= cleanupDeadline) {
         finish(
           new Error('CLI process cleanup did not confirm close and group exit within 1000ms.', {
-            cause: cleanupError ?? inspectionError,
+            cause: cleanupError ?? nestedCleanupError ?? inspectionError,
           })
         );
         return;
@@ -537,7 +607,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     const timer = setTimeout(() => {
       record('deadline');
       diagnostic.preTermination = preTerminationObservation(cliGroup, sandbox.root);
-      const stall = outputBytes === 0 ? diskStall(diagnostic.preTermination, cliGroup) : null;
+      const stall = outputBytes === 0 ? ownedDiskStall(child?.pid, sandbox.root) : null;
       // test/support/disk-stall.ts reads this slot to rerun the test once (#6393).
       if (stall)
         (globalThis as Record<symbol, unknown>)[Symbol.for('tmt.test.cliDiskStall')] = stall;
@@ -715,6 +785,40 @@ function sandboxProcesses(root: string, pid?: number): number[] {
     .map(({ pid }) => pid);
 }
 
+function sessionResidents(root: string, session: number) {
+  return sandboxProcesses(root).flatMap((pid) => {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const end = stat.lastIndexOf(')');
+      const fields = stat
+        .slice(end + 2)
+        .trim()
+        .split(/\s+/);
+      if (
+        !stat.startsWith(`${pid} (`) ||
+        end < 0 ||
+        fields[3] !== String(session) ||
+        !/^\d{1,20}$/.test(fields[19] ?? '')
+      )
+        return [];
+      return [
+        {
+          pid,
+          group: Number(fields[2]),
+          start: fields[19],
+          state: fields[0],
+          user: fields[11],
+          system: fields[12],
+        },
+      ];
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ESRCH') return [];
+      throw error;
+    }
+  });
+}
+
 /**
  * The leaked process's argv for a diagnostic: a word of up to 32 bytes made only of letters,
  * digits and `._-` is shown (a one-word message too), anything else (a path, a payload, longer
@@ -744,7 +848,12 @@ function residentCommand(pid: number): (string | { bytes: number })[] | string {
   }
 }
 
-function residentIdentity(pid: number, root: string, preTermination = false): object {
+function residentIdentity(
+  pid: number,
+  root: string,
+  preTermination = false,
+  expected?: { session: number; start: string }
+): object {
   try {
     // Fixed proc facts only; one read bounds both allocation and observation work.
     const readFact = (name: 'stat' | 'wchan', limit: number): string => {
@@ -789,7 +898,14 @@ function residentIdentity(pid: number, root: string, preTermination = false): ob
     if (preTermination && (Buffer.byteLength(executable) > 256 || !/^[A-Za-z0-9_]*$/.test(wchan!)))
       return { pid, observation: 'endpoint facts unavailable' };
     const after = identity();
-    if (before[19] !== after[19]) return { pid, observation: 'identity changed' };
+    if (
+      before[19] !== after[19] ||
+      (expected &&
+        (before[19] !== expected.start ||
+          before[3] !== String(expected.session) ||
+          after[3] !== String(expected.session)))
+    )
+      return { pid, observation: 'identity changed' };
     if (preTermination)
       return {
         pid,
@@ -818,15 +934,26 @@ function residentIdentity(pid: number, root: string, preTermination = false): ob
   }
 }
 
-// The CLI's state at the deadline when the runner's disk held it (D state, zero CPU ticks).
-function diskStall(observation: object, cliPid: number | undefined): string | null {
-  const processes = (observation as { processes?: unknown }).processes;
-  if (cliPid === undefined || !Array.isArray(processes)) return null;
-  const cli = processes.find((entry) => (entry as { pid?: unknown }).pid === cliPid) as
-    | { state?: unknown; cpuTicks?: { user?: unknown; system?: unknown }; wchan?: unknown }
-    | undefined;
-  if (cli?.state !== 'D' || cli.cpuTicks?.user !== '0' || cli.cpuTicks.system !== '0') return null;
-  return `pid ${cliPid} in D state at ${String(cli.wchan) || 'unknown'}, 0 CPU ticks, no output`;
+// Keep the original D-state and zero-tick predicate. The invocation's private
+// session covers the CLI and nested groups without using the bounded log sample.
+function ownedDiskStall(session: number | undefined, root: string): string | null {
+  if (session === undefined || process.platform !== 'linux') return null;
+  try {
+    const privateRoot = realpathSync(root);
+    for (const child of sessionResidents(privateRoot, session)) {
+      if (child.state !== 'D' || child.user !== '0' || child.system !== '0') continue;
+      const facts = residentIdentity(child.pid, privateRoot, true, {
+        session,
+        start: child.start,
+      }) as { state?: string; cpuTicks?: { user: string; system: string }; wchan?: string };
+      if (facts.state === 'D' && facts.cpuTicks?.user === '0' && facts.cpuTicks.system === '0') {
+        return `pid ${child.pid} in D state at ${facts.wchan || 'unknown'}, 0 CPU ticks, no output`;
+      }
+    }
+  } catch {
+    // A failed observation cannot make the attempt eligible for a rerun.
+  }
+  return null;
 }
 
 // Optional observation never supplies process ownership, signalling or cleanup evidence.

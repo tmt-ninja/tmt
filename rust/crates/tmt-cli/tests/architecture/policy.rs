@@ -35,6 +35,8 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli-style", "serde_json", None), // theme serialization assertions
     ("tmt-tui-components", "serde_json", None), // component props round trips
     ("tmt-test-support", "signal-hook", None), // native Colab verifier fixture shutdown
+    // Verified pidfd cleanup in runtime-caller-fixture.
+    ("tmt-adapters", "rustix", Some("cfg(target_os = \"linux\")")),
 ];
 
 // These are reviewed layer permissions, not a second version/dependency graph.

@@ -51,6 +51,9 @@ rustls.workspace = true
 rcgen.workspace = true
 nix = { workspace = true, features = ["term", "net"] }
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+rustix = { version = "=1.1.4", features = ["event", "process"] }
+
 [lints]
 workspace = true
 

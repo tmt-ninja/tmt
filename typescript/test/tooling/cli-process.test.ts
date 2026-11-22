@@ -8,7 +8,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { syncBuiltinESMExports } from 'node:module';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
-import { createSandbox, runCli, withSandbox } from '../support/cli-process.js';
+import { captureCliCase, createSandbox, runCli, withSandbox } from '../support/cli-process.js';
 
 const roots: string[] = [];
 // A peer never outlives `lifetimeMs`, and a controlled-exit peer also ends with its launcher,
@@ -534,6 +534,98 @@ it('deadline termination stops the supervisor, CLI and descendants before dispos
   }
 });
 
+it.skipIf(process.platform !== 'linux')(
+  'deadline cleanup stops a nested process group in its invocation session before disposal',
+  async () => {
+    await withSandbox(async (sandbox) => {
+      const marker = path.join(sandbox.root, 'nested-ready.json');
+      const script = `
+        const fs = require('node:fs');
+        function stat(pid) {
+          const line = fs.readFileSync('/proc/' + pid + '/stat', 'utf8');
+          const fields = line.slice(line.lastIndexOf(')') + 2).split(' ');
+          return { group: Number(fields[2]), session: Number(fields[3]) };
+        }
+        const peer = stat(process.pid);
+        const parent = stat(process.ppid);
+        fs.writeFileSync(process.argv[1] + '.pending', JSON.stringify({
+          pid: process.pid, peer, parent,
+        }));
+        fs.renameSync(process.argv[1] + '.pending', process.argv[1]);
+        setTimeout(() => {}, 30_000);
+      `;
+      // Bash job control creates a process group in this session, as Ops does.
+      // Node's detached spawn would make a new session.
+      const cli = {
+        executable: '/bin/bash',
+        args: [
+          '-c',
+          'set -m; "$1" -e "$2" "$3" </dev/null >/dev/null 2>&1 & wait',
+          'nested-group-fixture',
+          process.execPath,
+          script,
+          marker,
+        ],
+      };
+      const companionReady = path.join(sandbox.root, 'companion-ready');
+      const companionRelease = path.join(sandbox.root, 'companion-release');
+      const companion = runCli(
+        {
+          ...sandbox,
+          cli: {
+            executable: process.execPath,
+            args: [
+              '-e',
+              `
+                const fs = require('node:fs');
+                const path = require('node:path');
+                const [ready, release] = process.argv.slice(1);
+                const watcher = fs.watch(path.dirname(release), () => {
+                  if (fs.existsSync(release)) watcher.close();
+                });
+                const stat = fs.readFileSync('/proc/self/stat', 'utf8');
+                const session = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[3]);
+                fs.writeFileSync(ready + '.pending', JSON.stringify({ pid: process.pid, session }));
+                fs.renameSync(ready + '.pending', ready);
+              `,
+              companionReady,
+              companionRelease,
+            ],
+          },
+        },
+        []
+      ).catch((error: unknown) => error);
+      await until(() => fs.existsSync(companionReady));
+      const other = JSON.parse(fs.readFileSync(companionReady, 'utf8'));
+      const failure = runCli({ ...sandbox, cli }, [], { deadlineMs: 1000 }).catch(
+        (error: unknown) => error
+      );
+      await until(() => fs.existsSync(marker));
+      const { pid, peer, parent } = JSON.parse(fs.readFileSync(marker, 'utf8'));
+      expect(peer.group).toBe(pid);
+      expect(peer.group).not.toBe(parent.group);
+      expect(peer.session).toBe(parent.session);
+      expect(peer.group).not.toBe(peer.session);
+      expect(alive(pid)).toBe(true);
+      expect(await failure).toMatchObject({
+        message: 'CLI subprocess exceeded the 1000 millisecond test bound.',
+      });
+      let stat = '';
+      try {
+        stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      // A pidfd becomes readable at exit. PID 1 can still be reaping the orphan.
+      expect(stat === '' || stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z ')).toBe(true);
+      expect(other.session).not.toBe(peer.session);
+      expect(alive(other.pid)).toBe(true);
+      fs.writeFileSync(companionRelease, '');
+      expect(await companion).toMatchObject({ status: 0, signal: null });
+    });
+  }
+);
+
 it('output overflow stops the complete group and preserves its bound error', async () => {
   const f = fixture('overflow');
   try {
@@ -973,6 +1065,54 @@ function diagnosticFixture(adopt = true, confirmCleanup = true) {
     },
   };
 }
+
+it('an outer timeout can report the active CLI phases without exposing argv', async () => {
+  const f = diagnosticFixture();
+  let reportTimeout: (() => void) | undefined;
+  try {
+    await captureCliCase(
+      () =>
+        withSandbox(
+          async (sandbox) => {
+            const secret = 'private-test-argument';
+            const pending = runCli(sandbox, ['--json', secret]);
+            await vi.advanceTimersByTimeAsync(20);
+            expect(f.diagnostics).not.toHaveBeenCalled();
+            reportTimeout?.();
+            expect(f.diagnostics).toHaveBeenCalledOnce();
+            const [label, payload] = f.diagnostics.mock.calls[0];
+            expect(label).toBe('CLI test timeout diagnostics:');
+            expect(payload).not.toContain(secret);
+            expect(JSON.parse(String(payload)).recentCalls).toMatchObject([
+              {
+                callId: 1,
+                deadlineMs: 5000,
+                argv: [
+                  { literal: '--json' },
+                  {
+                    bytes: secret.length,
+                    sha256: createHash('sha256').update(secret).digest('hex'),
+                  },
+                ],
+                events: expect.arrayContaining([
+                  expect.objectContaining({ phase: 'ready-acknowledged' }),
+                ]),
+              },
+            ]);
+            f.complete();
+            await vi.advanceTimersByTimeAsync(20);
+            await pending;
+          },
+          { TMT_TEST_CLI: JSON.stringify({ executable: process.execPath, args: [] }) }
+        ),
+      (report) => {
+        reportTimeout = report;
+      }
+    );
+  } finally {
+    f.restore();
+  }
+});
 
 it('diagnostic success preserves the exact result and emits no failure report', async () => {
   const f = diagnosticFixture();
@@ -1465,19 +1605,32 @@ it('diagnostic clones share invocation IDs without changing successful calls', a
 
 it('diagnostic long private fixture values remain hashed within the report budget', async () => {
   const f = diagnosticFixture();
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  const readDirectory = fs.readdirSync.bind(fs);
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  vi.spyOn(fs, 'readdirSync').mockImplementation((file, options) =>
+    String(file) === '/proc' ? [] : readDirectory(file, options)
+  );
+  syncBuiltinESMExports();
   try {
     await withSandbox(
       async (sandbox) => {
         const privateValue = 'private fixture 雪'.repeat(1000);
+        // The call's root is resolved during Linux cleanup. Use a real private
+        // path that exceeds the diagnostic bound, as opposed to an invalid path.
+        const directory = 'private fixture '.repeat(8);
+        const longRoot = path.join(sandbox.root, directory, directory);
+        fs.mkdirSync(longRoot, { recursive: true });
         const pending = runCli(
           {
             ...sandbox,
-            root: privateValue,
+            root: longRoot,
             cli: { executable: privateValue, args: Array(12).fill(privateValue) },
           },
           Array(12).fill(privateValue)
         ).catch((error: unknown) => error);
-        await vi.advanceTimersByTimeAsync(5010);
+        // Drive the cleanup bound too, so a failed mock settles before teardown.
+        await vi.advanceTimersByTimeAsync(6010);
         expect(await pending).toMatchObject({
           message: 'CLI subprocess exceeded the 5000 millisecond test bound.',
         });
@@ -1489,6 +1642,7 @@ it('diagnostic long private fixture values remain hashed within the report budge
         expect(report).toMatchObject({
           fixtureArgc: 12,
           argc: 12,
+          sandboxRoot: expect.stringContaining('path exceeds 256 bytes; sha256='),
           executableSha256: createHash('sha256').update(privateValue).digest('hex'),
           cleanup: { closeObserved: true, failed: false },
           deadlineMs: 5000,
@@ -1499,6 +1653,7 @@ it('diagnostic long private fixture values remain hashed within the report budge
       { TMT_TEST_CLI: JSON.stringify({ executable: process.execPath, args: [] }) }
     );
   } finally {
+    Object.defineProperty(process, 'platform', platform);
     f.restore();
   }
 });
@@ -1506,6 +1661,9 @@ it('diagnostic long private fixture values remain hashed within the report budge
 it.each([
   'selected',
   'launcher',
+  'stalled-child',
+  'stalled-foreign-session',
+  'stalled-child-after-cpu',
   'discovery-denied',
   'discovery-denied-EPERM',
   'recheck-denied',
@@ -1590,14 +1748,13 @@ it.each([
     files.set(fd, name);
     return fd;
   });
-  vi.spyOn(fs, 'readSync').mockImplementation((fd, buffer, options) => {
-    const name = files.get(fd);
-    if (name === undefined) return read(fd, buffer, options);
-    if (!Buffer.isBuffer(buffer)) throw new Error('Expected bounded byte buffer');
-    const offset = options?.offset ?? 0;
-    const length = options?.length ?? buffer.length - offset;
-    const pid = name.split('/')[2];
-    if (name.endsWith('/stat') && pid === '900002') cliStatReads++;
+  const readFile = fs.readFileSync.bind(fs);
+  vi.spyOn(fs, 'readFileSync').mockImplementation((file, options) => {
+    const pid = /^\/proc\/(\d+)\/stat$/.exec(String(file))?.[1];
+    if (!pid || !kind.startsWith('stalled-')) return readFile(file, options);
+    return processStat(pid);
+  });
+  function processStat(pid: string) {
     const fields = Array(20).fill('0');
     Object.assign(fields, {
       0: 'S',
@@ -1608,13 +1765,39 @@ it.each([
       12: '3',
       19: kind === 'reused' && pid === '900002' && cliStatReads > 1 ? '54321' : '12345',
     });
+    if (kind.startsWith('stalled-')) {
+      fields[3] = '900001';
+      if (pid === '900010') {
+        fields[0] = 'D';
+        if (kind === 'stalled-foreign-session') {
+          fields[1] = '900050';
+          fields[2] = '900050';
+          fields[3] = '900050';
+        } else {
+          fields[1] = '900002';
+          fields[2] = '900002';
+        }
+        fields[11] = kind === 'stalled-child-after-cpu' ? '1' : '0';
+        fields[12] = '0';
+      }
+    }
+    return `${pid} (fixture) ${fields.join(' ')}`;
+  }
+  vi.spyOn(fs, 'readSync').mockImplementation((fd, buffer, options) => {
+    const name = files.get(fd);
+    if (name === undefined) return read(fd, buffer, options);
+    if (!Buffer.isBuffer(buffer)) throw new Error('Expected bounded byte buffer');
+    const offset = options?.offset ?? 0;
+    const length = options?.length ?? buffer.length - offset;
+    const pid = name.split('/')[2];
+    if (name.endsWith('/stat') && pid === '900002') cliStatReads++;
     const text = name.endsWith('/wchan')
       ? kind === 'wchan-overflow'
         ? 'x'.repeat(65)
         : 'do_wait\n'
       : kind === 'stat-overflow'
         ? 'x'.repeat(8193)
-        : `${pid} (fixture) ${fields.join(' ')}`;
+        : processStat(pid);
     const bytes = Buffer.from(text);
     const count = Math.min(bytes.length, length);
     buffer.set(bytes.subarray(0, count), offset);
@@ -1633,7 +1816,10 @@ it.each([
         expect(endpoints).toEqual([]);
         await vi.advanceTimersByTimeAsync(11);
         expect(await result).toMatchObject({
-          message: 'CLI subprocess exceeded the 5000 millisecond test bound.',
+          message:
+            kind === 'stalled-child'
+              ? 'CLI subprocess exceeded the 5000 millisecond test bound. CLI disk stall, inconclusive (pid 900010 in D state at do_wait, 0 CPU ticks, no output).'
+              : 'CLI subprocess exceeded the 5000 millisecond test bound.',
         });
         const report = JSON.parse(String(f.diagnostics.mock.calls[0][1]));
         expect(report.deadlineMs).toBe(5000);
@@ -1646,7 +1832,7 @@ it.each([
           expect(snapshot).toMatchObject({ observation: 'snapshot', cliPid: 900002 });
           expect(snapshot.processes).toHaveLength(9);
           const cli = snapshot.processes[0];
-          if (kind === 'selected' || kind === 'launcher') {
+          if (kind === 'selected' || kind === 'launcher' || kind.startsWith('stalled-')) {
             expect(cli).toEqual({
               pid: 900002,
               observation: 'endpoint identity observed',
@@ -1657,7 +1843,13 @@ it.each([
               cpuTicks: { user: '17', system: '3' },
               wchan: 'do_wait',
             });
-            expect(snapshot.processes[1].pgid).toBe('900010');
+            expect(snapshot.processes[1].pgid).toBe(
+              kind === 'stalled-foreign-session'
+                ? '900050'
+                : kind.startsWith('stalled-')
+                  ? '900002'
+                  : '900010'
+            );
           } else {
             expect(cli).toEqual({
               pid: 900002,

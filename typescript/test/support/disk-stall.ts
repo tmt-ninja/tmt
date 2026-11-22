@@ -6,7 +6,19 @@
 //
 // `cli-process.ts` records the stall in a process-global slot rather than importing this
 // file, since plain Node also loads it outside Vitest.
-import { beforeEach } from 'vite-plus/test';
+import { aroundEach, beforeEach } from 'vite-plus/test';
+import { captureCliCase } from './cli-process.js';
+
+aroundEach((run, context) =>
+  captureCliCase(run, (report) =>
+    context.onTestFailed(({ task }) => {
+      if (
+        task.result?.errors?.some(({ message }) => /^Test timed out in \d+ms/.test(message ?? ''))
+      )
+        report();
+    })
+  )
+);
 
 /** The slot `cli-process.ts` writes the stall evidence to; keep the key equal there. */
 const STALL = Symbol.for('tmt.test.cliDiskStall');

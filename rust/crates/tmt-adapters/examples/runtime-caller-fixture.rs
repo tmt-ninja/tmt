@@ -13,6 +13,14 @@ use nix::unistd::getppid;
 fn main() {
     let mut args = std::env::args_os().skip(1);
     let mode = args.next().expect("fixture mode");
+    #[cfg(target_os = "linux")]
+    if mode == "neutral-stop-residents" {
+        if let Err(error) = stop_residents(args) {
+            eprintln!("Nested CLI process cleanup: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if mode == "neutral-setup" {
         let result = Command::new(std::env::current_exe().expect("fixture executable"))
             .arg("neutral-supervise")
@@ -110,6 +118,104 @@ fn main() {
     }
     let status = child.status().expect("start selected CLI");
     std::process::exit(status.code().unwrap_or(1));
+}
+
+#[cfg(target_os = "linux")]
+fn stop_residents(mut args: impl Iterator<Item = std::ffi::OsString>) -> io::Result<()> {
+    use rustix::{
+        event::{PollFd, PollFlags, Timespec, poll},
+        io::Errno,
+        process::{Pid, PidfdFlags, Signal, geteuid, pidfd_open, pidfd_send_signal},
+    };
+    use std::{fs, os::unix::fs::MetadataExt, path::PathBuf};
+
+    let input_error = || io::Error::new(io::ErrorKind::InvalidInput, "Invalid cleanup request.");
+    let mut next = || args.next().ok_or_else(input_error);
+    let root = PathBuf::from(next()?);
+    let session = next()?.into_string().map_err(|_| input_error())?;
+    let budget: u64 = next()?
+        .to_string_lossy()
+        .parse()
+        .map_err(|_| input_error())?;
+    if !root.is_absolute() || budget == 0 || budget > 1000 {
+        return Err(input_error());
+    }
+    let deadline = Instant::now() + Duration::from_millis(budget);
+    let mut targets = Vec::new();
+    for candidate in args {
+        let text = candidate.to_str().ok_or_else(input_error)?;
+        let (pid, start) = text.split_once(':').ok_or_else(input_error)?;
+        let pid = pid
+            .parse()
+            .ok()
+            .and_then(Pid::from_raw)
+            .filter(|pid| pid.as_raw_nonzero().get() > 1)
+            .ok_or_else(input_error)?;
+        let fd = match pidfd_open(pid, PidfdFlags::empty()) {
+            Ok(fd) => fd,
+            Err(Errno::SRCH) => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let proc = PathBuf::from(format!("/proc/{}", pid.as_raw_nonzero()));
+        let verify = || {
+            let stat = fs::read_to_string(proc.join("stat"))?;
+            let (_, fields) = stat.rsplit_once(") ").ok_or_else(input_error)?;
+            let fields = fields.split_whitespace().collect::<Vec<_>>();
+            let matches = fields.get(3) == Some(&session.as_str())
+                && fields.get(19) == Some(&start)
+                && fs::metadata(&proc)?.uid() == geteuid().as_raw()
+                && fs::read_link(proc.join("cwd"))?.starts_with(&root);
+            Ok::<_, io::Error>(matches)
+        };
+        match verify() {
+            Ok(true) => targets.push(fd),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let mut probe = [PollFd::new(&fd, PollFlags::IN)];
+                let zero = Timespec {
+                    tv_sec: 0,
+                    tv_nsec: 0,
+                };
+                poll(&mut probe, Some(&zero))?;
+                if !probe[0]
+                    .revents()
+                    .intersects(PollFlags::IN | PollFlags::HUP)
+                {
+                    return Err(error);
+                }
+            }
+            Ok(false) => return Err(io::Error::other("Resident identity no longer matches.")),
+            Err(error) => return Err(error),
+        }
+    }
+    for target in &targets {
+        match pidfd_send_signal(target, Signal::KILL) {
+            Ok(()) | Err(Errno::SRCH) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    for target in &targets {
+        let mut fd = [PollFd::new(target, PollFlags::IN)];
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Resident is still live.",
+                ));
+            }
+            let timeout = Timespec {
+                tv_sec: 0,
+                tv_nsec: i64::try_from(remaining.as_nanos().min(999_999_999))
+                    .expect("bounded nanoseconds"),
+            };
+            match poll(&mut fd, Some(&timeout)) {
+                Ok(_) if fd[0].revents().intersects(PollFlags::IN | PollFlags::HUP) => break,
+                Ok(_) | Err(Errno::INTR) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    Ok(())
 }
 
 fn report(control: &mut UnixStream, value: serde_json::Value) -> io::Result<()> {
