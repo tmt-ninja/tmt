@@ -18,10 +18,18 @@ pub(crate) fn attach_to_catalog(
     catalog: &mut serde_json::Value,
     titles: &BTreeMap<String, String>,
 ) {
+    attach_to_catalog_reserved(catalog, titles, 0);
+}
+
+pub(crate) fn attach_to_catalog_reserved(
+    catalog: &mut serde_json::Value,
+    titles: &BTreeMap<String, String>,
+    reserved: usize,
+) {
     let Ok(encoded) = serde_json::to_vec(catalog) else {
         return;
     };
-    let mut used = encoded.len();
+    let mut used = encoded.len() + reserved;
     let Some(pages) = catalog["pages"].as_array_mut() else {
         return;
     };

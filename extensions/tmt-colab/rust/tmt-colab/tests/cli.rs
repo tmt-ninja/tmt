@@ -14404,6 +14404,48 @@ fn work_home_local_list_refuses_forwarded_owner_context() {
 }
 
 #[test]
+fn work_snapshot_and_show_agree_on_section_progress() {
+    let pilot = Pilot::new(None);
+    let create = |title| pilot.call(&["page", "create", "--title", title, "--no-open", "--json"]);
+    let mixed = create("Mixed sections");
+    let bare = create("No sections");
+    let page = mixed["pageId"].as_str().unwrap();
+    let bare = bare["pageId"].as_str().unwrap();
+    let insert = |kind, text, props| {
+        pilot.call(&[
+            "block", "insert", page, "--type", kind, "--text", text, "--props", props, "--json",
+        ]);
+    };
+    insert("heading", "Completed", r#"{"level":2,"progress":"done"}"#);
+    insert("heading", "Working", r#"{"level":2}"#);
+    insert("todo", "First", r#"{"checked":true}"#);
+    insert("todo", "Second", r#"{"checked":false}"#);
+    insert("heading", "Pending", r#"{"level":2}"#);
+    insert("todo", "Next", r#"{"checked":false}"#);
+    insert("heading", "Excluded", r#"{"level":2,"progress":"off"}"#);
+    insert("todo", "Example", r#"{"checked":false}"#);
+
+    let show = |id| pilot.call(&["show", id, "--json"]);
+    let expected = json!({"done":1,"inProgress":1,"todo":1,"unknown":0,"total":3});
+    let listed = pilot.call(&["ls", "--json", "--work"]);
+    let summary = |id| {
+        listed["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["pageId"] == id)
+            .unwrap()["summary"]
+            .clone()
+    };
+    assert_eq!(summary(page)["sectionProgress"], expected);
+    let shown = show(page);
+    assert_eq!(shown["page"]["sectionProgress"], expected);
+    assert_eq!(shown["page"]["progress"]["total"], 0);
+    assert!(summary(bare).get("sectionProgress").is_none());
+    assert!(show(bare)["page"].get("sectionProgress").is_none());
+}
+
+#[test]
 fn work_home_cli_and_browser_share_the_owner_list_summary() {
     let mut pilot = Pilot::new(None);
     let created = pilot.call(&[
