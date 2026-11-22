@@ -386,7 +386,7 @@ fn task_field_fixture(look: crate::look::Look) -> App {
     app.choose(crate::board::app::Choice::WorkspaceTarget(
         crate::board::workspace::OpsTarget::Squad(crate::board::app::workspace::tests::ROOM.into()),
     ));
-    app.focus = 1;
+    app.focus = 0;
     app
 }
 
@@ -414,6 +414,10 @@ fn task_field_start(app: &App, buffer: &ratatui::buffer::Buffer) -> (u16, u16) {
 fn task_fields_select_their_rendered_text_without_opening_a_source_view() {
     for look in selection_looks() {
         let mut app = task_field_fixture(look);
+        app.focus = 1;
+        let roster = draw(&mut app, 100, 36);
+        assert!(locate(&roster, "TASK / NEXT ACTION").is_none());
+        app.focus = 0;
         let buffer = draw(&mut app, 100, 36);
         let (x, y) = task_field_start(&app, &buffer);
         mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
