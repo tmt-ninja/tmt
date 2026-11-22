@@ -5,6 +5,9 @@ import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { PlainTextExtension } from '@lexical/plain-text';
 import {
+  $addUpdateTag,
+  $hasUpdateTag,
+  RootNode,
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
@@ -261,6 +264,27 @@ function Editor({
    * after `from` are late only if it showed `from` (a new instance starts empty, which is not
    * typing). */
   const shownTexts = useRef<{ editor?: LexicalEditor; texts: Set<string> }>({ texts: new Set() });
+  // Validate the pending tree before Lexical commits it. A native input can have
+  // already changed the DOM; replacing the paragraph gives reconciliation fresh
+  // nodes for both the displayed text and its selection.
+  useEffect(
+    () =>
+      editor.registerNodeTransform(RootNode, () => {
+        if ($hasUpdateTag('tmt-block-refused-input')) return;
+        const value = $text();
+        if ($hasUpdateTag(PAGE_TAG) && value === pageText.current) return;
+        const previous = editor.getEditorState();
+        const before = previous.read($text);
+        if (value === before || (byteLength(value) <= maxBytes && textFits?.(value) !== false))
+          return;
+        const { anchor, focus } = previous.read($selected);
+        $addUpdateTag('tmt-block-refused-input');
+        $replace(before, marks, anchor, focus);
+        if (!refused.current) onFull?.();
+        refused.current = true;
+      }),
+    [editor, marks, maxBytes, onFull, textFits],
+  );
   useEffect(
     () =>
       editor.registerUpdateListener(
@@ -272,15 +296,6 @@ function Editor({
             return;
           const value = editorState.read($text);
           if (tags.has(PAGE_TAG) && value === pageText.current) return;
-          if (
-            value !== prevEditorState.read($text) &&
-            (byteLength(value) > maxBytes || textFits?.(value) === false)
-          ) {
-            editor.setEditorState(prevEditorState, { tag: 'tmt-block-refused-input' });
-            if (!refused.current) onFull?.();
-            refused.current = true;
-            return;
-          }
           if (value !== prevEditorState.read($text)) refused.current = false;
           editorState.read(() => {
             const now = $text();
@@ -292,7 +307,7 @@ function Editor({
           });
         },
       ),
-    [editor, maxBytes, onFull, textFits],
+    [editor],
   );
   useEffect(() => {
     const [now, at] = editor.getEditorState().read(() => [$text(), $caret()]);
@@ -405,23 +420,6 @@ function Editor({
         // The caret from the DOM: Lexical takes a selection change on the next `selectionchange`,
         // so at a keydown its own selection can still be an earlier one.
         const { at, from, to } = domRange(event.currentTarget, now);
-        if (
-          (event.key === 'Backspace' || event.key === 'Delete') &&
-          !event.altKey &&
-          !event.metaKey &&
-          !event.ctrlKey
-        ) {
-          const start = from === to && event.key === 'Backspace' ? Math.max(0, from - 1) : from;
-          const end = from === to && event.key === 'Delete' ? to + 1 : to;
-          const next = now.slice(0, utf16Offset(now, start)) + now.slice(utf16Offset(now, end));
-          if (next !== now && textFits?.(next) === false) {
-            event.preventDefault();
-            event.stopPropagation();
-            if (!refused.current) onFull?.();
-            refused.current = true;
-            return;
-          }
-        }
         if (onKey(event, now, at, { from, to })) {
           event.preventDefault();
           event.stopPropagation();
