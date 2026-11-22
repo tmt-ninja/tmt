@@ -1489,8 +1489,8 @@ for (const width of [1440, 390])
       const sendBox = (await block.getByRole('button', { name: 'Send' }).boundingBox())!;
       expect(sendBox.x).toBe(doneBox.x);
       expect(sendBox.height).toBe(doneBox.height);
-      const editBox = (await block.getByRole('button', { name: 'Edit' }).boundingBox())!;
-      expect(editBox.height).toBe(sendBox.height);
+      const editBox = (await block.getByRole('button', { name: 'Edit question' }).boundingBox())!;
+      expect(editBox.y + editBox.height).toBeLessThan(sendBox.y);
       // 20 choices and a long title, from an agent once this tab's edits have committed.
       await expect
         .poll(() => page.evaluate((id) => window.serveProps(id)?.choices, id))
@@ -2127,3 +2127,39 @@ for (const how of ['drop', 'paste'] as const)
     await expect(host.getByText(text.blockFiles.unavailable)).toBeVisible();
     expect(await topLevel(host)).toEqual(blocks);
   });
+
+for (const kind of ['single', 'multiple', 'short'] as const) {
+  test(`a selected ${kind} question takes an answer directly (#6749)`, async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(async (kind) => {
+      const fixture = '/test/structured-page-browser.tsx';
+      (await import(fixture)).mount('spec', { questionKind: kind });
+    }, kind);
+    const block = page.locator(`[data-block-id="${QUESTION}"]`);
+    const answer =
+      kind === 'short'
+        ? block.getByRole('textbox', { name: 'Your answer' })
+        : block.getByLabel('問題', { exact: true });
+    for (const target of [block.getByRole('heading'), block.getByText(/Waiting for your answer/)]) {
+      await target.click();
+      await expect(answer).toBeFocused();
+    }
+    await answer.click();
+    await expect(answer).toBeFocused();
+    await page.keyboard.press('Tab');
+    await block.focus();
+    await page.keyboard.press('Enter');
+    await expect(answer).toBeFocused();
+    await expect(block.getByRole('group', { name: 'Edit question' })).toHaveCount(0);
+    if (kind === 'short') await answer.fill('Ship Friday');
+    else await answer.check();
+    await block.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.answers()))
+      .toContainEqual(expect.objectContaining({ questionId: QUESTION }));
+    await block
+      .getByRole('button', { name: kind === 'short' ? /Ship Friday/ : /先做哪個區塊？.*問題/ })
+      .click();
+    await expect(answer).toBeFocused();
+  });
+}

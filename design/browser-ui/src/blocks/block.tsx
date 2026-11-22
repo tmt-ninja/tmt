@@ -23,6 +23,7 @@ export type BlockKind =
   | 'table'
   | 'card'
   | 'callout'
+  | 'question'
   | 'code';
 /** A forced look for docs and tests; live blocks take hover from the pointer and selection from `selected`. */
 export type BlockState = 'idle' | 'hover' | 'selected' | 'dragging';

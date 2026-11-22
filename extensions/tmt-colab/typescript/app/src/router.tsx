@@ -198,7 +198,8 @@ import { usePageRenderer } from './use-page-renderer.js';
 
 /** Controls in the page and above it that the floating actions move above, never over: the cards'
  * footers, and the open work band's controls, which can fill a phone's viewport. */
-const AVOIDED_CARDS = '.question-group-footer';
+const AVOIDED_CARDS =
+  '.question-group-footer, .structured-page-stage .tmt-block[data-kind="question"]';
 const AVOIDED_BAND =
   '.work-band :is(button, a[href], input, select, textarea, [role="button"], [role="combobox"], [role="menuitem"])';
 

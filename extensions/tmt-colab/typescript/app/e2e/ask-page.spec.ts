@@ -827,6 +827,7 @@ for (const width of [1440, 390])
       ]);
       await expect(outline.locator('.page-outline-mark')).toHaveCount(3);
       expect(Math.abs(control.y - title.y)).toBeLessThanOrEqual(4);
+      expect(control.x + control.width).toBeLessThanOrEqual(title.x);
       // The page counts its sections from its own blocks (#6687): a to-do checked and a heading
       // marked done elsewhere show at once, while the serve's facts still say 3/4.
       const change = (block: number, props: Record<string, unknown>) =>

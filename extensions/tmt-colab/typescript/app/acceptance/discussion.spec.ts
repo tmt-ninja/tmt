@@ -994,6 +994,56 @@ test('paired comment-only selection creates one durable comment without any Ask 
   });
 });
 
+test('changing a block answer records a second comment and updates the registry', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('question-author', { gated: true });
+    const { page } = await pairBrowser(world, 'question-owner', { talk: true });
+    const cli = (...args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'], '', agent.pane));
+    const created = cli('page', 'create', '--title', 'Release date', '--no-open');
+    const { blockIds } = cli(
+      'block',
+      'insert',
+      created.pageId,
+      '--type',
+      'question',
+      '--text',
+      'Which day?',
+      '--props',
+      '{"kind":"short"}',
+    );
+    await page.goto(new URL(created.path, door.address).href);
+    const block = page.locator(`[data-block-id="${blockIds[0]}"]`);
+    const field = block.getByRole('textbox', { name: 'Your answer' });
+    const send = block.getByRole('button', { name: 'Send', exact: true });
+    await field.fill('Friday');
+    await send.click();
+    await expect
+      .poll(() => cli('question', 'ls', created.pageId).questions[0]?.answer)
+      .toBe('Friday');
+    await page.reload();
+    await block.getByRole('button', { name: /Which day.*Friday/ }).click();
+    await field.fill('Monday');
+    await send.click();
+    const bodies = () =>
+      cli('threads', created.pageId).threads.flatMap(
+        (thread: { comments: { body: string; questionId?: string }[] }) =>
+          thread.comments
+            .filter((comment) => comment.questionId === blockIds[0])
+            .map((comment) => comment.body),
+      );
+    await expect
+      .poll(bodies)
+      .toEqual([expect.stringContaining('Friday'), expect.stringContaining('Monday')]);
+    await expect
+      .poll(() => cli('question', 'ls', created.pageId).questions[0]?.answer)
+      .toBe('Monday');
+    await page.reload();
+    await expect(block.getByRole('button', { name: /Which day.*Monday/ })).toBeVisible();
+  });
+});
+
 test('answer Send names start with visible text through the served question group', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());

@@ -1,4 +1,4 @@
-import { Plus, X } from 'lucide-react';
+import { Pencil, Plus, X } from 'lucide-react';
 import {
   useEffect,
   useId,
@@ -25,7 +25,7 @@ export interface QuestionBlockProps {
   error?: string;
   onSend?(answer: { choices: string[]; other?: string; text?: string }): void;
   onRetry?(): void;
-  /** A page writer opens the question's editor (an Edit button beside Send). */
+  /** A page writer opens the question editor from the recipient line. */
   onEdit?(): void;
   onUndo?(): void;
   onFollowUp?(): void;
@@ -56,6 +56,14 @@ export function QuestionBlock({
   const [other, setOther] = useState(false);
   const [value, setValue] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const card = useRef<HTMLElement>(null);
+  const focusAnswer = () =>
+    card.current
+      ?.querySelector<HTMLElement>('textarea:not(:disabled), input:not(:disabled)')
+      ?.focus();
+  useLayoutEffect(() => {
+    if (expanded) focusAnswer();
+  }, [expanded]);
   useEffect(() => {
     if (other) text.current?.focus();
   }, [other]);
@@ -145,7 +153,21 @@ export function QuestionBlock({
   };
   return (
     <UiTheme>
-      <section className="tmt-block-question" role="group" aria-label={title} onKeyDown={keys}>
+      <section
+        ref={card}
+        className="tmt-block-question"
+        role="group"
+        aria-label={title}
+        onKeyDown={keys}
+        onClick={(event) => {
+          if (
+            state === 'waiting' &&
+            !(event.target as Element).closest('button, input, textarea, label, a') &&
+            !window.getSelection()?.toString()
+          )
+            focusAnswer();
+        }}
+      >
         <div className="tmt-block-question-mark" aria-hidden="true">
           ?
         </div>
@@ -164,6 +186,18 @@ export function QuestionBlock({
           )}
           <div className="tmt-block-question-eyebrow">
             {state === 'answered' ? '✓ Answered' : '◆ Waiting for your answer'} · {agent}
+            {onEdit && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label="Edit question"
+                title="Edit question"
+                onClick={onEdit}
+              >
+                <Pencil size={14} aria-hidden="true" />
+              </Button>
+            )}
           </div>
           <h3 className="tmt-block-question-heading">{title}</h3>
           {kind !== 'short' && (
@@ -277,11 +311,6 @@ export function QuestionBlock({
             >
               Send
             </Button>
-            {onEdit && (
-              <Button type="button" variant="outline" onClick={onEdit}>
-                Edit
-              </Button>
-            )}
             {state === 'answered' && onFollowUp && (
               <button type="button" onClick={onFollowUp}>
                 Follow up
