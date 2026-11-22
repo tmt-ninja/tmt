@@ -1047,6 +1047,84 @@ test.describe('a module entry', () => {
     await page.close();
   });
 
+  test('a page reloaded while Colab is stopped opens Colab in place once it is back (#6810)', async () => {
+    const stub = `export function mount(slot) { slot.main.textContent = 'colab stub mounted'; }`;
+    const entry = `${MOUNT}assets/colab-module.js`;
+    // Stopped: the door still describes Colab, and its entry is a 404 until Colab starts.
+    let up = false;
+    // Then the door answers without Colab at all, as with Colab never started.
+    let answer: unknown = composed(MOUNT);
+    const { page, requests } = await openApp('/colab/', async (page) => {
+      await page.route('**/sdk/mount', (route) =>
+        route.fulfill({ json: { address: `${origin}${PREFIX}` } }),
+      );
+      await page.route(`**${PREFIX}/x/-/shell`, (route) => route.fulfill({ json: answer }));
+      await page.route(`**${entry}`, (route) =>
+        up
+          ? route.fulfill({ body: stub, contentType: 'text/javascript' })
+          : route.fulfill({ status: 404 }),
+      );
+    });
+    const main = page.locator('.tmt-ui-shell-main');
+    await expect(main).toContainText('Colab could not start here');
+    await expect(main.getByRole('status')).toHaveText('Colab is not answering yet. Trying again…');
+    await expect(main.locator(`a[href$="${MOUNT}"]`)).toHaveText('Open Colab');
+    const fetched = () =>
+      requests.filter((request) => new URL(request.url()).pathname === entry).length;
+    const documents = () => requests.filter((request) => request.isNavigationRequest()).length;
+    // Chromium keeps the failed import for its URL, so the card only fetches the entry again.
+    await expect.poll(fetched, { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
+    expect(documents()).toBe(1);
+    up = true;
+    // Once it answers, one reload loads Colab anew, and the reload's mark is cleared.
+    await expect(main).toContainText('colab stub mounted', { timeout: 20_000 });
+    expect(documents()).toBe(2);
+    expect(await page.evaluate(() => sessionStorage.getItem('tmt-module-reloaded'))).toBeNull();
+    await page.close();
+
+    // Colab not running at all: the card says so and opens Colab once the door describes it.
+    up = true;
+    answer = { version: 1, modules: [] };
+    const second = await openApp('/colab/', async (page) => {
+      await page.route('**/sdk/mount', (route) =>
+        route.fulfill({ json: { address: `${origin}${PREFIX}` } }),
+      );
+      await page.route(`**${PREFIX}/x/-/shell`, (route) => route.fulfill({ json: answer }));
+      await page.route(`**${entry}`, (route) =>
+        route.fulfill({ body: stub, contentType: 'text/javascript' }),
+      );
+    });
+    const card = second.page.locator('.tmt-ui-shell-main');
+    await expect(card).toContainText(
+      'Colab is not running on your machine. Run tmt colab serve there.',
+    );
+    await expect(card.getByRole('status')).toHaveText('Waiting for Colab to start. Trying again…');
+    answer = composed(MOUNT);
+    // An entry this document never tried is imported in place: no reload.
+    await expect(card).toContainText('colab stub mounted', { timeout: 20_000 });
+    expect(second.requests.filter((request) => request.isNavigationRequest())).toHaveLength(1);
+    await second.page.close();
+
+    // An entry that answers but cannot start reloads once, then leaves Colab's own page.
+    const broken = await openApp('/colab/', async (page) => {
+      await page.route('**/sdk/mount', (route) =>
+        route.fulfill({ json: { address: `${origin}${PREFIX}` } }),
+      );
+      await page.route(`**${PREFIX}/x/-/shell`, (route) => route.fulfill({ json: answer }));
+      await page.route(`**${entry}`, (route) =>
+        route.fulfill({ body: "throw new Error('broken');", contentType: 'text/javascript' }),
+      );
+    });
+    const final = broken.page.locator('.tmt-ui-shell-main');
+    await expect(final.getByRole('status')).toHaveCount(0, { timeout: 20_000 });
+    await expect(final.locator('p').first()).toHaveText(
+      'Colab could not start here, even after this page reloaded once.',
+    );
+    await expect(final.locator(`a[href$="${MOUNT}"]`)).toHaveText('Open Colab');
+    expect(broken.requests.filter((request) => request.isNavigationRequest())).toHaveLength(2);
+    await broken.page.close();
+  });
+
   test('falls back to the module link when its entry is refused', async () => {
     const { page } = await openColab(composed(MOUNT, 'https://evil.example/colab.js'));
     await expect(page.locator(`.tmt-ui-shell-main a[href$="${MOUNT}"]`)).toBeVisible();

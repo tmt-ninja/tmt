@@ -7,6 +7,7 @@ import {
   appRail,
   startShellHost,
   type ShellHost,
+  type ShellMounted,
   type ShellRoute,
   type ShellRouteModule,
   type ShellSlot,
@@ -229,6 +230,7 @@ function message(
   title: string,
   text: string,
   link?: { href: string; label: string },
+  status?: string,
 ): void {
   // The shell's main area is the one main landmark; a message is a section inside it.
   const main = document.createElement('section');
@@ -238,6 +240,14 @@ function message(
   const body = document.createElement('p');
   body.textContent = text;
   main.append(heading, body);
+  if (status) {
+    // What the page is doing on its own, said politely; focus stays where the person left it.
+    const line = document.createElement('p');
+    line.className = 'usage-note';
+    line.setAttribute('role', 'status');
+    line.textContent = status;
+    main.append(line);
+  }
   if (link) {
     const open = document.createElement('p');
     const anchor = document.createElement('a');
@@ -248,6 +258,245 @@ function message(
   }
   slot.main.replaceChildren(main);
   setRouteTitle(slot, title);
+}
+
+/** The first wait before a card tries its module again, and the longest (#6810). */
+export const RETRY_FIRST_MS = 2_000;
+export const RETRY_CAP_MS = 30_000;
+
+/**
+ * Try `attempt` again while the page is visible until it returns true or `signal` aborts: one
+ * attempt at a time, first after `RETRY_FIRST_MS`, the wait doubling to `RETRY_CAP_MS`. A hidden
+ * page tries nothing; showing it again tries at once. No attempt limit: the cap keeps the cost
+ * at one small read a half minute per tab.
+ */
+export function retryWhileVisible(attempt: () => Promise<boolean>, signal: AbortSignal): void {
+  let wait = RETRY_FIRST_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let running = false;
+  const schedule = () => {
+    clearTimeout(timer);
+    if (!signal.aborted) timer = setTimeout(run, wait);
+  };
+  const run = async () => {
+    clearTimeout(timer);
+    if (running || signal.aborted || document.visibilityState !== 'visible') return;
+    running = true;
+    let done = false;
+    try {
+      done = await attempt();
+    } catch {
+      done = false;
+    } finally {
+      running = false;
+    }
+    if (done || signal.aborted) return;
+    wait = Math.min(wait * 2, RETRY_CAP_MS);
+    schedule();
+  };
+  document.addEventListener(
+    'visibilitychange',
+    () => (document.visibilityState === 'visible' ? void run() : clearTimeout(timer)),
+    { signal },
+  );
+  signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
+  schedule();
+}
+
+type Select = (answer: ShellAnswer | undefined) => ModuleLoad | undefined;
+
+/** Entries whose import failed in this document. Chromium keeps a failed module import for its
+ * URL, so the same document never loads one again; only a new document can (#6810). */
+const failedEntries = new Set<string>();
+/** Entries this document loaded: a module that ran here may hold what a reload would drop. */
+const loadedEntries = new Set<string>();
+/** The entry this tab reloaded for once it answered again: a failure right after it is final. */
+const RELOADED_KEY = 'tmt-module-reloaded';
+
+function reloadedFor(entry: string): boolean {
+  try {
+    return sessionStorage.getItem(RELOADED_KEY) === entry;
+  } catch {
+    return false;
+  }
+}
+
+function markReload(entry: string | undefined): boolean {
+  try {
+    if (entry) sessionStorage.setItem(RELOADED_KEY, entry);
+    else sessionStorage.removeItem(RELOADED_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the entry answers now, read past every cache. */
+async function answers(entry: string): Promise<boolean> {
+  try {
+    return (await fetch(entry, { cache: 'no-store' })).ok;
+  } catch {
+    return false;
+  }
+}
+
+/** The answer read now, never a remembered one: a door that restarted is reopened first. */
+async function describedNow(select: Select) {
+  let answer = await started?.redescribe();
+  if (!answer && (await reopened())) answer = await started?.redescribe();
+  return { answer, load: select(answer) };
+}
+
+/** The card for a route that cannot load its module, and whether it waits for the module. */
+function card(title: string, answer: ShellAnswer | undefined, load: ModuleLoad | undefined) {
+  const link = load?.link ? { href: load.link, label: `Open ${title}` } : undefined;
+  if (load?.entry)
+    // An older Colab has no module to load here; its own mounted app is still the way in.
+    return {
+      retry: true,
+      text:
+        title === 'Colab'
+          ? 'Colab could not start here. It may have stopped on your machine.'
+          : `${title} could not start here. Its extension may have stopped on your machine.`,
+      status: `${title} is not answering yet. Trying again…`,
+      link,
+    };
+  if (load)
+    // Described, but not loadable from here: the module's own link is the way in.
+    return { retry: false, text: `${title} could not be opened here.`, link, status: undefined };
+  if (answer)
+    return {
+      retry: true,
+      text:
+        title === 'Colab'
+          ? 'Colab is not running on your machine. Run tmt colab serve there.'
+          : `${title} is not available from its extension. Start or update it on your machine.`,
+      status: `Waiting for ${title} to start. Trying again…`,
+      link: undefined,
+    };
+  return {
+    retry: false,
+    text: `Pair this browser with Remote to open ${title}. On the machine that runs Remote, run tmt remote pair.`,
+    link: { href: '/remote/', label: 'Pair this browser' },
+    status: undefined,
+  };
+}
+
+/**
+ * #6810: a card that waits for its module. While the page is visible it reads the answer again,
+ * then imports the entry, and the module mounts in the card's place. An entry that already failed
+ * in this document is only fetched: when it answers, the document reloads once and loads it anew.
+ * A card that needs a person (pairing, a module not loadable here) stops.
+ */
+function waitingCard(
+  title: string,
+  select: Select,
+  shown: ReturnType<typeof card>,
+): ShellRouteModule {
+  return {
+    mount(slot) {
+      const stop = new AbortController();
+      let inner: ShellMounted | undefined;
+      let released = false;
+      const mounted: ShellMounted = {
+        release() {
+          released = true;
+          stop.abort();
+          inner?.release();
+        },
+      };
+      let painted = '';
+      // A card is drawn again only when what it says changes, so its status is not re-announced.
+      const paint = (view: ReturnType<typeof card>) => {
+        if (painted === view.text) return;
+        painted = view.text;
+        message(slot, title, view.text, view.link, view.status);
+      };
+      paint(shown);
+      retryWhileVisible(async () => {
+        const { answer, load } = await describedNow(select);
+        if (stop.signal.aborted) return true;
+        const view = card(title, answer, load);
+        if (!view.retry) {
+          paint(view);
+          return true;
+        }
+        const entry = load!.entry!;
+        if (failedEntries.has(entry)) {
+          // This document keeps the failed import: once the entry answers, a new one loads it.
+          if (!(await answers(entry))) {
+            // Stopped again: a reload that follows is not the one that came before.
+            markReload(undefined);
+            return false;
+          }
+          if (stop.signal.aborted) return true;
+          if (reloadedFor(entry)) {
+            // It answers, yet failed right after the reload: waiting will not start it.
+            markReload(undefined);
+            paint({
+              retry: false,
+              text: `${title} could not start here, even after this page reloaded once.`,
+              link: view.link,
+              status: undefined,
+            });
+            return true;
+          }
+          // Only a document in which no module of this kind ever loaded reloads: then nothing
+          // typed into one can be lost. Otherwise the person reloads when ready.
+          if (loadedEntries.size || !markReload(entry)) {
+            paint({
+              retry: false,
+              text: `${title} is answering again. Reload this page to open it.`,
+              link: view.link,
+              status: undefined,
+            });
+            return true;
+          }
+          location.reload();
+          return true;
+        }
+        let module: ShellRouteModule;
+        try {
+          module = (await import(/* @vite-ignore */ entry)) as ShellRouteModule;
+          loadedEntries.add(entry);
+        } catch {
+          failedEntries.add(entry);
+          if (!stop.signal.aborted) paint(view);
+          return false;
+        }
+        if (stop.signal.aborted) return true;
+        stop.abort();
+        let given: Awaited<ReturnType<ShellRouteModule['mount']>>;
+        try {
+          given = await module.mount(slot);
+        } catch {
+          // A module that loads but cannot start will not start by waiting: its own page is left.
+          painted = '';
+          paint({
+            retry: false,
+            text: `${title} could not start here.`,
+            link: view.link,
+            status: undefined,
+          });
+          return true;
+        }
+        inner = typeof given === 'function' ? { release: given } : (given ?? undefined);
+        // The route was left while the module mounted: it goes as the card did.
+        if (released) {
+          inner?.release();
+          return true;
+        }
+        // A module the host may keep is kept through this card, which then only passes it on.
+        if (inner?.location) mounted.location = () => inner!.location!();
+        if (inner?.suspend) {
+          mounted.suspend = () => inner!.suspend!();
+          mounted.resume = (next) => inner!.resume?.(next);
+        }
+        return true;
+      }, stop.signal);
+      return mounted;
+    },
+  };
 }
 
 /** The same owner-session/reopen lifetime loads Colab and its described Design module. */
@@ -262,49 +511,20 @@ function colabRouteLoad(
     // fails on its local record, before any request) and read the shell again.
     if (!answer && (await reopened())) answer = await started?.redescribe();
     const load = select(answer);
-    const entry = load?.entry;
-    if (!entry)
-      return {
-        mount: (slot) =>
-          load
-            ? // Described, but not loadable from here: the module's own link is the way in.
-              message(
-                slot,
-                title,
-                `${title} could not be opened here.`,
-                load.link ? { href: load.link, label: `Open ${title}` } : undefined,
-              )
-            : answer
-              ? message(
-                  slot,
-                  title,
-                  title === 'Colab'
-                    ? 'Colab is not running on your machine. Run tmt colab serve there, then reload.'
-                    : `${title} is not available from its extension. Start or update it on your machine, then reload.`,
-                )
-              : message(
-                  slot,
-                  title,
-                  `Pair this browser with Remote to open ${title}. On the machine that runs Remote, run tmt remote pair.`,
-                  { href: '/remote/', label: 'Pair this browser' },
-                ),
-      };
-    try {
-      return (await import(/* @vite-ignore */ entry)) as ShellRouteModule;
-    } catch {
-      // An older Colab has no module to load here; its own mounted app is still the way in.
-      return {
-        mount: (slot) =>
-          message(
-            slot,
-            title,
-            title === 'Colab'
-              ? 'Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page.'
-              : `${title} could not start here. Its extension may have stopped on your machine. Reload to try again.`,
-            load.link ? { href: load.link, label: `Open ${title}` } : undefined,
-          ),
-      };
-    }
+    if (load?.entry)
+      try {
+        const module = (await import(/* @vite-ignore */ load.entry)) as ShellRouteModule;
+        loadedEntries.add(load.entry);
+        markReload(undefined);
+        return module;
+      } catch {
+        // Its entry did not load (Colab stopped on the machine): the card waits for it.
+        failedEntries.add(load.entry);
+      }
+    const shown = card(title, answer, load);
+    return shown.retry
+      ? waitingCard(title, select, shown)
+      : { mount: (slot) => message(slot, title, shown.text, shown.link) };
   };
 }
 
