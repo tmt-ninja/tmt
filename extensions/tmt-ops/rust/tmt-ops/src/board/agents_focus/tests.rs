@@ -477,7 +477,7 @@ fn squad_timer_overflow_more_hint_renders_exact_text() {
     );
 }
 
-fn talk_with_work() -> App {
+pub(in crate::board) fn talk_with_work() -> App {
     const PAGE: &str = "77777777-7777-4777-8777-777777777777";
     let mut app = observed("One short observed response.");
     app.focus = 1;
@@ -524,10 +524,28 @@ fn talk_work_expands_in_place_and_opens_only_the_fresh_bound_page() {
     let press = |code| KeyEvent::new(code, KeyModifiers::NONE);
     assert_eq!(app.key(press(KeyCode::Char('w'))), Effect::None);
     let expanded = screen(&draw(&mut app, 160, 42));
-    assert!(expanded.contains("✓ Confirm scope"), "{expanded}");
-    assert!(expanded.contains("◆ Return target ← next"), "{expanded}");
-    assert!(expanded.contains("· Back navigation"), "{expanded}");
-    assert!(expanded.contains("Open in Colab"), "{expanded}");
+    let rows = expanded.lines().collect::<Vec<_>>();
+    let heading = rows
+        .iter()
+        .position(|row| row.contains("│ WORK DETAILS"))
+        .expect("drawer heading");
+    for (offset, detail) in [
+        "│   ✓ Confirm scope",
+        "│   ◆ Return target ← next",
+        "│   · Back navigation",
+        "│   o Open in Colab",
+        "│── ",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert!(rows[heading + offset + 1].contains(detail), "{expanded}");
+    }
+    let toggle = app.talk_work.borrow().toggle_hit.unwrap();
+    let open = app.talk_work.borrow().open_hit.unwrap();
+    let pane = app.conversation.borrow().pane.unwrap();
+    assert_eq!(open.x, pane.x + 2);
+    assert_eq!(open.y, toggle.y + 5);
     assert!(expanded.contains("One short observed response."));
     assert_eq!(app.workspace.selected, recipient);
     assert_eq!(app.input_band.get(), Some(input));

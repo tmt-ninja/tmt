@@ -117,6 +117,11 @@ impl TalkWork {
         self.open_hit = None;
     }
 
+    #[cfg(test)]
+    pub(super) fn captured_hits(&self) -> (Option<Rect>, Option<Rect>) {
+        (self.toggle_hit, self.open_hit)
+    }
+
     fn matches(&self, member: &OpsTarget, item: &super::work::Item) -> bool {
         self.target
             .as_ref()
@@ -243,7 +248,7 @@ fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
     let toggle = if work.expanded { "Collapse" } else { "Expand" };
     let hint = format!(" {TALK_WORK_TOGGLE} {toggle}");
     let hint_width = hint.width() as u16;
-    let show_toggle = room >= 3 && area.width >= hint_width + 24;
+    let show_toggle = room >= 4 && area.width >= hint_width + 24;
     let expanded = show_toggle && work.expanded;
     let marker = if expanded { "▾" } else { "▸" };
     let progress = item.progress.map_or_else(
@@ -299,9 +304,16 @@ fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
     }
 
     line(frame, area, y, neutral(" WORK DETAILS", app.look()));
+    // Keep one row for the rule even when the drawer reaches its height limit.
+    let details = Rect {
+        x: area.x + 2,
+        width: area.width - 2,
+        height: area.height - 1,
+        ..area
+    };
     let can_open = !app.work.stale && item.can_open;
     let show_more = item.sections_omitted || (item.progress.is_some() && item.sections.is_empty());
-    let remaining = area.bottom() - *y;
+    let remaining = details.bottom() - *y;
     let section_rows =
         usize::from(remaining.saturating_sub(u16::from(can_open) + u16::from(show_more)));
     let more_sections = item.sections.len() > section_rows;
@@ -315,35 +327,47 @@ fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
         let head = format!(" {} ", section.state.mark());
         let title = super::view::fit(
             &section.title,
-            usize::from(area.width).saturating_sub(head.width() + pointer.width()),
+            usize::from(details.width).saturating_sub(head.width() + pointer.width()),
         );
         line(
             frame,
-            area,
+            details,
             y,
             neutral(format!("{head}{}{pointer}", title.trim_end()), app.look()),
         );
     }
-    if show_more || more_sections {
+    if (show_more || more_sections) && details.bottom() - *y > u16::from(can_open) {
         line(
             frame,
-            area,
+            details,
             y,
             neutral(" More sections in Colab", app.look()),
         );
     }
     let open = " o Open in Colab";
-    if can_open && *y < area.bottom() && area.width >= open.width() as u16 {
+    if can_open && *y < details.bottom() && details.width >= open.width() as u16 {
         if !app.modal_open() {
-            work.open_hit = Some(Rect::new(area.x, *y, open.width() as u16, 1));
+            work.open_hit = Some(Rect::new(details.x, *y, open.width() as u16, 1));
         }
         line(
             frame,
-            area,
+            details,
             y,
             Line::styled(open, app.look().role(Role::Link)),
         );
     }
+    line(
+        frame,
+        area,
+        y,
+        section_rule::line(
+            "",
+            Line::default(),
+            usize::from(area.width),
+            false,
+            app.look(),
+        ),
+    );
 }
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
@@ -775,4 +799,4 @@ pub(in crate::board) mod member;
 mod squad;
 
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;
