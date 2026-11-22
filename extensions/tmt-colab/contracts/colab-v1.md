@@ -7203,12 +7203,16 @@ characters escaped and nothing truncated.
 
 Already admitted, unexpired, unrevoked owner devices receive wraps through the
 existing recipient planner. Later owner-device registration supplies missing
-forward wraps for existing non-archived pages inside the same authenticated device
-transaction, without a new log operation. Current history supplies only the current
+forward wraps for existing non-deleted pages, including read-only archived pages, inside the same authenticated device
+transaction, without a new log operation. A wrap for another verified device of the same owner
+enrolls no sharing recipient and grants no write access to an archived page. Current history supplies only the current
 key; shared history supplies at most 64 retained epochs. Registration creates at
-most 512 missing wraps per transaction and rejects capacity atomically. Exact
-registration retries reuse existing device/epoch wraps without growth or fresh
-signing; revoked devices receive nothing. These wraps confer no new Remote rights.
+most 512 missing wraps per transaction, active pages first, then archived pages
+by descending archive revision, newest eligible epoch first within each page.
+At the limit registration succeeds. A later registration or renewal skips existing
+device/epoch wraps and continues filling the remainder. Opening a deferred page in the
+current session also completes its eligible wraps for the verified owner device before
+the sync catch-up returns the page. Once complete, a retry adds no wraps; revoked devices receive nothing. These wraps confer no new Remote rights.
 
 JSON success is `{spaceId,pageId,title,path,operationId,membershipHead,warnings}` with
 `membershipHead:{revision,statementHash}` (decimal text and canonical base64url

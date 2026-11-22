@@ -907,6 +907,25 @@ fn archive_preserves_reads_and_delete_denies_admission_catchup_and_queued_delive
             .unwrap_err(),
         tmt_colab::sync::Code::Denied
     );
+    // Register another owner device only after archive, then try its own content write.
+    registration
+        .lock()
+        .unwrap()
+        .register(
+            Some(&context(OTHER, 1)),
+            &serde_json::to_vec(&request(OTHER, NOW)).unwrap(),
+            NOW,
+        )
+        .unwrap();
+    let mut late_write = header.clone();
+    late_write.author_device = OTHER.into();
+    assert!(admission.authorize(OTHER, &scope, Access::Read).is_ok());
+    assert_eq!(
+        admission
+            .authorize(OTHER, &scope, Access::Append(&late_write))
+            .unwrap_err(),
+        tmt_colab::sync::Code::Denied
+    );
     assert!(admission.catchup_context(DEVICE, &scope, &store).is_ok());
     assert_eq!(reader.1.poll(), Progress::Advanced);
     let delivered: Value =
@@ -1100,8 +1119,7 @@ fn browser_reads_created_page(f: &Fixture, page: &str, device: &str) {
     );
 }
 #[test]
-fn creation_wraps_existing_owner_and_late_registration_opens_only_active_pages_without_retry_growth()
- {
+fn creation_and_late_registration_wrap_readable_pages_for_the_owner_without_retry_growth() {
     use tmt_colab::transitions::{OwnerAction, OwnerRequest};
     const PAGE_A: &str = "50000000-0000-4000-8000-000000000001";
     const PAGE_B: &str = "50000000-0000-4000-8000-000000000002";
@@ -1128,9 +1146,44 @@ fn creation_wraps_existing_owner_and_late_registration_opens_only_active_pages_w
             NOW,
         )
         .unwrap();
+    const DELETED: &str = "50000000-0000-4000-8000-000000000004";
+    create_page(&mut f, DELETED, DELETED, 4);
+    f.service()
+        .apply_owner(
+            OwnerRequest {
+                operation_id: "50000000-0000-4000-8000-000000000005",
+                expected_revision: 5,
+                action: OwnerAction::Delete {
+                    page: DELETED,
+                    by: tmt_colab::transitions::DeleteActor::Cli(None),
+                },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    let link_wraps = "SELECT count(*) FROM wraps WHERE page=? AND kind='link'";
+    let existing_links: i64 = f
+        .oracle()
+        .query_row(link_wraps, [PAGE_A], |r| r.get(0))
+        .unwrap();
     let devices = f.rows("devices");
     let bindings = f.rows("device_registrations");
     let wraps = f.rows("wraps");
+    let mut nonowner: Value = serde_json::from_str(&context(OTHER, 1)).unwrap();
+    nonowner["owner"] = json!(false);
+    assert_eq!(
+        register(
+            &mut f,
+            Some(&nonowner.to_string()),
+            &request(OTHER, NOW),
+            NOW
+        )
+        .unwrap_err(),
+        Code::Denied
+    );
+    assert_eq!(f.rows("wraps"), wraps);
     f.oracle().execute_batch("CREATE TRIGGER deny_forward_wrap BEFORE INSERT ON wraps BEGIN SELECT RAISE(FAIL,'forced rollback'); END;").unwrap();
     assert_eq!(
         register(&mut f, Some(&context(OTHER, 1)), &request(OTHER, NOW), NOW).unwrap_err(),
@@ -1145,15 +1198,23 @@ fn creation_wraps_existing_owner_and_late_registration_opens_only_active_pages_w
     let first = register(&mut f, Some(&context(OTHER, 1)), &request(OTHER, NOW), NOW).unwrap();
     assert_browser_registration_anchor(&f, &first);
     browser_reads_created_page(&f, PAGE_B, OTHER);
-    let count: i64 = f
+    browser_reads_created_page(&f, PAGE_A, OTHER);
+    // Both new wraps belong to the registering owner device.
+    assert_eq!(f.rows("wraps"), wraps + 2);
+    let links_after: i64 = f
+        .oracle()
+        .query_row(link_wraps, [PAGE_A], |r| r.get(0))
+        .unwrap();
+    assert_eq!(links_after, existing_links);
+    let deleted_wraps: i64 = f
         .oracle()
         .query_row(
-            "SELECT count(*) FROM wraps WHERE page=? AND kind='device' AND recipient=?",
-            [PAGE_A, OTHER],
+            "SELECT count(*) FROM wraps WHERE page=? AND recipient=?",
+            [DELETED, OTHER],
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(count, 0);
+    assert_eq!(deleted_wraps, 0);
     let count = f.rows("wraps");
     let log = f.rows("membership_log");
     f.reopen();
@@ -1171,6 +1232,113 @@ fn creation_wraps_existing_owner_and_late_registration_opens_only_active_pages_w
     );
     assert_eq!(f.rows("wraps"), count);
 }
+#[test]
+fn registration_prioritizes_active_then_newest_archives_and_finishes_on_retry() {
+    use tmt_colab::store::owner::Mutation;
+    let mut f = Fixture::new();
+    const ACTIVE: &str = "90000000-0000-4000-8000-000000000001";
+    let first_page = create_page(&mut f, ACTIVE, ACTIVE, 0);
+    const SECOND_ACTIVE: &str = "90000000-0000-4000-8000-000000000002";
+    let second_page = create_page(
+        &mut f,
+        SECOND_ACTIVE,
+        SECOND_ACTIVE,
+        first_page.head.revision,
+    );
+    let key = Keyring::read(&f.layout).unwrap();
+    let mut store = Store::open(&f.layout).unwrap();
+    let archives: Vec<_> = (0..512)
+        .map(|n| format!("50000000-0000-4000-8000-{n:012}"))
+        .collect();
+    let created = create_page(
+        &mut f,
+        &archives[0],
+        &archives[0],
+        second_page.head.revision,
+    );
+    for page in &archives[1..] {
+        store.create_page(page).unwrap();
+    }
+    store
+        .owner_transaction(
+            &key.space_id,
+            &key.owner_public(),
+            Mutation {
+                operation_id: OTHER,
+                digest: [42; 32],
+                expected_revision: created.head.revision,
+            },
+            |tx| {
+                for page in &archives {
+                    if page != &archives[0] {
+                        tx.put_epoch_secret(page, 1, &[12; 32])?;
+                    }
+                    tx.append_statement(&key.sign_statement(
+                        tx.head(),
+                        "page.archive",
+                        &serde_json::to_vec(&json!({"pageId":page}))?,
+                    )?)?;
+                }
+                Ok(vec![])
+            },
+        )
+        .unwrap();
+    let conn = f.oracle();
+    let wraps = || {
+        let mut query = conn
+            .prepare(
+                "SELECT page,envelope FROM wraps WHERE kind='device' AND recipient=? ORDER BY page",
+            )
+            .unwrap();
+        query
+            .query_map([DEVICE], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
+            })
+            .unwrap()
+            .collect::<Result<std::collections::BTreeMap<_, _>, _>>()
+            .unwrap()
+    };
+    let enroll = |f: &mut Fixture| {
+        register(f, Some(&context(DEVICE, 1)), &request(DEVICE, NOW), NOW).unwrap()
+    };
+    let first = enroll(&mut f);
+    browser_reads_created_page(&f, ACTIVE, DEVICE);
+    browser_reads_created_page(&f, SECOND_ACTIVE, DEVICE);
+    let initial = wraps();
+    assert_eq!(initial.len(), 512);
+    assert!(!initial.contains_key(&archives[0]));
+    use tmt_colab::{
+        registration::OwnerAdmission,
+        sync::{Access, Admission, SyncScope},
+    };
+    let admission = OwnerAdmission(Arc::new(Mutex::new(f.service.take().unwrap())));
+    let scope = SyncScope {
+        space: key.space_id.clone(),
+        page: archives[0].clone(),
+        epoch: "1".into(),
+    };
+    admission.authorize(DEVICE, &scope, Access::Read).unwrap();
+    admission.catchup_context(DEVICE, &scope, &store).unwrap();
+    browser_reads_created_page(&f, &archives[0], DEVICE);
+    assert_eq!(wraps().len(), 513);
+    f.service = Some(
+        Arc::try_unwrap(admission.0)
+            .ok()
+            .unwrap()
+            .into_inner()
+            .unwrap(),
+    );
+    assert_eq!(enroll(&mut f), first);
+    let complete = wraps();
+    assert_eq!(complete.len(), 514);
+    assert!(complete.contains_key(&archives[0]));
+    for (page, envelope) in initial {
+        assert_eq!(complete[&page], envelope);
+    }
+    assert_eq!(enroll(&mut f), first);
+    assert_eq!(wraps(), complete);
+}
+
 #[test]
 fn create_first_registration_and_saved_head_certificate_retry_use_the_genesis_anchor() {
     const PAGE: &str = "50000000-0000-4000-8000-000000000005";

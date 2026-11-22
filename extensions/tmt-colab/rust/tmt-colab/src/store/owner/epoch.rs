@@ -239,6 +239,64 @@ impl OwnerTransaction<'_> {
             .query_map([], |r| r.get(0))?
             .collect::<std::result::Result<_, _>>()?)
     }
+    /// Fold the catalog once at this transaction's head. Archive order follows the
+    /// signed membership log, including a page restored and archived again.
+    pub(crate) fn owner_wrap_pages(&self) -> Result<Vec<(String, crate::fold::PagePolicy)>> {
+        let pages = self.pages()?;
+        if pages.len() > crate::limits::PAGES {
+            return Err(OwnerFault::Capacity.into());
+        }
+        let mut catalog: std::collections::BTreeMap<_, _> = pages
+            .into_iter()
+            .map(|page| (page, (crate::fold::PagePolicy::default(), 0usize)))
+            .collect();
+        let mut query = self
+            .tx
+            .prepare("SELECT envelope FROM membership_log ORDER BY revision")?;
+        for (position, row) in query.query_map([], |r| r.get::<_, Vec<u8>>(0))?.enumerate() {
+            let payload = decoded_payload(&row?)?;
+            if let Some(page) = payload.page()
+                && let Some((policy, archive_order)) = catalog.get_mut(page)
+            {
+                policy.apply(&payload, page)?;
+                if matches!(payload, payload::Payload::Archive(_)) {
+                    *archive_order = position;
+                }
+            }
+        }
+        let mut pages: Vec<_> = catalog
+            .into_iter()
+            .filter(|(_, (policy, _))| !policy.deleted)
+            .collect();
+        pages.sort_by_key(|(_, (policy, order))| {
+            (
+                policy.archived,
+                std::cmp::Reverse(if policy.archived { *order } else { 0 }),
+            )
+        });
+        Ok(pages
+            .into_iter()
+            .map(|(page, (policy, _))| (page, policy))
+            .collect())
+    }
+    /// Fast read-only gate before taking the device writer transaction. The writer
+    /// rechecks policy and verifies existing envelopes against the bound encryption key.
+    pub(crate) fn missing_device_wrap(
+        &self,
+        page: &str,
+        policy: &crate::fold::PagePolicy,
+        device: &str,
+    ) -> Result<bool> {
+        let first = if policy.history_current {
+            policy.epoch
+        } else {
+            policy.epoch.saturating_sub(63).max(1)
+        };
+        Ok(self.tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM epoch_secrets s WHERE s.page=?1 AND s.epoch BETWEEN ?2 AND ?3
+             AND NOT EXISTS(SELECT 1 FROM wraps w WHERE w.page=s.page AND w.epoch=s.epoch AND w.kind='device' AND w.recipient=?4))",
+            params![page, sequence(first), sequence(policy.epoch), device], |row| row.get(0))?)
+    }
     pub(crate) fn recent_secrets(&self, page: &str, epoch: u64) -> Result<Vec<(u64, [u8; 32])>> {
         let mut query = self.tx.prepare("SELECT epoch,secret FROM epoch_secrets WHERE page=? AND epoch>=? AND epoch<=? ORDER BY epoch")?;
         let rows = query
