@@ -84,10 +84,7 @@ fn fields(core: &Core, squad: &Squad, id: &str) -> Result<BTreeMap<String, Strin
             if crate::squad::retired_field(field) {
                 return None;
             }
-            Some((
-                field.to_owned(),
-                value.as_str()?.to_owned(),
-            ))
+            Some((field.to_owned(), value.as_str()?.to_owned()))
         })
         .collect())
 }
@@ -326,7 +323,9 @@ fn parse_change(squad: &Squad, pair: &str) -> Result<Change, SquadError> {
     if squad::retired_field(field) {
         return Err(SquadError::new(
             "SQUAD_FIELD_RETIRED",
-            format!("Field '{field}' is retired: set only state, put progress on the issue, and use a real request or Colab question to ask the user."),
+            format!(
+                "Field '{field}' is retired: set only state, put progress on the issue, and use a real request or Colab question to ask the user."
+            ),
         ));
     }
     let key = squad.key(field)?;

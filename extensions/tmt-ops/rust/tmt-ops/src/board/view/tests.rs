@@ -883,8 +883,10 @@ fn workspace_field_preview_omits_empty_values_and_clamps_safe_wrapped_text() {
     workspace_row(&mut app)["waitingOnYou"] = json!([{
         "requestId":"question", "preview":"one\ntwo\t\u{1b}[31m long question that wraps over several preview lines"
     }]);
+    let detail = app.row_detail(&target, &[]).unwrap();
+    assert_eq!(detail.value()["fields"][0]["label"], "waiting on you");
     let text = buffer_text(&entity_detail_buffer(&app, 18, 20));
-    assert!(text.iter().any(|line| line.contains("waiting on you")));
+    assert!(text.iter().any(|line| line.contains("◆ one")), "{text:?}");
     assert!(!text.iter().any(|line| line.contains("old task")));
     assert!(text.iter().any(|line| line.contains('…')));
     assert!(

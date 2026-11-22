@@ -2908,7 +2908,7 @@ printf '%s\n' '{{}}'
         assert_eq!(
             app.perform(&crate::action::Action::parse("copy {name}").unwrap()),
             super::super::app::Effect::Act(super::super::app::Request::Copy {
-                text: "worker".into(),
+                text: "alice".into(),
                 program: Some(vec!["fixture-clipboard".into()]),
                 feedback: crate::board::app::CopyFeedback::Destination,
             })
