@@ -620,7 +620,8 @@ export const text = {
   blockDraftsKept:
     'What you typed on this page is kept on this device and offered when the page opens again.',
   blockDraftsBeforePairing:
-    'Pairing this browser again will not bring back what you typed on this page. Copy your draft text before pairing again.',
+    'Colab can recover your drafts after you pair again as this space’s owner. You can copy this draft text now to keep a separate copy.',
+  blockDraftsRecoveryUnavailable: 'Some draft text from an earlier pairing could not be recovered.',
   copyBlockDrafts: 'Copy draft text',
   blockDraftsCopied: 'Draft text copied.',
   blockDraftsCopyFailed: 'Could not copy the draft text.',

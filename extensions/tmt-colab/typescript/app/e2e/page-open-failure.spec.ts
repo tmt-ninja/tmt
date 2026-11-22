@@ -20,7 +20,7 @@ async function mount(page: Page) {
 const draftValue = 'Retry this draft exactly.\n\nTrailing space: ';
 const copyLabel = 'Copy draft text';
 const pairingDisclosure =
-  'Pairing this browser again will not bring back what you typed on this page.';
+  'Colab can recover your drafts after you pair again as this space’s owner.';
 const draftKept =
   'What you typed on this page is kept on this device and offered when the page opens again.';
 

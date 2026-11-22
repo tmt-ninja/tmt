@@ -804,7 +804,7 @@ function TerminalFailure({
   );
 }
 
-/** Open the kept text only for a trusted Copy action. Pairing again opens a new device store. */
+/** Open this pairing's kept text only for a trusted Copy action. */
 function EndedDraftCopy({ store, page, blocks }: EndedDraftSource) {
   const [feedback, setFeedback] = useState('');
   const scope = useRef<AbortController>(null);
@@ -2083,11 +2083,11 @@ function OpenPage({
     retryMove,
     runLifecycle,
   } = usePageWorkflow(transport, snapshot, view, space);
-  // A new pairing cannot reopen this device's drafts (#6796), but the current page can still
-  // offer their text to copy. For a gone page there is no draft action.
+  // The ended page can still offer this pairing's readable device drafts to copy. Owner-scoped
+  // drafts are closed until another live owner admission. A gone page has no draft action.
   const draftStore =
     view.pageType === 'blocks' && (endedError ? endedAction !== 'pages' : archived)
-      ? transport.blockDrafts
+      ? ((endedError ? undefined : snapshot.binding?.blockDrafts) ?? transport.blockDrafts)
       : undefined;
   const [draftsHeld, setDraftsHeld] = useState<{
     store: BlockDraftStore;
@@ -3857,7 +3857,7 @@ function OpenPage({
                   <LazyStructuredPage
                     key={snapshot.id}
                     pageId={snapshot.id}
-                    blockDrafts={transport.blockDrafts}
+                    blockDrafts={snapshot.binding?.blockDrafts ?? transport.blockDrafts}
                     onDrawn={setDrawnBlocks}
                     onSettle={setBlockSettler}
                     blocks={view.blocks}

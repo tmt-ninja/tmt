@@ -4573,6 +4573,31 @@ device cannot store drafts (unavailable, blocked, full), the draft stays in the 
 single line says `Drafts are not saved on this device.`; success is claimed only after
 the storage transaction completed. Source-editor text is outside this record.
 
+#### Block draft recovery after pairing again (#6796)
+
+Colab can offer kept block drafts after a new pairing in the same browser profile and
+origin. Listing, opening, migrating and clearing owner drafts require a live owner-device
+session and verified Colab owner-device admission for the space in that session. Colab
+rechecks that admission when it uses the namespace and closes it when admission ends.
+A member, link reader, or different owner or space at the same origin cannot see or
+alter these records. The old Remote grant plays no part in recovery.
+
+The non-extractable key is local to the verified owner root, space and block-draft
+purpose. On every unlock Colab compares the owner root recorded with the key to the
+currently verified owner root. A failed comparison leaves stored records untouched.
+Each draft record authenticates that scope and its page. This protects drafts at rest
+and separates owner and space namespaces in the app. Script running at the same origin
+can use keys in that origin's IndexedDB, including the older device-scoped keys. Drafts
+and keys stay in this browser. A different profile or origin, or clearing site data,
+loses access to this local copy.
+
+A bounded, resumable migration uses the original device key and authenticated scope
+to open a legacy record for the verified space. The old sealed record is kept until
+its replacement is durable, and plaintext never enters storage. If the original key
+is missing, Colab leaves that record in place and explains that the typing from that
+pairing cannot be recovered. Recovered text enters the existing recovery offer once,
+uses the ordinary conflict checks, and is never sent or merged automatically.
+
 ### Owner page and space-home header
 
 Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row with the title, an original-author caption next to it, and compact actions in More (inside the TMT web shell the row sits in the shell's header slot and draws the title alone, because the rail carries the mark and names the module; a standalone row starts with the TMT mark and Colab, below 480px the mark only, the wordmark kept in the brand link's name). The display-only Remote identity (`local · <device>`) is in the header's accessible name (the brand link's name and title in a standalone row); it never supplies connection state or authority, and the connection chip retains its existing owner (below 480px its words lead the More menu as a non-interactive line instead of a visible header chip).

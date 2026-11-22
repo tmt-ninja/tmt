@@ -138,6 +138,14 @@ export function LiveStructuredPage({
     else if (!held) for (const waiter of waiting.current.splice(0)) waiter.fail();
   }, [write, held]);
   const [restored, setRestored] = useState<BlockDraft[]>([]);
+  const ownerSession = recovery?.store.recoverySession?.();
+  const [offerScope, setOfferScope] = useState<{
+    recovery: BlockDraftSession;
+    ownerSession?: object;
+    unavailable: boolean;
+  }>();
+  const currentOffer =
+    !!offerScope && offerScope.recovery === recovery && offerScope.ownerSession === ownerSession;
   const [clearFailed, setClearFailed] = useState<ReadonlySet<string>>(new Set());
   /** Waits for this tab's typing and batches on their way to land or fail (set once the editing
    * hook below exists). */
@@ -150,11 +158,17 @@ export function LiveStructuredPage({
       void settled
         .current()
         .catch(() => {})
-        .then(() => (active() ? recovery.store.load(recovery.page) : []))
+        .then(async () => {
+          if (!active()) return undefined;
+          return recovery.store.recover
+            ? recovery.store.recover(recovery.page)
+            : { drafts: await recovery.store.load(recovery.page), unavailable: false };
+        })
         .then(
-          (entries) => {
-            if (!active()) return;
-            const offered = restorable(recovery.page, entries);
+          (result) => {
+            if (!active() || !result || recovery.store.recoverySession?.() !== ownerSession) return;
+            const offered = restorable(recovery.page, result.drafts);
+            setOfferScope({ recovery, ownerSession, unavailable: result.unavailable });
             setRestored(offered);
             // What a reload offers, for a check that nothing landed comes back (#6749).
             window.dispatchEvent(
@@ -164,7 +178,7 @@ export function LiveStructuredPage({
           () => {},
         );
     },
-    [recovery],
+    [ownerSession, recovery],
   );
   useEffect(() => {
     let active = true;
@@ -309,6 +323,7 @@ export function LiveStructuredPage({
   }, [flush]);
   const dismiss = useCallback(
     async (draft: BlockDraft) => {
+      if (!currentOffer || recovery?.store.recoverySession?.() !== ownerSession) return;
       if (await recovery?.store.clear(recovery.page, draft)) {
         setRestored((entries) => entries.filter((e) => e !== draft));
         setClearFailed((previous) => {
@@ -321,7 +336,7 @@ export function LiveStructuredPage({
         setRecoveryError(strings.blockEdit.notApplied);
       }
     },
-    [recovery],
+    [currentOffer, ownerSession, recovery],
   );
   const present = (draft: BlockDraft) => {
     if (!tree.holds(draft.id, draft.cell?.table)) return undefined;
@@ -330,7 +345,13 @@ export function LiveStructuredPage({
   };
   const busy = useRef(new Set<string>());
   const keep = async (draft: BlockDraft) => {
-    if (!editable || busy.current.has(draft.target)) return;
+    if (
+      !editable ||
+      !currentOffer ||
+      recovery?.store.recoverySession?.() !== ownerSession ||
+      busy.current.has(draft.target)
+    )
+      return;
     busy.current.add(draft.target);
     try {
       if (present(draft) !== draft.value) {
@@ -373,12 +394,13 @@ export function LiveStructuredPage({
   };
   const [recoveryError, setRecoveryError] = useState('');
   useEffect(() => {
+    if (!currentOffer) return;
     for (const draft of restored) {
       const block = records.find((b) => b.id === draft.id && !b.deleted);
       const shown = draft.cell ? block?.cells?.[draft.cell.column] : block?.text;
       if (block && heldByPage(draft, shown ?? '')) void dismiss(draft);
     }
-  }, [records, restored, dismiss]);
+  }, [currentOffer, records, restored, dismiss]);
   useEffect(() => {
     onDrawn?.(tree.flat());
   }, [tree, onDrawn]);
@@ -391,13 +413,20 @@ export function LiveStructuredPage({
     <StructuredPage
       anchorBlock={anchor.startsWith('block-') ? anchor.slice(6) : anchor}
       tree={tree}
-      recoveryError={recoveryError}
-      restored={restored.filter((d) => {
-        // The editor already offers it in its deleted block's place, or it has landed since.
-        if (drafts.has(d.id) || (pageId && !restorable(pageId, [d]).length)) return false;
-        const shown = present(d);
-        return clearFailed.has(d.target) || shown === undefined || !heldByPage(d, shown);
-      })}
+      recoveryError={
+        recoveryError ||
+        (currentOffer && offerScope?.unavailable ? strings.blockDraftsRecoveryUnavailable : '')
+      }
+      restored={
+        currentOffer
+          ? restored.filter((d) => {
+              // The editor already offers it in its deleted block's place, or it has landed since.
+              if (drafts.has(d.id) || (pageId && !restorable(pageId, [d]).length)) return false;
+              const shown = present(d);
+              return clearFailed.has(d.target) || shown === undefined || !heldByPage(d, shown);
+            })
+          : []
+      }
       onRestore={keep}
       onForget={dismiss}
       drafts={drafts}

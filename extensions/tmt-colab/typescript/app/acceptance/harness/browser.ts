@@ -178,15 +178,15 @@ async function attachOwnPublications(context: BrowserContext): Promise<void> {
  * side runs `pair --json` for page access (`--talk` explicitly enables sending),
  * the browser opens the link, both sides show the same four words and the owner
  * confirms. Bare pairing is checked read-only against the resulting device grant.
- * Each device owns its own profile, with separate keys, IndexedDB and door cookies.
+ * Each device starts in a fresh profile unless the case explicitly pairs the same browser again.
  */
 export async function pairBrowser(
   world: AcceptanceWorld,
   name: string,
-  options: { talk?: boolean } = {},
+  options: { talk?: boolean; reuse?: PairedBrowser } = {},
 ): Promise<PairedBrowser> {
-  const profile = path.join(world.root, `profile-${name}`);
-  fs.mkdirSync(profile, { mode: 0o700 });
+  const profile = options.reuse?.profile ?? path.join(world.root, `profile-${name}`);
+  if (!options.reuse) fs.mkdirSync(profile, { mode: 0o700 });
   const pair = world.spawn(`pair-${name}`, world.binaries.remote, [
     'pair',
     '--json',
@@ -194,9 +194,12 @@ export async function pairBrowser(
     ...(options.talk ? ['--talk'] : []),
   ]);
   const offer = await pair.event((value) => typeof value.link === 'string');
-  const context = await chromium.launchPersistentContext(profile, { headless: true });
-  world.onFailure(() => attachOwnPublications(context));
-  world.onDispose((stage) => closeContext(context, stage));
+  const context =
+    options.reuse?.context ?? (await chromium.launchPersistentContext(profile, { headless: true }));
+  if (!options.reuse) {
+    world.onFailure(() => attachOwnPublications(context));
+    world.onDispose((stage) => closeContext(context, stage));
+  }
   const page = await context.newPage();
   await page.goto(offer.link as string);
   await page.waitForFunction(() => location.hash === '');
