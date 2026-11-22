@@ -11,6 +11,7 @@ use crate::{
     config::{Config, IdleAlert},
     core::{Core, SquadError},
     reminder::one_line,
+    requests::{self, Window},
     squad::{Member, Squad},
 };
 use jiff::tz::TimeZone;
@@ -36,6 +37,8 @@ const ROW_BYTES: usize = 600;
 pub enum Exception {
     /// The row's `pending` is set: the member waits on the owner.
     Pending,
+    /// Core reports a request waiting on the user.
+    WaitingOnYou,
     /// The row's `state` is `hold`: a resting seat.
     Hold,
     /// Core resolved the member's effective Orchestration state to sleep.
@@ -49,13 +52,35 @@ pub struct Over {
     pub excepted: Option<Exception>,
 }
 
+/// Request evidence distinguishes an empty inbox from an incomplete or failed read.
+pub(crate) struct Waiting {
+    senders: HashSet<String>,
+    complete: bool,
+}
+
+impl Waiting {
+    /// Without a person there is nobody an inbox request can be waiting on.
+    pub(crate) fn from_inbox(has_person: bool, inbox: Option<&Window>) -> Self {
+        Self {
+            senders: inbox
+                .map(requests::waiting)
+                .into_iter()
+                .flatten()
+                .map(|(sender, _)| sender)
+                .collect(),
+            complete: !has_person || inbox.is_some_and(|inbox| inbox.complete),
+        }
+    }
+}
+
 /// Over means Core's `idle` phase for at least `after`. Working, ended, unknown and unseen rows
 /// never count, and idle is never guessed from silence.
-pub fn assess(
+fn assess(
     member: &Member,
     setting: IdleAlert,
     now_ms: u64,
     sleeping: &HashSet<String>,
+    waiting: &Waiting,
 ) -> Option<Over> {
     if !setting.enabled {
         return None;
@@ -71,12 +96,16 @@ pub fn assess(
     let field = |name: &str| member.fields.get(name).map(String::as_str);
     let excepted = if field("pending").is_some_and(|pending| !pending.trim().is_empty()) {
         Some(Exception::Pending)
+    } else if waiting.senders.contains(&member.id) {
+        Some(Exception::WaitingOnYou)
     } else if field("state").is_some_and(|state| state.eq_ignore_ascii_case("hold")) {
         Some(Exception::Hold)
     } else if sleeping.contains(&member.id) {
         Some(Exception::Sleep)
-    } else {
+    } else if waiting.complete {
         None
+    } else {
+        return None;
     };
     Some(Over { since_ms, excepted })
 }
@@ -103,18 +132,19 @@ pub fn sleeping(core: &Core, now_ms: u64) -> HashSet<String> {
 }
 
 /// Every over member by identity, for the `ls` marks.
-pub fn overs(
+pub(crate) fn overs(
     members: &[Member],
     setting: IdleAlert,
     now_ms: u64,
     sleeping: &HashSet<String>,
+    waiting: &Waiting,
 ) -> HashMap<String, Over> {
     members
         .iter()
         .filter_map(|member| {
             Some((
                 member.id.clone(),
-                assess(member, setting, now_ms, sleeping)?,
+                assess(member, setting, now_ms, sleeping, waiting)?,
             ))
         })
         .collect()
@@ -145,7 +175,7 @@ fn mark(row: &mut Value, overs: &HashMap<String, Over>) {
         None => json!({"state": "over", "sinceMs": over.since_ms}),
         Some(reason) => json!({
             "state": "excepted",
-            "reason": match reason { Exception::Pending => "pending", Exception::Hold => "hold", Exception::Sleep => "sleep" },
+            "reason": match reason { Exception::Pending => "pending", Exception::WaitingOnYou => "waitingOnYou", Exception::Hold => "hold", Exception::Sleep => "sleep" },
             "sinceMs": over.since_ms,
         }),
     };
@@ -174,13 +204,14 @@ pub fn operation_id(room_id: &str, member_id: &str, lead_id: &str, since_ms: u64
 
 /// The notices due now. Nothing is owed without exactly one lead, to the lead itself, for an
 /// excepted member or while the alert is off.
-pub fn notices(
+fn notices(
     squad: &Squad,
     members: &[Member],
     setting: IdleAlert,
     now_ms: u64,
     zone: &TimeZone,
     sleeping: &HashSet<String>,
+    waiting: &Waiting,
 ) -> Vec<Announcement> {
     let mut leads = members.iter().filter(|member| member.is_lead());
     let (Some(lead), None) = (leads.next(), leads.next()) else {
@@ -190,8 +221,8 @@ pub fn notices(
         .iter()
         .filter(|member| !member.is_lead())
         .filter_map(|member| {
-            let over =
-                assess(member, setting, now_ms, sleeping).filter(|over| over.excepted.is_none())?;
+            let over = assess(member, setting, now_ms, sleeping, waiting)
+                .filter(|over| over.excepted.is_none())?;
             Some(Announcement {
                 operation_id: operation_id(&squad.room_id, &member.id, &lead.id, over.since_ms),
                 recipient_id: lead.id.clone(),
@@ -363,6 +394,25 @@ impl Watch {
             self.accepted.clear();
             return Vec::new();
         }
+        if !keep() {
+            return Vec::new();
+        }
+        let person = match crate::me::person(core) {
+            Ok(person) => person,
+            Err(error) => return vec![error],
+        };
+        let inbox = match person
+            .as_ref()
+            .map(|person| requests::inbox(core, &person.id))
+            .transpose()
+        {
+            Ok(inbox) => inbox,
+            Err(error) => return vec![error],
+        };
+        let waiting = Waiting::from_inbox(person.is_some(), inbox.as_ref());
+        if !waiting.complete {
+            return Vec::new();
+        }
         let squads = match Squad::list(core) {
             Ok(squads) => squads,
             Err(error) => return vec![error],
@@ -394,7 +444,7 @@ impl Watch {
                     continue;
                 }
             };
-            for notice in notices(squad, &members, setting, now, zone, &sleeping) {
+            for notice in notices(squad, &members, setting, now, zone, &sleeping, &waiting) {
                 if self.accepted.contains(&notice.operation_id) {
                     still_over.insert(notice.operation_id);
                     continue;

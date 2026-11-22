@@ -160,18 +160,19 @@ impl Observation {
         } else {
             Default::default()
         };
-        let overs = crate::idle_alert::overs(&members, shape.idle_alert, now, &sleeping);
         let mut document = status::document(
             squad,
             shape.layout,
             shape.states,
             shape.sections,
             shape.rows,
-            members,
+            members.clone(),
         );
+        let (sent, inbox) = requests::overlay(core, squad, me, &mut document, room)?;
+        let waiting = crate::idle_alert::Waiting::from_inbox(me.is_some(), inbox.as_ref());
+        let overs = crate::idle_alert::overs(&members, shape.idle_alert, now, &sleeping, &waiting);
         crate::idle_alert::annotate(&mut document, shape.idle_alert, &overs);
         snapshot.apply(&mut document);
-        let sent = requests::overlay(core, squad, me, &mut document, room)?;
         Ok(Projected { document, sent })
     }
 }
@@ -222,6 +223,7 @@ case "$1" in
       *'"requests.list"'*) printf '%s\n' room >> "$root/calls"; printf '%s\n' '{"items":[]}' ;;
       *) exit 2 ;;
     esac ;;
+  inbox) cat "$root/inbox" ;;
   ls)
     printf '%s\n' ls >> "$root/calls"
     if [ -f "$root/ls" ]; then cat "$root/ls"; else printf '%s\n' '{"identities":[]}'; fi ;;
@@ -273,7 +275,14 @@ esac
                 .document(
                     &self.core,
                     &self.squad,
-                    None,
+                    self.root
+                        .join("inbox")
+                        .is_file()
+                        .then(|| Me {
+                            id: "USER".into(),
+                            name: "user".into(),
+                        })
+                        .as_ref(),
                     &[],
                     Shape {
                         layout,
@@ -337,6 +346,37 @@ esac
     }
 
     #[test]
+    fn the_status_document_marks_idle_over_without_a_configured_person() {
+        let mut fixture = Fixture::new(
+            "idle-alert-no-person",
+            json!([member("SOL", json!({"squad.p.lead.marker": "true"}))]),
+        );
+        let now = 1_800_000_000_000;
+        let since = now - 3_600_000;
+        fs::write(
+            fixture.root.join("ls"),
+            json!({"identities": [{
+                "id": "SOL", "presence": "active",
+                "session": {"activity": {"state": "idle", "sinceMs": since}}
+            }]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            fixture.config.path(),
+            "[squad.p.idle_alert]\nenabled = true\nafter = \"30m\"\n",
+        )
+        .unwrap();
+        fixture.config = Config::read(fixture.config.path().to_owned()).unwrap();
+
+        let document = status::with_now_ms(now, || fixture.read(false).document);
+        assert_eq!(
+            document["squad"]["lead"]["idleAlert"],
+            json!({"state": "over", "sinceMs": since})
+        );
+    }
+
+    #[test]
     fn the_status_document_marks_the_members_the_idle_alert_would_announce() {
         let mut fixture = Fixture::new(
             "idle-alert",
@@ -344,6 +384,7 @@ esac
                 member("SOL", json!({"squad.p.lead.marker": "true"})),
                 member("RIN", json!({"squad.p.state": "working"})),
                 member("ZED", json!({"squad.p.pending": "approve?"})),
+                member("MIA", json!({})),
                 member("KAI", json!({})),
             ]),
         );
@@ -352,7 +393,7 @@ esac
         fs::write(
             fixture.root.join("ls"),
             json!({"identities": [idle("SOL", since), idle("RIN", since), idle("ZED", since - 1),
-                idle("KAI", since + 3_000_000)]})
+                idle("MIA", since - 2), idle("KAI", since + 3_000_000)]})
             .to_string(),
         )
         .unwrap();
@@ -370,6 +411,18 @@ esac
         )
         .unwrap();
         fixture.config = Config::read(fixture.config.path().to_owned()).unwrap();
+        fs::write(
+            fixture.root.join("inbox"),
+            json!({
+                "items":[
+                    {"from":{"identityId":"ZED"},"requestId":"req-pending-and-waiting"},
+                    {"from":{"identityId":"MIA"},"requestId":"req-waiting-only"}
+                ],
+                "more":false
+            })
+            .to_string(),
+        )
+        .unwrap();
         let on = fixture.read(false).document;
         assert_eq!(
             on["squad"]["idleAlert"],
@@ -394,6 +447,10 @@ esac
         assert_eq!(
             mark("zed"),
             Some(json!({"state": "excepted", "reason": "pending", "sinceMs": since - 1}))
+        );
+        assert_eq!(
+            mark("mia"),
+            Some(json!({"state": "excepted", "reason": "waitingOnYou", "sinceMs": since - 2}))
         );
         assert_eq!(
             mark("kai"),

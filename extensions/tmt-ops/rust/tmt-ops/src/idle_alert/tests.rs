@@ -5,10 +5,22 @@ use std::{collections::BTreeMap, fs, time::Duration};
 
 // Local convenience keeps legacy scenarios focused on idle activity rather than orchestration.
 fn assess(member: &Member, setting: IdleAlert, now: u64) -> Option<Over> {
-    super::assess(member, setting, now, &HashSet::new())
+    super::assess(
+        member,
+        setting,
+        now,
+        &HashSet::new(),
+        &Waiting::from_inbox(false, None),
+    )
 }
 fn overs(members: &[Member], setting: IdleAlert, now: u64) -> HashMap<String, Over> {
-    super::overs(members, setting, now, &HashSet::new())
+    super::overs(
+        members,
+        setting,
+        now,
+        &HashSet::new(),
+        &Waiting::from_inbox(false, None),
+    )
 }
 fn notices(
     squad: &Squad,
@@ -17,7 +29,15 @@ fn notices(
     now: u64,
     zone: &TimeZone,
 ) -> Vec<Announcement> {
-    super::notices(squad, members, setting, now, zone, &HashSet::new())
+    super::notices(
+        squad,
+        members,
+        setting,
+        now,
+        zone,
+        &HashSet::new(),
+        &Waiting::from_inbox(false, None),
+    )
 }
 
 const NOW: i64 = 1_800_000_000_000;
@@ -634,6 +654,38 @@ fn calls(f: &Fixture, command: &str) -> usize {
 }
 
 #[test]
+fn a_scan_without_a_configured_person_still_notifies_the_lead() {
+    let f = Fixture::new();
+    enable(&f, "30m");
+    idle_worker(&f, NOW - 45 * MINUTE);
+    f.change_model(|m| m["user"] = Value::Null);
+    let mut watch = started(&f);
+
+    assert!(scan(&f, &mut watch, NOW + MINUTE).is_empty());
+    let notices = sent(&f);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0]["input"]["recipientIds"], json!([LEAD]));
+    assert_eq!(notices[0]["input"]["kind"], "announcement");
+    assert_eq!(calls(&f, "inbox"), 0);
+}
+
+#[test]
+fn an_unavailable_inbox_defers_idle_notices() {
+    let f = Fixture::new();
+    enable(&f, "30m");
+    idle_worker(&f, NOW - 45 * MINUTE);
+    let mut watch = started(&f);
+    f.change_model(|m| m["inboxFailure"] = json!(true));
+    let warnings = scan(&f, &mut watch, NOW + MINUTE);
+    assert!(
+        sent(&f).is_empty(),
+        "an unknown inbox is not an empty inbox"
+    );
+    assert_eq!(calls(&f, "inbox"), 1);
+    assert_eq!(warnings.len(), 1);
+}
+
+#[test]
 fn the_first_look_reads_nothing_and_the_next_scan_tells_the_lead_once() {
     let f = Fixture::new();
     enable(&f, "30m");
@@ -976,7 +1028,13 @@ fn orchestration_sleep_suppresses_notices_and_over_marks_until_the_state_changes
     let at = (NOW + MINUTE) as u64;
     let sleeping = super::sleeping(&f.core, at);
     let idle = member(WORKER, "worker", false, &[], idle_since(since));
-    let marks = super::overs(std::slice::from_ref(&idle), SETTING, at, &sleeping);
+    let marks = super::overs(
+        std::slice::from_ref(&idle),
+        SETTING,
+        at,
+        &sleeping,
+        &Waiting::from_inbox(false, None),
+    );
     assert_eq!(marks[WORKER].excepted, Some(Exception::Sleep));
     let mut document = json!({"squad":{"lead":null},"sections":[{"rows":[{"id":WORKER}]}]});
     annotate(&mut document, SETTING, &marks);
