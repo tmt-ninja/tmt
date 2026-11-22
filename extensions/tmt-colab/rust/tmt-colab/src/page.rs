@@ -31,6 +31,7 @@ pub enum Fault {
     Missing,
     Inactive,
     Denied,
+    LocalDiscussion,
     Unavailable,
     /// The serve has no object channel, so it can read no attachment (#6307): Remote's activation
     /// of it failed and nothing has asked again (#6308). Its code is `COLAB_UNAVAILABLE`.
@@ -71,6 +72,7 @@ impl Fault {
             Self::Missing | Self::AttachmentNotFound => "COLAB_STATE_MISSING",
             Self::Inactive => "COLAB_PAGE_INACTIVE",
             Self::Denied => "COLAB_DENIED",
+            Self::LocalDiscussion => "COLAB_LOCAL_DISCUSSION",
             Self::Unavailable | Self::AttachmentsUnavailable => "COLAB_UNAVAILABLE",
             Self::StreamGap => "COLAB_STREAM_GAP",
             Self::ServerMismatch => "COLAB_SERVER_MISMATCH",
@@ -114,6 +116,9 @@ impl std::fmt::Display for Fault {
             Self::Inactive => "Archived or deleted pages cannot be written.",
             Self::Denied => {
                 "The local writer is revoked or its certificate does not match the owner."
+            }
+            Self::LocalDiscussion => {
+                "The local CLI writer cannot publish threads, comments, or answers."
             }
             Self::Unavailable => {
                 "Serving page write unavailable; no offline fallback was attempted."
@@ -1275,6 +1280,13 @@ pub(crate) fn freeze_own_records(
     now: u64,
 ) -> Result<FrozenPublication> {
     use crate::decoder::UpdateBatch;
+    // Check the plain records before signing a local Own publication.
+    if records.iter().any(|record| {
+        matches!(record.root.as_str(), "threads" | "messages")
+            && matches!(record.value["kind"].as_str(), Some("thread" | "comment"))
+    }) {
+        return Err(Fault::LocalDiscussion.into());
+    }
     let structured = folded.meta["pageType"].as_str() == Some("blocks");
     let local = key.local_writer()?.0;
     let previous = folded

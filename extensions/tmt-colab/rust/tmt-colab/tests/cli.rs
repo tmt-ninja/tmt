@@ -13331,9 +13331,8 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
     // Keep a real signed discussion alongside the content checkpoints throughout the churn.
     {
         use tmt_colab::{
-            decoder::{Decoder, OwnRecord},
+            decoder::OwnRecord,
             keyring::{Keyring, Layout},
-            page,
             store::Store,
         };
         let layout = Layout::existing(&pilot.root.join("selected"))
@@ -13341,20 +13340,13 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
             .unwrap();
         let key = Keyring::read(&layout).unwrap();
         let mut store = Store::write_existing(&layout).unwrap();
-        let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
         let thread = "50000000-0000-4000-8000-000000000018";
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
-        let writer: String = db
-            .query_row(
-                "SELECT stream FROM receipts WHERE page=?1 AND namespace='content' LIMIT 1",
-                [page],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let mut browser = support::BrowserDiscussion::new(&layout, &store, &key, now);
+        let writer = support::BrowserDiscussion::ID;
         let record = OwnRecord {
             root: "threads".into(),
             key: format!("{thread}:1"),
@@ -13372,18 +13364,7 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
                 "deviceName":"Private owner","at":now.to_string(),"messageId":message,
                 "thread":{"writer":writer,"id":thread},"body":"Keep this comment intact."}),
         };
-        let publication =
-            page::prepare_own_records(&store, &key, page, &[record, comment], &mut decoder, now)
-                .unwrap();
-        page::commit_publication(
-            &mut store,
-            &key,
-            publication.job(),
-            publication.packet(),
-            publication.chain(),
-            now,
-        )
-        .unwrap();
+        browser.append(&mut store, &key, page, &[record, comment]);
         store.close().unwrap();
     }
     for revision in 0..201 {

@@ -1241,6 +1241,61 @@ fn seed_member_thread_with(f: &mut Fixture, comments: &[(&str, &str, bool, &str)
 }
 
 #[test]
+fn native_preparation_refuses_discussion_without_changing_the_store() {
+    use tmt_colab::decoder::OwnRecord;
+    let f = Fixture::new();
+    let writer = f.read().local_writer;
+    let store_bytes = || {
+        let wal = match fs::read(f.layout.directory.join("space.db-wal")) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => panic!("could not read the fixture WAL: {error}"),
+        };
+        (f.bytes(), wal)
+    };
+    let before = store_bytes();
+    let scope = json!({"version":1,"spaceId":f.key.space_id,"pageId":PAGE,
+        "epoch":"1","senderDevice":writer,"revision":"1","deleted":false,
+        "deviceName":"Fixture","at":NOW.to_string()});
+    let mut thread = scope.clone();
+    thread["kind"] = json!("thread");
+    thread["threadId"] = json!(THREAD);
+    thread["anchor"] = Value::Null;
+    thread["resolved"] = json!(false);
+    let mut comment = scope;
+    comment["kind"] = json!("comment");
+    comment["messageId"] = json!(THREAD);
+    comment["thread"] = json!({"writer":writer,"id":THREAD});
+    comment["body"] = json!("A test comment");
+    let mut answer = comment.clone();
+    answer["questionId"] = json!(THREAD);
+    for (root, value) in [
+        ("threads", thread),
+        ("messages", comment),
+        ("messages", answer),
+    ] {
+        let record = OwnRecord {
+            root: root.into(),
+            key: format!("{THREAD}:1"),
+            value,
+        };
+        let error =
+            page::prepare_own_records(&f.store, &f.key, PAGE, &[record], &mut f.decoder(), NOW)
+                .err()
+                .expect("local discussion must be refused");
+        assert_eq!(
+            error.downcast_ref::<page::Fault>(),
+            Some(&page::Fault::LocalDiscussion)
+        );
+        assert_eq!(
+            error.downcast_ref::<page::Fault>().unwrap().code(),
+            "COLAB_LOCAL_DISCUSSION"
+        );
+        assert_eq!(store_bytes(), before);
+    }
+}
+
+#[test]
 fn an_own_publication_commits_once_replays_exactly_and_reports_through_status() {
     use tmt_colab::{
         discussion::{self, StatusEdit},
@@ -1501,6 +1556,21 @@ fn agent_status_is_own_stream_causal_fenced_and_shared_with_native_reads() {
     assert!(
         !output.status.success(),
         "an unknown thread is missing, not empty"
+    );
+    let output = f
+        .command()
+        .args(["threads", "reopen", PAGE, THREAD, "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let reopened: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(reopened["changed"], true);
+    assert!(
+        !discussion::read(&f.store, &f.key, PAGE, &mut f.decoder())
+            .unwrap()
+            .conversations
+            .threads[0]
+            .resolved
     );
 }
 
@@ -6621,17 +6691,15 @@ fn pre_lock_history_retains_threads_statuses_and_questions_across_own_compaction
     .unwrap()
     .unwrap();
     f.commit(&status, NOW).unwrap();
-    let writer = &status_action.sender_device;
+    let writer = support::BrowserDiscussion::ID;
+    let mut browser = support::BrowserDiscussion::new(&f.layout, &f.store, &f.key, NOW);
     let comment_id = "60000000-0000-4000-8000-000000000002";
     let comment = tmt_colab::decoder::OwnRecord {
         root: "messages".into(),
         key: format!("{comment_id}:1"),
         value: json!({"version":1,"kind":"comment","spaceId":f.key.space_id,"pageId":PAGE,"epoch":"1","senderDevice":writer,"revision":"1","deleted":false,"deviceName":"Historical agent","at":NOW.to_string(),"messageId":comment_id,"thread":{"writer":DEVICE,"id":THREAD},"body":"Historical question answer","questionId":question_id}),
     };
-    let comment =
-        page::prepare_own_records(&f.store, &f.key, PAGE, &[comment], &mut f.decoder(), NOW)
-            .unwrap();
-    f.commit(&comment, NOW).unwrap();
+    browser.append(&mut f.store, &f.key, PAGE, &[comment]);
     let before = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
     let before_threads = folded_bytes(&before.conversations.threads);
     let before_page = f.read();

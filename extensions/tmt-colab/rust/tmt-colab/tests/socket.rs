@@ -1215,12 +1215,22 @@ impl Running {
         previous: [u8; 32],
         payload: &[u8],
     ) -> (Value, Vec<u8>, [u8; 32]) {
+        self.append_in_namespace(id, seq, previous, "content", payload)
+    }
+    fn append_in_namespace(
+        &self,
+        id: &str,
+        seq: u64,
+        previous: [u8; 32],
+        namespace: &str,
+        payload: &[u8],
+    ) -> (Value, Vec<u8>, [u8; 32]) {
         let context = object::Context {
             space: self.space.clone(),
             page: PAGE.into(),
             epoch: "1".into(),
             kind: "update".into(),
-            namespace: "content".into(),
+            namespace: namespace.into(),
             author_device: id.into(),
             membership_revision: "1".into(),
             stream_seq: seq.to_string(),
@@ -1230,6 +1240,31 @@ impl Running {
         let hash = envelope.hash().unwrap();
         let bytes = envelope.to_bytes().unwrap();
         (self.frame("append",json!({"streamId":id,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),"envelope":values::encode_binary(&bytes)})),bytes,hash)
+    }
+    fn append_browser_discussion(
+        &self,
+        peer: &mut WebSocket<UnixStream>,
+        root: &str,
+        key: &str,
+        record: &Value,
+    ) {
+        use yrs::{Doc, Map, ReadTxn, StateVector, Transact};
+        let doc = Doc::new();
+        doc.get_or_insert_map(root).insert(
+            &mut doc.transact_mut(),
+            key,
+            yrs::Any::from_json(&record.to_string()).unwrap(),
+        );
+        let data = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let device = record["senderDevice"].as_str().unwrap();
+        let (frame, _, hash) = self.append_in_namespace(device, 1, [0; 32], "own", &data);
+        send(peer, frame);
+        assert_eq!(receive(peer)["type"], "receipt");
+        let broadcast = receive(peer);
+        assert_eq!(broadcast["type"], "broadcast");
+        assert_eq!(broadcast["envelopeHash"], values::encode_binary(&hash));
     }
     fn event(&self, path: &str, header: &str, body: &str) -> String {
         self.request_with_timeout(&format!("POST {path} HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{header}\r\n{body}",body.len()), support::DECODER_DEADLINE)
@@ -1427,11 +1462,7 @@ fn the_first_object_channel_does_not_wait_for_local_history_maintenance() {
 
 #[test]
 fn device_revoke_wakes_the_running_rekey_worker_but_rename_and_own_updates_do_not() {
-    use tmt_colab::{
-        decoder::{Decoder, OwnRecord},
-        page,
-        publication::Outcome,
-    };
+    use tmt_colab::{page, publication::Outcome};
     use tmt_extension_objects::{Budgets, Bus, Caps, Offer, Uuid4, negotiate};
     let (probe, passes) = std::sync::mpsc::channel();
     let server = Running::start_with_rekey_probe(Tunnels::PRODUCT, None, None, Some(probe));
@@ -1495,36 +1526,14 @@ fn device_revoke_wakes_the_running_rekey_worker_but_rename_and_own_updates_do_no
     no_pass();
 
     // Comments arrive on the own sync stream, rather than the device-event callback.
-    let mut decoder = Decoder::with_config(support::decoder_config(
-        env!("CARGO_BIN_EXE_tmt-colab").into(),
-    ))
-    .unwrap();
-    let stream = &content.job().manifest.stream_id;
+    let mut device = server.peer(OTHER);
+    hello(&server, &mut device, OTHER);
     let message = "40000000-0000-4000-8000-000000000002";
     let comment = json!({"version":1,"kind":"comment","spaceId":key.space_id,"pageId":PAGE,
-        "epoch":"1","senderDevice":stream,"revision":"1","deleted":false,
-        "deviceName":"Local CLI","at":now().to_string(),"messageId":message,
+        "epoch":"1","senderDevice":OTHER,"revision":"1","deleted":false,
+        "deviceName":"Fixture browser","at":now().to_string(),"messageId":message,
         "thread":{"writer":DEVICE,"id":DEVICE},"body":"An ordinary comment"});
-    let store = Store::read(&layout).unwrap();
-    let own = page::prepare_own_records(
-        &store,
-        &key,
-        PAGE,
-        &[OwnRecord {
-            root: "messages".into(),
-            key: format!("{message}:1"),
-            value: comment,
-        }],
-        &mut decoder,
-        now(),
-    )
-    .unwrap();
-    store.close().unwrap();
-    let published = page::ipc::publish(&layout, &key, &own).unwrap().unwrap();
-    assert!(matches!(
-        published.record.outcome,
-        Outcome::Committed { count: 1, .. }
-    ));
+    server.append_browser_discussion(&mut device, "messages", &format!("{message}:1"), &comment);
     no_pass();
 
     let before = rotation_rows(&db);
@@ -4150,7 +4159,7 @@ fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fa
 #[test]
 fn root_local_page_publish_carries_an_own_status_job_to_peers_and_later_readers() {
     use tmt_colab::{
-        decoder::{Decoder, OwnRecord},
+        decoder::Decoder,
         discussion::{self, StatusEdit},
         page,
         publication::Outcome,
@@ -4161,37 +4170,18 @@ fn root_local_page_publish_carries_an_own_status_job_to_peers_and_later_readers(
         env!("CARGO_BIN_EXE_tmt-colab").into(),
     ))
     .unwrap();
-    // The local writer authors every record below; its stream ID is the one a content job names.
+    // The local writer's stream ID is the one a content job names.
     let stream = prepare_write(&layout, &key, "unused")
         .job()
         .manifest
         .stream_id
         .clone();
-    // Seed one anchored thread by the same own-kind route, then resolve it.
+    // Seed one anchored thread through the paired browser's own stream, then resolve it locally.
     let thread = json!({"version":1,"kind":"thread","spaceId":key.space_id,"pageId":PAGE,
-        "epoch":"1","senderDevice":stream,"revision":"1","deleted":false,
-        "deviceName":"Local CLI","at":now().to_string(),"threadId":THREAD,
+        "epoch":"1","senderDevice":DEVICE,"revision":"1","deleted":false,
+        "deviceName":"Fixture browser","at":now().to_string(),"threadId":THREAD,
         "anchor":{"exact":"x","prefix":"","suffix":""},"resolved":false});
-    let store = Store::read(&layout).unwrap();
-    let seed = page::prepare_own_records(
-        &store,
-        &key,
-        PAGE,
-        &[OwnRecord {
-            root: "threads".into(),
-            key: format!("{THREAD}:1"),
-            value: thread,
-        }],
-        &mut decoder,
-        now(),
-    )
-    .unwrap();
-    store.close().unwrap();
-    let seeded = page::ipc::publish(&layout, &key, &seed).unwrap().unwrap();
-    assert!(matches!(
-        seeded.record.outcome,
-        Outcome::Committed { count: 1, .. }
-    ));
+    server.append_browser_discussion(&mut peer, "threads", &format!("{THREAD}:1"), &thread);
     let own_broadcast = |peer: &mut WebSocket<UnixStream>, frozen: &page::FrozenPublication| {
         let frame = receive(peer);
         assert_eq!(frame["type"], "broadcast");
@@ -4213,7 +4203,6 @@ fn root_local_page_publish_carries_an_own_status_job_to_peers_and_later_readers(
         assert_eq!(header.context.namespace, "own");
         entry.envelope.hash().unwrap()
     };
-    own_broadcast(&mut peer, &seed);
     let store = Store::read(&layout).unwrap();
     let before = discussion::read(&store, &key, PAGE, &mut decoder).unwrap();
     assert!(!before.conversations.threads[0].resolved);
@@ -4241,7 +4230,7 @@ fn root_local_page_publish_carries_an_own_status_job_to_peers_and_later_readers(
     else {
         panic!("{:?}", published.record.outcome)
     };
-    assert_eq!((*count, final_position.seq.as_str()), (1, "2"));
+    assert_eq!((*count, final_position.seq.as_str()), (1, "1"));
     let hash = own_broadcast(&mut peer, &status);
     // An exact replay answers with the retained bytes and broadcasts nothing.
     let replay = page::ipc::publish(&layout, &key, &status).unwrap().unwrap();
