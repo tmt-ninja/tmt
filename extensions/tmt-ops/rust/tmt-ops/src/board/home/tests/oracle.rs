@@ -2007,24 +2007,33 @@ fn dump_add_to_notes_oracle() {
 #[ignore = "exports only the revised CRUD dialog scenes; never records fixtures"]
 fn dump_crud_dialog_oracle() {
     let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
+    let scene = std::env::var("HOME_ORACLE_CRUD_SCENE").ok();
+    let selection = [scene.as_deref().unwrap_or_default()];
+    let scenes: &[&str] = if scene.is_some() {
+        assert!(
+            crate::board::app::workspace::tests::review_modal::CRUD_SCENES.contains(&selection[0]),
+            "unknown CRUD scene: {}",
+            selection[0]
+        );
+        &selection
+    } else {
+        &[
+            "crud-rename-review",
+            "crud-rename-pending",
+            "crud-moving",
+            "crud-moving-pool",
+            "close-member-confirm",
+            "close-member-refused",
+            "close-member-signalled",
+            "close-member-unavailable",
+            "close-member-running",
+            "close-member-pending",
+            "close-member-pane-kept",
+        ]
+    };
     let captured = crate::status::with_now_ms(1_791_600_000_000, || {
         let mut styles = Styles::default();
-        let frames = crud_frames(
-            &[
-                "crud-rename-review",
-                "crud-rename-pending",
-                "crud-moving",
-                "crud-moving-pool",
-                "close-member-confirm",
-                "close-member-refused",
-                "close-member-signalled",
-                "close-member-unavailable",
-                "close-member-running",
-                "close-member-pending",
-                "close-member-pane-kept",
-            ],
-            &mut styles,
-        );
+        let frames = crud_frames(scenes, &mut styles);
         let styles = styles
             .0
             .into_iter()
