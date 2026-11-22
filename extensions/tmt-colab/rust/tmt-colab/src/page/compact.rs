@@ -291,6 +291,169 @@ pub enum Skipped {
     NotCombined,
 }
 
+pub const SHARED_HISTORY: &str = "This page retains edit history for future collaborators. Combining changes keeps deleted text inside the checkpoint. Freeing those bytes would require explicitly discarding old content history.";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryPreview {
+    pub before_gzip_bytes: usize,
+    pub after_gzip_bytes: Option<usize>,
+    pub headroom_bytes: Option<usize>,
+    pub estimated_whole_rewrites: Option<usize>,
+    pub write_fits: Option<bool>,
+    pub write_detail: String,
+    pub blocked: Option<String>,
+    pub history_loss: &'static str,
+}
+
+/// Build and decode a hypothetical replacement without publishing a checkpoint.
+pub fn preview(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+    source: Option<&str>,
+) -> Result<HistoryPreview> {
+    let generation = store.write_generation()?;
+    let snap = snapshot(store, key, page, false)?;
+    let (current, _, before) = snap.measure_preview(key, page, decoder, &BTreeMap::new())?;
+    let mut result = HistoryPreview {
+        before_gzip_bytes: before,
+        after_gzip_bytes: None,
+        headroom_bytes: None,
+        estimated_whole_rewrites: None,
+        write_fits: None,
+        write_detail:
+            "Fit unknown. Supply the proposed HTML with --source FILE (or --source - for stdin)."
+                .into(),
+        blocked: None,
+        history_loss: "Discarded content edits and deleted text in the rebuilt writer checkpoint would no longer be recoverable. Current source, metadata, comments and threads must be preserved.",
+    };
+    let policy = &snap.authority.policy;
+    let local = key.local_writer()?.0;
+    result.blocked = if !policy.writable() {
+        Some("Page is archived or deleted.".into())
+    } else if policy.public_mode || policy.link_mode {
+        Some("Page has public or link access.".into())
+    } else if snap.epoch != 1 {
+        Some(format!(
+            "Epoch {} depends on an earlier baseline.",
+            snap.epoch
+        ))
+    } else if current.meta.get("pageType").is_some() {
+        Some("This preview supports HTML pages only.".into())
+    } else if let Some((stream, seq)) = store.pinned_content_checkpoint(page)? {
+        Some(format!(
+            "Content checkpoint {stream} at sequence {seq} is pinned."
+        ))
+    } else if let Some(r) = snap
+        .authority
+        .recipients
+        .values()
+        .map(|issuer| &issuer.recipient)
+        .find(|r| {
+            r.id != snap.authority.head.owner_member.id
+                && crate::fold::eligible(r, &snap.authority, page)
+        })
+    {
+        Some(format!("Recipient {} still has access to this page.", r.id))
+    } else {
+        snap.cuts
+            .iter()
+            .find(|cut| cut.namespace == "content" && cut.stream != local && cut.tail_seq > 0)
+            .map(|cut| format!("Content from writer {} must be preserved.", cut.stream))
+    };
+    if result.blocked.is_some() {
+        return Ok(result);
+    }
+    let mut updates = Vec::new();
+    let mut index = None;
+    for (i, object) in &snap.objects {
+        if snap.cuts[*i].namespace == "content" && snap.cuts[*i].stream == local {
+            updates.push(snap.open_object(key, page, *i, object)?.plaintext);
+            index = Some(*i);
+        }
+    }
+    let Some(index) = index else {
+        result.blocked = Some("No local content writer to rebuild.".into());
+        return Ok(result);
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let rebuilt = decoder.rebuild_for_preview(&refs, None)?;
+    if !rebuilt.projection.is_null() {
+        result.blocked =
+            Some("This writer's updates depend on content outside its own stream.".into());
+        return Ok(result);
+    }
+    let merged = rebuilt.merged;
+    if merged.len() > object::MAX_PLAINTEXT {
+        result.blocked = Some("The rebuilt writer exceeds the single checkpoint limit.".into());
+        return Ok(result);
+    }
+    let (candidate, input, after) =
+        snap.measure_preview(key, page, decoder, &BTreeMap::from([(index, merged)]))?;
+    if current.source != candidate.source
+        || current.meta != candidate.meta
+        || current.own != candidate.own
+    {
+        result.blocked = Some("Rebuilding changes the current page or its discussion.".into());
+        return Ok(result);
+    }
+    let headroom = current.usage.gzip_limit.saturating_sub(after);
+    result.after_gzip_bytes = Some(after);
+    result.headroom_bytes = Some(headroom);
+    if !current.source.is_empty() {
+        result.estimated_whole_rewrites =
+            Some(headroom / crate::fold::gzip_bytes(std::iter::once(current.source.as_bytes()))?);
+    }
+    if let Some(source) = source {
+        let base = super::PatchBase {
+            revision: String::new(),
+            source: candidate.source,
+            meta: candidate.meta,
+            input,
+        };
+        let edit = crate::decoder::ContentEdit {
+            source,
+            publisher_agent: None,
+            layout: None,
+            attachments: None,
+        };
+        match snap.prepare_content_batch(
+            key,
+            page,
+            edit,
+            None,
+            crate::fold::Held {
+                base: Some(&base),
+                checked: None,
+            },
+            decoder,
+        ) {
+            Ok(_) => {
+                result.write_fits = Some(true);
+                result.write_detail = "The supplied source fits the candidate.".into();
+            }
+            Err(error) => {
+                if matches!(
+                    error.downcast_ref::<crate::store::owner::OwnerFault>(),
+                    Some(
+                        crate::store::owner::OwnerFault::PageCapacity(_)
+                            | crate::store::owner::OwnerFault::Capacity
+                    )
+                ) {
+                    result.write_fits = Some(false);
+                }
+                result.write_detail = format!("The supplied write could not be prepared: {error}");
+            }
+        }
+    }
+    if store.write_generation()? != generation {
+        return Err(Fault::StaleBase.into());
+    }
+    Ok(result)
+}
+
 /// What a requested compaction did, for the person who asked: whose stream was combined into
 /// which range, the page's usage before and after, and the source hash that did not change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

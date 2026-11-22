@@ -42,10 +42,15 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         &store,
         &key,
         args.get_one::<String>("page").expect("required page"),
-    );
-    let closed = store.close();
-    let page = page?;
-    closed?;
+    )?;
+    let shared = tmt_colab::inspection::catalog(&store, &key)?["pages"]
+        .as_array()
+        .is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item["pageId"] == page && item["history"] != "current")
+        });
+    store.close()?;
     let report = match layout.serve_lock() {
         Ok(_lock) => {
             let mut store = Store::write_existing(&layout)?;
@@ -64,10 +69,21 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
-        writeln!(output, "{}", serde_json::to_string(&report)?)?;
+        let mut value = serde_json::to_value(&report)?;
+        if shared {
+            value["historyDetail"] = compact::SHARED_HISTORY.into();
+        }
+        writeln!(output, "{value}")?;
     } else {
         let terminal = output.terminal();
         tmt_cli_style::detail::write(&mut output, terminal, title(&report), &rows(&report))?;
+        if shared {
+            writeln!(
+                output,
+                "{} Preview with tmt colab page reclaim {page} --dry-run.",
+                compact::SHARED_HISTORY
+            )?;
+        }
     }
     Ok(())
 }

@@ -264,7 +264,7 @@ pub(crate) struct View {
     pub signing_keys: BTreeMap<String, [u8; 32]>,
 }
 /// The gzipped size of the parts as one stream, the way a browser loads a page.
-fn gzip_bytes<'a>(parts: impl Iterator<Item = &'a [u8]>) -> Result<usize> {
+pub(crate) fn gzip_bytes<'a>(parts: impl Iterator<Item = &'a [u8]>) -> Result<usize> {
     use std::io::Write;
     struct Count(usize);
     impl Write for Count {
@@ -947,6 +947,18 @@ impl Snapshot {
         self.materialization_input(key, page, decoder, replacements, None, Opening::Fresh)?
             .materialize(page, decoder, None)
     }
+    pub(crate) fn measure_preview(
+        &self,
+        key: &Keyring,
+        page: &str,
+        decoder: &mut Decoder,
+        replacements: &BTreeMap<usize, Vec<u8>>,
+    ) -> Result<(View, MaterializationInput, usize)> {
+        let input =
+            self.materialization_input(key, page, decoder, replacements, None, Opening::Fresh)?;
+        let bytes = gzip_bytes(input.parts())?;
+        Ok((input.materialize(page, decoder, None)?, input, bytes))
+    }
     /// The verified genesis belongs to the same read snapshot as the page base.
     pub(crate) fn genesis_hash(&self) -> Result<[u8; 32]> {
         Ok(self.states.first().ok_or(OwnerFault::Invalid)?.head.hash)
@@ -1369,7 +1381,7 @@ impl Snapshot {
                 opened.plaintext
             };
             tally.add(
-                stored.checkpoint,
+                stored.checkpoint || replacements.contains_key(index),
                 opened.author_device == local_writer,
                 plaintext.len(),
             )?;
@@ -1431,19 +1443,19 @@ fn checked_bytes(mut lengths: impl Iterator<Item = usize>) -> Result<usize> {
         .ok_or_else(|| OwnerFault::Capacity.into())
 }
 impl MaterializationInput {
+    fn parts(&self) -> impl Iterator<Item = &[u8]> {
+        std::iter::once(self.baseline.as_slice())
+            .chain(self.updates.iter().map(Vec::as_slice))
+            .chain(self.own_updates.values().flatten().map(Vec::as_slice))
+    }
     /// The page's usage: the counts of the stored objects and the state a browser loads. A state
     /// under [`GZIP_MEASURED_FROM`] is not gzipped: its raw size bounds the gzipped one by 5% of
     /// the budget, and a small page should not pay a compression on every read. `measure` is false
     /// for the callers that only need the counts.
     fn usage(&self, measure: bool) -> Result<crate::page::PageUsage> {
-        let parts = || {
-            std::iter::once(self.baseline.as_slice())
-                .chain(self.updates.iter().map(Vec::as_slice))
-                .chain(self.own_updates.values().flatten().map(Vec::as_slice))
-        };
-        let state = checked_bytes(parts().map(<[u8]>::len))?;
+        let state = checked_bytes(self.parts().map(<[u8]>::len))?;
         let gzip = (measure && state >= GZIP_MEASURED_FROM)
-            .then(|| gzip_bytes(parts()))
+            .then(|| gzip_bytes(self.parts()))
             .transpose()?;
         Ok(crate::page::PageUsage::new(self.tally, state, gzip))
     }

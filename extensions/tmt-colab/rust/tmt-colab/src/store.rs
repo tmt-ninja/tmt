@@ -251,6 +251,13 @@ impl Store {
             self.connection.total_changes(),
         ))
     }
+    pub(crate) fn pinned_content_checkpoint(
+        &self,
+        page: &str,
+    ) -> StoreResult<Option<(String, i64)>> {
+        use rusqlite::OptionalExtension;
+        Ok(self.connection.query_row("SELECT stream,seq FROM checkpoints WHERE page=? AND namespace='content' AND pinned=1 AND payload IS NOT NULL ORDER BY epoch,stream,seq LIMIT 1",[page], |row| Ok((row.get(0)?,row.get(1)?))).optional()?)
+    }
     /// Classify every retained content payload once, using the same paired cut as bootstrap.
     pub fn page_storage_bytes(&self, page: &str) -> StoreResult<PageStorageBytes> {
         bounded_id(page)?;

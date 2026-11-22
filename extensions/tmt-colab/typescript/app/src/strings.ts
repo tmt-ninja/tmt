@@ -1084,8 +1084,9 @@ export const text = {
     nothingToCombine: 'Nothing to combine on this device.',
     failed: 'Could not combine this page. Nothing was changed. Try again.',
     saveFullTail: 'This page is full. Compact it, then save again.',
-    saveFullBudget:
-      'This page is full, and combining cannot free room. Export it and continue in a new page.',
+    preview: (page: string) =>
+      `The owner can preview history recovery with tmt colab page reclaim ${page} --dry-run.`,
+    saveFullBudget: 'This page is full.',
     saveFullReader: 'An editor must compact this page.',
     compactedSaveAgain: 'Save again to keep your edit.',
     stateCompacted: 'Compacted',

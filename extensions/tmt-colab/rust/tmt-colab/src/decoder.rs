@@ -497,21 +497,26 @@ impl Decoder {
         updates: &[&[u8]],
         stop: Option<&AtomicBool>,
     ) -> Result<Vec<u8>, DecodeFault> {
+        Ok(self.rebuild_for_preview(updates, stop)?.merged)
+    }
+    pub(crate) fn rebuild_for_preview(
+        &mut self,
+        updates: &[&[u8]],
+        stop: Option<&AtomicBool>,
+    ) -> Result<Decoded, DecodeFault> {
         let batch = UpdateBatch {
             namespace: Namespace::Content,
             baseline: &[],
             updates,
         };
-        Ok(self
-            .decode_request(
-                batch,
-                Role::Editor,
-                None,
-                DecodeMode::RebuildContent,
-                stop,
-                Instant::now() + self.config.deadline,
-            )?
-            .merged)
+        self.decode_request(
+            batch,
+            Role::Editor,
+            None,
+            DecodeMode::RebuildContent,
+            stop,
+            Instant::now() + self.config.deadline,
+        )
     }
     fn decode_request(
         &mut self,
@@ -589,7 +594,9 @@ impl Decoder {
             return Err(DecodeFault::InvalidOutput);
         }
         if merge_only {
-            if !reply.projection.is_null() {
+            if !(reply.projection.is_null()
+                || rebuild && reply.projection == "pending-dependencies")
+            {
                 return Err(DecodeFault::InvalidOutput);
             }
         } else {

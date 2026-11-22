@@ -1954,6 +1954,18 @@ fn deleted_owner_history(history: &str, public: bool) -> (Fixture, usize) {
 }
 
 #[test]
+fn history_preview_names_the_other_recipient_without_claiming_recoverable_space() {
+    let f = Fixture::new();
+    let report = page::compact::preview(&f.store, &f.key, PAGE, &mut f.decoder(), None).unwrap();
+    assert_eq!(
+        report.blocked.as_deref(),
+        Some("Recipient 20000000-0000-4000-8000-000000000001 still has access to this page.")
+    );
+    assert!(report.after_gzip_bytes.is_none());
+    assert!(report.write_fits.is_none());
+}
+
+#[test]
 fn history_rebuild_drops_deleted_content_without_changing_the_page_projection() {
     let (mut f, removed) = deleted_owner_history("current", false);
     seed_member_thread_with(

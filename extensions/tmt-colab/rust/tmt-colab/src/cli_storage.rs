@@ -58,13 +58,25 @@ pub fn page_command() -> Command {
             note: "Preview cleanup for one page",
         }],
     )
+    .arg(
+        Arg::new("source")
+            .long("source")
+            .value_name("FILE")
+            .requires("dry-run")
+            .value_parser(clap::value_parser!(std::path::PathBuf))
+            .help("Measure whether this HTML rewrite fits the candidate (use - for stdin)"),
+    )
     .arg(crate::cli_grammar::page())
     .arg(dry_run())
 }
 fn human(bytes: u64) -> String {
     size(usize::try_from(bytes).unwrap_or(usize::MAX))
 }
-fn print_page(report: &Reclaim, json_output: bool) -> Result<()> {
+fn print_page(
+    report: &Reclaim,
+    json_output: bool,
+    preview: Option<&tmt_colab::page::compact::HistoryPreview>,
+) -> Result<()> {
     if let Some(error) = &report.error {
         let message = if let Some(freed) = report.freed.history.filter(|bytes| *bytes > 0) {
             format!(
@@ -84,9 +96,19 @@ fn print_page(report: &Reclaim, json_output: bool) -> Result<()> {
     }
     let mut out = tmt_cli_style::stream::stdout(json_output);
     if json_output {
-        writeln!(out, "{}", serde_json::to_string(report)?)?;
+        let mut value = serde_json::to_value(report)?;
+        if let Some(preview) = preview {
+            value["historyPreview"] = serde_json::to_value(preview)?;
+        }
+        if report.skipped.as_deref() == Some("shared-history") {
+            value["skipDetail"] = tmt_colab::page::compact::SHARED_HISTORY.into();
+        }
+        writeln!(out, "{value}")?;
     } else if let Some(reason) = &report.skipped {
         writeln!(out, "skipped  {reason}")?;
+        if reason == "shared-history" {
+            writeln!(out, "{}", tmt_colab::page::compact::SHARED_HISTORY)?;
+        }
     } else if report.dry_run {
         writeln!(
             out,
@@ -104,6 +126,30 @@ fn print_page(report: &Reclaim, json_output: bool) -> Result<()> {
                 .unwrap_or_else(|| "unknown".into())
         )?;
     }
+    if !json_output && let Some(p) = preview {
+        writeln!(
+            out,
+            "Stored page now: {} compressed bytes.",
+            p.before_gzip_bytes
+        )?;
+        if let Some(reason) = &p.blocked {
+            writeln!(out, "Preview unavailable: {reason}")?;
+        } else {
+            if let (Some(after), Some(room)) = (p.after_gzip_bytes, p.headroom_bytes) {
+                writeln!(
+                    out,
+                    "Candidate: {after} compressed bytes, {room} bytes of headroom."
+                )?;
+            }
+            if let Some(n) = p.estimated_whole_rewrites {
+                writeln!(
+                    out,
+                    "About {n} whole rewrites of the current source at similar compression (estimate)."
+                )?;
+            }
+            writeln!(out, "{}\n{}", p.write_detail, p.history_loss)?;
+        }
+    }
     Ok(())
 }
 
@@ -117,36 +163,38 @@ pub fn page(root: &Path, args: &ArgMatches) -> Result<()> {
         &key,
         args.get_one::<String>("page").expect("required page"),
     )?;
-    store.close()?;
-    let dry = args.get_flag("dry-run");
-    // A preview must not create the serve lock. Its database reads are snapshot-only.
-    let lock = if dry {
-        if layout.running()? {
-            Err(StateFault::AlreadyServing.into())
-        } else {
-            Ok(None)
+    if args.get_flag("dry-run") {
+        let source = args
+            .get_one::<std::path::PathBuf>("source")
+            .map(|p| crate::page_source(p))
+            .transpose()?;
+        let mut store = store;
+        let generation = store.write_generation()?;
+        let mut decoder = Decoder::new(std::env::current_exe()?)?;
+        let report = storage::reclaim(&mut store, &key, &id, &mut decoder, true)?;
+        let preview =
+            tmt_colab::page::compact::preview(&store, &key, &id, &mut decoder, source.as_deref())?;
+        if store.write_generation()? != generation {
+            return Err(Fault::StaleBase.into());
         }
-    } else {
-        layout.serve_lock().map(Some)
-    };
-    let report = match lock {
+        store.close()?;
+        return print_page(&report, args.get_flag("json"), Some(&preview));
+    }
+    store.close()?;
+    let report = match layout.serve_lock() {
         Ok(_lock) => {
-            let mut store = if dry {
-                Store::read(&layout)?
-            } else {
-                Store::write_existing(&layout)?
-            };
+            let mut store = Store::write_existing(&layout)?;
             let mut decoder = Decoder::new(std::env::current_exe()?)?;
-            let report = storage::reclaim(&mut store, &key, &id, &mut decoder, dry)?;
+            let report = storage::reclaim(&mut store, &key, &id, &mut decoder, false)?;
             store.close()?;
             report
         }
         Err(error) if error.downcast_ref::<StateFault>() == Some(&StateFault::AlreadyServing) => {
-            tmt_colab::storage_ipc::reclaim(&layout, &id, dry)?
+            tmt_colab::storage_ipc::reclaim(&layout, &id, false)?
         }
         Err(error) => return Err(error),
     };
-    print_page(&report, args.get_flag("json"))
+    print_page(&report, args.get_flag("json"), None)
 }
 
 pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {

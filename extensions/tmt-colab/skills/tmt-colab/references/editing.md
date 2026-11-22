@@ -152,7 +152,9 @@ discussions or sharing, and needs its own `--layout` (the export does not carry 
 `tmt colab storage [--json]` lists this machine's retained page payloads. Preview one page with
 `tmt colab page reclaim PAGE --dry-run --json` or the space with
 `tmt colab storage reclaim --dry-run --json`; remove eligible history with the same command without
-`--dry-run`. A preview is conservative: it excludes unproven rebuild savings. Actual results
+`--dry-run`. The page preview also measures a hypothetical smaller checkpoint for a private
+single-writer HTML page. Add `--source FILE` (or `--source -` for stdin) to test whether the
+proposed HTML fits. Without it, the preview estimates headroom in whole rewrites. Actual results
 measure retained payload reduction, not guaranteed physical file shrink. Comments, resolved
 threads, archive state and signed-cut history stay protected. Shared-history, public and archived
 pages are skipped; existing paired heads with no new tail remain. Reclaim never removes

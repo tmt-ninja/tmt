@@ -376,7 +376,11 @@ fn execute_with(
             namespace: wire.namespace,
             input_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(&input)),
             merged: EncodedBytes(&merged),
-            projection: Value::Null,
+            projection: if wire.rebuild && incomplete {
+                Value::String("pending-dependencies".into())
+            } else {
+                Value::Null
+            },
             memory_limit: memory_limit(),
             pid: std::process::id(),
         };

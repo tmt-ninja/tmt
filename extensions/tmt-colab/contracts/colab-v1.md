@@ -7681,6 +7681,19 @@ page policy are rechecked under the sync lock before an effect. Link, public, un
 contexts cannot request either route. Bodies are `{version:1,page,dryRun?}`; unknown fields and
 malformed page IDs refuse. No route starts another service or changes sharing.
 
+The owner CLI's `page reclaim PAGE --dry-run [--source FILE]` also builds a
+hypothetical reduced content checkpoint in memory for a private HTML page with
+one content writer. It compares the current source, metadata and discussion
+with the rebuilt projection before reporting compressed bytes before and after,
+remaining headroom, and an estimated number of similarly compressible whole
+rewrites. A named dependency or access restriction explains an unavailable
+preview. The estimate assumes future sources compress like the current one.
+Without the proposed HTML the fit of a specific write is unknown. With
+`--source FILE` (or `--source -` for stdin), the CLI measures that write against
+the candidate. Neither source nor checkpoint is published. The CLI returns the
+measurement in `historyPreview`; ordinary reclaim still follows the page's
+existing history policy.
+
 Known JSON byte quantities are integers; an unavailable measurement is null. A page row has `pageId`, `title`, `contentBytes`, `historyBytes`,
 `commentsBytes`, `attachmentsBytes`, `unusedAttachmentBytes`, `unusedAttachmentsRemoveAtMs`, `totalBytes`, `freeable`,
 `lastCleanedAutomaticallyAtMs` and `skipped`. Page content is the current baseline plus each

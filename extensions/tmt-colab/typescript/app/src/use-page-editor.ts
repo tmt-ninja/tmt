@@ -168,7 +168,7 @@ export function usePageEditor({
           problem.full = compactOffered(usage) ? 'compact' : 'export';
           problem.message = compactOffered(usage)
             ? text.pageSize.saveFullTail
-            : text.pageSize.saveFullBudget;
+            : `${text.pageSize.saveFullBudget} ${text.pageSize.preview(size.pageId)}`;
         }
       }
       setError(problem);
@@ -206,7 +206,7 @@ export function usePageEditor({
         : outcome.kind === 'nothing'
           ? { message: text.pageSize.nothingToCombine, unconfirmed: false, full: 'export' }
           : outcome.kind === 'still-high'
-            ? { message: text.pageSize.saveFullBudget, unconfirmed: false, full: 'export' }
+            ? { message: text.pageSize.preview(size.pageId), unconfirmed: false, full: 'export' }
             : { message: text.pageSize.compactedSaveAgain, unconfirmed: false, full: 'compacted' },
     );
   }

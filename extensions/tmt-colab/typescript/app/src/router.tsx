@@ -1974,7 +1974,7 @@ function OpenPage({
     void noteOpened(space, snapshot.id);
   }, [space, snapshot.id]);
   const latest = useRef(view);
-  const size = usePageSize(snapshot.binding);
+  const size = usePageSize(snapshot.id, snapshot.binding);
   // The Source draft lives outside the route's state: only the Source drawer renders as it changes.
   const [sourceDraft] = useState(() => new SourceDraft(snapshot));
   const { state: connection, controller: connectionOwner } = useConnection({
