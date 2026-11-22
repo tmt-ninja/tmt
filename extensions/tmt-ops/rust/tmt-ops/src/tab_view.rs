@@ -294,8 +294,10 @@ fn roster_documents_with(
         },
         None => None,
     };
-    let idle_waiting =
-        crate::idle_alert::Waiting::from_inbox(waiting.as_ref().map(|(_, inbox)| inbox));
+    let idle_waiting = crate::idle_alert::Waiting::from_inbox(
+        me.is_some(),
+        waiting.as_ref().map(|(_, inbox)| inbox),
+    );
     let mut sleep_observation = None;
     let no_sleep = std::collections::HashSet::new();
     let idle_now = status::now_ms();

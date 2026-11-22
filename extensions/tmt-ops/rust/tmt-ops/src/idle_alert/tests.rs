@@ -4,10 +4,13 @@ use jiff::tz::TimeZone;
 use std::{collections::BTreeMap, fs, time::Duration};
 
 fn empty_waiting() -> Waiting {
-    Waiting::from_inbox(Some(&Window {
-        items: Vec::new(),
-        complete: true,
-    }))
+    Waiting::from_inbox(
+        true,
+        Some(&Window {
+            items: Vec::new(),
+            complete: true,
+        }),
+    )
 }
 
 // Local convenience keeps legacy scenarios focused on idle activity rather than orchestration.
@@ -217,7 +220,7 @@ fn the_squad_object_is_always_present_and_a_member_mark_only_when_over() {
         SETTING,
         NOW as u64,
         &HashSet::new(),
-        &Waiting::from_inbox(Some(&waiting)),
+        &Waiting::from_inbox(true, Some(&waiting)),
     );
     let mut document = json!({
         "squad": {"name": "product", "lead": {"id": "l1", "name": "lead"}},
@@ -642,6 +645,22 @@ fn calls(f: &Fixture, command: &str) -> usize {
         .iter()
         .filter(|call| call["command"][0] == command || call["request"]["operation"] == command)
         .count()
+}
+
+#[test]
+fn a_scan_without_a_configured_person_still_notifies_the_lead() {
+    let f = Fixture::new();
+    enable(&f, "30m");
+    idle_worker(&f, NOW - 45 * MINUTE);
+    f.change_model(|m| m["user"] = Value::Null);
+    let mut watch = started(&f);
+
+    assert!(scan(&f, &mut watch, NOW + MINUTE).is_empty());
+    let notices = sent(&f);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0]["input"]["recipientIds"], json!([LEAD]));
+    assert_eq!(notices[0]["input"]["kind"], "announcement");
+    assert_eq!(calls(&f, "inbox"), 0);
 }
 
 #[test]

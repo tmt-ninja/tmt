@@ -169,7 +169,7 @@ impl Observation {
             members.clone(),
         );
         let (sent, inbox) = requests::overlay(core, squad, me, &mut document, room)?;
-        let waiting = crate::idle_alert::Waiting::from_inbox(inbox.as_ref());
+        let waiting = crate::idle_alert::Waiting::from_inbox(me.is_some(), inbox.as_ref());
         let overs = crate::idle_alert::overs(&members, shape.idle_alert, now, &sleeping, &waiting);
         crate::idle_alert::annotate(&mut document, shape.idle_alert, &overs);
         snapshot.apply(&mut document);
@@ -343,6 +343,37 @@ esac
             "the lead's notes are read once, after the roster"
         );
         assert_eq!(shown.document, listed.document);
+    }
+
+    #[test]
+    fn the_status_document_marks_idle_over_without_a_configured_person() {
+        let mut fixture = Fixture::new(
+            "idle-alert-no-person",
+            json!([member("SOL", json!({"squad.p.lead.marker": "true"}))]),
+        );
+        let now = 1_800_000_000_000;
+        let since = now - 3_600_000;
+        fs::write(
+            fixture.root.join("ls"),
+            json!({"identities": [{
+                "id": "SOL", "presence": "active",
+                "session": {"activity": {"state": "idle", "sinceMs": since}}
+            }]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            fixture.config.path(),
+            "[squad.p.idle_alert]\nenabled = true\nafter = \"30m\"\n",
+        )
+        .unwrap();
+        fixture.config = Config::read(fixture.config.path().to_owned()).unwrap();
+
+        let document = status::with_now_ms(now, || fixture.read(false).document);
+        assert_eq!(
+            document["squad"]["lead"]["idleAlert"],
+            json!({"state": "over", "sinceMs": since})
+        );
     }
 
     #[test]

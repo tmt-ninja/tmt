@@ -57,7 +57,8 @@ pub(crate) struct Waiting {
 }
 
 impl Waiting {
-    pub(crate) fn from_inbox(inbox: Option<&Window>) -> Self {
+    /// Without a person there is nobody an inbox request can be waiting on.
+    pub(crate) fn from_inbox(has_person: bool, inbox: Option<&Window>) -> Self {
         Self {
             senders: inbox
                 .map(requests::waiting)
@@ -65,7 +66,7 @@ impl Waiting {
                 .flatten()
                 .map(|(sender, _)| sender)
                 .collect(),
-            complete: inbox.is_some_and(|inbox| inbox.complete),
+            complete: !has_person || inbox.is_some_and(|inbox| inbox.complete),
         }
     }
 }
@@ -378,16 +379,19 @@ impl Watch {
         if !keep() {
             return Vec::new();
         }
-        let user = match crate::me::person(core) {
-            Ok(Some(user)) => user,
-            Ok(None) => return Vec::new(),
+        let person = match crate::me::person(core) {
+            Ok(person) => person,
             Err(error) => return vec![error],
         };
-        let inbox = match requests::inbox(core, &user.id) {
+        let inbox = match person
+            .as_ref()
+            .map(|person| requests::inbox(core, &person.id))
+            .transpose()
+        {
             Ok(inbox) => inbox,
             Err(error) => return vec![error],
         };
-        let waiting = Waiting::from_inbox(Some(&inbox));
+        let waiting = Waiting::from_inbox(person.is_some(), inbox.as_ref());
         if !waiting.complete {
             return Vec::new();
         }

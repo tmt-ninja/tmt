@@ -324,7 +324,7 @@ fn parse_change(squad: &Squad, pair: &str) -> Result<Change, SquadError> {
         return Err(SquadError::new(
             "SQUAD_FIELD_RETIRED",
             format!(
-                "Field '{field}' is retired: set only state, put progress on the issue, and use a real request or Colab question to ask the user."
+                "Field '{field}' is retired and old values are ignored: set only state, put progress on the issue, and use a real request or Colab question to ask the user."
             ),
         ));
     }

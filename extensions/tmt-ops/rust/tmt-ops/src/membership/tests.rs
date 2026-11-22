@@ -265,6 +265,7 @@ fn retired_board_fields_refuse_mixed_writes_and_clears_before_core_calls() {
             );
             let error = result.expect_err("a retired field refuses the batch");
             assert_eq!(error.code, "SQUAD_FIELD_RETIRED");
+            assert!(error.message.contains("old values are ignored"));
             assert!(error.message.contains(field));
             assert!(error.message.contains("state"));
             assert!(error.message.contains("request"));
