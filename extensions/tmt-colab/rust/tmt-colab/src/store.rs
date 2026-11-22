@@ -251,6 +251,15 @@ impl Store {
             self.connection.total_changes(),
         ))
     }
+    pub(crate) fn history_cloud_bound(&self, page: &str) -> StoreResult<bool> {
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cloud_publications WHERE page=?1)
+                 OR EXISTS(SELECT 1 FROM cloud_page_rows WHERE page=?1)",
+            [page],
+            |row| row.get(0),
+        )?)
+    }
+
     pub(crate) fn pinned_content_checkpoint(
         &self,
         page: &str,

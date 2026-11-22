@@ -885,7 +885,7 @@ fn rebuild_content(doc: &Doc) -> Result<Vec<u8>, DecodeFault> {
     }
     let replayed = txn.encode_state_as_update_v1(&StateVector::default());
     equivalent_update(&encoded, &replayed)?;
-    Ok(encoded)
+    comparison::canonical_update(&encoded)
 }
 
 /// The Yjs side of a structured page's `blocks` root (#6004), reached only from the decoder child:
@@ -1597,16 +1597,16 @@ mod blocks_doc {
 mod comparison {
     use super::{Any, DecodeFault, Update};
     use yrs::updates::decoder::Decode;
-    /// Comparison-only encoder: yrs 0.28.0 sorts update structs but writes Any maps in hash order.
-    /// Sort nested map keys while preserving every encoded struct, field and delete-set entry. These
-    /// bytes are never published. Update::PartialEq alone is insufficient: it compares Item IDs only.
-    struct ComparisonEncoder(yrs::updates::encoder::EncoderV1);
-    impl yrs::encoding::write::Write for ComparisonEncoder {
+    /// yrs sorts update structs but writes Any maps in hash order. Sort nested map keys while
+    /// preserving every encoded struct, field and delete-set entry, so two independently rebuilt
+    /// checkpoints have the same compressed size. Update::PartialEq compares Item IDs only.
+    struct CanonicalEncoder(yrs::updates::encoder::EncoderV1);
+    impl yrs::encoding::write::Write for CanonicalEncoder {
         fn write_all(&mut self, bytes: &[u8]) {
             yrs::encoding::write::Write::write_all(&mut self.0, bytes);
         }
     }
-    impl yrs::updates::encoder::Encoder for ComparisonEncoder {
+    impl yrs::updates::encoder::Encoder for CanonicalEncoder {
         fn to_vec(self) -> Vec<u8> {
             yrs::updates::encoder::Encoder::to_vec(self.0)
         }
@@ -1675,15 +1675,15 @@ mod comparison {
             other => other.encode(encoder),
         }
     }
-    pub(super) fn equivalent_update(expected: &[u8], actual: &[u8]) -> Result<(), DecodeFault> {
+    pub(super) fn canonical_update(bytes: &[u8]) -> Result<Vec<u8>, DecodeFault> {
         use yrs::updates::encoder::{Encode, Encoder, EncoderV1};
-        let normalized = |bytes: &[u8]| -> Result<Vec<u8>, DecodeFault> {
-            let update = Update::decode_v1(bytes).map_err(|_| DecodeFault::Rejected)?;
-            let mut encoder = ComparisonEncoder(EncoderV1::new());
-            update.encode(&mut encoder);
-            Ok(encoder.to_vec())
-        };
-        if normalized(expected)? != normalized(actual)? {
+        let update = Update::decode_v1(bytes).map_err(|_| DecodeFault::Rejected)?;
+        let mut encoder = CanonicalEncoder(EncoderV1::new());
+        update.encode(&mut encoder);
+        Ok(encoder.to_vec())
+    }
+    pub(super) fn equivalent_update(expected: &[u8], actual: &[u8]) -> Result<(), DecodeFault> {
+        if canonical_update(expected)? != canonical_update(actual)? {
             return Err(DecodeFault::Rejected);
         }
         Ok(())

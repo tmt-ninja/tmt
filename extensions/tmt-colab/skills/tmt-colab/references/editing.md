@@ -162,6 +162,10 @@ attachments; on writable current-history pages the serve removes an attachment f
 no revision references it, and `storage` shows those bytes and the removal time.
 Unknown attachment bytes are null in JSON.
 
+Run `tmt colab page reclaim PAGE --discard-content-history --yes` only on the user's explicit request
+for that page. Never use it to clear a capacity error for yourself. The command irreversibly
+discards old content history for one eligible page and reports the local space recovered.
+
 ## Design a page for agents
 
 - Put generated data on its own marked lines, for example a line pair

@@ -2036,6 +2036,46 @@ fn history_preview_names_the_other_recipient_without_claiming_recoverable_space(
 }
 
 #[test]
+fn confirmed_history_recovery_denies_the_same_recipient_as_preview() {
+    let mut f = Fixture::new();
+    let before = f.bytes();
+    let mut decoder = f.decoder();
+    let preview = page::compact::preview(&f.store, &f.key, PAGE, &mut decoder, None).unwrap();
+    let error = page::compact::discard_history(
+        &mut f.store,
+        &f.key,
+        PAGE,
+        "40000000-0000-4000-8000-000000000092",
+        &mut decoder,
+        |_, _| panic!("a blocked preview reached confirmation"),
+    )
+    .unwrap_err();
+    assert_eq!(error.to_string(), preview.blocked.unwrap());
+    assert_eq!(f.bytes(), before);
+}
+
+#[test]
+fn confirmed_history_recovery_refuses_a_page_with_a_cloud_row() {
+    let mut f = Fixture::new();
+    f.store.confirm_page_row(PAGE, 1, NOW + 60_000).unwrap();
+    let before = f.bytes();
+    let mut decoder = f.decoder();
+    let preview = page::compact::preview(&f.store, &f.key, PAGE, &mut decoder, None).unwrap();
+    let reason = preview.blocked.unwrap();
+    assert!(reason.contains("cloud page row"));
+    let result = page::compact::discard_history(
+        &mut f.store,
+        &f.key,
+        PAGE,
+        "40000000-0000-4000-8000-000000000093",
+        &mut decoder,
+        |_, _| panic!("cloud-bound recovery reached confirmation"),
+    );
+    assert_eq!(result.unwrap_err().to_string(), reason);
+    assert_eq!(f.bytes(), before);
+}
+
+#[test]
 fn history_rebuild_drops_deleted_content_without_changing_the_page_projection() {
     let (mut f, removed) = deleted_owner_history("current", false);
     seed_member_thread_with(

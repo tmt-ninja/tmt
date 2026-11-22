@@ -304,6 +304,9 @@ pub struct HistoryPreview {
     pub write_detail: String,
     pub blocked: Option<String>,
     pub history_loss: &'static str,
+    pub changes_history_policy: Option<bool>,
+    pub affected_recipients: Option<usize>,
+    pub discard: Option<HistoryDiscard>,
 }
 
 /// Build and decode a hypothetical replacement without publishing a checkpoint.
@@ -345,6 +348,9 @@ fn prepare_history_recovery(
                 .into(),
         blocked: None,
         history_loss: "Discarded content edits and deleted text in the rebuilt writer checkpoint would no longer be recoverable. Current source, metadata, comments and threads must be preserved.",
+        changes_history_policy: None,
+        affected_recipients: None,
+        discard: None,
     };
     let policy = &snap.authority.policy;
     let local = key.local_writer()?.0;
@@ -352,6 +358,8 @@ fn prepare_history_recovery(
         Some("Page is archived or deleted.".into())
     } else if policy.public_mode || policy.link_mode {
         Some("Page has public or link access.".into())
+    } else if store.history_cloud_bound(page)? {
+        Some("A cloud page row or stream publication is recorded for this page. Local recovery cannot discard those dependencies.".into())
     } else if snap.epoch != 1 {
         Some(format!(
             "Epoch {} depends on an earlier baseline.",
@@ -416,6 +424,10 @@ fn prepare_history_recovery(
         result.blocked = Some("Rebuilding changes the current page or its discussion.".into());
         return Ok((result, None));
     }
+    if after > current.usage.gzip_limit {
+        result.blocked = Some("The rebuilt page still exceeds the compressed page limit.".into());
+        return Ok((result, None));
+    }
     let headroom = current.usage.gzip_limit.saturating_sub(after);
     result.after_gzip_bytes = Some(after);
     result.headroom_bytes = Some(headroom);
@@ -465,6 +477,19 @@ fn prepare_history_recovery(
             }
         }
     }
+    let cut = &snap.cuts[index];
+    result.discard = Some(store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        tx.history_discard_size(
+            StreamScope {
+                page,
+                epoch: cut.epoch,
+                stream: &cut.stream,
+            },
+            cut.tail_seq,
+        )
+    })?);
+    result.changes_history_policy = Some(!policy.history_current);
+    result.affected_recipients = Some(0);
     if store.write_generation()? != generation {
         return Err(Fault::StaleBase.into());
     }
@@ -482,6 +507,17 @@ pub struct HistoryDiscard {
     pub update_bytes: u64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRecovery {
+    pub page: String,
+    pub discarded: HistoryDiscard,
+    pub before_gzip_bytes: usize,
+    pub after_gzip_bytes: Option<usize>,
+    pub freed_gzip_bytes: Option<usize>,
+    pub measurement_error: Option<String>,
+}
+
 /// Owner-only implementation. The caller holds the local writer lifecycle lock or
 /// runs inside serve. `announce` reports the exact staged loss before any write.
 pub fn discard_history(
@@ -491,8 +527,8 @@ pub fn discard_history(
     operation_id: &str,
     decoder: &mut Decoder,
     announce: impl FnOnce(&HistoryPreview, &HistoryDiscard) -> Result<()>,
-) -> Result<HistoryDiscard> {
-    let (preview, candidate) = prepare_history_recovery(store, key, page, decoder, None)?;
+) -> Result<HistoryRecovery> {
+    let (mut preview, candidate) = prepare_history_recovery(store, key, page, decoder, None)?;
     let (snapshot, index, merged, generation) = candidate.ok_or_else(|| {
         std::io::Error::other(
             preview
@@ -517,9 +553,7 @@ pub fn discard_history(
         stream: &cut.stream,
     };
     let next = cut.tail_seq.checked_add(1).ok_or(Fault::Capacity)?;
-    let discard = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
-        tx.history_discard_size(scope, cut.tail_seq)
-    })?;
+    let discard = preview.discard.take().ok_or(Fault::Invalid)?;
     let payload = serde_json::to_vec(&serde_json::json!({"pageId":page,"mode":"current"}))?;
     let decision = key.sign_statement(Some(&snapshot.authority.head), "page.history", &payload)?;
     let revision = snapshot
@@ -563,12 +597,15 @@ pub fn discard_history(
     {
         let current = snapshot.materialize(key, page, decoder)?;
         let own = current.local_own_update.as_ref().ok_or(Fault::Invalid)?;
-        let candidate = snapshot.materialize_with_replacements(
+        let (candidate, _, after) = snapshot.measure_preview(
             key,
             page,
             decoder,
             &BTreeMap::from([(index, merged), (own_index, own.clone())]),
         )?;
+        if after > current.usage.gzip_limit || after >= preview.before_gzip_bytes {
+            return Err(Fault::Capacity.into());
+        }
         if candidate.source != current.source
             || candidate.meta != current.meta
             || candidate.own != current.own
@@ -619,7 +656,26 @@ pub fn discard_history(
             Ok(serde_json::to_vec(&discard)?)
         },
     )?;
-    Ok(discard)
+    // This read is deliberately after commit. A read failure cannot undo the recovery or
+    // turn the preview into a claim about actual freed space.
+    let measured = (|| -> Result<usize> {
+        let committed = super::snapshot(store, key, page, false)?;
+        let (_, _, bytes) = committed.measure_preview(key, page, decoder, &BTreeMap::new())?;
+        Ok(bytes)
+    })();
+    let (after_gzip_bytes, measurement_error) = match measured {
+        Ok(bytes) => (Some(bytes), None),
+        Err(error) => (None, Some(error.to_string())),
+    };
+    Ok(HistoryRecovery {
+        page: page.into(),
+        discarded: discard,
+        before_gzip_bytes: preview.before_gzip_bytes,
+        after_gzip_bytes,
+        freed_gzip_bytes: after_gzip_bytes
+            .map(|after| preview.before_gzip_bytes.saturating_sub(after)),
+        measurement_error,
+    })
 }
 
 /// What a requested compaction did, for the person who asked: whose stream was combined into

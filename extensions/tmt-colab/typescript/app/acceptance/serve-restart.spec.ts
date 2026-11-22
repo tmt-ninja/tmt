@@ -4,23 +4,86 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { READMIT_DELAYS_MS } from '../src/readmit.js';
-import { pairBrowser, startRemoteOnly } from './harness/browser.js';
+import { pairBrowser, restartColab, startDoor, startRemoteOnly } from './harness/browser.js';
 import {
   patchArgs,
   revokeMachine,
   composeChat,
   createPage,
+  freePort,
   openChat,
   openPage,
   run,
   sendChat,
 } from './harness/ask.js';
-import { openSource, save } from './harness/page-source.js';
+import { distinct, openSource, save } from './harness/page-source.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import type { AcceptanceWorld } from './harness/world.js';
 
 test.afterEach(disposeActiveWorlds);
+
+test('confirmed history recovery keeps a dirty source draft on the old connection', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const device = await pairBrowser(world, 'history-recovery-owner');
+    const colab = world.binaries.colab;
+    const created = createPage(world, 'History recovery', distinct(48_000, 'old source'));
+    const original = '<p>Keep the current page.</p>';
+    run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), original);
+    const file = path.join(world.workspace, 'recovery-note.txt');
+    const note = 'This attachment outlives the history cut.';
+    fs.writeFileSync(file, note);
+    const attached = JSON.parse(
+      run(world, colab, ['attachment', 'attach', created.pageId, file, '--json']),
+    ).attachment;
+    const page = await openPage(door, device, created);
+    const draft = '<p>Keep the current page. Unsent edit.</p>';
+    const editor = await openSource(page);
+    await expect(editor).toHaveValue(original);
+    await editor.fill(draft);
+
+    await restartColab(world, door, async () => {
+      await expect(page.locator('.status')).toContainText('Reconnecting…', { timeout: 60_000 });
+      const report = JSON.parse(
+        run(world, colab, [
+          'page',
+          'reclaim',
+          created.pageId,
+          '--discard-content-history',
+          '--yes',
+          '--json',
+        ]),
+      );
+      expect(report.freedGzipBytes).toBeGreaterThan(0);
+    });
+    await expect(page.locator('.status.live .status-label')).toHaveText('Live', {
+      timeout: 60_000,
+    });
+    await expect(editor).toHaveValue(draft);
+    await expect(page.frameLocator('iframe').getByText('Keep the current page.')).toBeVisible();
+    await save(page);
+    const read = () =>
+      JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])).source;
+    await expect.poll(read).toBe(draft);
+    const restored = JSON.parse(
+      run(world, colab, [
+        'attachment',
+        'read',
+        created.pageId,
+        attached.attachmentId,
+        '--output',
+        world.workspace,
+        '--json',
+      ]),
+    );
+    expect(fs.readFileSync(restored.path, 'utf8')).toBe(note);
+    await page.reload();
+    await expect(
+      page.frameLocator('iframe').getByText('Keep the current page. Unsent edit.'),
+    ).toBeVisible();
+  });
+});
 
 // #2929: the serve restarts onto a newer installed release (upgrade-safe serve, #2865) while a
 // paired owner has a page open. Remote keeps running, so while the replacement is down its mount

@@ -7790,6 +7790,27 @@ the candidate. Neither source nor checkpoint is published. The CLI returns the
 measurement in `historyPreview`; ordinary reclaim still follows the page's
 existing history policy.
 
+The owner can run `page reclaim PAGE --discard-content-history --yes [--json]` on
+one eligible local HTML page while serve is stopped. The command refuses the
+preview's blockers, including cloud publication state, and an ineffective or
+oversized rebuild. It prints the preview's compressed before and candidate
+figures, the exact sealed content checkpoint and update counts and bytes being
+discarded, the irreversible loss, and any change from shared to current history
+before committing. No sharing recipient or device wrap is changed. Later
+recipients start from the new cut. It does not request deletion of a previously
+published copy. The browser points to the dry run.
+
+The owner transaction verifies the captured page cut and write generation,
+commits a fresh signed stream anchor and the replacement checkpoint pair, and prunes
+only the covered content payloads in the same transaction. The original signed
+receipt identities and hashes remain. Current source, metadata including attachment
+descriptors, and own discussion records must match byte for byte. Attachment
+objects and own-namespace payloads are preserved. After commit, the CLI measures
+the recovered local page. JSON returns `page`, `discarded` (checkpoint and update
+counts and bytes), `beforeGzipBytes`, `afterGzipBytes`, `freedGzipBytes`, and
+`measurementError`. The after and freed values are null if that read fails. None
+of these figures measures cloud or physical disk space.
+
 Known JSON byte quantities are integers; an unavailable measurement is null. A page row has `pageId`, `title`, `contentBytes`, `historyBytes`,
 `commentsBytes`, `attachmentsBytes`, `unusedAttachmentBytes`, `unusedAttachmentsRemoveAtMs`, `totalBytes`, `freeable`,
 `lastCleanedAutomaticallyAtMs` and `skipped`. Page content is the current baseline plus each
