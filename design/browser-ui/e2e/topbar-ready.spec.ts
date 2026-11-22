@@ -18,6 +18,7 @@ for (const scenario of ['nativeReadiness', 'hostedReadiness', 'reactReadiness'] 
     if (scenario === 'nativeReadiness')
       expect(result).toEqual({
         states: [false, true, true, false, true, false, false],
+        railSearchRows: [0, 1, 0],
         barsBeforeAdoption: 0,
         action: 'Native action',
         missingRefused: true,
@@ -27,6 +28,7 @@ for (const scenario of ['nativeReadiness', 'hostedReadiness', 'reactReadiness'] 
     else if (scenario === 'hostedReadiness')
       expect(result).toEqual({
         before: false,
+        barAtFirstPaint: 1,
         installed: true,
         stale: false,
         cleared: false,

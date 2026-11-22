@@ -195,7 +195,9 @@ it('failure is visible without retrying the import or starting a session', async
 it('unavailable entry and root disposal acquire nothing and ignore pending opens', async () => {
   const f = fixture();
   await f.search.open(f.opener);
-  expect(f.events).toEqual(['Search is not available until this door describes Colab.']);
+  expect(f.events).toEqual([
+    'Search works once this browser is paired and Colab is running on your machine.',
+  ]);
   f.search.dispose();
   await f.search.open(f.opener);
   expect(f.events).toHaveLength(1);

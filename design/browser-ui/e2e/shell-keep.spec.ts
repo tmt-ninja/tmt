@@ -98,3 +98,15 @@ test('focus leaves a suspended module for the new main area and returns only by 
   await expect(page.locator('.tmt-ui-shell-main .test-act')).toBeVisible();
   await expect(page.locator('.test-act')).not.toBeFocused();
 });
+
+test('a route draws its last menu shape in its first frame, blank and inert, never its labels', async ({
+  page,
+}) => {
+  expect(await run(page, 'remembersMenuShape')).toEqual({
+    damaged: { drawn: 'content a', placeholder: 0 },
+    first: { same: true, inert: true, hidden: 'true', text: '' },
+    labelsStored: [],
+    replaced: false,
+    dropped: null,
+  });
+});

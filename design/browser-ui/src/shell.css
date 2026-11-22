@@ -699,6 +699,12 @@ nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
 .tmt-ui-shell[data-topbar] > .tmt-ui-shell-content > .tmt-ui-shell-tools {
   display: none;
 }
+/* The shell's own top-bar controls have one size under every module (#6750): the gallery's and
+   Colab's square, set here so a module's own value on :root, or none, never resizes them. */
+.tmt-ui-topbar-search,
+.tmt-ui-topbar-common {
+  --tmt-ui-host-icon-action-size: 34px;
+}
 /* These controls contain a shortcut or count, so their boxes must outgrow the icon-only square. */
 .tmt-ui-topbar .tmt-ui-topbar-search,
 .tmt-ui-topbar .tmt-ui-topbar-remote {
