@@ -758,6 +758,10 @@ fn colab_work_captures_align_headings_and_show_bound_chips() {
 #[test]
 fn colab_work_decodes_sections_and_honest_unknown_progress() {
     let mut document = owner_list(1_800_000_000_000);
+    document["pages"][0]["summary"]
+        .as_object_mut()
+        .unwrap()
+        .remove("sectionProgress");
     document["pages"][0]["summary"]["needsYou"] = json!(1);
     document["pages"][0]["summary"]["sections"] = json!([
         {"id": "h1", "title": "Plan", "level": 2, "done": 1, "total": 2, "state": "working"},
