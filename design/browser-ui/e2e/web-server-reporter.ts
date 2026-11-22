@@ -1,22 +1,37 @@
-import { readFileSync } from 'node:fs';
-import type { FullResult, Reporter } from '@playwright/test/reporter';
+import { writeFileSync } from 'node:fs';
+import { readFile, rm } from 'node:fs/promises';
+import type { FullResult, Reporter, Suite, TestCase, TestResult } from '@playwright/test/reporter';
 
-/** Fails the run with a web server's own exit reason, as `e2e/web-server.mjs` recorded it, so a
- * dead server reads as that and not as the refused connections that followed it (#6804). */
+/** Reports the first unexpected dev-server exit without invalidating completed tests. */
 export default class WebServerExitReporter implements Reporter {
-  async onEnd(result: FullResult): Promise<{ status: FullResult['status'] } | undefined> {
-    const file = process.env.BROWSER_UI_SERVER_EXIT;
-    let reasons = '';
+  private readonly file = process.env.TMT_PLAYWRIGHT_SERVER_EXIT;
+  private pending = new Set<string>();
+
+  onBegin(_config: unknown, suite: Suite): void {
+    this.pending = new Set(suite.allTests().map((test) => test.id));
+  }
+
+  onTestEnd(test: TestCase, result: TestResult): void {
+    if (!this.file || result.status !== test.expectedStatus || !this.pending.delete(test.id))
+      return;
+    if (this.pending.size !== 0) return;
     try {
-      reasons = file ? readFileSync(file, 'utf8').trim() : '';
+      writeFileSync(`${this.file}.tests-passed`, '', { mode: 0o600 });
     } catch {
-      // No file: every server ran to the end.
+      // A diagnostics-path failure must not change a test's status.
     }
+  }
+
+  async onEnd(result: FullResult): Promise<{ status: FullResult['status'] } | undefined> {
+    if (!this.file) return;
+    const reasons = (await readFile(this.file, 'utf8').catch(() => '')).trim();
+    await Promise.all([
+      rm(`${this.file}.tests-passed`, { force: true }).catch(() => {}),
+      rm(this.file, { force: true }).catch(() => {}),
+    ]);
     if (!reasons) return undefined;
     process.stderr.write(`\n${reasons}\n`);
-    return result.status === 'passed' || result.status === 'interrupted'
-      ? { status: 'failed' }
-      : undefined;
+    return result.status === 'interrupted' ? { status: 'failed' } : undefined;
   }
 
   printsToStdio(): boolean {

@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import ts from 'typescript';
 import { runInNewContext } from 'node:vm';
@@ -3851,6 +3852,7 @@ describe('required CI gate', () => {
         workers: number;
       };
     } = {};
+    const requireBuiltin = createRequire(import.meta.url);
     runInNewContext(
       ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } })
         .outputText,
@@ -3858,8 +3860,10 @@ describe('required CI gate', () => {
         exports: exported,
         process: { env: {} },
         require: (specifier: string) => {
-          expect(specifier).toBe('@playwright/test');
-          return { defineConfig: (config: unknown) => config };
+          if (specifier === '@playwright/test')
+            return { defineConfig: (config: unknown) => config };
+          expect(['node:crypto', 'node:os', 'node:path']).toContain(specifier);
+          return requireBuiltin(specifier);
         },
       }
     );
