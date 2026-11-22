@@ -228,6 +228,11 @@ pub enum Request {
         next: crate::config::OpsPreferences,
         saved: Option<String>,
     },
+    WorkViews {
+        expected: Vec<crate::config::WorkView>,
+        next: Vec<crate::config::WorkView>,
+        saved: String,
+    },
     MemberLabel {
         expected: std::sync::Arc<crate::config::WorkspaceLabels>,
         member: String,
@@ -274,6 +279,7 @@ impl Request {
             Self::SendNow { .. } => "Sending now…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
+            Self::WorkViews { .. } => "Saving work views…",
             Self::MemberLabel { .. } => "Saving label…",
             Self::LabelEdit { .. } => "Saving labels…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
@@ -327,7 +333,7 @@ pub enum Effect {
     PickTheme,
     SaveTheme,
     Act(Request),
-    OpenWorkPage(String),
+    OpenWorkPage(super::work::OpenTarget),
     WorkOrder(super::work::OrderMove),
     AnswerProviderForm(super::provider_answer::Send),
     Shell {
@@ -728,6 +734,7 @@ pub(super) enum Overlay {
     EstimateBasis,
     OrchestrationWhy,
     Unread,
+    WorkViews,
     Discovery,
     MemberSession,
     Notes,
@@ -802,6 +809,7 @@ impl Overlay {
                 Self::PastePreview => "paste-preview",
                 Self::OfflineResume => "offline-resume",
                 Self::Standalone => "run-command",
+                Self::WorkViews => "work-views",
             }
             .into(),
         ]
@@ -888,6 +896,7 @@ pub struct App {
     pub(in crate::board) keyboard_enhanced: bool,
     pub(super) shell: super::shell::OpsShell,
     pub(in crate::board) work: super::work::State,
+    pub(super) talk_work: RefCell<super::agents_focus::TalkWork>,
     pub(in crate::board) orchestration: super::orchestration::State,
     pub(super) workspace: super::workspace::OpsWorkspace,
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
@@ -3526,7 +3535,11 @@ impl App {
             Choice::SavingsUnit => self.cycle_savings_unit(),
             Choice::TokMoney | Choice::TokUnit => self.toggle_tok_money(),
             Choice::ClearSearch => {
-                super::search_field::clear(&mut self.search, &mut self.searching);
+                if self.shell.tab == super::shell::OpsTab::Work {
+                    super::search_field::clear(&mut self.work.search, &mut self.work.searching);
+                } else {
+                    super::search_field::clear(&mut self.search, &mut self.searching);
+                }
                 self.clamp();
                 self.invalidate_frame_geometry();
                 Effect::None
@@ -3665,8 +3678,13 @@ impl App {
                 .overlay_event(&Event::Paste(text.to_owned()))
                 .unwrap_or(Effect::None);
         }
-        if self.searching && self.input.is_none() && !self.modal_open() {
-            if !super::search_field::paste(&mut self.search, text) {
+        if self.is_searching() && self.input.is_none() && !self.modal_open() {
+            let search = if self.shell.tab == super::shell::OpsTab::Work {
+                &mut self.work.search
+            } else {
+                &mut self.search
+            };
+            if !super::search_field::paste(search, text) {
                 return self.say("Search exceeds 4,096 bytes; query unchanged.");
             }
             self.clamp();
@@ -4222,7 +4240,7 @@ impl App {
     }
 
     pub(super) fn button_owner_is_active(&self, owner: Option<Overlay>) -> bool {
-        self.menu.is_none() && self.overlay() == owner && (owner.is_some() || !self.searching)
+        self.menu.is_none() && self.overlay() == owner && (owner.is_some() || !self.is_searching())
     }
 
     pub(in crate::board) fn usage_controls_active(&self) -> bool {
@@ -4264,6 +4282,8 @@ impl App {
             Some(Overlay::OrchestrationWhy)
         } else if self.unread_overlay.is_some() {
             Some(Overlay::Unread)
+        } else if self.work.view_dialog.is_some() {
+            Some(Overlay::WorkViews)
         } else if self.switch_tool_shown() {
             Some(Overlay::SwitchTool)
         } else if self.idle_alert_shown() {
@@ -4424,6 +4444,15 @@ impl App {
             Overlay::CronReview => self.cron_review_event(event),
             Overlay::Confirm => self.confirm_event(event),
             Overlay::MonitorDetails => self.monitor_details_event(event),
+            Overlay::WorkViews => match event {
+                ratatui::crossterm::event::Event::Key(key) => {
+                    Some(self.work_view_dialog_key(*key).unwrap_or(Effect::None))
+                }
+                ratatui::crossterm::event::Event::Mouse(mouse) => {
+                    Some(self.work_view_dialog_mouse(*mouse).unwrap_or(Effect::None))
+                }
+                _ => None,
+            },
         }
     }
 
@@ -4637,7 +4666,11 @@ impl App {
                     return effect;
                 }
             }
-            self.searching = false;
+            if self.shell.tab == super::shell::OpsTab::Work {
+                self.work.searching = false;
+            } else {
+                self.searching = false;
+            }
             let effect = self.perform(&action);
             return if effect == Effect::None {
                 cleanup
@@ -4675,7 +4708,7 @@ impl App {
         }
         if self.input.is_none()
             && !self.modal_open()
-            && !self.searching
+            && !self.is_searching()
             && let Some(effect) = self.member_link_key(key)
         {
             return effect;
@@ -4748,13 +4781,21 @@ impl App {
         {
             return self.open_standalone();
         }
+        if let Some(effect) = self.work_view_dialog_key(key) {
+            return effect;
+        }
         if !typing && let Some(effect) = self.saved_row_key(key) {
             return effect;
         }
         if !typing && let Some(effect) = self.work_key(key) {
             return effect;
         }
-        if let Some(input) = super::search_field::key(&mut self.search, &mut self.searching, key) {
+        let (search, searching) = if self.shell.tab == super::shell::OpsTab::Work {
+            (&mut self.work.search, &mut self.work.searching)
+        } else {
+            (&mut self.search, &mut self.searching)
+        };
+        if let Some(input) = super::search_field::key(search, searching, key) {
             self.clamp();
             match input {
                 super::search_field::Input::Previous => {
@@ -4782,6 +4823,9 @@ impl App {
         {
             return Effect::None;
         }
+        if !typing && let Some(effect) = super::agents_focus::talk_work_key(self, key) {
+            return effect;
+        }
         self.workspace_key(key)
     }
 
@@ -4792,6 +4836,7 @@ impl App {
         self.provider_answer.invalidate();
         self.orchestration.invalidate();
         self.work.hits.borrow_mut().clear();
+        self.talk_work.borrow_mut().clear_hits();
         self.pane_resize.invalidate();
         self.buttons.invalidate();
         if let Some(picker) = &self.panels_picker {
@@ -4960,10 +5005,10 @@ impl App {
         };
         let resize_changed = self.pane_resize.move_pointer(
             (event.column, event.row).into(),
-            !self.modal_open() && self.input.is_none() && !self.searching && !self.loading(),
+            !self.modal_open() && self.input.is_none() && !self.is_searching() && !self.loading(),
         );
         let chart_changed = if self.usage_controls_active()
-            || (!self.modal_open() && self.input.is_none() && !self.searching)
+            || (!self.modal_open() && self.input.is_none() && !self.is_searching())
         {
             super::overview::chart::host::pointer(self, event)
         } else {
@@ -4980,7 +5025,7 @@ impl App {
                 .as_ref()
                 .is_some_and(|notes| notes.move_pointer((event.column, event.row).into()));
         let control =
-            if self.loading() || self.modal_open() || self.input.is_some() || self.searching {
+            if self.loading() || self.modal_open() || self.input.is_some() || self.is_searching() {
                 None
             } else {
                 self.workspace_strip_hits
@@ -5003,7 +5048,7 @@ impl App {
             && self.overlay().is_none()
             && self.menu.is_none()
             && self.input.is_none()
-            && !self.searching
+            && !self.is_searching()
             && self
                 .composer
                 .unread_hit
@@ -5022,15 +5067,15 @@ impl App {
             && self.overlay().is_none()
             && self.menu.is_none()
             && self.input.is_none()
-            && !self.searching)
-            .then(|| {
-                self.unread_hits
-                    .borrow()
-                    .iter()
-                    .find(|hit| hit.area.contains((event.column, event.row).into()))
-                    .map(|hit| hit.area)
-            })
-            .flatten();
+            && !self.is_searching())
+        .then(|| {
+            self.unread_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.area.contains((event.column, event.row).into()))
+                .map(|hit| hit.area)
+        })
+        .flatten();
         let count_changed = count != self.unread_hover.replace(count);
         let changed = unread_overlay_changed
             || chart_changed
@@ -5116,6 +5161,9 @@ impl App {
         if let Some(effect) = self.frame_mouse(event) {
             return effect;
         }
+        if let Some(effect) = self.work_view_dialog_mouse(event) {
+            return effect;
+        }
         self.conversation_source_outside_press(event);
         // Activation never transfers hover to a replacement modal or control.
         self.buttons.clear_hover();
@@ -5150,6 +5198,9 @@ impl App {
             return self.menu_mouse(event);
         }
         if let Some(effect) = self.provider_answer_mouse(event) {
+            return effect;
+        }
+        if let Some(effect) = super::agents_focus::talk_work_mouse(self, event) {
             return effect;
         }
         // Jump to latest (#5920) sits over the reader's body, so it takes a press anywhere in its
@@ -5329,7 +5380,7 @@ impl App {
             }
             return Effect::None;
         }
-        if !self.searching
+        if !self.is_searching()
             && let Some(effect) = super::overview::chart::host::mouse(self, event)
         {
             return effect;
@@ -5344,7 +5395,7 @@ impl App {
             if let Some(choice) = strip {
                 // The current frame's painter owns admission on either tab; geometry
                 // invalidation retires its hits before a destination or layout changes.
-                if !self.searching {
+                if !self.is_searching() {
                     self.focus_strip(event.column, event.row);
                     return self.choose(choice);
                 }
@@ -5491,7 +5542,7 @@ impl App {
                 && self.shell.tab == super::shell::OpsTab::Agents
                 && !self.loading()
                 && !self.modal_open()
-                && !self.searching)
+                && !self.is_searching())
         {
             return Effect::None;
         }

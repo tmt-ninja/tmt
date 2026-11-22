@@ -78,6 +78,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(unread) = &app.unread_overlay {
         unread.render(frame, app, body);
     }
+    app.render_work_view_dialog(frame, body);
     if let Some(menu) = &app.menu {
         let anchor = menu.anchor;
         let body = if let Some(anchor) = anchor {

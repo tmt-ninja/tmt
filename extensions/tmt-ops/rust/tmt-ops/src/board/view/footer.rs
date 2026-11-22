@@ -774,12 +774,17 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
     if app.shell.tab == crate::board::shell::OpsTab::Work {
         return fit_hints(
             [
+                ("/", "search"),
+                ("v", "views"),
                 ("↑↓", "move"),
-                ("⏎", "open page"),
-                ("m", "move work"),
+                ("Space", "detail"),
+                ("Tab", "focus"),
+                ("⏎", "open"),
+                ("t", "talk"),
+                ("m", "move"),
                 ("p", "project"),
                 ("d", "period"),
-                ("c", "recently done"),
+                ("c", "done"),
                 ("r", "refresh"),
                 ("?", "help"),
                 ("q", "quit"),

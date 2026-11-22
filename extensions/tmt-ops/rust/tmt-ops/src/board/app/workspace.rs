@@ -1033,6 +1033,13 @@ impl App {
     }
     /// Shows the conversation of the selected member `target` in the Agents tab, with the
     /// reader focused: what Enter on a member row does.
+    pub(in crate::board) fn is_searching(&self) -> bool {
+        if self.shell.tab == super::super::shell::OpsTab::Work {
+            self.work.searching
+        } else {
+            self.searching
+        }
+    }
     pub(in crate::board) fn show_conversation_of(&mut self, target: &OpsTarget) {
         self.conversation_return.get_or_insert(self.shell.tab);
         self.shell.tab = OpsTab::Agents;
@@ -1450,7 +1457,7 @@ impl App {
             OpsInputOwner::Composer
         } else if overlay.is_some() || self.menu.is_some() {
             OpsInputOwner::Popup
-        } else if self.searching {
+        } else if self.is_searching() {
             OpsInputOwner::Search
         } else if self.focused_pane() == Some(Pane::Replies) {
             OpsInputOwner::Reader

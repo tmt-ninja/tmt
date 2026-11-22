@@ -64,6 +64,17 @@ pub fn agents_tree(area: Rect, preference: Preference, conversation_focused: boo
     }
 }
 
+/// Metadata can yield completely, leaving room for the composer, its gap and the exchange.
+pub(in crate::board) fn talk_metadata(area: Rect, top: u16, input_rows: Option<u16>) -> Rect {
+    let reserved = input_rows.map_or(2, |rows| rows.saturating_add(3));
+    Rect::new(
+        area.x,
+        top,
+        area.width,
+        area.bottom().saturating_sub(top).saturating_sub(reserved),
+    )
+}
+
 /// Digest keeps its full hourly table beside a five-person exchange matrix only
 /// when both fit; narrower terminals stack, then yield to the focused pane.
 pub fn digest(area: Rect, reader_focused: bool) -> Placement {

@@ -28,6 +28,13 @@ fn owner_list(now: u64) -> Value {
                 "link": "https://example.test/page",
                 "summary": {
                     "status": "blocked", "blockedSinceMs": now - 91_020_000,
+                    "sectionProgress": {"done": 2, "inProgress": 1, "todo": 1, "unknown": 0, "total": 4},
+                    "sections": [
+                        {"id": "h1", "title": "Handshake protocol", "level": 2, "done": 1, "total": 1, "state": "done"},
+                        {"id": "h2", "title": "Session auth token", "level": 2, "done": 1, "total": 1, "state": "done"},
+                        {"id": "h3", "title": "Reconnect prompt", "level": 2, "done": 0, "total": 1, "state": "needs-you"},
+                        {"id": "h4", "title": "Exponential backoff", "level": 2, "done": 0, "total": 1, "state": "unchecked"}
+                    ],
                     "fields": {
                         "owner": {"id": MEMBER, "name": "worker-before-rename"},
                         "next": "Different next step",
@@ -47,12 +54,13 @@ fn owner_list(now: u64) -> Value {
                 "pageId": OTHER, "workNumber": "W-91", "title": "Check the setup example",
                 "lastUpdateAtMs": now - 301_000,
                 "summary": {"status": "waiting-ci",
+                    "sectionProgress": {"done": 3, "inProgress": 0, "todo": 0, "unknown": 0, "total": 3},
                     "fields": {"owner": {"id": OTHER, "name": "worker"}}}
             },
             {
                 "pageId": UNCHECKED, "workNumber": "CORE-88", "title": "Review the event contract",
                 "projects": ["Core"], "lastUpdateAtMs": now - 2_401_000,
-                "summary": {"status": "unchecked", "todosOmitted": true}
+                "summary": {"status": "unchecked", "todosOmitted": true, "sectionsOmitted": true}
             },
             {
                 "pageId": DONE, "workNumber": "COLAB-110", "title": "Document page names",
@@ -192,12 +200,16 @@ fn colab_work_renders_now_and_next_in_the_owner_order() {
             .position(|line| line.contains(label))
             .unwrap_or_else(|| panic!("Missing {label} in {lines:?}"))
     };
-    assert!(row("── Now") < row("COLAB-119     ✗ Blocked"));
-    assert!(row("── Next") < row("CORE-88"));
-    assert!(row("CORE-88") < row("COLAB-143"));
-    assert!(row("── No preference") > row("COLAB-143"));
-    assert!(row("── No preference") < row("W-91"));
-    assert_eq!(row("m move · No link · check Colab serve and pairing"), 34);
+    assert!(row("── Now") < row("✗ COLAB-119"));
+    assert!(row("── Next") < row("▸ · CORE-88"));
+    assert!(row("▸ · CORE-88") < row("◇ COLAB-143"));
+    assert!(row("── No preference") > row("◇ COLAB-143"));
+    assert!(row("── No preference") < row("· W-91"));
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("More sections in Colab · o open"))
+    );
 }
 
 fn ordered_list(now: u64) -> Value {
@@ -399,6 +411,99 @@ fi
 }
 
 #[test]
+fn colab_open_requires_the_exact_block_and_falls_back_only_for_html_pages() {
+    use crate::{
+        core::Core,
+        test_support::{Scratch, write_ready_executable},
+    };
+    use std::fs;
+
+    let scratch = Scratch::new("colab-work-open");
+    let executable = scratch.join("tmt");
+    let calls = scratch.join("calls");
+    let response = scratch.join("response");
+    let page_link = "https://example.test/colab/p/33333333";
+    let page_response = json!({"pageId": PAGE, "running": true, "link": page_link});
+    fs::write(scratch.join("page"), page_response.to_string()).unwrap();
+    write_ready_executable(
+        &executable,
+        r#"#!/bin/sh
+cd "$(dirname "$0")" || exit 2
+printf '%s\n' "$*" >> calls
+case "$4" in
+    --block=*) cat response; [ ! -f refuse ];;
+    *) cat page;;
+esac
+"#,
+    );
+    let core = Core::at(executable);
+    let target = OpenTarget {
+        page: PAGE.into(),
+        block: Some("chapter".into()),
+    };
+    let block_call = format!("colab open {PAGE} --block=chapter --json\n");
+    let anchor = format!("{page_link}#anchor=block-chapter");
+    fs::write(
+        &response,
+        json!({"pageId": PAGE, "running": true, "link": anchor}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        open_link(&core, &target),
+        Ok((anchor, "Opened Colab block."))
+    );
+    assert_eq!(fs::read_to_string(&calls).unwrap(), block_call);
+
+    fs::write(&calls, "").unwrap();
+    fs::write(&response, page_response.to_string()).unwrap();
+    assert_eq!(
+        open_link(&core, &target),
+        Err("Colab did not confirm the selected block.".into())
+    );
+    assert_eq!(fs::read_to_string(&calls).unwrap(), block_call);
+
+    fs::write(scratch.join("refuse"), "").unwrap();
+    for (code, message, expected, expected_calls) in [
+        (
+            "COLAB_BLOCK_NOT_FOUND",
+            "Colab refused this block.",
+            Err("Colab refused this block.".into()),
+            block_call.clone(),
+        ),
+        (
+            "COLAB_INPUT_INVALID",
+            "The --block ID is invalid.",
+            Err("The --block ID is invalid.".into()),
+            block_call.clone(),
+        ),
+        (
+            "COLAB_NOT_STRUCTURED",
+            "Colab refused this block.",
+            Ok((page_link.into(), "Opened Colab page.")),
+            format!("{block_call}colab open {PAGE} --json\n"),
+        ),
+        (
+            "COLAB_INPUT_INVALID",
+            "error: unexpected argument '--block' found\n\nUsage: tmt colab open <page>",
+            Ok((
+                page_link.into(),
+                "Opened the page; this Colab cannot open a section",
+            )),
+            format!("{block_call}colab open {PAGE} --json\n"),
+        ),
+    ] {
+        fs::write(&calls, "").unwrap();
+        fs::write(
+            &response,
+            json!({"error":{"code":code,"message":message}}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(open_link(&core, &target), expected);
+        assert_eq!(fs::read_to_string(&calls).unwrap(), expected_calls);
+    }
+}
+
+#[test]
 fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
     let mut app = board();
     let selected = app.workspace.selected.clone();
@@ -410,15 +515,33 @@ fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
     assert_eq!(key(&mut app, KeyCode::Char('2')), Effect::None);
     assert_eq!(app.shell.tab, OpsTab::Work);
     assert_eq!(key(&mut app, KeyCode::Char('/')), Effect::None);
-    assert!(!app.searching);
+    assert!(app.work.searching);
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.work.searching);
     assert_eq!(
         key(&mut app, KeyCode::Enter),
-        Effect::OpenWorkPage(PAGE.into())
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: None
+        })
     );
+    assert_eq!(key(&mut app, KeyCode::Tab), Effect::None);
+    assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('o')),
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: Some("h2".into()),
+        })
+    );
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
     assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
     assert_eq!(
         key(&mut app, KeyCode::Enter),
-        Effect::OpenWorkPage(PAGE.into())
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: Some("one".into()),
+        })
     );
     assert_eq!(key(&mut app, KeyCode::End), Effect::None);
     assert_eq!(
@@ -464,6 +587,10 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "work-order-all",
     "work-order-project",
     "work-order-conflict",
+    "work-view-chip",
+    "work-view-collapsed",
+    "work-view-save",
+    "work-view-manage",
 ];
 
 pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
@@ -537,6 +664,39 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
         if scene == "work-stale" {
             app.work
                 .apply(Instant::now(), Err("Colab owner list unavailable.".into()));
+        }
+        if matches!(
+            scene,
+            "work-view-chip" | "work-view-collapsed" | "work-view-save" | "work-view-manage"
+        ) {
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .preferences
+                .work_views = vec![crate::config::WorkView {
+                name: "Remote follow-up".into(),
+                project: Some("Colab".into()),
+                query: "protocol".into(),
+                filter: None,
+                detail_collapsed: scene == "work-view-collapsed",
+                default: true,
+            }];
+            app.apply_default_work_view();
+            if scene == "work-view-chip" {
+                app.work.detail_collapsed = false;
+                app.work.search.clear();
+            } else if scene == "work-view-save" {
+                app.work.view_draft_name = "Remote follow-up".into();
+                app.work.view_draft_default = true;
+                key(&mut app, KeyCode::Char('v'));
+                key(&mut app, KeyCode::Char('s'));
+            } else if scene == "work-view-manage" {
+                key(&mut app, KeyCode::Char('v'));
+            }
         }
     }
     if scene == "agents-work" {
@@ -713,32 +873,529 @@ fn colab_work_captures_align_headings_and_show_bound_chips() {
                 .collect::<Vec<_>>()
         };
         let lines = render(&mut terminal, "work-projects");
-        let heading = lines
-            .iter()
-            .find(|line| line.contains("NUMBER") && line.contains("STATUS"))
-            .unwrap();
         let selected = lines
             .iter()
-            .find(|line| line.contains("› COLAB-119"))
+            .find(|line| line.contains("▸ ✗ COLAB-119"))
             .unwrap();
-        assert_eq!(heading.find("NUMBER"), Some(3));
-        assert_eq!(heading.find("STATUS"), Some(17));
-        assert_eq!(
-            selected.find("✗ Blocked").map(|x| x - ("›".len() - 1)),
-            Some(17)
-        );
-        assert!(heading.contains("AGE ") && !heading.contains("AGE…"));
-        assert!(selected.contains("worker") && !selected.contains("before"));
-        assert!(lines.iter().any(|line| line.contains("in COLAB-119")));
+        let selected_meta = lines
+            .iter()
+            .find(|line| line.contains("worker") && line.contains("2/4"))
+            .unwrap();
+        assert!(selected.contains("Large design reads"));
+        assert!(!selected_meta.contains("before"));
+        assert!(lines.iter().any(|line| line.contains("Detail · COLAB-119")));
+        assert!(lines.iter().any(|line| line.contains("2/4 verified")));
+        assert!(lines.iter().any(|line| line.contains("← waiting")));
+        assert!(lines.iter().any(|line| line.contains("Projects")));
+        assert!(lines.iter().any(|line| line.contains("Squad Pulse")));
         let stale = render(&mut terminal, "work-stale");
-        assert!(stale.iter().all(|line| !line.contains("⏎ open page")));
-        assert!(lines.iter().all(|line| !line.trim_start().starts_with('·')));
-        assert!(lines[34].contains("⏎ open page"));
-        assert!(lines[35].contains("⏎ open page") && lines[35].contains("c recently done"));
+        assert!(stale.iter().all(|line| !line.contains("⏎ open")));
+        assert!(stale.iter().any(|line| line.contains("Stale ·")));
+        assert!(lines.iter().any(|line| line.contains("o / ⏎  Open page")));
+        assert!(lines[35].contains("⏎ open") && lines[35].contains("/ search"));
         let agents = render(&mut terminal, "agents-work");
         assert!(
             agents.iter().any(|line| line.contains("sam ○ W-91")),
             "{agents:?}"
         );
     }
+}
+
+#[test]
+fn colab_work_saved_views_chip_row_dialogs_and_default_reopen() {
+    let now: u64 = 1_800_000_000_000;
+    let document = owner_list(now);
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+
+    let draw = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(120)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+    };
+
+    // Built-in View chips render and filter by Needs you.
+    let lines = draw(&app);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("All (") && l.contains("Needs you (") && l.contains("+ Save"))
+    );
+    app.apply_work_view_selection(ViewSelection::NeedsYou);
+    let needs_lines = draw(&app);
+    assert!(needs_lines.iter().any(|l| l.contains("COLAB-140")));
+    assert!(!needs_lines.iter().any(|l| l.contains("CORE-88")));
+
+    // `v` opens the Saved Work views List dialog; `s` switches to Save Form dialog; Esc preserves draft.
+    key(&mut app, KeyCode::Char('v'));
+    assert!(matches!(
+        app.work.view_dialog,
+        Some(ViewDialog::Manage { .. })
+    ));
+    key(&mut app, KeyCode::Char('s'));
+    assert!(matches!(
+        app.work.view_dialog,
+        Some(ViewDialog::Save { .. })
+    ));
+    for ch in "Colab follow-up".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    key(&mut app, KeyCode::Esc);
+    assert!(app.work.view_dialog.is_none());
+    assert_eq!(app.work.view_draft_name, "Colab follow-up");
+
+    // Reopening Save dialog retains draft and Enter submits Request::WorkViews.
+    key(&mut app, KeyCode::Char('v'));
+    key(&mut app, KeyCode::Char('s'));
+    app.work.view_draft_default = true;
+    let Effect::Act(crate::board::app::Request::WorkViews { next, .. }) =
+        key(&mut app, KeyCode::Enter)
+    else {
+        panic!("submitting Save view dialog must emit Request::WorkViews");
+    };
+    assert_eq!(next.len(), 1);
+    assert_eq!(next[0].name, "Colab follow-up");
+    assert!(next[0].default);
+
+    // Default view applies on startup/reopen against a fresh snapshot.
+    let mut reopened = board();
+    reopened.shell.tab = OpsTab::Work;
+    reopened
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .work_views = vec![crate::config::WorkView {
+        name: "Colab follow-up".into(),
+        project: Some("Colab".into()),
+        query: "protocol".into(),
+        filter: None,
+        detail_collapsed: true,
+        default: true,
+    }];
+    reopened
+        .work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    reopened.apply_default_work_view();
+    assert_eq!(reopened.work.project.as_deref(), Some("Colab"));
+    assert_eq!(reopened.work.search.as_str(), "protocol");
+    assert!(reopened.work.detail_collapsed);
+    assert_eq!(
+        reopened.work.active_view,
+        ViewSelection::Saved("Colab follow-up".into())
+    );
+    let reopened_lines = draw(&reopened);
+    assert!(
+        reopened_lines
+            .iter()
+            .any(|l| l.contains("Colab follow-up *"))
+    );
+}
+
+#[test]
+fn the_work_views_dialog_follows_the_close_rule() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    key(&mut app, KeyCode::Char('v'));
+    key(&mut app, KeyCode::Char('s'));
+    key(&mut app, KeyCode::Char('X'));
+    let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    assert!(app.work.view_dialog.is_some());
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        },
+        Instant::now(),
+    );
+    assert!(
+        app.work.view_dialog.is_none(),
+        "outside click closes dialog"
+    );
+    assert_eq!(app.work.view_draft_name, "X", "draft survives reopen");
+}
+
+#[test]
+fn colab_work_decodes_sections_and_honest_unknown_progress() {
+    let mut document = owner_list(1_800_000_000_000);
+    document["pages"][0]["summary"]
+        .as_object_mut()
+        .unwrap()
+        .remove("sectionProgress");
+    document["pages"][0]["summary"]["needsYou"] = json!(1);
+    document["pages"][0]["summary"]["sections"] = json!([
+        {"id": "h1", "title": "Plan", "level": 2, "done": 1, "total": 2, "state": "working"},
+        {"id": "h1-sub", "title": "Details", "level": 3, "done": 1, "total": 2, "state": "working"},
+        {"id": "h2", "title": "Verify", "level": 2, "done": 0, "total": 1, "state": "unchecked"}
+    ]);
+    document["pages"][2]["summary"]["sectionsOmitted"] = json!(true);
+    let list = List::decode(&document).unwrap();
+    let colab_119 = list
+        .items
+        .iter()
+        .find(|item| item.page == PAGE && !item.todo)
+        .unwrap();
+    assert_eq!(colab_119.needs_you, 1);
+    assert_eq!(colab_119.sections.len(), 3);
+    // Absent summary.sectionProgress stays None even when sections are present.
+    assert_eq!(colab_119.progress, None);
+    assert_eq!(list.project_progress("Core"), None);
+    assert_eq!(list.project_progress("Colab"), None);
+
+    // Explicit summary.sectionProgress populates progress.
+    document["pages"][0]["summary"]["sectionProgress"] =
+        json!({"done": 2, "inProgress": 1, "todo": 1, "unknown": 0, "total": 4});
+    let list = List::decode(&document).unwrap();
+    let colab_119 = list
+        .items
+        .iter()
+        .find(|item| item.page == PAGE && !item.todo)
+        .unwrap();
+    assert_eq!(colab_119.progress, Some(Progress { done: 2, total: 4 }));
+    assert_eq!(
+        list.project_progress("Colab"),
+        Some(Progress { done: 2, total: 4 })
+    );
+}
+
+fn long_page_inspector() -> App {
+    let now = 1_800_000_000_000;
+    let mut document = owner_list(now);
+    document["pages"][0]["summary"]["sections"] = json!(
+        (1..=24)
+            .map(|n| json!({
+                "id": format!("heading-{n}"),
+                "title": format!("Chapter {n:02}"),
+                "level": 2, "done": 0, "total": 1, "state": "unchecked",
+            }))
+            .collect::<Vec<_>>()
+    );
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    app
+}
+
+#[test]
+fn colab_work_short_inspector_keeps_the_keyboard_section_visible() {
+    let mut app = long_page_inspector();
+    let draw = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(120)
+            .map(|row| {
+                row[60..]
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let first = draw(&app);
+    assert!(first.contains("Chapter 01") && !first.contains("Chapter 24"));
+    key(&mut app, KeyCode::Tab);
+    for _ in 0..12 {
+        key(&mut app, KeyCode::Down);
+    }
+    let middle = draw(&app);
+    assert!(middle.contains("▸ ·  13. Chapter 13"), "{middle}");
+    assert!(
+        middle.contains("more ↑") && middle.contains("more ↓"),
+        "{middle}"
+    );
+    key(&mut app, KeyCode::End);
+    let last = draw(&app);
+    assert!(last.contains("▸ ·  24. Chapter 24"), "{last}");
+    assert!(
+        last.contains("more ↑") && !last.contains("more ↓"),
+        "{last}"
+    );
+    assert!(last.contains("Open block"), "{last}");
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: Some("heading-24".into()),
+        })
+    );
+}
+
+#[test]
+fn colab_work_w168_dashboard_search_space_collapse_and_inspector() {
+    let now = 1_800_000_000_000;
+    let mut document = owner_list(now);
+    document["pages"][0]["summary"]["needsYou"] = json!(1);
+    document["pages"][0]["summary"]["sections"] = json!([
+        {"id": "h1", "title": "Protocol handshake", "level": 2, "done": 1, "total": 1, "state": "done"},
+        {"id": "h2", "title": "Reconnect prompt", "level": 2, "done": 0, "total": 1, "state": "needs-you"}
+    ]);
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+
+    let draw = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(120)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+    };
+
+    let lines = draw(&app);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("Projects") && l.contains("chapters"))
+    );
+    assert!(lines.iter().any(|l| l.contains("Squad Pulse")));
+    assert!(lines.iter().any(|l| l.contains("Detail · COLAB-119")));
+    assert!(lines.iter().any(|l| l.contains("answer in Colab")));
+    assert!(lines.iter().any(|l| l.contains("Protocol handshake")));
+    assert!(
+        lines.iter().any(|l| l.contains("—")),
+        "unknown progress renders —"
+    );
+
+    // Space collapses the right detail inspector into full-width cards.
+    key(&mut app, KeyCode::Char(' '));
+    assert!(app.work.detail_collapsed);
+    let collapsed = draw(&app);
+    assert!(collapsed.iter().any(|l| l.contains("Space detail")));
+    key(&mut app, KeyCode::Char(' '));
+    assert!(!app.work.detail_collapsed);
+
+    // Tab focuses the Detail Inspector; Down moves section cursor; Esc returns to list.
+    key(&mut app, KeyCode::Tab);
+    assert!(app.work.inspector_focused);
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.work.inspector_cursor, 1);
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.work.inspector_focused);
+
+    // `/` live search filters cards and Esc clears.
+    key(&mut app, KeyCode::Char('/'));
+    assert!(app.work.searching);
+    assert!(!app.searching);
+    for ch in "W-91".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    let filtered = draw(&app);
+    assert!(filtered.iter().any(|l| l.contains("W-91")));
+    assert!(!filtered.iter().any(|l| l.contains("CORE-88")));
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.work.searching);
+    assert!(app.work.search.is_empty());
+
+    // `t` jumps to the bound owner's Talk tab in Agents without leaking Work search.
+    app.search.insert("worker", 4096);
+    key(&mut app, KeyCode::Char('/'));
+    for ch in "COLAB-119".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Char('t'));
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
+    assert_eq!(app.search.as_str(), "worker");
+    assert_eq!(app.work.search.as_str(), "COLAB-119");
+    assert!(matches!(
+        &app.workspace.selected,
+        Some(crate::board::workspace::OpsTarget::Member { identity_id, .. }) if identity_id == MEMBER
+    ));
+
+    // If the Agents filter would hide the bound member, `t` clears it so the member is selected.
+    key(&mut app, KeyCode::Char('2'));
+    app.search.clear();
+    app.search.insert("no-such-agent", 4096);
+    key(&mut app, KeyCode::Char('t'));
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert!(app.search.is_empty());
+    assert!(matches!(
+        &app.workspace.selected,
+        Some(crate::board::workspace::OpsTarget::Member { identity_id, .. }) if identity_id == MEMBER
+    ));
+}
+
+#[test]
+fn colab_work_6809_section_progress_contract_and_narrow_widths() {
+    let now: u64 = 1_800_000_000_000;
+    let document = json!({
+        "spaceId": "fixture",
+        "projects": ["ops", "core"],
+        "pages": [
+            {
+                "pageId": PAGE,
+                "workNumber": "W-168",
+                "title": "Work dashboard",
+                "projects": ["ops"],
+                "lastUpdateAtMs": now - 240_000,
+                "link": "https://example.test/w168",
+                "summary": {
+                    "status": "needs-you",
+                    "needsYou": 1,
+                    "sectionProgress": {"done": 2, "inProgress": 1, "todo": 1, "unknown": 0, "total": 4},
+                    "fields": {"owner": {"id": MEMBER, "name": "worker"}, "next": "Answer question"}
+                }
+            },
+            {
+                "pageId": OTHER,
+                "workNumber": "W-169",
+                "title": "No sections page",
+                "projects": ["core"],
+                "lastUpdateAtMs": now - 600_000,
+                "link": "https://example.test/w169",
+                "summary": {
+                    "status": "working",
+                    "fields": {"owner": {"id": MEMBER, "name": "worker"}}
+                }
+            }
+        ]
+    });
+    let list = List::decode(&document).unwrap();
+    assert_eq!(
+        list.project_progress("ops"),
+        Some(Progress { done: 2, total: 4 })
+    );
+    assert_eq!(list.project_progress("core"), None);
+
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    app.work.apply(Instant::now(), Ok(list));
+
+    for (width, height, expect_split) in [(100_u16, 36_u16, true), (80_u16, 30_u16, false)] {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let lines = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(usize::from(width))
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>();
+        assert!(lines.iter().any(|l| l.contains("W-168")));
+        assert!(lines.iter().any(|l| l.contains("—")));
+        if expect_split {
+            assert!(lines.iter().any(|l| l.contains("Detail · W-168")));
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.contains("More sections in Colab · o open")),
+                "sectionProgress without section rows renders muted Colab hint"
+            );
+        } else {
+            assert!(!lines.iter().any(|l| l.contains("Detail · W-168")));
+        }
+    }
+}
+
+#[test]
+fn colab_work_collapsed_saved_view_clears_inspector_focus_and_opens_page() {
+    let now = 1_800_000_000_000_u64;
+    let document = owner_list(now);
+    let mut app = board();
+    let view = crate::config::WorkView {
+        name: "Collapsed".into(),
+        project: Some("Colab".into()),
+        query: String::new(),
+        filter: None,
+        detail_collapsed: true,
+        default: false,
+    };
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .work_views = vec![view];
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    let _guard = crate::runner::forbid_commands();
+    let key = |app: &mut App, code: KeyCode| {
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            code,
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ))
+    };
+
+    key(&mut app, KeyCode::Char('2'));
+
+    // 1. Chip path: Tab focuses section 1, then applying a collapsed view clears focus.
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Down);
+    assert!(app.work.inspector_focused);
+    assert_eq!(app.work.inspector_cursor, 1);
+    app.work_hit(surface::Hit::View(ViewSelection::Saved("Collapsed".into())));
+    assert!(app.work.detail_collapsed);
+    assert!(!app.work.inspector_focused);
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: None,
+        })
+    );
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.work.inspector_cursor, 0);
+    assert_ne!(app.work.selected.as_deref(), Some(PAGE));
+
+    // 2. `v` + Enter path: expand, Tab + Down to focus section, open `v`, press Enter.
+    key(&mut app, KeyCode::Char(' '));
+    key(&mut app, KeyCode::Home);
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Down);
+    assert!(app.work.inspector_focused);
+    key(&mut app, KeyCode::Char('v'));
+    key(&mut app, KeyCode::Enter);
+    assert!(app.work.detail_collapsed);
+    assert!(!app.work.inspector_focused);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('o')),
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: None,
+        })
+    );
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.work.inspector_cursor, 0);
+    assert_ne!(app.work.selected.as_deref(), Some(PAGE));
 }

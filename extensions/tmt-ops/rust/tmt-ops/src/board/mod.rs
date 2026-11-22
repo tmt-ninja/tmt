@@ -168,7 +168,7 @@ pub(in crate::board) enum BoardEvent {
         result: Result<work::List, work::ReadFailure>,
         cancellation: crate::runner::Cancellation,
     },
-    WorkOpened(Result<(), String>),
+    WorkOpened(Result<String, String>),
     WorkOrder(work::OrderReply),
     OrchestrationRead {
         read: orchestration::Read,
@@ -720,6 +720,23 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 saved.unwrap_or_else(|| "Workspace preferences saved.".to_owned()),
             ))));
         }
+        Request::WorkViews {
+            expected,
+            next,
+            saved,
+        } => {
+            let mut config = Config::load(core).map_err(|error| error.message)?;
+            config
+                .save_work_views(&expected, &next)
+                .map_err(|error| error.message)?;
+            let preferences = config
+                .workspace_preferences()
+                .map_err(|error| error.message)?;
+            return Ok(ActionOutcome::WorkspacePreferences(Box::new((
+                preferences,
+                saved,
+            ))));
+        }
         Request::MemberLabel {
             expected,
             member,
@@ -1226,6 +1243,7 @@ fn session(
                                 app.selected_request = refresh::SelectedRequest::Ready(None);
                             }
                             app.apply(*snapshot);
+                            app.apply_default_work_view();
                             app.standalone.refresh_due = true;
                             dirty = true;
                             app.prune_member_placement()
@@ -1251,13 +1269,14 @@ fn session(
                             app.work.cancel(Instant::now());
                         } else {
                             app.work.apply(Instant::now(), result);
+                            app.apply_default_work_view();
                             dirty = true;
                         }
                         Effect::None
                     }
                     Ok(BoardEvent::WorkOpened(result)) => {
                         app.in_flight = app.in_flight.saturating_sub(1);
-                        app.finished(result.map(|()| "Opened Colab page.".into()));
+                        app.finished(result);
                         dirty = true;
                         Effect::None
                     }

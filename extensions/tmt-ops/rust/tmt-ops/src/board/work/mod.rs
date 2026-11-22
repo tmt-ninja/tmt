@@ -12,19 +12,62 @@ use std::{
 };
 
 use ratatui::layout::Rect;
+use tmt_tui::components::{DialogHits, DialogState};
 
-pub(super) use model::{Item, List, Status};
+pub(super) use model::{Item, List, Progress, Status};
 pub(super) use order::{Job as OrderJob, Move as OrderMove, Reply as OrderReply, run as run_order};
 pub(super) use surface::render;
 
+pub(super) fn age_label(at: Option<i64>, now: i64) -> String {
+    at.filter(|at| *at <= now).map_or_else(
+        || "—".into(),
+        |at| {
+            let minutes = (now - at) / 60_000;
+            match minutes {
+                0..=59 => format!("{minutes}m"),
+                60..=1439 => format!("{}h", minutes / 60),
+                _ => format!("{}d", minutes / 1440),
+            }
+        },
+    )
+}
+
 const WITHIN: Duration = Duration::from_secs(3);
 const REFRESH_EVERY: Duration = Duration::from_secs(60);
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(in crate::board) enum ViewSelection {
+    #[default]
+    All,
+    NeedsYou,
+    Blocked,
+    Saved(String),
+}
+
+#[derive(Debug)]
+pub(in crate::board) enum ViewDialog {
+    Save {
+        state: DialogState,
+        hits: RefCell<DialogHits>,
+    },
+    Manage {
+        state: DialogState,
+        cursor: usize,
+        hits: RefCell<DialogHits>,
+    },
+    ConfirmDelete {
+        name: String,
+        state: DialogState,
+        hits: RefCell<DialogHits>,
+    },
+}
 
 #[derive(Debug, Default)]
 pub(in crate::board) struct State {
     pub list: Option<List>,
     pub notice: Option<String>,
     pub stale: bool,
+    pub last_read_at: Option<i64>,
     pending: bool,
     next_read: Option<Instant>,
     explicit_refresh: bool,
@@ -33,6 +76,16 @@ pub(in crate::board) struct State {
     pub project: Option<String>,
     pub recent: bool,
     pub period: usize,
+    pub detail_collapsed: bool,
+    pub inspector_focused: bool,
+    pub inspector_cursor: usize,
+    pub search: tmt_tui::components::Editor,
+    pub searching: bool,
+    pub active_view: ViewSelection,
+    pub default_view_applied: bool,
+    pub view_dialog: Option<ViewDialog>,
+    pub view_draft_name: String,
+    pub view_draft_default: bool,
     pub expanded: std::collections::BTreeSet<Option<String>>,
     pub hits: RefCell<Vec<(Rect, surface::Hit)>>,
     order_pending: bool,
@@ -129,6 +182,7 @@ impl State {
                 self.list = Some(list);
                 self.stale = false;
                 self.notice = None;
+                self.last_read_at = Some(crate::status::now_ms() as i64);
             }
             Err(error) => {
                 self.stale = self.list.is_some();
@@ -423,13 +477,57 @@ pub(super) fn read(core: &crate::core::Core) -> Result<List, ReadFailure> {
     Ok(list)
 }
 
-pub(super) fn open(core: &crate::core::Core, page: &str) -> Result<(), String> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) struct OpenTarget {
+    pub page: String,
+    pub block: Option<String>,
+}
+
+pub(super) fn open(core: &crate::core::Core, target: &OpenTarget) -> Result<String, String> {
+    let (link, notice) = open_link(core, target)?;
+    crate::effects::open(&link, None)?;
+    Ok(notice.into())
+}
+
+fn open_link(
+    core: &crate::core::Core,
+    target: &OpenTarget,
+) -> Result<(String, &'static str), String> {
+    let page = target.page.as_str();
     if !super::recent_responses::canonical_identity(page) {
         return Err("The Colab page ID is unavailable.".into());
     }
-    let value = core
-        .json_within(&["colab", "open", page], WITHIN)
-        .map_err(|error| super::notes::single_line(&error.message))?;
+    let started = Instant::now();
+    let page_args = ["colab", "open", page];
+    let (value, block, notice) = if let Some(block) = target.block.as_deref() {
+        let option = format!("--block={block}");
+        match core.json_within(&["colab", "open", page, &option], WITHIN) {
+            Err(error) if error.code == "COLAB_NOT_STRUCTURED" => (
+                core.json_within(&page_args, WITHIN.saturating_sub(started.elapsed())),
+                None,
+                "Opened Colab page.",
+            ),
+            Err(error)
+                if error.code == "COLAB_INPUT_INVALID"
+                    && error.message.lines().next()
+                        == Some("error: unexpected argument '--block' found") =>
+            {
+                (
+                    core.json_within(&page_args, WITHIN.saturating_sub(started.elapsed())),
+                    None,
+                    "Opened the page; this Colab cannot open a section",
+                )
+            }
+            result => (result, Some(block), "Opened Colab block."),
+        }
+    } else {
+        (
+            core.json_within(&page_args, WITHIN),
+            None,
+            "Opened Colab page.",
+        )
+    };
+    let value = value.map_err(|error| super::notes::single_line(&error.message))?;
     if value["pageId"] != page {
         return Err("Colab did not confirm the selected page.".into());
     }
@@ -442,18 +540,13 @@ pub(super) fn open(core: &crate::core::Core, page: &str) -> Result<(), String> {
         .ok_or_else(|| "No Colab link · check serve and pairing.".to_owned())?;
     crate::effects::web_link(link)
         .map_err(|_| "Colab did not return a valid web link.".to_owned())?;
-    crate::effects::open(link, None)
-}
-
-/// A whole chip uses the same status and attention order as Work home.
-pub(super) fn chip(item: &Item, count: usize) -> String {
-    let number = item.number.as_deref().unwrap_or("—");
-    let status = item.status.marked_label();
-    if count > 1 {
-        format!("{number} · {status} +{}", count - 1)
-    } else {
-        format!("{number} · {status}")
+    if let Some(block) = block {
+        let expected = format!("anchor=block-{block}");
+        if link.split_once('#').map(|(_, fragment)| fragment) != Some(expected.as_str()) {
+            return Err("Colab did not confirm the selected block.".into());
+        }
     }
+    Ok((link.to_owned(), notice))
 }
 
 pub(super) fn row_chip(item: &Item, count: usize) -> String {

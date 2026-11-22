@@ -101,6 +101,22 @@ impl Status {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::board) struct Progress {
+    pub done: u64,
+    pub total: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::board) struct Section {
+    pub id: String,
+    pub title: String,
+    pub level: u8,
+    pub done: u64,
+    pub total: u64,
+    pub state: Status,
+}
+
 #[derive(Debug)]
 pub(in crate::board) struct Item {
     pub key: String,
@@ -108,12 +124,13 @@ pub(in crate::board) struct Item {
     pub number: Option<String>,
     pub title: String,
     pub status: Status,
+    pub needs_you: u64,
     pub high: bool,
     pub next: Option<String>,
     pub parent: Option<String>,
     pub owner: Option<String>,
     page_owner_id: Option<String>,
-    todo: bool,
+    pub todo: bool,
     binding_name: Option<String>,
     pub last: Option<i64>,
     pub done: Option<i64>,
@@ -121,9 +138,47 @@ pub(in crate::board) struct Item {
     pub can_open: bool,
     pub blocked_since: Option<i64>,
     pub projects: Arc<[String]>,
+    pub progress: Option<Progress>,
+    pub sections: Arc<[Section]>,
+    pub sections_omitted: bool,
+}
+
+fn html_ordinal(id: &str) -> bool {
+    id.strip_prefix('h').is_some_and(|digits| {
+        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+    })
 }
 
 impl Item {
+    fn open_block(&self, section: Option<usize>) -> Option<&str> {
+        if self.todo {
+            self.key.split_once(':').map(|(_, block)| block)
+        } else {
+            section
+                .and_then(|index| self.sections.get(index))
+                .map(|section| section.id.as_str())
+        }
+    }
+
+    pub fn opens_block(&self, section: Option<usize>) -> bool {
+        self.open_block(section).is_some_and(|id| !html_ordinal(id))
+    }
+
+    pub fn open_label(&self, section: Option<usize>) -> &'static str {
+        if self.opens_block(section) {
+            "Open block"
+        } else {
+            "Open page"
+        }
+    }
+
+    pub fn open_target(&self, section: Option<usize>) -> super::OpenTarget {
+        super::OpenTarget {
+            page: self.page.clone(),
+            block: self.open_block(section).map(str::to_owned),
+        }
+    }
+
     fn order(&self) -> (u8, Reverse<bool>, Reverse<i64>, &str) {
         (
             self.status.rank(),
@@ -139,6 +194,50 @@ impl Item {
             .and_then(|id| roster?.members.get(id))
             .map(|member| member.name.as_str())
             .or(self.owner.as_deref())
+    }
+
+    pub fn owner_target(&self, roster: &OpsRoster) -> Option<crate::board::workspace::OpsTarget> {
+        let id = if self.todo {
+            let name = self.binding_name.as_deref()?;
+            let mut matches = roster
+                .members
+                .iter()
+                .filter(|(_, member)| member.name == name)
+                .map(|(id, _)| id.as_str());
+            let first = matches.next()?;
+            if matches.next().is_some() {
+                return None;
+            }
+            first
+        } else {
+            self.page_owner_id.as_deref()?
+        };
+        roster.members.get(id).map(|_| {
+            let room_id = roster
+                .squads
+                .iter()
+                .find(|squad| squad.members.iter().any(|member| member == id))
+                .map(|squad| squad.room_id.clone());
+            crate::board::workspace::OpsTarget::Member {
+                room_id,
+                identity_id: id.to_owned(),
+            }
+        })
+    }
+
+    pub fn matches_query(&self, query: &str, roster: Option<&OpsRoster>) -> bool {
+        let needle = query.trim().to_lowercase();
+        if needle.is_empty() {
+            return true;
+        }
+        let contains = |value: &str| value.to_lowercase().contains(&needle);
+        self.number.as_deref().is_some_and(contains)
+            || contains(&self.title)
+            || contains(self.status.label())
+            || self.owner_name(roster).is_some_and(contains)
+            || self.next.as_deref().is_some_and(contains)
+            || self.projects.iter().any(|project| contains(project))
+            || self.sections.iter().any(|section| contains(&section.title))
     }
 }
 
@@ -178,6 +277,46 @@ fn names(value: &Value) -> Vec<String> {
         })
         .flatten()
         .collect()
+}
+
+fn decode_sections(value: &Value) -> Arc<[Section]> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(MAX_TODOS)
+        .filter_map(|section| {
+            let id = text(&section["id"], 128)?;
+            // Display text may be cleaned, but an opening target must be exact.
+            binding_name(&section["id"], &id)?;
+            let title = text(&section["title"], 256)?;
+            let done = section["done"].as_u64()?;
+            let total = section["total"].as_u64()?;
+            let level = section["level"]
+                .as_u64()
+                .and_then(|value| u8::try_from(value).ok())
+                .unwrap_or(2);
+            let state = Status::decode(&section["state"]).unwrap_or(Status::Unknown);
+            Some(Section {
+                id,
+                title,
+                level,
+                done,
+                total,
+                state,
+            })
+        })
+        .collect::<Vec<_>>()
+        .into()
+}
+
+fn decode_progress(value: &Value) -> Option<Progress> {
+    let total = value["total"].as_u64()?;
+    let done = value["done"].as_u64()?;
+    (total > 0).then_some(Progress {
+        done: done.min(total),
+        total,
+    })
 }
 
 fn time(value: &Value) -> Option<i64> {
@@ -249,12 +388,17 @@ impl List {
                     .as_str()
                     .is_some_and(|url| crate::effects::web_link(url).is_ok())
             });
+            let sections_omitted = summary["sectionsOmitted"] == true;
+            let sections = decode_sections(&summary["sections"]);
+            let progress = decode_progress(&summary["sectionProgress"]);
+            let needs_you = summary["needsYou"].as_u64().unwrap_or(0);
             list.items.push(Item {
                 key: id.into(),
                 page: id.into(),
                 number: number.clone(),
                 title: title.clone(),
                 status,
+                needs_you,
                 high: fields["priority"] == "high",
                 next: (status == Status::Blocked)
                     .then(|| text(&fields["blocked"], 4096))
@@ -274,6 +418,9 @@ impl List {
                 blocked_since: time(&summary["blockedSinceMs"]),
                 can_open,
                 projects: projects.clone(),
+                progress,
+                sections,
+                sections_omitted,
             });
             let todos = summary["todos"].as_array();
             if summary["todosOmitted"] == true || todos.is_some_and(|todos| todos.len() > MAX_TODOS)
@@ -308,6 +455,7 @@ impl List {
                     number: Some(number),
                     title: text(&todo["text"], 256).unwrap_or_else(|| title.clone()),
                     status,
+                    needs_you: u64::from(status == Status::NeedsYou),
                     high: false,
                     next: (!checked && todo["ask"] == "answered").then(|| "Answered".into()),
                     parent: Some(format!("in {parent}")),
@@ -321,6 +469,9 @@ impl List {
                     blocked_since: None,
                     can_open,
                     projects: projects.clone(),
+                    progress: None,
+                    sections: Arc::from([]),
+                    sections_omitted: false,
                 });
             }
         }
@@ -342,6 +493,28 @@ impl List {
             .collect();
         list.items.sort_by(|a, b| a.order().cmp(&b.order()));
         Ok(list)
+    }
+
+    pub fn project_progress(&self, project: &str) -> Option<Progress> {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut done = 0_u64;
+        let mut total = 0_u64;
+        for item in &self.items {
+            if item.todo
+                || !item.projects.iter().any(|candidate| candidate == project)
+                || !seen.insert(item.page.as_str())
+            {
+                continue;
+            }
+            if item.sections_omitted && item.progress.is_none() {
+                return None;
+            }
+            if let Some(progress) = item.progress {
+                done = done.saturating_add(progress.done);
+                total = total.saturating_add(progress.total);
+            }
+        }
+        (total > 0).then_some(Progress { done, total })
     }
 
     pub fn bindings<'a>(&'a self, roster: &'a OpsRoster) -> BTreeMap<&'a str, (&'a Item, usize)> {
