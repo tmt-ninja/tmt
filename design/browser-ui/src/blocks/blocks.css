@@ -50,7 +50,8 @@
   [data-kind='heading'],
   [data-kind='list-item'],
   [data-kind='todo'],
-  [data-kind='callout']
+  [data-kind='callout'],
+  [data-kind='question']
 ) {
   max-width: 720px;
 }

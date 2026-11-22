@@ -1489,8 +1489,8 @@ for (const width of [1440, 390])
       const sendBox = (await block.getByRole('button', { name: 'Send' }).boundingBox())!;
       expect(sendBox.x).toBe(doneBox.x);
       expect(sendBox.height).toBe(doneBox.height);
-      const editBox = (await block.getByRole('button', { name: 'Edit' }).boundingBox())!;
-      expect(editBox.height).toBe(sendBox.height);
+      const editBox = (await block.getByRole('button', { name: 'Edit question' }).boundingBox())!;
+      expect(editBox.y + editBox.height).toBeLessThan(sendBox.y);
       // 20 choices and a long title, from an agent once this tab's edits have committed.
       await expect
         .poll(() => page.evaluate((id) => window.serveProps(id)?.choices, id))

@@ -100,6 +100,7 @@ const KIND: Partial<Record<BlockRecord['type'], BlockKind>> = {
   todo: 'todo',
   card: 'card',
   callout: 'callout',
+  question: 'question',
   code: 'code',
   table: 'table',
 };

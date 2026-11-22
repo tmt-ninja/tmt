@@ -425,7 +425,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
    root, so the handle and the strip to it belong to the root: a pointer on its way to a button has
    not left the page, and the handle never reaches the sidebar or the window's edge. On a phone the
    design system hides the handle, and the inset is its narrow gutter. */
-.tmt-ui-shell:has(.structured-page-stage) {
+:is(.tmt-ui-shell, .workspace):has(.structured-page-stage) {
   --colab-block-inset: 56px;
 }
 .structured-page-stage {
@@ -628,7 +628,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   .tmt-block:has(> .structured-annotation-markers) {
     padding-inline-end: 32px;
   }
-  .tmt-ui-shell:has(.structured-page-stage) {
+  :is(.tmt-ui-shell, .workspace):has(.structured-page-stage) {
     --colab-block-inset: 8px;
   }
   .structured-page-stage .tmt-block-handle {
