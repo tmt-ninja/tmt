@@ -5538,7 +5538,7 @@ fn disagreeing_board(waiting: bool, look: crate::look::Look) -> App {
 }
 
 #[test]
-fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
+fn agents_list_keeps_observed_activity_and_detail_keeps_the_authored_state() {
     use crate::board::overview::monitor;
     use tmt_cli_style::Role;
     for (waiting, words) in [
@@ -5548,9 +5548,8 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
         let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
-        // The widened state track shows the whole blocked task.
-        assert!(tree.contains(words), "tree: {tree}");
-        assert!(!tree.contains("· bl…"), "tree: {tree}");
+        assert!(tree.contains("● working"), "tree: {tree}");
+        assert!(!tree.contains("· blocked"), "tree: {tree}");
         assert!(
             paint(&app, 160, 36).join("\n").contains(words),
             "focus keeps the full state"
@@ -5807,11 +5806,10 @@ fn digest_state_text_keeps_native_styles_and_unread_geometry() {
     }
 }
 
-/// Unread replies replace the activity words with `● N unread`, blue on the
-/// glyph only, and the task still follows. Without unread replies the cell
-/// keeps its activity form. The tree and Overview agree, in colour and without.
+/// Unread replies replace the Agents activity words with `● N unread`.
+/// The detail retains the authored state, and only the glyph uses unread ink.
 #[test]
-fn unread_replies_replace_the_activity_words_and_keep_the_task() {
+fn unread_replies_replace_agents_activity_words_and_keep_authored_state_in_detail() {
     use tmt_cli_style::Role;
     for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
         let look = crate::look::Look {
@@ -5820,13 +5818,12 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
         };
         let mut app = disagreeing_board(false, look);
         let before = painted_member_row(&app, 160, 36);
-        assert!(before.contains("● working · blocked"), "{before}");
+        assert!(before.contains("● working"), "{before}");
+        assert!(!before.contains("· blocked"), "{before}");
         with_unread_replies(&mut app);
         let tree = painted_member_row(&app, 160, 36);
-        assert!(
-            tree.contains("● 2 unread · blocked"),
-            "{depth:?} tree: {tree}"
-        );
+        assert!(tree.contains("● 2 unread"), "{depth:?} tree: {tree}");
+        assert!(!tree.contains("· blocked"), "{depth:?} tree: {tree}");
         assert!(!tree.contains("working"), "{depth:?} tree: {tree}");
         assert!(
             paint(&app, 160, 36)
@@ -5878,11 +5875,10 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
     }
 }
 
-/// The activity form leaves out a task that repeats its activity word. Unread
-/// replies replace that word, so the same task follows `● N unread`, wide and
-/// clipped, in the tree, selected member/squad-lead focus and Overview.
+/// The Agents list shows observed activity or unread. The selected member and
+/// squad-lead detail retain authored state when unread replaces the activity word.
 #[test]
-fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
+fn unread_replies_keep_repeated_authored_state_in_detail_only() {
     use crate::board::activity::Phase;
     for (word, phase, waiting, glyph) in [
         ("working", Phase::Working, false, "●"),
@@ -5911,22 +5907,19 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         };
         snapshot.rows.get_mut(&target).unwrap()["state"] = json!(word);
         app.workspace_reconcile();
-        // Control: without unread replies the repeat is left out.
+        // The Agents list retains the observed activity before the unread reply.
         let tree = painted_member_row(&app, 160, 36);
         assert!(
             tree.contains(&format!("{glyph} {shown}")),
             "{word} tree: {tree}"
         );
-        assert_eq!(
-            tree.contains(&format!("· {word}")),
-            word != shown,
-            "{word} tree: {tree}"
-        );
+        assert!(!tree.contains(&format!("· {word}")), "{word} tree: {tree}");
 
         with_unread_replies(&mut app);
         let unread = format!("● 2 unread · {word}");
         let tree = painted_member_row(&app, 160, 36);
-        assert!(tree.contains(&unread), "{word} tree: {tree}");
+        assert!(tree.contains("● 2 unread"), "{word} tree: {tree}");
+        assert!(!tree.contains(&unread), "{word} tree: {tree}");
         assert!(
             paint(&app, 160, 36).join("\n").contains(&unread),
             "{word} member focus"
