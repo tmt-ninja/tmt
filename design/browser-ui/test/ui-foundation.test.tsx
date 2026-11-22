@@ -35,6 +35,14 @@ it('owns one local portal when a themed island is nested inside a design scope',
   expect(html.match(/data-tmt-ui-portal=""/g)).toHaveLength(1);
   expect(html).toContain('Waiting for scope');
 });
+it('follows the host theme unless one is chosen (#6749)', () => {
+  // Without a theme the island sets none, so its foundation reads the host's own tokens: a block on
+  // a page a person set dark is dark whatever the system says. A chosen theme still sets its own.
+  expect(renderToStaticMarkup(<UiTheme>x</UiTheme>)).not.toContain('data-tmt-theme');
+  expect(renderToStaticMarkup(<UiTheme theme="system">x</UiTheme>)).toContain(
+    'data-tmt-theme="system"',
+  );
+});
 it('finds the nearest DOM scope and its own portal across independent React roots', () => {
   const portal = {} as HTMLElement;
   const root = {

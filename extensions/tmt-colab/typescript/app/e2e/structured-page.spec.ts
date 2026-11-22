@@ -174,6 +174,41 @@ test('Enter splits a block at the caret and Backspace at its start joins it back
   expect(sent.filter((op) => op === 'delete')).toHaveLength(1);
 });
 
+test('Backspace then Esc while the split is still out joins the blocks and leaves no landed draft to restore (#6749)', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  const served = () => page.evaluate(() => window.serveText('p'));
+  const drafts = () => page.evaluate(() => window.blockDrafts());
+  await host.locator('[data-block-id="p"]').click();
+  const first = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  await first.press('Home');
+  for (let i = 0; i < 'Ship'.length; i++) await first.press('ArrowRight');
+  // The split stays out, and the reload store is slow, as a phone's can be.
+  await page.evaluate(() => {
+    window.holdServe(true);
+    window.holdDraftSaves(true);
+  });
+  await first.press('Enter');
+  const blocks = host.locator('[data-block-id]');
+  await expect(blocks).toHaveCount(5);
+  const second = blocks.nth(2).locator('[contenteditable="true"]');
+  await expect(second).toBeFocused();
+  await second.press('Backspace');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.holdServe(false));
+  // The Backspace joined though Esc closed the editor before the split landed.
+  await expect.poll(served).toBe('Ship the stack.');
+  await expect(blocks).toHaveCount(4);
+  await expect(host.locator('[data-block-id="p"]')).toHaveAttribute('data-selected', '');
+  // The split's draft is saved only now, while the join's is still slow: a reload would find
+  // nothing that landed to offer back.
+  await page.evaluate(() => window.releaseDraftSave());
+  await expect.poll(drafts).toEqual([]);
+  await page.evaluate(() => window.holdDraftSaves(false));
+  await expect.poll(drafts).toEqual([]);
+});
+
 test('a key the editor takes while a batch settles is never redrawn away (#6221)', async ({
   page,
 }) => {
@@ -2057,6 +2092,15 @@ test('a person inserts, edits, answers and deletes a question block (#6194)', as
   await expect
     .poll(() => page.evaluate(() => window.answers()))
     .toContainEqual(expect.objectContaining({ questionId: id }));
+  // Opened again to change it, the form holds the answer given, so adding a choice keeps the
+  // first (#6749).
+  const strip = block.locator('.tmt-block-question-answered');
+  await expect(strip).toContainText('圖片');
+  await strip.click();
+  await expect(card.getByLabel('圖片', { exact: true })).toBeChecked();
+  await expect(card.getByLabel('表格', { exact: true })).not.toBeChecked();
+  await card.getByLabel('表格', { exact: true }).check();
+  await expect(card.getByLabel('圖片', { exact: true })).toBeChecked();
   // The block menu deletes it, with its Undo line.
   await block.hover();
   await host.getByRole('button', { name: 'Block actions' }).click();

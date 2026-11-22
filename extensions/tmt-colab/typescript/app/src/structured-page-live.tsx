@@ -1,5 +1,10 @@
 import { useBlocker, useRouterState } from '@tanstack/react-router';
-import { BlockDraftSession, type BlockDraftStore, type BlockDraft } from './block-drafts.js';
+import {
+  BlockDraftSession,
+  restorable,
+  type BlockDraftStore,
+  type BlockDraft,
+} from './block-drafts.js';
 import { text as strings } from './strings.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AttachmentInput, StoredAttachment } from './attachment-service.js';
@@ -85,6 +90,12 @@ export function LiveStructuredPage({
   onDrawn?(blocks: readonly BlockRecord[] | undefined): void;
 }) {
   const hash = useRouterState({ select: (state) => state.location.hash });
+  // A link from another page names its block as the route's anchor (#6749); one on this page, as
+  // the fragment.
+  const linked = useRouterState({
+    select: (state) => (state.location.search as { anchor?: unknown }).anchor,
+  });
+  const anchor = hash || (typeof linked === 'string' ? linked : '');
   const records = useMemo(() => blockRecords(blocks).records, [blocks]);
   // The agents an @ names (#6203): the ones this page can ask, and its creator.
   const { directory } = useAgentDirectory(questionPage?.ask);
@@ -109,7 +120,13 @@ export function LiveStructuredPage({
     if (recovery)
       void recovery.store.load(recovery.page).then(
         (entries) => {
-          if (active) setRestored(entries);
+          if (!active) return;
+          const offered = restorable(recovery.page, entries);
+          setRestored(offered);
+          // What a reload offers, for a check that nothing landed comes back (#6749).
+          window.dispatchEvent(
+            new CustomEvent('colab:block-drafts-offered', { detail: { count: offered.length } }),
+          );
         },
         () => {},
       );
@@ -237,7 +254,7 @@ export function LiveStructuredPage({
     [recovery],
   );
   const present = (draft: BlockDraft) => {
-    if (!tree.visible(draft.id)) return undefined;
+    if (!tree.holds(draft.id, draft.cell?.table)) return undefined;
     const block = tree.get(draft.id);
     return draft.cell ? block?.cells?.[draft.cell.column] : block?.text;
   };
@@ -300,7 +317,7 @@ export function LiveStructuredPage({
   }, [onSettle, settle]);
   return (
     <StructuredPage
-      anchorBlock={hash.startsWith('block-') ? hash.slice(6) : hash}
+      anchorBlock={anchor.startsWith('block-') ? anchor.slice(6) : anchor}
       tree={tree}
       recoveryError={recoveryError}
       restored={restored.filter((d) => clearFailed.has(d.target) || present(d) !== d.value)}

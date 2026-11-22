@@ -21,6 +21,9 @@ export interface QuestionBlockProps {
   otherMax?: number;
   state?: 'waiting' | 'answered' | 'dismissed';
   answer?: string;
+  /** The answer as it was given, which the form opens with when an answered question is opened to
+   * change it: changing one choice keeps the rest (#6749). */
+  saved?: { choices: readonly string[]; other?: string; text?: string };
   busy?: boolean;
   error?: string;
   onSend?(answer: { choices: string[]; other?: string; text?: string }): void;
@@ -41,6 +44,7 @@ export function QuestionBlock({
   otherMax = 200,
   state = 'waiting',
   answer,
+  saved,
   busy = false,
   error,
   onSend,
@@ -57,6 +61,16 @@ export function QuestionBlock({
   const [value, setValue] = useState('');
   const [expanded, setExpanded] = useState(false);
   const card = useRef<HTMLElement>(null);
+  /** Opens an answered question's form with its answer in place. */
+  const open = () => {
+    if (saved) {
+      const kept = kind === 'short' ? [] : saved.choices.filter((item) => choices.includes(item));
+      setSelected(kind === 'single' ? kept.slice(0, 1) : kept);
+      setOther(otherAllowed && saved.other !== undefined);
+      setValue((otherAllowed ? saved.other : undefined) ?? saved.text ?? '');
+    }
+    setExpanded(true);
+  };
   const focusAnswer = () =>
     card.current
       ?.querySelector<HTMLElement>('textarea:not(:disabled), input:not(:disabled)')
@@ -84,7 +98,7 @@ export function QuestionBlock({
         className="tmt-block-question-answered"
         type="button"
         aria-expanded={false}
-        onClick={() => setExpanded(true)}
+        onClick={open}
       >
         <span aria-hidden="true">✓</span>
         <span>{title}</span>

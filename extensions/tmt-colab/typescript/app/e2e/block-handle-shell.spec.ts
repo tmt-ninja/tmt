@@ -166,6 +166,97 @@ for (const width of [1440, 390])
     expect(next.y).toBeGreaterThanOrEqual(notice.y + notice.height);
   });
 
+for (const width of [1440, 390])
+  test(`at ${width}px a long unbroken word in a list item or a callout wraps in the column (#6749)`, async ({
+    page,
+  }) => {
+    await mountShell(page, width);
+    const stage = page.locator('.structured-page-stage');
+    const column = (await stage.locator('[data-block-id="after"]').boundingBox())!;
+    for (const id of ['long-list', 'long-callout']) {
+      const block = stage.locator(`[data-block-id="${id}"]`);
+      await expect(block).toContainText('end');
+      // The word breaks inside the block, which ends at the column's edge like the paragraph above.
+      const text = (await block
+        .locator('.tmt-block-list-text, .tmt-ui-notice-body')
+        .boundingBox())!;
+      expect(text.x + text.width).toBeLessThanOrEqual(column.x + column.width + 1);
+      expect(
+        await block.evaluate((node) =>
+          [...node.querySelectorAll('*')].every(
+            (child) => child.scrollWidth <= child.clientWidth + 1,
+          ),
+        ),
+      ).toBe(true);
+    }
+    // Nothing widens the page.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    );
+  });
+
+test('a code block reads as code in the design system’s code box, at rest and while typing (#6749)', async ({
+  page,
+}) => {
+  await mountShell(page, 1440);
+  const block = page.locator('.structured-page-stage [data-block-id="code"]');
+  const body = block.locator('[data-slot="code-block"] .tmt-block-code-body');
+  // The body's face and surface are the design system's code tokens, as they resolve here.
+  const look = () =>
+    body.evaluate((node) => {
+      const probe = document.createElement('span');
+      probe.style.font = '13px var(--tmt-ui-font-mono)';
+      probe.style.background = 'var(--tmt-ui-surface-code)';
+      node.parentElement!.append(probe);
+      const want = getComputedStyle(probe);
+      const style = getComputedStyle(node);
+      const result = {
+        face: style.fontFamily === want.fontFamily,
+        size: style.fontSize,
+        surface: style.backgroundColor === want.backgroundColor,
+      };
+      probe.remove();
+      return result;
+    });
+  const code = { face: true, size: '13px', surface: true };
+  await expect(body).toHaveText('tmt colab ls --json');
+  expect(await look()).toEqual(code);
+  await block.click();
+  const editor = body.locator('[contenteditable="true"]');
+  await expect(editor).toBeFocused();
+  await editor.press('End');
+  await editor.pressSequentially(' | head');
+  await expect(editor).toHaveText('tmt colab ls --json | head');
+  expect(await look()).toEqual(code);
+});
+
+test('at 390px the page tools step aside while a block’s actions sheet is open (#6749)', async ({
+  page,
+}) => {
+  await mountShell(page, 390);
+  const tools = page.locator('.selection-mode');
+  await expect(tools).toBeVisible();
+  const block = page.locator('.structured-page-stage [data-block-id="two"]');
+  await block.click();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Shift+F10');
+  const sheet = page.getByRole('menu', { name: 'Block actions' });
+  await expect(sheet).toBeVisible();
+  await expect(tools).toBeHidden();
+  // The sheet's last row is the one under a tap at its centre, never a floating tool.
+  const last = sheet.getByRole('menuitem').last();
+  const box = (await last.boundingBox())!;
+  expect(
+    await page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('[role="menu"]'), {
+      x: box.x + box.width - 24,
+      y: box.y + box.height / 2,
+    }),
+  ).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(tools).toBeVisible();
+});
+
 test('opening a page at a block hash reveals the offscreen block', async ({ page }) => {
   await page.addInitScript(() => {
     document.addEventListener('DOMContentLoaded', () => {
@@ -176,4 +267,20 @@ test('opening a page at a block hash reveals the offscreen block', async ({ page
   });
   await mountShell(page, 390, '#block-after');
   await expect(page.locator('[data-block-id="after"]')).toBeInViewport();
+});
+
+test('a block on a page of blocks opened from a link on another page is found, never called a missing passage (#6749)', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.textContent = '[data-block-id="one"] { min-height: 1200px }';
+      document.head.append(style);
+    });
+  });
+  // The route an @ mention on another page opens: the page with its block as the anchor.
+  await mountShell(page, 1440, '?anchor=block-after');
+  await expect(page.locator('[data-block-id="after"]')).toBeInViewport();
+  await expect(page.getByText('That passage is not on this page.')).toHaveCount(0);
 });

@@ -97,7 +97,7 @@ export function ListItemBlock({
       <span className="tmt-block-list-marker" aria-hidden="true">
         {marker === 'number' ? `${number}.` : Number(indent) === 1 ? '◦' : '•'}
       </span>
-      <div>{children}</div>
+      <div className="tmt-block-list-text">{children}</div>
     </div>
   );
 }
@@ -275,6 +275,23 @@ export function Callout({ tone = 'working', label, heading, children }: CalloutP
         headingLevel="h3"
         body={children}
       />
+    </div>
+  );
+}
+
+export interface CodeTextBlockProps {
+  /** The block holds its editor: the body is a plain box rather than preformatted text. */
+  editing?: boolean;
+  children?: ReactNode;
+}
+
+/** A page's code block (#6749): the code block's box and body around the page's own text or its
+ * editor, with no head of its own (no file, language or Copy). */
+export function CodeTextBlock({ editing, children }: CodeTextBlockProps) {
+  const Body = editing ? 'div' : 'pre';
+  return (
+    <div data-slot="code-block" className="tmt-block-code">
+      <Body className="tmt-block-code-body">{children}</Body>
     </div>
   );
 }

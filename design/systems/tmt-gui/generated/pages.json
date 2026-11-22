@@ -186,7 +186,7 @@
     "title": "Code block",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/code-block\"></tmt-ui-component-docs></div>",
     "path": "components/code-block",
-    "description": "A header with the filename (cut with an ellipsis), the language and Copy, over wrapped monospace text; the host copies and sets copied. variant=\"command\" is the shared one-line command.",
+    "description": "A header with the filename (cut with an ellipsis), the language and Copy, over wrapped monospace text; the host copies and sets copied. variant=\"command\" is the shared one-line command. On a page of blocks the code block is CodeTextBlock: the same box and body around its text or editor, with no header.",
     "usage": "import { CodeBlock } from '@tmt/browser-ui/blocks';\n\n<CodeBlock filename=\"answered-strip.css\" language=\"CSS\" text={source} onCopy={copy} copied={copied} />"
    },
    {

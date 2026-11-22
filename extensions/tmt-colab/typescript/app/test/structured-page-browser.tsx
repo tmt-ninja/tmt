@@ -26,7 +26,12 @@ import { destination, id as fixtureId } from './ask-fixtures.js';
 import { StructuredPage } from '../src/structured-page.js';
 import { resendStale, SaveOutcomeUnknown, SaveRefused } from '../src/save.js';
 import { useBlockEditing } from '../src/use-block-editing.js';
-import { BlockDraftSession, type BlockDraft, type BlockDraftStore } from '../src/block-drafts.js';
+import {
+  BlockDraftSession,
+  restorable,
+  type BlockDraft,
+  type BlockDraftStore,
+} from '../src/block-drafts.js';
 import type { AttachmentInput, StoredAttachment } from '../src/attachment-service.js';
 import type { BlockFiles } from '../src/block-uploads.js';
 import type { MentionPages } from '../src/mention-pages.js';
@@ -316,6 +321,9 @@ declare global {
     blockDrafts(): { id: string; value: string }[];
     /** Every draft value this tab saved, in order. */
     draftSaves: string[];
+    /** Makes each reload-store save wait until released, as a slow seal does (#6749). */
+    holdDraftSaves(hold: boolean): void;
+    releaseDraftSave(): void;
     /** The serve's marks on a block's text now. */
     serveMarks(id: string): readonly Mark[] | undefined;
     /** The attachments the page's authorized read opened, by ID. */
@@ -852,23 +860,45 @@ export function mount(
   // As the page's own sender: a batch the serve refused as stale is sent again as a new one.
   const sendStale = (ops: BlockOp[], stored?: readonly StoredAttachment[]) =>
     stored?.length ? send(ops, stored) : resendStale(() => send(ops));
-  // The reload store, in memory: what a reload would restore (#6769).
+  // The reload store, in memory: what a reload would restore (#6769). Like the device store, it
+  // changes its record in one queue; `holdDraftSaves` makes each save slow, as sealing can be, and
+  // `releaseDraftSave` lets the oldest held one finish (#6749).
   const draftRecords = new Map<string, BlockDraft>();
   window.draftSaves = [];
-  window.blockDrafts = () => [...draftRecords.values()].map(({ id, value }) => ({ id, value }));
+  // What a reload would offer: the stored drafts, less any this tab saw land.
+  window.blockDrafts = () =>
+    restorable('fixture', [...draftRecords.values()]).map(({ id, value }) => ({ id, value }));
+  let draftQueue = Promise.resolve();
+  let holdingSaves = false;
+  const heldSaves: (() => void)[] = [];
+  window.holdDraftSaves = (hold) => {
+    holdingSaves = hold;
+    if (!hold) for (const finish of heldSaves.splice(0)) finish();
+  };
+  window.releaseDraftSave = () => heldSaves.shift()?.();
+  const queued = (change: () => Promise<void> | void) => {
+    const done = draftQueue.then(change);
+    draftQueue = done.catch(() => {});
+    return done.then(() => true);
+  };
   const drafts = new BlockDraftSession(
     {
       load: async () => [...draftRecords.values()],
-      save: async (_page: string, draft: BlockDraft) => {
-        draftRecords.set(draft.target, draft);
-        window.draftSaves.push(draft.value);
-        return true;
-      },
-      clear: async (_page: string, draft: BlockDraft) => {
-        if (draftRecords.get(draft.target)?.generation === draft.generation)
-          draftRecords.delete(draft.target);
-        return true;
-      },
+      save: (_page: string, draft: BlockDraft) =>
+        queued(async () => {
+          if (holdingSaves) await new Promise<void>((resolve) => heldSaves.push(resolve));
+          draftRecords.set(draft.target, draft);
+          window.draftSaves.push(draft.value);
+        }),
+      clear: (_page: string, draft: BlockDraft) =>
+        queued(() => {
+          if (draftRecords.get(draft.target)?.generation === draft.generation)
+            draftRecords.delete(draft.target);
+        }),
+      settle: (_page: string, target: string, keep?: string) =>
+        queued(() => {
+          if (draftRecords.get(target)?.generation !== keep) draftRecords.delete(target);
+        }),
     } as BlockDraftStore,
     'fixture',
   );

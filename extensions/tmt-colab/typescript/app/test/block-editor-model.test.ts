@@ -168,12 +168,19 @@ describe('the block tree', () => {
     expect(ids(tree.flat())).toEqual(['table', 'para']);
     expect(ids(tree.rows('table'))).toEqual(['r1', 'r2']);
     expect(tree.visible('r1')).toBe(false);
+    // A cell's draft names its row: the row is on the page while its table draws it (#6749).
+    expect(tree.holds('r1', 'table')).toBe(true);
+    expect(tree.holds('gone', 'table')).toBe(false);
+    expect(tree.holds('r1', 'para')).toBe(false);
+    expect(tree.holds('para')).toBe(true);
+    expect(tree.holds('r1')).toBe(false);
     // A deleted table takes its rows with it.
     const deleted = new BlockTree([
       block('table', 'V', PAGE_PARENT, { type: 'table', text: undefined, deleted: true }),
       row('r1', 'F', 'table'),
     ]);
     expect(deleted.rows('table')).toEqual([]);
+    expect(deleted.holds('r1', 'table')).toBe(false);
   });
   it('draws a block whose parent is missing or cannot hold blocks at the top level', () => {
     const tree = new BlockTree([

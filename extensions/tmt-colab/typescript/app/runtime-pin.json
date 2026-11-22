@@ -24,10 +24,10 @@
     },
     {
       "name": "ui",
-      "path": "assets/colab-runtime-ui-b8a98386949b885c.js",
-      "sha256": "b8a98386949b885cfec3d25511c6329e70098a159245e70a093c45768b525877",
-      "length": 253839,
-      "gzip": 72908
+      "path": "assets/colab-runtime-ui-b57e85e670f1e2a2.js",
+      "sha256": "b57e85e670f1e2a2b107a9bb8325aff4cb49e788cc02a5c4b8d3dd87f3ae528c",
+      "length": 253830,
+      "gzip": 72898
     },
     {
       "name": "browser",
@@ -38,10 +38,10 @@
     },
     {
       "name": "blocks",
-      "path": "assets/colab-runtime-blocks-c1d7bfd9c1aaa9aa.js",
-      "sha256": "c1d7bfd9c1aaa9aa66d66552966a328399b12d42dd5b80e22f6ea429ddd4165d",
-      "length": 57074,
-      "gzip": 16200
+      "path": "assets/colab-runtime-blocks-1d96f268a5e5670c.js",
+      "sha256": "1d96f268a5e5670c493737290f27d20d7281ffe5c9ef4c57951cdcf4791cdf51",
+      "length": 57271,
+      "gzip": 16280
     },
     {
       "name": "rich-input",
@@ -52,10 +52,10 @@
     },
     {
       "name": "docs",
-      "path": "assets/colab-runtime-docs-195916e1c7fbe53f.js",
-      "sha256": "195916e1c7fbe53fa64888623264cfcdff247856d4cf233d02c953e5657fc786",
-      "length": 238810,
-      "gzip": 65054
+      "path": "assets/colab-runtime-docs-228184d36090904b.js",
+      "sha256": "228184d36090904be85d48b4fe90ed9f0b2ca27672dcd778f193d095d367c4a8",
+      "length": 238928,
+      "gzip": 65104
     },
     {
       "name": "terminal-frame",
@@ -78,7 +78,7 @@
   },
   "binder": {
     "path": "assets/colab-standalone-binder.js",
-    "sha256": "06d1d8833e656993f14abef3861ab4f6656b96a68c843520c02af83af880e406",
-    "length": 80052
+    "sha256": "534fb2a1ba2116ed502090df9792a3bb74c9000a4471d2aad6ba8a493faff6a9",
+    "length": 80466
   }
 }
