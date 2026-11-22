@@ -80,12 +80,6 @@ pub const EXACT_BODIES: &[Exact] = &[
     },
     Exact {
         package: "tmt-ops",
-        file: "board/notes.rs",
-        function: "<module>",
-        reason: "the ESC constant that strips escape sequences from untrusted note text",
-    },
-    Exact {
-        package: "tmt-ops",
         file: "board/hyperlinks.rs",
         function: "sequence",
         reason: "the OSC 8 hyperlink open and close the board writes around a conversation's web link labels, a terminal protocol rather than styling; the writer accepts only http and https addresses with no control byte, and anything else renders as plain text",
