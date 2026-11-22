@@ -192,11 +192,11 @@ fn colab_work_renders_now_and_next_in_the_owner_order() {
             .position(|line| line.contains(label))
             .unwrap_or_else(|| panic!("Missing {label} in {lines:?}"))
     };
-    assert!(row("── Now") < row("COLAB-119"));
-    assert!(row("── Next") < row("CORE-88"));
-    assert!(row("CORE-88") < row("COLAB-143"));
-    assert!(row("── No preference") > row("COLAB-143"));
-    assert!(row("── No preference") < row("W-91"));
+    assert!(row("── Now") < row("✗ COLAB-119"));
+    assert!(row("── Next") < row("▸ · CORE-88"));
+    assert!(row("▸ · CORE-88") < row("◇ COLAB-143"));
+    assert!(row("── No preference") > row("◇ COLAB-143"));
+    assert!(row("── No preference") < row("· W-91"));
     assert_eq!(row("m move · No link · check Colab serve and pairing"), 34);
 }
 
@@ -410,6 +410,8 @@ fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
     assert_eq!(key(&mut app, KeyCode::Char('2')), Effect::None);
     assert_eq!(app.shell.tab, OpsTab::Work);
     assert_eq!(key(&mut app, KeyCode::Char('/')), Effect::None);
+    assert!(app.searching);
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
     assert!(!app.searching);
     assert_eq!(
         key(&mut app, KeyCode::Enter),
@@ -719,7 +721,7 @@ fn colab_work_captures_align_headings_and_show_bound_chips() {
             .unwrap();
         let selected_meta = lines
             .iter()
-            .find(|line| line.contains("worker") && line.contains("0/2"))
+            .find(|line| line.contains("worker") && line.contains("—"))
             .unwrap();
         assert!(selected.contains("Large design reads"));
         assert!(!selected_meta.contains("before"));
@@ -730,7 +732,7 @@ fn colab_work_captures_align_headings_and_show_bound_chips() {
         assert!(stale.iter().all(|line| !line.contains("⏎ open page")));
         assert!(stale.iter().any(|line| line.contains("Stale ·")));
         assert!(lines[34].contains("⏎ open page"));
-        assert!(lines[35].contains("⏎ open page") && lines[35].contains("c recently done"));
+        assert!(lines[35].contains("⏎ open page") && lines[35].contains("/ search"));
         let agents = render(&mut terminal, "agents-work");
         assert!(
             agents.iter().any(|line| line.contains("sam ○ W-91")),

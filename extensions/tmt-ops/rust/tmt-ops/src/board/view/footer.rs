@@ -776,21 +776,14 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
             [
                 ("/", "search"),
                 ("↑↓", "move"),
-                (
-                    "Space",
-                    if app.work.detail_collapsed {
-                        "show detail"
-                    } else {
-                        "hide detail"
-                    },
-                ),
-                ("Tab", "focus detail"),
+                ("Space", "detail"),
+                ("Tab", "focus"),
                 ("⏎", "open page"),
                 ("t", "talk"),
-                ("m", "move work"),
+                ("m", "move"),
                 ("p", "project"),
                 ("d", "period"),
-                ("c", "recently done"),
+                ("c", "done"),
                 ("r", "refresh"),
                 ("?", "help"),
                 ("q", "quit"),
