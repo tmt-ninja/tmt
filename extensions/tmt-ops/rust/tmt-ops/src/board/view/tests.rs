@@ -893,9 +893,10 @@ fn workspace_field_preview_omits_empty_values_and_clamps_safe_wrapped_text() {
         text.iter()
             .all(|line| line.width() <= 18 && !line.contains('\u{1b}'))
     );
-    assert!(
-        text.len() <= 4,
-        "three request preview lines and the reply placeholder: {text:?}"
+    assert_eq!(
+        text.iter().position(|line| line.starts_with("│reply")),
+        Some(3),
+        "exactly three request preview lines before the separate reply block: {text:?}"
     );
     entity_detail_buffer(&app, 0, 0);
     entity_detail_buffer(&app, 1, 1);
