@@ -211,15 +211,17 @@ fn the_declared_capabilities_decode_with_the_read_side_ops_only() {
             "capture",
             "input",
             "prompt",
+            "focus",
             "name-agent"
         ]
     );
     assert!(grammar.is_pane_id("term_65ca1161edc141"));
     assert!(grammar.is_target("w12:p3"));
-    // Focus has no Herdr command by pane ID; core leads every probe.
-    for op in ["focus", "probe"] {
-        assert_eq!(error_code(&serve(&runner, op, json!({}))), "unsupported");
-    }
+    // Core leads every probe.
+    assert_eq!(
+        error_code(&serve(&runner, "probe", json!({}))),
+        "unsupported"
+    );
     assert!(runner.calls.borrow().is_empty());
 }
 
@@ -1223,4 +1225,135 @@ fn naming_refuses_a_pane_that_is_gone_rebound_or_runs_another_shell() {
         })),
         "bad_request"
     );
+}
+
+/// A private stand-in for Herdr's socket API: it answers one request with
+/// `reply` and hands back the line it was sent. No Herdr server runs.
+struct FixtureSocket {
+    directory: std::path::PathBuf,
+    path: String,
+    request: std::thread::JoinHandle<String>,
+}
+
+impl FixtureSocket {
+    fn answering(name: &str, reply: Value) -> Self {
+        use std::io::{BufRead, BufReader, Write};
+        let directory = std::env::temp_dir().join(format!("tmt-hdr-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("api.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let request = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(&stream).read_line(&mut line).unwrap();
+            let mut reply = reply.to_string();
+            reply.push('\n');
+            (&stream).write_all(reply.as_bytes()).unwrap();
+            line
+        });
+        Self {
+            path: path.to_str().unwrap().to_owned(),
+            directory,
+            request,
+        }
+    }
+
+    fn sent(self) -> Value {
+        let line = self.request.join().unwrap();
+        std::fs::remove_dir_all(&self.directory).unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+}
+
+fn focus_request(socket: &str, pane: &str) -> Value {
+    json!({"socket": socket, "paneId": pane})
+}
+
+fn shown(target: &str, terminal: &str, focused: bool) -> Value {
+    let mut row = pane(target, terminal, None);
+    row["focused"] = json!(focused);
+    row
+}
+
+#[test]
+fn focus_names_the_pane_by_target_on_the_socket_and_reports_the_focused_one_before() {
+    let fixture = FixtureSocket::answering(
+        "focus",
+        json!({"id": "tmt-driver-herdr", "result": {"type": "ok"}}),
+    );
+    let runner = Scripted::default();
+    runner.json(list(vec![
+        shown("w1:p1", "term_a1", true),
+        shown("w1:p2", "term_a2", false),
+    ]));
+    let answer = serve(&runner, "focus", focus_request(&fixture.path, "term_a2"));
+    assert_eq!(answer, json!({"previous": "term_a1"}));
+    assert_eq!(runner.commands(), ["herdr pane list"]);
+    assert_eq!(
+        runner.calls.borrow()[0].env,
+        [("HERDR_SOCKET_PATH".to_owned(), fixture.path.clone())]
+    );
+    runner.done();
+    assert_eq!(
+        fixture.sent(),
+        json!({"id": "tmt-driver-herdr", "method": "pane.focus", "params": {"pane_id": "w1:p2"}})
+    );
+}
+
+#[test]
+fn focus_without_a_focused_pane_leaves_previous_unknown() {
+    let fixture = FixtureSocket::answering(
+        "unknown-previous",
+        json!({"id": "tmt-driver-herdr", "result": {"type": "ok"}}),
+    );
+    let runner = Scripted::default();
+    runner.json(list(vec![shown("w1:p2", "term_a2", false)]));
+    let answer = serve(&runner, "focus", focus_request(&fixture.path, "term_a2"));
+    assert_eq!(answer, json!({}));
+    fixture.sent();
+}
+
+#[test]
+fn a_server_without_pane_focus_is_unsupported_and_a_missing_pane_is_not_found() {
+    for code in ["invalid_request", "unknown_method"] {
+        let fixture = FixtureSocket::answering(
+            code,
+            json!({"id": "tmt-driver-herdr", "error": {"code": code, "message": "no"}}),
+        );
+        let runner = Scripted::default();
+        runner.json(list(vec![shown("w1:p2", "term_a2", true)]));
+        let answer = serve(&runner, "focus", focus_request(&fixture.path, "term_a2"));
+        assert_eq!(error_code(&answer), "unsupported", "{code}");
+        fixture.sent();
+    }
+    // The pane is not listed: nothing reaches the socket, which does not exist.
+    let runner = Scripted::default();
+    runner.json(list(vec![shown("w1:p1", "term_a1", true)]));
+    let answer = serve(
+        &runner,
+        "focus",
+        focus_request("/nonexistent/hdr.sock", "term_a2"),
+    );
+    assert_eq!(error_code(&answer), "not_found");
+    runner.done();
+}
+
+#[test]
+fn focus_refuses_a_bad_request_and_an_unreachable_socket_before_any_effect() {
+    let runner = Scripted::default();
+    for request in [
+        focus_request("relative.sock", "term_a2"),
+        focus_request(SOCKET, "w1:p2"),
+    ] {
+        assert_eq!(error_code(&serve(&runner, "focus", request)), "bad_request");
+    }
+    assert!(runner.calls.borrow().is_empty());
+    runner.json(list(vec![shown("w1:p2", "term_a2", true)]));
+    let answer = serve(
+        &runner,
+        "focus",
+        focus_request("/nonexistent/hdr.sock", "term_a2"),
+    );
+    assert_eq!(error_code(&answer), "unavailable");
 }

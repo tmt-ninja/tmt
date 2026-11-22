@@ -553,7 +553,7 @@ mod tests {
         fn capture(&mut self, _: Request<CaptureRequest>) -> Result<CaptureResponse, DriverError> {
             Err(gone())
         }
-        fn focus(&mut self, _: Request<FocusRequest>) -> Result<(), DriverError> {
+        fn focus(&mut self, _: Request<FocusRequest>) -> Result<FocusResponse, DriverError> {
             Err(gone())
         }
         fn close(&mut self, _: Request<CloseRequest>) -> Result<(), DriverError> {

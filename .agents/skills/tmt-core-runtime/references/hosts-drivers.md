@@ -232,6 +232,10 @@ never prove loss. External runtime launch/setup/hooks remain unwired. Details:
   safe). Selection is lazy: explicit senders and stored identity/binding operations do not
   discover the caller's host; explicit panes use `Host::for_target`, and binding sessions
   observe each stored binding on its own host. Focus and `focus --client` remain caller-scoped.
+  On an external host the focused view is the caller's server (Herdr moves every attached
+  client): `client` is `<host>:<pid>:<start>@<socket>` from core's own observation, and an
+  explicit or unbound pane, including an external pane ID such as a focus's `from`, is
+  focused only on the caller's verified server (#6117).
   Only the best-effort workspace refresh and `context` observation ignore selection failure.
   The tmux pane check waits 1 s (`OPERATION_TIMEOUT`); `name`, `whoami`, `unbind` and
   `ls --here` (`binding_command::labeled_caller_pane` through `Host::caller_pane_required`)
@@ -281,7 +285,10 @@ never prove loss. External runtime launch/setup/hooks remain unwired. Details:
   product still admits `tmt-driver-herdr` as an optional archive companion; Herdr
   also has independent alpha archives. Its marker tokens match
   the former built-in host byte for byte (`src/fixtures/builtin-marker.json`); its `input`
-  refuses CR/LF because a line break would submit before core's Enter.
+  refuses CR/LF because a line break would submit before core's Enter. Its `focus` is the
+  one call outside Herdr's CLI: one `pane list` (target and the focused pane, `previous`), then
+  `pane.focus` on Herdr's socket API at the socket core named, under one deadline
+  (`src/socket.rs`); a server whose API lacks it is `unsupported`.
 
 ## Driver protocol crates
 

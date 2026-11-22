@@ -257,6 +257,14 @@ pub struct FocusRequest {
     pub pane_id: String,
 }
 
+/// `previous` is the pane the host showed before this focus, when the driver
+/// read it in the same call; absent means unknown, never a guess.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct FocusResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous: Option<String>,
+}
+
 /// Closes exactly this pane, and only while it still runs `pane_pid`; otherwise
 /// `not_found`. Core asks only after it verified the pane and read the host's
 /// own mark that tmt opened it. The driver closes nothing else: no neighbouring

@@ -1837,6 +1837,11 @@ tmt ops hotkeys rm                # removes Ops' line, file and bindings
 Installing Ops inside tmux, and the first board started on tmux without the
 keys, print that preview command once; neither writes anything.
 
+Under Herdr, `j` and `tmt ops squad back` work the same way, but Herdr moves every
+client attached to its server, so all of them jump and return together. The back
+key there is `tmt install herdr` (Core's installer, with consent); the first board
+started under Herdr prints that command once.
+
 ## tmux wheel
 
 If wheel-up over the board scrolls tmux's own scrollback while wheel-down still

@@ -142,10 +142,11 @@ pub(in crate::grammar) fn install(names: Vec<&'static str>) -> Command {
     with_options(
         general(spec!(
             "install",
-            "Install or refresh agent skills",
+            "Install or refresh agent skills, or the Herdr back key",
             [
                 "Install skills for every agent" => "tmt install",
                 "Only for Claude" => "tmt install claude",
+                "Add the Herdr back key after consent" => "tmt install herdr",
             ]
         )),
         &["force", "dir", "yes"],
@@ -158,7 +159,12 @@ pub(in crate::grammar) fn install(names: Vec<&'static str>) -> Command {
     )
     .arg(
         operand("agent", false)
-            .value_parser(names.into_iter().chain(["all"]).collect::<Vec<_>>())
+            .value_parser(
+                names
+                    .into_iter()
+                    .chain(["all", "herdr"])
+                    .collect::<Vec<_>>(),
+            )
             .ignore_case(true),
     )
 }

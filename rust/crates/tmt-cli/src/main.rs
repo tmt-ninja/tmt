@@ -31,6 +31,7 @@ mod extension_install_command;
 mod grammar;
 mod guidance_command;
 mod help_output;
+mod herdr_install_command;
 mod hook_flush_command;
 mod host_command;
 mod identity_command;
@@ -423,6 +424,28 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Learn { skill, reference } => {
             return guidance_command::execute(skill.as_deref(), reference.as_ref());
+        }
+        Invocation::Install {
+            target,
+            directory,
+            force,
+            extension,
+            yes,
+        } if target.as_deref() == Some("herdr") => {
+            if directory.is_some() || force || extension {
+                return output
+                    .as_ref()
+                    .expect("paired output")
+                    .finish::<herdr_install_command::Report, _>(Err(output::Failure::new(
+                        "INVALID_ARGUMENT",
+                        "The Herdr back key takes only --yes.",
+                        2,
+                    )));
+            }
+            return output
+                .as_ref()
+                .expect("paired output")
+                .finish(herdr_install_command::run(yes, parsed.mode));
         }
         Invocation::Install {
             target,

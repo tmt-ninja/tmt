@@ -48,6 +48,26 @@ fn refresh_pi_extension(report: &mut RefreshReport) -> io::Result<()> {
     Ok(())
 }
 
+/// The Herdr back key follows this build only where a managed block exists;
+/// none is created here. A rejected refresh keeps the old block.
+fn refresh_herdr_keys(report: &mut RefreshReport) -> io::Result<()> {
+    use tmt_adapters::setup::herdr_keys;
+    let Some(path) = herdr_keys::managed_config(|name| std::env::var_os(name))? else {
+        return Ok(());
+    };
+    let launcher = pi::user_extension::detect_launcher()?;
+    match herdr_keys::refresh(&path, &launcher, herdr_keys::herdr_check) {
+        Ok(Some(changed)) => report.refreshed.push(RefreshedSkill {
+            target: path,
+            changed,
+        }),
+        Ok(None) => {}
+        // The previous block stays; the path is reported as not refreshed.
+        Err(_) => report.skipped.push(path),
+    }
+    Ok(())
+}
+
 fn document(report: &RefreshReport) -> Value {
     json!({
         "refreshed": report.refreshed.iter().map(|item| json!({"target": item.target, "changed": item.changed})).collect::<Vec<_>>(),
@@ -107,7 +127,9 @@ pub fn execute(managed: bool, mode: OutputMode) -> io::Result<u8> {
             Ok(skill_installation::refresh(&paths.global_dir))
         } {
             Ok(Ok(mut report)) => {
-                if let Err(error) = refresh_pi_extension(&mut report) {
+                if let Err(error) =
+                    refresh_pi_extension(&mut report).and_then(|()| refresh_herdr_keys(&mut report))
+                {
                     let failure =
                         Failure::new("SKILL_REFRESH_FAILED", error.to_string(), 1).caused_by(error);
                     (report, Some(failure))

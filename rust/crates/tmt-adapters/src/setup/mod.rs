@@ -2,6 +2,7 @@
 
 mod document;
 mod environment;
+pub mod herdr_keys;
 pub mod provider_mod;
 mod publication;
 pub mod record;

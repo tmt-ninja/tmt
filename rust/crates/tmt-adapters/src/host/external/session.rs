@@ -37,8 +37,9 @@ use tmt_core::{
 };
 use tmt_driver_protocol::{
     CaptureRequest, CaptureResponse, ClearRequest, ClearResponse, CloseRequest, DriverError,
-    ErrorCode, FocusRequest, InputRequest, Marker, NameAgentRequest, Op, Pane, PromptRequest,
-    PublishRequest, ServerRequest, ServerResponse, SnapshotRequest, SnapshotResponse,
+    ErrorCode, FocusRequest, FocusResponse, InputRequest, Marker, NameAgentRequest, Op, Pane,
+    PromptRequest, PublishRequest, ServerRequest, ServerResponse, SnapshotRequest,
+    SnapshotResponse,
 };
 
 /// A handle's approved drivers and, when its primary host is external, that
@@ -147,35 +148,13 @@ impl<R: CommandRunner> Drivers<R> {
             }
             return Ok(());
         }
-        let Some(process) = self.open(host) else {
-            return Err(HostError::Unavailable(host.as_str().to_owned()));
-        };
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let answer = process
-            .call::<ServerResponse>(
-                ServerRequest {
-                    // The caller's own server, or the driver's default.
-                    socket: self
-                        .caller()
-                        .filter(|caller| caller.host == host)
-                        .map(|caller| caller.socket.clone()),
-                },
-                deadline,
-            )
-            .map_err(HostError::Driver)?;
-        let Some(server) = answer.map_err(|error| refused(&process, error))?.server else {
-            return Ok(());
-        };
-        let Some(observed) = observe_starts(&self.runner, &[server.pid], deadline)
-            .map_err(|error| driver_process(&process, error))?
-            .remove(&server.pid)
-        else {
+        let Some((socket, observed)) = self.caller_server(host)? else {
             return Ok(());
         };
         let server_id = ids
             .server_id(&HostServerIncarnation {
                 host: HostKind::External(host),
-                socket_path: &server.socket,
+                socket_path: &socket,
                 server_pid: observed.pid(),
                 server_start_time: observed.start_identity(),
             })
@@ -186,12 +165,117 @@ impl<R: CommandRunner> Drivers<R> {
         self.set_resolved(ServerEvidence {
             host: HostKind::External(host),
             server_id,
-            socket_path: server.socket,
+            socket_path: socket,
             server_pid: observed.pid(),
             server_start_time: observed.start_identity().to_owned(),
         });
         Ok(())
     }
+
+    /// The caller's own server (or the driver's default) as the driver names
+    /// it, with core's own observation of its process; `None` when there is
+    /// no server or core can't observe it.
+    fn caller_server(
+        &self,
+        host: HostName,
+    ) -> Result<Option<(String, ProcessIncarnation)>, HostError> {
+        let Some(process) = self.open(host) else {
+            return Err(HostError::Unavailable(host.as_str().to_owned()));
+        };
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let answer = process
+            .call::<ServerResponse>(
+                ServerRequest {
+                    socket: self
+                        .caller()
+                        .filter(|caller| caller.host == host)
+                        .map(|caller| caller.socket.clone()),
+                },
+                deadline,
+            )
+            .map_err(HostError::Driver)?;
+        let Some(server) = answer.map_err(|error| refused(&process, error))?.server else {
+            return Ok(None);
+        };
+        Ok(observe_starts(&self.runner, &[server.pid], deadline)
+            .map_err(|error| driver_process(&process, error))?
+            .remove(&server.pid)
+            .map(|observed| (server.socket, observed)))
+    }
+
+    /// The view a focus on the caller's verified server moves, keyed by that
+    /// server's incarnation. An external host moves every attached client, so
+    /// the server is the view; `None` without a verified caller there.
+    pub(crate) fn caller_view(&self, host: HostName) -> Result<Option<String>, HostError> {
+        let Some(caller) = self.caller().filter(|caller| caller.host == host) else {
+            return Ok(None);
+        };
+        Ok(self
+            .caller_server(host)?
+            .filter(|(socket, _)| *socket == caller.socket)
+            .map(|(socket, observed)| {
+                server_view(
+                    host.as_str(),
+                    &socket,
+                    observed.pid(),
+                    observed.start_identity(),
+                )
+            }))
+    }
+
+    /// Focuses an explicit pane on the caller's own verified server: the
+    /// pane was resolved there, and nothing is focused on another server.
+    pub(crate) fn focus_caller_pane(
+        &self,
+        server: &ServerEvidence,
+        pane_id: &str,
+    ) -> Result<Option<Focused>, HostError> {
+        let HostKind::External(host) = server.host else {
+            return Ok(None);
+        };
+        let on_caller = self
+            .caller()
+            .is_some_and(|caller| caller.host == host && caller.socket == server.socket_path);
+        let Some(process) = self
+            .open(host)
+            .filter(|process| on_caller && process.supports(Op::Focus))
+        else {
+            return Ok(None);
+        };
+        focus_on(&process, server, pane_id).map(Some)
+    }
+}
+
+/// Focuses `pane_id` on exactly `server`; `previous` is only what the driver
+/// read in the same call, and its absence means unknown.
+fn focus_on<R: CommandRunner>(
+    process: &DriverProcess<&R>,
+    server: &ServerEvidence,
+    pane_id: &str,
+) -> Result<Focused, HostError> {
+    let request = FocusRequest {
+        socket: server.socket_path.clone(),
+        pane_id: pane_id.to_owned(),
+    };
+    let answer = process
+        .call::<FocusResponse>(request, Instant::now() + Op::Focus.bounds().deadline)
+        .map_err(HostError::Driver)?
+        .map_err(|error| refused(process, error))?;
+    Ok(Focused {
+        interface: pane_id.to_owned(),
+        previous: answer.previous,
+        viewer: server_view(
+            server.host.as_str(),
+            &server.socket_path,
+            server.server_pid,
+            &server.server_start_time,
+        ),
+    })
+}
+
+/// One external server incarnation as a focus viewer: what `back` keys on.
+pub(crate) fn server_view(host: &str, socket: &str, pid: u64, start: &str) -> String {
+    format!("{host}:{pid}:{start}@{socket}")
 }
 
 pub(super) fn refused<R>(
@@ -714,20 +798,9 @@ impl<R: CommandRunner> HostDriver for ExternalDriver<'_, R> {
     }
 
     /// The host's own focus. Which view moves is the host's (Herdr moves
-    /// every attached client); `viewer` names the server it happened on.
+    /// every attached client); `viewer` names that server's incarnation.
     fn focus(&mut self, binding: &Binding) -> Result<Focused, ActionError> {
-        let request = FocusRequest {
-            socket: binding.server.socket_path.clone(),
-            pane_id: binding.pane_id.clone(),
-        };
-        match self.call_focus(request) {
-            Ok(()) => Ok(Focused {
-                interface: binding.pane_id.clone(),
-                previous: None,
-                viewer: binding.server.socket_path.clone(),
-            }),
-            Err(error) => Err(ActionError::Evidence(error)),
-        }
+        focus_on(&self.process, &binding.server, &binding.pane_id).map_err(ActionError::Evidence)
     }
 
     fn close_preflight(&self) -> Result<(), ActionError> {
@@ -809,17 +882,6 @@ impl<R: CommandRunner> ExternalDriver<'_, R> {
             .map_err(HostError::Driver)?
             .map_err(|error| refused(&self.process, error))?;
         Ok(AgentNaming::Done)
-    }
-
-    fn call_focus(&self, request: FocusRequest) -> Result<(), HostError> {
-        self.process
-            .call_done(
-                Op::Focus,
-                request,
-                Instant::now() + Op::Focus.bounds().deadline,
-            )
-            .map_err(HostError::Driver)?
-            .map_err(|error| refused(&self.process, error))
     }
 }
 

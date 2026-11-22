@@ -30,6 +30,8 @@ const FORMER_FILE: &str = "squad.tmux.conf";
 /// Key-free, because `[tmux]` may choose other keys or a default may give way, and short
 /// enough for the footer at 80 columns.
 pub const OFFER: &str = "Keys: tmt ops hotkeys install --print";
+/// The same offer under Herdr, whose back key Core's installer owns.
+pub const HERDR_OFFER: &str = "Back key: tmt install herdr";
 
 fn owned_note(note: &str) -> bool {
     [NOTE, FORMER_NOTE].iter().any(|prefix| {
@@ -757,6 +759,20 @@ pub fn offer_once(config: &Config, tmux: bool) -> Option<&'static str> {
     }
     crate::cache::replace(&marker, b"").ok()?;
     Some(OFFER)
+}
+
+/// [`HERDR_OFFER`] the first time the board opens under Herdr. Only the
+/// marker is written; the Herdr configuration is neither read nor written.
+pub fn herdr_offer_once(herdr: bool) -> Option<&'static str> {
+    if !herdr {
+        return None;
+    }
+    let marker = crate::cache::directory("board")?.join("herdr-keys-offered");
+    if fs::symlink_metadata(&marker).is_ok() {
+        return None;
+    }
+    crate::cache::replace(&marker, b"").ok()?;
+    Some(HERDR_OFFER)
 }
 
 /// Keys another binding already uses, and where to choose others.

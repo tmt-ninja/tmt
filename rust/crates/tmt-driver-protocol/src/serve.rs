@@ -54,7 +54,7 @@ pub trait Handler {
     fn prompt(&mut self, request: Request<PromptRequest>) -> Result<(), DriverError> {
         Err(unsupported(Op::Prompt))
     }
-    fn focus(&mut self, request: Request<FocusRequest>) -> Result<(), DriverError> {
+    fn focus(&mut self, request: Request<FocusRequest>) -> Result<FocusResponse, DriverError> {
         Err(unsupported(Op::Focus))
     }
     fn close(&mut self, request: Request<CloseRequest>) -> Result<(), DriverError> {
@@ -116,7 +116,7 @@ impl<H: Handler> Dispatch for Host<'_, H> {
             Op::Capture => call(op, request, |r| handler.capture(r)),
             Op::Input => call(op, request, |r| handler.input(r).map(|()| Empty {})),
             Op::Prompt => call(op, request, |r| handler.prompt(r).map(|()| Empty {})),
-            Op::Focus => call(op, request, |r| handler.focus(r).map(|()| Empty {})),
+            Op::Focus => call(op, request, |r| handler.focus(r)),
             Op::Close => call(op, request, |r| handler.close(r).map(|()| Empty {})),
             Op::NameAgent => call(op, request, |r| handler.name_agent(r).map(|()| Empty {})),
             Op::Capabilities | Op::Locations | Op::Resume | Op::Usage => error(unsupported(op)),

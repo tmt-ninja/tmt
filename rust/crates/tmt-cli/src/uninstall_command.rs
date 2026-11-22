@@ -51,6 +51,8 @@ fn failure(error: impl std::error::Error + 'static) -> Failure {
 struct Plan {
     hooks: Vec<HookStep>,
     pi_extension: pi::user_extension::UninstallPlan,
+    /// The Herdr configuration whose managed back-key block goes.
+    herdr_keys: Option<PathBuf>,
     skills: SkillsRemoval,
     products: Vec<(Product, ProductRemoval)>,
     data: PathBuf,
@@ -70,6 +72,7 @@ impl Plan {
         if let pi::user_extension::UninstallPlan::Managed(path) = &self.pi_extension {
             rows.push(("extension", path.clone()));
         }
+        rows.extend(self.herdr_keys.iter().map(|path| ("keys", path.clone())));
         rows.extend(
             self.skills
                 .removed
@@ -203,6 +206,8 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
         hooks: removal::plan_hook_removal(&paths.global_dir, &environment, &drivers)
             .map_err(failure)?,
         pi_extension: pi::user_extension::plan_uninstall(&environment).map_err(failure)?,
+        herdr_keys: tmt_adapters::setup::herdr_keys::managed_config(|name| std::env::var_os(name))
+            .map_err(failure)?,
         skills: skill_installation::plan_uninstall(&environment, &paths.global_dir)
             .map_err(failure)?,
         products: products_in_removal_order()
@@ -311,6 +316,11 @@ fn remove(
         removed.extend(provider_mod);
     }
     removed.extend(pi::user_extension::uninstall(environment)?);
+    if let Some(path) = &plan.herdr_keys
+        && tmt_adapters::setup::herdr_keys::remove(path).map_err(io::Error::other)?
+    {
+        removed.push(path.clone());
+    }
     removed.extend(skill_installation::uninstall(environment, &plan.data)?.removed);
     for (product, _) in &plan.products {
         removed.extend(native_install::remove_product(prefix, *product)?.removed);
@@ -424,6 +434,7 @@ mod presentation_tests {
         Plan {
             hooks: Vec::new(),
             pi_extension: pi::user_extension::UninstallPlan::Absent,
+            herdr_keys: None,
             skills: SkillsRemoval::default(),
             products: products_in_removal_order()
                 .map(|product| {

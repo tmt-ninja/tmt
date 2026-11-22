@@ -30,6 +30,31 @@ pub fn resolve_identity_target(
     resolve_identity(storage, input, input)
 }
 
+/// `tmt focus` also takes an external host's pane ID, the stable name a
+/// focus's `from` reports there. An identity of that name comes first, and
+/// the pane must be on the caller's own server of that host.
+pub fn resolve_focus_target(storage: &mut Storage, input: &str) -> Result<PaneIdentity, Failure> {
+    let result = resolve_identity_target(storage, input);
+    let host = tmt_core::host::HostKind::all().find(|host| {
+        !matches!(host, tmt_core::host::HostKind::Tmux)
+            && *host != tmt_core::host::HostKind::pty()
+            && host.is_pane_id(input)
+    });
+    let (Err(error), Some(host)) = (&result, host) else {
+        return result;
+    };
+    if error.code != "NAME_NOT_FOUND" {
+        return result;
+    }
+    let host = Host::for_host(
+        host,
+        tmt_adapters::process::UnixCommandRunner,
+        tmt_adapters::host::external::approved(),
+    );
+    host.resolve_servers(storage).map_err(endpoint_failure)?;
+    binding::pane_presence(storage, &mut host.session(), input).map_err(binding_failure)
+}
+
 pub fn resolve_capture(
     storage: &mut Storage,
     input: &str,
