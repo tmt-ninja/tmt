@@ -76,8 +76,13 @@ import { SharedTopBar } from './shared-top-bar.js';
 import { ColabHeader } from './colab-header.js';
 import { creatorName, PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
-import { ErrorDetails, NoticeCard } from './notice-card.js';
+import { ErrorDetails, NoticeCard, RecoveryBody } from './notice-card.js';
 import { openFailure } from './open-failure.js';
+import { mountUrl } from './bootstrap.js';
+import { FIRST_MOUNT_PROBE_DELAY_MS, nextMountProbeDelay } from './readmit.js';
+import { classify } from './connection-state.js';
+import { AdmissionRefusedError } from './registration.js';
+import { addVisibilityListener, pageHidden, removeVisibilityListener } from './page-visibility.js';
 import {
   createContext,
   lazy,
@@ -879,6 +884,99 @@ type AppContext = {
 };
 const pageOpenFailureTitle = (failure: { kind: 'retry' | 'large' }) =>
   failure.kind === 'retry' ? text.openFailed : text.openTooLarge;
+// Keep the failure card in place during the outage. Once the same mount responds, the
+// normal router loader still owns page/list verification and the resulting route.
+function useMountRecovery(error: unknown, pathname: string, retry: () => void) {
+  const eligible = error instanceof AdmissionRefusedError && classify(error).recovery === 'retry';
+  const cancel = useRef<(() => void) | undefined>(undefined);
+  const [trying, setTrying] = useState(false);
+
+  useEffect(() => {
+    if (!eligible) {
+      setTrying(false);
+      return;
+    }
+    let endpoint: URL;
+    try {
+      endpoint = new URL('api/session', mountUrl());
+    } catch {
+      setTrying(false);
+      return;
+    }
+
+    let stopped = false;
+    let delay = FIRST_MOUNT_PROBE_DELAY_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let probe: AbortController | undefined;
+    const schedule = () => {
+      if (stopped || pageHidden() || probe || timer !== undefined) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        if (!stopped && !pageHidden()) void check();
+      }, delay);
+    };
+    const check = async () => {
+      const attempt = new AbortController();
+      probe = attempt;
+      let reachable = false;
+      try {
+        const response = await fetch(endpoint, {
+          cache: 'no-store',
+          redirect: 'error',
+          signal: AbortSignal.any([attempt.signal, AbortSignal.timeout(2_000)]),
+        });
+        reachable = response.ok || response.status === 401 || response.status === 403;
+        await response.body?.cancel();
+      } catch {
+        // A connection failure or bounded timeout is another unavailable probe.
+      } finally {
+        probe = undefined;
+      }
+      if (stopped || pageHidden()) return;
+      if (!attempt.signal.aborted && reachable) {
+        stop();
+        retry();
+        return;
+      }
+      if (!attempt.signal.aborted) delay = nextMountProbeDelay(delay);
+      schedule();
+    };
+    function stop() {
+      stopped = true;
+      clearTimeout(timer);
+      probe?.abort();
+      removeVisibilityListener(visibility);
+    }
+    function visibility() {
+      const visible = !pageHidden();
+      setTrying(visible);
+      if (visible) schedule();
+      else {
+        clearTimeout(timer);
+        timer = undefined;
+        probe?.abort();
+      }
+    }
+    cancel.current = stop;
+    addVisibilityListener(visibility);
+    visibility();
+    return stop;
+  }, [eligible, error, pathname, retry]);
+
+  return {
+    trying: eligible && trying,
+    retry() {
+      cancel.current?.();
+      setTrying(false);
+      retry();
+    },
+  };
+}
+
+function MountRecoveryStatus() {
+  return <span className="mount-recovery-status">{text.mountRetrying}</span>;
+}
+
 /**
  * A page that could not open. A failure that reopening may cure is plain copy with a Retry that
  * runs the page's loader again (the router then shows the same opening frame as a first open), and
@@ -887,10 +985,13 @@ const pageOpenFailureTitle = (failure: { kind: 'retry' | 'large' }) =>
  */
 function PageOpenFailure({
   failure,
+  onRetry,
+  trying,
 }: {
   failure: Exclude<ReturnType<typeof openFailure>, { kind: 'refused' }>;
+  onRetry: () => void;
+  trying: boolean;
 }) {
-  const router = useRouter();
   const retry = failure.kind === 'retry';
   return (
     <NoticeCard
@@ -906,26 +1007,30 @@ function PageOpenFailure({
               type="button"
               variant="primary"
               label={text.openRetry}
-              onActivate={() => void router.invalidate()}
+              onActivate={onRetry}
             />
           )}
           <Link className={ui.action} data-variant="text" to="/">
             {text.retry}
           </Link>
+          {trying && <MountRecoveryStatus />}
         </>
       }
     >
-      <p>
-        {retry ? (
-          text.openFailedBody
-        ) : (
-          <>
-            {text.openTooLargeBefore}
-            <code className="tmt-ui-code">{text.openTooLargeCommand}</code>
-            {text.openTooLargeAfter}
-          </>
-        )}
-      </p>
+      <RecoveryBody
+        trying={trying}
+        fallback={
+          retry ? (
+            text.openFailedBody
+          ) : (
+            <>
+              {text.openTooLargeBefore}
+              <code className="tmt-ui-code">{text.openTooLargeCommand}</code>
+              {text.openTooLargeAfter}
+            </>
+          )
+        }
+      />
       <p>
         <small className="failure-reference">
           {text.failureCodeLabel}{' '}
@@ -943,6 +1048,12 @@ const root = createRootRouteWithContext<AppContext>()({
     const router = useRouter();
     const pathname = useRouterState({ select: (state) => state.location.pathname });
     const opening = pathname.startsWith('/pages/');
+    const retryRoute = useCallback(() => void router.invalidate(), [router]);
+    const recovery = useMountRecovery(
+      pathname === '/' || opening ? error : undefined,
+      pathname,
+      retryRoute,
+    );
     const listFailure = pathname === '/' && error instanceof HomeReadFailure;
     const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
     const failure =
@@ -987,7 +1098,7 @@ const root = createRootRouteWithContext<AppContext>()({
               </ColdPageList>
             </section>
           ) : failure && failure.kind !== 'refused' ? (
-            <PageOpenFailure failure={failure} />
+            <PageOpenFailure failure={failure} onRetry={recovery.retry} trying={recovery.trying} />
           ) : (
             <NoticeCard
               state="blocked"
@@ -999,11 +1110,12 @@ const root = createRootRouteWithContext<AppContext>()({
                     type="button"
                     variant="text"
                     label={text.crashRetry}
-                    onActivate={() => void router.invalidate()}
+                    onActivate={recovery.retry}
                   />
                   <Link className={ui.action} data-variant="text" to="/">
                     {text.retry}
                   </Link>
+                  {recovery.trying && <MountRecoveryStatus />}
                 </>
               }
             >
@@ -1011,7 +1123,7 @@ const root = createRootRouteWithContext<AppContext>()({
                 <TerminalFailure error={error as Error} />
               ) : (
                 <>
-                  <p>{text.errorBody}</p>
+                  <RecoveryBody trying={recovery.trying} fallback={text.errorBody} />
                   <ErrorDetails error={error} />
                 </>
               )}

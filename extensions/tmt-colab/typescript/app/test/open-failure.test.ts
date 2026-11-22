@@ -1,9 +1,24 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vite-plus/test';
 import { CONNECTION_CODES } from '../src/connection-state.js';
 import { openFailure } from '../src/open-failure.js';
+import { RecoveryBody } from '../src/notice-card.js';
 import { AdmissionRefusedError, ReopenFailedError } from '../src/registration.js';
 import { SessionLimitError } from '../src/session-limit-error.js';
 import { text } from '../src/strings.js';
+
+it('explains automatic recovery while the route is trying again', () => {
+  for (const fallback of [text.openFailedBody, text.errorBody]) {
+    const trying = renderToStaticMarkup(createElement(RecoveryBody, { trying: true, fallback }));
+    expect(trying).toBe(
+      '<p>Colab isn’t answering right now. This view will come back on its own.</p>',
+    );
+    expect(renderToStaticMarkup(createElement(RecoveryBody, { trying: false, fallback }))).toBe(
+      `<p>${fallback}</p>`,
+    );
+  }
+});
 
 describe('how a page that could not open is told', () => {
   it.each([

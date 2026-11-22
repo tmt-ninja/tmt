@@ -1,5 +1,22 @@
 import { expect, it, vi } from 'vite-plus/test';
-import { PageReopener, ReadmitBudget, reopenWithBackoff, retryableReopen } from '../src/readmit.js';
+import {
+  FIRST_MOUNT_PROBE_DELAY_MS,
+  nextMountProbeDelay,
+  PageReopener,
+  ReadmitBudget,
+  reopenWithBackoff,
+  retryableReopen,
+} from '../src/readmit.js';
+
+it('backs off visible mount probes quickly at first and caps the long-outage delay', () => {
+  let delay = FIRST_MOUNT_PROBE_DELAY_MS;
+  const schedule = [];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    schedule.push(delay);
+    delay = nextMountProbeDelay(delay);
+  }
+  expect(schedule).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000]);
+});
 
 it('allows three reopens per minute, then stops until the window passes', () => {
   const budget = new ReadmitBudget();
