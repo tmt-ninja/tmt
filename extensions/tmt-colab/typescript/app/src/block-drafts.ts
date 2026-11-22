@@ -15,6 +15,25 @@ export interface BlockDraft {
   value: string;
 }
 
+/** Only bounded, usable entries can become a recovery action. */
+function validBlockDraft(value: unknown): value is BlockDraft {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const draft = value as Record<string, unknown>;
+  const identifier = (field: unknown) =>
+    typeof field === 'string' && field.length > 0 && text(field).length <= 256;
+  if (!identifier(draft.target) || !identifier(draft.generation) || !identifier(draft.id))
+    return false;
+  if (typeof draft.base !== 'string' || typeof draft.value !== 'string') return false;
+  if (text(draft.base).length > BLOCK_TEXT_BYTES || text(draft.value).length > BLOCK_TEXT_BYTES)
+    return false;
+  if (draft.cell !== undefined) {
+    if (!draft.cell || typeof draft.cell !== 'object' || Array.isArray(draft.cell)) return false;
+    const cell = draft.cell as Record<string, unknown>;
+    if (!identifier(cell.table) || !identifier(cell.column)) return false;
+  }
+  return true;
+}
+
 /** Same sealed device store as composers. Its v1 reader rejects a whole page on an unknown edit. */
 export function blockDraftStore(space: string, device: string) {
   const scope = (page: string) => ['tmt-colab-block-drafts-v1', space, device, page];
@@ -23,9 +42,21 @@ export function blockDraftStore(space: string, device: string) {
   const load = async (page: string): Promise<BlockDraft[]> => {
     const stored = await record<Sealed>(name(page));
     if (stored === undefined) return [];
-    return JSON.parse(
-      decodeText(await open(await draftKey(device), scope(page), stored, maxBytes)),
-    );
+    try {
+      const parsed: unknown = JSON.parse(
+        decodeText(await open(await draftKey(device), scope(page), stored, maxBytes)),
+      );
+      if (!Array.isArray(parsed)) return [];
+      const seen = new Set<string>();
+      return parsed.filter((entry): entry is BlockDraft => {
+        if (!validBlockDraft(entry) || seen.has(entry.target) || seen.size >= 32) return false;
+        seen.add(entry.target);
+        return true;
+      });
+    } catch {
+      // An unreadable, damaged or future record cannot supply recovery; a new save replaces it.
+      return [];
+    }
   };
   async function change(page: string, edit: BlockDraft, remove: boolean) {
     try {

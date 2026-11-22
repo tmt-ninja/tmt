@@ -393,6 +393,57 @@ it('keeps existing composer drafts readable when a block draft is saved', async 
   expect(await blocks.load('page')).toEqual([draft]);
 });
 
+it.each(['unopenable', 'non-array', 'missing value'] as const)(
+  'replaces an %s block-draft record and saves the new text durably',
+  async (kind) => {
+    const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+    const { seal } = await import('../src/local-seal.js');
+    const recordName = 'block-drafts:space:device:page';
+    const scope = ['tmt-colab-block-drafts-v1', 'space', 'device', 'page'];
+    const key = await draftKey('device');
+    const bad =
+      kind === 'non-array' ? { v: 2 } : [{ target: 't', generation: 'g', id: 'b', base: 'x' }];
+    stored.set(
+      recordName,
+      kind === 'unopenable'
+        ? { nonce: 'bad', ciphertext: 'bad' }
+        : await seal(key, scope, new TextEncoder().encode(JSON.stringify(bad))),
+    );
+    const store = blockDraftStore('space', 'device');
+    expect(await store.load('page')).toEqual([]);
+    const session = new BlockDraftSession(store, 'page');
+    session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+    expect(await session.waitForStorage()).toBe(true);
+    expect(await store.load('page')).toMatchObject([{ id: 'block-1', value: 'Plan Friday' }]);
+  },
+);
+
+it('keeps valid block drafts while dropping malformed entries', async () => {
+  const { blockDraftStore } = await import('../src/block-drafts.js');
+  const { seal } = await import('../src/local-seal.js');
+  const valid = {
+    target: 't',
+    generation: 'g',
+    id: 'b',
+    base: 'a',
+    value: 'ab',
+    cell: { table: 't1', column: 'c1' },
+  };
+  const malformed = [
+    { ...valid, target: 'bad', value: 7 },
+    { ...valid, target: 'bad-cell', cell: { table: 't1' } },
+  ];
+  stored.set(
+    'block-drafts:space:device:page',
+    await seal(
+      await draftKey('device'),
+      ['tmt-colab-block-drafts-v1', 'space', 'device', 'page'],
+      new TextEncoder().encode(JSON.stringify([malformed[0], valid, malformed[1]])),
+    ),
+  );
+  expect(await blockDraftStore('space', 'device').load('page')).toEqual([valid]);
+});
+
 it('keeps the newest unsaved block text after an older save is acknowledged', async () => {
   const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
   const blocks = blockDraftStore('space', 'device');

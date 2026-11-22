@@ -103,6 +103,7 @@ export function LiveStructuredPage({
     [write, pageId, blockDrafts],
   );
   const [restored, setRestored] = useState<BlockDraft[]>([]);
+  const [clearFailed, setClearFailed] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     let active = true;
     if (recovery)
@@ -220,8 +221,17 @@ export function LiveStructuredPage({
   }, [flush]);
   const dismiss = useCallback(
     async (draft: BlockDraft) => {
-      if (await recovery?.store.clear(recovery.page, draft))
+      if (await recovery?.store.clear(recovery.page, draft)) {
         setRestored((entries) => entries.filter((e) => e !== draft));
+        setClearFailed((previous) => {
+          const next = new Set(previous);
+          next.delete(draft.target);
+          return next;
+        });
+      } else {
+        setClearFailed((previous) => new Set(previous).add(draft.target));
+        setRecoveryError(strings.blockEdit.notApplied);
+      }
     },
     [recovery],
   );
@@ -292,7 +302,7 @@ export function LiveStructuredPage({
       anchorBlock={hash.startsWith('block-') ? hash.slice(6) : hash}
       tree={tree}
       recoveryError={recoveryError}
-      restored={restored.filter((d) => present(d) !== d.value)}
+      restored={restored.filter((d) => clearFailed.has(d.target) || present(d) !== d.value)}
       onRestore={keep}
       onForget={dismiss}
       drafts={drafts}

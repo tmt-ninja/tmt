@@ -252,6 +252,7 @@ for (const departure of ['reload', 'navigate'] as const) {
             state.durableSerial = state.inputSerial;
         });
       }, paragraph);
+      let savedRecord: { key: string; value: unknown } | undefined;
       let guarded = false;
       page.on('dialog', async (dialog) => {
         expect(dialog.type()).toBe('beforeunload');
@@ -276,6 +277,37 @@ for (const departure of ['reload', 'navigate'] as const) {
           }
         ).block.base;
         expect(beforeReload).toBe('Plan');
+        // Capture the real sealed recovery record while the server still has the old text.
+        savedRecord = await page.evaluate(async (pageId) => {
+          const database = await new Promise<IDBDatabase>((resolve, reject) => {
+            const request = indexedDB.open('tmt-colab', 1);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          try {
+            const store = database.transaction('keys').objectStore('keys');
+            const keys = await new Promise<IDBValidKey[]>((resolve, reject) => {
+              const request = store.getAllKeys();
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => reject(request.error);
+            });
+            const key = keys.find(
+              (item) =>
+                typeof item === 'string' &&
+                item.startsWith('block-drafts:') &&
+                item.endsWith(`:${pageId}`),
+            );
+            if (typeof key !== 'string') throw new Error('Missing sealed block draft');
+            const value = await new Promise<unknown>((resolve, reject) => {
+              const request = database.transaction('keys').objectStore('keys').get(key);
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => reject(request.error);
+            });
+            return { key, value };
+          } finally {
+            database.close();
+          }
+        }, created.pageId);
         await page.reload();
         expect(guarded).toBe(false);
       } else {
@@ -306,6 +338,53 @@ for (const departure of ['reload', 'navigate'] as const) {
           { timeout: 30_000 },
         )
         .toBe('Plan publish Friday');
+      if (savedRecord) {
+        // Restore the actual encrypted record for a block deleted elsewhere, then fail its clear.
+        run(world, colab, ['block', 'delete', created.pageId, paragraph, '--json']);
+        await page.evaluate(async ({ key, value }) => {
+          const database = await new Promise<IDBDatabase>((resolve, reject) => {
+            const request = indexedDB.open('tmt-colab', 1);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          try {
+            await new Promise<void>((resolve, reject) => {
+              const transaction = database.transaction('keys', 'readwrite');
+              transaction.objectStore('keys').put(value, key);
+              transaction.oncomplete = () => resolve();
+              transaction.onerror = () => reject(transaction.error);
+              transaction.onabort = () => reject(transaction.error);
+            });
+          } finally {
+            database.close();
+          }
+        }, savedRecord);
+        await page.reload();
+        const deleted = page
+          .getByRole('status')
+          .filter({ hasText: 'This block was deleted while you were editing it.' });
+        await expect(deleted).toBeVisible();
+        await page.evaluate((key) => {
+          const original = IDBObjectStore.prototype.put;
+          (window as Window & { restoreDraftPut?: () => void }).restoreDraftPut = () => {
+            IDBObjectStore.prototype.put = original;
+          };
+          IDBObjectStore.prototype.put = function (value, recordKey) {
+            if (recordKey === key) throw new Error('Simulated local storage failure');
+            return original.call(this, value, recordKey);
+          };
+        }, savedRecord.key);
+        await deleted.getByRole('button', { name: 'Discard', exact: true }).click();
+        await expect(
+          page.getByRole('status').filter({ hasText: 'Your last change was not applied.' }),
+        ).toBeVisible();
+        await expect(deleted).toBeVisible();
+        await page.evaluate(() =>
+          (window as Window & { restoreDraftPut: () => void }).restoreDraftPut(),
+        );
+        await deleted.getByRole('button', { name: 'Discard', exact: true }).click();
+        await expect(deleted).toHaveCount(0);
+      }
     });
   });
 }
