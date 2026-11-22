@@ -510,7 +510,7 @@ pub(in crate::board) fn talk_with_work() -> App {
 }
 
 #[test]
-fn talk_work_expands_in_place_and_opens_only_the_fresh_bound_page() {
+fn talk_work_expands_in_place_and_opens_only_the_fresh_bound_section() {
     let mut app = talk_with_work();
     let recipient = app.workspace.selected.clone();
     let collapsed = screen(&draw(&mut app, 160, 42));
@@ -533,7 +533,7 @@ fn talk_work_expands_in_place_and_opens_only_the_fresh_bound_page() {
         "│   ✓ Confirm scope",
         "│   ◆ Return target ← next",
         "│   · Back navigation",
-        "│   o Open in Colab",
+        "│   o Open block",
         "│── ",
     ]
     .into_iter()
@@ -551,18 +551,24 @@ fn talk_work_expands_in_place_and_opens_only_the_fresh_bound_page() {
     assert_eq!(app.input_band.get(), Some(input));
     assert_eq!(app.key(press(KeyCode::Down)), Effect::None);
     draw(&mut app, 160, 42);
-    let opened = app.key(press(KeyCode::Enter));
-    assert!(format!("{opened:?}").contains("navigation"), "{opened:?}");
+    assert_eq!(
+        app.key(press(KeyCode::Enter)),
+        Effect::OpenWorkPage(crate::board::work::OpenTarget {
+            page: "77777777-7777-4777-8777-777777777777".into(),
+            block: Some("navigation".into()),
+        })
+    );
 
     app.work.stale = true;
     app.work.last_read_at = Some(1_800_000_000_000);
     let stale = crate::status::with_now_ms(1_800_000_420_000, || screen(&draw(&mut app, 160, 42)));
     assert!(stale.contains("stale · read 7m ago"), "{stale}");
-    assert!(!stale.contains("Open in Colab"));
-    assert_ne!(
+    assert!(!stale.contains("Open block"));
+    assert!(!stale.contains("Open page"));
+    assert!(!matches!(
         app.key(press(KeyCode::Char('o'))),
-        Effect::OpenWorkPage("77777777-7777-4777-8777-777777777777".into())
-    );
+        Effect::OpenWorkPage(_)
+    ));
     assert_eq!(app.key(press(KeyCode::Esc)), Effect::None);
     let collapsed = screen(&draw(&mut app, 160, 42));
     assert!(!collapsed.contains("Return target"));

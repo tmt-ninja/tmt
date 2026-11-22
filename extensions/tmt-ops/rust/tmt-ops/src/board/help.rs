@@ -356,7 +356,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 ("↑↓", "select a work item or chapter"),
                 ("Space", "collapse or expand the detail inspector"),
                 ("Tab", "focus or leave the detail inspector"),
-                ("o / ⏎", "open page or expand a project section"),
+                (
+                    "o / ⏎",
+                    "open the selected page or block, or expand a project section",
+                ),
                 ("t", "jump to the owner's Talk"),
                 ("p", "cycle the project filter"),
                 (

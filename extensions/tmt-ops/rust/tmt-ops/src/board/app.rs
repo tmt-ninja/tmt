@@ -333,7 +333,7 @@ pub enum Effect {
     PickTheme,
     SaveTheme,
     Act(Request),
-    OpenWorkPage(String),
+    OpenWorkPage(super::work::OpenTarget),
     WorkOrder(super::work::OrderMove),
     AnswerProviderForm(super::provider_answer::Send),
     Shell {

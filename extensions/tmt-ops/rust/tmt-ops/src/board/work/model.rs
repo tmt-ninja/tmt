@@ -143,7 +143,42 @@ pub(in crate::board) struct Item {
     pub sections_omitted: bool,
 }
 
+fn html_ordinal(id: &str) -> bool {
+    id.strip_prefix('h').is_some_and(|digits| {
+        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+    })
+}
+
 impl Item {
+    fn open_block(&self, section: Option<usize>) -> Option<&str> {
+        if self.todo {
+            self.key.split_once(':').map(|(_, block)| block)
+        } else {
+            section
+                .and_then(|index| self.sections.get(index))
+                .map(|section| section.id.as_str())
+        }
+    }
+
+    pub fn opens_block(&self, section: Option<usize>) -> bool {
+        self.open_block(section).is_some_and(|id| !html_ordinal(id))
+    }
+
+    pub fn open_label(&self, section: Option<usize>) -> &'static str {
+        if self.opens_block(section) {
+            "Open block"
+        } else {
+            "Open page"
+        }
+    }
+
+    pub fn open_target(&self, section: Option<usize>) -> super::OpenTarget {
+        super::OpenTarget {
+            page: self.page.clone(),
+            block: self.open_block(section).map(str::to_owned),
+        }
+    }
+
     fn order(&self) -> (u8, Reverse<bool>, Reverse<i64>, &str) {
         (
             self.status.rank(),
@@ -252,6 +287,8 @@ fn decode_sections(value: &Value) -> Arc<[Section]> {
         .take(MAX_TODOS)
         .filter_map(|section| {
             let id = text(&section["id"], 128)?;
+            // Display text may be cleaned, but an opening target must be exact.
+            binding_name(&section["id"], &id)?;
             let title = text(&section["title"], 256)?;
             let done = section["done"].as_u64()?;
             let total = section["total"].as_u64()?;

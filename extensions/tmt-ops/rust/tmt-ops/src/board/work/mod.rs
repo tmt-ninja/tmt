@@ -477,13 +477,43 @@ pub(super) fn read(core: &crate::core::Core) -> Result<List, ReadFailure> {
     Ok(list)
 }
 
-pub(super) fn open(core: &crate::core::Core, page: &str) -> Result<(), String> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) struct OpenTarget {
+    pub page: String,
+    pub block: Option<String>,
+}
+
+pub(super) fn open(core: &crate::core::Core, target: &OpenTarget) -> Result<String, String> {
+    let (link, anchored) = open_link(core, target)?;
+    crate::effects::open(&link, None)?;
+    Ok(if anchored {
+        "Opened Colab block."
+    } else {
+        "Opened Colab page."
+    }
+    .into())
+}
+
+fn open_link(core: &crate::core::Core, target: &OpenTarget) -> Result<(String, bool), String> {
+    let page = target.page.as_str();
     if !super::recent_responses::canonical_identity(page) {
         return Err("The Colab page ID is unavailable.".into());
     }
-    let value = core
-        .json_within(&["colab", "open", page], WITHIN)
-        .map_err(|error| super::notes::single_line(&error.message))?;
+    let started = Instant::now();
+    let page_args = ["colab", "open", page];
+    let (value, block) = if let Some(block) = target.block.as_deref() {
+        let option = format!("--block={block}");
+        match core.json_within(&["colab", "open", page, &option], WITHIN) {
+            Err(error) if error.code == "COLAB_NOT_STRUCTURED" => (
+                core.json_within(&page_args, WITHIN.saturating_sub(started.elapsed())),
+                None,
+            ),
+            result => (result, Some(block)),
+        }
+    } else {
+        (core.json_within(&page_args, WITHIN), None)
+    };
+    let value = value.map_err(|error| super::notes::single_line(&error.message))?;
     if value["pageId"] != page {
         return Err("Colab did not confirm the selected page.".into());
     }
@@ -496,7 +526,13 @@ pub(super) fn open(core: &crate::core::Core, page: &str) -> Result<(), String> {
         .ok_or_else(|| "No Colab link · check serve and pairing.".to_owned())?;
     crate::effects::web_link(link)
         .map_err(|_| "Colab did not return a valid web link.".to_owned())?;
-    crate::effects::open(link, None)
+    if let Some(block) = block {
+        let expected = format!("anchor=block-{block}");
+        if link.split_once('#').map(|(_, fragment)| fragment) != Some(expected.as_str()) {
+            return Err("Colab did not confirm the selected block.".into());
+        }
+    }
+    Ok((link.to_owned(), block.is_some()))
 }
 
 pub(super) fn row_chip(item: &Item, count: usize) -> String {

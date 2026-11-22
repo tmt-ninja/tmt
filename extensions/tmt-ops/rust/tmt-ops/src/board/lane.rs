@@ -31,7 +31,7 @@ pub(super) enum Job {
         command: String,
     },
     Act(Request),
-    OpenWorkPage(String),
+    OpenWorkPage(super::work::OpenTarget),
     WorkOrder(super::work::OrderJob),
     Jump {
         member: String,
@@ -90,6 +90,7 @@ impl Job {
         match self {
             Self::Shell { .. } => "Running shell…",
             Self::Standalone(_) => "Working with the command…",
+            Self::OpenWorkPage(target) if target.block.is_some() => "Opening Colab block…",
             Self::OpenWorkPage(_) => "Opening Colab page…",
             Self::WorkOrder(_) => "Working with the Colab project order…",
             Self::AnswerProviderForm(_) => "Sending form answer…",
@@ -144,7 +145,7 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
             BoardEvent::Standalone(super::standalone::Completed::Saved(Box::new(task), result))
         }
         Job::Standalone(_) => unreachable!("standalone session has a dedicated worker"),
-        Job::OpenWorkPage(page) => BoardEvent::WorkOpened(super::work::open(core, &page)),
+        Job::OpenWorkPage(target) => BoardEvent::WorkOpened(super::work::open(core, &target)),
         Job::WorkOrder(job) => BoardEvent::WorkOrder(super::work::run_order(core, job)),
         Job::LocalUnread(task) => {
             let actor = task.actor().to_owned();

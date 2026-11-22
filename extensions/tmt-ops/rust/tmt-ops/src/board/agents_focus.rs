@@ -101,6 +101,7 @@ const TALK_WORK_TOGGLE: char = 'w';
 enum WorkControl {
     Toggle,
     Open,
+    Move(ratatui::crossterm::event::KeyCode),
 }
 
 #[derive(Default)]
@@ -109,17 +110,25 @@ pub(super) struct TalkWork {
     expanded: bool,
     toggle_hit: Option<Rect>,
     open_hit: Option<Rect>,
+    section: Option<String>,
+    section_visible: bool,
 }
 
 impl TalkWork {
     pub(super) fn clear_hits(&mut self) {
         self.toggle_hit = None;
         self.open_hit = None;
+        self.section_visible = false;
     }
 
     #[cfg(test)]
     pub(super) fn captured_hits(&self) -> (Option<Rect>, Option<Rect>) {
         (self.toggle_hit, self.open_hit)
+    }
+
+    fn selected_section(&self, item: &super::work::Item) -> Option<usize> {
+        let id = self.section.as_deref()?;
+        item.sections.iter().position(|section| section.id == id)
     }
 
     fn matches(&self, member: &OpsTarget, item: &super::work::Item) -> bool {
@@ -170,7 +179,28 @@ fn talk_work_action(app: &mut App, control: WorkControl) -> Option<super::app::E
             Some(Effect::None)
         }
         WorkControl::Open if work.open_hit.is_some() && !app.work.stale && item.can_open => {
-            Some(Effect::OpenWorkPage(item.page.clone()))
+            let section = if work.section_visible {
+                Some(work.selected_section(item)?)
+            } else {
+                None
+            };
+            Some(Effect::OpenWorkPage(item.open_target(section)))
+        }
+        WorkControl::Move(code) if work.section_visible => {
+            use ratatui::crossterm::event::KeyCode;
+            let selected = work.selected_section(item)?;
+            let last = item.sections.len() - 1;
+            let index = match code {
+                KeyCode::Up => selected.saturating_sub(1),
+                KeyCode::Down => (selected + 1).min(last),
+                KeyCode::Home => 0,
+                KeyCode::End => last,
+                _ => return None,
+            };
+            work.section = Some(item.sections[index].id.clone());
+            drop(work);
+            app.invalidate_frame_geometry();
+            Some(Effect::None)
         }
         _ => None,
     }
@@ -190,6 +220,9 @@ pub(super) fn talk_work_key(
     match key.code {
         KeyCode::Char(TALK_WORK_TOGGLE) => talk_work_action(app, WorkControl::Toggle),
         KeyCode::Enter | KeyCode::Char('o') => talk_work_action(app, WorkControl::Open),
+        KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
+            talk_work_action(app, WorkControl::Move(key.code))
+        }
         KeyCode::Esc if app.talk_work.borrow().expanded => {
             let (member, item, _) = talk_work_item(app)?;
             if !app.talk_work.borrow().matches(member, item) {
@@ -308,7 +341,12 @@ fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
         return;
     }
 
-    line(frame, area, y, neutral(" WORK DETAILS", app.look()));
+    let heading = if app.focused() == Pane::Replies && item.sections.len() > 1 {
+        " WORK DETAILS · ↑↓ select section"
+    } else {
+        " WORK DETAILS"
+    };
+    line(frame, area, y, neutral(heading, app.look()));
     // Keep one row for the rule even when the drawer reaches its height limit.
     let details = Rect {
         x: area.x + 2,
@@ -327,7 +365,23 @@ fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
         .sections
         .iter()
         .position(|section| section.state != Status::Done);
-    for (index, section) in item.sections.iter().take(section_rows).enumerate() {
+    let selected = work
+        .selected_section(item)
+        .or(next)
+        .or_else(|| (!item.sections.is_empty()).then_some(0));
+    work.section = selected.map(|index| item.sections[index].id.clone());
+    work.section_visible = selected.is_some() && section_rows > 0 && !app.modal_open();
+    let start = selected
+        .unwrap_or(0)
+        .saturating_sub(section_rows.saturating_sub(1));
+    for (offset, section) in item
+        .sections
+        .iter()
+        .skip(start)
+        .take(section_rows)
+        .enumerate()
+    {
+        let index = start + offset;
         let pointer = if next == Some(index) { " ← next" } else { "" };
         let head = format!(" {} ", section.state.mark());
         let title = super::view::fit(
@@ -338,7 +392,13 @@ fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
             frame,
             details,
             y,
-            neutral(format!("{head}{}{pointer}", title.trim_end()), app.look()),
+            Line::styled(
+                format!("{head}{}{pointer}", title.trim_end()),
+                app.look().selected(
+                    selected == Some(index) && app.focused() == Pane::Replies,
+                    app.look().role(Role::Muted),
+                ),
+            ),
         );
     }
     if (show_more || more_sections) && details.bottom() - *y > u16::from(can_open) {
@@ -349,7 +409,8 @@ fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
             neutral(" More sections in Colab", app.look()),
         );
     }
-    let open = " o Open in Colab";
+    let visible_section = selected.filter(|_| section_rows > 0);
+    let open = format!(" o {}", item.open_label(visible_section));
     if can_open && *y < details.bottom() && details.width >= open.width() as u16 {
         if !app.modal_open() {
             work.open_hit = Some(Rect::new(details.x, *y, open.width() as u16, 1));

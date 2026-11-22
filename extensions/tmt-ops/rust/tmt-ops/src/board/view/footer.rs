@@ -779,7 +779,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                 ("↑↓", "move"),
                 ("Space", "detail"),
                 ("Tab", "focus"),
-                ("⏎", "open page"),
+                ("⏎", "open"),
                 ("t", "talk"),
                 ("m", "move"),
                 ("p", "project"),

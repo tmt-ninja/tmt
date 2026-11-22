@@ -168,7 +168,7 @@ pub(in crate::board) enum BoardEvent {
         result: Result<work::List, work::ReadFailure>,
         cancellation: crate::runner::Cancellation,
     },
-    WorkOpened(Result<(), String>),
+    WorkOpened(Result<String, String>),
     WorkOrder(work::OrderReply),
     OrchestrationRead {
         read: orchestration::Read,
@@ -1276,7 +1276,7 @@ fn session(
                     }
                     Ok(BoardEvent::WorkOpened(result)) => {
                         app.in_flight = app.in_flight.saturating_sub(1);
-                        app.finished(result.map(|()| "Opened Colab page.".into()));
+                        app.finished(result);
                         dirty = true;
                         Effect::None
                     }

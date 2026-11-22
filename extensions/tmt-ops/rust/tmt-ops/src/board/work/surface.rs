@@ -880,7 +880,9 @@ fn paint_inspector(
         );
     }
     if y < area.bottom() {
-        let mut actions = vec![Span::styled("  o / ⏎  Open Colab", look.role(Role::Text))];
+        let section = selected_section(state, item);
+        let action = format!("  o / ⏎  {}", item.open_label(section));
+        let mut actions = vec![Span::styled(action, look.role(Role::Text))];
         if roster.is_some_and(|r| item.owner_target(r).is_some()) {
             actions.push(Span::styled("   t  Talk", look.role(Role::Text)));
         }
@@ -893,6 +895,11 @@ fn paint_inspector(
             hits.push((action_rect, Hit::Open(item.key.clone())));
         }
     }
+}
+
+fn selected_section(state: &super::State, item: &super::Item) -> Option<usize> {
+    (state.inspector_focused && !item.sections.is_empty())
+        .then(|| state.inspector_cursor.min(item.sections.len() - 1))
 }
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
@@ -1361,10 +1368,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         let can_open = !state.stale && item.can_open;
         let open_action = if state.stale {
             " Stale"
-        } else if can_open {
-            " ⏎ open page"
-        } else {
+        } else if !can_open {
             " No link · check Colab serve and pairing"
+        } else if item.opens_block(selected_section(state, item)) {
+            " ⏎ open block"
+        } else {
+            " ⏎ open page"
         };
         let order_context = state.project.as_ref().is_some_and(|name| {
             list.orders.contains_key(name) || list.omitted_orders.contains(name)
@@ -1695,7 +1704,8 @@ impl App {
                         .iter()
                         .find(|item| item.key == key && item.can_open)
                 {
-                    return Effect::OpenWorkPage(item.page.clone());
+                    let section = selected_section(state, item);
+                    return Effect::OpenWorkPage(item.open_target(section));
                 }
             }
             Hit::Project => {

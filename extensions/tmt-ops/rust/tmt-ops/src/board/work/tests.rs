@@ -411,6 +411,79 @@ fi
 }
 
 #[test]
+fn colab_open_requires_the_exact_block_and_falls_back_only_for_html_pages() {
+    use crate::{
+        core::Core,
+        test_support::{Scratch, write_ready_executable},
+    };
+    use std::fs;
+
+    let scratch = Scratch::new("colab-work-open");
+    let executable = scratch.join("tmt");
+    let calls = scratch.join("calls");
+    let response = scratch.join("response");
+    let page_link = "https://example.test/colab/p/33333333";
+    let page_response = json!({"pageId": PAGE, "running": true, "link": page_link});
+    fs::write(scratch.join("page"), page_response.to_string()).unwrap();
+    write_ready_executable(
+        &executable,
+        r#"#!/bin/sh
+cd "$(dirname "$0")" || exit 2
+printf '%s\n' "$*" >> calls
+case "$4" in
+    --block=*) cat response; [ ! -f refuse ];;
+    *) cat page;;
+esac
+"#,
+    );
+    let core = Core::at(executable);
+    let target = OpenTarget {
+        page: PAGE.into(),
+        block: Some("chapter".into()),
+    };
+    let block_call = format!("colab open {PAGE} --block=chapter --json\n");
+    let anchor = format!("{page_link}#anchor=block-chapter");
+    fs::write(
+        &response,
+        json!({"pageId": PAGE, "running": true, "link": anchor}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(open_link(&core, &target), Ok((anchor, true)));
+    assert_eq!(fs::read_to_string(&calls).unwrap(), block_call);
+
+    fs::write(&calls, "").unwrap();
+    fs::write(&response, page_response.to_string()).unwrap();
+    assert_eq!(
+        open_link(&core, &target),
+        Err("Colab did not confirm the selected block.".into())
+    );
+    assert_eq!(fs::read_to_string(&calls).unwrap(), block_call);
+
+    fs::write(scratch.join("refuse"), "").unwrap();
+    for (code, expected, expected_calls) in [
+        (
+            "COLAB_BLOCK_NOT_FOUND",
+            Err("Colab refused this block.".into()),
+            block_call.clone(),
+        ),
+        (
+            "COLAB_NOT_STRUCTURED",
+            Ok((page_link.into(), false)),
+            format!("{block_call}colab open {PAGE} --json\n"),
+        ),
+    ] {
+        fs::write(&calls, "").unwrap();
+        fs::write(
+            &response,
+            json!({"error":{"code":code,"message":"Colab refused this block."}}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(open_link(&core, &target), expected);
+        assert_eq!(fs::read_to_string(&calls).unwrap(), expected_calls);
+    }
+}
+
+#[test]
 fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
     let mut app = board();
     let selected = app.workspace.selected.clone();
@@ -427,16 +500,29 @@ fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
     assert!(!app.work.searching);
     assert_eq!(
         key(&mut app, KeyCode::Enter),
-        Effect::OpenWorkPage(PAGE.into())
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: None
+        })
     );
     assert_eq!(key(&mut app, KeyCode::Tab), Effect::None);
     assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
-    let section = key(&mut app, KeyCode::Char('o'));
-    assert!(format!("{section:?}").contains("h2"), "{section:?}");
+    assert_eq!(
+        key(&mut app, KeyCode::Char('o')),
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: Some("h2".into()),
+        })
+    );
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
     assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
-    let todo = key(&mut app, KeyCode::Enter);
-    assert!(format!("{todo:?}").contains("one"), "{todo:?}");
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::OpenWorkPage(OpenTarget {
+            page: PAGE.into(),
+            block: Some("one".into()),
+        })
+    );
     assert_eq!(key(&mut app, KeyCode::End), Effect::None);
     assert_eq!(
         key(&mut app, KeyCode::Enter),
@@ -783,10 +869,10 @@ fn colab_work_captures_align_headings_and_show_bound_chips() {
         assert!(lines.iter().any(|line| line.contains("Projects")));
         assert!(lines.iter().any(|line| line.contains("Squad Pulse")));
         let stale = render(&mut terminal, "work-stale");
-        assert!(stale.iter().all(|line| !line.contains("⏎ open page")));
+        assert!(stale.iter().all(|line| !line.contains("⏎ open")));
         assert!(stale.iter().any(|line| line.contains("Stale ·")));
-        assert!(lines.iter().any(|line| line.contains("o / ⏎  Open Colab")));
-        assert!(lines[35].contains("⏎ open page") && lines[35].contains("/ search"));
+        assert!(lines.iter().any(|line| line.contains("o / ⏎  Open page")));
+        assert!(lines[35].contains("⏎ open") && lines[35].contains("/ search"));
         let agents = render(&mut terminal, "agents-work");
         assert!(
             agents.iter().any(|line| line.contains("sam ○ W-91")),
@@ -1032,7 +1118,7 @@ fn colab_work_short_inspector_keeps_the_keyboard_section_visible() {
         last.contains("more ↑") && !last.contains("more ↓"),
         "{last}"
     );
-    assert!(last.contains("Open Colab"), "{last}");
+    assert!(last.contains("Open page"), "{last}");
 }
 
 #[test]
