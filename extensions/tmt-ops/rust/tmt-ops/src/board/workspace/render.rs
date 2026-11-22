@@ -394,8 +394,15 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
         snapshot.labels_present,
     );
     let totals = if let Some(moving) = app.moving.as_ref().filter(|moving| !moving.applying) {
+        // Tree placement keys are shown in the main footer. Only the
+        // separate membership action chooses a squad.
+        let hint = if moving.order().is_some() {
+            ""
+        } else {
+            " · ↑↓ choose a squad"
+        };
         Line::styled(
-            format!("Moving {} · ↑↓ choose a squad", moving.name),
+            format!("Moving {}{hint}", moving.name),
             look.role(Role::Text),
         )
     } else if app.workspace.query.is_empty() {
