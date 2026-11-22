@@ -26,7 +26,16 @@ fn write(pilot: &Pilot, page: &str, source: &str) {
 /// A column page holding `source`.
 fn page(pilot: &Pilot, title: &str, source: &str) -> String {
     let id = pilot.call(&[
-        "page", "create", "--html", "--title", title, "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        title,
+        "--layout",
+        "column",
+        "--json",
     ])["pageId"]
         .as_str()
         .unwrap()
@@ -232,6 +241,8 @@ fn a_page_created_from_a_user_template_copies_its_current_content_and_then_stand
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Week 43",
             "--template",
@@ -262,6 +273,8 @@ fn a_page_created_from_a_user_template_copies_its_current_content_and_then_stand
             "page",
             "create",
             "--html",
+            "--reason",
+            "Copy the saved HTML template",
             "--title",
             "Week 44",
             "--template",
@@ -285,6 +298,8 @@ fn a_page_created_from_a_user_template_copies_its_current_content_and_then_stand
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Week 45",
             "--template",
@@ -315,6 +330,8 @@ fn a_page_created_from_a_user_template_copies_its_current_content_and_then_stand
                     "page",
                     "create",
                     "--html",
+                    "--reason",
+                    "Exercise the HTML source path",
                     "--title",
                     "Human",
                     "--template",
@@ -334,7 +351,16 @@ fn a_page_created_from_a_user_template_copies_its_current_content_and_then_stand
 fn the_questions_of_a_template_are_registered_and_open_for_every_copy() {
     let pilot = Pilot::new(None);
     let id = pilot.call(&[
-        "page", "create", "--html", "--title", "Review", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Review",
+        "--layout",
+        "column",
+        "--json",
     ])["pageId"]
         .as_str()
         .unwrap()
@@ -353,6 +379,8 @@ fn the_questions_of_a_template_are_registered_and_open_for_every_copy() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Release 9",
         "--template",
@@ -382,7 +410,16 @@ fn the_questions_of_a_template_are_registered_and_open_for_every_copy() {
 fn an_anonymous_copy_registers_its_questions_with_no_agent_and_names_none_in_its_blocks() {
     let pilot = Pilot::new(None);
     let id = pilot.call(&[
-        "page", "create", "--html", "--title", "Review", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Review",
+        "--layout",
+        "column",
+        "--json",
     ])["pageId"]
         .as_str()
         .unwrap()
@@ -404,6 +441,8 @@ fn an_anonymous_copy_registers_its_questions_with_no_agent_and_names_none_in_its
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Release 9",
         "--template",
@@ -433,12 +472,30 @@ fn the_default_is_what_a_bare_create_starts_from_and_returns_to_starter_when_it_
         let id = page(&pilot, "Weekly review", TEMPLATE_SOURCE);
         save(&pilot, &id, "weekly-review");
         // No default is set: a create naming nothing starts from starter.
-        let first = pilot.call(&["page", "create", "--html", "--title", "Notes", "--json"]);
+        let first = pilot.call(&[
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Notes",
+            "--json",
+        ]);
         assert_eq!(first["template"], "starter");
         assert_eq!(first["templateDefault"], true);
         assert_eq!(first["layout"], "column");
         pilot.call(&["template", "default", "weekly-review", "--json"]);
-        let second = pilot.call(&["page", "create", "--html", "--title", "Week", "--json"]);
+        let second = pilot.call(&[
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Week",
+            "--json",
+        ]);
         assert_eq!(second["template"], "weekly-review");
         assert_eq!(second["templateDefault"], true);
         assert_eq!(
@@ -448,14 +505,31 @@ fn the_default_is_what_a_bare_create_starts_from_and_returns_to_starter_when_it_
         let human = text(
             &pilot
                 .command()
-                .args(["page", "create", "--html", "--title", "Human"])
+                .args([
+                    "page",
+                    "create",
+                    "--html",
+                    "--reason",
+                    "Exercise the HTML source path",
+                    "--title",
+                    "Human",
+                ])
                 .output()
                 .unwrap(),
         );
         assert!(human.contains("weekly-review (space default)"), "{human}");
         // A layout or a file keeps its own meaning: the default is not consulted.
         let plain = pilot.call(&[
-            "page", "create", "--html", "--title", "Plain", "--layout", "full", "--json",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Plain",
+            "--layout",
+            "full",
+            "--json",
         ]);
         assert!(plain.get("template").is_none());
         assert_eq!(plain["layout"], "full");
@@ -481,7 +555,16 @@ fn the_default_is_what_a_bare_create_starts_from_and_returns_to_starter_when_it_
             );
             assert!(settings(&pilot).get("defaultTemplate").is_none());
         }
-        let after = pilot.call(&["page", "create", "--html", "--title", "After", "--json"]);
+        let after = pilot.call(&[
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "After",
+            "--json",
+        ]);
         assert_eq!(after["template"], "starter");
         assert_eq!(listed(&pilot)["default"], "starter");
     }
@@ -500,7 +583,16 @@ fn a_default_that_names_a_template_that_is_gone_falls_back_to_starter_and_says_s
     fs::write(&settings_file, json!({"defaultTemplate": id}).to_string()).unwrap();
     let output = pilot
         .command()
-        .args(["page", "create", "--html", "--title", "Notes", "--json"])
+        .args([
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Notes",
+            "--json",
+        ])
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
@@ -528,6 +620,8 @@ fn every_refusal_names_its_fix() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Notes",
             "--template",
@@ -544,6 +638,8 @@ fn every_refusal_names_its_fix() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Notes",
             "--template",
@@ -698,6 +794,8 @@ fn a_copied_template_preserves_question_lookalikes_in_attributes_and_scripts() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Literal copy",
             "--template",
@@ -759,6 +857,8 @@ exec {core} "$@"
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 "Copied",
                 "--template",
@@ -799,6 +899,8 @@ exec {core} "$@"
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 "Copied",
                 "--template",

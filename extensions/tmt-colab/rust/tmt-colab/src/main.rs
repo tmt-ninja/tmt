@@ -46,6 +46,10 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         include_str!("../../../skills/tmt-colab/references/editing.md"),
     ),
     (
+        "legacy-html",
+        include_str!("../../../skills/tmt-colab/references/legacy-html.md"),
+    ),
+    (
         "layout",
         include_str!("../../../skills/tmt-colab/references/layout.md"),
     ),
@@ -136,7 +140,7 @@ fn grammar() -> Command {
                 note: "Run the space; stop it with tmt colab stop",
             },
             Example {
-                command: "tmt colab page create --html --title Notes --layout column --file page.html",
+                command: "tmt colab page create --title Notes --json",
                 note: "Create a page and print its link",
             },
             Example {
@@ -264,12 +268,12 @@ fn grammar() -> Command {
         summary: "Create, read and write local pages",
         examples: &[
             Example {
-                command: "tmt colab page create --html --title Notes --layout column --file page.html",
+                command: "tmt colab page create --title Notes --json",
                 note: "Create a private page and print its link",
             },
             Example {
-                command: "tmt colab page read 10000000-0000-4000-8000-000000000001 --json",
-                note: "Read source and its verified editing base",
+                command: "tmt colab page title 10000000-0000-4000-8000-000000000001 Plans --json",
+                note: "Rename the page",
             },
         ],
         outputs: OutputModes::Human,
@@ -283,7 +287,7 @@ fn grammar() -> Command {
             note: "Create a page editable by your registered owner browsers",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Creates an empty structured page by default; edit it with tmt colab block. Use --html for an HTML page, with --file, --layout or --template as needed. Use --file - for bounded UTF-8 stdin. Initializes a fresh local space when needed and commits through the owner service. While a Remote door runs, the page opens in the owner's browser unless --no-open, the open setting or the environment says not to. JSON includes opened and the shortLink fallback. HTML source findings print as warnings; --strict refuses before creation.",
+        details: "Creates an empty structured page by default; edit it with tmt colab block. Use --html --reason TEXT for an HTML page, with --file, --layout or --template as needed. Use --file - for bounded UTF-8 stdin. Initializes a fresh local space when needed and commits through the owner service. While a Remote door runs, the page opens in the owner's browser unless --no-open, the open setting or the environment says not to. JSON includes opened and the shortLink fallback. HTML source findings print as warnings; --strict refuses before creation.",
     };
     const WRITE: CommandSpec = CommandSpec {
         name: "write",
@@ -1031,8 +1035,15 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         return cli_management::create_blocks_page(root, args);
     }
     if command == "create" {
+        let reason = args.get_one::<String>("reason").map(|value| value.trim());
+        if !reason.is_some_and(tmt_colab::decoder::valid_layout_reason) {
+            return Err(cli_management::fail(
+                "COLAB_INPUT_INVALID",
+                "For a block page, omit --html and add content with tmt colab block batch. To create HTML, give --reason with one line of text (at most 1024 bytes).",
+            ));
+        }
         // The layout is chosen before any state is initialized or any source is read. A template
-        // brings its own layout and source (clap keeps it apart from --layout, --reason, --file); a
+        // brings its own layout and source (clap keeps it apart from --layout and --file); a
         // create that names none of the three starts from the space's default template.
         let start = cli_template::start(root, args)?;
         let page_layout = match &start {

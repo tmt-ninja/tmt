@@ -245,6 +245,8 @@ test('harness: colab open and page create never invoke a browser opener in a wor
         'page',
         'create',
         '--html',
+        '--reason',
+        'Exercise the HTML source path',
         '--title',
         'Opener',
         '--layout',

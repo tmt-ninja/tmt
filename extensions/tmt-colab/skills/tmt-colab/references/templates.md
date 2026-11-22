@@ -10,7 +10,7 @@ Before you write a page from a template, read its rules:
 
 ```sh
 tmt colab template show NAME
-tmt colab page create --html --title "Week 43" --template NAME
+tmt colab page create --html --reason "Reuse the saved page template" --title "Week 43" --template NAME
 ```
 
 `show` numbers the rules: the HTML comments of the template's source, in order. Fill each block

@@ -14,14 +14,14 @@ top-level blocks. You own the content: colours, type and the layout inside each 
 
 ## Choose at creation
 
-HTML page creation requires a layout choice and refuses without one:
+A block page needs no layout flag. If you need HTML, explain why with `--reason` and choose a layout or template:
 
 ```sh
-tmt colab page create --html --title "Weekly plan" --layout column --file page.html --json
+tmt colab page create --html --reason "Preserve the supplied HTML" --title "Weekly plan" --layout column --file page.html --json
 tmt colab page create --html --title "Board" --layout canvas --reason "Draws its own cards" --file page.html --json
 ```
 
-A template starts the page for you: `tmt colab page create --html --title "Weekly plan" --template report
+A template starts the page for you: `tmt colab page create --html --reason "Reuse the report template" --title "Weekly plan" --template report
 --json` sets the layout and the source, and `tmt colab template ls` lists them (`report`, `review`,
 `compare` and `gallery` are `column`; `board` is `full`; `gallery` is the design-system components to copy from). Each template starts from the page-style base look, and each block carries a comment that says
 which rule it follows and where it is taught: keep the structure, replace the placeholder text. The comments

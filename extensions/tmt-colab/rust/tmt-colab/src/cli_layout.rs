@@ -64,7 +64,10 @@ const LAYOUT: CommandSpec = CommandSpec {
 /// `--layout` and `--reason` on `page create`. The choice is required, but by `choice`, not by
 /// clap, so the refusal can point at what to read.
 pub fn create_args(command: Command) -> Command {
-    command.arg(kind_arg("layout")).arg(reason_arg())
+    command.arg(kind_arg("layout")).arg(
+        reason_arg()
+            .help("Why this page needs HTML instead of blocks (one line, at most 1024 bytes)"),
+    )
 }
 
 fn kind_arg(name: &'static str) -> Arg {
@@ -133,7 +136,14 @@ fn chosen(kind: &str, reason: Option<&str>) -> Result<PageLayout> {
 /// What `page create` must be given, or the refusal that tells the agent where to read.
 pub fn choice(args: &ArgMatches) -> Result<PageLayout> {
     match args.get_one::<String>("layout") {
-        Some(kind) => chosen(kind, args.get_one::<String>("reason").map(String::as_str)),
+        Some(kind) => chosen(
+            kind,
+            if kind == "canvas" {
+                args.get_one::<String>("reason").map(String::as_str)
+            } else {
+                None
+            },
+        ),
         None => Err(input(
             "Choose a layout for this page: --layout column (a text column up to 1280 px, most pages), \
              --layout full (blocks may run edge to edge) or --layout canvas --reason \"<why>\" \

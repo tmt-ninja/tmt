@@ -27,7 +27,7 @@ const starter = `<style>
   .waiting { color: var(--tmt-ui-color-waiting); }
 }
 </style>
-<!-- Examples to copy with fresh UUIDs (this comment is inert); see tmt colab skill, "Ask and flag"
+<!-- Examples to copy with fresh UUIDs (this comment is inert); see tmt colab skill legacy-html
 <tmt-questions data-id="20000000-0000-4000-8000-000000000001">
   <p data-title>One decision</p>
   <tmt-question data-id="10000000-0000-4000-8000-000000000001" data-kind="single" data-agent="Your agent name">

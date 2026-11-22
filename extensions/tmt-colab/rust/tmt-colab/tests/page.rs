@@ -3571,7 +3571,16 @@ else:
             .env("TMT_AGENT", "1")
             .env("PATH", core_fixture::opener_guard(&f.root))
             .args([
-                "page", "create", "--html", "--title", "Created", "--layout", "column", "--json",
+                "page",
+                "create",
+                "--html",
+                "--reason",
+                "Exercise the HTML source path",
+                "--title",
+                "Created",
+                "--layout",
+                "column",
+                "--json",
             ])
             .output()
             .unwrap();

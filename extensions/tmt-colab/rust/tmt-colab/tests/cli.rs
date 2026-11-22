@@ -1827,6 +1827,8 @@ fn future_schema_keeps_recovery_and_correlation_and_serve_refuses_to_migrate() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "No creation",
             "--layout",
@@ -1898,6 +1900,8 @@ fn dashboard_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 "Source",
                 "--layout",
@@ -2239,6 +2243,8 @@ fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serv
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Fresh 🐈",
             "--layout",
@@ -2293,7 +2299,17 @@ fn an_edit_names_the_editing_reference_only_when_it_went_off_guidance() {
     let path = file.to_str().unwrap();
     fs::write(&file, &rows).unwrap();
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "Plan", "--layout", "column", "--file", path,
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Plan",
+        "--layout",
+        "column",
+        "--file",
+        path,
         "--json",
     ]);
     let id = created["pageId"].as_str().unwrap().to_owned();
@@ -2399,6 +2415,8 @@ fn existing_page_writes_are_refused_without_reading_the_source_or_changing_state
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Patch only",
             "--layout",
@@ -2443,6 +2461,8 @@ fn multiple_find_replace_pairs_commit_together_and_large_patches_warn() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Atomic pairs",
         "--layout",
@@ -2547,6 +2567,8 @@ fn patch_warning_counts_removed_bytes_and_keeps_half_appends_and_noops_quiet() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Warning boundary",
         "--layout",
@@ -2608,7 +2630,17 @@ fn a_patch_of_two_far_apart_pairs_costs_the_edits_and_not_the_text_between_them(
     let path = file.to_str().unwrap();
     fs::write(&file, &page).unwrap();
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "Plan", "--layout", "column", "--file", path,
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Plan",
+        "--layout",
+        "column",
+        "--file",
+        path,
         "--json",
     ]);
     let id = created["pageId"].as_str().unwrap().to_owned();
@@ -2685,6 +2717,8 @@ fn page_compact_combines_this_devices_changes_and_reports_usage_offline_and_serv
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Compact",
             "--layout",
@@ -2781,6 +2815,8 @@ fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Sized",
             "--layout",
@@ -2886,6 +2922,8 @@ fn a_patch_changes_only_the_addressed_text_and_refuses_when_its_anchor_moved() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Patched",
             "--layout",
@@ -3086,6 +3124,8 @@ fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_wri
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Retained tail",
         "--layout",
@@ -3216,6 +3256,8 @@ fn a_patch_reports_the_usage_a_fresh_read_reports_with_and_without_a_combine() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Usage",
             "--layout",
@@ -3268,6 +3310,8 @@ fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_servin
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Large",
             "--layout",
@@ -3341,6 +3385,8 @@ fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Limits",
             "--layout",
@@ -3373,6 +3419,8 @@ fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Full",
             "--layout",
@@ -3435,6 +3483,8 @@ fn archived_html_source_is_readable_for_conversion_recovery() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Before conversion",
         "--layout",
@@ -3461,6 +3511,8 @@ fn writing_an_archived_page_is_refused_before_anything_is_recorded() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Archived",
         "--layout",
@@ -3499,6 +3551,8 @@ fn attachment_read_refuses_without_a_serve_or_a_valid_reference_and_creates_noth
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Attachments",
         "--layout",
@@ -3760,6 +3814,8 @@ fn attachment_attach_refuses_what_it_cannot_send_and_creates_nothing_without_a_s
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Attach",
         "--layout",
@@ -3877,6 +3933,8 @@ fn writing_the_source_a_page_already_has_publishes_nothing_offline_and_serving()
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Same",
             "--layout",
@@ -4235,6 +4293,8 @@ fn a_lost_reply_is_resolved_by_original_status_and_a_lost_request_names_its_oper
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Doubt",
         "--layout",
@@ -4352,6 +4412,8 @@ fn a_serve_that_cannot_understand_the_write_is_a_mismatch_not_an_unknown_outcome
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Skew",
         "--layout",
@@ -4460,7 +4522,16 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     let invalid = pilot
         .command()
         .args([
-            "page", "create", "--html", "--title", "", "--layout", "column", "--json",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "",
+            "--layout",
+            "column",
+            "--json",
         ])
         .output()
         .unwrap();
@@ -4478,6 +4549,8 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Bad",
             "--layout",
@@ -4495,7 +4568,16 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     );
     assert!(!pilot.root.join("selected/colab").exists());
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "Empty", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Empty",
+        "--layout",
+        "column",
+        "--json",
     ]);
     let read = pilot.call(&[
         "page",
@@ -4508,7 +4590,17 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     let mut child = pilot
         .command()
         .args([
-            "page", "create", "--html", "--title", "Stdin", "--layout", "column", "--file", "-",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Stdin",
+            "--layout",
+            "column",
+            "--file",
+            "-",
             "--json",
         ])
         .stdin(Stdio::piped())
@@ -4544,7 +4636,15 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     let human = pilot
         .command()
         .args([
-            "page", "create", "--html", "--title", "Human", "--layout", "column",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Human",
+            "--layout",
+            "column",
         ])
         .output()
         .unwrap();
@@ -4559,6 +4659,58 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     assert!(!message.contains("tmt remote pair printed"));
 }
 #[test]
+fn bundled_skill_batch_creates_a_structured_page_with_a_registered_question() {
+    let pilot = Pilot::new(None);
+    let output = pilot.command().arg("skill").output().unwrap();
+    assert!(output.status.success());
+    let guide = String::from_utf8(output.stdout).unwrap();
+    let example = guide
+        .split_once("```json\n")
+        .unwrap()
+        .1
+        .split_once("```")
+        .unwrap()
+        .0;
+    let file = pilot.root.join("ops.json");
+    fs::write(&file, example).unwrap();
+    let created = pilot.call(&["page", "create", "--title", "Weekly plan", "--json"]);
+    let page = created["pageId"].as_str().unwrap();
+    pilot.call(&[
+        "block",
+        "batch",
+        page,
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let blocks = pilot.call(&["block", "ls", page, "--json"]);
+    let rows = blocks["blocks"].as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    assert!(
+        rows.iter()
+            .any(|row| row["type"] == "question" && row["text"]["s"] == "Which option?")
+    );
+    assert_eq!(
+        pilot.call(&["question", "ls", page, "--json"])["questions"][0]["title"],
+        "Which option?"
+    );
+}
+#[test]
+fn html_creation_requires_a_reason_before_template_or_source_reads() {
+    let pilot = Pilot::new(None);
+    for tail in [
+        vec!["--template", "absent"],
+        vec!["--layout", "column", "--file", "/nonexistent/source"],
+    ] {
+        let mut args = vec!["page", "create", "--html", "--title", "Decision", "--json"];
+        args.extend(tail);
+        let refused = failure(&pilot, &args, "COLAB_INPUT_INVALID");
+        let message = refused["error"]["message"].as_str().unwrap();
+        assert!(message.contains("block batch") && message.contains("--reason"));
+    }
+    assert!(!pilot.root.join("selected/colab").exists());
+}
+#[test]
 fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creating_anything() {
     let pilot = Pilot::new(None);
     // The choice comes first: an unreadable source is not even opened, and no state is created.
@@ -4568,6 +4720,8 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Plan",
             "--file",
@@ -4592,8 +4746,8 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
         vec!["--layout", "canvas"],
         vec!["--layout", "canvas", "--reason", "   "],
         vec!["--layout", "canvas", "--reason", "two\nlines"],
-        vec!["--layout", "column", "--reason", "not for a column"],
-        vec!["--layout", "full", "--reason", "not for full width"],
+        vec!["--layout", "column"],
+        vec!["--layout", "full"],
     ] {
         let mut command = vec!["page", "create", "--html", "--title", "Plan"];
         command.extend(args.iter().copied());
@@ -4613,7 +4767,16 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
     let freeform = pilot
         .command()
         .args([
-            "page", "create", "--html", "--title", "Plan", "--layout", "freeform", "--json",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Plan",
+            "--layout",
+            "freeform",
+            "--json",
         ])
         .output()
         .unwrap();
@@ -4639,8 +4802,16 @@ fn create_and_show_report_layout_while_ls_only_lists_metadata() {
     let pilot = Pilot::new(None);
     let reason = "  A status board draws its own cards  ";
     let cases: [(&[&str], &str, Option<&str>); 3] = [
-        (&["--layout", "column"], "column", None),
-        (&["--layout", "full"], "full", None),
+        (
+            &["--layout", "column", "--reason", "HTML column"],
+            "column",
+            None,
+        ),
+        (
+            &["--layout", "full", "--reason", "HTML canvas alternatives"],
+            "full",
+            None,
+        ),
         (
             &["--layout", "canvas", "--reason", reason],
             "canvas",
@@ -4708,7 +4879,15 @@ fn create_and_show_report_layout_while_ls_only_lists_metadata() {
     let human = pilot
         .command()
         .args([
-            "page", "create", "--html", "--title", "Human", "--layout", "column",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Human",
+            "--layout",
+            "column",
         ])
         .output()
         .unwrap();
@@ -4742,6 +4921,8 @@ fn create_adds_the_runtime_to_the_read_first_set_only_for_a_page_that_opts_in() 
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Opt-in",
             "--layout",
@@ -4833,6 +5014,8 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             name,
             "--template",
@@ -4867,6 +5050,8 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "again",
         "--template",
@@ -4895,6 +5080,8 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Human",
             "--template",
@@ -4910,11 +5097,7 @@ fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
 #[test]
 fn a_template_excludes_the_layout_and_source_options_and_unknown_names() {
     let pilot = Pilot::new(None);
-    for extra in [
-        vec!["--layout", "column"],
-        vec!["--reason", "why"],
-        vec!["--file", "page.html"],
-    ] {
+    for extra in [vec!["--layout", "column"], vec!["--file", "page.html"]] {
         let mut command = vec![
             "page",
             "create",
@@ -4938,6 +5121,8 @@ fn a_template_excludes_the_layout_and_source_options_and_unknown_names() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Plan",
             "--template",
@@ -4969,7 +5154,16 @@ fn page_layout_changes_only_the_layout_and_later_writes_keep_it() {
     for serving in [false, true] {
         let mut pilot = Pilot::new(None);
         let created = pilot.call(&[
-            "page", "create", "--html", "--title", "Board", "--layout", "column", "--json",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Board",
+            "--layout",
+            "column",
+            "--json",
         ]);
         let id = created["pageId"].as_str().unwrap().to_owned();
         let file = pilot.root.join("page.html");
@@ -5116,7 +5310,16 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         let out = pilot
             .command_with_creation_door(status)
             .args([
-                "page", "create", "--html", "--title", "Linked", "--layout", "column", "--json",
+                "page",
+                "create",
+                "--html",
+                "--reason",
+                "Exercise the HTML source path",
+                "--title",
+                "Linked",
+                "--layout",
+                "column",
+                "--json",
             ])
             .output()
             .unwrap();
@@ -5126,7 +5329,16 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
     };
     // No door (the fixture core has no remote status): relative path, no url.
     let plain = pilot.call(&[
-        "page", "create", "--html", "--title", "Plain", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Plain",
+        "--layout",
+        "column",
+        "--json",
     ]);
     assert!(plain.get("url").is_none());
     for status in [
@@ -5174,6 +5386,8 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Human link",
             "--layout",
@@ -5192,7 +5406,15 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
     let stopped = pilot
         .command_with_creation_door(r#"{"running":false,"lastPort":53253}"#)
         .args([
-            "page", "create", "--html", "--title", "Stopped", "--layout", "column",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Stopped",
+            "--layout",
+            "column",
         ])
         .output()
         .unwrap();
@@ -5207,6 +5429,8 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Malformed stopped",
             "--layout",
@@ -5231,7 +5455,16 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         .command()
         .env("TMT_EXECUTABLE", pilot.creation_core(None, None))
         .args([
-            "page", "create", "--html", "--title", "Old CLI", "--layout", "column", "--open",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Old CLI",
+            "--layout",
+            "column",
+            "--open",
             "--json",
         ])
         .output()
@@ -5253,6 +5486,8 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Old CLI human",
             "--layout",
@@ -5301,7 +5536,16 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
     let started = Instant::now();
     let status = cmd
         .args([
-            "page", "create", "--html", "--title", "Slow", "--layout", "column", "--json",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Slow",
+            "--layout",
+            "column",
+            "--json",
         ])
         .stdout(fs::File::create(&capture).unwrap())
         .status()
@@ -5335,7 +5579,16 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
 fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
     let pilot = Pilot::new(None);
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "Notes", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Notes",
+        "--layout",
+        "column",
+        "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     confirm_cloud_copy(&pilot, page, 30 * DAY_MS);
@@ -5626,6 +5879,8 @@ fn full_management_cli_serving_and_stopped_commits_policy_and_replays_after_rest
                     "page",
                     "create",
                     "--html",
+                    "--reason",
+                    "Exercise the HTML source path",
                     "--title",
                     "Later page",
                     "--layout",
@@ -6005,6 +6260,8 @@ fn cli_member_changes_capture_complete_verified_assignments() {
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 "Second assignment",
                 "--layout",
@@ -6954,7 +7211,16 @@ fn a_paired_space_with_a_page_prints_its_link_and_no_pairing_step() {
     let pilot = Pilot::new(None);
     pilot.paired_machines(r#"{"memberId":"fixture-person","machines":[{"clientId":"revoked-browser","revoked":true},{"clientId":"laptop","revoked":false}],"nextCursor":null}"#);
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "First", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "First",
+        "--layout",
+        "column",
+        "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     let mut serving = Serving::start(
@@ -7147,7 +7413,16 @@ fn without_a_door_the_page_text_gives_the_reason_and_never_a_manual_remote_comma
     ] {
         let pilot = Pilot::new(None);
         pilot.call(&[
-            "page", "create", "--html", "--title", "First", "--layout", "column", "--json",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "First",
+            "--layout",
+            "column",
+            "--json",
         ]);
         let mut serving = Serving::start(&pilot, pilot.remote_core(core, Serve::Fail), &[]);
         let text = Serving::wait_for(&serving.out, "open");
@@ -7175,6 +7450,8 @@ fn cli_publisher_label_uses_fixed_public_command_and_unknown_writes_clear_it() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Published",
         "--layout",
@@ -7232,7 +7509,16 @@ fn an_agent_patch_labels_its_publication_with_the_caller_it_already_observed() {
     )
     .unwrap();
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "Once", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Once",
+        "--layout",
+        "column",
+        "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     let file = pilot.root.join("page.html");
@@ -7320,7 +7606,16 @@ fn serve_opens_the_single_page_and_the_setting_is_overridden_by_flags_only() {
     let pilot = Pilot::new(None);
     pilot.opener(0);
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "Only", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Only",
+        "--layout",
+        "column",
+        "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     pilot.call(&["settings", "open", "off", "--json"]);
@@ -7377,6 +7672,8 @@ fn page_create_opener_matrix_is_independent_of_terminal_and_json() {
                         "page",
                         "create",
                         "--html",
+                        "--reason",
+                        "Exercise the HTML source path",
                         "--title",
                         "Created",
                         "--layout",
@@ -7507,7 +7804,16 @@ fn page_create_without_terminal_opens_once_and_failure_or_no_door_keeps_creation
             .env_remove("CI")
             .env("DISPLAY", ":fixture")
             .args([
-                "page", "create", "--html", "--title", "Kept", "--layout", "column", "--json",
+                "page",
+                "create",
+                "--html",
+                "--reason",
+                "Exercise the HTML source path",
+                "--title",
+                "Kept",
+                "--layout",
+                "column",
+                "--json",
             ])
             .output()
             .unwrap();
@@ -7543,7 +7849,15 @@ fn create_with_launch(
         .env("DISPLAY", ":fixture")
         .env("TMT_EXECUTABLE", core)
         .args([
-            "page", "create", "--html", "--title", "Created", "--layout", "column",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Created",
+            "--layout",
+            "column",
         ])
         .args(extra);
     command.output().unwrap()
@@ -7921,6 +8235,8 @@ fn the_archive_view_judges_last_activity_by_the_space_setting_and_the_pages_own_
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Idle page",
         "--layout",
@@ -8034,6 +8350,8 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Relative expiry",
         "--layout",
@@ -8223,7 +8541,16 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
     let pilot = Pilot::new(None);
     pilot.paired_machines(r#"{"memberId":"fixture-person","machines":[],"nextCursor":null}"#);
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "Notes", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Notes",
+        "--layout",
+        "column",
+        "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     let path = format!("/colab/p/{}", &page[..8]);
@@ -8805,7 +9132,16 @@ fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
             pilot.creation_core(Some(CREATION_DOOR), None),
         )
         .args([
-            "page", "create", "--html", "--title", "Kept", "--layout", "column", "--open",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Kept",
+            "--layout",
+            "column",
+            "--open",
         ])
         .output()
         .unwrap();
@@ -9074,7 +9410,16 @@ fn an_error_envelope_from_remote_is_shown_as_it_is_and_never_starts_a_second_doo
 fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
     let pilot = Pilot::new(None);
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "Notes", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Notes",
+        "--layout",
+        "column",
+        "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
     let human = |envelope: &str, args: &[&str]| {
@@ -9115,6 +9460,8 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 "Refused link",
                 "--layout",
@@ -9155,6 +9502,8 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 "Refused JSON link",
                 "--layout",
@@ -9204,7 +9553,16 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
 fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_the_row() {
     let pilot = Pilot::new(None);
     pilot.call(&[
-        "page", "create", "--html", "--title", "Kept", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Kept",
+        "--layout",
+        "column",
+        "--json",
     ]);
     let mut serving = Serving::start(
         &pilot,
@@ -9267,6 +9625,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         (
             "attachments",
             include_bytes!("../../../skills/tmt-colab/references/attachments.md").as_slice(),
+        ),
+        (
+            "legacy-html",
+            include_bytes!("../../../skills/tmt-colab/references/legacy-html.md").as_slice(),
         ),
         (
             "questions",
@@ -9413,6 +9775,8 @@ fn the_starters_question_and_reading_examples_pass_the_check_and_publish_as_writ
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Ask and flag",
         "--layout",
@@ -9509,6 +9873,8 @@ fn the_starters_examples_are_inert_in_a_created_page_and_create_no_question_or_r
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "From the starter",
         "--layout",
@@ -9535,6 +9901,8 @@ fn dashboard_skill_examples_publish_the_documented_data_without_changing_the_sou
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Source",
         "--layout",
@@ -10295,6 +10663,8 @@ fn page_create_shows_the_hint_beside_the_warnings_and_strict_never_refuses_on_it
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Styled",
         "--layout",
@@ -10311,6 +10681,8 @@ fn page_create_shows_the_hint_beside_the_warnings_and_strict_never_refuses_on_it
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Report",
         "--template",
@@ -10326,6 +10698,8 @@ fn page_create_shows_the_hint_beside_the_warnings_and_strict_never_refuses_on_it
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Again",
             "--layout",
@@ -10520,8 +10894,19 @@ fn create_and_patch_warn_with_the_same_findings_and_strict_commits_nothing() {
     let strict = failure_args(
         &pilot,
         &[
-            "page", "create", "--html", "--title", "Strict", "--layout", "column", "--file", dirty,
-            "--strict", "--json",
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Strict",
+            "--layout",
+            "column",
+            "--file",
+            dirty,
+            "--strict",
+            "--json",
         ],
     );
     assert_eq!(strict["error"]["code"], "COLAB_PAGE_CHECK");
@@ -10533,7 +10918,17 @@ fn create_and_patch_warn_with_the_same_findings_and_strict_commits_nothing() {
 
     // Without --strict the page is created and the findings are warnings.
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "Warned", "--layout", "column", "--file", dirty,
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Warned",
+        "--layout",
+        "column",
+        "--file",
+        dirty,
         "--json",
     ]);
     assert_eq!(finding_codes(&created["warnings"]), expected);
@@ -10548,6 +10943,8 @@ fn create_and_patch_warn_with_the_same_findings_and_strict_commits_nothing() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Plain",
         "--layout",
@@ -10560,7 +10957,17 @@ fn create_and_patch_warn_with_the_same_findings_and_strict_commits_nothing() {
     let human = pilot
         .command()
         .args([
-            "page", "create", "--html", "--title", "Human", "--layout", "column", "--file", dirty,
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Human",
+            "--layout",
+            "column",
+            "--file",
+            dirty,
         ])
         .output()
         .unwrap();
@@ -10616,7 +11023,17 @@ fn a_new_page_has_no_attachments_so_every_reference_in_it_is_unresolved() {
     .unwrap();
     let path = file.to_str().unwrap();
     let created = pilot.call(&[
-        "page", "create", "--html", "--title", "Refs", "--layout", "column", "--file", path,
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Refs",
+        "--layout",
+        "column",
+        "--file",
+        path,
         "--json",
     ]);
     let mut codes = finding_codes(&created["warnings"]);
@@ -10657,6 +11074,8 @@ fn titled_page(pilot: &Pilot, title: &str) -> String {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         title,
         "--layout",
@@ -10957,6 +11376,8 @@ fn ranged_read_page(pilot: &Pilot, source: &str) -> String {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Ranged source",
         "--layout",
@@ -11432,6 +11853,8 @@ fn page_edit_lock_cli_replaces_and_unlocks_and_stale_requires_observed_nonactive
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Locked page",
         "--layout",
@@ -11545,6 +11968,8 @@ fn holder_patch_releases_a_disjoint_quote_in_the_same_list_item_only_after_succe
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Patch lock",
             "--layout",
@@ -11629,6 +12054,8 @@ fn agent_patch_without_canonical_identity_skips_acquisition_and_releases_nothing
                     "page",
                     "create",
                     "--html",
+                    "--reason",
+                    "Exercise the HTML source path",
                     "--title",
                     "Unresolved patch caller",
                     "--layout",
@@ -11753,6 +12180,8 @@ fn agent_patch_auto_lock_publishes_acquisition_before_content_and_release_after_
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 "Auto lock",
                 "--layout",
@@ -11902,6 +12331,8 @@ fn agent_patch_auto_lock_is_visible_during_evaluation_and_released_when_evaluati
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Failed patch lock",
             "--layout",
@@ -12036,6 +12467,8 @@ fn agent_patch_reports_failed_automatic_cleanup_without_hiding_the_original_erro
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Cleanup failure",
             "--layout",
@@ -12129,6 +12562,8 @@ fn agent_patch_auto_lock_refuses_stale_input_and_never_replays_an_uncertain_acqu
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Acquisition failure",
         "--layout",
@@ -12197,6 +12632,8 @@ fn agent_patch_keeps_its_disjoint_lock_when_caller_observation_is_lost() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Lost caller",
         "--layout",
@@ -12261,6 +12698,8 @@ fn repeated_lock_unlock_and_compaction_keep_one_current_holder_cell() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Bounded locks",
         "--layout",
@@ -12319,6 +12758,8 @@ fn a_failed_post_patch_release_reports_saved_content_and_the_captured_unlock_com
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Release failure",
         "--layout",
@@ -12396,6 +12837,8 @@ fn retired_local_writer_holder_is_hidden_and_can_be_unlocked_by_another_identity
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Retired holder",
         "--layout",
@@ -12439,6 +12882,8 @@ fn agent_patch_refuses_foreign_overlap_but_people_disjoint_and_noop_edits_procee
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Guarded edit",
             "--layout",
@@ -12536,6 +12981,8 @@ fn agent_patch_lock_lifecycle_keeps_unknown_and_failed_presence_but_releases_for
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Lock lifecycle guard",
         "--layout",
@@ -12638,6 +13085,8 @@ fn agent_patch_rechecks_a_lock_acquired_after_its_initial_lock_snapshot() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Concurrent lock",
         "--layout",
@@ -12724,6 +13173,8 @@ fn a_write_between_a_patch_read_and_its_commit_is_never_overwritten() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Concurrent write",
         "--layout",
@@ -12823,6 +13274,8 @@ fn page_compact_history_current_preserves_native_edits() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Control",
         "--layout",
@@ -12864,6 +13317,8 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Storage",
         "--layout",
@@ -12930,6 +13385,8 @@ fn storage_reclaim_space_dry_run_reports_pages_without_mutating_them() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Space preview",
         "--layout",
@@ -12971,6 +13428,8 @@ fn storage_reclaim_keeps_page_source_and_reports_actual_result_offline_and_servi
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Reclaim",
             "--layout",
@@ -13015,6 +13474,8 @@ fn storage_reclaim_failure_reports_the_measured_result() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Failed reclaim",
         "--layout",
@@ -13064,6 +13525,8 @@ fn storage_reclaim_skips_shared_history_and_keeps_page_revision() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Shared history",
         "--layout",
@@ -13099,6 +13562,8 @@ fn check_subpage_refusal(case: &str) {
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 title,
                 "--layout",
@@ -13186,6 +13651,8 @@ fn an_archived_sub_page_stays_listed_marked_archived_and_leaves_the_counts() {
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 title,
                 "--layout",
@@ -13254,6 +13721,8 @@ fn subpages_nest_at_any_depth_and_create_below_a_child() {
                     "page",
                     "create",
                     "--html",
+                    "--reason",
+                    "Exercise the HTML source path",
                     "--title",
                     title,
                     "--layout",
@@ -13330,6 +13799,8 @@ fn subpage_commands_list_attach_move_detach_and_create_with_the_summary_beside_t
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 title,
                 "--layout",
@@ -13547,6 +14018,8 @@ fn subpage_legacy_hierarchies_read_with_warnings_and_can_be_repaired() {
                     "page",
                     "create",
                     "--html",
+                    "--reason",
+                    "Exercise the HTML source path",
                     "--title",
                     title,
                     "--layout",
@@ -13646,6 +14119,8 @@ fn subpage_detach_repairs_a_legacy_cycle() {
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 title,
                 "--layout",
@@ -13689,6 +14164,8 @@ fn subpage_show_refreshes_fingerprints_after_page_edits() {
                     "page",
                     "create",
                     "--html",
+                    "--reason",
+                    "Exercise the HTML source path",
                     "--title",
                     title,
                     "--layout",
@@ -14271,6 +14748,8 @@ fn page_work_fields_and_number_survive_edits_and_conflicts() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Work",
         "--project",
@@ -14408,6 +14887,8 @@ fn page_state_and_title_commands_read_filter_and_never_auto_complete() {
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 "State test",
                 "--layout",
@@ -14842,6 +15323,8 @@ fn a_page_of_blocks_exports_blocks_json_and_rendered_html_offline_and_serving() 
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Copy",
             "--layout",
@@ -15562,6 +16045,8 @@ fn block_cli_builds_and_edits_a_structured_page_offline_and_serving() {
                 "page",
                 "create",
                 "--html",
+                "--reason",
+                "Exercise the HTML source path",
                 "--title",
                 "Html",
                 "--layout",
@@ -15709,6 +16194,8 @@ fn conversion_keeps_legacy_and_revert_requires_confirmation_for_blocks() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Empty",
         "--layout",
@@ -15731,6 +16218,8 @@ fn conversion_keeps_legacy_and_revert_requires_confirmation_for_blocks() {
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Stale",
         "--layout",
@@ -15993,6 +16482,8 @@ fn space_design_checker_reads_the_current_component_page_only_while_serving() {
             "create",
             "--no-open",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             title,
             "--layout",

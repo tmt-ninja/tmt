@@ -6970,13 +6970,12 @@ reading read, and neither does opening a chapter from a shell.
 
 `tmt colab page create --title <title> [--json]` creates an empty structured page at epoch 1.
 `--structured` is an explicit synonym. HTML-specific creation options require `--html`; they are
-never silently ignored. `tmt colab page create --html --title <title> --layout column|full|canvas
-[--reason <text>] [--file <path|->] [--json]` creates a private HTML page at epoch 1. The HTML
-layout choice is required: `--layout column`, `--layout full` or
-`--layout canvas --reason <text>` (`--reason` belongs to `canvas` only, and `canvas` needs
-it). Without a choice the command refuses before it initializes state or reads `--file`, naming
-the three choices and `tmt colab skill layout`; a reason that is empty, longer than 1024 bytes,
-or holds a control character, and a `--reason` on another kind, are refused the same way. Freeform
+never silently ignored. Every HTML create requires `--reason <one line>` to explain
+why blocks do not meet the need. A missing or invalid reason refuses before reading
+source or initializing the space and names the block route. The trimmed reason is
+at most 1024 UTF-8 bytes and contains no control characters.
+An authored page takes `--layout column|full|canvas` and optional `--file <path|->`.
+For an explicit canvas the same reason describes the layout. Freeform
 is not a choice. On success the result adds `layout` (and `layoutReason` for a canvas) and
 `read`, the runnable `tmt colab skill NAME` commands to read before writing markup: `layout`,
 `components` and `page-style`, then `runtime` for a `canvas` page or a source that asks for React
@@ -7011,10 +7010,10 @@ moved since that revision. The JSON result is the write receipt plus `layout` an
 canvas, `layoutReason`. A page that has no layout (freeform) can be given one this way; there
 is no command that returns a page to freeform.
 
-`tmt colab page create --html --title <title> [--template <name|id>] [--json]` starts from a template
-instead of a layout choice and a file: `--template` conflicts with `--layout`, `--reason` and
+`tmt colab page create --html --reason <text> --title <title> [--template <name|id>] [--json]` starts from a template
+instead of a layout choice and a file: `--template` conflicts with `--layout` and
 `--file`, because the template brings its own layout and source. A create that names none of
-`--template`, `--layout`, `--reason` and `--file` on an HTML create starts from the space default template (below);
+`--template`, `--layout` and `--file` on an HTML create starts from the space default template (below);
 one with `--layout` or `--file` and no template keeps its meaning and its refusals.
 
 A template is a compiled one or a page of the space marked with `meta.template` (#5066).

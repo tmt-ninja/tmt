@@ -140,7 +140,7 @@ it and retry the anchored patch. If the page is still full, export it and create
 
 ```sh
 tmt colab export PAGE --dir EXISTING_DIRECTORY --json
-tmt colab page create --html --title "Weekly plan" --layout column --file EXPORTED_DIRECTORY/page.html --json
+tmt colab page create --html --reason "Restore exported HTML" --title "Weekly plan" --layout column --file EXPORTED_DIRECTORY/page.html --json
 ```
 
 Use the export directory the first command returns, not its parent. Exports are unencrypted and

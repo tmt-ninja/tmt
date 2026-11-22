@@ -51,7 +51,7 @@ pub fn create_arg(command: Command) -> Command {
         Arg::new("template")
             .long("template")
             .value_name("NAME|ID")
-            .conflicts_with_all(["layout", "reason", "file"])
+            .conflicts_with_all(["layout", "file"])
             .help("Start from a template, which sets the layout and the source (tmt colab template ls)"),
     )
 }
@@ -230,7 +230,7 @@ impl Start {
 pub fn start(root: &Path, args: &ArgMatches) -> Result<Option<Start>> {
     let named = chosen(args);
     let by_default = named.is_none()
-        && ["layout", "reason", "file"]
+        && ["layout", "file"]
             .iter()
             .all(|option| args.try_get_raw(option).ok().flatten().is_none());
     if named.is_none() && !by_default {
@@ -485,7 +485,9 @@ fn ls(args: &ArgMatches) -> Result<()> {
                 count: Some(users),
                 rows: space_rows,
                 note: (users == 0).then_some("none yet: tmt colab template save PAGE --name NAME"),
-                hint: Some("tmt colab page create --html --title \"…\" --template NAME"),
+                hint: Some(
+                    "tmt colab page create --html --reason HTML-template --title \"…\" --template NAME",
+                ),
             },
         ],
     )?;
@@ -645,7 +647,7 @@ fn show(args: &ArgMatches) -> Result<()> {
             &mut output,
             terminal,
             &format!(
-                "tmt colab page create --html --title \"…\" --template {}",
+                "tmt colab page create --html --reason HTML-template --title \"…\" --template {}",
                 template.name
             ),
         )?,
@@ -869,7 +871,9 @@ fn save(args: &ArgMatches) -> Result<()> {
     message::hint(
         &mut output,
         terminal,
-        &format!("tmt colab page create --html --title \"Week 43\" --template {name}"),
+        &format!(
+            "tmt colab page create --html --reason HTML-template --title \"Week 43\" --template {name}"
+        ),
     )?;
     Ok(())
 }

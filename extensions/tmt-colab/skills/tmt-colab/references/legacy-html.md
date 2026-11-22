@@ -1,0 +1,189 @@
+# Legacy HTML pages
+
+Use HTML for grouped questions or a layout that blocks cannot express. To work on an existing HTML page, see [editing](editing.md) and [page style](page-style.md).
+
+When authorized, place each decision beside the passage it concerns. Colab renders
+a waiting card and folds an answered question to a 32px strip; no tabs or layout HTML are needed.
+Use a unique canonical UUID for every question and group. Register each question before writing
+its block (groups themselves are not registrations):
+
+```sh
+tmt colab page create --html --reason 'Grouped decision' --title 'Decision' --layout column --creator NAME
+tmt colab question add PAGE --id 10000000-0000-4000-8000-000000000001 --agent NAME --title 'Which option fits this passage?'
+tmt colab page read PAGE --lines 1:1 --json
+tmt colab page patch PAGE --lines 1:1 --range-sha256 HASH --file page.html
+```
+
+Replace PAGE with the created ID, NAME with the resolved identity, and HASH with the
+rangeSha256 returned by the read. Use 1:1 for an empty page; otherwise choose the intended range. Register every other
+question ID in the examples before writing them. `page create --html --file` containing live questions
+refuses and prints this sequence. Built-in `--template` creation fills the creator and registers
+its compiled questions in the same commit. User-authored templates do not get that exception.
+`page create` uses its invoking stable identity when available and otherwise creates with no
+creator. Anonymous review/compare templates register unassigned questions: answers remain on
+the page without Ask. Omit `--agent` to register an unassigned question; it follows the creator
+for new drafts once one is set. Explicit assignments keep their target across creator changes.
+Change future drafts with `tmt colab page creator PAGE NAME`; this never rewrites sent messages.
+Unavailable lookup is unverified, not unknown. New names without lookup need a canonical UUID
+or a retry; never guess their IDs.
+
+```html
+<div>
+  <p>The first passage has one decision.</p>
+  <tmt-question
+    data-id="10000000-0000-4000-8000-000000000001"
+    data-group="20000000-0000-4000-8000-000000000001"
+    data-kind="single"
+    data-agent="Your agent name"
+  >
+    <p data-question>Which option fits this passage?</p>
+    <span data-choice>First</span><span data-choice>Second</span>
+  </tmt-question>
+</div>
+<p>A separate passage can have another question with that same data-group.</p>
+<tmt-question
+  data-id="10000000-0000-4000-8000-000000000002"
+  data-group="20000000-0000-4000-8000-000000000001"
+  data-kind="short"
+  data-agent="Your agent name"
+>
+  <p data-question>What should this passage say?</p>
+</tmt-question>
+<tmt-questions data-id="20000000-0000-4000-8000-000000000002">
+  <p data-title>Two decisions about the next passage</p>
+  <tmt-question
+    data-id="10000000-0000-4000-8000-000000000003"
+    data-kind="short"
+    data-agent="Your agent name"
+  >
+    <p data-question>Which heading?</p>
+  </tmt-question>
+  <tmt-question
+    data-id="10000000-0000-4000-8000-000000000004"
+    data-kind="long"
+    data-agent="Your agent name"
+  >
+    <p data-question>Why does it fit?</p>
+  </tmt-question>
+</tmt-questions>
+```
+
+`data-group` links standalone questions across placements; do not put it on a
+question inside a `tmt-questions` wrapper. A group has at most 12 questions and
+does not combine registry counts: native Needs you counts each registered open question (browser adoption follows #5146). Question, group, review and reading IDs share one
+page-wide uniqueness namespace. A split question's Send sends only that question.
+A wrapper keeps one batched Send for its completed unsent answers. Neither sends
+another passage's draft. Defaults come from the asking agents in that physical
+block, deduplicated; the person can edit the visible recipient chips.
+
+Kinds: single/multiple with choices, which always offer Other with a typed answer
+(`data-other` is not needed); short/long with no choices or Other. Limits: 50
+questions/page, 20 distinct choices/question, 200 code points per question/choice. Put who asks in `data-agent`, and explain why the
+answer matters. Put elements inside a `div`, `li` or `td`, not a `p` that their
+child paragraphs would end. Do not gather unrelated decisions at the page's end.
+
+For an option that needs context, put one immediate plain-text description inside
+its choice:
+
+```html
+<span data-choice
+  >Click a marker
+  <span data-choice-description>Open the discussion when a user clicks an inline marker.</span>
+</span>
+```
+
+Descriptions allow up to 200 Unicode code points after whitespace normalization.
+Use no nested markup, comments or control characters. An invalid description is
+dropped with the `question-choice-description-invalid` warning; the choice stays
+admitted when its label passes the existing rules. Marked description children
+never count toward the label, even when invalid. Descriptions cannot distinguish
+duplicate labels or replace an empty label. Colab stacks described choices and
+announces each description with its control; the label alone is recorded in the
+answer. Without descriptions the existing inline choices stay unchanged.
+
+Waiting questions show their controls in the card. Answered strips expand in place to show
+conversation and Follow up; Change answer returns to the question card. Dismiss removes the
+question element from the shared page and marks its registration handled; Undo restores it and
+reopens it when it was open before dismissal. The page history retains the edit. A failed metadata
+step is reported with Retry; it does not reverse a successful page edit. HTML names grant no routing
+authority.
+
+Answers are ordinary annotation comments; read with `tmt colab threads PAGE --json`. An answer can carry images: they are the answer comment's attachments, which `threads`
+lists, and `tmt colab attachment read PAGE ID` writes one out.
+Changing an answer adds a normal follow-up; the latest verified device answer in
+its canonical thread wins. Each answer has its own comment/thread and each
+recipient receives one Ask for the recorded batch. Untouched and failed drafts
+remain for later. A failed recipient retries its same recorded batch without
+republishing comments. Removing markup keeps its conversations. Grammar, counts,
+limits and publication/retry rules live in the
+[answer-block contract](../../../contracts/colab-v1.md#answer-blocks).
+
+Inspect state with `tmt colab question ls PAGE --json`. A verified question-bound answer
+projects answered independently of Ask delivery. `question handle PAGE ID` marks
+it handled; `question reopen PAGE ID` reopens it. Repeat `question add --title` to update a
+registered title; an unchanged registration is a no-op. A handled entry stays handled until
+explicitly reopened, and deleting its last verified answer otherwise returns it to open.
+
+Run `tmt colab page check FILE` before publishing; it is markup-only and offline. Add `--page
+PAGE` to compare against that page's registry and creator. Native write/patch/owner Save compare new occurrences and changed ID/agent pairs; unchanged
+legacy occurrences in the admitted base remain allowed. Creation and explicit page checks
+compare the whole source. New or changed blocks refuse
+`COLAB_QUESTION_UNREGISTERED`, `COLAB_QUESTION_AGENT_MISMATCH`,
+`COLAB_QUESTION_AGENT_UNKNOWN` with a line and a command repair, without a partial source write.
+An explicit `data-agent` must match the registered assignment, or the creator for an unassigned
+question. Empty or omitted `data-agent` uses the assigned registration, or the creator for an unassigned
+question. Without either target, answers stay on the page and no Ask is sent.
+Anonymous creation never fabricates an identity. An identity lookup failure alone is never
+proof that an identity is unknown. Malformed controls are ignored; the markup check reports
+reason codes and lines. A structurally skipped wrapper also reports `questionsSkipped`.
+
+## HTML that renders
+
+Lay out and space with Tailwind utility classes from Colab's token theme (`flex gap-2 p-4
+text-secondary bg-sheet border-rule`): every page compiles them, with no marker
+([page-style](page-style.md#tailwind-utilities)). Never restyle a component's inside; use
+inline `style` only for a one-off value the theme cannot express. Inline scripts, system fonts;
+interactive (React) pages: [runtime](runtime.md) (`tmt colab skill runtime`). Read [images](attachments.md) (`tmt colab skill attachments`);
+tiny `data:` icons only. The sandbox denies external resources, network, forms, parent authority,
+cookies, storage. Self-navigation can send requests: never put secrets in HTML.
+
+Verify stored bytes and rendering after writing.
+
+## Ask and flag
+
+A must-read passage uses `tmt-read`. Put a question or passage beside its text, in a `div`, `li`
+or `td`, with a fresh UUID per `data-id`; more examples are in the comment after the starter's
+`</style>` ([page-style](page-style.md)). A question inside `<tmt-questions>` must not
+carry `data-group` (`question-group-conflict`). Detail: [questions](questions.md) (`tmt colab skill questions`),
+[components](components.md#questions), [reading](reading.md)
+(`tmt colab skill reading`), [reviews](reviews.md) (`tmt colab skill reviews`).
+Sub-pages: [work](work.md) (`tmt colab skill work`).
+
+
+## Edit existing HTML
+
+Read and patch only the relevant HTML:
+
+```sh
+tmt colab page read PAGE --grep 'quoted text' --context 3 --json
+tmt colab page patch PAGE --find 'quoted text' --replace 'new text' --json
+```
+
+`--lines A:B` reads a range; an annotation's quote makes a good `--find`. See
+[editing](editing.md) (`tmt colab skill editing`) for lock/unlock and page hints.
+On `COLAB_PATCH_CONFLICT`, reread and rebuild the patch. Existing pages use `page patch`;
+`page write` refuses them. Repeat `--find/--replace` pairs for several non-overlapping changes
+against the original source in one revision. Patches replacing over half the source warn. `page title PAGE TITLE` renames; text stays.
+
+
+## Check HTML
+
+```sh
+tmt colab page check page.html --json
+```
+
+Offline: lists ignored markup, heavy `data:` images and unusable `colab-attachment:` references,
+with `code` and `line`. Exit 1 means fix the page first.
+`page create` and `page patch` run the same check and report `warnings`; `--strict`
+refuses to publish while markup findings remain. `hints` are advice that blocks nothing.
+
