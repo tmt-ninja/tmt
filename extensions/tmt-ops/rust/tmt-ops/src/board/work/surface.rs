@@ -442,12 +442,12 @@ fn paint_dashboard_band(
     frame: &mut Frame,
     app: &App,
     list: &List,
-    state: &super::State,
     area: Rect,
     now: i64,
     zone: &jiff::tz::TimeZone,
     roster: Option<&crate::board::workspace::OpsRoster>,
 ) -> u16 {
+    let state = &app.work;
     let filter = state.project.as_deref();
     let query = app.search.as_str().trim();
     if state.detail_collapsed || !query.is_empty() {
@@ -539,7 +539,7 @@ fn paint_dashboard_band(
         Some(name) => vec![name],
         None => list.projects.iter().take(4).map(String::as_str).collect(),
     };
-    let rows_used = projects.len().max(4).min(4) as u16;
+    let rows_used = 4_u16;
     for (idx, project) in projects.iter().enumerate() {
         let y = area.y + 1 + idx as u16;
         let progress = list.project_progress(project);
@@ -953,7 +953,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         frame,
         app,
         list,
-        state,
         Rect::new(
             area.x,
             area.y + top,
