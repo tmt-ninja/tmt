@@ -178,6 +178,7 @@ function expectNativeSchema(
       name: 'record the provider version of a form and when a client sent its answer',
     },
     { version: 96, name: 'admit PerLaunch runtimes (pi) in retained finals' },
+    { version: 97, name: 'retain standalone terminal command results' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -259,6 +260,7 @@ function expectNativeSchema(
       'room_request_changes',
       'room_change_floor',
       'wake_turns',
+      'saved_terminals',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
