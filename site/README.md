@@ -206,7 +206,7 @@ Use the installed native TMT CLI, optionally with `TMT_EXECUTABLE` set to its
 absolute path. Draft source must contain exactly one `article#blog-article`.
 Metadata requires `slug`, `title`, `summary`, `date` (YYYY-MM-DD) and
 `language` (`en`, `ja`, `zh-hant` or `zh-hans`), with optional `tags` and `keyNumber` as described above. Images use full `colab-attachment:<UUID>` references.
-Draft creation uses Colab's `column` layout and adds the new page to the `blog`
+Draft creation makes an HTML page (Colab's default is a structured block page, so `draft` passes `--html` with a reason), uses the `column` layout and adds the new page to the `blog`
 project, with strict markup validation and no automatic browser opening.
 
 ```sh

@@ -65,6 +65,8 @@ test("draft creates a strict column page without opening a browser", async () =>
     const call = async (...args) => {
       if (args[0] !== "page") return { ok: true };
       assert.equal(args[1], "create");
+      assert.ok(args.includes("--html"));
+      assert.ok(args[args.indexOf("--reason") + 1]);
       assert.equal(args[args.indexOf("--layout") + 1], "column");
       assert.ok(args.includes("--strict"));
       assert.ok(args.includes("--no-open"));
