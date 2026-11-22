@@ -35,7 +35,13 @@ import {
   settleSelection,
 } from './block-selection.js';
 import type { BlockDraftSession } from './block-drafts.js';
-import { BlockTextSync, type Shown, type TableCell, TEXT_FLUSH_MS, TEXT_MAX_WAIT_MS } from './block-text-sync.js';
+import {
+  BlockTextSync,
+  type Shown,
+  type TableCell,
+  TEXT_FLUSH_MS,
+  TEXT_MAX_WAIT_MS,
+} from './block-text-sync.js';
 import { marked, typedMarks } from './block-marks.js';
 import { indentBlock } from './block-ops.js';
 import type { TextRange } from './block-text-editor.js';
@@ -762,7 +768,13 @@ export function useBlockEditing(
       );
       clearTimeout(timer.current);
       firstUnsent.current ??= performance.now();
-      timer.current = setTimeout(flush, Math.min(TEXT_FLUSH_MS, Math.max(0, firstUnsent.current + TEXT_MAX_WAIT_MS - performance.now())));
+      timer.current = setTimeout(
+        flush,
+        Math.min(
+          TEXT_FLUSH_MS,
+          Math.max(0, firstUnsent.current + TEXT_MAX_WAIT_MS - performance.now()),
+        ),
+      );
     },
     [flush, recovery],
   );

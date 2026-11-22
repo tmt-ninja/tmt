@@ -98,12 +98,23 @@ export function LiveStructuredPage({
   );
   const write = useMemo(() => binding?.blocks?.bind(binding), [binding]);
   const pageFiles = write ? binding?.files : undefined;
-  const recovery = useMemo(() => write && pageId && blockDrafts ? new BlockDraftSession(blockDrafts,pageId) : undefined,[write,pageId,blockDrafts]);
-  const [restored,setRestored] = useState<BlockDraft[]>([]);
+  const recovery = useMemo(
+    () => (write && pageId && blockDrafts ? new BlockDraftSession(blockDrafts, pageId) : undefined),
+    [write, pageId, blockDrafts],
+  );
+  const [restored, setRestored] = useState<BlockDraft[]>([]);
   useEffect(() => {
     let active = true;
-    if (recovery) void recovery.store.load(recovery.page).then(entries => { if(active) setRestored(entries); }, () => {});
-    return () => { active = false; };
+    if (recovery)
+      void recovery.store.load(recovery.page).then(
+        (entries) => {
+          if (active) setRestored(entries);
+        },
+        () => {},
+      );
+    return () => {
+      active = false;
+    };
   }, [recovery]);
   const send = useCallback(
     async (ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
@@ -181,17 +192,23 @@ export function LiveStructuredPage({
     pickMention,
     hoverMention,
   } = useBlockEditing(records, send, seq, files, agents, mentionPages, recovery);
-  useBlocker({ disabled: !write, enableBeforeUnload: () => recovery?.unsafe() ?? false,
+  useBlocker({
+    disabled: !write,
+    enableBeforeUnload: () => recovery?.unsafe() ?? false,
     shouldBlockFn: async () => {
       flush();
       if (!recovery?.unsafe()) return false;
       if (await recovery.waitForStorage()) return false;
       return recovery.unsafe() && !window.confirm(strings.blockEdit.leaveUnsaved);
-    }
+    },
   });
   useEffect(() => {
-    const hidden = () => { if (document.visibilityState === 'hidden') flush(); };
-    const blur = (event: FocusEvent) => { if (event.target instanceof HTMLElement && event.target.isContentEditable) flush(); };
+    const hidden = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    const blur = (event: FocusEvent) => {
+      if (event.target instanceof HTMLElement && event.target.isContentEditable) flush();
+    };
     document.addEventListener('focusout', blur);
     document.addEventListener('visibilitychange', hidden);
     window.addEventListener('pagehide', flush);
@@ -201,11 +218,15 @@ export function LiveStructuredPage({
       window.removeEventListener('pagehide', flush);
     };
   }, [flush]);
-  const dismiss = useCallback(async (draft: BlockDraft) => {
-    if (await recovery?.store.clear(recovery.page,draft)) setRestored(entries=>entries.filter(e=>e!==draft));
-  },[recovery]);
+  const dismiss = useCallback(
+    async (draft: BlockDraft) => {
+      if (await recovery?.store.clear(recovery.page, draft))
+        setRestored((entries) => entries.filter((e) => e !== draft));
+    },
+    [recovery],
+  );
   const present = (draft: BlockDraft) => {
-    if(!tree.visible(draft.id)) return undefined;
+    if (!tree.visible(draft.id)) return undefined;
     const block = tree.get(draft.id);
     return draft.cell ? block?.cells?.[draft.cell.column] : block?.text;
   };
@@ -216,23 +237,48 @@ export function LiveStructuredPage({
     try {
       if (present(draft) !== draft.value) {
         if (present(draft) === undefined) {
-          await send([{op:'insert',id:crypto.randomUUID(),parent:'root',type:'paragraph',text:draft.value}]);
+          await send([
+            {
+              op: 'insert',
+              id: crypto.randomUUID(),
+              parent: 'root',
+              after: null,
+              type: 'paragraph',
+              text: draft.value,
+            },
+          ]);
         } else {
-          await send([draft.cell ? { op:'table', id:draft.cell.table, action:'set-cell', row:draft.id, column:draft.cell.column, base:draft.base,text:draft.value,overlap:'both' } : {op:'text',id:draft.id,base:draft.base,set:draft.value,overlap:'both'}]);
+          await send([
+            draft.cell
+              ? {
+                  op: 'table',
+                  id: draft.cell.table,
+                  action: 'set-cell',
+                  row: draft.id,
+                  column: draft.cell.column,
+                  base: draft.base,
+                  text: draft.value,
+                  overlap: 'both',
+                }
+              : { op: 'text', id: draft.id, base: draft.base, set: draft.value, overlap: 'both' },
+          ]);
         }
       }
       await dismiss(draft);
     } catch {
       setRecoveryError(strings.blockEdit.notApplied);
-    } finally { busy.current.delete(draft.target); }
+    } finally {
+      busy.current.delete(draft.target);
+    }
   };
-  const [recoveryError,setRecoveryError] = useState('');
+  const [recoveryError, setRecoveryError] = useState('');
   useEffect(() => {
     for (const draft of restored) {
-      const block = records.find(b => b.id === draft.id && !b.deleted);
-      if (block && (draft.cell ? block.cells?.[draft.cell.column] : block.text) === draft.value) void dismiss(draft);
+      const block = records.find((b) => b.id === draft.id && !b.deleted);
+      if (block && (draft.cell ? block.cells?.[draft.cell.column] : block.text) === draft.value)
+        void dismiss(draft);
     }
-  },[records,restored,dismiss]);
+  }, [records, restored, dismiss]);
   useEffect(() => {
     onDrawn?.(tree.flat());
   }, [tree, onDrawn]);
@@ -246,7 +292,7 @@ export function LiveStructuredPage({
       anchorBlock={hash.startsWith('block-') ? hash.slice(6) : hash}
       tree={tree}
       recoveryError={recoveryError}
-      restored={restored.filter(d=>present(d)!==d.value)}
+      restored={restored.filter((d) => present(d) !== d.value)}
       onRestore={keep}
       onForget={dismiss}
       drafts={drafts}

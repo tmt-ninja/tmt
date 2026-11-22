@@ -365,8 +365,95 @@ it('the existing reader rejects a whole composer record containing a typed block
     { target: 'chat', edit: { value: 'keep this chat' } },
     { target: 'block:id', edit: { base: 'Plan', value: '', generation: 'edit-1' } },
   ];
-  stored.set(RECORD, await seal(await draftKey('device'),
-    ['tmt-colab-drafts-v1', 'space', 'device', 'page'],
-    new TextEncoder().encode(JSON.stringify({v: 1, drafts: entries}))));
+  stored.set(
+    RECORD,
+    await seal(
+      await draftKey('device'),
+      ['tmt-colab-drafts-v1', 'space', 'device', 'page'],
+      new TextEncoder().encode(JSON.stringify({ v: 1, drafts: entries })),
+    ),
+  );
   expect(await store().load('page')).toEqual(new Map());
+});
+
+it('keeps existing composer drafts readable when a block draft is saved', async () => {
+  const { blockDraftStore } = await import('../src/block-drafts.js');
+  const chat = edit('Keep my chat', { edited: true });
+  expect(await store().apply('page', new Map([['chat', chat]]))).toBe(true);
+  const draft = {
+    target: 'edit-1',
+    generation: 'generation-1',
+    id: 'block-1',
+    base: 'Plan',
+    value: 'Plan Friday',
+  };
+  const blocks = blockDraftStore('space', 'device');
+  expect(await blocks.save('page', draft)).toBe(true);
+  expect(await store().load('page')).toEqual(new Map([['chat', chat]]));
+  expect(await blocks.load('page')).toEqual([draft]);
+});
+
+it('keeps the newest unsaved block text after an older save is acknowledged', async () => {
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  const blocks = blockDraftStore('space', 'device');
+  const session = new BlockDraftSession(blocks, 'page');
+  session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+  expect(await session.waitForStorage()).toBe(true);
+  const first = session.matching('block-1', undefined, 'Plan Friday')!;
+  session.remember('block-1', undefined, 'Plan', '');
+  expect(await session.waitForStorage()).toBe(true);
+  session.admitted(first);
+  const reopened = await blocks.load('page');
+  expect(reopened).toHaveLength(1);
+  expect(reopened[0]).toMatchObject({ id: 'block-1', base: 'Plan', value: '' });
+});
+
+it('reopens a durable block draft until its own save is admitted', async () => {
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  const session = new BlockDraftSession(blockDraftStore('space', 'device'), 'page');
+  session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+  expect(await session.waitForStorage()).toBe(true);
+  const draft = session.matching('block-1', undefined, 'Plan Friday')!;
+  const reopened = blockDraftStore('space', 'device');
+  expect(await reopened.load('page')).toEqual([draft]);
+  session.admitted(draft);
+  await expect.poll(() => reopened.load('page')).toEqual([]);
+});
+
+it('writes the latest block edit promptly after a rapid typing burst', async () => {
+  const { BlockDraftSession } = await import('../src/block-drafts.js');
+  type Draft = import('../src/block-drafts.js').BlockDraft;
+  const started: Draft[] = [];
+  let finishFirst!: (value: boolean) => void;
+  const first = new Promise<boolean>((resolve) => {
+    finishFirst = resolve;
+  });
+  const session = new BlockDraftSession(
+    {
+      load: async () => [],
+      save: async (_page, draft) => {
+        started.push(draft);
+        return started.length === 1 ? first : true;
+      },
+      clear: async () => true,
+    },
+    'page',
+  );
+  for (let i = 1; i <= 20; i++) session.remember('block-1', undefined, 'Plan', `Plan ${i}`);
+  const lastInput = performance.now();
+  expect(started.map((draft) => draft.value)).toEqual(['Plan 1']);
+  finishFirst(true);
+  expect(await session.waitForStorage()).toBe(true);
+  const latestDurableMs = performance.now() - lastInput;
+  expect(started.map((draft) => draft.value)).toEqual(['Plan 1', 'Plan 20']);
+  expect(latestDurableMs).toBeLessThan(300);
+});
+
+it('keeps the leave guard active if the block draft cannot be saved', async () => {
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  unavailable = true;
+  const session = new BlockDraftSession(blockDraftStore('space', 'device'), 'page');
+  session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+  expect(await session.waitForStorage()).toBe(false);
+  expect(session.unsafe()).toBe(true);
 });

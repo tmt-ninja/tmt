@@ -111,19 +111,51 @@ export function blockLabel(block: BlockRecord): string {
 }
 
 type RecoveryDraft = import('./block-drafts.js').BlockDraft;
-function RecoveryNotice({draft,missing,props}:{draft:RecoveryDraft;missing:boolean;props:StructuredPageProps}) {
-  return <div className="deleted-draft-notice"><BrowserNotice tone="waiting" variant="tinted" announcement="status"
-    mark={<TriangleAlert size="1em"/>} stateLabel={missing ? strings.blockDelete.draft : strings.blockEdit.restored}
-    body={draft.value || '“”'} actions={<>
-      <BrowserAction type="button" variant="primary" presentation="compact" label={missing ? strings.blockDelete.keep : strings.blockEdit.keepRestored} onActivate={()=>props.onRestore?.(draft)}/>
-      <BrowserAction type="button" variant="text" presentation="compact" label={strings.blockDelete.discard} onActivate={()=>props.onForget?.(draft)}/>
-    </>}/></div>;
+function RecoveryNotice({
+  draft,
+  missing,
+  props,
+}: {
+  draft: RecoveryDraft;
+  missing: boolean;
+  props: Pick<StructuredPageProps, 'onRestore' | 'onForget'>;
+}) {
+  return (
+    <div className="deleted-draft-notice">
+      <BrowserNotice
+        tone="waiting"
+        variant="tinted"
+        announcement="status"
+        mark={<TriangleAlert size="1em" />}
+        stateLabel={missing ? strings.blockDelete.draft : strings.blockEdit.restored}
+        body={draft.value || '“”'}
+        actions={
+          <>
+            <BrowserAction
+              type="button"
+              variant="primary"
+              presentation="compact"
+              label={missing ? strings.blockDelete.keep : strings.blockEdit.keepRestored}
+              onActivate={() => props.onRestore?.(draft)}
+            />
+            <BrowserAction
+              type="button"
+              variant="text"
+              presentation="compact"
+              label={strings.blockDelete.discard}
+              onActivate={() => props.onForget?.(draft)}
+            />
+          </>
+        }
+      />
+    </div>
+  );
 }
 export interface StructuredPageProps {
   restored?: readonly RecoveryDraft[];
-  onRestore?(draft:RecoveryDraft):void;
-  onForget?(draft:RecoveryDraft):void;
-  recoveryError?:string;
+  onRestore?(draft: RecoveryDraft): void;
+  onForget?(draft: RecoveryDraft): void;
+  recoveryError?: string;
   tree: BlockTree;
   drafts?: ReadonlyMap<string, { editing: NonNullable<StructuredPageProps['editing']> }>;
   onDraftChange?(id: string, text: string, caret: number): void;
@@ -399,7 +431,11 @@ export function StructuredPage(props: StructuredPageProps) {
         }}
       >
         {props.recoveryError && <p role="status">{props.recoveryError}</p>}
-        {props.restored?.filter(d=>!props.tree.visible(d.cell?.table ?? d.id)).map(d=><RecoveryNotice key={d.target} draft={d} missing props={props}/>)}
+        {props.restored
+          ?.filter((d) => !props.tree.visible(d.cell?.table ?? d.id))
+          .map((d) => (
+            <RecoveryNotice key={d.target} draft={d} missing props={props} />
+          ))}
         {props.tree.children(PAGE_PARENT).length === 0 && (
           <EmptyDocument
             readonly={props.readonly}
@@ -685,7 +721,11 @@ function Blocks({
           onPasteUrl: undefined,
         })}
       />
-      {rest.restored?.filter(d=>(d.cell?.table ?? d.id) === block.id).map(d=><RecoveryNotice key={d.target} draft={d} missing={!rest.tree.visible(d.id)} props={rest}/>)}
+      {rest.restored
+        ?.filter((d) => (d.cell?.table ?? d.id) === block.id)
+        .map((d) => (
+          <RecoveryNotice key={d.target} draft={d} missing={!tree.visible(d.id)} props={rest} />
+        ))}
       {rest.drafts?.has(block.id) && (
         <div className="deleted-draft-notice">
           <BrowserNotice

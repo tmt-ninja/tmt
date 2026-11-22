@@ -23,7 +23,9 @@ export function blockDraftStore(space: string, device: string) {
   const load = async (page: string): Promise<BlockDraft[]> => {
     const stored = await record<Sealed>(name(page));
     if (stored === undefined) return [];
-    return JSON.parse(decodeText(await open(await draftKey(device), scope(page), stored, maxBytes)));
+    return JSON.parse(
+      decodeText(await open(await draftKey(device), scope(page), stored, maxBytes)),
+    );
   };
   async function change(page: string, edit: BlockDraft, remove: boolean) {
     try {
@@ -46,8 +48,11 @@ export function blockDraftStore(space: string, device: string) {
       return false;
     }
   }
-  return { load, save: (page: string, edit: BlockDraft) => change(page, edit, false),
-    clear: (page: string, edit: BlockDraft) => change(page, edit, true) };
+  return {
+    load,
+    save: (page: string, edit: BlockDraft) => change(page, edit, false),
+    clear: (page: string, edit: BlockDraft) => change(page, edit, true),
+  };
 }
 export type BlockDraftStore = ReturnType<typeof blockDraftStore>;
 
@@ -56,7 +61,10 @@ export class BlockDraftSession {
   readonly targets = new Map<string, string>();
   readonly writes = new Map<string, Promise<boolean>>();
   readonly durable = new Set<string>();
-  constructor(readonly store: BlockDraftStore, readonly page: string) {}
+  constructor(
+    readonly store: BlockDraftStore,
+    readonly page: string,
+  ) {}
   remember(id: string, cell: TableCell | undefined, base: string, value: string) {
     const address = JSON.stringify([id, cell?.table, cell?.column]);
     const target = this.targets.get(address) ?? crypto.randomUUID();
@@ -64,10 +72,28 @@ export class BlockDraftSession {
     const draft = { id, cell, base, value, target, generation: crypto.randomUUID() };
     this.latest.set(target, draft);
     this.durable.delete(target);
-    this.writes.set(target, this.store.save(this.page, draft).then(ok => {
-      if (ok && this.latest.get(target) === draft) this.durable.add(target);
+    if (!this.writes.has(target)) {
+      const writing = this.writeLatest(target);
+      this.writes.set(target, writing);
+      void writing.finally(() => this.writes.delete(target));
+    }
+  }
+  private async writeLatest(target: string): Promise<boolean> {
+    while (true) {
+      const draft = this.latest.get(target);
+      if (!draft) return true;
+      const ok = await this.store.save(this.page, draft).catch(() => false);
+      if (this.latest.get(target) !== draft) continue;
+      if (ok) {
+        this.durable.add(target);
+        if (typeof window !== 'undefined')
+          window.dispatchEvent(
+            new CustomEvent('colab:block-draft-durable', { detail: { id: draft.id } }),
+          );
+      }
+      if (this.latest.get(target) !== draft) continue;
       return ok;
-    }));
+    }
   }
   matching(id: string, cell: TableCell | undefined, value: string) {
     const target = this.targets.get(JSON.stringify([id, cell?.table, cell?.column]));
@@ -77,13 +103,12 @@ export class BlockDraftSession {
   admitted(draft: BlockDraft) {
     if (this.latest.get(draft.target) === draft) {
       this.latest.delete(draft.target);
-      this.writes.delete(draft.target);
       this.durable.delete(draft.target);
     }
     void this.store.clear(this.page, draft);
   }
   unsafe() {
-    return [...this.latest.keys()].some(target => !this.durable.has(target));
+    return [...this.latest.keys()].some((target) => !this.durable.has(target));
   }
   async waitForStorage() {
     await Promise.all(this.writes.values());

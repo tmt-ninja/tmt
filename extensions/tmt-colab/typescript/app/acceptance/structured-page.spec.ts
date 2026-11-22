@@ -2,19 +2,20 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { pairBrowser, startDoor } from './harness/browser.js';
+import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import { recordBlocksResults } from './harness/blocks-results.js';
 import { freePort, openChat, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { until } from './harness/process.js';
 import { commentsClose } from '../test/comments-region.js';
+import { backToPageList, showAllPages } from '../test/home-list.js';
 
 test.afterEach(disposeActiveWorlds);
 
 // #6005: a structured page made and changed by the CLI draws in the browser from the fold, and the
 // person's typing goes out as a block batch that merges with an agent's edit of the same block.
 test('a structured page draws CLI blocks and keeps typing and an agent edit of the same block', async () => {
-  test.setTimeout(180_000);
+  test.setTimeout(360_000);
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const browser = await pairBrowser(world, 'structured-author');
@@ -55,10 +56,10 @@ test('a structured page draws CLI blocks and keeps typing and an agent edit of t
         }
       ).block.base;
 
-    const page = await browser.context.newPage();
+    let page = await browser.context.newPage();
     await page.goto(new URL(created.path, `${door.address}/`).href);
     await expect(page.getByRole('heading', { name: 'Plan', exact: true })).toBeVisible();
-    const block = page.locator(`[data-block-id="${paragraph}"]`);
+    let block = page.locator(`[data-block-id="${paragraph}"]`);
     await expect(block).toHaveText('Ship the stack.');
     // At rest no block holds an editor.
     await expect(page.locator('[contenteditable="true"]')).toHaveCount(0);
@@ -87,6 +88,331 @@ test('a structured page draws CLI blocks and keeps typing and an agent edit of t
     const merged = 'Merge the stack. Today. Then rest.';
     await expect(editor).toHaveText(merged, { timeout: 30_000 });
     await expect.poll(textNow, { timeout: 30_000 }).toBe(merged);
+
+    // #6741: a phone may background and discard the tab while typing is pending.
+    const expected = `${merged} background`;
+    const address = new URL(created.path, `${door.address}/`).href;
+    await page.setViewportSize({ width: 390, height: 900 });
+    const cdp = await browser.context.newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+    const other = await browser.context.newPage();
+    await page.bringToFront();
+    await block.click();
+    await block.locator('[contenteditable="true"]').press('End');
+    await page.evaluate((id) => {
+      const state = window as Window & { inputSerial?: number; durableSerial?: number };
+      state.inputSerial = 0;
+      state.durableSerial = 0;
+      document.addEventListener(
+        'input',
+        (event) => {
+          if (event.isTrusted) state.inputSerial!++;
+        },
+        true,
+      );
+      window.addEventListener('colab:block-draft-durable', (event) => {
+        if ((event as CustomEvent<{ id: string }>).detail.id === id)
+          state.durableSerial = state.inputSerial;
+      });
+    }, paragraph);
+    await page.keyboard.type(' background');
+    await other.bringToFront();
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const state = window as Window & { inputSerial?: number; durableSerial?: number };
+            return !!state.inputSerial && state.inputSerial === state.durableSerial;
+          }),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    await page.close();
+    page = await browser.context.newPage();
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto(address);
+    await other.close();
+    block = page.locator(`[data-block-id="${paragraph}"]`);
+    const notice = page.getByRole('status').filter({ hasText: 'Your unsaved text was restored' });
+    await expect
+      .poll(
+        async () => (await block.textContent())?.includes(expected) || (await notice.isVisible()),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    if (await notice.isVisible())
+      await notice.getByRole('button', { name: 'Keep and continue' }).click();
+    await expect(block).toContainText(expected);
+    await expect.poll(textNow, { timeout: 30_000 }).toBe(expected);
+
+    // Keep a draft while the serve is down; a concurrent CLI edit must survive its recovery.
+    await block.click();
+    await block.locator('[contenteditable="true"]').press('End');
+    await restartColab(world, door, async () => {
+      await page.keyboard.type(' unsent');
+      await expect(block).toContainText(`${expected} unsent`);
+      await backToPageList(page);
+      await expect(
+        page.getByRole('alert').getByRole('heading', { name: 'Page unavailable', exact: true }),
+      ).toBeVisible();
+      run(world, colab, [
+        'block',
+        'text',
+        created.pageId,
+        paragraph,
+        '--find',
+        'Merge',
+        '--replace',
+        'Reviewed',
+        '--json',
+      ]);
+    });
+    await page.getByRole('button', { name: 'Try again', exact: true }).click({ timeout: 30_000 });
+    await expect(page.getByRole('tab', { name: /^All, \d+\+?$/ })).toBeVisible({ timeout: 30_000 });
+    await showAllPages(page);
+    await page.getByRole('link', { name: 'Structured', exact: true }).click();
+    const restored = page.getByRole('status').filter({ hasText: 'Your unsaved text was restored' });
+    await expect(restored).toBeVisible({ timeout: 30_000 });
+    expect(textNow()).toContain('Reviewed');
+    expect(textNow()).not.toContain(' unsent');
+    const captureDir = process.env.COLAB_6741_CAPTURE_DIR;
+    if (captureDir) {
+      fs.mkdirSync(captureDir, { recursive: true });
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const theme of ['light', 'dark']) {
+          await page.evaluate((value) => {
+            document.documentElement.dataset.theme = value;
+          }, theme);
+          await page.screenshot({ path: path.join(captureDir, `${width}-${theme}-restored.png`) });
+        }
+      }
+    }
+    await restored.getByRole('button', { name: 'Keep and continue' }).click();
+    await expect
+      .poll(textNow, { timeout: 30_000 })
+      .toBe(`${expected.replace('Merge', 'Reviewed')} unsent`);
+    await page.reload();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Your unsaved text was restored' }),
+    ).toHaveCount(0);
+    await expect(block).toContainText(`${expected.replace('Merge', 'Reviewed')} unsent`);
+  });
+});
+
+for (const departure of ['reload', 'navigate'] as const) {
+  test(`#6741 block typing survives immediate ${departure}`, async () => {
+    await withWorld(async (world) => {
+      const door = await startDoor(world, await freePort());
+      const browser = await pairBrowser(world, `block-recovery-${departure}`);
+      const colab = world.binaries.colab;
+      const created = JSON.parse(
+        run(world, colab, [
+          'page',
+          'create',
+          '--title',
+          'Recovery',
+          '--structured',
+          '--json',
+          '--no-open',
+        ]),
+      ) as { pageId: string; path: string };
+      const paragraph = (
+        JSON.parse(
+          run(world, colab, [
+            'block',
+            'insert',
+            created.pageId,
+            '--type',
+            'paragraph',
+            '--text',
+            'Plan',
+            '--json',
+          ]),
+        ) as { blockIds: string[] }
+      ).blockIds[0]!;
+      const page = await browser.context.newPage();
+      await page.goto(new URL(created.path, `${door.address}/`).href);
+      const block = page.locator(`[data-block-id="${paragraph}"]`);
+      await block.click();
+      await block.locator('[contenteditable="true"]').press('End');
+      await page.evaluate((id) => {
+        const state = window as Window & { inputSerial?: number; durableSerial?: number };
+        state.inputSerial = 0;
+        state.durableSerial = 0;
+        document.addEventListener(
+          'input',
+          (event) => {
+            if (event.isTrusted) state.inputSerial!++;
+          },
+          true,
+        );
+        window.addEventListener('colab:block-draft-durable', (event) => {
+          if ((event as CustomEvent<{ id: string }>).detail.id === id)
+            state.durableSerial = state.inputSerial;
+        });
+      }, paragraph);
+      let guarded = false;
+      page.on('dialog', async (dialog) => {
+        expect(dialog.type()).toBe('beforeunload');
+        guarded = true;
+        await dialog.dismiss();
+      });
+      await page.keyboard.type(' publish Friday');
+      if (departure === 'reload') {
+        await expect
+          .poll(
+            () =>
+              page.evaluate(() => {
+                const state = window as Window & { inputSerial?: number; durableSerial?: number };
+                return !!state.inputSerial && state.durableSerial === state.inputSerial;
+              }),
+            { timeout: 5_000 },
+          )
+          .toBe(true);
+        const beforeReload = (
+          JSON.parse(run(world, colab, ['block', 'get', created.pageId, paragraph, '--json'])) as {
+            block: { base: string };
+          }
+        ).block.base;
+        expect(beforeReload).toBe('Plan');
+        await page.reload();
+        expect(guarded).toBe(false);
+      } else {
+        await backToPageList(page);
+        await showAllPages(page);
+        await page.getByRole('link', { name: 'Recovery', exact: true }).click();
+      }
+      const notice = page.getByRole('status').filter({ hasText: 'Your unsaved text was restored' });
+      await expect
+        .poll(
+          async () =>
+            (await block.textContent())?.includes('Plan publish Friday') ||
+            (await notice.isVisible()),
+          { timeout: 30_000 },
+        )
+        .toBe(true);
+      if (await notice.isVisible())
+        await notice.getByRole('button', { name: 'Keep and continue' }).click();
+      await expect(block).toContainText('Plan publish Friday');
+      await expect
+        .poll(
+          () =>
+            (
+              JSON.parse(
+                run(world, colab, ['block', 'get', created.pageId, paragraph, '--json']),
+              ) as { block: { base: string } }
+            ).block.base,
+          { timeout: 30_000 },
+        )
+        .toBe('Plan publish Friday');
+    });
+  });
+}
+
+test('#6741 warns before leaving while a draft write is pending', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'block-draft-guard');
+    const colab = world.binaries.colab;
+    const created = JSON.parse(
+      run(world, colab, [
+        'page',
+        'create',
+        '--title',
+        'Guard',
+        '--structured',
+        '--json',
+        '--no-open',
+      ]),
+    ) as { pageId: string; path: string };
+    const paragraph = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          created.pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'Plan',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+    const page = await browser.context.newPage();
+    await page.goto(new URL(created.path, `${door.address}/`).href);
+    const block = page.locator(`[data-block-id="${paragraph}"]`);
+    await block.click();
+    await block.locator('[contenteditable="true"]').press('End');
+    await page.evaluate(() => {
+      const locks = navigator.locks;
+      const request = locks.request.bind(locks);
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      (window as Window & { releaseDraftWrite?: () => void }).releaseDraftWrite = release;
+      Object.defineProperty(locks, 'request', {
+        value: (name: string, callback: LockGrantedCallback<unknown>) =>
+          name.startsWith('block-drafts:')
+            ? held.then(() => request(name, callback))
+            : request(name, callback),
+      });
+    });
+    let warned = false;
+    const navigations: string[] = [];
+    page.on('framenavigated', (frame) => {
+      if (frame === page.mainFrame()) navigations.push(frame.url());
+    });
+    page.on('dialog', async (dialog) => {
+      expect(dialog.type()).toBe('beforeunload');
+      warned = true;
+      await dialog.dismiss();
+    });
+    await page.keyboard.type(' Friday');
+    const diagnostic = async (stage: string) => {
+      const dom = await page.evaluate((id) => {
+        const block = document.querySelector(`[data-block-id="${id}"]`);
+        const editor = block?.querySelector('[contenteditable="true"]');
+        const active = document.activeElement;
+        return {
+          url: location.href,
+          block: block?.textContent,
+          editor: editor?.textContent,
+          active: active?.outerHTML.slice(0, 300),
+        };
+      }, paragraph);
+      const server = (
+        JSON.parse(run(world, colab, ['block', 'get', created.pageId, paragraph, '--json'])) as {
+          block: { base: string };
+        }
+      ).block.base;
+      console.log(`#6741 case B ${stage} ${JSON.stringify({ dom, server, navigations })}`);
+    };
+    await diagnostic('before-dismissal');
+    try {
+      await page.reload({ timeout: 10_000 });
+    } catch (error) {
+      if (!warned) throw error;
+    }
+    expect(warned).toBe(true);
+    await diagnostic('after-dismissal');
+    await expect(block).toContainText('Plan Friday');
+    await page.evaluate(() =>
+      (window as Window & { releaseDraftWrite?: () => void }).releaseDraftWrite?.(),
+    );
+    await expect
+      .poll(
+        () =>
+          (
+            JSON.parse(
+              run(world, colab, ['block', 'get', created.pageId, paragraph, '--json']),
+            ) as { block: { base: string } }
+          ).block.base,
+        { timeout: 30_000 },
+      )
+      .toBe('Plan Friday');
   });
 });
 
