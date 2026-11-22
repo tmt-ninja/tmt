@@ -58,20 +58,29 @@ async function localKey(purpose: LocalKeyPurpose, deviceId: string): Promise<Cry
       ]);
       await record(`${purpose}-key:${deviceId}`, key);
     }
-    if (
-      !(key instanceof CryptoKey) ||
-      key.type !== 'secret' ||
-      key.extractable ||
-      key.algorithm.name !== 'AES-GCM' ||
-      (key.algorithm as AesKeyAlgorithm).length !== 256 ||
-      !key.usages.includes('encrypt') ||
-      !key.usages.includes('decrypt')
-    )
-      throw new Error(`Local ${purpose} key unavailable`);
-    return key;
+    return checkedLocalKey(key, purpose);
   });
+}
+
+function checkedLocalKey(key: unknown, purpose: LocalKeyPurpose): CryptoKey {
+  if (
+    !(key instanceof CryptoKey) ||
+    key.type !== 'secret' ||
+    key.extractable ||
+    key.algorithm.name !== 'AES-GCM' ||
+    (key.algorithm as AesKeyAlgorithm).length !== 256 ||
+    !key.usages.includes('encrypt') ||
+    !key.usages.includes('decrypt')
+  )
+    throw new Error(`Local ${purpose} key unavailable`);
+  return key;
 }
 /** Browser-local title encryption only. */
 export const titleKey = (deviceId: string) => localKey('title', deviceId);
 /** Browser-local unsent-draft encryption only. */
 export const draftKey = (deviceId: string) => localKey('draft', deviceId);
+
+/** Recovery reads use the existing key. A missing key cannot open a kept draft. */
+export async function readDraftKey(deviceId: string): Promise<CryptoKey> {
+  return checkedLocalKey(await record<CryptoKey>(`draft-key:${deviceId}`), 'draft');
+}

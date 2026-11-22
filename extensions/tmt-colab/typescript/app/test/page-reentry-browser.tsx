@@ -1,7 +1,10 @@
 /** Two local pages and a hold on opening them, to watch what shows while a page is entered again. */
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
+import { blockDraftStore } from '../src/block-drafts.js';
+import type { Sealed } from '../src/local-seal.js';
 import { createAppRouter } from '../src/router.js';
+import { deleteRecord, record } from '../src/storage.js';
 import { localTransport, type PageSnapshot } from '../src/transport.js';
 
 declare global {
@@ -12,6 +15,11 @@ declare global {
     holdPages?: Promise<void>;
     /** When set, a held open that is released fails with this message, as a real open failure. */
     failPages?: string;
+    /** Fail the live page's binding, after the page has opened. */
+    endDraftPage?: (code: string) => void;
+    draftProbe?: Promise<void>;
+    fixtureDraftKeyExists?: () => Promise<boolean>;
+    fixtureSealedDraft?: () => Promise<Sealed | undefined>;
   }
 }
 const ID = {
@@ -20,7 +28,7 @@ const ID = {
 };
 let root: Root | undefined;
 
-export function mount() {
+export async function mount(draft?: { mode: 'readable' | 'unreadable' | 'empty'; value: string }) {
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('reentry-fixture');
   if (!host) {
@@ -47,13 +55,68 @@ export function mount() {
     source: `<h1>${title}</h1><p>Body of ${title}.</p>`,
   }));
   const base = localTransport('Studio pages', snapshots);
+  const drafts = draft && blockDraftStore('fixture', 'fixture-device');
+  if (draft && drafts && draft.mode !== 'empty') {
+    if (
+      !(await drafts.save(ID.alpha, {
+        target: 'fixture-target',
+        generation: 'fixture-generation',
+        id: 'fixture-block',
+        base: 'Text already on the page.',
+        value: draft.value,
+      }))
+    )
+      throw new Error('Could not seed the block draft');
+    if (draft.mode === 'unreadable') await deleteRecord('draft-key:fixture-device');
+  }
+  window.fixtureDraftKeyExists = async () => !!(await record('draft-key:fixture-device'));
+  window.fixtureSealedDraft = () => record(`block-drafts:fixture:fixture-device:${ID.alpha}`);
+  let probed: () => void;
+  window.draftProbe = new Promise<void>((resolve) => {
+    probed = resolve;
+  });
   const router = createAppRouter({
     ...base,
+    blockDrafts: drafts && {
+      ...drafts,
+      load: async (page) => {
+        try {
+          return await drafts.load(page);
+        } finally {
+          probed();
+        }
+      },
+    },
     async page(id, signal) {
       window.pageOpens.push(id);
       await window.holdPages;
       if (window.failPages) throw new Error(window.failPages);
-      return base.page(id, signal);
+      const snapshot = await base.page(id, signal);
+      if (!draft || id !== ID.alpha) return snapshot;
+      return {
+        ...snapshot,
+        pageType: 'blocks',
+        blocks: {
+          'fixture-block': {
+            type: 'paragraph',
+            parent: 'root',
+            pos: 'V',
+            props: {},
+            text: { s: 'Text already on the page.', marks: [] },
+          },
+        },
+        binding: {
+          subscribe(_publish, failed) {
+            window.endDraftPage = (code) => failed(new Error(code));
+            return () => delete window.endDraftPage;
+          },
+          edit: async () => ({ merged: false }),
+          export: async () => {
+            throw new Error('No fixture export');
+          },
+          close() {},
+        },
+      };
     },
   });
   location.hash = '/';

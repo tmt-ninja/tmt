@@ -393,6 +393,45 @@ it('keeps existing composer drafts readable when a block draft is saved', async 
   expect(await blocks.load('page')).toEqual([draft]);
 });
 
+it('copies draft values in page reading order, including cells, and keeps drafts of removed blocks', async () => {
+  const { blockDraftClipboardText } = await import('../src/block-drafts.js');
+  const { ROW_TYPE } = await import('../src/block-model.js');
+  const draft = (id: string, value: string, column?: string) => ({
+    id,
+    target: `${id}:${column ?? ''}`,
+    generation: 'generation',
+    base: 'Never copied',
+    value,
+    ...(column && { cell: { table: 'table', column } }),
+  });
+  const result = blockDraftClipboardText(
+    [
+      draft('last', ' Last '),
+      draft('row', 'Right', 'right'),
+      draft('removed', 'Removed\nkept'),
+      draft('row', 'Left', 'left'),
+      draft('first', 'First'),
+    ],
+    {
+      last: { type: 'paragraph', parent: 'root', pos: 'k', props: {} },
+      row: { type: ROW_TYPE, parent: 'table', pos: 'V', props: {} },
+      table: {
+        type: 'table',
+        parent: 'root',
+        pos: 'V',
+        props: {
+          columns: [
+            { id: 'left', name: 'Left' },
+            { id: 'right', name: 'Right' },
+          ],
+        },
+      },
+      first: { type: 'paragraph', parent: 'root', pos: 'F', props: {} },
+    },
+  );
+  expect(result).toBe('First\n\nLeft\n\nRight\n\n Last \n\nRemoved\nkept');
+});
+
 it.each(['unopenable', 'non-array', 'missing value'] as const)(
   'replaces an %s block-draft record and saves the new text durably',
   async (kind) => {

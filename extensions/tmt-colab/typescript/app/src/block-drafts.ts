@@ -1,7 +1,9 @@
 import { decodeText, text } from '@tmt/colab-client';
-import { BLOCK_TEXT_BYTES } from './blocks.js';
+import { tableColumns } from './block-model.js';
+import { blockTree } from './block-projection.js';
+import { BLOCK_TEXT_BYTES, type BlockEntry } from './blocks.js';
 import type { TableCell } from './block-text-sync.js';
-import { draftKey } from './keyring.js';
+import { draftKey, readDraftKey } from './keyring.js';
 import { open, seal, type Sealed } from './local-seal.js';
 import { record } from './storage.js';
 
@@ -44,7 +46,7 @@ export function blockDraftStore(space: string, device: string) {
     if (stored === undefined) return [];
     try {
       const parsed: unknown = JSON.parse(
-        decodeText(await open(await draftKey(device), scope(page), stored, maxBytes)),
+        decodeText(await open(await readDraftKey(device), scope(page), stored, maxBytes)),
       );
       if (!Array.isArray(parsed)) return [];
       const seen = new Set<string>();
@@ -168,6 +170,31 @@ export function heldByPage(draft: Pick<BlockDraft, 'base' | 'value'>, present: s
 export function restorable(page: string, drafts: readonly BlockDraft[]): BlockDraft[] {
   const landed = new Set(landedIn(page));
   return drafts.filter((draft) => !landed.has(draft.generation));
+}
+
+/** Plain text in the page's reading order. Drafts with no visible address follow in store order. */
+export function blockDraftClipboardText(
+  drafts: readonly BlockDraft[],
+  blocks: Readonly<Record<string, BlockEntry>>,
+): string {
+  const { tree } = blockTree(blocks);
+  const order = new Map(tree.flat().map((block, index) => [block.id, index]));
+  const afterPage = order.size;
+  const ranked = drafts.map((draft) => {
+    const cell = draft.cell;
+    if (!cell) return { draft, block: order.get(draft.id) ?? afterPage, row: -1, column: -1 };
+    const table = tree.get(cell.table);
+    const block = order.get(cell.table);
+    const row = tree.rows(cell.table).findIndex((entry) => entry.id === draft.id);
+    const column = table ? tableColumns(table.props).findIndex(({ id }) => id === cell.column) : -1;
+    if (block === undefined || row < 0 || column < 0)
+      return { draft, block: afterPage, row: -1, column: -1 };
+    return { draft, block, row, column };
+  });
+  return ranked
+    .sort((a, b) => a.block - b.block || a.row - b.row || a.column - b.column)
+    .map(({ draft }) => draft.value)
+    .join('\n\n');
 }
 
 export class BlockDraftSession {
