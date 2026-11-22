@@ -18,6 +18,8 @@ pub struct Listed {
     pub id: String,
     pub cwd: Option<String>,
     pub tokens: Option<Map<String, Value>>,
+    /// The pane Herdr shows as focused on its server.
+    pub focused: bool,
 }
 
 /// A pane's shell and its first foreground process.
@@ -57,6 +59,7 @@ fn listed(grammar: &Grammar, row: &Value) -> Result<Listed, HerdrError> {
             .or_else(|| text(row, "cwd", MAX_PATH))
             .filter(|cwd| cwd.starts_with('/')),
         tokens: row["tokens"].as_object().cloned(),
+        focused: row["focused"].as_bool() == Some(true),
     })
 }
 

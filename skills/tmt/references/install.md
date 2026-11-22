@@ -49,6 +49,22 @@ install or refresh time, so upgrading Pi takes effect after the next
 Installation does not bypass provider permissions or guarantee that a running
 conversation has refreshed its instructions.
 
+### Herdr back key
+
+`tmt install herdr` offers one TMT-marked `[[keys.command]]` block for Herdr's
+configuration (`HERDR_CONFIG_PATH`, else `$XDG_CONFIG_HOME/herdr/config.toml`, else
+`~/.config/herdr/config.toml`): `prefix+G` runs `tmt ops squad back`, returning to
+the board after a jump. Herdr moves every client attached to a server, so all of
+them return, not only the one that pressed the key. The command previews the block
+and asks; `--yes` agrees non-interactively. Without consent, when the configuration
+already binds `prefix+G`, or when `herdr config check` rejects the result, it prints
+the block to add instead and changes nothing. A written block is checked by
+`herdr config check` before it replaces the file; run `herdr server reload-config`
+to load it. A symlinked configuration is written at the file it links to. `tmt upgrade`
+refreshes the block only while it exists, replacing whatever is between its markers
+(keep your own keys outside them); a block whose markers were edited is never
+overwritten, and `tmt uninstall` removes exactly the block.
+
 ### View and install the bundled skill
 
 `tmt learn --skill` prints the exact bundled universal skill; plain `tmt learn`

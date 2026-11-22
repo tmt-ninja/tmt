@@ -2192,7 +2192,15 @@ pub fn run(
             .or_else(|| config.obsolete_board_notice().map(str::to_owned))
             .or(startup_notice)
             .or(placement_notice)
-            .or_else(|| crate::hotkeys::offer_once(&config, invoker_tmux).map(str::to_owned)),
+            .or_else(|| {
+                crate::hotkeys::offer_once(&config, invoker_tmux)
+                    .or_else(|| {
+                        crate::hotkeys::herdr_offer_once(
+                            !invoker_tmux && std::env::var_os("HERDR_PANE_ID").is_some(),
+                        )
+                    })
+                    .map(str::to_owned)
+            }),
         false,
     );
     app.initial_look = Some(crate::look::Look::new(initial_theme));

@@ -164,7 +164,12 @@ impl<R: Runner> Herdr<R> {
 
 fn api_error(stderr: &[u8]) -> Option<HerdrError> {
     let document: Value = serde_json::from_slice(stderr).ok()?;
-    let code = document["error"]["code"].as_str()?;
+    api_error_value(&document["error"])
+}
+
+/// Herdr's `{code, message}` error body, bounded and checked.
+pub fn api_error_value(error: &Value) -> Option<HerdrError> {
+    let code = error["code"].as_str()?;
     let valid = !code.is_empty()
         && code.len() <= 64
         && code
@@ -172,7 +177,7 @@ fn api_error(stderr: &[u8]) -> Option<HerdrError> {
             .all(|byte| byte.is_ascii_lowercase() || byte == b'_' || byte.is_ascii_digit());
     valid.then(|| HerdrError::Api {
         code: code.to_owned(),
-        message: document["error"]["message"]
+        message: error["message"]
             .as_str()
             .filter(|message| message.len() <= 256 && !message.chars().any(char::is_control))
             .unwrap_or("unknown error")

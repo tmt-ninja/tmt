@@ -1,6 +1,7 @@
 //! `tmt focus`: show a verified identity's host pane, or attach to a built-in
 //! terminal. Directional focus remains a host-owned pane operation.
-//! `tmt focus --client` only names that client and the pane it shows.
+//! `tmt focus --client` only names that client and the pane it shows; on an
+//! external host that client is the server, whose attached clients all move.
 
 use crate::{
     binding_error::endpoint_failure,
@@ -127,7 +128,7 @@ fn run(
             "Could not open identity storage.",
         )
     })?;
-    let pending = target::resolve_identity_target(&mut storage, &target).and_then(|observed| {
+    let pending = target::resolve_focus_target(&mut storage, &target).and_then(|observed| {
         if let Some(direction) = into {
             let invoker = swap_invoker.as_ref().ok_or_else(host_unsupported)?;
             if observed.server.host != host.kind() || observed.server.socket_path != invoker.socket
@@ -168,7 +169,12 @@ fn run(
             // An unbound pane target has no identity evidence to verify.
             let pane = observed.pane.id;
             let Some(invoker) = &invoker else {
-                return Err(host_unsupported());
+                // An external host focuses only a pane on the caller's own server.
+                return host
+                    .focus_external_pane(&observed.server, &pane)
+                    .map_err(endpoint_failure)?
+                    .map(FocusResult::Focused)
+                    .ok_or_else(host_unsupported);
             };
             return host
                 .focus_pane(invoker, &pane, OperationOptions::default())
@@ -197,13 +203,21 @@ fn run(
 
 /// Resolves the invoker's client exactly as a focus would, without switching
 /// anything or opening storage.
+/// On an external host the client is the caller's server incarnation, since
+/// a focus there moves every attached client.
 pub fn client() -> Result<ClientReport, Failure> {
-    let view = invoker().and_then(|invoker| {
-        crate::caller_context::host(&CallerEnvironment::current())?
-            .invoker_client(&invoker, OperationOptions::default())
-            .map_err(|error| pane_failure(error, invoker.pane.as_deref().unwrap_or_default()))
-    });
-    view.map(ClientReport)
+    let host = crate::caller_context::host(&CallerEnvironment::current())?;
+    if let tmt_core::host::HostKind::External(_) = host.kind() {
+        return host
+            .external_client()
+            .map_err(endpoint_failure)?
+            .map(ClientReport)
+            .ok_or_else(host_unsupported);
+    }
+    let invoker = invoker()?;
+    host.invoker_client(&invoker, OperationOptions::default())
+        .map(ClientReport)
+        .map_err(|error| pane_failure(error, invoker.pane.as_deref().unwrap_or_default()))
 }
 
 pub struct ClientReport(tmt_adapters::host::ClientView);

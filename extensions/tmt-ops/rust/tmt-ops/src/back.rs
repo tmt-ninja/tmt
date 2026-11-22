@@ -1,6 +1,8 @@
 //! The per-client back stack: where each jump came from, kept per tmux server
-//! and client in the user's cache directory. It is UI state, not a store:
-//! losing or corrupting it only means `back` has nothing to return to.
+//! and client, or per Herdr server incarnation, in the user's cache directory.
+//! Herdr moves every client attached to a server, so there the server is the
+//! client. It is UI state, not a store: losing or corrupting it only means
+//! `back` has nothing to return to.
 
 use crate::{
     core::{Core, SquadError},
@@ -89,8 +91,10 @@ impl Stack {
     }
 }
 
+/// tmux names a client per server; an external host's client from core
+/// already names its server incarnation, so no tmux socket is added.
 fn stack_for(client: &str) -> Result<Stack, String> {
-    let socket = effects::tmux_socket().ok_or("Not inside tmux.")?;
+    let socket = effects::tmux_socket().unwrap_or_default();
     let directory =
         directory().ok_or("No cache directory: set XDG_CACHE_HOME or HOME to an absolute path.")?;
     Ok(Stack::new(&directory, &socket, client))
@@ -149,6 +153,12 @@ mod tests {
         assert_eq!(mine.pop(), Ok(Some("%1".into())));
         assert_eq!(mine.pop(), Ok(None));
         assert_eq!(other_client.pop(), Ok(Some("%9".into())));
+        // A Herdr server's view is keyed by its incarnation alone.
+        let herdr = Stack::new(&directory, "", "herdr:41:ps-v1:a@/tmp/hdr/herdr.sock");
+        let restarted = Stack::new(&directory, "", "herdr:57:ps-v1:b@/tmp/hdr/herdr.sock");
+        herdr.push("term_board").unwrap();
+        assert_eq!(restarted.pop(), Ok(None), "a restarted server starts empty");
+        assert_eq!(herdr.pop(), Ok(Some("term_board".into())));
         let mode = fs::metadata(&directory).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700);
 

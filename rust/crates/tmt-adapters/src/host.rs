@@ -1230,6 +1230,37 @@ impl<R: CommandRunner> Host<R> {
         self.tmux.invoker_client(invoker, options)
     }
 
+    /// The view a focus moves on an external host: the caller's verified
+    /// server incarnation (every attached client moves) and the caller's
+    /// pane. `None` on tmux or without a verified caller on this host.
+    pub fn external_client(&self) -> Result<Option<ClientView>, HostError> {
+        let HostKind::External(host) = self.primary else {
+            return Ok(None);
+        };
+        let pane = self
+            .external
+            .caller()
+            .filter(|caller| caller.host == host)
+            .map(|caller| caller.pane_id.clone());
+        Ok(self
+            .external
+            .caller_view(host)?
+            .map(|client| ClientView { client, pane }))
+    }
+
+    /// Focuses an explicit pane that was resolved on the caller's own
+    /// external server; `None` when this host or caller cannot.
+    pub fn focus_external_pane(
+        &self,
+        server: &ServerEvidence,
+        pane: &str,
+    ) -> Result<Option<Focused>, HostError> {
+        if server.host != self.primary || server.host == HostKind::Tmux {
+            return Ok(None);
+        }
+        self.external.focus_caller_pane(server, pane)
+    }
+
     pub fn focus_pane(
         &self,
         invoker: &Invoker,

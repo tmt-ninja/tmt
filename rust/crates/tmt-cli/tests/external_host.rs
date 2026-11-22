@@ -133,7 +133,10 @@ case "$3" in
     # `capture-answer`, when present, replaces the answer.
     if [ -f "$d/capture-answer" ]; then cat "$d/capture-answer"
     else printf '{"ok":{"text":"captured line"}}'; fi ;;
-  focus) printf '{"ok":{}}' ;;
+  focus)
+    printf '%s\n' "$input" >> "$d/focused"
+    # `focus-answer`, when present, replaces the answer.
+    if [ -f "$d/focus-answer" ]; then cat "$d/focus-answer"; else printf '{"ok":{}}'; fi ;;
   close)
     printf '%s\n' "$input" >> "$d/closed"
     # `close-answer`, when present, replaces the answer.
@@ -843,6 +846,79 @@ fn check_and_focus_reach_an_external_pane_through_its_driver() {
     let focused = fixture.tmt_in(Some("f1"), &["focus", "worker", "--json"]);
     assert!(focused.status.success(), "{focused:?}");
     assert!(fixture.calls().contains(&"focus".to_owned()));
+}
+
+/// Herdr moves every attached client, so the client a focus reports is the
+/// caller's server incarnation: the same for any pane on it, and what Ops
+/// keys `back` on. `previous` is only what the driver read (#6117).
+#[test]
+fn an_external_focus_reports_the_driver_previous_and_the_server_as_its_client() {
+    register();
+    let fixture = Fixture::delivering("focus-previous");
+    fixture.approve();
+    let focused_panes = |fixture: &Fixture| -> Vec<Value> {
+        fixture
+            .requests("focused")
+            .into_iter()
+            .map(|request| request["paneId"].clone())
+            .collect()
+    };
+
+    // Outside the host, an unbound pane target focuses nothing.
+    let outside = fixture.tmt_in(None, &["focus", "fake-1", "--json"]);
+    assert_eq!(outside.status.code(), Some(1), "{outside:?}");
+    let refusal: Value = serde_json::from_slice(&outside.stdout).unwrap();
+    assert_eq!(refusal["error"]["code"], "HOST_UNSUPPORTED");
+    assert!(focused_panes(&fixture).is_empty());
+
+    // From a pane on the same server, the unbound pane is focused there.
+    let client = fixture.tmt_in(Some("f1"), &["focus", "--client", "--json"]);
+    assert!(client.status.success(), "{client:?}");
+    let client: Value = serde_json::from_slice(&client.stdout).unwrap();
+    let view = client["client"].as_str().unwrap().to_owned();
+    assert!(
+        view.starts_with("fake:") && view.ends_with("@/tmp/fake.sock"),
+        "{view}"
+    );
+    assert_eq!(client["pane"], "fake-1");
+    let unbound = fixture.tmt_in(Some("f1"), &["focus", "fake-1", "--json"]);
+    assert!(unbound.status.success(), "{unbound:?}");
+    let unbound: Value = serde_json::from_slice(&unbound.stdout).unwrap();
+    assert_eq!(unbound["focused"]["pane"], "fake-1");
+    assert_eq!(
+        unbound["from"],
+        Value::Null,
+        "an older answer leaves it unknown"
+    );
+    assert_eq!(unbound["client"], view.as_str());
+
+    // A bound member, with the pane the driver saw focused before.
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+    fs::write(
+        fixture.root.join("driver/focus-answer"),
+        r#"{"ok":{"previous":"fake-9"}}"#,
+    )
+    .unwrap();
+    let jumped = fixture.tmt_in(Some("f1"), &["focus", "worker", "--json"]);
+    assert!(jumped.status.success(), "{jumped:?}");
+    let jumped: Value = serde_json::from_slice(&jumped.stdout).unwrap();
+    assert_eq!(jumped["from"]["pane"], "fake-9");
+    assert_eq!(
+        jumped["client"],
+        view.as_str(),
+        "back keys on the same view"
+    );
+    assert_eq!(focused_panes(&fixture), ["fake-1", "fake-1"]);
+
+    // A previous pane outside the declared syntax is no answer at all.
+    fs::write(
+        fixture.root.join("driver/focus-answer"),
+        r#"{"ok":{"previous":"f9"}}"#,
+    )
+    .unwrap();
+    let invalid = fixture.tmt_in(Some("f1"), &["focus", "worker", "--json"]);
+    assert_eq!(invalid.status.code(), Some(1), "{invalid:?}");
 }
 
 #[test]

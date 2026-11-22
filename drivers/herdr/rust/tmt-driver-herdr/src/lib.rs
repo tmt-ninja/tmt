@@ -7,16 +7,17 @@ mod herdr;
 pub mod marker;
 mod panes;
 pub mod run;
+mod socket;
 
 use herdr::{Herdr, HerdrError};
 use panes::{Listed, valid_pid};
 use run::{Runner, deadline};
 use tmt_driver_protocol::{
     CallerPane, CallerRequest, CallerResponse, Capabilities, CaptureRequest, CaptureResponse,
-    ClearRequest, ClearResponse, DriverError, ErrorCode, Grammar, Handler, InputRequest,
-    NameAgentRequest, Pane, PaneIdSyntax, PromptRequest, PublishRequest, Request,
-    ResolveTargetRequest, ResolveTargetResponse, ServerIncarnation, ServerRequest, ServerResponse,
-    SnapshotRequest, SnapshotResponse,
+    ClearRequest, ClearResponse, DriverError, ErrorCode, FocusRequest, FocusResponse, Grammar,
+    Handler, InputRequest, NameAgentRequest, Pane, PaneIdSyntax, PromptRequest, PublishRequest,
+    Request, ResolveTargetRequest, ResolveTargetResponse, ServerIncarnation, ServerRequest,
+    ServerResponse, SnapshotRequest, SnapshotResponse,
 };
 
 /// The most panes one snapshot reports, as the contract bounds it.
@@ -39,8 +40,8 @@ pub fn serve_call() -> u8 {
 /// What the driver declares. `input` takes one line: Herdr types text raw,
 /// so a line break would submit early, and such text is refused before any
 /// effect. Messages reach agent panes through `prompt`, which Herdr submits
-/// whole. `focus` is not
-/// declared: Herdr has no command that focuses a pane by its ID.
+/// whole. `focus` goes through Herdr's socket API, which moves every client
+/// attached to that server; its CLI focuses no pane by ID.
 /// `name-agent` sets Herdr's agent name, never its pane label.
 pub fn capabilities() -> Capabilities {
     Capabilities {
@@ -58,6 +59,7 @@ pub fn capabilities() -> Capabilities {
             "capture",
             "input",
             "prompt",
+            "focus",
             "name-agent",
         ]
         .map(String::from)
@@ -402,6 +404,40 @@ impl<R: Runner> Handler for HerdrDriver<R> {
             .text(socket, &args, deadline)
             .map_err(HerdrError::into_driver)?;
         Ok(CaptureResponse { text })
+    }
+
+    /// One `pane list` names the target's `wN:pM` and the pane focused now
+    /// (`previous`); then `pane.focus` on the same socket, under the same
+    /// deadline. A server whose API has no `pane.focus` is `unsupported`.
+    fn focus(&mut self, request: Request<FocusRequest>) -> Result<FocusResponse, DriverError> {
+        let deadline = deadline(request.deadline_ms);
+        let socket = self.socket(&request.body.socket)?;
+        let pane_id = self.pane_id(&request.body.pane_id)?;
+        let listed = self
+            .herdr
+            .list(&self.grammar, socket, deadline)
+            .map_err(HerdrError::into_driver)?;
+        let gone = || DriverError::new(ErrorCode::NotFound, "the pane is gone");
+        let target = listed
+            .iter()
+            .find(|pane| pane.id == pane_id)
+            .ok_or_else(gone)?;
+        let previous = listed
+            .iter()
+            .find(|pane| pane.focused)
+            .map(|pane| pane.id.clone());
+        let params = serde_json::json!({"pane_id": target.target});
+        match socket::request(socket, "pane.focus", params, deadline) {
+            Ok(_) => Ok(FocusResponse { previous }),
+            Err(error) if error.code() == Some("pane_not_found") => Err(gone()),
+            Err(error) if matches!(error.code(), Some("invalid_request" | "unknown_method")) => {
+                Err(DriverError::new(
+                    ErrorCode::Unsupported,
+                    "this Herdr server cannot focus a pane by name",
+                ))
+            }
+            Err(error) => Err(error.into_driver()),
+        }
     }
 
     /// Herdr types `send-text` raw, so a line break would submit the text

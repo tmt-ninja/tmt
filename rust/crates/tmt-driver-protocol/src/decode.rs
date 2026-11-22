@@ -354,6 +354,19 @@ impl Answer for ClearResponse {
     }
 }
 
+impl Answer for FocusResponse {
+    const OP: Op = Op::Focus;
+    type Declaration = Grammar;
+    fn check(&self, grammar: &Grammar) -> Result<(), String> {
+        require(
+            self.previous
+                .as_deref()
+                .is_none_or(|id| grammar.is_pane_id(id)),
+            "the previous pane ID is outside the declared syntax",
+        )
+    }
+}
+
 impl Answer for CaptureResponse {
     const OP: Op = Op::Capture;
     type Declaration = Grammar;
@@ -463,6 +476,29 @@ mod tests {
 
     fn grammar() -> Grammar {
         Grammar::from_capabilities(&herdr_like()).unwrap()
+    }
+
+    #[test]
+    fn a_focus_answer_may_name_the_previous_pane_and_an_empty_one_is_unknown() {
+        let decoded = |value| decode::<FocusResponse>(&grammar(), &bytes(value));
+        assert_eq!(decoded(json!({"ok": {}})).unwrap().unwrap().previous, None);
+        assert_eq!(
+            decoded(json!({"ok": {"previous": "term_a1"}}))
+                .unwrap()
+                .unwrap()
+                .previous
+                .as_deref(),
+            Some("term_a1")
+        );
+        assert!(matches!(
+            decoded(json!({"ok": {"previous": "w1:p1"}})),
+            Err(DecodeError::Invalid { op: Op::Focus, .. })
+        ));
+        // An older core reads either answer as done.
+        assert_eq!(
+            decode_done(Op::Focus, &bytes(json!({"ok": {"previous": "term_a1"}}))).unwrap(),
+            Ok(())
+        );
     }
 
     #[test]

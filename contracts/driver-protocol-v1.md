@@ -319,7 +319,7 @@ rules belong to the [host reference](../.agents/skills/tmt-core-runtime/referenc
 |---|---|---|
 | `capture` | `{"socket", "paneId", "lines"}` | `{"text"}` |
 | `input` | `{"socket", "paneId", "text", "enter"}` | `{}` |
-| `focus` | `{"socket", "paneId"}` | `{}` |
+| `focus` | `{"socket", "paneId"}` | `{}` or `{"previous"}` |
 
 - **`input`:** the driver pastes `text` literally, then presses Enter when
   `enter` is true. With `enter: false` it must not submit anything: core
@@ -333,6 +333,11 @@ rules belong to the [host reference](../.agents/skills/tmt-core-runtime/referenc
 - **`capture`:** `lines: 0` asks for the visible screen, as tmux reads it.
   `lines` of 1 or more asks for the tail of the pane's text, with at least the
   last `lines` lines. A driver must not refuse `lines: 0` as `bad_request`.
+- **`focus`:** `previous` is optional and additive: the pane ID the host showed
+  before this focus, read by the driver in the same call. An absent `previous` (any
+  driver predating it, or one that could not read it) is unknown, and core never
+  guesses one; a value outside the declared pane-ID syntax fails the answer. Which
+  views move is the host's: Herdr moves every client attached to the server.
 - **Missing pane:** each of these answers `not_found`.
 
 **Core capture selection.** `tmt check <target> --capture-only` (alias `read`)
