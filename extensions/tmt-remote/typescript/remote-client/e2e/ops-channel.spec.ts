@@ -713,6 +713,35 @@ test('DM send freezes its operation, only observes an unknown outcome and links 
   expect(await page.evaluate(() => window.dmSends.length)).toBe(4);
 });
 
+test('a leaderless channel gives the same mention guidance before and after Send', async ({
+  page,
+}) => {
+  await open(page, 390);
+  await page.evaluate(() => {
+    window.channelBoard.squads = [
+      { name: 'sample', room: { roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001', revision: 7 } },
+    ];
+    window.channelBoard.agents = window.channelBoard.agents.filter(
+      (agent) => agent.role !== 'lead',
+    );
+  });
+  await refresh(page);
+  const guidance = 'Mention a member with @name.';
+  const empty = page.locator('.ops-channel-empty');
+  await expect(empty).toContainText('No channel messages yet');
+  await expect(empty).toContainText(guidance);
+  const box = page.getByRole('textbox', { name: 'Message #sample' });
+  await box.fill('Unaddressed post');
+  await box.press('Enter');
+  await expect(page.locator('.ops-channel-compose-reason')).toHaveText(guidance);
+  expect(await page.evaluate(() => window.roomSends)).toEqual([]);
+  await box.fill('@sample-1 Review the release.');
+  await box.press('Enter');
+  await expect
+    .poll(() => page.evaluate(() => window.roomSends))
+    .toMatchObject([{ recipientIds: ['00000000-0000-4000-8000-000000000002'] }]);
+});
+
 test('channel posts to the lead or each mention with the board room, and shows replies under the post', async ({
   page,
 }) => {

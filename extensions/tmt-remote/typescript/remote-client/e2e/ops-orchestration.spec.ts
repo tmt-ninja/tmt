@@ -28,6 +28,23 @@ const calls = (page: Page) => page.evaluate(() => structuredClone(window.orchCal
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'])
+    test(`empty timeline displays the help command as code at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.addInitScript(() => {
+        window.orchEmpty = true;
+      });
+      await open(page, width, theme);
+      const legend = page.getByRole('list', { name: 'Plans at the selected time' });
+      await expect(legend).toContainText('Base only: no plans yet.');
+      await shot(page, `empty-timeline-${width}-${theme}`);
+      await expect(legend.locator('code')).toHaveText('tmt orch plan add --help');
+      await expect(legend).toHaveText('Base only: no plans yet. tmt orch plan add --help');
+      await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
+    });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'])
     test(`orchestration shows Core's values and sources at ${width} ${theme}`, async ({ page }) => {
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
