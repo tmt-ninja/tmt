@@ -555,6 +555,22 @@ function Blocks({
       }}
       onKeyDown={(event) => {
         if (
+          !rest.annotationMode &&
+          block.type === 'question' &&
+          event.key === 'Enter' &&
+          event.target === event.currentTarget
+        ) {
+          const answer = event.currentTarget.querySelector<HTMLElement>(
+            '.tmt-block-question input:not(:disabled), .tmt-block-question textarea:not(:disabled), .tmt-block-question-answered',
+          );
+          if (answer) {
+            event.preventDefault();
+            event.stopPropagation();
+            answer.focus();
+          }
+          return;
+        }
+        if (
           !rest.annotationMode ||
           event.target !== event.currentTarget ||
           event.key !== 'Enter' ||

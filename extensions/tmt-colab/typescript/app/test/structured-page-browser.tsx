@@ -389,6 +389,7 @@ export function mount(
     /** The owner device may choose a question's recipient: it holds the metadata seam and reads
      * the agent directory. */
     recipients?: boolean;
+    questionKind?: 'single' | 'multiple' | 'short';
     /** The question starts with no agent of its own. */
     follows?: boolean;
     /** Hold the mockup design system until the fixture releases it. */
@@ -409,6 +410,14 @@ export function mount(
         : content.startsWith('empty')
           ? []
           : start;
+  if (options.questionKind) {
+    const kind = options.questionKind;
+    blocks = blocks.map((b) =>
+      b.id === QUESTION_ID
+        ? { ...b, props: { ...b.props, kind, choices: kind === 'short' ? [] : b.props.choices } }
+        : b,
+    );
+  }
   // Each change is a new view with the next local order, as `PageView.seq` gives it.
   let seq = 1;
   const listeners = new Set<(next: { records: BlockRecord[]; seq: number }) => void>();

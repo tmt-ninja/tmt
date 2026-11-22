@@ -158,6 +158,7 @@ export function StructuredQuestion({
                     choices: answer.choices,
                     other: answer.other !== undefined,
                     value: answer.other ?? answer.text ?? '',
+                    changing: answered !== undefined || !!previous[question.id]?.changing,
                     failed: false,
                   },
                 }));

@@ -56,6 +56,14 @@ export function QuestionBlock({
   const [other, setOther] = useState(false);
   const [value, setValue] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const card = useRef<HTMLElement>(null);
+  const focusAnswer = () =>
+    card.current
+      ?.querySelector<HTMLElement>('textarea:not(:disabled), input:not(:disabled)')
+      ?.focus();
+  useLayoutEffect(() => {
+    if (expanded) focusAnswer();
+  }, [expanded]);
   useEffect(() => {
     if (other) text.current?.focus();
   }, [other]);
@@ -145,7 +153,21 @@ export function QuestionBlock({
   };
   return (
     <UiTheme>
-      <section className="tmt-block-question" role="group" aria-label={title} onKeyDown={keys}>
+      <section
+        ref={card}
+        className="tmt-block-question"
+        role="group"
+        aria-label={title}
+        onKeyDown={keys}
+        onClick={(event) => {
+          if (
+            state === 'waiting' &&
+            !(event.target as Element).closest('button, input, textarea, label, a') &&
+            !window.getSelection()?.toString()
+          )
+            focusAnswer();
+        }}
+      >
         <div className="tmt-block-question-mark" aria-hidden="true">
           ?
         </div>

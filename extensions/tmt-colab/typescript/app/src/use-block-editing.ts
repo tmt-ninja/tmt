@@ -1585,12 +1585,8 @@ export function useBlockEditing(
         }
       }
       if (event.key === 'Enter' && selection.anchor === selection.focus) {
-        // A question opens its editor.
-        if (treeRef.current.get(selection.focus)?.type === 'question') {
-          setAuthoring(selection.focus);
-          setSelection(undefined);
-          return true;
-        }
+        // The question card owns Enter, including when an answer control already has focus.
+        if (treeRef.current.get(selection.focus)?.type === 'question') return false;
         // A table is entered at its first cell, or by adding its first row.
         const table = treeRef.current.get(selection.focus);
         const first = table?.type === 'table' && tableColumns(table.props)[0];
