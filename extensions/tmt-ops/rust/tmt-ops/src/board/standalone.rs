@@ -33,7 +33,7 @@ pub enum Task {
 
 pub(super) enum Completed {
     Target(String, Result<Value, SquadError>),
-    Saved(SavedTask, Result<Value, SquadError>),
+    Saved(Box<SavedTask>, Result<Value, SquadError>),
     Run(Result<Value, SquadError>),
     Keep(Result<Value, SquadError>),
 }
@@ -46,7 +46,7 @@ pub(super) fn complete_read(core: &Core, task: Task) -> Completed {
         }
         Task::Saved(task @ (SavedTask::List { .. } | SavedTask::Preview(_, _))) => {
             let result = task.complete(core);
-            Completed::Saved(task, result)
+            Completed::Saved(Box::new(task), result)
         }
         _ => unreachable!("read worker receives only target and list requests"),
     }
@@ -729,7 +729,7 @@ impl App {
                     }
                 }
             }
-            Completed::Saved(task, result) => self.saved_completed(task, result),
+            Completed::Saved(task, result) => self.saved_completed(*task, result),
             Completed::Run(result) => {
                 let was_shown = self.standalone.shown;
                 match result {

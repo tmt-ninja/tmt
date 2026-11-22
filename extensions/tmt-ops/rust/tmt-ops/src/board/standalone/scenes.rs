@@ -99,7 +99,7 @@ pub(in crate::board) fn capture(scene: &str, look: crate::look::Look) -> App {
     app.workspace.selected = Some(target);
     app.workspace_reconcile();
     app.standalone_completed(Completed::Saved(
-        super::SavedTask::Preview(TERMINAL.into(), 1),
+        Box::new(super::SavedTask::Preview(TERMINAL.into(), 1)),
         Ok(result()),
     ));
     if scene == "run-command-moving" {
@@ -121,7 +121,7 @@ fn standalone_command_kept_row_opens_retained_output_and_can_move() {
         Effect::Standalone(Task::Saved(SavedTask::Get(TERMINAL.into())))
     );
     app.standalone_completed(Completed::Saved(
-        SavedTask::Get(TERMINAL.into()),
+        Box::new(SavedTask::Get(TERMINAL.into())),
         Ok(result()),
     ));
     let mut screen = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 36)).unwrap();
@@ -155,7 +155,7 @@ fn standalone_command_kept_row_opens_retained_output_and_can_move() {
     moved["revision"] = 2.into();
     moved["placement"] =
         json!({"kind":"room", "roomId": crate::board::app::workspace::tests::ROOM});
-    app.standalone_completed(Completed::Saved(task, Ok(moved)));
+    app.standalone_completed(Completed::Saved(Box::new(task), Ok(moved)));
     let rows = app.workspace_rows();
     let saved = rows
         .iter()

@@ -141,7 +141,7 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         Job::Shell { .. } => unreachable!("shell has a dedicated worker"),
         Job::Standalone(super::standalone::Task::Saved(task)) => {
             let result = task.complete(core);
-            BoardEvent::Standalone(super::standalone::Completed::Saved(task, result))
+            BoardEvent::Standalone(super::standalone::Completed::Saved(Box::new(task), result))
         }
         Job::Standalone(_) => unreachable!("standalone session has a dedicated worker"),
         Job::OpenWorkPage(page) => BoardEvent::WorkOpened(super::work::open(core, &page)),
