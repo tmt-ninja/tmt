@@ -687,18 +687,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         | OpsTarget::SavedTerminal(_) => {}
         OpsTarget::Member { .. } => {
             paint_talk_work(frame, app, metadata, &mut y);
-            if let Some(row) = raw {
-                if super::conversation_checklist::Key::of(selected).is_none()
-                    && let Some(link) =
-                        conversation::link_preview(app, row, &app.workspace_bindings())
-                {
-                    line(
-                        frame,
-                        metadata,
-                        &mut y,
-                        neutral(format!(" link {}", link.value), app.look()),
-                    );
-                }
+            if let Some(row) = raw
+                && super::conversation_checklist::Key::of(selected).is_none()
+                && let Some(link) = conversation::link_preview(app, row, &app.workspace_bindings())
+            {
+                line(
+                    frame,
+                    metadata,
+                    &mut y,
+                    neutral(format!(" link {}", link.value), app.look()),
+                );
             }
         }
         OpsTarget::Squad(_) => squad::render(frame, app, metadata, &mut y, squad, row),
