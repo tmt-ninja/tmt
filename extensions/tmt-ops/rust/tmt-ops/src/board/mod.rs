@@ -949,7 +949,11 @@ fn session(
         if let Some(task) = app.skills.offer(recipient.as_deref(), now) {
             io(lane::Job::Skills(task));
         }
-        if let Some(task) = app.standalone.offer_list() {
+        if let Some(task) = app
+            .standalone
+            .offer_list()
+            .or_else(|| app.offer_saved_preview())
+        {
             io(lane::Job::Standalone(task));
         }
         if let Some(task) = app.terminals_offer() {
@@ -2250,7 +2254,9 @@ pub fn run(
         |job| {
             if let lane::Job::Standalone(
                 task @ (standalone::Task::Target(_)
-                | standalone::Task::Saved(standalone::SavedTask::List { .. })),
+                | standalone::Task::Saved(
+                    standalone::SavedTask::List { .. } | standalone::SavedTask::Preview(_, _),
+                )),
             ) = job
             {
                 worker.standalone_read(task);

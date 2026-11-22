@@ -5,7 +5,6 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const SAVED_TERMINAL_LIMIT: u32 = 64;
-pub(crate) const SAVED_OUTPUT_LIMIT: usize = 65_536;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
@@ -108,16 +107,8 @@ const METADATA: &str = "
       THEN room_id END,
  CASE WHEN EXISTS (SELECT 1 FROM identities i
                    WHERE i.id = s.member_id AND i.retired_at_ms IS NULL)
-      AND CASE WHEN s.room_id IS NULL
-               THEN NOT EXISTS (
-                   SELECT 1 FROM office_meeting_members m
-                   JOIN office_meeting_rooms r ON r.room_id = m.room_id AND r.retired = 0
-                   WHERE m.identity_id = s.member_id)
-               ELSE EXISTS (
-                   SELECT 1 FROM office_meeting_members m
-                   JOIN office_meeting_rooms r ON r.room_id = m.room_id AND r.retired = 0
-                   WHERE m.room_id = s.room_id AND m.identity_id = s.member_id)
-          END
+      AND (s.room_id IS NULL OR EXISTS (SELECT 1 FROM office_meeting_rooms r
+                                       WHERE r.room_id = s.room_id AND r.retired = 0))
       THEN member_id END,
  shell_id, shell_pid, shell_start";
 
@@ -474,12 +465,29 @@ mod tests {
                 [member],
             )
             .unwrap();
+        assert_eq!(storage.saved_terminal(id).unwrap().placement, placement);
+        storage
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE identities SET retired_at_ms = 1 WHERE id = ?1",
+                [member],
+            )
+            .unwrap();
         assert_eq!(
             storage.saved_terminal(id).unwrap().placement,
             SavedPlacement::Room {
                 room_id: room.into()
             },
         );
+        storage
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE identities SET retired_at_ms = NULL WHERE id = ?1",
+                [member],
+            )
+            .unwrap();
         storage
             .connection()
             .unwrap()

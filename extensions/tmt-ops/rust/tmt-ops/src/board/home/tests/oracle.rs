@@ -495,6 +495,15 @@ fn label_frames(styles: &mut Styles) -> Vec<Value> {
 
 #[inline(never)]
 fn base_frames(styles: &mut Styles) -> Vec<Value> {
+    base_frames_at(styles, &[160, 100, 80, 60], |_| true)
+}
+
+#[inline(never)]
+fn base_frames_at(
+    styles: &mut Styles,
+    widths: &[u16],
+    include: impl Fn(&str) -> bool,
+) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
         // `overview` and the `*-overview` names below are frozen fixture names;
@@ -545,7 +554,10 @@ fn base_frames(styles: &mut Styles) -> Vec<Value> {
                 .iter()
                 .copied(),
         ) {
-            for width in [160, 100, 80, 60] {
+            if !include(state) {
+                continue;
+            }
+            for &width in widths {
                 for height in [36, 8] {
                     let app = if matches!(
                         state,
@@ -2503,6 +2515,32 @@ fn dump_home_oracle() {
     fs::write(
         path,
         serde_json::to_string_pretty(&captures()).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+#[test]
+#[ignore = "exports only #6754 scenes and narrow Talk footers to a task-owned path"]
+fn dump_standalone_command_oracle() {
+    let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
+    let captured = crate::status::with_now_ms(NOW, || {
+        let mut styles = Styles::default();
+        let mut frames = standalone_command_frames(&mut styles);
+        frames.extend(base_frames_at(&mut styles, &[60], |state| {
+            state.starts_with("chat-")
+                || state.starts_with("sent-")
+                || state.starts_with("unread-core-")
+        }));
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(style, id)| (id, style))
+            .collect::<BTreeMap<_, _>>();
+        json!({"styles": styles, "frames": frames})
+    });
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&captured).unwrap() + "\n",
     )
     .unwrap();
 }

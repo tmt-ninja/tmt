@@ -434,7 +434,16 @@ fn connect_saved_shell(
     let socket = socket_path(&pty, id);
     match fs::symlink_metadata(&socket) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return if expected.is_some_and(|process| saved_process_gone(process, deadline)) {
+            let gone = if let Some(process) = expected {
+                saved_process_gone(process, deadline)
+            } else {
+                // The API operation lock excludes a concurrent launcher for this reservation.
+                // A free supervisor lock plus an absent socket excludes a live holder.
+                file_lock::exclusive(&super::lock_path(&pty, id)).is_ok_and(|_lock| {
+                    matches!(fs::symlink_metadata(&socket), Err(error) if error.kind() == io::ErrorKind::NotFound)
+                })
+            };
+            return if gone {
                 Ok(None)
             } else {
                 Err(saved_unknown("the saved shell's absence is unconfirmed"))
@@ -549,12 +558,12 @@ pub(crate) fn start_saved_shell(
         id: id.into(),
         cause,
     };
-    detached::start_line(executable, &argv, log, b"ready ", None).map_err(unconfirmed)?;
-    let view = saved_shell(paths, owner, id, None)
-        .map_err(|error| unconfirmed(io::Error::other(error)))?
-        .ok_or_else(|| unconfirmed(io::Error::other("saved shell stopped before verification")))?;
+    let started = detached::start_line(executable, &argv, log, b"ready ", None);
     let _ = fs::remove_file(&log_path);
-    Ok(view)
+    started.map_err(unconfirmed)?;
+    saved_shell(paths, owner, id, None)
+        .map_err(|error| unconfirmed(io::Error::other(error)))?
+        .ok_or_else(|| unconfirmed(io::Error::other("saved shell stopped before verification")))
 }
 
 pub(crate) fn close_saved_shell(
@@ -739,6 +748,16 @@ fn terminal_ids(pty: &Path) -> Vec<String> {
             (id.starts_with(PREFIX) && super::validate(pty, id).is_ok()).then(|| id.to_owned())
         })
         .collect()
+}
+
+/// Serialize saved-shell reservation, startup, recovery and removal. The fixed
+/// lock has one inode per data root and never requires a transaction during I/O.
+pub(crate) fn saved_shell_operation(
+    paths: &ConfigPaths,
+) -> Result<nix::fcntl::Flock<fs::File>, TerminalError> {
+    let pty = paths.pty_directory();
+    ensure_private_directory(&pty).map_err(TerminalError::CloseUnconfirmed)?;
+    open_lock(&pty, "saved-shell").map_err(TerminalError::CloseUnconfirmed)
 }
 
 /// One open at a time per member. The name is not a supervisor id, so startup reclamation

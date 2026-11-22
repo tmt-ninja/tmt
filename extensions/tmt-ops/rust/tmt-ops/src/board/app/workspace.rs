@@ -1328,7 +1328,7 @@ impl App {
                     if action == Inspect {
                         self.show_conversation_of(&target);
                     } else if !self.terminals.rows(identity_id).is_empty()
-                        || self.standalone.has_children(&target)
+                        || self.has_saved_children(&target, &self.workspace_rows())
                         || self.workspace_snapshot().is_some_and(|snapshot| {
                             self.workspace
                                 .member_has_children(&target, &snapshot.roster)

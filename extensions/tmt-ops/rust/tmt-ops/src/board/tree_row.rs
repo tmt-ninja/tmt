@@ -205,12 +205,7 @@ pub(in crate::board) fn paint_terminal(
                 let branch = if row.status.is_some() {
                     format!(
                         "{}{}",
-                        "  ".repeat(
-                            row.source
-                                .depth
-                                .saturating_sub(1)
-                                .min(usize::from(cell.width) / 2)
-                        ),
+                        "  ".repeat(row.source.depth.min(usize::from(cell.width) / 2)),
                         if row.last { "└ " } else { "├ " }
                     )
                 } else {

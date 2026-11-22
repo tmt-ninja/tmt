@@ -18,6 +18,8 @@ pub struct SavedRow {
     revision: u64,
     pub(super) command: String,
     cwd: String,
+    started_ms: u64,
+    ended_ms: u64,
     exit_code: Option<i64>,
     signal: Option<i64>,
     timed_out: bool,
@@ -102,6 +104,8 @@ impl SavedRow {
             revision: value["revision"].as_u64()?,
             command: value["command"].as_str()?.into(),
             cwd: value["cwd"].as_str()?.into(),
+            started_ms: value["startedMs"].as_u64()?,
+            ended_ms: value["endedMs"].as_u64()?,
             exit_code: value["exitCode"].as_i64(),
             signal: value["signal"].as_i64(),
             timed_out: value["timedOut"].as_bool()?,
@@ -135,7 +139,23 @@ impl SavedRow {
         } else {
             "finished".into()
         });
+        if let Some(status) = &mut row.state {
+            status.push_str(&format!(
+                " · {} ago",
+                crate::requests::age(crate::status::now_ms(), self.ended_ms)
+            ));
+        }
         row
+    }
+
+    fn summary(&self) -> Value {
+        json!({"startedMs":self.started_ms, "endedMs":self.ended_ms,
+            "exitCode":self.exit_code, "signal":self.signal,
+            "timedOut":self.timed_out, "truncated":self.truncated})
+    }
+
+    fn key(&self) -> (String, u64) {
+        (self.terminal_id.clone(), self.revision)
     }
 }
 
@@ -146,6 +166,7 @@ pub enum SavedTask {
         generation: u64,
     },
     Get(String),
+    Preview(String, u64),
     Move(SavedRow, SavedPlacement),
     Shell(SavedRow),
     Remove(SavedRow, bool),
@@ -182,7 +203,9 @@ impl SavedTask {
     fn request(&self) -> (&'static str, Value) {
         match self {
             Self::List { .. } => ("terminal.saved.list", json!({})),
-            Self::Get(id) => ("terminal.saved.get", json!({"terminalId":id})),
+            Self::Get(id) | Self::Preview(id, _) => {
+                ("terminal.saved.get", json!({"terminalId":id}))
+            }
             Self::Move(row, placement) => {
                 let mut input = row.expected();
                 input["placement"] = placement.document();
@@ -200,7 +223,13 @@ impl SavedTask {
 
 pub(super) struct Moving {
     row: SavedRow,
+    origin: SavedPlacement,
     parent: SavedPlacement,
+}
+
+pub(super) struct Preview {
+    key: (String, u64),
+    lines: Option<Vec<String>>,
 }
 
 fn tree_row(target: OpsTarget, title: String, depth: usize) -> OpsTreeRow {
@@ -248,12 +277,6 @@ impl Controller {
             .map(|moving| moving.row.command.as_str())
     }
 
-    pub(in crate::board) fn has_children(&self, target: &OpsTarget) -> bool {
-        self.saved_rows
-            .iter()
-            .any(|row| row.placement.target() == *target)
-    }
-
     pub(in crate::board) fn moving(&self) -> bool {
         self.moving.is_some()
     }
@@ -269,7 +292,7 @@ impl Controller {
         let parent = moving.parent.target();
         let index = rows.iter().position(|row| row.target == parent)?;
         let depth = rows[index].depth + 1;
-        let after = if moving.parent == moving.row.placement {
+        let after = if moving.parent == moving.origin {
             None
         } else {
             Some(
@@ -308,6 +331,58 @@ impl Controller {
 }
 
 impl App {
+    pub(in crate::board) fn offer_saved_preview(&mut self) -> Option<Task> {
+        if !self.standalone.enabled
+            || self.standalone.preview_pending.is_some()
+            || self.shell.tab != board::shell::OpsTab::Agents
+            || !self.workspace_selection_visible()
+        {
+            return None;
+        }
+        let key = self.selected_saved()?.key();
+        if self
+            .standalone
+            .preview
+            .as_ref()
+            .is_some_and(|preview| preview.key == key)
+        {
+            return None;
+        }
+        self.standalone.preview_pending = Some(key.clone());
+        Some(Task::Saved(SavedTask::Preview(key.0, key.1)))
+    }
+
+    pub(in crate::board) fn has_saved_children(
+        &self,
+        target: &OpsTarget,
+        rows: &[OpsTreeRow],
+    ) -> bool {
+        self.standalone
+            .saved_rows
+            .iter()
+            .any(|row| self.saved_parent(row, rows).as_ref() == Some(target))
+    }
+
+    fn saved_parent(&self, row: &SavedRow, visible: &[OpsTreeRow]) -> Option<OpsTarget> {
+        let target = row.placement.target();
+        let SavedPlacement::Member { identity_id, .. } = &row.placement else {
+            return Some(target);
+        };
+        if self
+            .workspace_snapshot()
+            .is_some_and(|snapshot| snapshot.roster.contains(&target))
+        {
+            return Some(target);
+        }
+        visible.iter().find_map(|row| match &row.target {
+            OpsTarget::Member {
+                identity_id: visible_id,
+                ..
+            } if visible_id == identity_id => Some(row.target.clone()),
+            _ => None,
+        })
+    }
+
     pub(in crate::board) fn show_saved_summary(&self, frame: &mut Frame, area: Rect) -> bool {
         let Some(row) = self
             .selected_saved()
@@ -316,33 +391,65 @@ impl App {
             return false;
         };
         let look = self.look();
-        let heading = Rect { height: 1, ..area };
+        let rows = self.workspace_rows();
+        let label = self
+            .saved_parent(row, &rows)
+            .and_then(|parent| {
+                rows.iter()
+                    .find(|candidate| candidate.target == parent)
+                    .map(|parent| parent.title.clone())
+            })
+            .unwrap_or_else(|| "Local".into());
+        let command = board::notes::single_line(&row.command);
+        let title = format!(
+            "{label} · ›_ {command} · {}",
+            board::notes::single_line(&row.cwd)
+        );
         board::section_rule::paint(
             frame.buffer_mut(),
-            heading,
-            "Saved terminal",
+            Rect { height: 1, ..area },
+            &title,
             Line::default(),
             false,
             look,
         );
-        let lines = [
-            board::notes::single_line(&row.command),
-            board::notes::single_line(&row.cwd),
-            "Enter opens output · s opens a shell here".into(),
-        ];
-        for (offset, line) in lines
-            .into_iter()
-            .take(usize::from(area.height.saturating_sub(1)))
+        let status = format!(
+            "{command} · {} · kept until you remove it (x)",
+            super::result_status(&row.summary())
+        );
+        let preview = self
+            .standalone
+            .preview
+            .as_ref()
+            .filter(|preview| preview.key == row.key());
+        let lines: &[String] = match preview {
+            Some(Preview {
+                lines: Some(lines), ..
+            }) => lines,
+            Some(_) => &["Output unavailable".into()],
+            None => &["Loading output…".into()],
+        };
+        let height = usize::from(area.height.saturating_sub(1));
+        for (offset, line) in std::iter::once(&status)
+            .chain(lines)
+            .take(height)
             .enumerate()
         {
-            let rect = Rect::new(area.x, area.y + offset as u16 + 1, area.width, 1);
+            let rect = Rect::new(
+                area.x + u16::from(area.width > 0),
+                area.y + offset as u16 + 1,
+                area.width.saturating_sub(1),
+                1,
+            );
+            let role = if offset == 0 || preview.and_then(|p| p.lines.as_ref()).is_none() {
+                tmt_cli_style::Role::Dim
+            } else {
+                tmt_cli_style::Role::Text
+            };
             strip::paint_left(
                 frame.buffer_mut(),
                 rect,
-                Line::styled(
-                    board::view::fit(&line, rect.width.into()),
-                    look.role(tmt_cli_style::Role::Muted),
-                ),
+                Line::styled(board::view::fit(line, rect.width.into()), look.role(role)),
             );
         }
         true
@@ -356,16 +463,21 @@ impl App {
         let matches = |row: &SavedRow| {
             !searching || board::search_field::matches_query(&row.command, &self.workspace.query)
         };
-        let local = self
+        let placed: Vec<_> = self
             .standalone
             .saved_rows
             .iter()
-            .filter(|row| row.placement == SavedPlacement::Local && matches(row));
+            .filter(|row| matches(row))
+            .filter_map(|row| self.saved_parent(row, &rows).map(|parent| (row, parent)))
+            .collect();
+        let local = placed
+            .iter()
+            .filter(|(_, parent)| *parent == OpsTarget::LocalTerminals);
         let mut result = Vec::with_capacity(rows.len() + self.standalone.saved_rows.len() + 1);
         if local.clone().next().is_some() || self.standalone.moving() {
             result.push(tree_row(OpsTarget::LocalTerminals, "Local".into(), 0));
             if !self.standalone.local_folded || searching {
-                result.extend(local.map(|row| row.tree_row(1)));
+                result.extend(local.map(|(row, _)| row.tree_row(1)));
             }
         }
         // Insert leaves after each visible parent's existing children. Filtering or folding
@@ -373,11 +485,10 @@ impl App {
         let mut parents: Vec<(OpsTarget, usize)> = Vec::new();
         let append = |rows: &mut Vec<OpsTreeRow>, (parent, depth): (OpsTarget, usize)| {
             rows.extend(
-                self.standalone
-                    .saved_rows
+                placed
                     .iter()
-                    .filter(|row| matches(row) && row.placement.target() == parent)
-                    .map(|row| row.tree_row(depth + 1)),
+                    .filter(|(_, target)| *target == parent)
+                    .map(|(row, _)| row.tree_row(depth + 1)),
             );
         };
         for row in rows {
@@ -479,8 +590,15 @@ impl App {
             KeyCode::Char('s') => SavedTask::Shell(row),
             KeyCode::Char('x') => SavedTask::Remove(row, false),
             KeyCode::Char('m') => {
+                let Some(origin) = self
+                    .saved_parent(&row, &self.workspace_rows())
+                    .and_then(|parent| SavedPlacement::of(&parent))
+                else {
+                    return Some(Effect::None);
+                };
                 self.standalone.moving = Some(Moving {
-                    parent: row.placement.clone(),
+                    parent: origin.clone(),
+                    origin,
                     row,
                 });
                 self.invalidate_frame_geometry();
@@ -512,7 +630,7 @@ impl App {
             KeyCode::Enter => {
                 let moving = self.standalone.moving.take().expect("checked drag");
                 self.invalidate_frame_geometry();
-                if moving.parent == moving.row.placement {
+                if moving.parent == moving.origin {
                     return Some(Effect::None);
                 }
                 self.standalone.pending = true;
@@ -552,6 +670,24 @@ impl App {
     }
 
     pub(super) fn saved_completed(&mut self, task: SavedTask, result: Result<Value, SquadError>) {
+        if let SavedTask::Preview(id, revision) = task {
+            let key = (id, revision);
+            self.standalone.preview_pending = None;
+            if self
+                .selected_saved()
+                .is_some_and(|selected| selected.key() == key)
+            {
+                let lines = result
+                    .ok()
+                    .filter(|value| {
+                        value["terminalId"].as_str() == Some(key.0.as_str())
+                            && value["revision"].as_u64() == Some(revision)
+                    })
+                    .map(|value| super::output_lines(&value));
+                self.standalone.preview = Some(Preview { key, lines });
+            }
+            return;
+        }
         if let SavedTask::List { generation, .. } = task {
             self.standalone.list_pending = false;
             if generation != self.standalone.saved_generation {
@@ -583,15 +719,22 @@ impl App {
                 (SavedTask::Get(id), Ok(result)) if self.workspace.selected.as_ref().is_some_and(|target| matches!(target, OpsTarget::SavedTerminal(selected) if *selected == id)) => {
                     self.standalone.show(Page::Saved(result));
                 }
-                (SavedTask::Shell(row), Ok(value)) if self.workspace.selected == Some(row.target()) => {
-                    if let Some((id, socket)) = value["shellId"].as_str().zip(value["socket"].as_str()) {
+                (SavedTask::Shell(row), Ok(value)) => {
+                    if let Some(revision) = value["revision"].as_u64()
+                        && let Some(current) = self.standalone.saved_rows.iter_mut().find(|saved| saved.terminal_id == row.terminal_id)
+                    {
+                        current.revision = current.revision.max(revision);
+                    }
+                    if self.workspace.selected == Some(row.target())
+                        && let Some((id, socket)) = value["shellId"].as_str().zip(value["socket"].as_str())
+                    {
                         self.standalone.shell = Some((id.into(), board::notes::single_line(&row.command), board::terminal_tab::discovery::Address {
                             socket: socket.into(),
                             pane: id.into(),
                         }));
                         self.open_member_frame(id);
                     }
-                    self.standalone.refresh_due = true;
+                    self.standalone.saved_changed();
                 }
                 (SavedTask::Remove(row, _), Ok(_)) => {
                     self.standalone.saved_rows.retain(|saved| saved.terminal_id != row.terminal_id);

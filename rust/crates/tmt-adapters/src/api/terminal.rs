@@ -630,8 +630,6 @@ fn kind_name(kind: RelaunchKind) -> &'static str {
     }
 }
 
-/// The program a relaunch runs: the executable, then `pty::relaunch_arguments`, or the
-/// user's login shell. The identity is named by its UUID, so a rename cannot retarget it.
 fn checked_saved(storage: &Storage, id: &str, expected: u64) -> Result<SavedTerminalRecord, Fault> {
     let saved = storage
         .saved_terminal(id)
@@ -692,6 +690,7 @@ pub(super) fn open_saved_shell(
     id: &str,
     expected: u64,
 ) -> Result<Vec<u8>, Fault> {
+    let _operation = terminal::saved_shell_operation(paths).map_err(saved_shell_fault)?;
     let mut saved = checked_saved(storage, id, expected)?;
     if let Some(shell) = &saved.shell {
         let incarnation = saved_incarnation(shell)?;
@@ -767,6 +766,17 @@ pub(super) fn remove_saved(
     force: bool,
 ) -> Result<(), Fault> {
     let saved = checked_saved(storage, id, expected)?;
+    let operation = saved
+        .shell
+        .as_ref()
+        .map(|_| terminal::saved_shell_operation(paths))
+        .transpose()
+        .map_err(saved_shell_fault)?;
+    let saved = if operation.is_some() {
+        checked_saved(storage, id, expected)?
+    } else {
+        saved
+    };
     if let Some(shell) = &saved.shell {
         let incarnation = saved_incarnation(shell)?;
         terminal::close_saved_shell(paths, id, shell.id(), incarnation.as_ref(), force)
@@ -777,6 +787,8 @@ pub(super) fn remove_saved(
         .map_err(super::shell::saved_fault)
 }
 
+/// The program a relaunch runs: the executable, then `pty::relaunch_arguments`, or the
+/// user's login shell. The identity is named by its UUID, so a rename cannot retarget it.
 fn relaunch_program(identity_id: &str, kind: RelaunchKind) -> Result<Vec<String>, Fault> {
     if kind == RelaunchKind::Shell {
         let shell = std::env::var("SHELL")

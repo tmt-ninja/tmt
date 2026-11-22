@@ -109,6 +109,48 @@ fn close(world: &World, terminal: &str, force: bool) -> Value {
 }
 
 #[test]
+fn a_changed_member_command_target_refuses_before_running() {
+    let mut world = World::new();
+    let identity = member(&mut world, "command-target");
+    let observed = call(
+        &world,
+        "terminal.command.target",
+        serde_json::json!({"identityId":identity}),
+    );
+    assert!(observed["paneIncarnation"].is_string(), "{observed}");
+    let changed = world.root.join("changed-directory");
+    fs::create_dir(&changed).unwrap();
+    let marker = world.root.join("command-started");
+    let mut session = world
+        .command(&["api", "--session"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = session.stdin.take().unwrap();
+    writeln!(input, "{}", serde_json::json!({
+        "version": 1, "operation":"terminal.command.run",
+        "input":{
+            "target": {"kind":"member","identityId":identity,"cwd":changed,
+                "bindingId":observed["bindingId"],"paneIncarnation":observed["paneIncarnation"]},
+            "command":format!("printf started > '{}'", marker.display()),
+        },
+    })).unwrap();
+    let mut line = String::new();
+    BufReader::new(session.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    drop(input);
+    assert!(session.wait().unwrap().success());
+    let result: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(
+        result["error"]["code"], "TERMINAL_COMMAND_TARGET_CHANGED",
+        "{result}"
+    );
+    assert!(!marker.exists());
+}
+
+#[test]
 fn a_kept_command_opens_one_independent_shell_and_removes_it_with_the_result() {
     let mut world = World::new();
     let cwd = world.root.join("saved-command");
@@ -195,6 +237,31 @@ fn a_kept_command_opens_one_independent_shell_and_removes_it_with_the_result() {
         call(&world, "terminal.saved.openShell", current.clone()),
         opened
     );
+    let mut view = View::open(&socket);
+    view.send(&ClientMessage::Input(b"/bin/sleep 60\r".to_vec()));
+    let pty = socket.parent().unwrap();
+    let shell_id = opened["shellId"].as_str().unwrap();
+    let mut control = Connection::connect(pty, shell_id).unwrap();
+    let deadline = Instant::now() + WAIT;
+    loop {
+        use tmt_adapters::pty::protocol::{Control, ControlReply};
+        if matches!(
+            control.control(Control::Terminal, WAIT).unwrap(),
+            ControlReply::Terminal { busy: true, .. }
+        ) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the saved shell never became busy"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let busy = call(&world, "terminal.saved.remove", current.clone());
+    assert_eq!(busy["error"]["code"], "TERMINAL_SAVED_SHELL_BUSY", "{busy}");
+    assert!(socket.exists());
+    drop(view);
+    drop(control);
     let loaded = call(
         &world,
         "terminal.saved.get",
@@ -203,7 +270,13 @@ fn a_kept_command_opens_one_independent_shell_and_removes_it_with_the_result() {
     assert_eq!(loaded["stdout"], "result");
     assert_eq!(loaded["exitCode"], 7);
     assert_eq!(
-        call(&world, "terminal.saved.remove", current),
+        call(
+            &world,
+            "terminal.saved.remove",
+            serde_json::json!({
+                "terminalId":id, "expectedRevision":opened["revision"], "force":true,
+            })
+        ),
         serde_json::json!({"removed":true})
     );
     assert!(!socket.exists());

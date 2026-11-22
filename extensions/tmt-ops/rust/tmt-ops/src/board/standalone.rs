@@ -44,7 +44,7 @@ pub(super) fn complete_read(core: &Core, task: Task) -> Completed {
             let result = core.api("terminal.command.target", json!({"identityId": identity}));
             Completed::Target(identity, result)
         }
-        Task::Saved(task @ SavedTask::List { .. }) => {
+        Task::Saved(task @ (SavedTask::List { .. } | SavedTask::Preview(_, _))) => {
             let result = task.complete(core);
             Completed::Saved(task, result)
         }
@@ -105,6 +105,9 @@ pub(super) struct Controller {
     shown: bool,
     history: Vec<String>,
     request: Option<Value>,
+    run_label: String,
+    preview: Option<saved::Preview>,
+    preview_pending: Option<(String, u64)>,
     dialog: Option<DialogState>,
     hits: RefCell<DialogHits>,
     scroll: usize,
@@ -253,6 +256,7 @@ impl Controller {
                     .saved
                     .clone()
                     .unwrap_or_else(|| json!({"target":target.input,"command":command}));
+                self.run_label.clone_from(&target.label);
                 self.history.retain(|previous| previous != &command);
                 self.history.insert(0, command.clone());
                 self.history.truncate(32);
@@ -377,7 +381,7 @@ impl Controller {
             DialogInput::Cancel => self.close(),
             DialogInput::Field(_, key) => {
                 if let Some(Page::Form(form)) = &mut self.page {
-                    let width = self.hits.borrow().content.width.saturating_sub(10).max(1);
+                    let width = self.hits.borrow().content.width.saturating_sub(2).max(1);
                     form.command.key(key, width, MAX_COMMAND);
                 }
                 Effect::None
@@ -411,7 +415,7 @@ impl Controller {
                 },
             ),
             Some(Page::Running { stopping, .. }) => (
-                "Running command",
+                "",
                 DialogKind::Confirm,
                 vec![
                     Button::secondary("Stop").enabled(!stopping),
@@ -421,7 +425,7 @@ impl Controller {
                 &[][..],
             ),
             Some(Page::Finished { result, keeping }) => (
-                "Command result",
+                "",
                 DialogKind::Confirm,
                 vec![
                     Button::primary("Keep in list")
@@ -452,9 +456,16 @@ impl Controller {
                 &[][..],
             ),
         };
+        let title = match &self.page {
+            Some(Page::Running { command, .. }) => command_title(command),
+            Some(Page::Finished { result, .. } | Page::Saved(result)) => {
+                command_title(result["command"].as_str().unwrap_or_default())
+            }
+            _ => title.into(),
+        };
         (
             Dialog {
-                title: title.into(),
+                title,
                 kind,
                 placement: Placement::Center,
                 buttons,
@@ -468,18 +479,22 @@ impl Controller {
         let (dialog, _) = self.presentation();
         let state = self.dialog.as_ref().expect("shown dialog owns state");
         let look = app.look();
-        let area = dialog.areas(
-            body,
-            [
-                dialog.footer_width().max(72),
-                if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) {
-                    18
-                } else {
-                    4
-                },
-            ],
-            self.notice.is_some(),
+        let rows = self.lines();
+        let status = self.notice.is_some();
+        // The shared modal reserves two borders, a position row and a footer.
+        let wide = matches!(
+            self.page,
+            Some(Page::Running { .. } | Page::Finished { .. } | Page::Saved(_))
         );
+        let demand = if wide {
+            [(u32::from(body.width) * 3 / 4).clamp(76, 118) as u16, 18]
+        } else {
+            [
+                dialog.footer_width().max(76),
+                rows.len().min(14) as u16 + 4 + u16::from(status),
+            ]
+        };
+        let area = dialog.areas(body, demand, status);
         let mut hits = super::buttons::paint_dialog(
             app,
             frame.buffer_mut(),
@@ -489,7 +504,6 @@ impl Controller {
             Overlay::Standalone,
         );
         let content = hits.content;
-        let rows = self.lines();
         let rows = if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) {
             rows.iter()
                 .flat_map(|line| {
@@ -514,11 +528,11 @@ impl Controller {
                 rect,
                 Line::styled(super::view::fit(&line, rect.width as usize), role),
             );
-            if index == 1
+            if index == 0
                 && let Some(Page::Form(form)) = &self.page
                 && form.saved.is_none()
             {
-                let prefix = 10.min(rect.width);
+                let prefix = 2.min(rect.width);
                 let input = Rect::new(rect.x + prefix, rect.y, rect.width - prefix, 1);
                 hits.fields.push(input);
                 if !input.is_empty()
@@ -557,67 +571,41 @@ impl Controller {
             Some(Page::Form(form)) => {
                 let target = form.targets.get(form.selected);
                 vec![
+                    command_title(form.command.as_str()),
                     if form.observing {
-                        "Where   Resolving member directory…".into()
+                        "In  Resolving member directory…".into()
                     } else {
                         target.map_or_else(
-                            || "Where   No local directory".into(),
+                            || "In  No local directory".into(),
                             |target| {
+                                let suffix = if form.saved.is_none() { "  ▾" } else { "" };
                                 format!(
-                                    "Where   {} · {}",
-                                    target.label,
-                                    super::notes::single_line(
+                                    "In  {}{suffix}",
+                                    target_line(
+                                        &target.label,
                                         target.input["cwd"].as_str().unwrap_or_default()
                                     )
                                 )
                             },
                         )
                     },
-                    format!(
-                        "Command › {}",
-                        super::notes::single_line(form.command.as_str())
-                    ),
                 ]
             }
-            Some(Page::Running {
-                command,
-                cwd,
-                stopping,
-                ..
-            }) => running_lines(command, cwd, self.elapsed.get(), *stopping),
+            Some(Page::Running { cwd, stopping, .. }) => {
+                running_lines(&self.run_label, cwd, self.elapsed.get(), *stopping)
+            }
             Some(Page::Finished { result, .. } | Page::Saved(result)) => {
-                let status = if result["timedOut"] == true {
-                    "✗ timed out".into()
-                } else if let Some(code) = result["exitCode"].as_i64() {
-                    let mark = if code == 0 { "✓" } else { "✗" };
-                    format!("{mark} exited {code}")
-                } else if let Some(signal) = result["signal"].as_i64() {
-                    format!("✗ signal {signal}")
+                let label = if matches!(&self.page, Some(Page::Saved(_))) {
+                    ""
                 } else {
-                    "No exit status".into()
+                    &self.run_label
                 };
-                let status = match (result["startedMs"].as_u64(), result["endedMs"].as_u64()) {
-                    (Some(start), Some(end)) => {
-                        format!("{status} · {}s", end.saturating_sub(start) / 1000)
-                    }
-                    _ => status,
-                };
-                let mut rows = vec![
-                    super::notes::sanitize(result["command"].as_str().unwrap_or_default()),
-                    super::notes::sanitize(result["cwd"].as_str().unwrap_or_default()),
-                    if result["truncated"] == true {
-                        format!("{status} · output truncated")
-                    } else {
-                        status
-                    },
-                ];
-                for name in ["stdout", "stderr"] {
-                    if let Some(output) = result[name].as_str().filter(|output| !output.is_empty())
-                    {
-                        rows.push(name.into());
-                        rows.extend(super::notes::sanitize(output).lines().map(str::to_owned));
-                    }
-                }
+                let mut rows = vec![format!(
+                    "{}  {}",
+                    target_line(label, result["cwd"].as_str().unwrap_or_default()),
+                    result_status(result)
+                )];
+                rows.extend(output_lines(result));
                 rows
             }
             Some(Page::Remove { row }) => vec![
@@ -633,17 +621,63 @@ impl Controller {
     }
 }
 
-fn running_lines(command: &str, cwd: &str, elapsed: u64, stopping: bool) -> Vec<String> {
-    let status = if stopping {
-        "Stopping…"
+fn command_title(command: &str) -> String {
+    format!("! {}", super::notes::single_line(command))
+}
+
+fn target_line(label: &str, cwd: &str) -> String {
+    let cwd = super::notes::single_line(cwd);
+    if label.is_empty() {
+        cwd
     } else {
-        "Running…"
+        format!("{label} · {cwd}")
+    }
+}
+
+fn running_lines(label: &str, cwd: &str, elapsed: u64, stopping: bool) -> Vec<String> {
+    let status = if stopping {
+        "⠋ stopping"
+    } else {
+        "⠋ running"
     };
-    vec![
-        super::notes::sanitize(command),
-        super::notes::sanitize(cwd),
-        format!("{status} {elapsed}s"),
-    ]
+    vec![format!(
+        "{}  {status} {}:{:02}",
+        target_line(label, cwd),
+        elapsed / 60,
+        elapsed % 60
+    )]
+}
+
+fn result_status(result: &Value) -> String {
+    let mut status = if result["timedOut"] == true {
+        "✗ timed out".into()
+    } else if let Some(code) = result["exitCode"].as_i64() {
+        let mark = if code == 0 { "✓" } else { "✗" };
+        format!("{mark} exited {code}")
+    } else if let Some(signal) = result["signal"].as_i64() {
+        format!("✗ ended by signal {signal}")
+    } else if result["truncated"] == true {
+        "✗ output truncated".into()
+    } else {
+        "✗ exit status unavailable".into()
+    };
+    if let (Some(start), Some(end)) = (result["startedMs"].as_u64(), result["endedMs"].as_u64()) {
+        status.push_str(&format!(" after {}s", end.saturating_sub(start) / 1000));
+    }
+    if result["truncated"] == true && !status.contains("truncated") {
+        status.push_str(" · output truncated");
+    }
+    status
+}
+
+fn output_lines(result: &Value) -> Vec<String> {
+    let stdout = super::notes::sanitize(result["stdout"].as_str().unwrap_or_default());
+    let stderr = super::notes::sanitize(result["stderr"].as_str().unwrap_or_default());
+    stdout
+        .lines()
+        .map(str::to_owned)
+        .chain(stderr.lines().map(|line| format!("stderr · {line}")))
+        .collect()
 }
 
 impl App {

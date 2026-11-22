@@ -879,7 +879,11 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
         .collect();
     entries.sort_by_key(|(event, action)| {
         (
-            action.order(),
+            if width < 80 && action.verb == Verb::Ui(OpsUiAction::RunCommand) {
+                u8::MAX
+            } else {
+                action.order()
+            },
             app.shell.tab == crate::board::shell::OpsTab::Digest && event.as_str() == "backtab",
         )
     });

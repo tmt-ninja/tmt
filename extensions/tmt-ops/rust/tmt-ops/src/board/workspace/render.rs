@@ -1024,7 +1024,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         if expanded || !app.terminals.rows(identity_id).is_empty()
                             || app.workspace.member_folded(&row.target)
                                 && (app.workspace.member_has_children(&row.target, &snapshot.roster)
-                                    || app.standalone.has_children(&row.target))),
+                                    || app.has_saved_children(&row.target, &rows))),
                     state,
                     state_primary_width,
                     state_attention,

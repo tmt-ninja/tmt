@@ -21,6 +21,8 @@ use tmt_core::{
     host::HostKind,
 };
 
+const SHELL_OUTPUT_LIMIT: usize = 65_536;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Input {
@@ -93,7 +95,7 @@ fn run_captured(
         )
     })?;
     interrupt.defer_emergency_exit();
-    UnixCommandRunner.run_shell_in_interrupt(command, cwd, Duration::from_secs(120), crate::storage::saved_terminal::SAVED_OUTPUT_LIMIT, Some(&interrupt), lifeline).map_err(|error| {
+    UnixCommandRunner.run_shell_in_interrupt(command, cwd, Duration::from_secs(120), SHELL_OUTPUT_LIMIT, Some(&interrupt), lifeline).map_err(|error| {
         if matches!(error.kind, CommandFailure::Spawn) && !error.cleanup_failed() {
             Fault::new("SHELL_RUN_FAILED", "The shell could not be started. Nothing was run.")
         } else {
@@ -730,6 +732,235 @@ mod tests {
         assert!(!marker.exists());
     }
 
+    fn saved_request(
+        session: &mut crate::api::Session,
+        operation: &str,
+        input: serde_json::Value,
+        lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+    ) -> Result<serde_json::Value, Fault> {
+        let body = json!({"version":1,"operation":operation,"input":input}).to_string();
+        let bytes = session.execute_with_lifeline(crate::api::decode(&body)?, lifeline)?;
+        Ok(serde_json::from_slice(&bytes).unwrap())
+    }
+
+    #[test]
+    fn saved_remove_recovers_unconfirmed_start_only_after_the_supervisor_lock_is_free() {
+        let root = crate::test_support::TestDirectory::short();
+        let paths =
+            crate::config::ConfigPaths::resolve(&root.path, &root.path, Some(&root.path), None);
+        let mut storage = Storage::open(&paths.database).unwrap();
+        let terminal = uuid::Uuid::new_v4().to_string();
+        let result = storage
+            .keep_saved_command(
+                &terminal,
+                &uuid::Uuid::new_v4().to_string(),
+                None,
+                &SavedPlacement::Local,
+                &fixture_output(&root.path),
+            )
+            .unwrap();
+        let shell = crate::pty::terminal::new_saved_shell_id();
+        let reserved = storage
+            .reserve_saved_shell(&terminal, result.revision, &shell)
+            .unwrap();
+        let pty = paths.pty_directory();
+        crate::private_file::ensure_private_directory(&pty).unwrap();
+        let lock_path = crate::pty::lock_path(&pty, &shell);
+        let supervisor_lock = crate::file_lock::exclusive(&lock_path).unwrap();
+        let mut session = crate::api::Session::new(paths);
+        let input = json!({"terminalId":terminal, "expectedRevision":reserved.revision});
+        assert_eq!(
+            saved_request(&mut session, "terminal.saved.remove", input.clone(), None)
+                .unwrap_err()
+                .code(),
+            "TERMINAL_SAVED_SHELL_UNCONFIRMED",
+        );
+        assert_eq!(storage.saved_terminal_output(&terminal).unwrap().1, b"kept");
+        drop(supervisor_lock);
+        assert_eq!(
+            saved_request(&mut session, "terminal.saved.remove", input, None).unwrap(),
+            json!({"removed": true}),
+        );
+        assert!(matches!(
+            storage.saved_terminal(&terminal),
+            Err(SavedTerminalError::Missing)
+        ));
+    }
+
+    fn fixture_output(cwd: &Path) -> SavedCommandOutput {
+        SavedCommandOutput {
+            summary: SavedCommandSummary {
+                command: "printf kept".into(),
+                cwd: cwd.to_str().unwrap().into(),
+                started_ms: 0,
+                ended_ms: 1,
+                exit_code: Some(0),
+                signal: None,
+                timed_out: false,
+                truncated: false,
+            },
+            stdout: b"kept".to_vec(),
+            stderr: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn stale_rerun_keep_leaves_saved_output_and_placement_intact() {
+        use std::{os::fd::AsFd, os::unix::net::UnixStream};
+
+        let root = crate::test_support::TestDirectory::new();
+        let paths =
+            crate::config::ConfigPaths::resolve(&root.path, &root.path, Some(&root.path), None);
+        let mut storage = Storage::open(&paths.database).unwrap();
+        let terminal = uuid::Uuid::new_v4().to_string();
+        let mut original = fixture_output(&root.path);
+        original.summary.command = "printf fresh".into();
+        let row = storage
+            .keep_saved_command(
+                &terminal,
+                &uuid::Uuid::new_v4().to_string(),
+                None,
+                &SavedPlacement::Local,
+                &original,
+            )
+            .unwrap();
+        let mut session = crate::api::Session::new(paths);
+        let (_client, server) = UnixStream::pair().unwrap();
+        let result = saved_request(
+            &mut session,
+            "terminal.command.run",
+            json!({
+                "target":{"kind":"saved","terminalId":terminal,"expectedRevision":row.revision}
+            }),
+            Some(server.as_fd()),
+        )
+        .unwrap();
+        assert_eq!(result["stdout"], "fresh");
+        let moved = storage
+            .reserve_saved_shell(
+                &terminal,
+                row.revision,
+                &crate::pty::terminal::new_saved_shell_id(),
+            )
+            .unwrap();
+        assert!(moved.revision > row.revision);
+        assert_eq!(
+            saved_request(
+                &mut session,
+                "terminal.command.keep",
+                json!({"runId":result["runId"]}),
+                Some(server.as_fd())
+            )
+            .unwrap_err()
+            .code(),
+            "TERMINAL_SAVED_REVISION_CONFLICT",
+        );
+        let loaded = saved_request(
+            &mut session,
+            "terminal.saved.get",
+            json!({"terminalId":terminal}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(loaded["stdout"], "kept");
+        assert_eq!(loaded["placement"], json!({"kind":"local"}));
+        assert_eq!(loaded["revision"], moved.revision);
+    }
+
+    #[test]
+    fn the_saved_terminal_limit_refuses_keep_without_writing_a_row() {
+        use std::{os::fd::AsFd, os::unix::net::UnixStream};
+
+        let root = crate::test_support::TestDirectory::new();
+        let paths =
+            crate::config::ConfigPaths::resolve(&root.path, &root.path, Some(&root.path), None);
+        let mut storage = Storage::open(&paths.database).unwrap();
+        for _ in 0..64 {
+            storage
+                .keep_saved_command(
+                    &uuid::Uuid::new_v4().to_string(),
+                    &uuid::Uuid::new_v4().to_string(),
+                    None,
+                    &SavedPlacement::Local,
+                    &fixture_output(&root.path),
+                )
+                .unwrap();
+        }
+        let mut session = crate::api::Session::new(paths);
+        let (_client, server) = UnixStream::pair().unwrap();
+        let result = saved_request(
+            &mut session,
+            "terminal.command.run",
+            json!({
+                "target":{"kind":"local","cwd":root.path}, "command":"printf new",
+            }),
+            Some(server.as_fd()),
+        )
+        .unwrap();
+        assert_eq!(
+            saved_request(
+                &mut session,
+                "terminal.command.keep",
+                json!({"runId":result["runId"]}),
+                Some(server.as_fd())
+            )
+            .unwrap_err()
+            .code(),
+            "TERMINAL_SAVED_LIMIT",
+        );
+        assert_eq!(storage.list_saved_terminals().unwrap().len(), 64);
+    }
+
+    #[test]
+    fn cancelling_a_started_command_leaves_the_session_unkeepable() {
+        use std::{os::fd::AsFd, os::unix::net::UnixStream, time::Instant};
+
+        let root = crate::test_support::TestDirectory::new();
+        let paths =
+            crate::config::ConfigPaths::resolve(&root.path, &root.path, Some(&root.path), None);
+        let mut session = crate::api::Session::new(paths);
+        let (client, server) = UnixStream::pair().unwrap();
+        std::thread::scope(|scope| {
+            let marker = root.path.join("started");
+            let stop = scope.spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                while !marker.exists() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                let started = marker.exists();
+                drop(client);
+                started
+            });
+            let result = saved_request(
+                &mut session,
+                "terminal.command.run",
+                json!({
+                    "target":{"kind":"local","cwd":root.path},
+                    "command":"printf started > started; exec /bin/sleep 30",
+                }),
+                Some(server.as_fd()),
+            );
+            assert!(stop.join().unwrap(), "Stop follows a confirmed launch");
+            assert_eq!(result.unwrap_err().code(), "SHELL_RUN_CANCELLED");
+        });
+        let (_client, server) = UnixStream::pair().unwrap();
+        assert_eq!(
+            saved_request(
+                &mut session,
+                "terminal.command.keep",
+                json!({"runId":uuid::Uuid::new_v4().to_string()}),
+                Some(server.as_fd())
+            )
+            .unwrap_err()
+            .code(),
+            "TERMINAL_COMMAND_RESULT_UNAVAILABLE",
+        );
+        assert_eq!(
+            saved_request(&mut session, "terminal.saved.list", json!({}), None).unwrap()["terminals"],
+            json!([])
+        );
+    }
+
     #[test]
     fn standalone_result_is_invisible_until_keep_and_reopening_keeps_it_once() {
         use std::{os::fd::AsFd, os::unix::net::UnixStream};
@@ -738,12 +969,7 @@ mod tests {
         let paths =
             crate::config::ConfigPaths::resolve(&root.path, &root.path, Some(&root.path), None);
         let mut session = crate::api::Session::new(paths.clone());
-        let call = |session: &mut crate::api::Session, operation, input, lifeline| {
-            let body = json!({"version":1,"operation":operation,"input":input}).to_string();
-            let request = crate::api::decode(&body)?;
-            let bytes = session.execute_with_lifeline(request, lifeline)?;
-            Ok::<serde_json::Value, Fault>(serde_json::from_slice(&bytes).unwrap())
-        };
+        let call = saved_request;
         let capabilities = call(&mut session, "capabilities", json!({}), None).unwrap();
         assert!(
             capabilities["operations"]
