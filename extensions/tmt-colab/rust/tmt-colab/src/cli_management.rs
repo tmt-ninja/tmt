@@ -1497,6 +1497,16 @@ fn run_once(
     }
     store.close()?;
     let mut rebuilt = false;
+    // A delete names the TMT caller it ran as, the same source as a page's publisher agent, so the
+    // owner can later see who deleted the page (#6739). A serve from before #6739 refuses a body
+    // with `actor` (its local body is closed); this send relies on the schema gate: the store this
+    // command already checked with `require_current_schema` is at the version that records deletes
+    // (schema 29), which only a serve that accepts `actor` migrates to. A management test pins that.
+    let actor = (operation == "page.delete")
+        .then(crate::core::caller_snapshot)
+        .flatten()
+        .map(|caller| caller.name)
+        .filter(|name| tmt_colab::decoder::valid_publisher_agent(name));
     let outcome = loop {
         let mut correlation =
             json!({"pageId":id,"operationId":operation_id,"expectedRevision":revision});
@@ -1508,10 +1518,13 @@ fn run_once(
         if let Some(id) = link_id {
             correlation["linkId"] = id.clone();
         }
-        let body = serde_json::to_vec(
-            &json!({"space":key.space_id,"page":id,"expectedRevision":revision,"operationId":operation_id,
-        "operation":operation,"payload":values::encode_binary(&serde_json::to_vec(&payload)?)}),
-        )?;
+        let mut request = json!({"space":key.space_id,"page":id,"expectedRevision":revision,
+            "operationId":operation_id,"operation":operation,
+            "payload":values::encode_binary(&serde_json::to_vec(&payload)?)});
+        if let Some(name) = &actor {
+            request["actor"] = json!(name);
+        }
+        let body = serde_json::to_vec(&request)?;
         let outcome = (|| -> Result<Value> {
         let bytes = mutate(&layout, &key.space_id, &body)?;
         let ack: Acknowledgment = serde_json::from_slice(&bytes).map_err(|_| fail(

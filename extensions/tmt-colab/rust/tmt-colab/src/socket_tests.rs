@@ -418,7 +418,10 @@ fn change_reader(f: &mut Fixture, mount: &ReaderMount, change: ReaderChange) {
                 200
             );
         }
-        ReaderChange::Delete => f.apply(OwnerAction::Delete { page: PAGE }),
+        ReaderChange::Delete => f.apply(OwnerAction::Delete {
+            page: PAGE,
+            by: crate::transitions::DeleteActor::Cli(None),
+        }),
         ReaderChange::Expire => f.clock.store(601_000, Ordering::SeqCst),
         ReaderChange::CertificateExpire => f.clock.store(3000, Ordering::SeqCst),
     }
@@ -626,7 +629,10 @@ fn mounted_archived_readers_keep_reads_and_delete_cuts_off_both_kinds_twice() {
             let mut p = mount.upgrade(&fresh).unwrap();
             bootstrap_reader(&mut p, &fresh);
         }
-        f.apply(OwnerAction::Delete { page: PAGE });
+        f.apply(OwnerAction::Delete {
+            page: PAGE,
+            by: crate::transitions::DeleteActor::Cli(None),
+        });
         for p in &mut readers {
             reader_cut_off(p);
         }

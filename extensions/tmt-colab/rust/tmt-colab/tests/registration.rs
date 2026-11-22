@@ -497,7 +497,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
         DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
-        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; DROP TABLE answer_forms; DROP TABLE IF EXISTS work_title_exclusions; DROP TABLE IF EXISTS work_observed; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=2;",
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; DROP TABLE IF EXISTS page_deletions; DROP TABLE answer_forms; DROP TABLE IF EXISTS work_title_exclusions; DROP TABLE IF EXISTS work_observed; DROP TABLE IF EXISTS work_status_cache; DROP TABLE IF EXISTS work_release_checks; DROP TABLE IF EXISTS work_release_facts; DROP TABLE IF EXISTS work_numbers; DROP TABLE IF EXISTS work_counters; DROP TABLE IF EXISTS project_meta; PRAGMA user_version=2;",
     )
     .unwrap();
     let store = Store::open(&f.layout).unwrap();
@@ -951,7 +951,10 @@ fn archive_preserves_reads_and_delete_denies_admission_catchup_and_queued_delive
                     OwnerRequest {
                         operation_id: "40000000-0000-4000-8000-000000000152",
                         expected_revision: 3,
-                        action: OwnerAction::Delete { page: OTHER },
+                        action: OwnerAction::Delete {
+                            page: OTHER,
+                            by: tmt_colab::transitions::DeleteActor::Cli(None),
+                        },
                         transport_digest: None,
                         scope: None,
                     },
@@ -2172,7 +2175,10 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
             OwnerRequest {
                 operation_id: ATTACHMENT,
                 expected_revision: head.revision,
-                action: OwnerAction::Delete { page: PAGE },
+                action: OwnerAction::Delete {
+                    page: PAGE,
+                    by: tmt_colab::transitions::DeleteActor::Cli(None),
+                },
                 transport_digest: None,
                 scope: None,
             },

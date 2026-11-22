@@ -112,6 +112,15 @@ pub fn deleted(store: &Store, key: &Keyring) -> Result<Value> {
         if tx.head() != Some(&head) {
             return Err(OwnerFault::Invalid.into());
         }
+        // A delete since schema 29 also has its time and who asked for it (#6739).
+        let recorded = tx.deletions()?;
+        for row in &mut deleted {
+            if let Some((at, kind, actor)) = row["pageId"].as_str().and_then(|id| recorded.get(id))
+            {
+                row["deletedAt"] = json!(at);
+                row["by"] = json!({"kind": kind, "id": actor});
+            }
+        }
         Ok(
             json!({"deleted":deleted,"membershipHead":{"revision":head.revision.to_string(),
             "statementHash":values::encode_binary(&head.hash)}}),

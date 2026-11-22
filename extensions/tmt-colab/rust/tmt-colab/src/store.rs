@@ -14,6 +14,8 @@ pub const SCHEMA_VERSION: u32 = schema::CURRENT_VERSION;
 use crate::{Result, keyring::Layout, limits};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 pub use schema::backup_path;
+#[cfg(test)]
+pub(crate) use schema::step_creates as schema_step_creates;
 use sha2::{Digest, Sha256};
 use std::{
     sync::Arc,
