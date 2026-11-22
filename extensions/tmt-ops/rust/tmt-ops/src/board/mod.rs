@@ -1268,8 +1268,18 @@ fn session(
                         if cancellation.cancelled() {
                             app.work.cancel(Instant::now());
                         } else {
+                            let previous = app.work.references().cloned();
                             app.work.apply(Instant::now(), result);
                             app.apply_default_work_view();
+                            if app.mentions.work
+                                && app.mentions.completion.open()
+                                && previous
+                                    .as_ref()
+                                    .zip(app.work.references())
+                                    .is_none_or(|(old, new)| !std::sync::Arc::ptr_eq(old, new))
+                            {
+                                app.update_mentions();
+                            }
                             dirty = true;
                         }
                         Effect::None

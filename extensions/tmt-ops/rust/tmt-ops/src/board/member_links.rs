@@ -170,6 +170,7 @@ pub(super) fn resolve(text: &str, inventory: &Inventory) -> Vec<Resolved> {
 pub(super) enum Target {
     Member(String),
     Checklist(String),
+    Work(String),
     Url(String),
     File(String),
     Command(commands::Command),
@@ -701,12 +702,56 @@ impl App {
         }
         self.perform_context(action, Some(target))
     }
+    pub(super) fn open_work_reference(
+        &mut self,
+        number: &str,
+        expected: &super::work::OpenTarget,
+    ) -> Effect {
+        let current = self.work.references().and_then(|index| index.get(number));
+        if current.is_some_and(|reference| &reference.target == expected) {
+            Effect::OpenWorkPage(expected.clone())
+        } else {
+            self.say("This Work reference changed or became unavailable.")
+        }
+    }
+
     fn open_member_link(&mut self, hit: Hit) -> Effect {
         if let Target::Command(shown) = &hit.target {
             return self.command_popover(shown, hit.area);
         }
         if let Target::File(path) = &hit.target {
             return self.file_popover(path, hit.area);
+        }
+        if let Target::Work(number) = &hit.target {
+            let Some(reference) = self.work.references().and_then(|index| index.get(number)) else {
+                return self.say("This Work reference is unavailable.");
+            };
+            let entry = |label: &str, choice| MenuEntry {
+                chip: None,
+                separator: false,
+                key: String::new(),
+                label: label.into(),
+                choice,
+            };
+            self.menu = Some(Menu {
+                link: None,
+                prefill: String::new(),
+                title: format!("#{}", reference.number),
+                entries: vec![
+                    entry(
+                        "Open in Colab",
+                        Choice::OpenWorkReference {
+                            number: reference.number.clone(),
+                            target: reference.target.clone(),
+                        },
+                    ),
+                    entry("Copy number", Choice::LinkCopy(reference.number.clone())),
+                ],
+                selected: 0,
+                anchor: Some(hit.area),
+                surface: RefCell::new(None),
+            });
+            return Effect::None;
         }
         if let Some((key, id)) = hit.checklist {
             let Some((_, item)) = self

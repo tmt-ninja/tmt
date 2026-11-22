@@ -14,7 +14,7 @@ use std::{
 use ratatui::layout::Rect;
 use tmt_tui::components::{DialogHits, DialogState};
 
-pub(super) use model::{Item, List, Progress, Status};
+pub(super) use model::{Item, List, Progress, Reference, References, Status};
 pub(super) use order::{Job as OrderJob, Move as OrderMove, Reply as OrderReply, run as run_order};
 pub(super) use surface::render;
 
@@ -97,6 +97,10 @@ pub(in crate::board) struct State {
 }
 
 impl State {
+    pub fn references(&self) -> Option<&std::sync::Arc<References>> {
+        self.list.as_ref().map(|list| &list.references)
+    }
+
     pub fn request(&mut self, now: Instant) -> bool {
         if self.pending
             || (!self.explicit_refresh
@@ -133,6 +137,12 @@ impl State {
         );
         match read {
             Ok(mut list) => {
+                if let Some(previous) = self.list.as_ref()
+                    && previous.space == list.space
+                    && previous.references == list.references
+                {
+                    list.references = previous.references.clone();
+                }
                 if self
                     .list
                     .as_ref()

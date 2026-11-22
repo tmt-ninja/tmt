@@ -18,6 +18,7 @@ pub(super) const TRIGGER_HINT: &str = "@ / tmt/";
 /// A chosen mention is an expanded fold over its `tmt/<name>` text whose label holds the
 /// agent's identity, so a rename never retargets it; editing the text drops the fold.
 const IDENTITY: &str = "tmt-mention:";
+const WORK_ID: &str = "work:";
 
 /// The identity a chosen mention's fold stands for.
 pub(super) fn mentioned(fold: &tmt_tui::components::Fold) -> Option<&str> {
@@ -27,7 +28,8 @@ pub(super) fn mentioned(fold: &tmt_tui::components::Fold) -> Option<&str> {
 #[derive(Default)]
 pub(super) struct State {
     pub completion: Completion,
-    pub(super) checklist: bool,
+    pub(super) hash: bool,
+    pub(super) work: bool,
     hits: RefCell<Vec<(Rect, usize)>>,
 }
 
@@ -69,9 +71,17 @@ impl App {
         } else {
             super::app::INPUT_LIMIT
         };
-        let checklist = self.mentions.checklist;
+        let hash = self.mentions.hash;
         let accepted = completion.chosen().is_some_and(|(range, candidate)| {
-            if checklist {
+            if let Some(number) = candidate.id.strip_prefix(WORK_ID) {
+                let Some(reference) = self.work.references().and_then(|index| index.get(number))
+                else {
+                    return false;
+                };
+                let text = format!("#{} ", reference.number);
+                self.reference_editor_mut()
+                    .is_some_and(|editor| editor.replace_range(range, &text, limit))
+            } else if hash {
                 let Some((key, item)) = self.checklist_item_reference(&candidate.id) else {
                     return false;
                 };
@@ -117,32 +127,60 @@ impl App {
             return;
         }
         let mut completion = std::mem::take(&mut self.mentions.completion);
-        let mut checklist = false;
+        let mut hash = false;
+        let mut work = false;
         if let Some(editor) = self.reference_editor() {
             // Completion owns token boundaries, folds and dismissal.
             let token = editor.as_str()[..editor.cursor()]
                 .rsplit(char::is_whitespace)
                 .next()
                 .unwrap_or_default();
-            if token.starts_with('#')
+            let key = self.checklist_reference_key();
+            let talk = self
+                .input
+                .as_ref()
+                .is_some_and(|input| matches!(input.compose, Compose::Talk { .. }));
+            if let Some(query) = token.strip_prefix('#')
                 && !token.starts_with(super::member_links::LEGACY_TRIGGER)
-                && let Some(key) = self.checklist_reference_key()
+                && (talk || key.is_some())
             {
-                checklist = true;
-                let candidates = self.notes.preview(&key).map_or_else(Vec::new, |preview| {
-                    let current = &preview.current;
-                    current
-                        .items
-                        .iter()
-                        .filter(|view| !view.item.archived)
-                        .map(|view| Candidate {
-                            id: view.item.id.as_str().into(),
-                            kind: "Checklist".into(),
-                            label: super::notes::single_line(&view.item.content.title),
-                            insertion: String::new(),
-                        })
-                        .collect()
-                });
+                hash = true;
+                work = talk;
+                let mut candidates = key
+                    .as_ref()
+                    .and_then(|key| self.notes.preview(key))
+                    .map_or_else(Vec::new, |preview| {
+                        let current = &preview.current;
+                        current
+                            .items
+                            .iter()
+                            .filter(|view| !view.item.archived)
+                            .map(|view| Candidate {
+                                id: view.item.id.as_str().into(),
+                                kind: "Checklist".into(),
+                                label: super::notes::single_line(&view.item.content.title),
+                                insertion: String::new(),
+                            })
+                            .collect()
+                    });
+                if talk && let Some(index) = self.work.references() {
+                    // An exact number uses the completion engine's exact-label rank.
+                    candidates.extend(index.iter().map(|reference| Candidate {
+                        id: format!("{WORK_ID}{}", reference.number),
+                        kind: "Work".into(),
+                        label: if reference.number.eq_ignore_ascii_case(query) {
+                            reference.number.clone()
+                        } else {
+                            format!(
+                                "{} {} {}",
+                                reference.number,
+                                reference.title,
+                                reference.status.label()
+                            )
+                        },
+                        insertion: String::new(),
+                    }));
+                }
                 completion.update(editor, &candidates, "#");
             } else {
                 let trigger = if token.starts_with(PRIMARY_TRIGGER) {
@@ -153,7 +191,8 @@ impl App {
                 completion.update(editor, &self.references.candidates, trigger);
             }
         }
-        self.mentions.checklist = checklist;
+        self.mentions.hash = hash;
+        self.mentions.work = work;
         self.mentions.completion = completion;
         self.mentions.hits.borrow_mut().clear();
     }
@@ -217,6 +256,10 @@ impl App {
             KeyCode::Down => self.mentions.completion.move_by(1),
             KeyCode::PageUp => self.mentions.completion.move_by(-6),
             KeyCode::PageDown => self.mentions.completion.move_by(6),
+            KeyCode::Enter if self.mentions.work && self.mentions.completion.matches.is_empty() => {
+                self.mentions.completion.close();
+                return None;
+            }
             KeyCode::Enter | KeyCode::Tab => {
                 self.accept_reference();
             }
@@ -345,15 +388,19 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
         .min(24);
     let checklist = app
         .checklist_reference_key()
-        .filter(|_| app.mentions.checklist)
+        .filter(|_| app.mentions.hash)
         .and_then(|key| app.notes.preview(&key))
         .map(|preview| &preview.current);
     let squad_cells = 20;
     for row in 0..height {
         let rect = Rect::new(x, y + row, width, 1);
-        let line = if row == height - 1 && app.mentions.checklist {
+        let line = if row == height - 1 && app.mentions.hash {
             Line::styled(
-                "Checklist · # · ↑↓ choose · Tab insert",
+                if app.mentions.work {
+                    "Work & Checklist · # · ↑↓ choose · ⏎ insert"
+                } else {
+                    "Checklist · # · ↑↓ choose · Tab insert"
+                },
                 look.role(Role::Muted),
             )
         } else if row == height - 1 {
@@ -386,67 +433,85 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                 .hits
                 .borrow_mut()
                 .push((rect, start + usize::from(row)));
-            let mut spans = vec![Span::styled(
-                format!(
-                    "{} {}",
-                    if selected { "›" } else { " " },
-                    if app.mentions.checklist { "#" } else { TRIGGER }
-                ),
-                style,
-            )];
-            let mut at = 0;
-            for matched in completion.matched_ranges(start + usize::from(row)) {
-                spans.push(Span::styled(&candidate.label[at..matched.start], style));
+            let cursor = if selected { "› " } else { "  " };
+            let mut spans = vec![Span::styled(cursor, style)];
+            if let Some(reference) = candidate
+                .id
+                .strip_prefix(WORK_ID)
+                .and_then(|number| app.work.references()?.get(number))
+            {
+                let state = reference.status.marked_label();
+                let lead = format!("{} ", reference.number);
+                let title_cells = usize::from(width).saturating_sub(
+                    2 + lead.len() + 2 + unicode_width::UnicodeWidthStr::width(state.as_str()),
+                );
+                let title = super::view::fit(&reference.title, title_cells);
+                spans.push(Span::styled(format!("{lead}{title}"), style));
                 spans.push(Span::styled(
-                    &candidate.label[matched.clone()],
-                    style.add_modifier(ratatui::style::Modifier::BOLD),
+                    format!("  {state}"),
+                    style.patch(look.role(Role::Muted)),
                 ));
-                at = matched.end;
-            }
-            spans.push(Span::styled(&candidate.label[at..], style));
-            if app.mentions.checklist {
-                if let Some(current) = checklist
-                    && let Some(item) = current
-                        .items
-                        .iter()
-                        .find(|view| view.item.id.as_str() == candidate.id)
-                {
-                    let id = super::conversation_checklist::short_reference_id(current, item);
-                    spans.push(Span::styled(
-                        format!(" ({id})"),
-                        style.patch(look.role(Role::Muted)),
-                    ));
-                }
             } else {
-                // The name column, then the agent's squad and its STATE cell, as in Agents.
-                let shown = unicode_width::UnicodeWidthStr::width(candidate.label.as_str());
                 spans.push(Span::styled(
-                    " ".repeat(name_cells.saturating_sub(shown) + 2),
+                    if app.mentions.hash { "#" } else { TRIGGER },
                     style,
                 ));
-                let (squad, state) = app.mention_detail(&candidate.id);
-                spans.push(Span::styled(
-                    format!("{squad:<squad_cells$}  "),
-                    style.patch(look.role(Role::Dim)),
-                ));
-                if let Some(label) = state {
-                    let mut mark = crate::board::state_cell::mark(Some(label.state), look);
-                    mark.style = style.patch(mark.style);
-                    spans.push(mark);
+                let mut at = 0;
+                for matched in completion.matched_ranges(start + usize::from(row)) {
+                    spans.push(Span::styled(&candidate.label[at..matched.start], style));
                     spans.push(Span::styled(
-                        format!(
-                            " {}{}",
-                            label.state,
-                            label.age.map(|age| format!(" {age}")).unwrap_or_default()
-                        ),
-                        style.patch(look.role(Role::Muted)),
+                        &candidate.label[matched.clone()],
+                        style.add_modifier(ratatui::style::Modifier::BOLD),
                     ));
+                    at = matched.end;
+                }
+                spans.push(Span::styled(&candidate.label[at..], style));
+                if app.mentions.hash {
+                    if let Some(current) = checklist
+                        && let Some(item) = current
+                            .items
+                            .iter()
+                            .find(|view| view.item.id.as_str() == candidate.id)
+                    {
+                        let id = super::conversation_checklist::short_reference_id(current, item);
+                        spans.push(Span::styled(
+                            format!(" ({id})"),
+                            style.patch(look.role(Role::Muted)),
+                        ));
+                    }
+                } else {
+                    // The name column, then the agent's squad and its STATE cell, as in Agents.
+                    let shown = unicode_width::UnicodeWidthStr::width(candidate.label.as_str());
+                    spans.push(Span::styled(
+                        " ".repeat(name_cells.saturating_sub(shown) + 2),
+                        style,
+                    ));
+                    let (squad, state) = app.mention_detail(&candidate.id);
+                    spans.push(Span::styled(
+                        format!("{squad:<squad_cells$}  "),
+                        style.patch(look.role(Role::Dim)),
+                    ));
+                    if let Some(label) = state {
+                        let mut mark = crate::board::state_cell::mark(Some(label.state), look);
+                        mark.style = style.patch(mark.style);
+                        spans.push(mark);
+                        spans.push(Span::styled(
+                            format!(
+                                " {}{}",
+                                label.state,
+                                label.age.map(|age| format!(" {age}")).unwrap_or_default()
+                            ),
+                            style.patch(look.role(Role::Muted)),
+                        ));
+                    }
                 }
             }
             Line::from(spans)
         } else {
             Line::styled(
-                if app.mentions.checklist {
+                if app.mentions.work {
+                    "No matching work or checklist item"
+                } else if app.mentions.hash {
                     "No matching checklist item"
                 } else if app.references.error.is_some() {
                     "Agent inventory unavailable"

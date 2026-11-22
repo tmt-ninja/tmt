@@ -756,7 +756,7 @@ impl App {
         {
             controller.written(&self.notes, &written);
         }
-        if self.mentions.checklist {
+        if self.mentions.hash {
             self.update_mentions();
         }
     }

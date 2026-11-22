@@ -54,6 +54,7 @@ fn read_with(items: Vec<ItemView>) -> (App, Key) {
 pub(in crate::board) const REFERENCE_SCENES: &[&str] = &[
     "notes-reference-completion",
     "notes-reference-menu",
+    "work-reference-menu",
     "notes-reference-draft",
 ];
 
@@ -75,16 +76,23 @@ pub(in crate::board) fn reference_case(
     view.home.as_mut().unwrap().workspace.squad_looks.clear();
     match scene {
         "notes-reference-completion" => {
+            work_references(&mut app);
             press(&mut app, KeyCode::Enter);
             press(&mut app, KeyCode::Char('#'));
         }
-        "notes-reference-menu" => {
+        "notes-reference-menu" | "work-reference-menu" => {
             let current = &app.notes.preview(&key).unwrap().current;
             let reference = super::super::reference_text(current, &current.items[0]);
+            let response = if scene == "work-reference-menu" {
+                work_references(&mut app);
+                "Please review #TUI-13.".into()
+            } else {
+                format!("Please review {reference}.")
+            };
             app.view.as_mut().unwrap().replies = vec![serde_json::json!({
                 "recipientId": key.member().unwrap(),
                 "requestId": "checklist-reference",
-                "response": format!("Please review {reference}."),
+                "response": response,
             })];
             app.focus = 1;
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -1943,6 +1951,94 @@ fn talk_completes_a_member_item_and_checklist_r_quotes_it() {
         text.contains("draft") && text.contains(&reference),
         "{text:?}"
     );
+}
+
+fn work_references(app: &mut App) {
+    app.work.list = Some(
+        crate::board::work::List::decode(&serde_json::json!({
+            "spaceId": "work-space",
+            "pages": [{
+                "pageId": "12345678-aaaa-4aaa-8aaa-123456789abc",
+                "workNumber": "TUI-12",
+                "title": "Terminal resize",
+                "summary": {
+                    "status": "working",
+                    "todos": [{
+                        "id": "12345678-bbbb-4bbb-8bbb-123456789abc",
+                        "number": "TUI-13",
+                        "text": "Check narrow pane",
+                        "checked": false
+                    }]
+                }
+            }]
+        }))
+        .unwrap(),
+    );
+}
+
+#[test]
+fn talk_hash_reference_finds_work_and_checklist_and_sends_number_with_title() {
+    let (mut app, _) = read_with(vec![todo(1)]);
+    work_references(&mut app);
+    press(&mut app, KeyCode::Enter);
+    type_text(&mut app, "#");
+    let screen = paint(&app);
+    assert!(screen.contains("TUI-12 Terminal resize"), "{screen}");
+    assert!(screen.contains("TUI-13 Check narrow pane"), "{screen}");
+    assert!(screen.contains("● In progress"), "{screen}");
+    assert!(screen.contains("item 1"), "{screen}");
+    type_text(&mut app, "narrow");
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "#TUI-13 ");
+    type_text(&mut app, "and #tui-12");
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        "#TUI-13 and #TUI-12 "
+    );
+    type_text(&mut app, "plus `#TUI-12` plus #UNKNOWN-97");
+    let sent = press(&mut app, KeyCode::Enter);
+    let Effect::Act(Request::Chat { text, .. } | Request::Talk { text, .. }) = sent else {
+        panic!("expected the Talk body, got {sent:?}");
+    };
+    assert_eq!(
+        text,
+        "#TUI-13 (Check narrow pane) and #TUI-12 (Terminal resize) plus `#TUI-12` plus #UNKNOWN-97"
+    );
+    let painted = paint(&app);
+    assert_eq!(
+        painted.matches("#TUI-13 Check narrow pane").count(),
+        1,
+        "{painted}"
+    );
+}
+
+#[test]
+fn received_work_reference_opens_its_block_or_copies_only_the_number() {
+    let mut app = reference_case("work-reference-menu", crate::look::Look::default(), 160, 36);
+    let menu = app
+        .menu
+        .as_ref()
+        .expect("Enter opens the Work reference menu");
+    assert_eq!(menu.title, "#TUI-13");
+    assert_eq!(
+        menu.entries
+            .iter()
+            .map(|entry| entry.label.as_str())
+            .collect::<Vec<_>>(),
+        ["Open in Colab", "Copy number"]
+    );
+    assert_eq!(
+        press(&mut app, KeyCode::Enter),
+        Effect::OpenWorkPage(crate::board::work::OpenTarget {
+            page: "12345678-aaaa-4aaa-8aaa-123456789abc".into(),
+            block: Some("12345678-bbbb-4bbb-8bbb-123456789abc".into()),
+        })
+    );
+    let mut app = reference_case("work-reference-menu", crate::look::Look::default(), 160, 36);
+    press(&mut app, KeyCode::Down);
+    assert!(matches!(press(&mut app, KeyCode::Enter),
+        Effect::Act(Request::Copy { text, .. }) if text == "TUI-13"));
 }
 
 #[test]

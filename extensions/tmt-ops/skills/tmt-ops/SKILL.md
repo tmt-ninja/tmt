@@ -1730,10 +1730,11 @@ terminal to reveal more of the list.
 Above Talk, the tabs sit over one member row with scope, provider, model, driver,
 state and clickable unread. The composer shows the recipient, open requests, key
 hints and known context, such as `ctx 57% · 147k / 258k`.
-Talk adds `# item` when the member has a Checklist and the hint fits. Type `#` to
-pick from that list. Enter or Tab inserts `#Title (id)` as one unit. On the Checklist
-page, `r` quotes the selected item into Talk. A resolved transcript reference
-offers `Open in checklist`, which selects the item.
+In Talk, `#` searches Colab Work numbers and titles and this conversation's Checklist.
+Enter inserts a work number such as `#TUI-12`. The agent receives its number and
+title. In the transcript, select a known work number and press Enter to open it in
+Colab or copy the number. Checklist choices insert `#Title (id)`. On its page, `r`
+quotes an item into Talk. `Open in checklist` selects the referenced item.
 
 In Talk, reply and annotation, Left/Right, Home/End and click place the caret.
 Hold Shift while moving or drag to select. Backspace/Delete remove the selection
