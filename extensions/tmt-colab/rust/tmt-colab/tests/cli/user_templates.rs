@@ -120,7 +120,23 @@ fn a_page_is_saved_listed_shown_chosen_as_the_default_and_removed() {
         assert!(human.contains("BUILT-IN 6"), "{human}");
         assert!(human.contains("THIS SPACE 1"), "{human}");
         assert!(human.contains(&id[..8]), "{human}");
-        assert!(human.contains("hint: tmt colab page create"), "{human}");
+        let hint = r#"tmt colab page create --html --reason "<why HTML>""#;
+        assert!(human.contains(hint), "{human}");
+        for args in [
+            vec!["template", "show", "starter"],
+            vec![
+                "template",
+                "save",
+                &id,
+                "--name",
+                "weekly-review",
+                "--description",
+                "Shipped, open, risks, next week",
+            ],
+        ] {
+            let output = text(&pilot.command().args(args).output().unwrap());
+            assert!(output.contains(hint), "{output}");
+        }
 
         let shown = pilot.call(&["template", "show", "weekly-review", "--json"]);
         assert_eq!(shown["id"], id.as_str());

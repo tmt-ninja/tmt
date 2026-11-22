@@ -486,7 +486,7 @@ fn ls(args: &ArgMatches) -> Result<()> {
                 rows: space_rows,
                 note: (users == 0).then_some("none yet: tmt colab template save PAGE --name NAME"),
                 hint: Some(
-                    "tmt colab page create --html --reason HTML-template --title \"…\" --template NAME",
+                    "tmt colab page create --html --reason \"<why HTML>\" --title \"…\" --template NAME",
                 ),
             },
         ],
@@ -647,7 +647,7 @@ fn show(args: &ArgMatches) -> Result<()> {
             &mut output,
             terminal,
             &format!(
-                "tmt colab page create --html --reason HTML-template --title \"…\" --template {}",
+                "tmt colab page create --html --reason \"<why HTML>\" --title \"…\" --template {}",
                 template.name
             ),
         )?,
@@ -872,7 +872,7 @@ fn save(args: &ArgMatches) -> Result<()> {
         &mut output,
         terminal,
         &format!(
-            "tmt colab page create --html --reason HTML-template --title \"Week 43\" --template {name}"
+            "tmt colab page create --html --reason \"<why HTML>\" --title \"Week 43\" --template {name}"
         ),
     )?;
     Ok(())
