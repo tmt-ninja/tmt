@@ -215,6 +215,18 @@ impl ActivityWindow {
     }
 }
 
+pub const MAX_WORK_VIEWS: usize = 16;
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct WorkView {
+    pub name: String,
+    pub project: Option<String>,
+    pub query: String,
+    pub filter: Option<String>,
+    pub detail_collapsed: bool,
+    pub default: bool,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct OpsPreferences {
     pub hidden: BTreeSet<String>,
@@ -228,6 +240,7 @@ pub struct OpsPreferences {
     pub overview_panels: Option<PanelSetting<OverviewPanel>>,
     pub digest_panels: Option<PanelSetting<DigestPanel>>,
     pub labels: WorkspaceLabels,
+    pub work_views: Vec<WorkView>,
 }
 
 /// The person's board labels; these never become agent or Core metadata.
@@ -901,14 +914,183 @@ impl Config {
         notices
     }
 
+    pub fn work_views(&self) -> Result<Vec<WorkView>, SquadError> {
+        let Some(work) = self.document.get("work") else {
+            return Ok(Vec::new());
+        };
+        let table = work
+            .as_table_like()
+            .ok_or_else(|| invalid("`work` must be a table."))?;
+        let Some(views_item) = table.get("views") else {
+            return Ok(Vec::new());
+        };
+        let views = views_item
+            .as_array_of_tables()
+            .ok_or_else(|| invalid("`work.views` must be an array of tables."))?;
+        if views.len() > MAX_WORK_VIEWS {
+            return Err(invalid(format!(
+                "`work.views` allows at most {MAX_WORK_VIEWS} saved views."
+            )));
+        }
+        let mut result = Vec::with_capacity(views.len());
+        let mut names = BTreeSet::new();
+        let mut defaults = 0_usize;
+        for entry in views {
+            let name = entry
+                .get("name")
+                .and_then(Item::as_str)
+                .map(str::trim)
+                .filter(|name| !name.is_empty() && name.len() <= 48)
+                .ok_or_else(|| invalid("Each `work.views` entry requires a 1–48 byte name."))?
+                .to_owned();
+            if !names.insert(name.to_lowercase()) {
+                return Err(invalid("`work.views` names must be unique."));
+            }
+            let project = match entry.get("project") {
+                None => None,
+                Some(v) => Some(
+                    v.as_str()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .ok_or_else(|| invalid("`work.views.project` must be a non-empty string."))?
+                        .to_owned(),
+                ),
+            };
+            let query = match entry.get("query") {
+                None => String::new(),
+                Some(v) => v
+                    .as_str()
+                    .ok_or_else(|| invalid("`work.views.query` must be a string."))?
+                    .to_owned(),
+            };
+            let filter = match entry.get("filter") {
+                None => None,
+                Some(v) => Some(
+                    v.as_str()
+                        .filter(|s| matches!(*s, "needs-you" | "blocked"))
+                        .ok_or_else(|| {
+                            invalid("`work.views.filter` must be needs-you or blocked.")
+                        })?
+                        .to_owned(),
+                ),
+            };
+            let detail_collapsed = match entry.get("detail_collapsed") {
+                None => false,
+                Some(v) => v
+                    .as_bool()
+                    .ok_or_else(|| invalid("`work.views.detail_collapsed` must be boolean."))?,
+            };
+            let default = match entry.get("default") {
+                None => false,
+                Some(v) => v
+                    .as_bool()
+                    .ok_or_else(|| invalid("`work.views.default` must be boolean."))?,
+            };
+            if default {
+                defaults += 1;
+            }
+            result.push(WorkView {
+                name,
+                project,
+                query,
+                filter,
+                detail_collapsed,
+                default,
+            });
+        }
+        if defaults > 1 {
+            return Err(invalid("At most one `work.views` entry may be default."));
+        }
+        Ok(result)
+    }
+
+    pub fn save_work_views(
+        &mut self,
+        expected: &[WorkView],
+        next: &[WorkView],
+    ) -> Result<(), SquadError> {
+        if self.work_views()? != expected {
+            return Err(invalid("Saved Work views changed; reload before saving."));
+        }
+        if next.len() > MAX_WORK_VIEWS {
+            return Err(invalid(format!(
+                "`work.views` allows at most {MAX_WORK_VIEWS} saved views."
+            )));
+        }
+        let mut names = BTreeSet::new();
+        let mut defaults = 0_usize;
+        for view in next {
+            let name = view.name.trim();
+            if name.is_empty() || name.len() > 48 {
+                return Err(invalid("Saved view name must be 1–48 bytes."));
+            }
+            if !names.insert(name.to_lowercase()) {
+                return Err(invalid("Saved view names must be unique."));
+            }
+            if view
+                .filter
+                .as_deref()
+                .is_some_and(|f| !matches!(f, "needs-you" | "blocked"))
+            {
+                return Err(invalid("Saved view filter must be needs-you or blocked."));
+            }
+            if view.default {
+                defaults += 1;
+            }
+        }
+        if defaults > 1 {
+            return Err(invalid("At most one saved view may be default."));
+        }
+        self.write(|document| {
+            if next.is_empty() {
+                if let Some(work) = document.get_mut("work").and_then(Item::as_table_like_mut) {
+                    work.remove("views");
+                }
+                return;
+            }
+            if document.get("work").is_none() {
+                document["work"] = Item::Table(Table::new());
+            }
+            let mut array = toml_edit::ArrayOfTables::new();
+            for view in next {
+                let mut table = Table::new();
+                table["name"] = value(view.name.trim());
+                if let Some(project) = view.project.as_deref().filter(|p| !p.is_empty()) {
+                    table["project"] = value(project);
+                }
+                if !view.query.is_empty() {
+                    table["query"] = value(&view.query);
+                }
+                if let Some(filter) = &view.filter {
+                    table["filter"] = value(filter);
+                }
+                if view.detail_collapsed {
+                    table["detail_collapsed"] = value(true);
+                }
+                if view.default {
+                    table["default"] = value(true);
+                }
+                array.push(table);
+            }
+            document["work"]["views"] = Item::ArrayOfTables(array);
+        })
+    }
+
     pub fn workspace_preferences(&self) -> Result<OpsPreferences, SquadError> {
+        let work_views = self.work_views()?;
         let Some(item) = self.document.get("workspace") else {
-            return Ok(OpsPreferences::default());
+            return Ok(OpsPreferences {
+                work_views,
+                ..OpsPreferences::default()
+            });
         };
         let table = item
             .as_table_like()
             .ok_or_else(|| invalid("`workspace` must be a table."))?;
-        let mut result = OpsPreferences::default();
+        let mut result = OpsPreferences {
+            work_views,
+            ..OpsPreferences::default()
+        };
         for (key, item) in table.iter() {
             match key {
                 "read_markers" => {
@@ -2381,6 +2563,7 @@ mod tests {
             overview_panels: None,
             digest_panels: None,
             labels: expected.labels.clone(),
+            work_views: Vec::new(),
         };
         config.save_workspace_preferences(&expected, &next).unwrap();
         let reloaded = fixture.config();
@@ -2968,5 +3151,32 @@ mod tests {
                 error.message
             );
         }
+    }
+
+    #[test]
+    fn work_views_round_trip_cas_and_enforce_bounds() {
+        let fixture = FileFixture::new();
+        fs::write(fixture.0.join("ops.toml"), "[workspace]\nsort = 'name'\n").unwrap();
+        let mut cfg = fixture.config();
+        assert!(cfg.work_views().unwrap().is_empty());
+        let next = vec![WorkView {
+            name: "Remote follow-up".into(),
+            project: Some("remote".into()),
+            query: "reconnect".into(),
+            filter: Some("needs-you".into()),
+            detail_collapsed: true,
+            default: true,
+        }];
+        cfg.save_work_views(&[], &next).unwrap();
+        let reloaded = fixture.config();
+        assert_eq!(reloaded.work_views().unwrap(), next);
+        assert_eq!(
+            reloaded.workspace_preferences().unwrap().sort,
+            OpsSort::Name
+        );
+        assert!(
+            cfg.save_work_views(&[], &[]).is_err(),
+            "CAS rejects stale expected"
+        );
     }
 }

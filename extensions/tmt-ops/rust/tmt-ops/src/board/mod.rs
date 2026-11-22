@@ -720,6 +720,23 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 saved.unwrap_or_else(|| "Workspace preferences saved.".to_owned()),
             ))));
         }
+        Request::WorkViews {
+            expected,
+            next,
+            saved,
+        } => {
+            let mut config = Config::load(core).map_err(|error| error.message)?;
+            config
+                .save_work_views(&expected, &next)
+                .map_err(|error| error.message)?;
+            let preferences = config
+                .workspace_preferences()
+                .map_err(|error| error.message)?;
+            return Ok(ActionOutcome::WorkspacePreferences(Box::new((
+                preferences,
+                saved,
+            ))));
+        }
         Request::MemberLabel {
             expected,
             member,
@@ -1251,6 +1268,7 @@ fn session(
                             app.work.cancel(Instant::now());
                         } else {
                             app.work.apply(Instant::now(), result);
+                            app.apply_default_work_view();
                             dirty = true;
                         }
                         Effect::None

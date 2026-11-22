@@ -228,6 +228,11 @@ pub enum Request {
         next: crate::config::OpsPreferences,
         saved: Option<String>,
     },
+    WorkViews {
+        expected: Vec<crate::config::WorkView>,
+        next: Vec<crate::config::WorkView>,
+        saved: String,
+    },
     MemberLabel {
         expected: std::sync::Arc<crate::config::WorkspaceLabels>,
         member: String,
@@ -274,6 +279,7 @@ impl Request {
             Self::SendNow { .. } => "Sending now…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
+            Self::WorkViews { .. } => "Saving work views…",
             Self::MemberLabel { .. } => "Saving label…",
             Self::LabelEdit { .. } => "Saving labels…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
@@ -728,6 +734,7 @@ pub(super) enum Overlay {
     EstimateBasis,
     OrchestrationWhy,
     Unread,
+    WorkViews,
     Discovery,
     MemberSession,
     Notes,
@@ -802,6 +809,7 @@ impl Overlay {
                 Self::PastePreview => "paste-preview",
                 Self::OfflineResume => "offline-resume",
                 Self::Standalone => "run-command",
+                Self::WorkViews => "work-views",
             }
             .into(),
         ]
@@ -4264,6 +4272,8 @@ impl App {
             Some(Overlay::OrchestrationWhy)
         } else if self.unread_overlay.is_some() {
             Some(Overlay::Unread)
+        } else if self.work.view_dialog.is_some() {
+            Some(Overlay::WorkViews)
         } else if self.switch_tool_shown() {
             Some(Overlay::SwitchTool)
         } else if self.idle_alert_shown() {
@@ -4424,6 +4434,15 @@ impl App {
             Overlay::CronReview => self.cron_review_event(event),
             Overlay::Confirm => self.confirm_event(event),
             Overlay::MonitorDetails => self.monitor_details_event(event),
+            Overlay::WorkViews => match event {
+                ratatui::crossterm::event::Event::Key(key) => {
+                    Some(self.work_view_dialog_key(*key).unwrap_or(Effect::None))
+                }
+                ratatui::crossterm::event::Event::Mouse(mouse) => {
+                    Some(self.work_view_dialog_mouse(*mouse).unwrap_or(Effect::None))
+                }
+                _ => None,
+            },
         }
     }
 
@@ -4747,6 +4766,9 @@ impl App {
                 })
         {
             return self.open_standalone();
+        }
+        if let Some(effect) = self.work_view_dialog_key(key) {
+            return effect;
         }
         if !typing && let Some(effect) = self.saved_row_key(key) {
             return effect;
@@ -5114,6 +5136,9 @@ impl App {
             return Effect::None;
         }
         if let Some(effect) = self.frame_mouse(event) {
+            return effect;
+        }
+        if let Some(effect) = self.work_view_dialog_mouse(event) {
             return effect;
         }
         self.conversation_source_outside_press(event);
