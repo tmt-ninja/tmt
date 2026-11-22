@@ -353,22 +353,7 @@ impl List {
             });
             let sections_omitted = summary["sectionsOmitted"] == true;
             let sections = decode_sections(&summary["sections"]);
-            let progress = decode_progress(&summary["sectionProgress"]).or_else(|| {
-                if sections_omitted || sections.is_empty() {
-                    return None;
-                }
-                let top_level = sections.iter().map(|section| section.level).min()?;
-                let (done, total) = sections
-                    .iter()
-                    .filter(|section| section.level == top_level)
-                    .fold((0_u64, 0_u64), |(done, total), section| {
-                        (
-                            done.saturating_add(section.done),
-                            total.saturating_add(section.total),
-                        )
-                    });
-                (total > 0).then_some(Progress { done, total })
-            });
+            let progress = decode_progress(&summary["sectionProgress"]);
             let needs_you = summary["needsYou"].as_u64().unwrap_or(0);
             list.items.push(Item {
                 key: id.into(),

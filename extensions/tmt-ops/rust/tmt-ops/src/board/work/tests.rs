@@ -777,17 +777,12 @@ fn colab_work_decodes_sections_and_honest_unknown_progress() {
         .unwrap();
     assert_eq!(colab_119.needs_you, 1);
     assert_eq!(colab_119.sections.len(), 3);
-    // Top-level sections (level 2) sum to 1/3 without double-counting level 3.
-    assert_eq!(colab_119.progress, Some(Progress { done: 1, total: 3 }));
-    // Core includes PAGE (1/3) and UNCHECKED (sectionsOmitted -> None): honest None.
+    // Absent summary.sectionProgress stays None even when sections are present.
+    assert_eq!(colab_119.progress, None);
     assert_eq!(list.project_progress("Core"), None);
-    // Colab includes PAGE (1/3) and DONE (no sections): sums known 1/3.
-    assert_eq!(
-        list.project_progress("Colab"),
-        Some(Progress { done: 1, total: 3 })
-    );
+    assert_eq!(list.project_progress("Colab"), None);
 
-    // Explicit summary.sectionProgress overrides sections fallback.
+    // Explicit summary.sectionProgress populates progress.
     document["pages"][0]["summary"]["sectionProgress"] =
         json!({"done": 2, "inProgress": 1, "todo": 1, "unknown": 0, "total": 4});
     let list = List::decode(&document).unwrap();
@@ -797,6 +792,10 @@ fn colab_work_decodes_sections_and_honest_unknown_progress() {
         .find(|item| item.page == PAGE && !item.todo)
         .unwrap();
     assert_eq!(colab_119.progress, Some(Progress { done: 2, total: 4 }));
+    assert_eq!(
+        list.project_progress("Colab"),
+        Some(Progress { done: 2, total: 4 })
+    );
 }
 
 #[test]
