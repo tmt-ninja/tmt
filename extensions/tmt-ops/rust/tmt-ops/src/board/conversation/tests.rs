@@ -962,7 +962,7 @@ fn focus_uses_held_identity_stat_tiles_and_uuid_fenced_details_action() {
         .unwrap();
     let buffer = terminal.backend().buffer();
     let screen: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-    assert!(screen.contains("product · member"));
+    assert!(screen.contains("PRODUCT / MEMBER"));
     assert!(screen.contains("runtime-long-界") && screen.contains("model-long-value"));
     // The cells are the Measure view of the same agent.
     assert!(!screen.contains("TIMERS"));

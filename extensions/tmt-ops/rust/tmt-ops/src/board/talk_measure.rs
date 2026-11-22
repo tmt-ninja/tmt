@@ -39,7 +39,12 @@ fn checklist_cap(app: &App) -> Option<Span<'static>> {
 }
 
 /// Member panels give the destinations their own row, independent of the title.
-pub(super) fn paint_member_tabs(buffer: &mut Buffer, app: &App, area: Rect, target: &OpsTarget) {
+pub(super) fn paint_member_tabs(
+    buffer: &mut Buffer,
+    app: &App,
+    area: Rect,
+    target: &OpsTarget,
+) -> u16 {
     use crate::action::OpsUiAction;
     let checklist = conversation_checklist::Key::of(target);
     let checklist_label = checklist.as_ref().map_or("Checklist".into(), |key| {
@@ -95,6 +100,7 @@ pub(super) fn paint_member_tabs(buffer: &mut Buffer, app: &App, area: Rect, targ
             )
         }
     };
+    let used = text.width().min(usize::from(area.width)) as u16;
     strip::paint_left(buffer, area, text);
     for (index, hit) in hits {
         let tab = entries[index].1;
@@ -108,6 +114,7 @@ pub(super) fn paint_member_tabs(buffer: &mut Buffer, app: &App, area: Rect, targ
                 .push((hit, Choice::RightTab(tab)));
         }
     }
+    used
 }
 
 /// Paints the control on `rule` and returns what is left of the rule for its own title.

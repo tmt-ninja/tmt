@@ -19,7 +19,18 @@ pub(super) fn render_header(
     let look = app.look();
     let mut y = area.y;
     let tab = Rect::new(area.x, y, area.width, area.height.min(1));
-    crate::board::talk_measure::paint_member_tabs(frame.buffer_mut(), app, tab, target);
+    let used = crate::board::talk_measure::paint_member_tabs(frame.buffer_mut(), app, tab, target);
+    if app.right_tab == crate::board::shell::RightTab::Talk
+        && !app.screen_mode()
+        && tab.width >= used.saturating_add(2)
+        && let Some(glyph) = app.conversation_spinner(&RowTarget::Workspace(target.clone()))
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(tab.x + used + 1, tab.y, 1, 1),
+            neutral(glyph, look),
+        );
+    }
     y += tab.height;
     if y >= area.bottom() {
         return y;
@@ -70,6 +81,21 @@ pub(super) fn render_header(
     )];
     if title[0].width() + label.width() < usize::from(name_width) {
         title.push(Span::styled(label, look.role(Role::Muted)));
+        if let Some(label) = app.workspace_snapshot().and_then(|snapshot| {
+            let labels = &snapshot.preferences.labels;
+            let assigned = labels.members.get(identity_id)?;
+            labels
+                .definitions
+                .iter()
+                .find(|label| &label.id == assigned)
+        }) {
+            let label = format!(" · {}", super::super::notes::single_line(&label.name));
+            if title.iter().map(Span::width).sum::<usize>() + label.width()
+                <= usize::from(name_width)
+            {
+                title.push(Span::styled(label, look.role(Role::Muted)));
+            }
+        }
     }
     strip::paint_left(frame.buffer_mut(), name_area, Line::from(title));
     let status_area = Rect::new(name_area.right(), y, status_width, 1);
@@ -114,7 +140,10 @@ pub(super) fn render_header(
     });
     let provider = runtime.map_or_else(
         || "—".into(),
-        |id| super::super::limits::Provider::named(id).label(),
+        |id| {
+            super::super::limits::Provider::from_driver(id)
+                .map_or_else(|| id.to_owned(), |provider| provider.label())
+        },
     );
     let provider_role = match runtime {
         Some("claude") => Role::Waiting,

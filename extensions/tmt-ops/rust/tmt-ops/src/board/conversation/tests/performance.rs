@@ -787,20 +787,14 @@ fn scrolling_leaves_the_input_the_footer_and_the_caret_alone() {
             );
             assert_eq!(cells.backend_mut().get_cursor_position().unwrap(), caret);
             let text = String::from_utf8(sink.0.borrow().clone()).unwrap();
-            let hide = text
-                .find("\x1b[?25l")
-                .expect("hidden while cells are written");
+            assert!(text.starts_with("\x1b[?2026h"), "step {step}: {text:?}");
+            assert!(!text.contains("\x1b[?25"), "step {step}: {text:?}");
+            let placed = format!("\x1b[{};{}H", caret.y + 1, caret.x + 1);
+            assert_eq!(text.matches(&placed).count(), 1);
             assert!(
-                hide == 0,
-                "step {step}: hidden before anything is written: {text:?}"
+                text.ends_with(&format!("{placed}\x1b[?2026l")),
+                "step {step}: {text:?}"
             );
-            let placed = format!("\x1b[{};{}H\x1b[?25h", caret.y + 1, caret.x + 1);
-            assert!(
-                text.ends_with(&placed),
-                "step {step}: the caret is placed in the input and shown last: {:?}",
-                &text[text.len().saturating_sub(40)..]
-            );
-            assert_eq!(text.matches("\x1b[?25h").count(), 1);
         }
         assert_eq!(scrolled, 30);
     });

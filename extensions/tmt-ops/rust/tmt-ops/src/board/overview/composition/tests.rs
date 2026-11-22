@@ -111,7 +111,6 @@ fn removed_count_cells_cannot_retain_their_old_timer_authority() {
 
     paint(&mut app, 100, 36);
     assert!(app.cron_scope_hits.borrow().is_empty());
-    let selected = app.workspace.selected.clone();
     app.mouse(
         MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -122,7 +121,10 @@ fn removed_count_cells_cannot_retain_their_old_timer_authority() {
         std::time::Instant::now(),
     );
     assert!(app.cron_list.is_none());
-    assert_eq!(app.workspace.selected, selected);
+    assert_eq!(
+        app.workspace.selected,
+        Some(crate::board::workspace::OpsTarget::DigestAll)
+    );
 }
 #[test]
 fn one_primary_viewport_keeps_waiting_targets_and_hits_bounded_at_short_heights() {

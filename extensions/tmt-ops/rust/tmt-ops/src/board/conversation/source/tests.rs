@@ -1324,7 +1324,8 @@ mod click_focus {
         }
         draw(&mut app, WIDE, HIGH);
         let (x, y) = locate(&buffer, "first passage").expect("history text is painted");
-        for (column, row) in [(x, y), (98, 27), (98, 15), (2, 12)] {
+        let (member_x, member_y) = locate(&buffer, "└ worker").expect("selected roster row");
+        for (column, row) in [(x, y), (98, 27), (98, 15), (member_x + 2, member_y)] {
             let effect = click(&mut app, column, row);
             assert_eq!(effect, Effect::None, "click at {column},{row}");
             assert_eq!(app.conversation_target(), target, "click at {column},{row}");
