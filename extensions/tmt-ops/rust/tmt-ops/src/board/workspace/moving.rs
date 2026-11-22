@@ -124,6 +124,9 @@ fn group_end(rows: &[OpsTreeRow], group: &OpsTarget) -> Option<usize> {
 
 /// The move's placement in `rows`, or none while nothing is lifted.
 pub(in crate::board) fn placement(app: &App, rows: &[OpsTreeRow]) -> Option<Placement> {
+    if let Some(placement) = app.standalone.moving_placement(rows) {
+        return Some(placement);
+    }
     let moving = app.moving.as_ref().filter(|moving| !moving.applying)?;
     let source = rows
         .iter()
@@ -157,15 +160,19 @@ pub(in crate::board) fn paint_lifted(
     rows: &[OpsTreeRow],
     depth: usize,
 ) {
-    let Some(moving) = app.moving.as_ref() else {
-        return;
-    };
+    let title = app.standalone.moving_title(rows).or_else(|| {
+        let moving = app.moving.as_ref()?;
+        Some(format!(
+            "{}  → {}",
+            short(&moving.name),
+            moving.target_name(rows)
+        ))
+    });
+    let Some(title) = title else { return };
     let look = app.look();
     let text = format!(
-        " {}⇅ {}  → {}",
+        " {}⇅ {title}",
         "  ".repeat(depth.min(usize::from(area.width) / 2)),
-        short(&moving.name),
-        moving.target_name(rows)
     );
     let style = look
         .role(Role::Accent)
@@ -186,13 +193,17 @@ pub(in crate::board) fn paint_placeholder(
     app: &App,
     depth: usize,
 ) {
-    let Some(moving) = app.moving.as_ref() else {
+    let Some(name) = app
+        .standalone
+        .lifted_name()
+        .or_else(|| app.moving.as_ref().map(|moving| moving.name.as_str()))
+    else {
         return;
     };
     let text = format!(
         " {}┆ {} · moving",
         "  ".repeat(depth.min(usize::from(area.width) / 2)),
-        short(&moving.name)
+        short(name)
     );
     strip::paint_left(buffer, area, Line::styled(text, app.look().role(Role::Dim)));
 }

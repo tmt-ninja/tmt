@@ -154,6 +154,7 @@ pub(in crate::board) fn paint_line(
 pub(in crate::board) struct TerminalRow<'a> {
     pub source: &'a OpsTreeRow,
     pub ended: bool,
+    pub status: Option<&'a str>,
     /// The last terminal under its member: `└` rather than `├`.
     pub last: bool,
     /// Its member has a sibling below: the member's line goes on (`│`).
@@ -201,11 +202,24 @@ pub(in crate::board) fn paint_terminal(
                         .saturating_sub(2)
                         .min(usize::from(cell.width.saturating_sub(11)) / 2),
                 );
-                let branch = format!(
-                    "{indent}{}{}",
-                    if row.trunk { "  │ " } else { "    " },
-                    if row.last { "└ " } else { "├ " }
-                );
+                let branch = if row.status.is_some() {
+                    format!(
+                        "{}{}",
+                        "  ".repeat(
+                            row.source
+                                .depth
+                                .saturating_sub(1)
+                                .min(usize::from(cell.width) / 2)
+                        ),
+                        if row.last { "└ " } else { "├ " }
+                    )
+                } else {
+                    format!(
+                        "{indent}{}{}",
+                        if row.trunk { "  │ " } else { "    " },
+                        if row.last { "└ " } else { "├ " }
+                    )
+                };
                 let marker = "›_ ";
                 let name_width =
                     usize::from(cell.width).saturating_sub(1 + branch.width() + marker.width());
@@ -216,7 +230,11 @@ pub(in crate::board) fn paint_terminal(
                     Span::styled(crate::board::view::fit(&row.source.title, name_width), name),
                 ])
             }
-            AgentsField::State => Line::styled(if row.ended { "ended" } else { "running" }, name),
+            AgentsField::State => Line::styled(
+                row.status
+                    .unwrap_or(if row.ended { "ended" } else { "running" }),
+                name,
+            ),
             _ => continue,
         };
         strip::paint_left(buffer, cell, line);

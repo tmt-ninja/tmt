@@ -105,6 +105,8 @@ pub enum OpsTarget {
     /// The read-only aggregate row in Digest; never a recipient or room.
     DigestAll,
     Pool,
+    LocalTerminals,
+    SavedTerminal(String),
     /// The folding group of hidden squads at the end of the Agents list; it only
     /// selects, folds and counts, and is never a recipient or room.
     Hidden,
@@ -325,7 +327,9 @@ impl OpsRoster {
         match target {
             OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => true,
             // Core's roster has no terminals: a terminal row that is gone is missing.
-            OpsTarget::Terminal { .. } => false,
+            OpsTarget::Terminal { .. }
+            | OpsTarget::LocalTerminals
+            | OpsTarget::SavedTerminal(_) => false,
             OpsTarget::Squad(id) => self.squads.iter().any(|squad| squad.room_id == *id),
             OpsTarget::Member {
                 room_id: Some(room),
@@ -411,7 +415,11 @@ impl OpsWorkspace {
                     self.expanded.insert(id.clone());
                 }
             }
-            OpsTarget::Member { .. } | OpsTarget::Terminal { .. } | OpsTarget::DigestAll => {
+            OpsTarget::Member { .. }
+            | OpsTarget::Terminal { .. }
+            | OpsTarget::DigestAll
+            | OpsTarget::LocalTerminals
+            | OpsTarget::SavedTerminal(_) => {
                 return false;
             }
         }

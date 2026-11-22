@@ -45,6 +45,7 @@ mod member_terminals;
 mod new_member;
 mod offline_resume;
 mod provider_answer;
+mod standalone;
 mod switch_tool;
 mod tool_choices;
 pub(crate) use limits::history::document as limits_history;
@@ -158,6 +159,7 @@ pub(in crate::board) enum BoardEvent {
         key: (String, String),
         confirmed: bool,
     },
+    Standalone(standalone::Completed),
     ShellDone {
         key: (String, String),
         result: Result<serde_json::Value, String>,
@@ -332,6 +334,7 @@ impl BoardEvent {
         match self {
             Self::ShellCancelled { .. } => "ShellCancelled",
             Self::ShellDone { .. } => "ShellDone",
+            Self::Standalone(_) => "Standalone",
             Self::ProviderAnswer(_) => "ProviderAnswer",
             Self::Migration(_) => "Migration",
             Self::CronMigration(_) => "CronMigration",
@@ -946,6 +949,9 @@ fn session(
         if let Some(task) = app.skills.offer(recipient.as_deref(), now) {
             io(lane::Job::Skills(task));
         }
+        if let Some(task) = app.standalone.offer_list() {
+            io(lane::Job::Standalone(task));
+        }
         if let Some(task) = app.terminals_offer() {
             io(lane::Job::Terminals(task));
         }
@@ -954,6 +960,7 @@ fn session(
             dirty = true;
         }
         // The footer names a waiting reload, so a new one repaints.
+        dirty |= app.standalone.tick(now);
         dirty |= app.expire_notice(now);
         dirty |= app.reload.poll(now);
         if app.reload.pending()
@@ -1144,6 +1151,11 @@ fn session(
                         dirty = true;
                         Effect::None
                     }
+                    Ok(BoardEvent::Standalone(completed)) => {
+                        app.standalone_completed(completed);
+                        dirty = true;
+                        Effect::None
+                    }
                     Ok(BoardEvent::ShellDone { key, result }) => {
                         app.shell_finished(key, result);
                         dirty = true;
@@ -1210,6 +1222,7 @@ fn session(
                                 app.selected_request = refresh::SelectedRequest::Ready(None);
                             }
                             app.apply(*snapshot);
+                            app.standalone.refresh_due = true;
                             dirty = true;
                             app.prune_member_placement()
                         } else {
@@ -1892,6 +1905,7 @@ fn session(
                             }
                         }
                     }
+                    Effect::Standalone(task) => io(lane::Job::Standalone(task)),
                     Effect::Shell { key, command } => {
                         io(lane::Job::Shell { key, command });
                     }
@@ -2120,6 +2134,11 @@ pub fn run(
     let keyboard_enhanced = guard.enable_keyboard_enhancement().map_err(failed)?;
     links.enable(hyperlinks::detect());
     let mut app = App::new(squad);
+    app.standalone.start(
+        std::env::current_dir()
+            .ok()
+            .and_then(|path| path.into_os_string().into_string().ok()),
+    );
     let placement = crate::migration::state_root(&core)
         .map_err(|error| error.message)
         .and_then(|root| workspace::placement::Placements::load(&root));
@@ -2229,6 +2248,14 @@ pub fn run(
         |revision, identity| worker.selected(revision, identity),
         |task| worker.checklist(task),
         |job| {
+            if let lane::Job::Standalone(
+                task @ (standalone::Task::Target(_)
+                | standalone::Task::Saved(standalone::SavedTask::List { .. })),
+            ) = job
+            {
+                worker.standalone_read(task);
+                return;
+            }
             lane::route(
                 job,
                 |task| worker.conversation_checklist(task),

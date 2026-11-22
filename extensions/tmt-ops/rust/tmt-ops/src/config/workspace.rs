@@ -531,6 +531,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("y", "copy"),
         ]);
     }
+    entries.push(("!", "run-command"));
     entries
         .into_iter()
         .map(|(key, action)| {

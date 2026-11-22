@@ -1,0 +1,739 @@
+//! The board's Run command controller. Core owns execution, retained output and shells.
+
+use super::app::{App, Effect, Overlay};
+
+mod saved;
+mod worker;
+use crate::core::{Core, SquadError};
+use ratatui::{
+    Frame,
+    crossterm::event::{Event, KeyCode},
+    layout::Rect,
+    text::Line,
+};
+use saved::Moving;
+pub use saved::{SavedRow, SavedTask};
+use serde_json::{Value, json};
+use std::{cell::RefCell, time::Instant};
+use tmt_tui::components::{
+    Button, Dialog, DialogHits, DialogInput, DialogKind, DialogState, Editor, FieldKind, Placement,
+    strip,
+};
+pub(super) use worker::Worker;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Task {
+    Target(String),
+    Saved(SavedTask),
+    Run(Value),
+    Keep(String),
+    Discard,
+    Stop,
+}
+
+pub(super) enum Completed {
+    Target(String, Result<Value, SquadError>),
+    Saved(SavedTask, Result<Value, SquadError>),
+    Run(Result<Value, SquadError>),
+    Keep(Result<Value, SquadError>),
+}
+
+pub(super) fn complete_read(core: &Core, task: Task) -> Completed {
+    match task {
+        Task::Target(identity) => {
+            let result = core.api("terminal.command.target", json!({"identityId": identity}));
+            Completed::Target(identity, result)
+        }
+        Task::Saved(task @ SavedTask::List { .. }) => {
+            let result = task.complete(core);
+            Completed::Saved(task, result)
+        }
+        _ => unreachable!("read worker receives only target and list requests"),
+    }
+}
+
+#[derive(Clone)]
+struct Target {
+    label: String,
+    input: Value,
+}
+
+struct Form {
+    command: Editor,
+    saved: Option<Value>,
+    targets: Vec<Target>,
+    selected: usize,
+    member: Option<(String, Option<String>, String)>,
+    observing: bool,
+    history: Option<usize>,
+}
+
+enum Page {
+    Form(Form),
+    Running {
+        command: String,
+        cwd: String,
+        started: Instant,
+        stopping: bool,
+    },
+    Finished {
+        result: Value,
+        keeping: bool,
+    },
+    Saved(Value),
+    Remove {
+        row: SavedRow,
+    },
+    Refused(String),
+}
+
+#[derive(Default)]
+pub(super) struct Controller {
+    pub(super) launch_directory: Option<String>,
+    enabled: bool,
+    saved_generation: u64,
+    pub(super) saved_rows: Vec<SavedRow>,
+    pub(super) local_folded: bool,
+    pub(super) refresh_due: bool,
+    pub(super) list_pending: bool,
+    list_unsupported: bool,
+    list_supported: bool,
+    pub(super) shell: Option<(String, String, super::terminal_tab::discovery::Address)>,
+    moving: Option<Moving>,
+    pending: bool,
+    page: Option<Page>,
+    shown: bool,
+    history: Vec<String>,
+    request: Option<Value>,
+    dialog: Option<DialogState>,
+    hits: RefCell<DialogHits>,
+    scroll: usize,
+    scroll_position: std::cell::Cell<usize>,
+    elapsed: std::cell::Cell<u64>,
+    notice: Option<String>,
+}
+
+const MAX_COMMAND: usize = tmt_pty_protocol::COMMAND_LIMIT;
+const COMMAND_FIELD: &[FieldKind] = &[FieldKind::Text];
+
+impl Controller {
+    pub(super) fn start(&mut self, launch_directory: Option<String>) {
+        self.launch_directory = launch_directory;
+        self.enabled = true;
+        self.refresh_due = true;
+    }
+
+    pub(in crate::board) fn tick(&self, now: Instant) -> bool {
+        let Some(Page::Running { started, .. }) = &self.page else {
+            return false;
+        };
+        let seconds = now.saturating_duration_since(*started).as_secs();
+        self.shown && self.elapsed.replace(seconds) != seconds
+    }
+
+    pub(super) fn invalidate(&self) {
+        self.hits.replace(DialogHits::default());
+    }
+
+    pub(super) fn outer(&self) -> Rect {
+        self.hits.borrow().outer
+    }
+
+    pub(super) fn shown(&self) -> bool {
+        self.shown
+    }
+
+    pub(super) fn editing(&self) -> bool {
+        matches!(self.page, Some(Page::Form(_)))
+    }
+
+    pub(super) fn running(&self) -> bool {
+        matches!(self.page, Some(Page::Running { .. }))
+    }
+
+    pub(super) fn stop(&mut self) -> Effect {
+        if let Some(Page::Running { stopping, .. }) = &mut self.page
+            && !*stopping
+        {
+            *stopping = true;
+            return Effect::Standalone(Task::Stop);
+        }
+        Effect::None
+    }
+
+    fn open(&mut self, member: Option<(String, Option<String>, String)>) -> Effect {
+        if self.pending {
+            return Effect::None;
+        }
+        self.shown = true;
+        if self.page.is_some() {
+            return Effect::None;
+        }
+        let targets = self
+            .launch_directory
+            .as_ref()
+            .map(|cwd| Target {
+                label: "Local".into(),
+                input: json!({"kind":"local","cwd":cwd}),
+            })
+            .into_iter()
+            .collect();
+        let effect = member.as_ref().map_or(Effect::None, |(identity, _, _)| {
+            Effect::Standalone(Task::Target(identity.clone()))
+        });
+        self.show(Page::Form(Form {
+            saved: None,
+            command: Editor::default(),
+            targets,
+            selected: 0,
+            observing: member.is_some(),
+            member,
+            history: None,
+        }));
+        effect
+    }
+
+    fn show(&mut self, page: Page) {
+        self.page = Some(page);
+        self.shown = true;
+        self.scroll = 0;
+        self.scroll_position.set(0);
+        self.notice = None;
+        self.hits.replace(DialogHits::default());
+        let (dialog, fields) = self.presentation();
+        self.dialog = Some(DialogState::new(fields, &dialog.buttons));
+    }
+
+    pub(super) fn close(&mut self) -> Effect {
+        if self.pending {
+            return Effect::None;
+        }
+        match &self.page {
+            Some(Page::Running { .. }) => {
+                self.shown = false;
+                Effect::None
+            }
+            Some(Page::Finished { keeping: true, .. }) => Effect::None,
+            _ => {
+                self.shown = false;
+                self.page = None;
+                if self.request.take().is_some() {
+                    Effect::Standalone(Task::Discard)
+                } else {
+                    Effect::None
+                }
+            }
+        }
+    }
+
+    fn run(&mut self, request: Value, command: String, cwd: String) -> Effect {
+        self.request = Some(request.clone());
+        self.elapsed.set(0);
+        self.show(Page::Running {
+            command,
+            cwd,
+            started: Instant::now(),
+            stopping: false,
+        });
+        Effect::Standalone(Task::Run(request))
+    }
+
+    fn choose(&mut self, index: usize) -> Effect {
+        match (&mut self.page, index) {
+            (Some(Page::Form(form)), 0) => {
+                let command = form.command.as_str().to_owned();
+                let Some(target) = form.targets.get(form.selected) else {
+                    return Effect::None;
+                };
+                if form.observing || !tmt_pty_protocol::valid_command(&command) {
+                    return Effect::None;
+                }
+                let cwd = target.input["cwd"].as_str().unwrap_or_default().to_owned();
+                let request = form
+                    .saved
+                    .clone()
+                    .unwrap_or_else(|| json!({"target":target.input,"command":command}));
+                self.history.retain(|previous| previous != &command);
+                self.history.insert(0, command.clone());
+                self.history.truncate(32);
+                self.run(request, command, cwd)
+            }
+            (Some(Page::Running { .. }), 0) => self.stop(),
+            (Some(Page::Finished { result, keeping }), 0) if !*keeping => {
+                if let Some(run_id) = result["runId"].as_str() {
+                    *keeping = true;
+                    Effect::Standalone(Task::Keep(run_id.to_owned()))
+                } else {
+                    Effect::None
+                }
+            }
+            (
+                Some(Page::Finished {
+                    result,
+                    keeping: false,
+                }),
+                1,
+            ) => {
+                let command = result["command"].as_str().unwrap_or_default().to_owned();
+                let cwd = result["cwd"].as_str().unwrap_or_default().to_owned();
+                self.request
+                    .clone()
+                    .map_or(Effect::None, |request| self.run(request, command, cwd))
+            }
+            (Some(Page::Remove { row }), 1) if !self.pending => {
+                self.pending = true;
+                Effect::Standalone(Task::Saved(SavedTask::Remove(row.clone(), true)))
+            }
+            _ => self.close(),
+        }
+    }
+
+    fn input(&mut self, event: &Event) -> Effect {
+        if let Some(Page::Form(form)) = &mut self.page
+            && form.saved.is_none()
+        {
+            match event {
+                Event::Key(key) if key.modifiers.is_empty() && key.code == KeyCode::Tab => {
+                    if !form.targets.is_empty() {
+                        form.selected = (form.selected + 1) % form.targets.len();
+                    }
+                    return Effect::None;
+                }
+                Event::Key(key) if key.modifiers.is_empty() && key.code == KeyCode::Up => {
+                    let index = form.history.map_or(0, |last| last + 1);
+                    if let Some(command) = self.history.get(index) {
+                        form.history = Some(index);
+                        form.command = Editor::from(command.as_str());
+                    }
+                    return Effect::None;
+                }
+                Event::Paste(text) => {
+                    if tmt_pty_protocol::valid_command(text) {
+                        if !form.command.insert(text, MAX_COMMAND) {
+                            self.notice = Some("The command is too long.".into());
+                        }
+                    } else {
+                        self.notice = Some("Paste one command without control characters.".into());
+                    }
+                    return Effect::None;
+                }
+                _ => {}
+            }
+        }
+        if let Event::Key(key) = event {
+            if key.modifiers.is_empty() && matches!(self.page, Some(Page::Finished { .. })) {
+                match key.code {
+                    KeyCode::Char('k') => return self.choose(0),
+                    KeyCode::Char('r') => return self.choose(1),
+                    _ => {}
+                }
+            }
+            let step = match key.code {
+                KeyCode::PageUp => Some(-10),
+                KeyCode::PageDown => Some(10),
+                KeyCode::Up
+                    if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) =>
+                {
+                    Some(-1)
+                }
+                KeyCode::Down
+                    if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) =>
+                {
+                    Some(1)
+                }
+                _ => None,
+            };
+            if let Some(step) = step {
+                self.scroll = self.scroll_position.get().saturating_add_signed(step);
+                return Effect::None;
+            }
+        }
+        if let Event::Mouse(mouse) = event
+            && matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_)))
+        {
+            use ratatui::crossterm::event::MouseEventKind;
+            let step = match mouse.kind {
+                MouseEventKind::ScrollUp => -3,
+                MouseEventKind::ScrollDown => 3,
+                _ => 0,
+            };
+            if step != 0 {
+                self.scroll = self.scroll_position.get().saturating_add_signed(step);
+                return Effect::None;
+            }
+        }
+        let (dialog, fields) = self.presentation();
+        let mut state = self.dialog.take().expect("shown dialog owns state");
+        let input = match event {
+            Event::Key(key) => state.key(dialog.kind, key, fields, &dialog.buttons),
+            Event::Mouse(mouse) if !self.hits.borrow().outer.is_empty() => {
+                state.mouse(mouse, &self.hits.borrow(), &dialog.buttons)
+            }
+            _ => DialogInput::Ignored,
+        };
+        self.dialog = Some(state);
+        match input {
+            DialogInput::Choose(index) => self.choose(index),
+            DialogInput::Cancel => self.close(),
+            DialogInput::Field(_, key) => {
+                if let Some(Page::Form(form)) = &mut self.page {
+                    let width = self.hits.borrow().content.width.saturating_sub(10).max(1);
+                    form.command.key(key, width, MAX_COMMAND);
+                }
+                Effect::None
+            }
+            _ => Effect::None,
+        }
+    }
+
+    fn presentation(&self) -> (Dialog<'static>, &'static [FieldKind]) {
+        let (title, kind, buttons, hints, fields) = match &self.page {
+            Some(Page::Form(form)) => (
+                "Run command",
+                DialogKind::Form,
+                vec![
+                    Button::primary("Run").enabled(
+                        !form.observing
+                            && !form.targets.is_empty()
+                            && tmt_pty_protocol::valid_command(form.command.as_str()),
+                    ),
+                    Button::secondary("Cancel"),
+                ],
+                if form.saved.is_some() {
+                    "⏎ run · Esc cancel"
+                } else {
+                    "↑ history · Tab where · ⏎ run"
+                },
+                if form.saved.is_some() {
+                    &[][..]
+                } else {
+                    COMMAND_FIELD
+                },
+            ),
+            Some(Page::Running { stopping, .. }) => (
+                "Running command",
+                DialogKind::Confirm,
+                vec![
+                    Button::secondary("Stop").enabled(!stopping),
+                    Button::primary("Hide"),
+                ],
+                "ctrl-c stop · Esc hide, keeps running",
+                &[][..],
+            ),
+            Some(Page::Finished { result, keeping }) => (
+                "Command result",
+                DialogKind::Confirm,
+                vec![
+                    Button::primary("Keep in list")
+                        .enabled(!keeping && result["runId"].is_string()),
+                    Button::secondary("Run again").enabled(!keeping),
+                    Button::secondary("Close").enabled(!keeping),
+                ],
+                "k keep · r run again · Esc close",
+                &[][..],
+            ),
+            Some(Page::Remove { .. }) => (
+                "Remove saved terminal",
+                DialogKind::Confirm,
+                vec![
+                    Button::primary("Cancel").enabled(!self.pending),
+                    Button::secondary("Close shell and remove")
+                        .destructive(true)
+                        .enabled(!self.pending),
+                ],
+                "Esc cancel",
+                &[][..],
+            ),
+            _ => (
+                "Command result",
+                DialogKind::Confirm,
+                vec![Button::primary("Close")],
+                "Esc close",
+                &[][..],
+            ),
+        };
+        (
+            Dialog {
+                title: title.into(),
+                kind,
+                placement: Placement::Center,
+                buttons,
+                hints: hints.into(),
+            },
+            fields,
+        )
+    }
+
+    pub(super) fn render(&self, frame: &mut Frame, app: &App, body: Rect) {
+        let (dialog, _) = self.presentation();
+        let state = self.dialog.as_ref().expect("shown dialog owns state");
+        let look = app.look();
+        let area = dialog.areas(
+            body,
+            [
+                dialog.footer_width().max(72),
+                if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) {
+                    18
+                } else {
+                    4
+                },
+            ],
+            self.notice.is_some(),
+        );
+        let mut hits = super::buttons::paint_dialog(
+            app,
+            frame.buffer_mut(),
+            &dialog,
+            area,
+            state,
+            Overlay::Standalone,
+        );
+        let content = hits.content;
+        let rows = self.lines();
+        let rows = if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) {
+            rows.iter()
+                .flat_map(|line| {
+                    tmt_tui::text::lines(line, content.width, tmt_tui::style::TextFlow::Wrap)
+                })
+                .collect()
+        } else {
+            rows
+        };
+        let maximum_scroll = rows.len().saturating_sub(content.height as usize);
+        self.scroll_position.set(self.scroll.min(maximum_scroll));
+        let role = look.role(tmt_cli_style::Role::Text);
+        for (index, line) in rows
+            .into_iter()
+            .skip(self.scroll_position.get())
+            .take(content.height as usize)
+            .enumerate()
+        {
+            let rect = Rect::new(content.x, content.y + index as u16, content.width, 1);
+            strip::paint_left(
+                frame.buffer_mut(),
+                rect,
+                Line::styled(super::view::fit(&line, rect.width as usize), role),
+            );
+            if index == 1
+                && let Some(Page::Form(form)) = &self.page
+                && form.saved.is_none()
+            {
+                let prefix = 10.min(rect.width);
+                let input = Rect::new(rect.x + prefix, rect.y, rect.width - prefix, 1);
+                hits.fields.push(input);
+                if !input.is_empty()
+                    && (form.command.as_str().is_empty()
+                        || tmt_pty_protocol::valid_command(form.command.as_str()))
+                {
+                    let layout = form.command.layout(input.width);
+                    let offset = layout.reveal(0, 1);
+                    if let Some(cursor) = layout.paint(
+                        frame.buffer_mut(),
+                        input,
+                        offset,
+                        form.command.selection(),
+                        look.role(tmt_cli_style::Role::Accent),
+                        look.selection(),
+                    ) && state.focus == tmt_tui::components::Focus::Field(0)
+                    {
+                        frame.set_cursor_position(cursor);
+                    }
+                }
+            }
+        }
+        if let Some(notice) = &self.notice {
+            let status = area.status;
+            strip::paint_left(
+                frame.buffer_mut(),
+                status,
+                Line::styled(super::view::fit(notice, status.width as usize), role),
+            );
+        }
+        self.hits.replace(hits);
+    }
+
+    fn lines(&self) -> Vec<String> {
+        match &self.page {
+            Some(Page::Form(form)) => {
+                let target = form.targets.get(form.selected);
+                vec![
+                    if form.observing {
+                        "Where   Resolving member directory…".into()
+                    } else {
+                        target.map_or_else(
+                            || "Where   No local directory".into(),
+                            |target| {
+                                format!(
+                                    "Where   {} · {}",
+                                    target.label,
+                                    super::notes::single_line(
+                                        target.input["cwd"].as_str().unwrap_or_default()
+                                    )
+                                )
+                            },
+                        )
+                    },
+                    format!(
+                        "Command › {}",
+                        super::notes::single_line(form.command.as_str())
+                    ),
+                ]
+            }
+            Some(Page::Running {
+                command,
+                cwd,
+                stopping,
+                ..
+            }) => running_lines(command, cwd, self.elapsed.get(), *stopping),
+            Some(Page::Finished { result, .. } | Page::Saved(result)) => {
+                let status = if result["timedOut"] == true {
+                    "✗ timed out".into()
+                } else if let Some(code) = result["exitCode"].as_i64() {
+                    let mark = if code == 0 { "✓" } else { "✗" };
+                    format!("{mark} exited {code}")
+                } else if let Some(signal) = result["signal"].as_i64() {
+                    format!("✗ signal {signal}")
+                } else {
+                    "No exit status".into()
+                };
+                let status = match (result["startedMs"].as_u64(), result["endedMs"].as_u64()) {
+                    (Some(start), Some(end)) => {
+                        format!("{status} · {}s", end.saturating_sub(start) / 1000)
+                    }
+                    _ => status,
+                };
+                let mut rows = vec![
+                    super::notes::sanitize(result["command"].as_str().unwrap_or_default()),
+                    super::notes::sanitize(result["cwd"].as_str().unwrap_or_default()),
+                    if result["truncated"] == true {
+                        format!("{status} · output truncated")
+                    } else {
+                        status
+                    },
+                ];
+                for name in ["stdout", "stderr"] {
+                    if let Some(output) = result[name].as_str().filter(|output| !output.is_empty())
+                    {
+                        rows.push(name.into());
+                        rows.extend(super::notes::sanitize(output).lines().map(str::to_owned));
+                    }
+                }
+                rows
+            }
+            Some(Page::Remove { row }) => vec![
+                format!("The shell for {} is busy.", row.command),
+                "Close the shell and remove the saved result?".into(),
+            ],
+            Some(Page::Refused(message)) => super::notes::sanitize(message)
+                .lines()
+                .map(str::to_owned)
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+}
+
+fn running_lines(command: &str, cwd: &str, elapsed: u64, stopping: bool) -> Vec<String> {
+    let status = if stopping {
+        "Stopping…"
+    } else {
+        "Running…"
+    };
+    vec![
+        super::notes::sanitize(command),
+        super::notes::sanitize(cwd),
+        format!("{status} {elapsed}s"),
+    ]
+}
+
+impl App {
+    pub(super) fn open_standalone(&mut self) -> Effect {
+        let member = match self.workspace_selected_member() {
+            Some(super::workspace::OpsTarget::Member {
+                identity_id,
+                room_id,
+            }) => {
+                let label = self
+                    .workspace_rows()
+                    .iter()
+                    .find(|row| self.workspace.selected.as_ref() == Some(&row.target))
+                    .map_or_else(|| "Member".into(), |row| row.title.clone());
+                Some((identity_id.clone(), room_id.clone(), label))
+            }
+            _ => None,
+        };
+        self.standalone.open(member)
+    }
+
+    pub(super) fn standalone_event(&mut self, event: &Event) -> Effect {
+        self.standalone.input(event)
+    }
+
+    pub(super) fn standalone_completed(&mut self, completed: Completed) {
+        match completed {
+            Completed::Target(identity, result) => {
+                if let Some(Page::Form(form)) = &mut self.standalone.page
+                    && let Some((id, room, label)) = &form.member
+                    && *id == identity
+                {
+                    form.observing = false;
+                    match result {
+                        Ok(mut input) => {
+                            input["kind"] = "member".into();
+                            input["identityId"] = json!(identity);
+                            input["roomId"] = json!(room);
+                            form.targets.insert(
+                                0,
+                                Target {
+                                    label: label.clone(),
+                                    input,
+                                },
+                            );
+                            form.selected = 0;
+                        }
+                        Err(error) => self.standalone.notice = Some(error.message),
+                    }
+                }
+            }
+            Completed::Saved(task, result) => self.saved_completed(task, result),
+            Completed::Run(result) => {
+                let was_shown = self.standalone.shown;
+                match result {
+                    Ok(result) => self.standalone.show(Page::Finished {
+                        result,
+                        keeping: false,
+                    }),
+                    Err(error) => self.standalone.show(Page::Refused(error.message)),
+                }
+                self.standalone.shown = was_shown;
+                if !was_shown {
+                    self.set_notice(
+                        Some("Command finished. Run command shows its result.".into()),
+                        false,
+                    );
+                }
+            }
+            Completed::Keep(result) => match result {
+                Ok(value) => {
+                    if let Some(row) = SavedRow::parse(&value) {
+                        self.standalone.update_row(row);
+                    }
+                    self.standalone.saved_changed();
+                    self.standalone.page = None;
+                    self.standalone.request = None;
+                    self.standalone.shown = false;
+                    self.set_notice(Some("Kept in list.".into()), false);
+                }
+                Err(error) => {
+                    if let Some(Page::Finished { keeping, .. }) = &mut self.standalone.page {
+                        *keeping = false;
+                    }
+                    self.standalone.notice = Some(error.message);
+                }
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+pub(super) mod scenes;

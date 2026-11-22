@@ -327,6 +327,31 @@ fn agents_legend(app: &App) -> Option<Hints> {
     {
         return None;
     }
+    if app.standalone.moving() {
+        return Some(Hints {
+            keys: vec![
+                ("↑↓".into(), "choose".into()),
+                ("←→".into(), "outdent/nest".into()),
+                ("⏎".into(), "drop".into()),
+            ],
+            tail: vec![("Esc".into(), "cancel".into())],
+        });
+    }
+    if matches!(app.workspace.selected, Some(OpsTarget::SavedTerminal(_))) {
+        return Some(Hints {
+            keys: [
+                ("⏎", "Output"),
+                ("r", "Run again"),
+                ("s", "Open a shell here"),
+                ("m", "Move"),
+                ("x", "Remove"),
+            ]
+            .into_iter()
+            .map(|(key, label)| (key.into(), label.into()))
+            .collect(),
+            tail: Vec::new(),
+        });
+    }
     if let Some(moving) = app.moving.as_ref().filter(|moving| !moving.applying) {
         if moving.order().is_some() {
             return Some(Hints {

@@ -138,6 +138,36 @@ fn header(buffer: &mut Buffer, app: &App, row: Rect, name: &str) {
     let look = app.look();
     let bar = look.role(Role::Track);
     buffer.set_style(row, bar);
+    if app.standalone.framed_shell(app.terminal.framed()).is_some() {
+        let back = app.member_back_label();
+        let hint = format!("{back}  Board");
+        let width = u16::try_from(hint.width()).unwrap_or(u16::MAX);
+        if row.width >= width {
+            let hit = Rect::new(row.right() - width, row.y, width, 1);
+            strip::paint_left(
+                buffer,
+                hit,
+                Line::from(vec![
+                    Span::styled(back, look.role(Role::Keycap)),
+                    Span::styled("  Board", look.role(Role::Text).patch(bar)),
+                ]),
+            );
+            app.terminal.add_hit(hit, FrameHit::Back);
+            let title = Rect {
+                width: row.width.saturating_sub(width + 1),
+                ..row
+            };
+            strip::paint_left(
+                buffer,
+                title,
+                Line::styled(
+                    crate::board::view::fit(&format!("▌ {name} · Shell"), title.width.into()),
+                    look.role(Role::Text).patch(bar),
+                ),
+            );
+        }
+        return;
+    }
     let term = app.framed_term().unwrap_or_default();
     let ended = term.ended.is_some()
         || app

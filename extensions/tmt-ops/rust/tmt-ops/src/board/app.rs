@@ -341,6 +341,7 @@ pub enum Effect {
     /// A read or a write of the Notes of the conversation on screen.
     Notes(super::conversation_checklist::Task),
     NewMember(super::new_member::Task),
+    Standalone(super::standalone::Task),
     SwitchTool(super::switch_tool::Task),
     IdleAlert(super::idle_alert_editor::Task),
     /// An Orchestration preview, apply or journal read.
@@ -735,13 +736,14 @@ pub(super) enum Overlay {
     IdleAlert,
     UsageControls,
     OfflineResume,
+    Standalone,
     Confirm,
     ProviderAnswer,
     PastePreview,
 }
 impl Overlay {
     #[cfg(test)]
-    pub(super) const ALL: [Self; 26] = [
+    pub(super) const ALL: [Self; 27] = [
         Self::Workspace,
         Self::Recovery,
         Self::Help,
@@ -765,6 +767,7 @@ impl Overlay {
         Self::IdleAlert,
         Self::UsageControls,
         Self::OfflineResume,
+        Self::Standalone,
         Self::Confirm,
         Self::ProviderAnswer,
         Self::PastePreview,
@@ -798,6 +801,7 @@ impl Overlay {
                 Self::ProviderAnswer => "provider-answer",
                 Self::PastePreview => "paste-preview",
                 Self::OfflineResume => "offline-resume",
+                Self::Standalone => "run-command",
             }
             .into(),
         ]
@@ -926,6 +930,7 @@ pub struct App {
     pub(super) offline_resume: super::offline_resume::State,
     pub(super) provider_answer: super::provider_answer::State,
     pub(super) notes_overlay: Option<super::conversation_checklist::overlay::Controller>,
+    pub(super) standalone: super::standalone::Controller,
     pub(super) new_member: Option<super::new_member::Controller>,
     pub(super) new_member_generation: u64,
     pub(super) switch_tool: Option<super::switch_tool::Controller>,
@@ -1185,6 +1190,7 @@ impl App {
 
     pub fn new(squad: Option<String>) -> Self {
         Self {
+            standalone: Default::default(),
             selected_request: Default::default(),
             cron_glyphs: super::overview::cron_counts::GlyphSet::from_ascii(false),
             current: squad,
@@ -4225,6 +4231,8 @@ impl App {
     pub(super) fn overlay(&self) -> Option<Overlay> {
         if self.confirm.is_some() {
             Some(Overlay::Confirm)
+        } else if self.standalone.shown() {
+            Some(Overlay::Standalone)
         } else if self.provider_answer.shown() {
             Some(Overlay::ProviderAnswer)
         } else if self.paste_preview_shown() {
@@ -4292,6 +4300,7 @@ impl App {
         match overlay {
             Overlay::ProviderAnswer => Some(self.provider_answer_event(event)),
             Overlay::PastePreview => Some(self.paste_preview_event(event)),
+            Overlay::Standalone => Some(self.standalone_event(event)),
             Overlay::Workspace => self.workspace_form_event(event),
             Overlay::Panels => self.panels_event(event),
             Overlay::Recovery => self.recovery_event(event),
@@ -4424,6 +4433,8 @@ impl App {
             Some(OpsTarget::DigestAll) => json!({"kind":"all"}),
             Some(OpsTarget::Pool) => json!({"kind":"pool"}),
             Some(OpsTarget::Hidden) => json!({"kind":"hidden"}),
+            Some(OpsTarget::LocalTerminals) => json!({"kind":"local-terminals"}),
+            Some(OpsTarget::SavedTerminal(id)) => json!({"kind":"saved-terminal", "terminalId":id}),
             Some(OpsTarget::Squad(id)) => json!({"kind":"squad", "roomId":id}),
             Some(OpsTarget::Member {
                 room_id,
@@ -4457,6 +4468,7 @@ impl App {
         };
         let traced_key = if matches!(key.code, KeyCode::Char(_))
             && (self.provider_answer.owns_typing()
+                || self.overlay() == Some(Overlay::Standalone)
                 || self
                     .input
                     .as_ref()
@@ -4519,6 +4531,9 @@ impl App {
         }
         self.set_notice(None, false);
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            if self.overlay() == Some(Overlay::Standalone) && self.standalone.running() {
+                return self.standalone.stop();
+            }
             return Effect::Quit;
         }
         if self.menu.is_none()
@@ -4526,6 +4541,9 @@ impl App {
             && self.input.is_none()
             && let Some(effect) = self.digest_inline_key(key)
         {
+            return effect;
+        }
+        if let Some(effect) = self.standalone_moving_key(key) {
             return effect;
         }
         if let Some(effect) = self.moving_key(key) {
@@ -4720,6 +4738,18 @@ impl App {
         if self.menu.is_some() {
             return self.menu_key(key);
         }
+        if !typing
+            && event_name(key)
+                .and_then(|name| self.bindings().remove(&name))
+                .is_some_and(|action| {
+                    action.verb == Verb::Ui(crate::action::OpsUiAction::RunCommand)
+                })
+        {
+            return self.open_standalone();
+        }
+        if !typing && let Some(effect) = self.saved_row_key(key) {
+            return effect;
+        }
         if !typing && let Some(effect) = self.work_key(key) {
             return effect;
         }
@@ -4757,6 +4787,7 @@ impl App {
     /// Refuse pointer and viewport authority from a superseded frame. Offsets
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
+        self.standalone.invalidate();
         self.provider_answer.invalidate();
         self.orchestration.invalidate();
         self.work.hits.borrow_mut().clear();
@@ -7627,6 +7658,57 @@ mod token_window_tests {
         assert_eq!(
             app.usage_document, projected,
             "loading preserves painted owner"
+        );
+    }
+}
+
+#[cfg(test)]
+mod standalone_command_tests {
+    use super::*;
+
+    #[test]
+    fn run_command_shows_result_before_keep_is_available() {
+        let mut app = App::new(None);
+        app.standalone.launch_directory = Some("/work".into());
+        let press = |app: &mut App, code| {
+            app.key_effect(KeyEvent::new(code, KeyModifiers::NONE), &mut true)
+        };
+        assert_eq!(press(&mut app, KeyCode::Char('!')), Effect::None);
+        assert_eq!(app.overlay(), Some(Overlay::Standalone));
+        for ch in "printf ok".chars() {
+            press(&mut app, KeyCode::Char(ch));
+        }
+        assert!(matches!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Standalone(super::super::standalone::Task::Run(_))
+        ));
+        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+        assert_eq!(app.overlay(), None);
+        app.standalone_completed(super::super::standalone::Completed::Run(Ok(
+            serde_json::json!({
+                "runId": "run", "stdout": "ok", "stderr": "", "exitCode": 0
+            }),
+        )));
+        assert_eq!(app.overlay(), None);
+        assert_eq!(press(&mut app, KeyCode::Char('!')), Effect::None);
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Standalone(super::super::standalone::Task::Keep("run".into()))
+        );
+    }
+
+    #[test]
+    fn run_command_follows_the_close_rule() {
+        fn open() -> App {
+            let mut app = super::workspace::tests::board();
+            app.standalone.launch_directory = Some("/work".into());
+            app.open_standalone();
+            app
+        }
+        super::super::home::tests::dialog_dismiss::assert_close_rule(
+            &mut open(),
+            &mut open(),
+            Overlay::Standalone,
         );
     }
 }

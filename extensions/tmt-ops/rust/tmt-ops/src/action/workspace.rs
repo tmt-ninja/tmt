@@ -55,6 +55,7 @@ pub enum OpsUiAction {
     Manage,
     CreateSquad,
     NewMember,
+    RunCommand,
     IdleAlert,
     RemoveMembership,
     MoveMembership,
@@ -128,6 +129,13 @@ const SPECS: &[OpsUiSpec] = &[
         "idle alert",
         "edit the selected squad idle alert",
         7
+    ),
+    spec!(
+        RunCommand,
+        "run-command",
+        "run command",
+        "run a local command and review its result",
+        11
     ),
     spec!(
         NewMember,

@@ -25,6 +25,7 @@ pub(super) enum Opening {
 #[derive(Debug)]
 pub(super) enum Job {
     AnswerProviderForm(super::provider_answer::Send),
+    Standalone(super::standalone::Task),
     Shell {
         key: (String, String),
         command: String,
@@ -80,6 +81,7 @@ impl Job {
                 | Self::Versions
                 | Self::WorkOrder(_)
                 | Self::OfflineResume(_)
+                | Self::Standalone(_)
         ) && !matches!(self, Self::Terminals(task) if task.progress().is_none())
     }
 
@@ -87,6 +89,7 @@ impl Job {
     pub fn progress(&self) -> &'static str {
         match self {
             Self::Shell { .. } => "Running shell…",
+            Self::Standalone(_) => "Working with the command…",
             Self::OpenWorkPage(_) => "Opening Colab page…",
             Self::WorkOrder(_) => "Working with the Colab project order…",
             Self::AnswerProviderForm(_) => "Sending form answer…",
@@ -136,6 +139,11 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
             BoardEvent::ProviderAnswer(super::provider_answer::send(core, answer))
         }
         Job::Shell { .. } => unreachable!("shell has a dedicated worker"),
+        Job::Standalone(super::standalone::Task::Saved(task)) => {
+            let result = task.complete(core);
+            BoardEvent::Standalone(super::standalone::Completed::Saved(task, result))
+        }
+        Job::Standalone(_) => unreachable!("standalone session has a dedicated worker"),
         Job::OpenWorkPage(page) => BoardEvent::WorkOpened(super::work::open(core, &page)),
         Job::WorkOrder(job) => BoardEvent::WorkOrder(super::work::run_order(core, job)),
         Job::LocalUnread(task) => {
@@ -237,6 +245,7 @@ pub(super) struct Lane {
     jobs: Option<Sender<Job>>,
     thread: Option<JoinHandle<()>>,
     shell_core: Core,
+    standalone: std::cell::OnceCell<super::standalone::Worker>,
     shell_events: Sender<BoardEvent>,
     shell_threads: std::cell::RefCell<Vec<JoinHandle<()>>>,
     shell_stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -259,6 +268,7 @@ impl Lane {
             jobs: Some(jobs),
             thread: Some(thread),
             shell_core,
+            standalone: Default::default(),
             shell_events,
             shell_threads: Default::default(),
             shell_stop: Default::default(),
@@ -266,6 +276,23 @@ impl Lane {
     }
 
     pub fn submit(&self, job: Job) {
+        if let Job::Standalone(
+            task @ (super::standalone::Task::Run(_)
+            | super::standalone::Task::Keep(_)
+            | super::standalone::Task::Discard
+            | super::standalone::Task::Stop),
+        ) = job
+        {
+            self.standalone
+                .get_or_init(|| {
+                    super::standalone::Worker::spawn(
+                        self.shell_core.clone(),
+                        self.shell_events.clone(),
+                    )
+                })
+                .submit(task);
+            return;
+        }
         if let Job::Shell { key, command } = job {
             let core = self.shell_core.clone();
             let events = self.shell_events.clone();
@@ -346,6 +373,7 @@ impl Lane {
     pub fn finish(mut self) {
         self.shell_stop
             .store(true, std::sync::atomic::Ordering::Release);
+        self.standalone.take();
         self.jobs = None;
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();

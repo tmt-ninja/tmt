@@ -437,6 +437,16 @@ fn member_terminals_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+fn standalone_command_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::standalone::scenes::SCENES,
+        |_| grid(&[160, 100], &[36]),
+        |scene, look, _, _| crate::board::standalone::scenes::capture(scene, look),
+        |_, _| {},
+    )
+}
+
 /// The offline-resume ask (#6438): as it opens, while Resume all runs, and with every result.
 fn offline_resume_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
@@ -1840,6 +1850,7 @@ macro_rules! oracle_groups {
         $group!(7, 32, snapshot_frames($styles));
         $group!(7, 88, terminal_tab_frames($styles));
         $group!(7, 48, member_terminals_frames($styles));
+        $group!(7, 40, standalone_command_frames($styles));
         $group!(7, 36, member_nesting_frames($styles));
         $group!(8, 36, offline_resume_frames($styles));
         $group!(8, 16, settings_keys_frames($styles));

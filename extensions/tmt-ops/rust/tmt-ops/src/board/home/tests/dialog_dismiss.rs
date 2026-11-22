@@ -115,6 +115,9 @@ pub(in crate::board) fn assert_outside_press_closes(app: &mut App, overlay: Over
 /// Where each overlay runs [`assert_close_rule`].
 fn close_rule_test(overlay: Overlay) -> &'static str {
     match overlay {
+        Overlay::Standalone => {
+            "board::app::standalone_command_tests::run_command_follows_the_close_rule"
+        }
         Overlay::Workspace => {
             "app::workspace::tests::member_rename::the_workspace_form_follows_the_close_rule"
         }

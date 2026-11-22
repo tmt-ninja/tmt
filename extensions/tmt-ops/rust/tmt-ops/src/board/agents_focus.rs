@@ -123,6 +123,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if area.is_empty() {
         return;
     }
+    if app.show_saved_summary(frame, area) {
+        return;
+    }
     if app.selected_terminal().is_some() {
         super::member_terminals::panel::render(frame, app, area);
         return;
@@ -411,7 +414,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     );
     let mut y = metadata.y;
     match selected {
-        OpsTarget::DigestAll | OpsTarget::Hidden | OpsTarget::Terminal { .. } => {}
+        OpsTarget::DigestAll
+        | OpsTarget::Hidden
+        | OpsTarget::Terminal { .. }
+        | OpsTarget::LocalTerminals
+        | OpsTarget::SavedTerminal(_) => {}
         OpsTarget::Member { .. } => {
             if let Some(row) = raw {
                 if super::conversation_checklist::Key::of(selected).is_none()
