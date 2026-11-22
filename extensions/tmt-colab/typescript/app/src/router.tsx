@@ -79,6 +79,7 @@ import { PageLayoutSection } from './page-layout-section.js';
 import { ErrorDetails, NoticeCard, RecoveryBody } from './notice-card.js';
 import { openFailure } from './open-failure.js';
 import { mountUrl } from './bootstrap.js';
+import { FIRST_MOUNT_PROBE_DELAY_MS, nextMountProbeDelay } from './readmit.js';
 import { classify } from './connection-state.js';
 import { AdmissionRefusedError } from './registration.js';
 import { addVisibilityListener, pageHidden, removeVisibilityListener } from './page-visibility.js';
@@ -903,7 +904,7 @@ function useMountRecovery(error: unknown, pathname: string, retry: () => void) {
     }
 
     let stopped = false;
-    let delay = 1_000;
+    let delay = FIRST_MOUNT_PROBE_DELAY_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let probe: AbortController | undefined;
     const schedule = () => {
@@ -936,7 +937,7 @@ function useMountRecovery(error: unknown, pathname: string, retry: () => void) {
         retry();
         return;
       }
-      if (!attempt.signal.aborted) delay = Math.min(delay * 2, 4_000);
+      if (!attempt.signal.aborted) delay = nextMountProbeDelay(delay);
       schedule();
     };
     function stop() {

@@ -18,6 +18,12 @@ export class ReadmitBudget {
 /** Pause before each reopen attempt: the first is immediate, later ones wait out a lagging epoch. */
 export const READMIT_DELAYS_MS: readonly number[] = [0, 1000, 3000, 8000, 15_000];
 
+/** The first mount probe is quick; a long outage uses fewer relay requests. */
+export const FIRST_MOUNT_PROBE_DELAY_MS = 1_000;
+export function nextMountProbeDelay(delayMs: number): number {
+  return Math.min(delayMs * 2, 30_000);
+}
+
 /** A failed reopen worth another attempt: a readmittable refusal or a cause nobody classified. */
 export function retryableReopen(error: Error): boolean {
   const { recovery, cause } = classify(error);
