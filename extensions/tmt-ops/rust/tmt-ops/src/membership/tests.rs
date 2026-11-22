@@ -312,7 +312,7 @@ fn retired_note_refuses_all_pairs_before_core_reads_or_writes() {
         &fixture.core,
         &fixture.squad,
         "sol",
-        &["task=new work".into(), "note=old summary".into()],
+        &["state=review".into(), "note=old summary".into()],
     )
     .err()
     .unwrap();
@@ -320,8 +320,6 @@ fn retired_note_refuses_all_pairs_before_core_reads_or_writes() {
     let (what, hint) = error.human();
     assert_eq!(what, "The per-member note is retired");
     assert!(hint.unwrap().contains("tmt notes path --identity <member>"));
-    assert!(hint.unwrap().contains("task="));
-    assert!(hint.unwrap().contains("pending="));
     assert!(
         !fixture.root.join("calls").exists(),
         "validation precedes every core call"

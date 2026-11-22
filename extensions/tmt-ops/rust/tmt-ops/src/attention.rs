@@ -7,16 +7,14 @@ use std::collections::BTreeSet;
 
 /// The same decision predicate serves tab counts and board presentation.
 pub fn waits_on_you(row: &Value) -> bool {
-    row["pending"].is_string()
-        || row["waitingOnYou"]
-            .as_array()
-            .is_some_and(|requests| !requests.is_empty())
+    row["waitingOnYou"]
+        .as_array()
+        .is_some_and(|requests| !requests.is_empty())
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Attention {
-    /// Members that owe the user a decision (`pending`, ◆) or sent a request
-    /// that waits on the user.
+    /// Members with an open request waiting on the user.
     pub waiting: usize,
     /// Members in the `blocked` state.
     pub blocked: usize,

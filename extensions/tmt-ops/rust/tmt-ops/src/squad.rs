@@ -67,6 +67,16 @@ pub fn room_name(name: &str) -> String {
 /// Reserved metadata suffix; neither user fields nor column/provider names allow dots.
 pub const LEAD_MARKER: &str = "lead.marker";
 
+pub(crate) fn retired_field(field: &str) -> bool {
+    matches!(field, "task" | "next" | "pending")
+}
+
+pub(crate) fn retired_metadata(key: &str) -> bool {
+    key.strip_prefix("squad.")
+        .and_then(|rest| rest.split_once('.'))
+        .is_some_and(|(_, field)| retired_field(field))
+}
+
 impl Squad {
     pub fn lead_key(&self) -> String {
         format!("{}{LEAD_MARKER}", self.prefix())
@@ -219,6 +229,7 @@ impl Squad {
             .map(|member| {
                 let metadata = member["metadata"].as_object().into_iter().flatten();
                 let (fields, meta): (Vec<_>, Vec<_>) = metadata
+                    .filter(|(key, _)| !retired_metadata(key))
                     .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
                     .partition(|(key, _)| key.starts_with(&prefix));
                 let mut fields: BTreeMap<_, _> = fields
