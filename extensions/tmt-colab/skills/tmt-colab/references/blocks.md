@@ -1,7 +1,7 @@
 # Structured pages (blocks)
 
 A structured page is made of blocks, not HTML: paragraphs, headings, lists, todos, tables, cards,
-questions, callouts, code, images, mockups, work bundles and page views. People edit it in the
+questions, callouts, code, images, mockups, work bundles, page views and charts. People edit it in the
 browser; you edit it with `tmt colab block`. `page create` creates one by default;
 `page write` and `page patch` refuse it (`COLAB_STRUCTURED_PAGE`), and `block` refuses an ordinary
 page (`COLAB_NOT_STRUCTURED`). A page converted from HTML keeps its old HTML as a frozen legacy
@@ -75,6 +75,16 @@ PAGE ID` also drops it from the page's list; detaching one a live block still sh
 `block table PAGE TABLE add-row --cell name=Ada`, `set-cell --row ROW --column name --text 'x'`,
 `remove-row --row ROW`, and `add-column`, `rename-column`, `move-column`, `remove-column` by
 `--column ID` (ids stay put when a column is renamed or moved).
+
+## Charts
+
+A chart is data in its props; the page draws it in the design system's look, with nothing to style:
+`block insert PAGE --type chart --props '{"kind":"stacked-bar","title":"Tokens a week","categories":["Mon","Tue"],"series":[{"name":"Codex","values":[1200,900]},{"name":"Claude","values":[300,null]}]}'`.
+`kind` is `bar`, `stacked-bar` or `meter`; `bar` and `meter` take one series. Every series has one
+value per category: a whole number from 0, or `null` for no value (no bar, never a zero). For a fraction, store whole numbers and set `decimals` (0 to 3): 62.5 and 98 are
+`"values":[625,980],"decimals":1`, shown as 62.5 and 98.0 everywhere. A meter writes each category's percent of `max` (100 when absent) after the series name, so
+name the series for what the value is, such as `Left`. To change the data, set `categories` and
+`series` together in one `block props` op so their lengths agree.
 
 ## Ops file
 

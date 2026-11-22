@@ -7592,6 +7592,41 @@ function niceMax(max) {
 	]) if (step * base >= max - base * 1e-9) return step * base;
 	return 10 * base;
 }
+/**
+* The axis for data up to `max`: the smallest step of 1, 2 or 5 × 10^k (at least 1, as values
+* are counts or scaled whole numbers) that reaches `max` in at most five steps, so every tick is
+* a round number (0, 10K, 20K, 30K, 40K; never 12.5K). An empty domain is 0 to 1.
+*/
+function niceScale(max) {
+	if (!(max > 0) || !Number.isFinite(max)) return {
+		max: 1,
+		count: 1
+	};
+	for (let base = 10 ** Math.max(0, Math.floor(Math.log10(max / 5)));; base *= 10) for (const m of [
+		1,
+		2,
+		5
+	]) {
+		const count = Math.ceil(max / (m * base) - 1e-9);
+		if (count <= 5) return {
+			max: count * m * base,
+			count
+		};
+	}
+}
+/** The steps of a fixed top (100 for a percent): four when they are whole, else five, three,
+* two or one. */
+function fixedScale(max) {
+	return {
+		max,
+		count: [
+			4,
+			5,
+			3,
+			2
+		].find((count) => Number.isInteger(max / count)) ?? 1
+	};
+}
 /** `count + 1` evenly spaced ticks from 0 to `max`. */
 function ticks(max, count = 4) {
 	return Array.from({ length: count + 1 }, (_, at) => max * at / count);
@@ -7606,15 +7641,15 @@ function compactCount(value) {
 }
 /** SVG path data for a polyline through `points`. */
 function linePath(points) {
-	return points.map(([x, y], at) => `${at ? "L" : "M"}${round(x)} ${round(y)}`).join("");
+	return points.map(([x, y], at) => `${at ? "L" : "M"}${round$1(x)} ${round$1(y)}`).join("");
 }
 /** SVG path data for the band between an upper and a lower edge over the same x positions. */
 function areaPath(xs, upper, lower, curve) {
 	if (!xs.length) return "";
 	if (curve === "monotone") return `${monotonePath(xs.map((x, i) => [x, upper[i]]))}${monotonePath(xs.map((x, i) => [x, lower[i]]).reverse()).replace(/^M/, "L")}Z`;
-	return `${xs.map((x, at) => `${at ? "L" : "M"}${round(x)} ${round(upper[at])}`).join("")}${xs.map((x, at) => `L${round(x)} ${round(lower[at])}`).reverse().join("")}Z`;
+	return `${xs.map((x, at) => `${at ? "L" : "M"}${round$1(x)} ${round$1(upper[at])}`).join("")}${xs.map((x, at) => `L${round$1(x)} ${round$1(lower[at])}`).reverse().join("")}Z`;
 }
-function round(value) {
+function round$1(value) {
 	return Math.round(value * 100) / 100;
 }
 /** Cubic Hermite interpolation with sign-preserving, bounded tangents. Reversing x also works
@@ -7629,10 +7664,10 @@ function monotonePath(points) {
 		return a * b <= 0 ? 0 : 2 * a * b / (a + b);
 	});
 	return points.map(([x, y], i) => {
-		if (!i) return `M${round(x)} ${round(y)}`;
+		if (!i) return `M${round$1(x)} ${round$1(y)}`;
 		const [px, py] = points[i - 1];
 		const dx = (x - px) / 3;
-		return `C${round(px + dx)} ${round(py + dx * tangents[i - 1])} ${round(x - dx)} ${round(y - dx * tangents[i])} ${round(x)} ${round(y)}`;
+		return `C${round$1(px + dx)} ${round$1(py + dx * tangents[i - 1])} ${round$1(x - dx)} ${round$1(y - dx * tangents[i])} ${round$1(x)} ${round$1(y)}`;
 	}).join("");
 }
 //#endregion
@@ -7711,18 +7746,52 @@ var MARGIN = {
 /** A mono tick label of 11px is about 7px a character; it sits 6px left of its line and keeps an
 * 8px inset from the plot's edge. */
 var TICK_CHARACTER = 7;
+/** The least room between two x labels. */
+var LABEL_GAP = 4;
 var TICK_GAP = 6;
 var TICK_INSET = 8;
+var round = (value) => Math.round(value * 100) / 100;
+/** A label's width in px at the 11px tick type: a wide (CJK) character is about 11px. */
+var labelWidth = (label) => [...label].reduce((width, char) => width + (char.codePointAt(0) >= 11904 ? 11 : TICK_CHARACTER), 0);
+/** The x labels as drawn, each centred under its column: each kept inside the plot, and one that
+* would touch the label before it left out, so a label never runs off the chart or into another;
+* the last column's stays (#6746). */
+function xLabels(wanted, plot) {
+	const span = ({ x, text }) => [x - labelWidth(text) / 2, x + labelWidth(text) / 2];
+	const kept = [];
+	for (const { last, text, x } of wanted) {
+		const w = labelWidth(text);
+		const drawn = {
+			x: round(Math.min(plot.right - w / 2, Math.max(plot.left + w / 2, x))),
+			text,
+			anchor: "middle"
+		};
+		const touches = () => {
+			const before = kept.at(-1);
+			return !!before && span(drawn)[0] < span(before)[1] + LABEL_GAP;
+		};
+		if (last) while (kept.length > 1 && touches()) kept.pop();
+		if (!touches()) kept.push(drawn);
+	}
+	return kept;
+}
 /** Everything a series chart paints, as plain data: the painter only maps it to elements. */
 function seriesModel(options, width) {
 	const columns = options.x.length;
 	const share = options.kind === "share";
 	const format = share ? (v) => `${Math.round(v)}%` : options.format ?? compactCount;
-	const stack = options.kind === "stack" || share ? stackLayers(options.series, { share }) : void 0;
+	const stacked = options.kind === "stacked-bars";
+	const stack = options.kind === "stack" || share || stacked ? stackLayers(options.series, { share }) : void 0;
 	const dataMax = stack ? stack.max : Math.max(0, ...options.series.flatMap((layer) => layer.values.map((v) => v ?? 0)), ...options.reference?.values.map((v) => v ?? 0) ?? []);
-	const max = options.max ?? (share ? 100 : niceMax(dataMax));
+	const categories = options.axis === "categories";
+	const scale = !categories ? {
+		max: options.max ?? (share ? 100 : niceMax(dataMax)),
+		count: 4
+	} : options.max !== void 0 || share ? fixedScale(options.max ?? 100) : niceScale(dataMax);
+	const max = scale.max;
 	const height = options.height ?? 200;
-	const tickLabels = ticks(max, 4).map(format);
+	const tickValues = ticks(max, scale.count);
+	const tickLabels = tickValues.map(format);
 	const left = Math.max(MARGIN.left, Math.max(...tickLabels.map((label) => label.length)) * TICK_CHARACTER + TICK_GAP + TICK_INSET);
 	const inner = {
 		left,
@@ -7730,34 +7799,55 @@ function seriesModel(options, width) {
 		top: MARGIN.top,
 		bottom: height - MARGIN.bottom
 	};
-	const banded = options.kind === "bars";
+	const banded = options.kind === "bars" || stacked;
 	const step = banded ? (inner.right - inner.left) / Math.max(1, columns) : columns > 1 ? (inner.right - inner.left) / (columns - 1) : 0;
 	const xAt = (i) => banded ? inner.left + (i + .5) * step : columns > 1 ? inner.left + i * step : (inner.left + inner.right) / 2;
 	const yAt = (v) => inner.bottom - Math.min(v, max) / max * (inner.bottom - inner.top);
 	const xs = options.x.map((_, i) => xAt(i));
 	const marks = [];
-	if (stack) stack.layers.forEach((layer, i) => marks.push({
+	const labels = [];
+	const column = Math.min(24, step - 2);
+	const bar = Math.max(1, categories ? Math.min(64, Math.max(step * .6, column)) : column);
+	if (stacked) stack.layers.forEach((layer, i) => layer.upper.forEach((top, at) => {
+		if (layer.missing[at] || top <= layer.lower[at]) return;
+		const y = yAt(top);
+		marks.push({
+			kind: "bar",
+			style: styleOf(layer, i, options.style),
+			rect: {
+				x: xAt(at) - bar / 2,
+				y,
+				width: bar,
+				height: yAt(layer.lower[at]) - y
+			}
+		});
+	}));
+	else if (stack) stack.layers.forEach((layer, i) => marks.push({
 		kind: "area",
 		style: styleOf(layer, i, options.style),
 		d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt), options.curve)
 	}));
-	else if (options.kind === "bars") {
-		const bar = Math.max(1, Math.min(24, step - 2));
-		options.series[0].values.forEach((v, i) => {
-			if (v == null) return;
-			const y = yAt(v);
-			marks.push({
-				kind: "bar",
-				style: 0,
-				rect: {
-					x: xAt(i) - bar / 2,
-					y,
-					width: bar,
-					height: Math.max(0, inner.bottom - y)
-				}
-			});
+	else if (options.kind === "bars") options.series[0].values.forEach((v, i) => {
+		if (v == null) return;
+		const y = yAt(v);
+		marks.push({
+			kind: "bar",
+			style: 0,
+			rect: {
+				x: xAt(i) - bar / 2,
+				y,
+				width: bar,
+				height: Math.max(0, inner.bottom - y)
+			}
 		});
-	} else options.series.forEach((layer, i) => {
+		const text = format(v);
+		if (options.labels && text.length * TICK_CHARACTER <= step - 2) labels.push({
+			x: xAt(i),
+			y: y - 4,
+			text
+		});
+	});
+	else options.series.forEach((layer, i) => {
 		let run = [];
 		const flush = () => {
 			if (run.length) marks.push({
@@ -7783,17 +7873,23 @@ function seriesModel(options, width) {
 		if (v == null) return "—";
 		return share ? format(totals[at] ? v / totals[at] * 100 : 0) : format(v);
 	};
+	const widest = Math.max(0, ...options.x.map(labelWidth));
+	const labelEvery = columns > 1 && step > 0 ? Math.max(1, Math.ceil((widest + LABEL_GAP) / step)) : Math.max(1, columns);
 	const edge = (at) => columns > 1 && at === 0 ? "start" : columns > 1 && at === columns - 1 ? "end" : "middle";
 	return {
 		width,
 		height,
-		grid: ticks(max, 4).map((tick, at) => ({
+		grid: tickValues.map((tick, at) => ({
 			y: yAt(tick),
 			x1: inner.left,
 			x2: inner.right,
 			label: tickLabels[at]
 		})),
-		xLabels: [.../* @__PURE__ */ new Set([
+		xLabels: categories ? xLabels(options.x.map((_, at) => at).filter((at) => at % labelEvery === 0).map((at) => ({
+			x: xAt(at),
+			text: options.x[at],
+			last: at === columns - 1
+		})), inner) : [.../* @__PURE__ */ new Set([
 			0,
 			Math.floor((columns - 1) / 2),
 			columns - 1
@@ -7803,6 +7899,7 @@ function seriesModel(options, width) {
 			anchor: edge(at)
 		})),
 		marks,
+		labels,
 		reference: run.length > 1 ? linePath(run) : void 0,
 		guides: (options.guides ?? []).map((guide) => ({
 			x: xAt(guide.at),
@@ -7937,6 +8034,15 @@ function createSeriesChart(options, onDispose) {
 		for (const label of model.xLabels) text(label.x, model.height - 6, label.text, label.anchor);
 		for (const mark of model.marks) if (mark.kind === "bar") plot.append(svgEl("rect", { ...mark.rect }, `tmt-ui-chart-bar tmt-ui-chart-s${mark.style}`));
 		else plot.append(svgEl("path", { d: mark.d }, `tmt-ui-chart-${mark.kind} tmt-ui-chart-s${mark.style}`));
+		for (const label of model.labels) {
+			const node = svgEl("text", {
+				x: label.x,
+				y: label.y
+			}, "tmt-ui-chart-value");
+			node.setAttribute("text-anchor", "middle");
+			node.textContent = label.text;
+			plot.append(node);
+		}
 		if (model.reference) plot.append(svgEl("path", { d: model.reference }, "tmt-ui-chart-reference"));
 		for (const guide of model.guides) {
 			plot.append(svgEl("line", {

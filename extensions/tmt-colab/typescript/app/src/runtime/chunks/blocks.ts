@@ -23,6 +23,7 @@ import {
   ImageBlock,
   WorkBundle,
   PageView,
+  ChartBlock,
 } from '@tmt/browser-ui/blocks';
 import { DataTable, PageListTable } from '@tmt/browser-ui/data-table';
 import * as React from 'react';
@@ -106,6 +107,7 @@ registerChunk('blocks', {
     ImageBlock,
     WorkBundle,
     PageView,
+    ChartBlock,
   },
   parts: { PageListTable: SharedPageListTable },
 });

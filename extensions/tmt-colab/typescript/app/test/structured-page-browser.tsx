@@ -234,6 +234,54 @@ const SPEC_PAGE: BlockRecord[] = (() => {
   ];
 })();
 
+/** Every chart kind with the data of the design mock (Colab 97e24647, #6746): no markup, only
+ * props, and a meter written as its percent. */
+const CHARTS_PAGE: BlockRecord[] = (() => {
+  let at = 0;
+  const chart = (id: string, props: Record<string, unknown>): BlockRecord => ({
+    id,
+    type: 'chart',
+    parent: 'root',
+    pos: String.fromCharCode(66 + at++),
+    props,
+    deleted: false,
+  });
+  const week = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+  return [
+    {
+      id: 'intro',
+      type: 'paragraph',
+      parent: 'root',
+      pos: 'A',
+      props: {},
+      text: '本週用量集中在週四、週五；週末幾乎沒有工作。',
+      deleted: false,
+    },
+    chart('stacked', {
+      kind: 'stacked-bar',
+      title: '每週 token 用量',
+      categories: week,
+      series: [
+        { name: 'Codex', values: [30000, 42000, 38000, 55000, 48000, 20000, 16000] },
+        { name: 'Claude', values: [22000, 18000, 30000, 26000, 34000, 10000, 8000] },
+        { name: 'Agy', values: [8000, 10000, 6000, 12000, 9000, 4000, 3000] },
+      ],
+    }),
+    chart('bar', {
+      kind: 'bar',
+      title: '長條',
+      categories: ['A', 'B', 'C', 'D', 'E'],
+      series: [{ name: '審查', values: [24, 31, 18, 36, 28] }],
+    }),
+    chart('meter', {
+      kind: 'meter',
+      title: '進度條',
+      categories: ['Codex 每週額度', 'Claude 每週額度', '本週預算'],
+      series: [{ name: '剩', values: [55, 26, 82] }],
+    }),
+  ];
+})();
+
 /** A page laid out as a night page is (#6257): a section card with its meta, the same run of blocks
  * at the root and in the card, a long paragraph, a table and consecutive questions. */
 const LAYOUT_PAGE: BlockRecord[] = (() => {
@@ -402,7 +450,14 @@ const QUESTION_ATTRIBUTION = { writerId: '30000000-0000-4000-8000-000000000001',
 /** A structured page over an in-memory serve, with a scripted agent writing the same blocks: the
  * serve applies a batch with `applyOps`, the editor's one model of the serve's apply. */
 export function mount(
-  content: 'plan' | 'spec' | 'layout' | 'empty' | 'empty-reader' | 'empty-failure' = 'plan',
+  content:
+    | 'plan'
+    | 'spec'
+    | 'layout'
+    | 'charts'
+    | 'empty'
+    | 'empty-reader'
+    | 'empty-failure' = 'plan',
   options: {
     /** The owner device may choose a question's recipient: it holds the metadata seam and reads
      * the agent directory. */
@@ -425,9 +480,11 @@ export function mount(
       ? SPEC_PAGE
       : content === 'layout'
         ? LAYOUT_PAGE
-        : content.startsWith('empty')
-          ? []
-          : start;
+        : content === 'charts'
+          ? CHARTS_PAGE
+          : content.startsWith('empty')
+            ? []
+            : start;
   if (options.questionKind) {
     const kind = options.questionKind;
     blocks = blocks.map((b) =>

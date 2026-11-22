@@ -2214,6 +2214,37 @@ a.tmt-block-mention:focus-visible {
   color: var(--tmt-ui-color-waiting);
 }
 
+.tmt-ui-chart-block {
+  width: 100%;
+  min-width: 0;
+}
+.tmt-ui-chart-block-meters {
+  display: grid;
+  gap: var(--tmt-ui-space-m);
+  margin: var(--tmt-ui-space-s) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.tmt-ui-chart-block-meter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-m);
+  align-items: baseline;
+}
+.tmt-ui-chart-block-meter-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tmt-ui-chart-block-meter-value {
+  font-family: var(--tmt-ui-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tmt-ui-chart-block-meter > .tmt-ui-meter {
+  grid-column: 1 / -1;
+}
+
 }
 
 /* docs/docs.css */

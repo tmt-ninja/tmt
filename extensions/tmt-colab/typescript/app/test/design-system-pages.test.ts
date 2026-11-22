@@ -782,6 +782,7 @@ describe('template, publish and the renderer source', () => {
       'acme-card-block',
       'acme-card-meter',
       'acme-chart',
+      'acme-chart-block',
       'acme-checkbox',
       'acme-chips',
       'acme-choice',

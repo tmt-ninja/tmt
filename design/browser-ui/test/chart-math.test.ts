@@ -5,7 +5,9 @@ import {
   LEVELS,
   level,
   linePath,
+  fixedScale,
   niceMax,
+  niceScale,
   stackLayers,
   ticks,
   topLayers,
@@ -62,6 +64,27 @@ it('rounds the top of an axis to a readable step', () => {
   expect([1, 1.2, 2.2, 4.9, 7, 94, 100, 101].map(niceMax)).toEqual([
     1, 2, 2.5, 5, 10, 100, 100, 200,
   ]);
+});
+
+it('rounds a category axis to round steps that reach the data in at most five', () => {
+  expect([0, -3, Number.NaN].map(niceScale)).toEqual([
+    { max: 1, count: 1 },
+    { max: 1, count: 1 },
+    { max: 1, count: 1 },
+  ]);
+  expect([1, 2.2, 36, 94, 100, 101, 34_000, 55_000, 1_200_000].map(niceScale)).toEqual([
+    { max: 1, count: 1 },
+    { max: 3, count: 3 },
+    { max: 40, count: 4 },
+    { max: 100, count: 5 },
+    { max: 100, count: 5 },
+    { max: 150, count: 3 },
+    { max: 40_000, count: 4 },
+    { max: 60_000, count: 3 },
+    { max: 1_500_000, count: 3 },
+  ]);
+  // A fixed top keeps quarters when they are whole, else the next whole split.
+  expect([100, 50, 7].map((max) => fixedScale(max).count)).toEqual([4, 5, 1]);
   expect(ticks(100, 4)).toEqual([0, 25, 50, 75, 100]);
 });
 

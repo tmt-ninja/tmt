@@ -182,7 +182,8 @@
         "QuestionBlock",
         "ImageBlock",
         "WorkBundle",
-        "PageView"
+        "PageView",
+        "ChartBlock"
       ],
       "parts": [
         "PageListTable"

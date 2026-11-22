@@ -45,6 +45,7 @@ const TYPE_NAMES: Readonly<Record<string, string>> = {
   mockup: 'Mockup',
   'work-bundle': 'Work bundle',
   'page-view': 'Page view',
+  chart: 'Chart',
 };
 
 /** A block's chip text: its type and opening text, as "Table: Ticket status". */

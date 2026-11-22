@@ -252,6 +252,17 @@ export interface WorkBundleProps {
   children?: ReactNode;
 }
 
+/** <tmt-ui-chart-block>: props from its schema, slots as nodes. */
+export interface ChartBlockProps {
+  kind?: "bar" | "stacked-bar" | "meter";
+  label?: string;
+  categories?: string;
+  series?: string;
+  max?: string;
+  decimals?: "0" | "1" | "2" | "3";
+  children?: ReactNode;
+}
+
 /** <tmt-ui-mockup-block>: props from its schema, slots as nodes. */
 export interface MockupBlockProps {
   system?: string;

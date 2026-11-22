@@ -114,6 +114,12 @@ export function createSeriesChart(
         );
       }
     }
+    for (const label of model.labels) {
+      const node = svgEl('text', { x: label.x, y: label.y }, 'tmt-ui-chart-value');
+      node.setAttribute('text-anchor', 'middle');
+      node.textContent = label.text;
+      plot.append(node);
+    }
     if (model.reference)
       plot.append(svgEl('path', { d: model.reference }, 'tmt-ui-chart-reference'));
     for (const guide of model.guides) {

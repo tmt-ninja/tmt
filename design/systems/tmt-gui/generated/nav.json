@@ -90,6 +90,10 @@
      "path": "components/card-block"
     },
     {
+     "title": "Chart block",
+     "path": "components/chart-block"
+    },
+    {
      "title": "Checkbox",
      "path": "components/checkbox"
     },

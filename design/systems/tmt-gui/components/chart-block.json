@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "chart-block",
+  "source": "chart-block.js",
+  "props": {
+    "kind": {
+      "enum": [
+        "bar",
+        "stacked-bar",
+        "meter"
+      ],
+      "default": "bar"
+    },
+    "label": {
+      "type": "string"
+    },
+    "categories": {
+      "type": "string"
+    },
+    "series": {
+      "type": "string"
+    },
+    "max": {
+      "type": "string"
+    },
+    "decimals": {
+      "enum": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ],
+      "default": "0"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "ChartBlock"
+  ],
+  "examples": [
+    {
+      "title": "Stacked bars",
+      "markup": "<tmt-ui-chart-block kind=\"stacked-bar\" label=\"Tokens a week\" categories=\"Mon, Tue, Wed, Thu, Fri, Sat, Sun\" series=\"Codex: 30000, 42000, 38000, 55000, 48000, 20000, 16000; Claude: 22000, 18000, 30000, 26000, 34000, 10000, 8000; Agy: 8000, 10000, 6000, 12000, 9000, 4000, 3000\"></tmt-ui-chart-block>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Bars with values",
+      "markup": "<tmt-ui-chart-block kind=\"bar\" label=\"Reviews a day\" categories=\"A, B, C, D, E\" series=\"Reviews: 24, 31, 18, 36, 28\"></tmt-ui-chart-block>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Bars with one decimal place",
+      "markup": "<tmt-ui-chart-block kind=\"bar\" label=\"Pass rate (%)\" categories=\"Mon, Tue, Wed\" series=\"Pass: 625, 980, 875\" decimals=\"1\"></tmt-ui-chart-block>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Meters",
+      "markup": "<tmt-ui-chart-block kind=\"meter\" label=\"Weekly allowance\" categories=\"Codex, Claude, Budget\" series=\"Left: 55, 26, 82\"></tmt-ui-chart-block>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

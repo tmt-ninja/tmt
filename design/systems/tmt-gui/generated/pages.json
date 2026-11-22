@@ -166,6 +166,14 @@
     "usage": "import { CardBlock } from '@tmt/browser-ui/blocks';\n\n<CardBlock title=\"First block set\" meta=\"3 blocks\">{children}</CardBlock>"
    },
    {
+    "slug": "chart-block",
+    "title": "Chart block",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/chart-block\"></tmt-ui-component-docs></div>",
+    "path": "components/chart-block",
+    "description": "A chart drawn from data alone: bars, stacked bars or meters, in the chart roles. A bar writes its value and a meter its percent; null is no value, never zero. Values are whole numbers shown divided by 10^decimals (625 at 1 is 62.5).",
+    "usage": "import { ChartBlock, chartBlockValue } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<ChartBlock kind=\"stacked-bar\" title=\"Done and added\" categories={days} series={[{ name: 'Done', values }, { name: 'Added', values: added }]} />\n<ChartBlock kind=\"bar\" title=\"Pass rate (%)\" categories={days} series={[{ name: 'Pass', values: [625, 980] }]} decimals={1} />\nchartBlockValue(625, 1); // '62.5', as the chart shows it"
+   },
+   {
     "slug": "checkbox",
     "title": "Checkbox",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/checkbox\"></tmt-ui-component-docs></div>",
