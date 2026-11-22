@@ -76,7 +76,7 @@ import { SharedTopBar } from './shared-top-bar.js';
 import { ColabHeader } from './colab-header.js';
 import { creatorName, PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
-import { ErrorDetails, NoticeCard } from './notice-card.js';
+import { ErrorDetails, NoticeCard, RecoveryBody } from './notice-card.js';
 import { openFailure } from './open-failure.js';
 import { mountUrl } from './bootstrap.js';
 import { classify } from './connection-state.js';
@@ -1015,17 +1015,20 @@ function PageOpenFailure({
         </>
       }
     >
-      <p>
-        {retry ? (
-          text.openFailedBody
-        ) : (
-          <>
-            {text.openTooLargeBefore}
-            <code className="tmt-ui-code">{text.openTooLargeCommand}</code>
-            {text.openTooLargeAfter}
-          </>
-        )}
-      </p>
+      <RecoveryBody
+        trying={trying}
+        fallback={
+          retry ? (
+            text.openFailedBody
+          ) : (
+            <>
+              {text.openTooLargeBefore}
+              <code className="tmt-ui-code">{text.openTooLargeCommand}</code>
+              {text.openTooLargeAfter}
+            </>
+          )
+        }
+      />
       <p>
         <small className="failure-reference">
           {text.failureCodeLabel}{' '}
@@ -1118,7 +1121,7 @@ const root = createRootRouteWithContext<AppContext>()({
                 <TerminalFailure error={error as Error} />
               ) : (
                 <>
-                  <p>{text.errorBody}</p>
+                  <RecoveryBody trying={recovery.trying} fallback={text.errorBody} />
                   <ErrorDetails error={error} />
                 </>
               )}

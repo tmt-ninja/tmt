@@ -150,7 +150,10 @@ async function captureRecovery(page: Page, route: string) {
       await page.evaluate((value) => {
         document.documentElement.dataset.theme = value;
       }, theme);
-      await page.screenshot({ path: path.join(directory, `${route}-${width}-${theme}.png`) });
+      await page.screenshot({
+        path: path.join(directory, `${route}-${width}-${theme}.png`),
+        animations: 'disabled',
+      });
     }
   }
 }
@@ -179,6 +182,26 @@ test('an open Colab tab recovers its page and home list after Colab restarts', a
       const retry = route === 'page' ? 'Retry' : 'Try again';
       await expect(unavailable.getByRole('button', { name: retry, exact: true })).toBeVisible();
       await expect(unavailable.getByText('Trying again…', { exact: true })).toBeVisible();
+      await expect(
+        unavailable.getByText(
+          'Colab isn’t answering right now. This view will come back on its own.',
+        ),
+      ).toBeVisible();
+      const returnLink = unavailable.getByRole('link', { name: 'Return to space', exact: true });
+      await expect(returnLink).toHaveAttribute('href', '/colab/');
+      await returnLink.click({ trial: true });
+      await expect
+        .poll(() =>
+          returnLink.evaluate((link) => {
+            const style = getComputedStyle(link);
+            return (
+              style.opacity === '1' &&
+              style.color === getComputedStyle(link.closest('.tmt-ui-notice')!).color
+            );
+          }),
+        )
+        .toBe(true);
+      await tab.mouse.move(0, 0);
       await captureRecovery(tab, route);
     };
 

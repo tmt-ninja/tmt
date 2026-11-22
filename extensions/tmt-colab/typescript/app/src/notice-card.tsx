@@ -40,6 +40,10 @@ export function ErrorDetails({ error }: { error: unknown }) {
   );
 }
 
+export function RecoveryBody({ trying, fallback }: { trying: boolean; fallback: ReactNode }) {
+  return <p>{trying ? text.mountRecoveryBody : fallback}</p>;
+}
+
 /** Colab owns the state and recovery; browser-ui presents the explicit words. */
 export function NoticeCard({
   state,
