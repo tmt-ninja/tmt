@@ -2603,7 +2603,7 @@ child.stdout.pipe(process.stdout);
           'send-keys',
           '-t',
           shell.pane,
-          'tmt ops ui --squad product; echo LINK_BOARD_EXIT=$?',
+          'NO_COLOR=1 tmt ops ui --squad product; echo LINK_BOARD_EXIT=$?',
           'Enter',
         ]);
         await fixture.waitForCapture(
@@ -2623,16 +2623,6 @@ child.stdout.pipe(process.stdout);
         );
 
         const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
-        const click = (x: number, y: number) => {
-          for (const final of ['M', 'm'])
-            fixture.tmux([
-              'send-keys',
-              '-t',
-              shell.pane,
-              '-l',
-              `\u001b[<0;${x + 1};${y + 1}${final}`,
-            ]);
-        };
         const buffer = () => {
           try {
             return fixture.tmux(['show-buffer']).trim();
@@ -2640,16 +2630,46 @@ child.stdout.pipe(process.stdout);
             return '';
           }
         };
-        // The conversation is painted before the only mouse click.
-        const initial = screen();
-        const rows = initial.split('\n');
-        const y = rows.findIndex((row) => row.includes('Read the docs first.'));
-        expect(y, initial).toBeGreaterThanOrEqual(0);
-        const labelStart = rows[y]!.indexOf('the docs');
-        const x = [...rows[y]!.slice(0, labelStart)].length + 1;
-        click(x, y);
-        await fixture.waitForCapture((current) => current.includes('┌ Link'), shell.pane);
-        const popover = screen();
+        // The board regression a_transcript_url_opens_after_recompose_only_if_the_pressed_hit_survives
+        // owns the mouse gesture. Here the reader's keyboard selection opens the popover.
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
+        await fixture.waitForCapture(
+          (current) => current.includes('←→ mentions') && current.includes('Enter actions'),
+          shell.pane
+        );
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Right']);
+        let selectedCapture = '';
+        await fixture
+          .waitFor(
+            () => {
+              selectedCapture = fixture.tmux(['capture-pane', '-p', '-e', '-t', shell.pane]);
+              const response = selectedCapture.split('\n').find((row) => row.includes('the docs'));
+              if (!response) return false;
+              // In NO_COLOR the focused link gets reverse video. A plain link is only underlined.
+              let reversed = false;
+              const beforeLabel = response.slice(0, response.indexOf('the docs'));
+              for (const sgr of beforeLabel.matchAll(/\u001b\[([\d;]*)m/g)) {
+                for (const code of sgr[1]!.split(';')) {
+                  if (code === '7') reversed = true;
+                  if (code === '' || code === '0' || code === '27') reversed = false;
+                }
+              }
+              return reversed;
+            },
+            5_000,
+            'the transcript URL receives keyboard focus'
+          )
+          .catch((cause: unknown) => {
+            throw new Error(`Link focus failed. Last styled pane capture:\n${selectedCapture}`, {
+              cause,
+            });
+          });
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+        const popover = await fixture
+          .waitForCapture((current) => current.includes('┌ Link'), shell.pane)
+          .catch((cause: unknown) => {
+            throw new Error(`Enter did not open the focused Link popover.\n${screen()}`, { cause });
+          });
         expect(popover).toContain('https://example.com');
         for (const action of ['Copy', 'Show full']) expect(popover, popover).toContain(action);
 

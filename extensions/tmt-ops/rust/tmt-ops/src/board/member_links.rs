@@ -785,19 +785,23 @@ impl App {
                 None
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                let (hit, _, dragged) = self.member_links.borrow_mut().pressed.take()?;
+                let (mut hit, _, dragged) = self.member_links.borrow_mut().pressed.take()?;
+                if dragged || !hit.area.contains(point) {
+                    return None;
+                }
                 let current = self
                     .member_links
                     .borrow()
                     .hits
                     .iter()
-                    .any(|current| current == &hit);
-                if !dragged && current && hit.area.contains(point) {
-                    self.conversation_source_escape();
-                    Some(self.open_member_link(hit))
-                } else {
-                    None
-                }
+                    .find(|current| {
+                        // New transcript lines can grow the surface below an unchanged link.
+                        hit.surface.height = current.surface.height;
+                        **current == hit
+                    })
+                    .cloned()?;
+                self.conversation_source_escape();
+                Some(self.open_member_link(current))
             }
             _ => None,
         }

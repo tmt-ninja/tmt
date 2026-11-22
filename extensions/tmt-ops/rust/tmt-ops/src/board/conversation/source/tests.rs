@@ -418,6 +418,69 @@ fn a_linked_name_can_be_drag_selected_and_still_opens_its_menu_on_click() {
 }
 
 #[test]
+fn a_transcript_url_opens_after_recompose_only_if_the_pressed_hit_survives() {
+    fn link_cell(buffer: &ratatui::buffer::Buffer) -> (u16, u16) {
+        (0..buffer.area.height)
+            .find_map(|y| {
+                (0..buffer.area.width)
+                    .find(|x| {
+                        let tail: String = (*x..buffer.area.width)
+                            .map(|column| buffer[(column, y)].symbol())
+                            .collect();
+                        tail.starts_with("the docs first.")
+                    })
+                    .map(|x| (x, y))
+            })
+            .expect("the transcript link label is visible")
+    }
+
+    const RESPONSE: &str = "Read [the docs](https://example.com/docs) first.";
+    let mut app = fixture(RESPONSE);
+    let (x, y) = link_cell(&draw(&mut app, 160, 36));
+    let before = app.conversation.borrow().response_area.unwrap();
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+    assert!(
+        app.menu.is_none(),
+        "Down leaves the gesture available for drag"
+    );
+    app.view.as_mut().unwrap().replies[0]["response"] =
+        json!(format!("{RESPONSE}\n\nMore details arrived."));
+    assert_eq!(link_cell(&draw(&mut app, 160, 36)), (x, y));
+    let after = app.conversation.borrow().response_area.unwrap();
+    assert_eq!(before.as_position(), after.as_position());
+    assert_eq!(before.width, after.width);
+    assert_ne!(before.height, after.height);
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x, y);
+    assert_eq!(
+        app.menu.as_ref().map(|menu| menu.title.as_str()),
+        Some("Link")
+    );
+
+    let mut app = fixture(RESPONSE);
+    let (x, y) = link_cell(&draw(&mut app, 160, 36));
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 7, y);
+    let effect = mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 7, y);
+    assert!(
+        matches!(&effect, Effect::Act(Request::Copy { text, .. }) if text == "the doc"),
+        "{effect:?}"
+    );
+    assert!(app.menu.is_none());
+
+    let mut app = fixture(RESPONSE);
+    let (x, y) = link_cell(&draw(&mut app, 160, 36));
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+    app.view.as_mut().unwrap().replies[0]["response"] =
+        json!("Read [the docs](https://example.com/replacement) first.");
+    assert_eq!(link_cell(&draw(&mut app, 160, 36)), (x, y));
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x, y);
+    assert!(
+        app.menu.is_none(),
+        "release must not open a replacement URL"
+    );
+}
+
+#[test]
 fn the_actual_read_focus_footer_explains_rendered_selection() {
     let mut app = fixture("literal passage");
     app.focus = 1;
