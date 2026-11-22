@@ -1845,7 +1845,7 @@ macro_rules! oracle_groups {
         $group!(5, 120, idle_alert_frames_for_look($styles, Some(3)));
         $group!(
             8,
-            416,
+            432,
             crud_frames(
                 crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
                 $styles,
