@@ -555,8 +555,9 @@ fn talk_work_expands_in_place_and_opens_only_the_fresh_bound_page() {
     );
 
     app.work.stale = true;
-    let stale = screen(&draw(&mut app, 160, 42));
-    assert!(stale.contains("stale"), "{stale}");
+    app.work.last_read_at = Some(1_800_000_000_000);
+    let stale = crate::status::with_now_ms(1_800_000_420_000, || screen(&draw(&mut app, 160, 42)));
+    assert!(stale.contains("stale · read 7m ago"), "{stale}");
     assert!(!stale.contains("Open in Colab"));
     assert_ne!(
         app.key(press(KeyCode::Char('o'))),

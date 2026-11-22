@@ -969,6 +969,69 @@ fn colab_work_decodes_sections_and_honest_unknown_progress() {
     );
 }
 
+fn long_page_inspector() -> App {
+    let now = 1_800_000_000_000;
+    let mut document = owner_list(now);
+    document["pages"][0]["summary"]["sections"] = json!(
+        (1..=24)
+            .map(|n| json!({
+                "id": format!("heading-{n}"),
+                "title": format!("Chapter {n:02}"),
+                "level": 2, "done": 0, "total": 1, "state": "unchecked",
+            }))
+            .collect::<Vec<_>>()
+    );
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    app
+}
+
+#[test]
+fn colab_work_short_inspector_keeps_the_keyboard_section_visible() {
+    let mut app = long_page_inspector();
+    let draw = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(120)
+            .map(|row| {
+                row[60..]
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let first = draw(&app);
+    assert!(first.contains("Chapter 01") && !first.contains("Chapter 24"));
+    key(&mut app, KeyCode::Tab);
+    for _ in 0..12 {
+        key(&mut app, KeyCode::Down);
+    }
+    let middle = draw(&app);
+    assert!(middle.contains("▸ · 13. Chapter 13"), "{middle}");
+    assert!(
+        middle.contains("more ↑") && middle.contains("more ↓"),
+        "{middle}"
+    );
+    key(&mut app, KeyCode::End);
+    let last = draw(&app);
+    assert!(last.contains("▸ · 24. Chapter 24"), "{last}");
+    assert!(
+        last.contains("more ↑") && !last.contains("more ↓"),
+        "{last}"
+    );
+    assert!(last.contains("Open Colab"), "{last}");
+}
+
 #[test]
 fn colab_work_w168_dashboard_search_space_collapse_and_inspector() {
     let now = 1_800_000_000_000;
