@@ -133,6 +133,9 @@ pub(super) fn document(report: &Report) -> Value {
             }
             if let Some(driver) = &row.running_driver {
                 value["runningDriver"] = driver.clone().into();
+                if let Some(provider) = descriptor::named(driver) {
+                    value["hue"] = provider.hue.as_str().into();
+                }
             }
             if let Some(support) = row.driver_support {
                 value["driverSupport"] = support.as_str().into();
