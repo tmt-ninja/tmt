@@ -81,6 +81,9 @@ export interface ShellMenuItem {
   current: boolean;
   /** Up to two short neutral trailing badges, in place of the row's counts. */
   badges?: readonly string[];
+  /** One muted line under the label (#6757), such as a member's current work: plain text, drawn on
+   * one line and cut with an ellipsis; its full text is in the row's tooltip and accessible name. */
+  detail?: string;
   /** Host-owned decorative node in the glyph slot, with its accessible description. */
   leading?: { node: Node; label: string };
   /** Plain total beside an attention dot; zero is hidden. */
@@ -715,6 +718,11 @@ export function mountShell(
     label.className = 'tmt-ui-module-menu-label';
     label.textContent = item.label;
     if (!item.note) label.title = item.label;
+    // Plain text on one line: line breaks read as spaces, and a long line stays bounded.
+    const detail = Array.from(item.detail?.replace(/[\r\n\t]+/g, ' ') ?? '')
+      .slice(0, DETAIL_SCALARS)
+      .join('');
+    if (detail) anchor.dataset.detail = '';
     const mark = item.icon ?? fallbackIcon;
     if (item.leading) {
       const slot = document.createElement('span');
@@ -725,7 +733,15 @@ export function mountShell(
       slot.append(item.leading.node.cloneNode(true));
       anchor.append(slot);
     } else if (mark) anchor.append(icon(document, mark));
-    anchor.append(label);
+    if (detail) {
+      const lines = document.createElement('span');
+      lines.className = 'tmt-ui-shell-lines';
+      const under = document.createElement('span');
+      under.className = 'tmt-ui-shell-detail';
+      under.textContent = detail;
+      lines.append(label, under);
+      anchor.append(lines);
+    } else anchor.append(label);
     if (item.emphasis === 'unread') {
       anchor.dataset.emphasis = 'unread';
       const spoken = document.createElement('span');
@@ -746,13 +762,15 @@ export function mountShell(
       if (total) counts.append(count(document, total.text));
       anchor.append(counts);
     }
-    if (item.leading || badges.length || shown.length) {
+    if (item.leading || badges.length || shown.length || detail.trim()) {
       const summary = badges.length
         ? badges.join(', ')
         : [total && `${item.total ?? total.text} total`, waiting && `${waiting.text} need you`]
             .filter(Boolean)
             .join(', ');
-      const details = [item.leading?.label, summary, item.note].filter(Boolean).join(' · ');
+      const details = [item.leading?.label, summary, detail.trim(), item.note]
+        .filter(Boolean)
+        .join(' · ');
       anchor.setAttribute(
         'aria-label',
         `${item.label}${item.emphasis === 'unread' ? ' unread' : ''} · ${details}`,
@@ -1228,6 +1246,8 @@ function blankMenu(geometry: ShellMenuGeometry) {
 }
 
 /** What an update may change on a kept rail node; anything else is a different rail. */
+/** The longest detail line a row keeps (#6757); the rail shows one line of it in any case. */
+const DETAIL_SCALARS = 200;
 const PATCHED = new Set([
   'aria-current',
   'aria-label',

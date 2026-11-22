@@ -32,7 +32,7 @@ export function sentence(text: string): HTMLParagraphElement {
 }
 
 /** A state's mark, in its own colour. */
-export function mark(shape: AgentMark | 'clock', tone?: string): HTMLSpanElement {
+export function mark(shape: AgentMark | 'clock' | 'diamond', tone?: string): HTMLSpanElement {
   const node = el('span', browserUiClasses.stateMark);
   node.dataset.shape = shape;
   if (tone) node.dataset.tone = tone === 'neutral' ? 'muted' : tone;

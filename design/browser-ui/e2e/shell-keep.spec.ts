@@ -107,6 +107,7 @@ test('a route draws its last menu shape in its first frame, blank and inert, nev
     first: { same: true, inert: true, hidden: 'true', text: '' },
     labelsStored: [],
     keptWhileHidden: true,
+    detailRow: true,
     nested: 8,
     oldKept: null,
     replaced: false,

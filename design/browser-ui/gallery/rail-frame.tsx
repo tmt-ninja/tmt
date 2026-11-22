@@ -210,9 +210,14 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
               squad(
                 'tmt-gui',
                 [
-                  entry('tmt-gui-lead', 'tmt-gui-lead'),
+                  // A member row with its current work as a detail line (#6757), cut on one line.
+                  entry('tmt-gui-lead', 'tmt-gui-lead', { detail: 'Reviewing #6778' }),
                   entry('gui-2', 'gui-2', { emphasis: 'unread', count: shellCount(2, 'plain') }),
-                  entry('gui-3', 'gui-3', { leading: { node: idle, label: 'Idle' } }),
+                  entry('gui-3', 'gui-3', {
+                    leading: { node: idle, label: 'Idle' },
+                    detail:
+                      'Builds the Ops member row with the task under the name and a waiting mark',
+                  }),
                 ],
                 { emphasis: 'unread', badges: ['⏱ 2', 'Idle 30m'] },
               ),

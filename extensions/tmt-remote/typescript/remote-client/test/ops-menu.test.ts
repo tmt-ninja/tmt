@@ -150,3 +150,51 @@ it('keeps selection and disclosure by identity and shows only verified unread co
     ).groups[0]!.items[0]!.children!.some((item) => item.current),
   ).toBe(false);
 });
+
+it('puts a member’s work under its name, marks one waiting on the person with words, and leaves the count slot to forms and unread', () => {
+  const source: OpsBoard = {
+    ...board(),
+    agents: [
+      { ...agent(first, 'first'), task: '  Build the rail row  ' },
+      { ...agent(second, 'second'), task: 'Fix CI', pending: 'Pick a palette', waitingOnYou: 2 },
+    ],
+  };
+  const rows = (forms: (id: string) => number = () => 0) =>
+    opsMenu('home', source, '/ops/', undefined, undefined, undefined, forms).groups[0]!.items[0]!
+      .children!;
+  const [working, waiting] = rows();
+  // The task is the detail line; a member with none keeps one line.
+  expect(working!.detail).toBe('Build the rail row');
+  expect(working!.leading?.label).toBe('Working');
+  expect(working!.count).toBeUndefined();
+  expect(
+    opsMenu('home', { ...source, agents: [agent(first, 'first')] }, '/ops/').groups[0]!.items[0]!
+      .children![0]!.detail,
+  ).toBeUndefined();
+  // Waiting on the person: a diamond in the waiting colour, its words in the detail line, never
+  // colour alone; the mark keeps the presence word for the row's name.
+  expect(waiting!.leading?.label).toBe('Working');
+  expect(
+    (waiting!.leading!.node as unknown as { dataset: Record<string, string> }).dataset,
+  ).toEqual({ shape: 'diamond', tone: 'waiting' });
+  expect(waiting!.detail).toBe('Waiting on you: Pick a palette');
+  // Waiting is the mark and words, not a count: the slot stays free for unread and drafts.
+  expect(waiting!.count).toBeUndefined();
+  // Pending words alone also mark the row; forms waiting on the person take the count slot first.
+  const one = (extra: Partial<OpsAgent>) =>
+    opsMenu('home', { ...source, agents: [{ ...agent(second, 'second'), ...extra }] }, '/ops/')
+      .groups[0]!.items[0]!.children![0]!;
+  expect(one({ pending: 'Approve' }).detail).toBe('Waiting on you: Approve');
+  expect(one({ pending: 'Approve' }).count).toBeUndefined();
+  // A count without words keeps the task after the words.
+  expect(one({ waitingOnYou: 1, task: 'Fix CI' }).detail).toBe('Waiting on you · Fix CI');
+  expect(rows((id) => (id === second ? 5 : 0))[1]!.count).toEqual({ text: '5', needsYou: true });
+  const unreadToo = opsMenu(
+    'home',
+    source,
+    '/ops/',
+    undefined,
+    new Map([[second, { state: 'known' as const, count: 7, more: false }]]),
+  ).groups[0]!.items[0]!.children![1]!;
+  expect(unreadToo.count).toEqual({ text: '7', needsYou: false });
+});

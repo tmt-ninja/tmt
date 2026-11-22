@@ -228,7 +228,14 @@ export async function remembersMenuShape() {
             href: '/keep-a/p',
             current: true,
           },
-          { id: 'q', label: 'Second page', href: '/keep-a/q', current: false },
+          // A row with a detail line: its height is in the geometry, with no flag of its own (#6757).
+          {
+            id: 'q',
+            label: 'Second page',
+            detail: 'Sealed work line',
+            href: '/keep-a/q',
+            current: false,
+          },
           // An open branch, as Ops draws a squad with its members (#6757).
           {
             id: 't',
@@ -270,6 +277,8 @@ export async function remembersMenuShape() {
     };
     slots.get('a')!.setMenu(menu);
     const real = geometry();
+    // The row with a detail line is taller than the one without, so `same` below covers its height.
+    const detailRow = (real[1]?.[1] ?? 0) > (real[0]?.[1] ?? 0);
     await drawn();
     await go('b');
     let release!: () => void;
@@ -310,10 +319,12 @@ export async function remembersMenuShape() {
         'Squad',
         'Member',
         'Working',
+        'work line',
         'list',
         'icon',
       ].filter((word) => stored.includes(word)),
       keptWhileHidden,
+      detailRow,
       nested: real.length,
       oldKept,
       replaced,

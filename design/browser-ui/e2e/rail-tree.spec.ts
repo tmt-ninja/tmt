@@ -35,7 +35,21 @@ for (const renderer of ['native', 'react'])
           'Idle 30m',
         ]);
         await expect(link('tmt-gui')).toHaveAccessibleName('tmt-gui unread · ⏱ 2, Idle 30m');
-        await expect(link('gui-3')).toHaveAccessibleName('gui-3 · Idle');
+        // A detail line (#6757): plain text under the label, on one line cut with an ellipsis, and
+        // whole in the row's name and tooltip.
+        const detail = 'Builds the Ops member row with the task under the name and a waiting mark';
+        await expect(link('gui-3')).toHaveAccessibleName(`gui-3 · Idle · ${detail}`);
+        await expect(link('gui-3')).toHaveAttribute('title', `Idle · ${detail}`);
+        const line = link('gui-3').locator('.tmt-ui-shell-detail');
+        await expect(line).toHaveText(detail);
+        await expect(line).toHaveCSS('text-overflow', 'ellipsis');
+        const [named, under] = await Promise.all([
+          link('gui-3').locator('.tmt-ui-module-menu-label').boundingBox(),
+          line.boundingBox(),
+        ]);
+        expect(under!.y).toBeGreaterThanOrEqual(named!.y + named!.height - 1);
+        expect(under!.height).toBeLessThan(named!.height * 1.6);
+        expect(await line.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
         await expect(link('gui-3').locator('.tmt-ui-state-mark')).toHaveAttribute(
           'data-shape',
           'dashed',

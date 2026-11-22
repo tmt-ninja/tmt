@@ -311,6 +311,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A row's detail line (#6757); the mark and counts stay on the label's line. */
+.tmt-ui-shell-lines {
+  display: grid;
+  min-width: 0;
+}
+.tmt-ui-shell-detail {
+  overflow: hidden;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-type-caption-size);
+  font-weight: 400;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+}
+a.tmt-ui-rail-sub-item[data-detail] {
+  align-items: flex-start;
+}
+a.tmt-ui-rail-sub-item[data-detail] > .tmt-ui-shell-icon,
+a.tmt-ui-rail-sub-item[data-detail] > .tmt-ui-shell-counts {
+  align-self: flex-start;
+  height: calc(var(--tmt-ui-rail-sub-size) * 1.25);
+}
 /* The current module's pages, nested under it. */
 .tmt-ui-rail-sub {
   --tmt-ui-rail-sub-icon-size: var(--tmt-ui-space-l);

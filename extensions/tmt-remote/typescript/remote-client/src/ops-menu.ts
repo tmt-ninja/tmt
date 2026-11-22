@@ -1,6 +1,6 @@
 /** The fixed Ops rail: observed counts only; the shared leaf owns row presentation. */
 import type { ShellMenu, ShellMenuGroup } from '@tmt/browser-ui/shell';
-import { AGENT_STATES, type OpsBoard } from './ops-source.js';
+import { AGENT_STATES, type OpsAgent, type OpsBoard } from './ops-source.js';
 import { bySquad, mark } from './ops-parts.js';
 import type { ConversationUnread } from './conversation-seen.js';
 
@@ -79,10 +79,13 @@ export function opsMenu(
   /** Provider forms waiting on a member (#6445): the rail's needs-you count. */
   formsWaiting: (memberId: string) => number = () => 0,
 ): ShellMenu {
+  /** The row's one count slot, first that applies: the provider forms waiting on the person (the
+   * member cannot go on until they are answered), then unread messages, then the draft mark. A
+   * member's requests waiting on the person are its mark and words (#6757), never this slot, so
+   * its unread count and draft mark stay visible. */
   const unreadItem = (id: string) => {
     const value = unread?.get(id);
     const forms = formsWaiting(id);
-    // A member stuck on a form needs the person: that count wins over unread messages.
     if (forms > 0)
       return {
         ...(value?.state === 'known' && value.count > 0 ? { emphasis: 'unread' as const } : {}),
@@ -97,6 +100,29 @@ export function opsMenu(
         hasDraft(id)
         ? { badges: [DRAFT] }
         : {};
+  };
+  /** A member waiting on the person (#6757): a diamond in the waiting colour, never colour alone.
+   * Its words are the row's detail line; the mark keeps the presence word for the row's name. */
+  const waits = (agent: OpsAgent) => Boolean(agent.pending?.trim()) || agent.waitingOnYou > 0;
+  const memberMark = (agent: OpsAgent) => {
+    if (!waits(agent))
+      return { node: stateMark(agent.state), label: AGENT_STATES[agent.state].word };
+    const node = mark('diamond', 'waiting');
+    node.style.width = '9px';
+    node.style.height = '9px';
+    return { node, label: AGENT_STATES[agent.state].word };
+  };
+  /** The member's current work under its name; a member waiting on the person says so first,
+   * with what it waits for when it said. */
+  const memberDetail = (agent: OpsAgent) => {
+    const task = agent.task?.trim();
+    const pending = agent.pending?.trim();
+    const detail = !waits(agent)
+      ? task
+      : pending
+        ? `Waiting on you: ${pending}`
+        : ['Waiting on you', task].filter(Boolean).join(' · ');
+    return detail ? { detail } : {};
   };
   const stateMark = (state: keyof typeof AGENT_STATES) => {
     const node = mark(AGENT_STATES[state].mark, AGENT_STATES[state].markTone);
@@ -156,10 +182,8 @@ export function opsMenu(
                   children: group.agents.map((agent) => ({
                     id: `dm:${group.name}:${agent.id}`,
                     label: agent.name,
-                    leading: {
-                      node: stateMark(agent.state),
-                      label: AGENT_STATES[agent.state].word,
-                    },
+                    leading: memberMark(agent),
+                    ...memberDetail(agent),
                     ...unreadItem(agent.id),
                     href: opsHref(pathname, { squad: group.name, memberId: agent.id }),
                     current:

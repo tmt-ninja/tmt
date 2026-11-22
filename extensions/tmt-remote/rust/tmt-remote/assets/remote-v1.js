@@ -5387,6 +5387,8 @@ function mountShell(root, view, select, layerHost) {
 		label.className = "tmt-ui-module-menu-label";
 		label.textContent = item.label;
 		if (!item.note) label.title = item.label;
+		const detail = Array.from(item.detail?.replace(/[\r\n\t]+/g, " ") ?? "").slice(0, DETAIL_SCALARS).join("");
+		if (detail) anchor.dataset.detail = "";
 		const mark = item.icon ?? fallbackIcon;
 		if (item.leading) {
 			const slot = document.createElement("span");
@@ -5397,7 +5399,15 @@ function mountShell(root, view, select, layerHost) {
 			slot.append(item.leading.node.cloneNode(true));
 			anchor.append(slot);
 		} else if (mark) anchor.append(icon(document, mark));
-		anchor.append(label);
+		if (detail) {
+			const lines = document.createElement("span");
+			lines.className = "tmt-ui-shell-lines";
+			const under = document.createElement("span");
+			under.className = "tmt-ui-shell-detail";
+			under.textContent = detail;
+			lines.append(label, under);
+			anchor.append(lines);
+		} else anchor.append(label);
 		if (item.emphasis === "unread") {
 			anchor.dataset.emphasis = "unread";
 			const spoken = document.createElement("span");
@@ -5417,11 +5427,12 @@ function mountShell(root, view, select, layerHost) {
 			if (total) counts.append(count(document, total.text));
 			anchor.append(counts);
 		}
-		if (item.leading || badges.length || shown.length) {
+		if (item.leading || badges.length || shown.length || detail.trim()) {
 			const summary = badges.length ? badges.join(", ") : [total && `${item.total ?? total.text} total`, waiting && `${waiting.text} need you`].filter(Boolean).join(", ");
 			const details = [
 				item.leading?.label,
 				summary,
+				detail.trim(),
 				item.note
 			].filter(Boolean).join(" · ");
 			anchor.setAttribute("aria-label", `${item.label}${item.emphasis === "unread" ? " unread" : ""} · ${details}`);
@@ -5803,6 +5814,8 @@ function blankMenu(geometry) {
 	return list;
 }
 /** What an update may change on a kept rail node; anything else is a different rail. */
+/** The longest detail line a row keeps (#6757); the rail shows one line of it in any case. */
+var DETAIL_SCALARS = 200;
 var PATCHED = /* @__PURE__ */ new Set([
 	"aria-current",
 	"aria-label",
@@ -10992,6 +11005,10 @@ function opsHref(pathname, place) {
 /** The rail's mark for a channel or DM whose message box holds unsent words. */
 var DRAFT = "✎ Draft";
 function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => false, formsWaiting = () => 0) {
+	/** The row's one count slot, first that applies: the provider forms waiting on the person (the
+	* member cannot go on until they are answered), then unread messages, then the draft mark. A
+	* member's requests waiting on the person are its mark and words (#6757), never this slot, so
+	* its unread count and draft mark stay visible. */
 	const unreadItem = (id) => {
 		const value = unread?.get(id);
 		const forms = formsWaiting(id);
@@ -11009,6 +11026,30 @@ function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => 
 				needsYou: false
 			}
 		} : hasDraft(id) ? { badges: [DRAFT] } : {};
+	};
+	/** A member waiting on the person (#6757): a diamond in the waiting colour, never colour alone.
+	* Its words are the row's detail line; the mark keeps the presence word for the row's name. */
+	const waits = (agent) => Boolean(agent.pending?.trim()) || agent.waitingOnYou > 0;
+	const memberMark = (agent) => {
+		if (!waits(agent)) return {
+			node: stateMark(agent.state),
+			label: AGENT_STATES[agent.state].word
+		};
+		const node = mark("diamond", "waiting");
+		node.style.width = "9px";
+		node.style.height = "9px";
+		return {
+			node,
+			label: AGENT_STATES[agent.state].word
+		};
+	};
+	/** The member's current work under its name; a member waiting on the person says so first,
+	* with what it waits for when it said. */
+	const memberDetail = (agent) => {
+		const task = agent.task?.trim();
+		const pending = agent.pending?.trim();
+		const detail = !waits(agent) ? task : pending ? `Waiting on you: ${pending}` : ["Waiting on you", task].filter(Boolean).join(" · ");
+		return detail ? { detail } : {};
 	};
 	const stateMark = (state) => {
 		const node = mark(AGENT_STATES[state].mark, AGENT_STATES[state].markTone);
@@ -11053,10 +11094,8 @@ function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => 
 					children: group.agents.map((agent) => ({
 						id: `dm:${group.name}:${agent.id}`,
 						label: agent.name,
-						leading: {
-							node: stateMark(agent.state),
-							label: AGENT_STATES[agent.state].word
-						},
+						leading: memberMark(agent),
+						...memberDetail(agent),
 						...unreadItem(agent.id),
 						href: opsHref(pathname, {
 							squad: group.name,

@@ -33,8 +33,11 @@ import { readFile } from 'node:fs/promises';
 // Top-bar control size: the shell's Search and common controls carry their own square, so a
 // module's value never resizes them (#6750): 133,999 -> 134,059 (+60), exact, no headroom (GUI lead
 // approval on #6750).
+// Rail row detail line: `.tmt-ui-shell-lines`, `.tmt-ui-shell-detail` and the `[data-detail]` row
+// alignment (#6757): 134,059 -> 134,515 (+456), exact, no headroom (approval: tmt-gui-lead, #6757).
+// The third rail raise; #5809 strips the shell chrome and brings the cap down.
 // Measured by buildPageUi() with Node v26.12.1.
-export const PAGE_UI_LIMIT = 134_059;
+export const PAGE_UI_LIMIT = 134_515;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the
