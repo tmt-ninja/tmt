@@ -67,12 +67,18 @@ def read_output(timeout):
         query_tail = query_tail[-16:]
 
 
+def frame_complete():
+    # Reads may stop inside a frame or an escape sequence. Mouse-mode
+    # reassertions can follow a committed frame without changing its cells.
+    begin = output.rfind(b"\x1b[?2026h")
+    end = output.rfind(b"\x1b[?2026l")
+    return not screen.pending and 0 <= begin < end
+
+
 def wait_for(predicate, label, deadline=None):
     if deadline is None:
         deadline = time.monotonic() + 25
-    # A PTY read can stop mid-paint. Never admit a key from a mixture of
-    # the previous modal and its replacement; Crossterm ends each paint here.
-    while not (output.endswith((b"\x1b[?25l", b"\x1b[?25h")) and predicate()):
+    while not (frame_complete() and predicate()):
         if board_status is not None or time.monotonic() >= deadline:
             raise AssertionError(label + f" (exit={board_status})\n" + bytes(output[-12000:]).decode("utf8", "replace"))
         read_output(min(0.1, max(0, deadline - time.monotonic())))

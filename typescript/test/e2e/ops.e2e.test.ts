@@ -1896,6 +1896,10 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           .split('\n')
           .find((line) => /^[ \t]*[├└][^│\n]*auth-fix\b/.test(line))
           ?.split('│')[0];
+      const checklistTab = (screen: string) =>
+        screen.match(
+          /\bT[ \t]+Talk[ \t]+M[ \t]+Measure[ \t]+C[ \t]+(Checklist(?: [0-9]+)?)[ \t]*$/m
+        )?.[1];
       await fixture.waitForCapture(
         (screen) => screen.includes('OPS / UI') && screen.includes('Scope: product'),
         shell.pane
@@ -1911,9 +1915,8 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('○ 1 todo') &&
-          /\bC[ \t]+Checklist\b/.test(screen) &&
           memberRow(screen)?.includes('· 1 todo') === true &&
-          /\bC[ \t]+Checklist 1[ \t]+[─━]/.test(screen) &&
+          checklistTab(screen) === 'Checklist 1' &&
           !screen.includes('1 todo · 0 done'),
         shell.pane
       );
@@ -1966,7 +1969,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           row !== undefined &&
           !row.includes('todo') &&
           screen.includes('○ 0 todo') &&
-          /\bC[ \t]+Checklist[ \t]+[─━]/.test(screen) &&
+          checklistTab(screen) === 'Checklist' &&
           !screen.includes('0 todo · 1 done')
         );
       }, shell.pane);
