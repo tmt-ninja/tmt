@@ -57,6 +57,30 @@ describe('untrusted page link admission', () => {
     expect(shortLinkRoute('/colab/p/20000000', '', false)).toBeUndefined();
     expect(shortLinkRoute('/colab/pages/20000000', '', true)).toBeUndefined();
   });
+  it('opens the shell page route, a block on it too, on an http loopback door as on https (#6749)', () => {
+    for (const door of ['http://127.0.0.1:4173', 'https://owner.example']) {
+      const shellBase = `${door}/colab/pages/${space.replace('1000', '3000')}`;
+      expect(
+        classifyPageLink(`${door}/colab/pages/${page}#block-b-1`, shellBase, space, true),
+      ).toMatchObject({ kind: 'internal', route: `/pages/${page}`, anchor: 'block-b-1' });
+      expect(classifyPageLink(`/colab/pages/${page}`, shellBase, space, true)).toMatchObject({
+        kind: 'internal',
+        route: `/pages/${page}`,
+      });
+      // Only inside the shell, only a page id, never with a query or an anchor it cannot read.
+      for (const href of [
+        `/colab/pages/${page}?seed=secret`,
+        '/colab/pages/20000000',
+        `/colab/pages/${page}/more`,
+        `/colab/pages/${page}#%E0%A4%A`,
+        `/colab/pages/${page}#-block`,
+      ])
+        expect(classifyPageLink(href, shellBase, space, true)).toEqual({ kind: 'refused' });
+      expect(classifyPageLink(`/colab/pages/${page}`, shellBase, space, false)).toEqual({
+        kind: 'refused',
+      });
+    }
+  });
   it.each([
     '/p/short',
     '/p/20000000?seed=secret',

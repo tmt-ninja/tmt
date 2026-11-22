@@ -395,6 +395,144 @@ for (const departure of ['reload', 'navigate'] as const) {
   });
 }
 
+// #6749: a phone join that lands while the split before it is still being saved. A reload offered
+// the split's half ("First half "), and Keep put it back over the joined paragraph. Only the
+// page's draft store is held, through its lock, as a slow phone's is.
+test('a reload after a landed join offers no stale draft, and still offers one newer than the page', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'structured-join');
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const created = JSON.parse(
+      run(world, colab, [
+        'page',
+        'create',
+        '--title',
+        'Join with Backspace',
+        '--structured',
+        '--json',
+        '--no-open',
+      ]),
+    ) as { pageId: string; path: string };
+    const first = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          created.pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'First half Second half',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+    const texts = () =>
+      (
+        JSON.parse(run(world, colab, ['block', 'ls', created.pageId, '--json'])) as {
+          blocks: { depth: number; text?: { s: string } }[];
+        }
+      ).blocks
+        .filter((block) => block.depth === 0 && block.text)
+        .map((block) => block.text!.s);
+    const page = await browser.context.newPage();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const address = new URL(created.path, `${door.address}/`).href;
+    await page.goto(address);
+    const block = page.locator(`[data-block-id="${first}"]`);
+    await expect(block).toHaveText('First half Second half', { timeout: 30_000 });
+    const notice = page.getByRole('status').filter({ hasText: 'Your unsaved text was restored' });
+    // Leaving with a draft on its way asks first; this person leaves.
+    page.on('dialog', (dialog) => void dialog.accept());
+    await page.evaluate(() => {
+      const locks = navigator.locks;
+      const request = locks.request.bind(locks);
+      const gate = { hold: true, held: [] as (() => void)[], done: 0 };
+      (window as Window & { draftGate?: typeof gate }).draftGate = gate;
+      Object.defineProperty(locks, 'request', {
+        value: (name: string, callback: LockGrantedCallback<unknown>) => {
+          if (!name.startsWith('block-drafts:') || !gate.hold) return request(name, callback);
+          return new Promise<void>((resolve) => gate.held.push(resolve))
+            .then(() => request(name, callback))
+            .finally(() => gate.done++);
+        },
+      });
+    });
+    await block.click();
+    const editor = block.locator('[contenteditable="true"]');
+    await editor.press('Home');
+    for (let i = 0; i < 'First half '.length; i++) await editor.press('ArrowRight');
+    await editor.press('Enter');
+    await expect.poll(texts, { timeout: 30_000 }).toEqual(['First half ', 'Second half']);
+    const gate = () =>
+      page.evaluate(() => {
+        const gate = (window as Window & { draftGate?: { held: unknown[]; done: number } })
+          .draftGate!;
+        return { held: gate.held.length, done: gate.done };
+      });
+    // The split's saves are queued behind the slow store.
+    const split = (await gate()).held;
+    expect(split).toBeGreaterThan(0);
+    const second = page.locator('[contenteditable="true"]');
+    await expect(second).toHaveText('Second half');
+    await second.press('Backspace');
+    await expect.poll(texts, { timeout: 30_000 }).toEqual(['First half Second half']);
+    // The split's saves finish now and the join's still wait: the store holds "First half ".
+    await page.evaluate((count) => {
+      const gate = (window as Window & { draftGate?: { held: (() => void)[] } }).draftGate!;
+      for (const release of gate.held.splice(0, count)) release();
+    }, split);
+    await expect.poll(async () => (await gate()).done).toBe(split);
+    // What the reload offers, once it has read the page's stored drafts.
+    await page.addInitScript(() => {
+      window.addEventListener('colab:block-drafts-offered', (event) => {
+        (window as Window & { offered?: number }).offered = (
+          event as CustomEvent<{ count: number }>
+        ).detail.count;
+      });
+    });
+    const offered = async () =>
+      (
+        await page.waitForFunction(
+          () => {
+            const count = (window as Window & { offered?: number }).offered;
+            return count === undefined ? undefined : { count };
+          },
+          undefined,
+          { timeout: 30_000 },
+        )
+      ).jsonValue();
+    await page.reload();
+    await expect(block).toHaveText('First half Second half', { timeout: 30_000 });
+    expect(await offered()).toEqual({ count: 0 });
+    await expect(notice).toHaveCount(0);
+    expect(texts()).toEqual(['First half Second half']);
+
+    // A draft newer than the page is still offered: typed while the serve is down, kept over a
+    // reload there, and offered once the page is back.
+    await page.evaluate(() => {
+      window.addEventListener('colab:block-draft-durable', () => {
+        (window as Window & { durable?: boolean }).durable = true;
+      });
+    });
+    await restartColab(world, door, async () => {
+      await block.click();
+      await block.locator('[contenteditable="true"]').press(textEnd);
+      await page.keyboard.type(' later');
+      await page.waitForFunction(() => (window as Window & { durable?: boolean }).durable);
+      await page.reload();
+    });
+    await page.reload();
+    await expect(notice).toBeVisible({ timeout: 30_000 });
+    expect(await offered()).toEqual({ count: 1 });
+    await notice.getByRole('button', { name: 'Keep and continue' }).click();
+    await expect.poll(texts, { timeout: 30_000 }).toEqual(['First half Second half later']);
+  });
+});
+
 test('#6741 warns before leaving while a draft write is pending', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -1431,6 +1569,113 @@ test('a question written in the browser is registered and its answer reaches the
     expect(threads.flatMap((thread) => thread.comments.map((c) => c.questionId))).toContain(
       question.id,
     );
+    await page.close();
+  });
+});
+
+// #6749: changing an answer starts from the answer given, after a reload too, so adding a choice
+// or editing a short answer keeps the rest. The change reaches the agent, and the page's verified
+// record ends with the whole answer.
+test('a changed answer keeps what was given: a choice added after a reload, a short answer edited', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    // The agent replies at once, so each answer reaches it in turn.
+    const agent = await world.startAgent('answer-agent');
+    const browser = await pairBrowser(world, 'structured-change', { talk: true });
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const { pageId, path: pagePath } = JSON.parse(
+      run(
+        world,
+        colab,
+        ['page', 'create', '--title', 'Changes', '--structured', '--json', '--no-open'],
+        '',
+        agent.pane,
+      ),
+    ) as { pageId: string; path: string };
+    const days = crypto.randomUUID();
+    const note = crypto.randomUUID();
+    run(
+      world,
+      colab,
+      ['block', 'batch', pageId, '--file', '-', '--json'],
+      JSON.stringify([
+        {
+          op: 'insert',
+          id: days,
+          type: 'question',
+          props: { kind: 'multiple', choices: ['Monday', 'Friday', 'Sunday'], other: false },
+          text: 'Which days work?',
+        },
+        {
+          op: 'insert',
+          id: note,
+          type: 'question',
+          props: { kind: 'short' },
+          text: 'Anything to bring?',
+        },
+      ]),
+    );
+    // The page's verified record: the last answer comment on each question's thread.
+    const recorded = (question: string) =>
+      (
+        JSON.parse(run(world, colab, ['threads', pageId, '--json'])) as {
+          threads: { comments: { questionId?: string; body?: string; deleted?: boolean }[] }[];
+        }
+      ).threads
+        .flatMap((thread) => thread.comments)
+        .filter((comment) => comment.questionId === question && !comment.deleted)
+        .at(-1)?.body;
+    const page = await browser.context.newPage();
+    await page.goto(new URL(pagePath, `${door.address}/`).href);
+    const card = (id: string, title: string) =>
+      page.locator(`[data-block-id="${id}"]`).getByRole('group', { name: title });
+    const strip = (id: string) =>
+      page.locator(`[data-block-id="${id}"] .tmt-block-question-answered`);
+
+    const choices = card(days, 'Which days work?');
+    await expect(choices).toBeVisible({ timeout: 30_000 });
+    await choices.getByLabel('Monday', { exact: true }).check();
+    await choices.getByLabel('Friday', { exact: true }).check();
+    await choices.getByRole('button', { name: 'Send' }).click();
+    await until(() => agent.received().length === 1, 'the first answer reached the agent');
+    const words = card(note, 'Anything to bring?');
+    await words.getByLabel('Your answer').fill('The release notes');
+    await words.getByRole('button', { name: 'Send' }).click();
+    await until(() => agent.received().length === 2, 'the short answer reached the agent');
+    await expect.poll(() => recorded(days), { timeout: 30_000 }).toContain('Monday; Friday');
+    await expect.poll(() => recorded(note), { timeout: 30_000 }).toContain('The release notes');
+
+    // A reload draws both from the record; the change form opens with the answer given.
+    await page.reload();
+    await expect(strip(days)).toContainText('Monday; Friday', { timeout: 30_000 });
+    await strip(days).click();
+    await expect(choices.getByLabel('Monday', { exact: true })).toBeChecked();
+    await expect(choices.getByLabel('Friday', { exact: true })).toBeChecked();
+    await expect(choices.getByLabel('Sunday', { exact: true })).not.toBeChecked();
+    await choices.getByLabel('Sunday', { exact: true }).check();
+    await choices.getByRole('button', { name: 'Send' }).click();
+    await until(() => agent.received().length === 3, 'the changed answer reached the agent');
+    expect(agent.received()[2].message).toContain(
+      'Answer to “Which days work?”: Monday; Friday; Sunday',
+    );
+    await expect
+      .poll(() => recorded(days), { timeout: 30_000 })
+      .toContain('Monday; Friday; Sunday');
+    await expect(choices.getByText('Could not confirm this answer')).toHaveCount(0);
+
+    await strip(note).click();
+    const text = words.getByLabel('Your answer');
+    await expect(text).toHaveValue('The release notes');
+    await text.press('End');
+    await text.pressSequentially(' and the slides');
+    await words.getByRole('button', { name: 'Send' }).click();
+    await until(() => agent.received().length === 4, 'the edited short answer reached the agent');
+    expect(agent.received()[3].message).toContain('The release notes and the slides');
+    await expect
+      .poll(() => recorded(note), { timeout: 30_000 })
+      .toContain('The release notes and the slides');
     await page.close();
   });
 });

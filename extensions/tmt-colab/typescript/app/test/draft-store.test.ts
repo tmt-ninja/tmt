@@ -496,6 +496,78 @@ it('does not recover a resolved block draft when its local write was in flight',
   expect(await store.load('page')).toEqual([]);
 });
 
+it('drops a landed block draft at once while a newer one for the block is still being saved (#6749)', async () => {
+  // A split's text lands just after the join that follows it was typed: until the join's draft is
+  // saved, a reload must not find the split's half and offer it back.
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  const store = blockDraftStore('space', 'device');
+  let hold = false;
+  const held: (() => void)[] = [];
+  const session = new BlockDraftSession(
+    {
+      ...store,
+      save: async (page, draft) => {
+        if (hold) await new Promise<void>((resolve) => held.push(resolve));
+        return store.save(page, draft);
+      },
+    },
+    'page',
+  );
+  session.remember('block-1', undefined, 'First half Second half', 'First half');
+  expect(await session.waitForStorage()).toBe(true);
+  const split = session.matching('block-1', undefined, 'First half')!;
+  hold = true;
+  session.remember('block-1', undefined, 'First half', 'First half Second half');
+  const join = session.matching('block-1', undefined, 'First half Second half')!;
+  void session.admitted(split);
+  await expect.poll(() => store.load('page')).toEqual([]);
+  // The join's draft is kept once saved, and goes when the join lands.
+  held.shift()!();
+  await expect.poll(() => store.load('page')).toMatchObject([{ value: 'First half Second half' }]);
+  expect(await session.admitted(join)).toBe(true);
+  expect(await store.load('page')).toEqual([]);
+});
+
+it('a reload never offers text this tab saw land, though the store still holds an older copy (#6749)', async () => {
+  const values = new Map<string, string>();
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => void values.set(key, value),
+  });
+  const { blockDraftStore, BlockDraftSession, restorable } = await import('../src/block-drafts.js');
+  const store = blockDraftStore('space', 'device');
+  let hold = false;
+  const held: (() => void)[] = [];
+  const session = new BlockDraftSession(
+    {
+      ...store,
+      save: async (page, draft) => {
+        if (hold) await new Promise<void>((resolve) => held.push(resolve));
+        return store.save(page, draft);
+      },
+    },
+    'page',
+  );
+  session.remember('block-1', undefined, 'Second step.', 'Second step. Now.T');
+  expect(await session.waitForStorage()).toBe(true);
+  // The rest of the word is typed and sent; its save is slow, so the store keeps the half word.
+  hold = true;
+  session.remember('block-1', undefined, 'Second step.', 'Second step. Now.Third');
+  const sent = session.matching('block-1', undefined, 'Second step. Now.Third')!;
+  const landing = session.admitted(sent);
+  expect(await store.load('page')).toMatchObject([{ value: 'Second step. Now.T' }]);
+  expect(restorable('page', await store.load('page'))).toEqual([]);
+  for (const finish of held.splice(0)) finish();
+  await landing;
+  await expect.poll(() => store.load('page')).toEqual([]);
+  // Text that has not landed is still offered.
+  hold = false;
+  session.remember('block-1', undefined, 'Second step. Now.Third', 'Unsent words');
+  expect(await session.waitForStorage()).toBe(true);
+  expect(restorable('page', await store.load('page'))).toMatchObject([{ value: 'Unsent words' }]);
+  vi.unstubAllGlobals();
+});
+
 it('does not finish discarding a draft until its stored copy is removed', async () => {
   const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
   const store = blockDraftStore('space', 'device');
@@ -510,10 +582,10 @@ it('does not finish discarding a draft until its stored copy is removed', async 
   const session = new BlockDraftSession(
     {
       ...store,
-      clear: async (page, draft) => {
+      settle: async (page, target, keep) => {
         clearing();
         await held;
-        return store.clear(page, draft);
+        return store.settle(page, target, keep);
       },
     },
     'page',
@@ -549,6 +621,7 @@ it('writes the latest block edit promptly after a rapid typing burst', async () 
         return started.length === 1 ? first : true;
       },
       clear: async () => true,
+      settle: async () => true,
     },
     'page',
   );

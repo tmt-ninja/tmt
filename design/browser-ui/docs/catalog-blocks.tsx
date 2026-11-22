@@ -204,7 +204,7 @@ export const blockComponents: ComponentDoc[] = [
         'Code block',
         'code',
         'CodeBlock',
-        'A header with the filename (cut with an ellipsis), the language and Copy, over wrapped monospace text; the host copies and sets copied. variant="command" is the shared one-line command.',
+        'A header with the filename (cut with an ellipsis), the language and Copy, over wrapped monospace text; the host copies and sets copied. variant="command" is the shared one-line command. On a page of blocks the code block is CodeTextBlock: the same box and body around its text or editor, with no header.',
         '<CodeBlock filename="answered-strip.css" language="CSS" text={source} onCopy={copy} copied={copied} />',
         420,
       ],

@@ -50,6 +50,8 @@ export type PageLinkTarget =
   | { kind: 'external'; href: string }
   | { kind: 'internal'; href: string; route: string; anchor?: string; label: string };
 
+const PAGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 /** Only this trusted base and space may select app navigation; author bases have no role. */
 export function classifyPageLink(
   href: string,
@@ -78,9 +80,22 @@ export function classifyPageLink(
     let prefix: string | undefined;
     let route: string | undefined;
     let anchor: string | undefined;
+    // The app's own page route inside the shell (`/colab/pages/<id>`, what its router links a
+    // page as, a block mention's other page included): the same page whatever the door's scheme,
+    // an http loopback door too (#6749). Its fragment names one element of it.
+    const own = shell ? /^\/colab\/pages\/([0-9a-f-]+)$/.exec(url.pathname) : null;
     if (short === 'refused') return { kind: 'refused' };
     if (short) {
       ({ prefix, route, anchor } = short);
+    } else if (own) {
+      if (!PAGE_ID.test(own[1]!)) return { kind: 'refused' };
+      try {
+        anchor = url.hash ? decodeURIComponent(url.hash.slice(1)) : undefined;
+      } catch {
+        return { kind: 'refused' };
+      }
+      prefix = own[1];
+      route = `/pages/${own[1]}`;
     } else if (url.pathname === owner.pathname) {
       const fields = new URLSearchParams(url.hash.slice(1));
       const keys = [...fields.keys()].sort().join(',');
@@ -91,8 +106,7 @@ export function classifyPageLink(
         fields.get('space') !== space ||
         !page ||
         !validPagePrefix(page[2]) ||
-        (page[1] === 'pages' &&
-          !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(page[2]))
+        (page[1] === 'pages' && !PAGE_ID.test(page[2]))
       )
         return { kind: 'refused' };
       prefix = page[2];

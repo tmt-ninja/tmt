@@ -82,6 +82,9 @@ test('an answered question expands and collapses with the answer retained', asyn
   await expect(strip).toHaveAttribute('aria-expanded', 'false');
   await strip.click();
   await expect(strip).toHaveAttribute('aria-expanded', 'true');
+  // A fresh form to change it starts from the answer given (#6749).
+  await expect(page.getByLabel('Insert menu', { exact: true })).toBeChecked();
+  await expect(page.getByLabel('Block handle', { exact: true })).not.toBeChecked();
   await expect(page.getByRole('button', { name: 'Follow up' })).toBeVisible();
   await strip.click();
   await expect(strip).toHaveAttribute('aria-expanded', 'false');

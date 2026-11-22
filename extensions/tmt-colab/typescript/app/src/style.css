@@ -2300,6 +2300,12 @@ p.question-history,
   align-items: flex-end;
   gap: 8px;
 }
+/* A block's phone sheet takes the bottom of the window over its scrim: the page's floating tools
+   step aside until it closes, so they never cover its last row (#6749). The tools' own inline
+   visibility says only whether they are placed yet, so the sheet's rule wins over it. */
+:root:has(.tmt-block-insert[data-sheet]) .selection-mode {
+  visibility: hidden !important;
+}
 /* One capsule owns the dock surface; every action keeps the same token-sized hit target. */
 .page-floating-actions {
   --tmt-ui-host-icon-action-size: var(--tmt-ui-floating-action-size);

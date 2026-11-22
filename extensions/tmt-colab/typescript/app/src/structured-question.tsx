@@ -11,7 +11,7 @@ import {
   type RegisteredQuestion,
   verifiedQuestionStates,
 } from './question-registry.js';
-import { answerOf, type QuestionGroup } from './questions.js';
+import { answerOf, draftOf, type QuestionGroup } from './questions.js';
 import { blockQuestion } from './question-form.js';
 export { blockQuestion } from './question-form.js';
 import { text } from './strings.js';
@@ -115,6 +115,13 @@ export function StructuredQuestion({
   const state = effective?.state;
   const answered =
     row.echo ?? (row.answer ? (answerOf(question, row.answer.body) ?? row.answer.body) : undefined);
+  // The form a change opens with: the answer's choices, Other text or short text (#6749).
+  const given = answered === undefined ? undefined : draftOf(question, answered);
+  const saved = given && {
+    choices: given.choices,
+    ...(given.other ? { other: given.value } : {}),
+    ...(question.kind === 'short' || question.kind === 'long' ? { text: given.value } : {}),
+  };
   // The answer goes to the registry's agent, else the page's creator (the serve registered the
   // block with no agent of its own). With neither, nothing can be asked: an error, never a blank.
   const recipient = answers.recipients[0]?.agentName ?? entry?.agent?.name ?? creator?.name;
@@ -139,6 +146,7 @@ export function StructuredQuestion({
               : 'waiting'
         }
         answer={answered}
+        saved={saved}
         busy={answers.sending.includes(question.id) || answers.resolvingDefaults}
         error={
           recipient === undefined

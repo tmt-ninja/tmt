@@ -336,6 +336,10 @@
   margin: 0;
   padding-inline-start: calc(var(--tmt-block-indent, 0) * 24px);
 }
+.tmt-block-list-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .tmt-block-list-marker {
   color: var(--tmt-ui-color-secondary);
   font-variant-numeric: tabular-nums;
@@ -489,6 +493,11 @@
 .tmt-block-callout > .tmt-ui-notice {
   margin: 0;
 }
+/* A long unbroken word (a URL, a path) wraps inside the callout, as it does in a paragraph. */
+.tmt-block-callout :is(.tmt-ui-notice-heading, .tmt-ui-notice-body) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 /* A callout is part of the document, so it sets every host notice variable itself: its body is
    the document's text size and its heading a small in-document heading, never the host's own
    notice sizes (Colab's header sets those large for its page notices). */
@@ -547,7 +556,9 @@
 .tmt-block-code-copy:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
+/* An empty page code block keeps one line, as an empty paragraph does. */
 .tmt-block-code-body {
+  min-height: 1lh;
   margin: 0;
   padding: 10px 12px;
   background: var(--tmt-ui-surface-code);
@@ -1075,17 +1086,30 @@ a.tmt-block-mention:focus-visible {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--tmt-ui-space-s);
+  align-items: baseline;
+}
+.tmt-block-work-tickets {
+  align-items: center;
+}
+/* The field and ticket labels read as labels, apart from what they name: the bundle's own muted
+   caption, as its meta row has (#6749). */
+.tmt-block-work-field > span,
+.tmt-block-work-tickets > span {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
 }
 .tmt-block-work-field textarea {
   width: 100%;
 }
-/* The work text sits on the label's line in any host, whatever its paragraph margins. */
+/* The work text sits on the label's line, or right under it on a phone, in any host, whatever its
+   paragraph margins. */
 .tmt-block-work-field > p {
-  margin-block-start: 0;
+  margin-block: 0;
 }
 @media (max-width: 760px) {
   .tmt-block-work-field {
     grid-template-columns: 1fr;
+    gap: var(--tmt-ui-space-xs);
   }
 }
 .tmt-block-mockup-toolbar {
@@ -1198,6 +1222,7 @@ a.tmt-block-mention:focus-visible {
   }
   .tmt-block-work-field {
     grid-template-columns: 1fr;
+    gap: var(--tmt-ui-space-xs);
   }
   .tmt-block-image-viewer[data-slot='dialog-content'] {
     inset: 0;

@@ -1049,12 +1049,21 @@ export function useBlockEditing(
     async (current: BlockTextSync) => {
       clearTimeout(timer.current);
       await inflight.current;
-      if (sync.current !== current) return;
+      // Esc may close the editor while the batch before is still out: the Backspace still joins,
+      // with the joined block selected rather than typed in (#6749). Another block's editor means
+      // the person moved on.
+      const closed = sync.current === undefined;
+      if (sync.current !== current && !closed) return;
       const before = treeRef.current;
       const previous = joinTarget(before, current.id);
       if (!previous) return;
       const ops = joinBlock(before, current.id, current.text);
       history.current.record(before, ops);
+      if (closed) {
+        setSelection(selectBlock(previous.id));
+        await out(undefined, ops);
+        return;
+      }
       const into = new BlockTextSync(previous.id, previous.text!);
       into.typed(previous.text! + current.text);
       // The join's text op is the one `into` has on its way.

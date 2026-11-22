@@ -11,14 +11,10 @@ export { DsScope, useDsScope } from './scope.js';
 
 export type UiThemeMode = 'light' | 'dark' | 'system';
 
-/** A local variable/utility namespace. Never sets document or body theme. */
-export function UiTheme({
-  theme = 'system',
-  children,
-}: {
-  theme?: UiThemeMode;
-  children: ReactNode;
-}) {
+/** A local variable/utility namespace. Never sets document or body theme. Without `theme` it
+ * follows the host's own tokens (`--tmt-ui-*`), so a block on a page a person set dark is dark
+ * whatever the system's setting (#6749); with no host tokens that is the system's theme. */
+export function UiTheme({ theme, children }: { theme?: UiThemeMode; children: ReactNode }) {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const [node, setNode] = useState<HTMLDivElement | null>(null);
   const [domScope, setDomScope] = useState<ScopeValue>();

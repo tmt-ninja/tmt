@@ -105,6 +105,12 @@ export class BlockTree {
   visible(id: string): boolean {
     return this.#parent.has(id);
   }
+  /** Whether the place a draft names is drawn: its block, or for a cell its table's row. A row is
+   * drawn by its table, never as a block (#6749). */
+  holds(id: string, table?: string): boolean {
+    if (table === undefined) return this.visible(id);
+    return this.visible(table) && this.rows(table).some((row) => row.id === id);
+  }
   /** The drawn children of a block, or of the page, in order. */
   children(parent: Parent = PAGE_PARENT): readonly BlockRecord[] {
     return this.#children.get(parent) ?? [];

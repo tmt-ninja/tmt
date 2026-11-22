@@ -214,6 +214,7 @@ export function mountAnsweredQuestion() {
       agent="gui-lead"
       state="answered"
       answer="Insert menu"
+      saved={{ choices: ['Insert menu'] }}
       choices={['Insert menu', 'Block handle']}
       onSend={() => {}}
       onFollowUp={() => {}}

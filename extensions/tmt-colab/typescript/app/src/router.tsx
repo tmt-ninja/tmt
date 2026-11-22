@@ -2575,7 +2575,9 @@ function OpenPage({
     workBandSize,
     // The FAB group and its margin, measured from the window's bottom.
     dockReserve: dockPlacement.bottom + dockPlacement.height,
-    anchor,
+    // A page of blocks finds its own block from the link (#6749); the HTML renderer never looks
+    // for it as a passage.
+    anchor: view.pageType === 'blocks' ? undefined : anchor,
     layers: {
       onEditLocks: editLockLayer.onEditLocks,
       onSlots: inlineSlots.onSlots,

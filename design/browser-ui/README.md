@@ -993,11 +993,14 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
   `hideNarrow` leave the view below 480px of the block's own width), `CardBlock` (the only
   framed and nesting block, one level, no resting shadow), `Callout` (the tinted notice as a note
   in four tones, each with its mark and word, `calloutLabels`), `CodeBlock` (header with filename,
-  language and Copy; the `command` variant is `BrowserCommand`), `BlockMention` and `BlockToast`
-  (Undo after a delete).
+  language and Copy; the `command` variant is `BrowserCommand`), `CodeTextBlock` (a page's code
+  block: the same box and body around the page's own text or editor, with no head),
+  `BlockMention` and `BlockToast` (Undo after a delete).
 - `QuestionBlock`, `ImageBlock`, `MockupBlock`, `WorkBundle` and `PageView` supply the
   question, media viewer, scoped mockup, referenced work and page-list presentations. The host
-  supplies admitted data and owns persistence; `PageView` reuses `PageListTable` and one grid
+  supplies admitted data and owns persistence; an answered `QuestionBlock` opened to change its
+  answer starts from `saved` (the choices, Other text or short text given), so changing one choice
+  keeps the rest. `PageView` reuses `PageListTable` and one grid
   for its grouped rows. A mockup stage owns its local overlay scope. Its toolbar is two segmented
   groups (width, theme), the chosen segment in the neutral selection tone; the stage hugs its
   content with `height` as a minimum, sits centred when narrower than the block and, at any
@@ -1185,8 +1188,10 @@ installation requires Node or generates UI CSS.
 
 ### Local theme, CSS and portal contract
 
-Wrap each new UI island in `UiTheme theme="light" | "dark" | "system"` and load
-UI CSS once. `data-tmt-ui` owns the namespace; `data-tmt-theme` is independent of
+Wrap each new UI island in `UiTheme` and load UI CSS once. Without `theme` an island sets no
+`data-tmt-theme` and follows the host's own `--tmt-ui-*` tokens, so a block on a page a person
+set dark is dark whatever the system says (with no host tokens that is the system theme);
+`theme="light" | "dark" | "system"` chooses one. `data-tmt-ui` owns the namespace; `data-tmt-theme` is independent of
 legacy `data-theme` and never changes document/body state. Each island resets its
 own variables, so explicit nested themes and nested system preference are
 independent of the surrounding island. Only complete `tmt:` utility literals are

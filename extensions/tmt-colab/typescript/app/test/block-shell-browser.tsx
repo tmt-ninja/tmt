@@ -39,6 +39,11 @@ const blocks: Record<string, BlockEntry> = {
   // status notice goes (#6280).
   callout: entry('callout', 'F', '先做這個，再做下一個。', { tone: 'working', label: '做的順序' }),
   after: entry('paragraph', 'G', '提示下面的區塊'),
+  // A long unbroken word (a URL, a path) in a list item and a callout wraps in the column (#6749).
+  'long-list': entry('list', 'H', `Path ${'abcdefgh'.repeat(18)} end`),
+  'long-callout': entry('callout', 'I', `Link ${'abcdefgh'.repeat(18)} end`, { tone: 'working' }),
+  // A code block reads as code, in the design system's code box (#6749).
+  code: entry('code', 'J', 'tmt colab ls --json'),
 };
 
 export async function mountBlockShell(url = `/colab/pages/${PAGE}`, hash = '') {

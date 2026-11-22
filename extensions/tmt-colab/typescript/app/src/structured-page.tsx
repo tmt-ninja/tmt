@@ -42,6 +42,7 @@ import {
   Callout,
   calloutLabels,
   CardBlock,
+  CodeTextBlock,
   HeadingBlock,
   ListItemBlock,
   TableBlock,
@@ -761,7 +762,12 @@ function Blocks({
       {rest.restored
         ?.filter((d) => (d.cell?.table ?? d.id) === block.id)
         .map((d) => (
-          <RecoveryNotice key={d.target} draft={d} missing={!tree.visible(d.id)} props={rest} />
+          <RecoveryNotice
+            key={d.target}
+            draft={d}
+            missing={!tree.holds(d.id, d.cell?.table)}
+            props={rest}
+          />
         ))}
       {rest.drafts?.has(block.id) && (
         <div className="deleted-draft-notice">
@@ -1689,12 +1695,14 @@ function Content({
         </Callout>
       );
     case 'paragraph':
-    case 'code':
       return (
         <TextBlock placeholder="" editing={typing}>
           {text}
         </TextBlock>
       );
+    case 'code':
+      // The design system's code box and body (#6749); a page's code block has no head yet.
+      return <CodeTextBlock editing={typing}>{text}</CodeTextBlock>;
     case 'work-bundle': {
       // Page metadata is the owner's: only the gated source (owner-only content) gives it.
       const bundle = workBundleProps(block);
