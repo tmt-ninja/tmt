@@ -87,6 +87,19 @@ export function mountMockup() {
     </MockupBlock>,
   );
 }
+/** A 1440 stage in a 300px block with its toolbar collapsed: read first, set on request. */
+export function mountCollapsedMockup() {
+  const host = document.createElement('main');
+  document.body.replaceChildren(host);
+  host.style.width = '300px';
+  createRoot(host).render(
+    <MockupBlock system="tmt-gui" version="0.1.0" width={1440} toolbar="collapsed">
+      <button type="button" style={{ width: 1400 }}>
+        Inside stage
+      </button>
+    </MockupBlock>,
+  );
+}
 export function mountScopedImages() {
   const host = document.createElement('main');
   document.body.replaceChildren(host);

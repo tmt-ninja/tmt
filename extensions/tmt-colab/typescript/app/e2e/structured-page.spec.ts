@@ -2115,6 +2115,7 @@ test('a mockup renders only in an opaque sandboxed frame, never in the page', as
   // The stage's theme control paints the frame: Light and Dark are the stage's, Viewer the app's.
   const html = mock.frameLocator('iframe').locator('html');
   await expect(html).toHaveAttribute('data-theme', 'light');
+  await mock.getByRole('button', { name: 'Mockup settings', exact: true }).click();
   const themes = mock.getByRole('group', { name: 'Theme' });
   await themes.getByRole('button', { name: 'Dark' }).click();
   await expect(html).toHaveAttribute('data-theme', 'dark');
@@ -2131,6 +2132,128 @@ test('a mockup renders only in an opaque sandboxed frame, never in the page', as
   expect(inner!.x - sheet!.x).toBeGreaterThanOrEqual(8);
   expect(sheet!.y + sheet!.height - (inner!.y + inner!.height)).toBeGreaterThanOrEqual(8);
 });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a mockup lines up with the text, folds its settings, and opens at full size when scaled past reading at ${width} ${theme} (#6749)`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await servePageRuntime(page);
+      const host = await mountFixture(page, 'spec');
+      const mock = host.locator('[data-block-id="mock"]');
+      const heading = (frame: import('@playwright/test').Locator) =>
+        frame.frameLocator('iframe').getByRole('heading', { name: '手機上的區塊選單' });
+      await expect(heading(mock)).toBeVisible();
+      // The preview's edges are the text column's, at any stage width.
+      const edges = async (locator: import('@playwright/test').Locator) => {
+        const box = (await locator.boundingBox())!;
+        return [Math.round(box.x), Math.round(box.x + box.width)];
+      };
+      const paragraph = host.locator('.tmt-block-doc-body > .tmt-block[data-kind="text"]').first();
+      const column = await edges(paragraph);
+      expect(await edges(mock)).toEqual(column);
+      // Read first: one settings control, and the toolbar under it on request.
+      const settings = mock.getByRole('button', { name: 'Mockup settings', exact: true });
+      const themes = mock.getByRole('group', { name: 'Theme' });
+      await expect(themes).toBeHidden();
+      // The control is a 24px target at least, with the design system's focus ring, and the
+      // keyboard reaches it before the stage's frame.
+      const target = (await settings.boundingBox())!;
+      expect(target.width).toBeGreaterThanOrEqual(24);
+      expect(target.height).toBeGreaterThanOrEqual(24);
+      await mock.locator('.tmt-block-mockup-viewport').evaluate((node) => {
+        const stop = document.createElement('button');
+        stop.dataset.probe = '';
+        node.closest('[data-block-id]')!.before(stop);
+        stop.focus();
+      });
+      await page.keyboard.press('Tab');
+      await expect(settings).toBeFocused();
+      expect(
+        await settings.evaluate((node) => {
+          const style = getComputedStyle(node);
+          const ring = getComputedStyle(document.documentElement).getPropertyValue(
+            '--tmt-ui-focus-width',
+          );
+          return [style.outlineStyle, style.outlineWidth === ring.trim()];
+        }),
+      ).toEqual(['solid', true]);
+      await page.locator('[data-probe]').evaluate((node) => node.remove());
+      // A sandboxed frame paints only in an element capture in view, once it has its height.
+      const shot = async (name: string, of = mock) => {
+        await expect
+          .poll(() =>
+            of
+              .locator('iframe')
+              .last()
+              .evaluate((node) => (node as HTMLElement).offsetHeight),
+          )
+          .toBeGreaterThan(40);
+        await of.scrollIntoViewIfNeeded();
+        await page.mouse.move(0, 0);
+        await of.screenshot({
+          path: capturePath(`structured-mockup-${name}-${width}-${theme}.png`),
+        });
+      };
+      await shot('read');
+      await settings.click();
+      await expect(settings).toHaveAttribute('aria-expanded', 'true');
+      await expect(themes).toBeVisible();
+      // A 390 stage reads at its size, or nearly on a phone: no full-size view.
+      const open = mock.getByRole('button', { name: 'Open at full size' });
+      await expect(open).toHaveCount(0);
+      await mock.getByRole('button', { name: '1440' }).click();
+      expect(await edges(mock)).toEqual(column);
+      if (width === 1440) {
+        // On a stage wider than the prose measure (the layout fixture's 1100px), the text keeps
+        // its measure and the preview keeps to it.
+        await host.evaluate((node) => (node.style.maxWidth = '1100px'));
+        await expect.poll(() => paragraph.evaluate((node) => node.clientWidth)).toBe(720);
+        expect(await edges(mock)).toEqual(await edges(paragraph));
+        await host.evaluate((node) => (node.style.maxWidth = '720px'));
+      }
+      // 1440 in the column is scaled past reading: the full-size view draws it at its own width.
+      await expect(open).toBeVisible();
+      await shot('settings');
+      await settings.click();
+      await expect(themes).toBeHidden();
+      await expect(open).toBeVisible();
+      await open.click();
+      const view = page.getByRole('dialog', { name: 'tmt-gui mockup at full size' });
+      await expect(heading(view)).toBeVisible();
+      // Measured once the dialog has finished opening (it scales in).
+      await expect
+        .poll(async () =>
+          Math.round((await view.locator('.tmt-block-mockup-stage').boundingBox())!.width),
+        )
+        .toBe(1440);
+      // The stage is as tall as the frame it draws (a size container clips the rest away).
+      await expect
+        .poll(() =>
+          view.locator('.tmt-block-mockup-stage').evaluate((node) => {
+            const frame = node.querySelector('iframe')!;
+            return frame.offsetHeight > 40 && node.clientHeight >= frame.offsetHeight;
+          }),
+        )
+        .toBe(true);
+      // Its frame is sandboxed as the block's is: scripts, never the parent's origin.
+      const sandbox = await view.locator('iframe').getAttribute('sandbox');
+      expect(sandbox).toBe(
+        await mock.locator('.tmt-block-mockup-viewport iframe').getAttribute('sandbox'),
+      );
+      expect(sandbox).not.toContain('allow-same-origin');
+      await expect(view.getByRole('button', { name: 'Close full-size view' })).toBeFocused();
+      await shot('full', view);
+      await page.keyboard.press('Escape');
+      await expect(view).toHaveCount(0);
+      await expect(open).toBeFocused();
+      // Closing removes the full-size frame: the block's is the page's only one.
+      await expect(page.locator('iframe')).toHaveCount(1);
+      await expect(mock.locator('iframe')).toHaveCount(1);
+      await expect(heading(mock)).toBeVisible();
+    });
 
 test('a mockup shows loading until its design system draws', async ({ page }) => {
   await servePageRuntime(page);
@@ -2637,6 +2760,7 @@ for (const width of [1440, 390])
       await page.mouse.move(0, 0);
       // Each stage theme: Viewer (the app's), then the stage's own Light and Dark.
       const mock = host.locator('[data-block-id="mock"]');
+      await mock.getByRole('button', { name: 'Mockup settings', exact: true }).click();
       const toolbar = await mock.locator('.tmt-block-mockup-toolbar').boundingBox();
       const stage = await mock.locator('.tmt-block-mockup-viewport').boundingBox();
       expect(stage!.y - (toolbar!.y + toolbar!.height)).toBe(8);

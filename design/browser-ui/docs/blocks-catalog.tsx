@@ -190,7 +190,20 @@ export const blockComponents: ComponentDoc[] = [
       </MockupBlock>
     ),
     usage: `${entry('MockupBlock')}<MockupBlock system="tmt-gui" version="follow">…</MockupBlock>`,
-    variants: [['Unavailable version', () => <MockupBlock unavailable />]],
+    variants: [
+      [
+        'Toolbar collapsed, a 1440 stage',
+        () => (
+          <MockupBlock toolbar="collapsed" width={1440} height={160}>
+            <div style={{ padding: 'var(--tmt-ui-space-m)' }}>
+              <h3>Release 0.4.2</h3>
+              <p>2 checks</p>
+            </div>
+          </MockupBlock>
+        ),
+      ],
+      ['Unavailable version', () => <MockupBlock unavailable />],
+    ],
   },
   {
     slug: 'work-bundle',
