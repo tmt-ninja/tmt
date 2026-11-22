@@ -2217,17 +2217,70 @@ impl crate::sync::Admission for OwnerAdmission {
         scope: &crate::sync::SyncScope,
         store: &Store,
     ) -> std::result::Result<crate::sync::CatchupContext, crate::sync::Code> {
-        let service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
-        service
+        let mut service = self.0.lock().map_err(|_| crate::sync::Code::Denied)?;
+        let reader = service.readers.contains(principal);
+        let needs_wrap = service
             .store
             .owner_read(&scope.space, &service.keyring.owner_public(), |tx| {
                 let head = tx.head().ok_or(crate::sync::Code::Denied)?;
-                if tx.page_policy_at(&scope.page, head.revision)?.deleted {
+                let policy = tx.page_policy_at(&scope.page, head.revision)?;
+                if policy.deleted {
                     return Err(crate::sync::Code::Denied.into());
                 }
-                Ok(())
+                if reader || tx.page_epoch(&scope.page)?.as_deref() != Some(scope.epoch.as_str()) {
+                    return Ok(false);
+                }
+                tx.missing_device_wrap(&scope.page, &policy, principal)
             })
             .map_err(|error| sync_fault(error.as_ref()))?;
+        if needs_wrap {
+            let Registration { store, keyring, .. } = &mut *service;
+            store
+                .device_transaction(&scope.space, &keyring.owner_public(), |tx| {
+                    let row = tx
+                        .registration(principal)?
+                        .ok_or(crate::sync::Code::Denied)?;
+                    let device = tx.device(principal)?.ok_or(crate::sync::Code::Denied)?;
+                    if row.revoked || device.revoked {
+                        return Err(crate::sync::Code::Denied.into());
+                    }
+                    let binding: DeviceRegistration =
+                        serde_json::from_slice(&row.binding.ok_or(crate::sync::Code::Denied)?)?;
+                    let chain = certificate::Chain::from_json(&device.chain)?;
+                    let cert = chain.certificate()?;
+                    let (initial, member, revision) = issuer(tx, keyring)?;
+                    verify_device(
+                        &chain,
+                        &cert,
+                        &initial,
+                        &member,
+                        &binding,
+                        revision,
+                        &scope.space,
+                    )?;
+                    let now = now_ms()?;
+                    let policy = tx.page_policy_at(&scope.page, revision)?;
+                    if cert.device_id != principal
+                        || now < cert.issued_at
+                        || now >= cert.expires_at
+                        || policy.deleted
+                        || tx.page_epoch(&scope.page)?.as_deref() != Some(scope.epoch.as_str())
+                    {
+                        return Err(crate::sync::Code::Denied.into());
+                    }
+                    forward_page_wraps(
+                        tx,
+                        keyring,
+                        principal,
+                        &binding.encryption,
+                        &scope.page,
+                        &policy,
+                        crate::limits::OWNER_WRAPS,
+                    )?;
+                    Ok(vec![])
+                })
+                .map_err(|error| sync_fault(error.as_ref()))?;
+        }
         Ok(crate::sync::CatchupContext {
             membership_head: store
                 .owner_head(&scope.space, &service.keyring.owner_public())
@@ -2390,42 +2443,55 @@ fn forward_owner_wraps(
     device: &str,
     recipient_key: &[u8; 32],
 ) -> Result<()> {
-    let head = tx.head().ok_or(Code::Unavailable)?.clone();
-    let mut added = 0;
+    let mut remaining = crate::limits::OWNER_WRAPS;
     for (page, policy) in tx.owner_wrap_pages()? {
-        if added == crate::limits::OWNER_WRAPS {
+        if remaining == 0 {
             break;
         }
-        let epochs = tx.recent_secrets(&page, policy.epoch)?;
-        for (epoch, mut secret) in epochs.into_iter().rev() {
-            let result = (|| -> Result<()> {
-                if added == crate::limits::OWNER_WRAPS
-                    || (policy.history_current && epoch != policy.epoch)
-                    || tx.device_wrap_exists(&page, epoch, device, recipient_key)?
-                {
-                    return Ok(());
-                }
-                added += 1;
-                tx.put_wrap(&key.seal_wrap(
-                    &tmt_colab_model::wrap::Header {
-                        space: key.space_id.clone(),
-                        page: page.clone(),
-                        epoch: epoch.to_string(),
-                        recipient_kind: "device".into(),
-                        recipient_id: device.into(),
-                        recipient_key: *recipient_key,
-                        signer_key: key.owner_public(),
-                        membership_revision: head.revision.to_string(),
-                    },
-                    &secret,
-                )?)?;
-                Ok(())
-            })();
-            secret.fill(0);
-            result?;
-        }
+        remaining -= forward_page_wraps(tx, key, device, recipient_key, &page, &policy, remaining)?;
     }
     Ok(())
+}
+fn forward_page_wraps(
+    tx: &mut OwnerTransaction<'_>,
+    key: &Keyring,
+    device: &str,
+    recipient_key: &[u8; 32],
+    page: &str,
+    policy: &crate::fold::PagePolicy,
+    limit: usize,
+) -> Result<usize> {
+    let revision = tx.head().ok_or(Code::Unavailable)?.revision;
+    let mut added = 0;
+    let epochs = tx.recent_secrets(page, policy.epoch)?;
+    for (epoch, mut secret) in epochs.into_iter().rev() {
+        let result = (|| -> Result<()> {
+            if added == limit
+                || (policy.history_current && epoch != policy.epoch)
+                || tx.device_wrap_exists(page, epoch, device, recipient_key)?
+            {
+                return Ok(());
+            }
+            added += 1;
+            tx.put_wrap(&key.seal_wrap(
+                &tmt_colab_model::wrap::Header {
+                    space: key.space_id.clone(),
+                    page: page.to_owned(),
+                    epoch: epoch.to_string(),
+                    recipient_kind: "device".into(),
+                    recipient_id: device.into(),
+                    recipient_key: *recipient_key,
+                    signer_key: key.owner_public(),
+                    membership_revision: revision.to_string(),
+                },
+                &secret,
+            )?)?;
+            Ok(())
+        })();
+        secret.fill(0);
+        result?;
+    }
+    Ok(added)
 }
 
 fn issuer(

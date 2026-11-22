@@ -1237,13 +1237,26 @@ fn registration_prioritizes_active_then_newest_archives_and_finishes_on_retry() 
     use tmt_colab::store::owner::Mutation;
     let mut f = Fixture::new();
     const ACTIVE: &str = "90000000-0000-4000-8000-000000000001";
-    let created = create_page(&mut f, ACTIVE, ACTIVE, 0);
+    let first_page = create_page(&mut f, ACTIVE, ACTIVE, 0);
+    const SECOND_ACTIVE: &str = "90000000-0000-4000-8000-000000000002";
+    let second_page = create_page(
+        &mut f,
+        SECOND_ACTIVE,
+        SECOND_ACTIVE,
+        first_page.head.revision,
+    );
     let key = Keyring::read(&f.layout).unwrap();
     let mut store = Store::open(&f.layout).unwrap();
     let archives: Vec<_> = (0..512)
         .map(|n| format!("50000000-0000-4000-8000-{n:012}"))
         .collect();
-    for page in &archives {
+    let created = create_page(
+        &mut f,
+        &archives[0],
+        &archives[0],
+        second_page.head.revision,
+    );
+    for page in &archives[1..] {
         store.create_page(page).unwrap();
     }
     store
@@ -1257,7 +1270,9 @@ fn registration_prioritizes_active_then_newest_archives_and_finishes_on_retry() 
             },
             |tx| {
                 for page in &archives {
-                    tx.put_epoch_secret(page, 1, &[12; 32])?;
+                    if page != &archives[0] {
+                        tx.put_epoch_secret(page, 1, &[12; 32])?;
+                    }
                     tx.append_statement(&key.sign_statement(
                         tx.head(),
                         "page.archive",
@@ -1288,12 +1303,34 @@ fn registration_prioritizes_active_then_newest_archives_and_finishes_on_retry() 
     };
     let first = enroll(&mut f);
     browser_reads_created_page(&f, ACTIVE, DEVICE);
+    browser_reads_created_page(&f, SECOND_ACTIVE, DEVICE);
     let initial = wraps();
     assert_eq!(initial.len(), 512);
     assert!(!initial.contains_key(&archives[0]));
+    use tmt_colab::{
+        registration::OwnerAdmission,
+        sync::{Access, Admission, SyncScope},
+    };
+    let admission = OwnerAdmission(Arc::new(Mutex::new(f.service.take().unwrap())));
+    let scope = SyncScope {
+        space: key.space_id.clone(),
+        page: archives[0].clone(),
+        epoch: "1".into(),
+    };
+    admission.authorize(DEVICE, &scope, Access::Read).unwrap();
+    admission.catchup_context(DEVICE, &scope, &store).unwrap();
+    browser_reads_created_page(&f, &archives[0], DEVICE);
+    assert_eq!(wraps().len(), 513);
+    f.service = Some(
+        Arc::try_unwrap(admission.0)
+            .ok()
+            .unwrap()
+            .into_inner()
+            .unwrap(),
+    );
     assert_eq!(enroll(&mut f), first);
     let complete = wraps();
-    assert_eq!(complete.len(), 513);
+    assert_eq!(complete.len(), 514);
     assert!(complete.contains_key(&archives[0]));
     for (page, envelope) in initial {
         assert_eq!(complete[&page], envelope);

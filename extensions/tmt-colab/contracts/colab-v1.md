@@ -7210,7 +7210,9 @@ key; shared history supplies at most 64 retained epochs. Registration creates at
 most 512 missing wraps per transaction, active pages first, then archived pages
 by descending archive revision, newest eligible epoch first within each page.
 At the limit registration succeeds. A later registration or renewal skips existing
-device/epoch wraps and continues filling the remainder. Once complete, a retry adds no wraps; revoked devices receive nothing. These wraps confer no new Remote rights.
+device/epoch wraps and continues filling the remainder. Opening a deferred page in the
+current session also completes its eligible wraps for the verified owner device before
+the sync catch-up returns the page. Once complete, a retry adds no wraps; revoked devices receive nothing. These wraps confer no new Remote rights.
 
 JSON success is `{spaceId,pageId,title,path,operationId,membershipHead,warnings}` with
 `membershipHead:{revision,statementHash}` (decimal text and canonical base64url

@@ -279,6 +279,24 @@ impl OwnerTransaction<'_> {
             .map(|(page, (policy, _))| (page, policy))
             .collect())
     }
+    /// Fast read-only gate before taking the device writer transaction. The writer
+    /// rechecks policy and verifies existing envelopes against the bound encryption key.
+    pub(crate) fn missing_device_wrap(
+        &self,
+        page: &str,
+        policy: &crate::fold::PagePolicy,
+        device: &str,
+    ) -> Result<bool> {
+        let first = if policy.history_current {
+            policy.epoch
+        } else {
+            policy.epoch.saturating_sub(63).max(1)
+        };
+        Ok(self.tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM epoch_secrets s WHERE s.page=?1 AND s.epoch BETWEEN ?2 AND ?3
+             AND NOT EXISTS(SELECT 1 FROM wraps w WHERE w.page=s.page AND w.epoch=s.epoch AND w.kind='device' AND w.recipient=?4))",
+            params![page, sequence(first), sequence(policy.epoch), device], |row| row.get(0))?)
+    }
     pub(crate) fn recent_secrets(&self, page: &str, epoch: u64) -> Result<Vec<(u64, [u8; 32])>> {
         let mut query = self.tx.prepare("SELECT epoch,secret FROM epoch_secrets WHERE page=? AND epoch>=? AND epoch<=? ORDER BY epoch")?;
         let rows = query
