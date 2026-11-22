@@ -264,12 +264,15 @@ function Editor({
    * after `from` are late only if it showed `from` (a new instance starts empty, which is not
    * typing). */
   const shownTexts = useRef<{ editor?: LexicalEditor; texts: Set<string> }>({ texts: new Set() });
+  const admission = useRef({ marks, maxBytes, onFull, textFits });
+  admission.current = { marks, maxBytes, onFull, textFits };
   // Validate the pending tree before Lexical commits it. A native input can have
   // already changed the DOM; replacing the paragraph gives reconciliation fresh
   // nodes for both the displayed text and its selection.
   useEffect(
     () =>
       editor.registerNodeTransform(RootNode, () => {
+        const { marks, maxBytes, onFull, textFits } = admission.current;
         if ($hasUpdateTag('tmt-block-refused-input')) return;
         const value = $text();
         if ($hasUpdateTag(PAGE_TAG) && value === pageText.current) return;
@@ -283,7 +286,7 @@ function Editor({
         if (!refused.current) onFull?.();
         refused.current = true;
       }),
-    [editor, marks, maxBytes, onFull, textFits],
+    [editor],
   );
   useEffect(
     () =>
@@ -296,7 +299,8 @@ function Editor({
             return;
           const value = editorState.read($text);
           if (tags.has(PAGE_TAG) && value === pageText.current) return;
-          if (value !== prevEditorState.read($text)) refused.current = false;
+          if (value === prevEditorState.read($text)) return;
+          refused.current = false;
           editorState.read(() => {
             const now = $text();
             if (shownTexts.current.editor === editor) shownTexts.current.texts.add(now);
