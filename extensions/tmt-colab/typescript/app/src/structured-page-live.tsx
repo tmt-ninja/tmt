@@ -1,5 +1,7 @@
-import { useRouterState } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useBlocker, useRouterState } from '@tanstack/react-router';
+import { BlockDraftSession, type BlockDraftStore, type BlockDraft } from './block-drafts.js';
+import { text as strings } from './strings.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AttachmentInput, StoredAttachment } from './attachment-service.js';
 import type { BlockFiles } from './block-uploads.js';
 import type { DocumentImageInput } from './document-images.js';
@@ -24,6 +26,8 @@ import type { MentionPages } from './mention-pages.js';
  * writes draws the page read-only.
  */
 export function LiveStructuredPage({
+  pageId,
+  blockDrafts,
   blocks,
   todoNumbers,
   seq,
@@ -45,6 +49,8 @@ export function LiveStructuredPage({
   onOpenAnnotation,
   onDrawn,
 }: {
+  pageId?: string;
+  blockDrafts?: BlockDraftStore;
   blocks: Readonly<Record<string, BlockEntry>>;
   todoNumbers?: Readonly<Record<string, string>>;
   /** The view's local order (`PageView.seq`). */
@@ -92,6 +98,25 @@ export function LiveStructuredPage({
   );
   const write = useMemo(() => binding?.blocks?.bind(binding), [binding]);
   const pageFiles = write ? binding?.files : undefined;
+  const recovery = useMemo(
+    () => (write && pageId && blockDrafts ? new BlockDraftSession(blockDrafts, pageId) : undefined),
+    [write, pageId, blockDrafts],
+  );
+  const [restored, setRestored] = useState<BlockDraft[]>([]);
+  const [clearFailed, setClearFailed] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    let active = true;
+    if (recovery)
+      void recovery.store.load(recovery.page).then(
+        (entries) => {
+          if (active) setRestored(entries);
+        },
+        () => {},
+      );
+    return () => {
+      active = false;
+    };
+  }, [recovery]);
   const send = useCallback(
     async (ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
       if (!write) throw new Error('Page editing unavailable');
@@ -136,6 +161,7 @@ export function LiveStructuredPage({
     author,
     questionEdit,
     typed,
+    flush,
     settle,
     key,
     menu,
@@ -166,7 +192,103 @@ export function LiveStructuredPage({
     mention,
     pickMention,
     hoverMention,
-  } = useBlockEditing(records, send, seq, files, agents, mentionPages);
+  } = useBlockEditing(records, send, seq, files, agents, mentionPages, recovery);
+  useBlocker({
+    disabled: !write,
+    enableBeforeUnload: () => recovery?.unsafe() ?? false,
+    shouldBlockFn: async () => {
+      flush();
+      if (!recovery?.unsafe()) return false;
+      if (await recovery.waitForStorage()) return false;
+      return recovery.unsafe() && !window.confirm(strings.blockEdit.leaveUnsaved);
+    },
+  });
+  useEffect(() => {
+    const hidden = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    const blur = (event: FocusEvent) => {
+      if (event.target instanceof HTMLElement && event.target.isContentEditable) flush();
+    };
+    document.addEventListener('focusout', blur);
+    document.addEventListener('visibilitychange', hidden);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('focusout', blur);
+      document.removeEventListener('visibilitychange', hidden);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [flush]);
+  const dismiss = useCallback(
+    async (draft: BlockDraft) => {
+      if (await recovery?.store.clear(recovery.page, draft)) {
+        setRestored((entries) => entries.filter((e) => e !== draft));
+        setClearFailed((previous) => {
+          const next = new Set(previous);
+          next.delete(draft.target);
+          return next;
+        });
+      } else {
+        setClearFailed((previous) => new Set(previous).add(draft.target));
+        setRecoveryError(strings.blockEdit.notApplied);
+      }
+    },
+    [recovery],
+  );
+  const present = (draft: BlockDraft) => {
+    if (!tree.visible(draft.id)) return undefined;
+    const block = tree.get(draft.id);
+    return draft.cell ? block?.cells?.[draft.cell.column] : block?.text;
+  };
+  const busy = useRef(new Set<string>());
+  const keep = async (draft: BlockDraft) => {
+    if (!write || busy.current.has(draft.target)) return;
+    busy.current.add(draft.target);
+    try {
+      if (present(draft) !== draft.value) {
+        if (present(draft) === undefined) {
+          await send([
+            {
+              op: 'insert',
+              id: crypto.randomUUID(),
+              parent: 'root',
+              after: null,
+              type: 'paragraph',
+              text: draft.value,
+            },
+          ]);
+        } else {
+          await send([
+            draft.cell
+              ? {
+                  op: 'table',
+                  id: draft.cell.table,
+                  action: 'set-cell',
+                  row: draft.id,
+                  column: draft.cell.column,
+                  base: draft.base,
+                  text: draft.value,
+                  overlap: 'both',
+                }
+              : { op: 'text', id: draft.id, base: draft.base, set: draft.value, overlap: 'both' },
+          ]);
+        }
+      }
+      await dismiss(draft);
+    } catch {
+      setRecoveryError(strings.blockEdit.notApplied);
+    } finally {
+      busy.current.delete(draft.target);
+    }
+  };
+  const [recoveryError, setRecoveryError] = useState('');
+  useEffect(() => {
+    for (const draft of restored) {
+      const block = records.find((b) => b.id === draft.id && !b.deleted);
+      if (block && (draft.cell ? block.cells?.[draft.cell.column] : block.text) === draft.value)
+        void dismiss(draft);
+    }
+  }, [records, restored, dismiss]);
   useEffect(() => {
     onDrawn?.(tree.flat());
   }, [tree, onDrawn]);
@@ -179,6 +301,10 @@ export function LiveStructuredPage({
     <StructuredPage
       anchorBlock={hash.startsWith('block-') ? hash.slice(6) : hash}
       tree={tree}
+      recoveryError={recoveryError}
+      restored={restored.filter((d) => clearFailed.has(d.target) || present(d) !== d.value)}
+      onRestore={keep}
+      onForget={dismiss}
       drafts={drafts}
       onDraftChange={changeDraft}
       onKeepDraft={keepDraft}

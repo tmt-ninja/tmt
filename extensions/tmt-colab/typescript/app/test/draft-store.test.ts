@@ -358,3 +358,215 @@ it('keeps an edited pending creator reference without losing an existing v1 pair
     mentions: [{ key: { agent: 'creator-id' }, range: { start: 0, end: 8 } }],
   });
 });
+
+it('the existing reader rejects a whole composer record containing a typed block entry', async () => {
+  const { seal } = await import('../src/local-seal.js');
+  const entries = [
+    { target: 'chat', edit: { value: 'keep this chat' } },
+    { target: 'block:id', edit: { base: 'Plan', value: '', generation: 'edit-1' } },
+  ];
+  stored.set(
+    RECORD,
+    await seal(
+      await draftKey('device'),
+      ['tmt-colab-drafts-v1', 'space', 'device', 'page'],
+      new TextEncoder().encode(JSON.stringify({ v: 1, drafts: entries })),
+    ),
+  );
+  expect(await store().load('page')).toEqual(new Map());
+});
+
+it('keeps existing composer drafts readable when a block draft is saved', async () => {
+  const { blockDraftStore } = await import('../src/block-drafts.js');
+  const chat = edit('Keep my chat', { edited: true });
+  expect(await store().apply('page', new Map([['chat', chat]]))).toBe(true);
+  const draft = {
+    target: 'edit-1',
+    generation: 'generation-1',
+    id: 'block-1',
+    base: 'Plan',
+    value: 'Plan Friday',
+  };
+  const blocks = blockDraftStore('space', 'device');
+  expect(await blocks.save('page', draft)).toBe(true);
+  expect(await store().load('page')).toEqual(new Map([['chat', chat]]));
+  expect(await blocks.load('page')).toEqual([draft]);
+});
+
+it.each(['unopenable', 'non-array', 'missing value'] as const)(
+  'replaces an %s block-draft record and saves the new text durably',
+  async (kind) => {
+    const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+    const { seal } = await import('../src/local-seal.js');
+    const recordName = 'block-drafts:space:device:page';
+    const scope = ['tmt-colab-block-drafts-v1', 'space', 'device', 'page'];
+    const key = await draftKey('device');
+    const bad =
+      kind === 'non-array' ? { v: 2 } : [{ target: 't', generation: 'g', id: 'b', base: 'x' }];
+    stored.set(
+      recordName,
+      kind === 'unopenable'
+        ? { nonce: 'bad', ciphertext: 'bad' }
+        : await seal(key, scope, new TextEncoder().encode(JSON.stringify(bad))),
+    );
+    const store = blockDraftStore('space', 'device');
+    expect(await store.load('page')).toEqual([]);
+    const session = new BlockDraftSession(store, 'page');
+    session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+    expect(await session.waitForStorage()).toBe(true);
+    expect(await store.load('page')).toMatchObject([{ id: 'block-1', value: 'Plan Friday' }]);
+  },
+);
+
+it('keeps valid block drafts while dropping malformed entries', async () => {
+  const { blockDraftStore } = await import('../src/block-drafts.js');
+  const { seal } = await import('../src/local-seal.js');
+  const valid = {
+    target: 't',
+    generation: 'g',
+    id: 'b',
+    base: 'a',
+    value: 'ab',
+    cell: { table: 't1', column: 'c1' },
+  };
+  const malformed = [
+    { ...valid, target: 'bad', value: 7 },
+    { ...valid, target: 'bad-cell', cell: { table: 't1' } },
+  ];
+  stored.set(
+    'block-drafts:space:device:page',
+    await seal(
+      await draftKey('device'),
+      ['tmt-colab-block-drafts-v1', 'space', 'device', 'page'],
+      new TextEncoder().encode(JSON.stringify([malformed[0], valid, malformed[1]])),
+    ),
+  );
+  expect(await blockDraftStore('space', 'device').load('page')).toEqual([valid]);
+});
+
+it('keeps the newest unsaved block text after an older save is acknowledged', async () => {
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  const blocks = blockDraftStore('space', 'device');
+  const session = new BlockDraftSession(blocks, 'page');
+  session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+  expect(await session.waitForStorage()).toBe(true);
+  const first = session.matching('block-1', undefined, 'Plan Friday')!;
+  session.remember('block-1', undefined, 'Plan', '');
+  expect(await session.waitForStorage()).toBe(true);
+  session.admitted(first);
+  const reopened = await blocks.load('page');
+  expect(reopened).toHaveLength(1);
+  expect(reopened[0]).toMatchObject({ id: 'block-1', base: 'Plan', value: '' });
+});
+
+it('reopens a durable block draft until its own save is admitted', async () => {
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  const session = new BlockDraftSession(blockDraftStore('space', 'device'), 'page');
+  session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+  expect(await session.waitForStorage()).toBe(true);
+  const draft = session.matching('block-1', undefined, 'Plan Friday')!;
+  const reopened = blockDraftStore('space', 'device');
+  expect(await reopened.load('page')).toEqual([draft]);
+  session.admitted(draft);
+  await expect.poll(() => reopened.load('page')).toEqual([]);
+});
+
+it('does not recover a resolved block draft when its local write was in flight', async () => {
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  const store = blockDraftStore('space', 'device');
+  let finish!: () => void;
+  const held = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const session = new BlockDraftSession(
+    {
+      ...store,
+      save: async (page, draft) => {
+        await held;
+        return store.save(page, draft);
+      },
+    },
+    'page',
+  );
+  session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+  const draft = session.matching('block-1', undefined, 'Plan Friday')!;
+  const resolved = session.admitted(draft);
+  finish();
+  await resolved;
+  expect(await store.load('page')).toEqual([]);
+});
+
+it('does not finish discarding a draft until its stored copy is removed', async () => {
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  const store = blockDraftStore('space', 'device');
+  let release!: () => void;
+  let clearing!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    clearing = resolve;
+  });
+  const session = new BlockDraftSession(
+    {
+      ...store,
+      clear: async (page, draft) => {
+        clearing();
+        await held;
+        return store.clear(page, draft);
+      },
+    },
+    'page',
+  );
+  session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+  expect(await session.waitForStorage()).toBe(true);
+  let completed = false;
+  const discard = session.forget('block-1', undefined).then((result) => {
+    completed = true;
+    return result;
+  });
+  await started;
+  expect(completed).toBe(false);
+  expect(await store.load('page')).toHaveLength(1);
+  release();
+  expect(await discard).toBe(true);
+  expect(await store.load('page')).toEqual([]);
+});
+
+it('writes the latest block edit promptly after a rapid typing burst', async () => {
+  const { BlockDraftSession } = await import('../src/block-drafts.js');
+  type Draft = import('../src/block-drafts.js').BlockDraft;
+  const started: Draft[] = [];
+  let finishFirst!: (value: boolean) => void;
+  const first = new Promise<boolean>((resolve) => {
+    finishFirst = resolve;
+  });
+  const session = new BlockDraftSession(
+    {
+      load: async () => [],
+      save: async (_page, draft) => {
+        started.push(draft);
+        return started.length === 1 ? first : true;
+      },
+      clear: async () => true,
+    },
+    'page',
+  );
+  for (let i = 1; i <= 20; i++) session.remember('block-1', undefined, 'Plan', `Plan ${i}`);
+  const lastInput = performance.now();
+  expect(started.map((draft) => draft.value)).toEqual(['Plan 1']);
+  finishFirst(true);
+  expect(await session.waitForStorage()).toBe(true);
+  const latestDurableMs = performance.now() - lastInput;
+  expect(started.map((draft) => draft.value)).toEqual(['Plan 1', 'Plan 20']);
+  expect(latestDurableMs).toBeLessThan(300);
+});
+
+it('keeps the leave guard active if the block draft cannot be saved', async () => {
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  unavailable = true;
+  const session = new BlockDraftSession(blockDraftStore('space', 'device'), 'page');
+  session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+  expect(await session.waitForStorage()).toBe(false);
+  expect(session.unsafe()).toBe(true);
+});

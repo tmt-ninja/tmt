@@ -211,6 +211,7 @@ export interface PageTransport {
   readonly backendName?: string;
   /** Device-local unsent-draft persistence; absent means drafts stay in memory. */
   readonly drafts?: DraftStore;
+  readonly blockDrafts?: import('./block-drafts.js').BlockDraftStore;
   readonly management?: ManagementPort;
   /** The space's page list. A `signal` that aborts ends the read: a reader that leaves cancels it. */
   spaceHome(signal?: AbortSignal): Promise<SpaceHome>;

@@ -34,7 +34,14 @@ import {
   selectedIds,
   settleSelection,
 } from './block-selection.js';
-import { BlockTextSync, type Shown, type TableCell, TEXT_FLUSH_MS } from './block-text-sync.js';
+import type { BlockDraftSession } from './block-drafts.js';
+import {
+  BlockTextSync,
+  type Shown,
+  type TableCell,
+  TEXT_FLUSH_MS,
+  TEXT_MAX_WAIT_MS,
+} from './block-text-sync.js';
 import { marked, typedMarks } from './block-marks.js';
 import { indentBlock } from './block-ops.js';
 import type { TextRange } from './block-text-editor.js';
@@ -248,6 +255,7 @@ export function useBlockEditing(
   agents: readonly string[] = [],
   /** Other pages an @ can name, under the page list's authority (#6208); absent without it. */
   pages?: MentionPages,
+  recovery?: BlockDraftSession,
 ) {
   /** This tab's batches on their way: the page draws them at once and drops each when the page's
    * view shows it (`shownAt`: the view order of its commit), or when it was refused (#6249). A
@@ -296,6 +304,7 @@ export function useBlockEditing(
   const sync = useRef<BlockTextSync | undefined>(undefined);
   const caret = useRef(0);
   const version = useRef(0);
+  const firstUnsent = useRef<number | undefined>(undefined);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** The send on its way; a structural gesture waits for it. */
   const inflight = useRef<Promise<void>>(Promise.resolve());
@@ -442,6 +451,7 @@ export function useBlockEditing(
       stored?: readonly StoredAttachment[],
       report = stored === undefined,
     ): Promise<boolean> => {
+      const captured = current && recovery?.matching(current.id, current.cell, current.text);
       const key = ++batchKey.current;
       setPending((now) => [...now, { key, ops }]);
       // This tab's batches commit in the order it made them (a column's rename after its add): each
@@ -475,6 +485,7 @@ export function useBlockEditing(
       }, drop);
       inflight.current = sent.then(
         (at) => {
+          if (captured) recovery?.admitted(captured);
           if (current)
             showRef.current(
               current,
@@ -503,7 +514,7 @@ export function useBlockEditing(
       lastBatch.current = settled;
       return settled;
     },
-    [],
+    [recovery],
   );
   /** The typing not sent yet, with the marks its new characters take from the text they were
    * typed into (as the editor draws them). */
@@ -521,6 +532,7 @@ export function useBlockEditing(
     const current = sync.current;
     const ops = current ? typedOps(current) : [];
     if (!current || !ops.length) return;
+    firstUnsent.current = undefined;
     void out(current, ops, undefined, false);
   }, [out, typedOps]);
   /** Flush the active editor and wait until its latest batch is admitted or refused. */
@@ -585,6 +597,7 @@ export function useBlockEditing(
         };
         setDrafts(new Map(drafts).set(previous.id, draft));
       } else {
+        void recovery?.forget(current.id, current.cell);
         // Only an editor the person typed in becomes a draft (#6725): one they only opened leaves
         // with its block, and the status line says why.
         setClosedByDelete((count) => count + 1);
@@ -599,6 +612,8 @@ export function useBlockEditing(
     [tree, drafts],
   );
   const changeDraft = (id: string, text: string, at: number) => {
+    const draft = latestDrafts.current.get(id);
+    if (draft) recovery?.remember(id, undefined, draft.block.text ?? '', text);
     setDrafts((now) => {
       const draft = now.get(id);
       return draft
@@ -606,12 +621,15 @@ export function useBlockEditing(
         : now;
     });
   };
-  const removeDraft = (id: string) =>
+  const removeDraft = async (id: string) => {
+    if (recovery && !(await recovery.forget(id, undefined))) return false;
     setDrafts((now) => {
       const next = new Map(now);
       next.delete(id);
       return next;
     });
+    return true;
+  };
   const keepDraft = async (id: string) => {
     const draft = drafts.get(id);
     if (!draft || !isBlockType(draft.block.type) || savingDrafts.current.has(id)) return;
@@ -635,27 +653,57 @@ export function useBlockEditing(
       text: draft.editing.text,
     });
     const saved = await out(undefined, [op], undefined, false);
-    savingDrafts.current.delete(id);
     if (!saved) {
+      savingDrafts.current.delete(id);
       noticeRef.current(strings.blockEdit.notApplied);
       return;
     }
-    const latest = latestDrafts.current.get(id)?.editing ?? draft.editing;
-    removeDraft(id);
+    let latest = latestDrafts.current.get(id)?.editing ?? draft.editing;
+    while (true) {
+      if (latest.text !== draft.editing.text && recovery) {
+        recovery.remember(newId, undefined, draft.editing.text, latest.text);
+        if (!(await recovery.waitForStorage())) {
+          savingDrafts.current.delete(id);
+          noticeRef.current(strings.blockEdit.notApplied);
+          return;
+        }
+      }
+      const current = latestDrafts.current.get(id)?.editing ?? latest;
+      if (current.text !== latest.text) {
+        latest = current;
+        continue;
+      }
+      if (await removeDraft(id)) break;
+      const changed = latestDrafts.current.get(id)?.editing;
+      if (!changed || changed.text === latest.text) {
+        savingDrafts.current.delete(id);
+        noticeRef.current(strings.blockEdit.notApplied);
+        return;
+      }
+      latest = changed;
+    }
+    latest = latestDrafts.current.get(id)?.editing ?? latest;
+    savingDrafts.current.delete(id);
     arriving.current = newId;
     const replacement = new BlockTextSync(newId, draft.editing.text);
     replacement.typed(latest.text);
     open(replacement, latest.caret);
     if (replacement.pending) flush();
   };
-  const discardDraft = (id: string) => {
+  const discardDraft = async (id: string) => {
     if (savingDrafts.current.has(id)) return;
+    savingDrafts.current.add(id);
+    if (!(await removeDraft(id))) {
+      savingDrafts.current.delete(id);
+      noticeRef.current(strings.blockEdit.notApplied);
+      return;
+    }
+    savingDrafts.current.delete(id);
     const siblings = drawTree.flat();
     const index = siblings.findIndex((block) => block.id === id);
     const next = [...siblings.slice(index + 1), ...siblings.slice(0, index).reverse()].find(
       (block) => tree.visible(block.id),
     );
-    removeDraft(id);
     if (next) setSelection(selectBlock(next.id));
     else
       requestAnimationFrame(() =>
@@ -738,6 +786,7 @@ export function useBlockEditing(
         return;
       }
       current.typed(text);
+      recovery?.remember(id, current.cell, current.base, text);
       caret.current = at;
       const menu = menuRef.current;
       if (menu?.id === id) setMenuAt(text.startsWith('/') ? { ...menu, query: text } : undefined);
@@ -754,9 +803,16 @@ export function useBlockEditing(
           : undefined,
       );
       clearTimeout(timer.current);
-      timer.current = setTimeout(flush, TEXT_FLUSH_MS);
+      firstUnsent.current ??= performance.now();
+      timer.current = setTimeout(
+        flush,
+        Math.min(
+          TEXT_FLUSH_MS,
+          Math.max(0, firstUnsent.current + TEXT_MAX_WAIT_MS - performance.now()),
+        ),
+      );
     },
-    [flush],
+    [flush, recovery],
   );
 
   /** The person focused a table cell: its text is edited as a block's is, and goes out as

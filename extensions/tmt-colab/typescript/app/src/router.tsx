@@ -3600,6 +3600,9 @@ function OpenPage({
                   data-annotation-mode={(canSelect && selectionMode) || undefined}
                 >
                   <LazyStructuredPage
+                    key={snapshot.id}
+                    pageId={snapshot.id}
+                    blockDrafts={transport.blockDrafts}
                     onDrawn={setDrawnBlocks}
                     onSettle={setBlockSettler}
                     blocks={view.blocks}
