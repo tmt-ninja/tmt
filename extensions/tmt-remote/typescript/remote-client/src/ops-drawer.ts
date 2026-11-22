@@ -61,7 +61,7 @@ export function agentDrawer(focus: {
     title.textContent = agent.name;
     close.setAttribute('aria-label', `Close ${agent.name}`);
     const top = el('div', 'ops-drawer-top');
-    top.append(stateChip(agent.state, agent.stateText || undefined), readOnlyBadge());
+    top.append(stateChip(agent.state), readOnlyBadge());
     const facts = el('dl', browserUiClasses.facts);
     for (const [term, value] of [
       ['Squad', agent.squad],

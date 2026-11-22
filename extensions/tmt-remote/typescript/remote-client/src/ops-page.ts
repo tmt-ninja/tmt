@@ -203,6 +203,11 @@ export function opsPage(
     if (seen !== last) {
       last = seen;
       board = next;
+      // An unavailable board leaves the member's timers unknown, never none.
+      orchestration.timers({
+        jobs: next.unavailable ? null : next.schedules,
+        truncated: next.truncated,
+      });
       if (next.unavailable) {
         notAvailable(note, next.unavailable);
       } else {

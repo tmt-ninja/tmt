@@ -60,10 +60,10 @@ function Composer({ options }: { options: ComposerOptions }): ReactNode {
     if (cleared.current === options.cleared) return;
     cleared.current = options.cleared;
     setDrafts((all) => ({ ...all, [options.key]: '' }));
-    options.onDraft?.(options.key, false);
+    options.onDraft?.(options.key, '');
     setReset((value) => value + 1);
   }, [options.cleared, options.key]);
-  const value = drafts[options.key] ?? '';
+  const value = drafts[options.key] ?? options.saved ?? '';
   const ready = options.canSend && !options.busy && value.trim() !== '';
   const send = () => {
     if (ready) options.onSend?.(value);
@@ -105,7 +105,7 @@ function Composer({ options }: { options: ComposerOptions }): ReactNode {
     edit: { value },
     onChange: (next) => {
       setDrafts((all) => ({ ...all, [options.key]: next.value }));
-      options.onDraft?.(options.key, next.value.trim() !== '');
+      options.onDraft?.(options.key, next.value);
     },
     document: plain,
     disabled: options.busy,

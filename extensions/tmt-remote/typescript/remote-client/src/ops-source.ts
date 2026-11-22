@@ -5,6 +5,7 @@
  */
 import { coreId } from './operations.js';
 import { ownerRead, type OwnerReadAnswer, type OwnerReadReason } from './owner-reads.js';
+import { forgetDrafts } from './ops-composer-slot.js';
 /** The shared state marks (c5ccd17a §4): always a mark and a word. The mark is a leaf shape
  * (`tmt-ui-state-mark`), the same box for every state. */
 export type AgentState = 'working' | 'idle' | 'offline' | 'unknown';
@@ -22,17 +23,45 @@ export const AGENT_STATES: Record<
   unknown: { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
 };
 
+/** The board's colour for a member's task state, as the page draws it: Ops' colour roles and
+ * their older names (`red`, `amber`, `green`, `magenta`); any other token is neutral. */
+export type TaskTone = 'working' | 'waiting' | 'blocked' | 'review' | 'muted';
+const TASK_TONES: Readonly<Record<string, TaskTone>> = {
+  working: 'working',
+  green: 'working',
+  waiting: 'waiting',
+  amber: 'waiting',
+  blocked: 'blocked',
+  red: 'blocked',
+  review: 'review',
+  magenta: 'review',
+  dim: 'muted',
+};
+
+/** What a squad owes the person, as the owner's board counts it: members waiting on the person (a
+ * pending decision or a request) and members whose task is blocked. */
+export interface OpsAttention {
+  state: 'normal' | 'waiting' | 'blocked';
+  waiting: number;
+  blocked: number;
+}
+
 export interface OpsAgent {
   /** Stable member identity; names and squad labels grant no authority. */
   id: string;
   presence?: string;
-  activity?: { state: string };
+  /** The provider's activity, and since when, when the owner reports one. */
+  activity?: { state: string; sinceMs?: number };
   name: string;
   squad: string;
   role: 'lead' | 'member';
   state: AgentState;
-  /** The board's own state text, shown in place of the mark's word when it says more. */
-  stateText?: string;
+  /** The task state as the board row says it (free text such as `review` or `blocked: CI`),
+   * apart from presence and activity, with the board's colour for it when the page knows it. */
+  taskState?: string;
+  taskTone?: TaskTone;
+  /** `stale` when the row's notes may be out of date (Ops' staleness token). */
+  staleness?: 'fresh' | 'stale';
   /** What the board row says the agent works on, or nothing. */
   task?: string;
   next?: string;
@@ -50,6 +79,7 @@ export interface OpsSquad {
   lead?: string;
   /** Effective squad alert interval, as supplied by the owner read. */
   idleAlertMs?: number;
+  attention?: OpsAttention;
 }
 export interface OpsSchedule {
   id: string;
@@ -85,6 +115,7 @@ export interface OpsPayload {
     room?: { roomId: string; revision: number } | null;
     lead?: { id: string; name: string };
     idleAlertMs?: number;
+    attention?: { state: string; waiting: number; blocked: number };
   }[];
   agents: readonly {
     id: string;
@@ -92,7 +123,7 @@ export interface OpsPayload {
     squad: string;
     role: 'lead' | 'member';
     presence?: string;
-    activity?: { state: string };
+    activity?: { state: string; sinceMs?: number | null };
     state?: string;
     stateTone?: string;
     task?: string;
@@ -102,6 +133,7 @@ export interface OpsPayload {
     waitingOnYou: number;
     tokens1d?: { tokens: number; complete: boolean } | null;
     checklistCount?: number | null;
+    staleness?: string;
   }[];
   timers:
     | readonly {
@@ -152,6 +184,15 @@ function unavailableBoard(reason: OwnerReadReason | 'no-session' | 'unreachable'
 
 const safeNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+function attention(
+  value: NonNullable<OpsPayload['squads'][number]['attention']>,
+): OpsAttention | undefined {
+  if (!safeNumber(value.waiting) || !safeNumber(value.blocked)) return undefined;
+  const { state, waiting, blocked } = value;
+  return state === 'normal' || state === 'waiting' || state === 'blocked'
+    ? { state, waiting, blocked }
+    : undefined;
+}
 function usage1d(value: OpsPayload['agents'][number]['tokens1d']): OpsAgent['tokens1d'] {
   return value &&
     safeNumber(value.tokens) &&
@@ -194,17 +235,32 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
       ...(typeof squad.idleAlertMs === 'number' && Number.isFinite(squad.idleAlertMs)
         ? { idleAlertMs: squad.idleAlertMs }
         : {}),
+      ...(squad.attention && { attention: attention(squad.attention) }),
     })),
     agents: payload.agents.map((agent) => {
       const state = agentState(agent);
       return {
         id: agent.id,
         ...(agent.presence ? { presence: agent.presence } : {}),
-        ...(agent.activity ? { activity: { state: agent.activity.state } } : {}),
+        ...(agent.activity
+          ? {
+              activity: {
+                state: agent.activity.state,
+                ...(safeNumber(agent.activity.sinceMs) ? { sinceMs: agent.activity.sinceMs } : {}),
+              },
+            }
+          : {}),
         name: agent.name,
         squad: agent.squad,
         role: agent.role,
         state,
+        ...(agent.state ? { taskState: agent.state } : {}),
+        ...(agent.stateTone && Object.hasOwn(TASK_TONES, agent.stateTone)
+          ? { taskTone: TASK_TONES[agent.stateTone] }
+          : {}),
+        ...(agent.staleness === 'fresh' || agent.staleness === 'stale'
+          ? { staleness: agent.staleness }
+          : {}),
         ...(agent.task ? { task: agent.task } : {}),
         ...(agent.next ? { next: agent.next } : {}),
         ...(agent.pending ? { pending: agent.pending } : {}),
@@ -238,6 +294,9 @@ export function boardFromAnswer(answer: OwnerReadAnswer<OpsPayload>): OpsBoard {
 /** The source the page reads: the owner's board through `x/-/ops`. */
 export const opsSource: OpsSource = {
   async board(signal) {
-    return boardFromAnswer(await ownerRead<OpsPayload>('ops', signal));
+    const answer = await ownerRead<OpsPayload>('ops', signal);
+    // A browser no longer paired here keeps no unsent words for whoever pairs it next (#6757).
+    if (answer.state === 'no-session') forgetDrafts();
+    return boardFromAnswer(answer);
   },
 };

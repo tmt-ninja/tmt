@@ -27,6 +27,8 @@ import { RefusalError } from '../src/operations.js';
 declare global {
   interface Window {
     dmEnabled?: boolean;
+    /** Set before load: the sample squad has its channel room, so the channel has a message box. */
+    channelRoom?: boolean;
     fixtureCommandMenu(text: string): void;
     commandSelections: string[];
     dmNewest: ConversationPage;
@@ -109,7 +111,16 @@ window.sendNowAnswer = null;
 window.channelHold = false;
 window.channelBoard = {
   defaultIdleAlertMs: null,
-  squads: [{ room: null, name: 'sample', lead: 'sample-lead', idleAlertMs: 900_000 }],
+  squads: [
+    {
+      room: window.channelRoom
+        ? { roomId: 'dddddddd-dddd-4ddd-8ddd-000000000001', revision: 7 }
+        : null,
+      name: 'sample',
+      lead: 'sample-lead',
+      idleAlertMs: 900_000,
+    },
+  ],
   agents: [
     {
       tokens1d: null,
@@ -157,6 +168,16 @@ window.channelBoard = {
       when: 'cron 0 * * * *',
       what: 'Sample hourly review',
       owner: 'sample-lead',
+    },
+    // The orchestration inspector's member: its timer comes from this board read (#6757).
+    {
+      id: 'timer2',
+      nextMs: null,
+      state: 'on',
+      squad: 'night',
+      when: 'every 1h',
+      what: 'Night review',
+      owner: 'night-1',
     },
   ],
   truncated: false,
@@ -385,46 +406,6 @@ function orchEffective(member: (typeof orchMembers)[number], at: number) {
 }
 const matching = (query: unknown) =>
   orchMembers.filter((m) => typeof query !== 'string' || m.name.includes(query));
-const orchJobs: Record<string, Record<string, unknown>[]> = {
-  [orchId(15)]: [
-    {
-      title: 'Night review',
-      schedule: { kind: 'every', seconds: 3600 },
-      state: 'on',
-      next: NOW + HOUR,
-    },
-    {
-      title: 'Archive review',
-      schedule: { kind: 'at', at: '23:30', on: null },
-      state: 'paused',
-      next: null,
-    },
-  ],
-  [orchId(12)]: [
-    {
-      title: 'Queue review',
-      schedule: { kind: 'every', seconds: 1800 },
-      state: 'on',
-      next: NOW + HOUR / 2,
-    },
-  ],
-  [orchId(14)]: [
-    {
-      title: 'UI check',
-      schedule: { kind: 'every', seconds: 3600 },
-      state: 'held',
-      next: NOW + HOUR,
-    },
-  ],
-  [lead]: [
-    {
-      title: 'Sample hourly review',
-      schedule: { kind: 'cron', expression: '0 * * * *' },
-      state: 'on',
-      next: NOW + HOUR,
-    },
-  ],
-};
 window.orchCalls = [];
 const orchestration = {
   async read(input: Record<string, unknown>) {
@@ -515,21 +496,6 @@ const orchestration = {
         routes,
         nextAfter: null,
       };
-    }
-    if (input.view === 'jobs') {
-      const jobs = (orchJobs[input.ownerIdentityId as string] ?? []).map((job, index) => ({
-        jobId: `job-${String(input.ownerIdentityId).slice(-2)}-${index}`,
-        displayId: `j${index + 1}`,
-        revision: 1,
-        target: { squadRoomId: null, identityId: input.ownerIdentityId, identityName: null },
-        title: job.title,
-        messagePreview: `${String(job.title)}: check and report.`,
-        schedule: { zone: 'Asia/Tokyo', ...(job.schedule as object) },
-        state: job.state,
-        nextRunAtMs: job.next,
-        lastRun: null,
-      }));
-      return { schemaVersion: 1, observedAtMs: NOW, jobs, nextCursor: null };
     }
     if (input.view === 'talks')
       return {

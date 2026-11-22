@@ -140,8 +140,10 @@ export function channelView(
   timersPanel.id = 'ops-channel-timers';
   timersPanel.setAttribute('role', 'tabpanel');
   const panels = [membersPanel, timersPanel];
+  // Shown only while open: folded, the summary line is the disclosure.
   const toggle = el('button', 'ops-channel-collapse');
   toggle.type = 'button';
+  toggle.setAttribute('aria-label', 'Hide details');
   toggle.setAttribute('aria-controls', `${membersPanel.id} ${timersPanel.id}`);
   let selected = 0;
   let open = true;
@@ -175,10 +177,25 @@ export function channelView(
     return button;
   });
   tabs.append(...buttons);
-  // Folded, the bar is one summary line (spec: "4 members · 2 working · 1 idle   Timers 3").
+  // Folded, the bar is one labelled disclosure (#6757): the chevron beside its label, then the
+  // counts as its summary ("Members and timers  4 members · 2 working · 1 idle · Timers 3").
   const summary = el('button', 'ops-channel-summary');
   summary.type = 'button';
-  summary.addEventListener('click', () => setOpen(true));
+  summary.setAttribute('aria-expanded', 'false');
+  summary.setAttribute('aria-controls', `${membersPanel.id} ${timersPanel.id}`);
+  const summaryLabel = el('span', 'ops-channel-summary-label', 'Members and timers');
+  const summaryCounts = el('span', 'ops-channel-summary-counts');
+  const chevron = el('span', 'ops-channel-summary-chevron');
+  chevron.setAttribute('aria-hidden', 'true');
+  // Label and counts wrap together, so on a phone the counts line up under the label.
+  const summaryText = el('span', 'ops-channel-summary-text');
+  summaryText.append(summaryLabel, summaryCounts);
+  summary.append(chevron, summaryText);
+  summary.addEventListener('click', () => {
+    setOpen(true);
+    // The disclosure is gone once open: its inverse keeps the person's place.
+    toggle.focus();
+  });
   bar.append(summary, tabs, toggle);
   panel.append(bar, ...panels);
   function select(index: number): void {
@@ -197,11 +214,16 @@ export function channelView(
     panel.dataset.open = String(value);
     tabs.hidden = !value;
     summary.hidden = value;
+    // Folded, the disclosure is the one control; open, the bar keeps its tabs and Hide details.
+    toggle.hidden = !value;
     toggle.setAttribute('aria-expanded', String(value));
-    toggle.setAttribute('aria-label', value ? 'Hide details' : 'Show details');
     select(selected);
   }
-  toggle.addEventListener('click', () => setOpen(!open));
+  toggle.addEventListener('click', () => {
+    const focused = document.activeElement === toggle;
+    setOpen(!open);
+    if (focused && !open) summary.focus();
+  });
 
   // The stream with its message box: the channel's own, or the DM's (placed by the Ops page).
   const history = el('section', 'ops-channel-history');
@@ -432,25 +454,21 @@ export function channelView(
       const working = people.filter((agent) => memberState(agent) === 'Working').length;
       const idle = people.filter((agent) => memberState(agent) === 'Idle').length;
       const timersWord = timerCount === undefined ? 'Timers unavailable' : `Timers ${timerCount}`;
-      summary.replaceChildren(
-        ...(member
-          ? []
+      // A DM has no members tab: its disclosure is the timers alone.
+      summaryLabel.textContent = member ? 'Timers' : 'Members and timers';
+      summaryCounts.textContent = (
+        member
+          ? [timerCount === undefined ? 'unavailable' : String(timerCount)]
           : [
-              el(
-                'span',
-                undefined,
-                [
-                  board.truncated
-                    ? 'Members (partial)'
-                    : `${people.length} member${people.length === 1 ? '' : 's'}`,
-                  `${working} working`,
-                  `${idle} idle`,
-                  ...formsWord(people),
-                ].join(' · '),
-              ),
-            ]),
-        el('span', 'ops-channel-summary-timers', timersWord),
-      );
+              board.truncated
+                ? 'Members (partial)'
+                : `${people.length} member${people.length === 1 ? '' : 's'}`,
+              `${working} working`,
+              `${idle} idle`,
+              ...formsWord(people),
+              timersWord,
+            ]
+      ).join(' · ');
       buttons[0]!.hidden = !!member;
       buttons[0]!.textContent = board.truncated ? 'Members' : `Members ${people.length}`;
       buttons[1]!.textContent = timerCount === undefined ? 'Timers' : `Timers ${timerCount}`;
