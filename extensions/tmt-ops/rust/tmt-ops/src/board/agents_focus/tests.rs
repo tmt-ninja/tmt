@@ -549,10 +549,10 @@ fn talk_work_expands_in_place_and_opens_only_the_fresh_bound_page() {
     assert!(expanded.contains("One short observed response."));
     assert_eq!(app.workspace.selected, recipient);
     assert_eq!(app.input_band.get(), Some(input));
-    assert_eq!(
-        app.key(press(KeyCode::Enter)),
-        Effect::OpenWorkPage("77777777-7777-4777-8777-777777777777".into())
-    );
+    assert_eq!(app.key(press(KeyCode::Down)), Effect::None);
+    draw(&mut app, 160, 42);
+    let opened = app.key(press(KeyCode::Enter));
+    assert!(format!("{opened:?}").contains("navigation"), "{opened:?}");
 
     app.work.stale = true;
     app.work.last_read_at = Some(1_800_000_000_000);

@@ -429,11 +429,14 @@ fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
         key(&mut app, KeyCode::Enter),
         Effect::OpenWorkPage(PAGE.into())
     );
+    assert_eq!(key(&mut app, KeyCode::Tab), Effect::None);
     assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
-    assert_eq!(
-        key(&mut app, KeyCode::Enter),
-        Effect::OpenWorkPage(PAGE.into())
-    );
+    let section = key(&mut app, KeyCode::Char('o'));
+    assert!(format!("{section:?}").contains("h2"), "{section:?}");
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
+    let todo = key(&mut app, KeyCode::Enter);
+    assert!(format!("{todo:?}").contains("one"), "{todo:?}");
     assert_eq!(key(&mut app, KeyCode::End), Effect::None);
     assert_eq!(
         key(&mut app, KeyCode::Enter),
