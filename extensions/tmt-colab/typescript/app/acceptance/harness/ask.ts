@@ -185,6 +185,8 @@ export function createPage(
         'page',
         'create',
         '--html',
+        '--reason',
+        'Exercise the HTML source path',
         '--title',
         title,
         '--layout',

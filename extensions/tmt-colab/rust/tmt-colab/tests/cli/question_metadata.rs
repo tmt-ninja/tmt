@@ -12,7 +12,16 @@ fn refused(pilot: &Pilot, args: &[&str], code: &str) -> Value {
 }
 fn new_page(pilot: &Pilot) -> String {
     pilot.call(&[
-        "page", "create", "--html", "--title", "Metadata", "--layout", "column", "--json",
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML source path",
+        "--title",
+        "Metadata",
+        "--layout",
+        "column",
+        "--json",
     ])["pageId"]
         .as_str()
         .unwrap()
@@ -171,6 +180,8 @@ fn authored_file_mismatches_refuse_before_create_and_before_write_without_partia
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Authored",
             "--layout",
@@ -195,6 +206,8 @@ fn authored_file_mismatches_refuse_before_create_and_before_write_without_partia
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "Strict authored",
             "--layout",
@@ -273,7 +286,16 @@ fn anonymous_creation_including_question_templates_keeps_unassigned_questions_on
     ] {
         let pilot = Pilot::new(None);
         fs::remove_file(pilot.root.join("publisher")).unwrap();
-        let mut args = vec!["page", "create", "--html", "--title", "Anonymous", "--json"];
+        let mut args = vec![
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise the HTML source path",
+            "--title",
+            "Anonymous",
+            "--json",
+        ];
         if let Some(template) = template {
             args.extend(["--template", template]);
         } else {
@@ -368,6 +390,8 @@ fn an_explicit_unavailable_creator_name_offers_repairs_before_local_initializati
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "No identity",
             "--layout",
@@ -385,6 +409,8 @@ fn an_explicit_unavailable_creator_name_offers_repairs_before_local_initializati
         "page",
         "create",
         "--html",
+        "--reason",
+        "Exercise the HTML source path",
         "--title",
         "Explicit ID",
         "--layout",
@@ -411,6 +437,8 @@ fn compiled_templates_create_their_questions_and_creator_in_one_commit() {
             "page",
             "create",
             "--html",
+            "--reason",
+            "Exercise the HTML source path",
             "--title",
             "First party",
             "--template",

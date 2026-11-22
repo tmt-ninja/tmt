@@ -1,4 +1,8 @@
-## Page look
+## Block page look
+
+Use heading, paragraph, table and callout blocks for the document. Put product markup in a mockup block. Add the blocks together with `tmt colab block batch`.
+
+## Legacy HTML styling
 
 Colab gives every page the TMT design system with nothing to import: its tokens (`--tmt-ui-*`, light and
 dark), fonts, the `tmt-ui-*` components and `<tmt-icon>` ([components](components.md),
@@ -96,7 +100,7 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
   .waiting { color: var(--tmt-ui-color-waiting); }
 }
 </style>
-<!-- Examples to copy with fresh UUIDs (this comment is inert); see tmt colab skill, "Ask and flag"
+<!-- Examples to copy with fresh UUIDs (this comment is inert); see tmt colab skill legacy-html
 <tmt-questions data-id="20000000-0000-4000-8000-000000000001">
   <p data-title>One decision</p>
   <tmt-question data-id="10000000-0000-4000-8000-000000000001" data-kind="single" data-agent="Your agent name">

@@ -76,6 +76,8 @@ test('a hosted editor verifies native content, publishes own edit requests and o
           'page',
           'create',
           '--html',
+          '--reason',
+          'Exercise the HTML source path',
           '--title',
           'Hosted notes',
           '--layout',

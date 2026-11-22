@@ -134,6 +134,8 @@ test('one command starts the door; pairing opens a page; stopping it closes both
         'page',
         'create',
         '--html',
+        '--reason',
+        'Exercise the HTML source path',
         '--title',
         'Linked',
         '--layout',

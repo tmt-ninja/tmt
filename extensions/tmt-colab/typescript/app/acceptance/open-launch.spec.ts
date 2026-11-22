@@ -63,6 +63,8 @@ test('page create opens the committed page through Remote with the same short-on
           'page',
           'create',
           '--html',
+          '--reason',
+          'Exercise the HTML source path',
           '--title',
           'Created launch',
           '--layout',

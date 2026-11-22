@@ -10,6 +10,8 @@ tags (`<prefix>-button`, ...). A page pins the system and follows its live draft
 Design tab shows on the page. A published version is a release, a fixed bundle a page can lock to
 instead. Make and edit the page itself with the tmt-colab skill.
 
+Start with a block page. Place component tags in the markup of a `mockup` block and add it with `tmt colab block batch`.
+
 ## When to use one
 
 Use a design system when the person names one, asks for a mockup of a product UI that has one, or
@@ -39,11 +41,12 @@ default), `slots` and `examples`. Read it once per page; there is no per-system 
 A system whose `latest` is `none` has no release yet, so `show` cannot list its components. Tell
 the person that publishing is their step in the Design tab.
 
-## Write the page
+## Write the mockup block
 
-1. Put the `meta` line from `show` first in the page, exactly as printed:
-   `<meta name="tmt-ds" content="<system>">`. One system per page. Use `lockMeta` instead only when
-   the person asks for a page that must not change, for example a signed-off mockup.
+1. Set the mockup block's `props.system` to the system name (`tmt-gui` by default).
+   It follows the draft unless `props.lock` names a release. Put the component tags in
+   `props.markup`; the block renderer supplies the pin. For legacy HTML pages, put the
+   `meta` or `lockMeta` line from `show` in the source instead.
 2. Put components directly in page flow. For a device-sized mockup stage, wrap them in an
    explicitly sized scope such as `<div data-tmt-ds-scope style="width:390px;height:844px">`.
    Each stage owns its overlays, focus and responsive size; controls outside it stay usable.

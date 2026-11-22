@@ -104,6 +104,8 @@ export async function startIsolatedDoor(): Promise<IsolatedDoor> {
             'page',
             'create',
             '--html',
+            '--reason',
+            'Exercise the HTML source path',
             '--title',
             title,
             '--layout',

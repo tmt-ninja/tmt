@@ -46,7 +46,9 @@ it('ships a compact starter that is only glue on the injected design system', ()
   expect(Buffer.byteLength(read(rootSkillFile))).toBeLessThanOrEqual(10_400);
   expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(12_000);
   expect(skill.split('\n').length - 1).toBeLessThanOrEqual(500);
-  expect(skill).toContain('## Page look');
+  expect(skill).toMatch(
+    /^## Block page look\n[\s\S]*?`tmt colab block batch`[\s\S]*?\n## Legacy HTML styling\n/,
+  );
   expect(read(rootSkillFile)).toContain('references/page-style.md');
   expect(read(rootSkillFile)).toContain('tmt colab skill page-style');
   expect(skill).toContain('Colab already shows the brand, page title and actions.');

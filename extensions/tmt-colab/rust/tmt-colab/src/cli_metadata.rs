@@ -254,12 +254,12 @@ pub(crate) fn creation(args: &ArgMatches, template: Option<&str>) -> Result<Crea
             if let Some(layout) = args.get_one::<String>("layout") {
                 suffix.push_str(&format!(" {}", option("layout", layout)));
             }
-            if let Some(reason) = args.get_one::<String>("reason") {
-                suffix.push_str(&format!(" {}", option("reason", reason)));
-            }
             if let Some(file) = args.get_one::<std::path::PathBuf>("file") {
                 suffix.push_str(&format!(" {}", option("file", &file.to_string_lossy())));
             }
+        }
+        if let Some(reason) = args.get_one::<String>("reason") {
+            suffix.push_str(&format!(" {}", option("reason", reason)));
         }
         Some(select_agent(
             selector,

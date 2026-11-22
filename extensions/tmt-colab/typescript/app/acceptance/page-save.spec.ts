@@ -311,6 +311,8 @@ test('near-cap CLI and browser whole replacements keep taking edits and refuse o
           'page',
           'create',
           '--html',
+          '--reason',
+          'Exercise the HTML source path',
           '--title',
           'Final cap',
           '--layout',
