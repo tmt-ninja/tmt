@@ -294,6 +294,17 @@ this protection. A malicious app host can invoke non-extractable keys. Metadata
 (space/page/device IDs, sequence numbers, sizes, timing and public keys) is
 visible to storage. Public data is intentionally disclosed. Revocation cannot
 recall plaintext or keys already copied; lazy deletion is not physical erasure.
+Readers cannot yet distinguish the local CLI writer from a paired owner device.
+At its signing point, the native local writer refuses thread and comment records,
+including comments that answer a question, before it signs a publication. Serve
+IPC page publication and offline publication accept authenticated packets from
+that local signing path. Status actions remain allowed. A distinct certificate
+role and corresponding reader checks are required before any terminal write of
+comments or answers ships.
+
+The person boundary holds against accidents and against agents that follow the rules.
+Any same-user process can read the local `owner.key` file, so that boundary offers
+no protection against a process that reads the key.
 
 A client is only as fresh as its highest verified membership head. A backend
 cannot forge a higher owner-signed head or roll back a head the client retained,

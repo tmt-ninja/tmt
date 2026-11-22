@@ -470,9 +470,8 @@ fn compiled_templates_create_their_questions_and_creator_in_one_commit() {
 #[test]
 fn verified_own_answers_change_registry_state_without_content_or_ask_publication() {
     use tmt_colab::{
-        decoder::{Decoder, OwnRecord},
+        decoder::OwnRecord,
         keyring::{Keyring, Layout},
-        page,
         store::Store,
     };
     let mut pilot = Pilot::new(None);
@@ -481,19 +480,17 @@ fn verified_own_answers_change_registry_state_without_content_or_ask_publication
     let initial = pilot.call(&["page", "read", &id, "--json"]);
     let thread = "10000000-0000-4000-8000-000000000002";
     let message = "10000000-0000-4000-8000-000000000003";
-    // A genuine root-local own publication exercises signatures, fold provenance and the
+    // A genuine paired-device own publication exercises signatures, fold provenance and the
     // production read projection. No Ask/intents/replies record is supplied.
-    let answer = |pilot: &Pilot, revision: &str, body: &str, deleted: bool| {
+    let mut browser = None;
+    let mut answer = |pilot: &Pilot, revision: &str, body: &str, deleted: bool| {
         let layout = Layout::existing(&pilot.root.join("selected"))
             .unwrap()
             .unwrap();
         let _lock = layout.serve_lock().unwrap();
         let key = Keyring::read(&layout).unwrap();
-        let writer = initial["creator"]["attribution"]["writerId"]
-            .as_str()
-            .unwrap();
+        let writer = support::BrowserDiscussion::ID;
         let mut store = Store::write_existing(&layout).unwrap();
-        let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -524,17 +521,9 @@ fn verified_own_answers_change_registry_state_without_content_or_ask_publication
             key: format!("{message}:{revision}"),
             value: comment,
         });
-        let frozen =
-            page::prepare_own_records(&store, &key, &id, &records, &mut decoder, now).unwrap();
-        page::commit_publication(
-            &mut store,
-            &key,
-            frozen.job(),
-            frozen.packet(),
-            frozen.chain(),
-            now,
-        )
-        .unwrap();
+        browser
+            .get_or_insert_with(|| support::BrowserDiscussion::new(&layout, &store, &key, now))
+            .append(&mut store, &key, &id, &records);
         store.close().unwrap();
     };
     answer(&pilot, "1", "The first answer", false);
