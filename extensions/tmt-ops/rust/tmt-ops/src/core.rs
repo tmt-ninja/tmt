@@ -767,20 +767,95 @@ pub(crate) struct StandaloneSession {
     pid: u32,
 }
 
+pub(crate) enum StandaloneProgress<'a> {
+    Legacy,
+    Text { stderr: bool, text: &'a str },
+}
+
 impl StandaloneSession {
     pub(crate) fn run(
         &mut self,
-        input: Value,
+        mut input: Value,
         stopped: &std::sync::atomic::AtomicBool,
+        mut progress: impl FnMut(StandaloneProgress<'_>),
     ) -> Result<Value, SquadError> {
+        let channel = self.channel.as_mut().expect("open session");
+        let stopped = || stopped.load(std::sync::atomic::Ordering::Acquire);
+        let advertisement = channel.exchange(
+            br#"{"version":1,"operation":"capabilities","input":{}}"#,
+            Instant::now() + TIMEOUT,
+            stopped,
+        );
+        let advertisement = Self::decode(advertisement).map_err(|_| {
+            if stopped() {
+                SquadError::new("SHELL_RUN_CANCELLED", "Command stopped before it started.")
+            } else {
+                unavailable("Could not verify command capabilities. Nothing was started.")
+            }
+        })?;
+        if !advertisement.is_object() {
+            return Err(unavailable(
+                "Could not verify command capabilities. Nothing was started.",
+            ));
+        }
+        let stream = advertisement["session"]["terminalCommandOutput"] == true;
+        if stream {
+            input["stream"] = true.into();
+        } else {
+            progress(StandaloneProgress::Legacy);
+        }
         let request =
             json!({"version": 1, "operation": "terminal.command.run", "input": input}).to_string();
-        let channel = self.channel.as_mut().expect("open session");
-        let frame = channel.exchange_lifeline_drain(
-            request.as_bytes(),
-            Instant::now() + Duration::from_secs(130),
-            || stopped.load(std::sync::atomic::Ordering::Acquire),
-        );
+        let deadline = Instant::now() + Duration::from_secs(130);
+        let frame = if stream {
+            let mut sequence = 0;
+            let mut bytes = 0;
+            channel.exchange_lifeline_frames(request.as_bytes(), deadline, stopped, |frame| {
+                let invalid = || {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Invalid command output frame",
+                    )
+                };
+                if frame.len() > 512 * 1024 {
+                    return Err(invalid());
+                }
+                let mut document: Value = serde_json::from_slice(frame).map_err(|_| invalid())?;
+                let object = document.as_object_mut().ok_or_else(invalid)?;
+                let Some(output) = object.remove("commandOutput") else {
+                    if object.get("error").is_some_and(Value::is_object)
+                        || (object.get("runId").is_some_and(Value::is_string)
+                            && object.get("stdout").is_some_and(Value::is_string)
+                            && object.get("stderr").is_some_and(Value::is_string))
+                    {
+                        return Ok(true);
+                    }
+                    return Err(invalid());
+                };
+                let fields = output.as_object().ok_or_else(invalid)?;
+                let text = output["text"].as_str().ok_or_else(invalid)?;
+                let stderr = match output["stream"].as_str() {
+                    Some("stdout") => false,
+                    Some("stderr") => true,
+                    _ => return Err(invalid()),
+                };
+                bytes += text.len();
+                if !object.is_empty()
+                    || fields.len() != 3
+                    || output["sequence"].as_u64() != Some(sequence)
+                    || text.is_empty()
+                    || text.len() > 4096
+                    || bytes > 4 * 65_536
+                {
+                    return Err(invalid());
+                }
+                sequence += 1;
+                progress(StandaloneProgress::Text { stderr, text });
+                Ok(false)
+            })
+        } else {
+            channel.exchange_lifeline_drain(request.as_bytes(), deadline, stopped)
+        };
         let session_closed = channel.pid().is_none();
         if session_closed {
             self.channel.take();
@@ -820,7 +895,13 @@ impl StandaloneSession {
             .as_mut()
             .ok_or_else(|| SquadError::new("API_UNAVAILABLE", "The result session has closed."))?;
         let frame = channel.exchange(request.as_bytes(), Instant::now() + TIMEOUT, || false);
-        Self::decode(frame)
+        let result = Self::decode(frame)?;
+        if result["terminalId"].as_str().is_none() {
+            return Err(unavailable(
+                "Keep outcome unconfirmed. Check the saved list.",
+            ));
+        }
+        Ok(result)
     }
 
     fn decode(frame: Result<Vec<u8>, tmt_invoke::InvokeError>) -> Result<Value, SquadError> {

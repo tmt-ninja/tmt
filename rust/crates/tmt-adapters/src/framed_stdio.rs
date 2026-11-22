@@ -149,6 +149,41 @@ impl<'a, F: AsFd, C: Fn() -> Instant> Reader<'a, F, C> {
 }
 
 pub fn publish(fd: &impl AsFd, body: &[u8], maximum: usize) -> io::Result<()> {
+    let deadline = Instant::now() + IO_TIMEOUT;
+    publish_frame(fd, body, maximum, || {
+        wait(fd, PollFlags::POLLOUT, Some(deadline), &Instant::now)
+    })
+}
+
+/// Progress waits on the command's original deadline and checks cancellation
+/// during back-pressure. Interrupted means no part of this frame escaped.
+pub fn publish_progress(
+    fd: &impl AsFd,
+    body: &[u8],
+    maximum: usize,
+    deadline: Instant,
+    cancelled: &dyn Fn() -> bool,
+) -> io::Result<()> {
+    publish_frame(fd, body, maximum, || {
+        loop {
+            if cancelled() {
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            let slice = deadline.min(Instant::now() + Duration::from_millis(25));
+            match wait(fd, PollFlags::POLLOUT, Some(slice), &Instant::now) {
+                Err(error) if error.kind() == io::ErrorKind::TimedOut && slice < deadline => {}
+                result => return result,
+            }
+        }
+    })
+}
+
+fn publish_frame(
+    fd: &impl AsFd,
+    body: &[u8],
+    maximum: usize,
+    mut writable: impl FnMut() -> io::Result<()>,
+) -> io::Result<()> {
     if body.len() > maximum || body.contains(&b'\n') {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -157,10 +192,17 @@ pub fn publish(fd: &impl AsFd, body: &[u8], maximum: usize) -> io::Result<()> {
     }
     let mut bytes = body.to_vec();
     bytes.push(b'\n');
-    let deadline = Instant::now() + IO_TIMEOUT;
     let mut offset = 0;
     while offset < bytes.len() {
-        wait(fd, PollFlags::POLLOUT, Some(deadline), &Instant::now)?;
+        if let Err(error) = writable() {
+            if offset != 0 && error.kind() == io::ErrorKind::Interrupted {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "Incomplete stdio frame",
+                ));
+            }
+            return Err(error);
+        }
         // One output writer; pipe writes stay below POSIX's minimum PIPE_BUF.
         let count = match write(fd, &bytes[offset..(offset + 512).min(bytes.len())]) {
             Err(Errno::EINTR | Errno::EAGAIN) => continue,

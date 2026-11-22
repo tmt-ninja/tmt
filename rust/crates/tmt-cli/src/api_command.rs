@@ -42,6 +42,7 @@ fn call(
     body: &[u8],
     session: &mut Option<api::Session>,
     lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+    progress: Option<&mut api::CommandProgress<'_>>,
 ) -> Response {
     let decoded = std::str::from_utf8(body)
         .map_err(|_| api::Fault::new("API_INPUT_INVALID", "Expected a UTF-8 JSON request."))
@@ -73,7 +74,7 @@ fn call(
         }
     }
     let session = session.as_mut().expect("selected paths");
-    match session.execute_with_lifeline(request, lifeline) {
+    match session.execute_with_progress(request, lifeline, progress) {
         Ok(body) => Response {
             status: 0,
             body,
@@ -91,7 +92,7 @@ pub fn execute() -> io::Result<u8> {
         Duration::from_secs(5),
         api::INPUT_LIMIT,
     ) {
-        Ok(body) => call(body.as_bytes(), &mut session, None),
+        Ok(body) => call(body.as_bytes(), &mut session, None, None),
         Err(error) => Response::fault(
             api::Fault::new(
                 if error.kind == response_input::ResponseInputFailure::Timeout {
@@ -122,13 +123,13 @@ pub fn execute() -> io::Result<u8> {
 fn serve_session(
     input: &impl AsFd,
     output: &impl AsFd,
-    mut receive: impl FnMut(&[u8]) -> Response,
+    mut receive: impl FnMut(&[u8]) -> io::Result<Response>,
 ) -> io::Result<u8> {
     framed_stdio::require_redirected(input, output)?;
     let mut reader = framed_stdio::Reader::new(input, api::INPUT_LIMIT);
     while let Some(line) = reader.read_frame()? {
         let payload = line.strip_suffix(b"\n").expect("complete frame");
-        let response = receive(payload);
+        let response = receive(payload)?;
         framed_stdio::publish(output, &response.body, api::OUTPUT_LIMIT)?;
         tmt_adapters::extension_hooks::deliver_pending();
         if response.stale {
@@ -142,7 +143,20 @@ pub fn execute_session() -> io::Result<u8> {
     let stdout = tmt_cli_style::stream::stdout(true).into_inner();
     let stdin = io::stdin();
     let pending = serve_session(&stdin, &stdout, |body| {
-        call(body, &mut session, Some(stdin.as_fd()))
+        let mut failed = None;
+        let mut progress = |body: &[u8], deadline, cancelled: &dyn Fn() -> bool| {
+            framed_stdio::publish_progress(&stdout, body, api::OUTPUT_LIMIT, deadline, cancelled)
+                .map_err(|cause| {
+                    let kind = cause.kind();
+                    if kind != io::ErrorKind::Interrupted {
+                        // An incomplete frame makes further stdout unusable.
+                        failed = Some(cause);
+                    }
+                    io::Error::from(kind)
+                })
+        };
+        let final_response = call(body, &mut session, Some(stdin.as_fd()), Some(&mut progress));
+        failed.map_or(Ok(final_response), Err)
     });
     let closed = close(session);
     let status = pending?;
@@ -171,11 +185,11 @@ mod tests {
             let mut seen = Vec::new();
             let result = serve_session(&server, &server, |payload| {
                 seen.push(payload.to_vec());
-                Response {
+                Ok(Response {
                     status: 0,
                     body: [b"{\"echo\":".as_slice(), payload, b"}"].concat(),
                     stale: false,
-                }
+                })
             });
             (result, seen)
         });
@@ -214,7 +228,7 @@ mod tests {
             let mut calls = 0;
             let result = serve_session(&server, &server, |_| {
                 calls += 1;
-                if calls == 1 {
+                Ok(if calls == 1 {
                     Response {
                         status: 0,
                         body: br#"{"ready":true}"#.to_vec(),
@@ -222,7 +236,7 @@ mod tests {
                     }
                 } else {
                     Response::fault(api::Fault::new(api::SESSION_STALE, "reopen"), None)
-                }
+                })
             });
             (result, calls)
         });

@@ -16,6 +16,7 @@ use std::{
 };
 
 const LIFELINE_GRACE: Duration = Duration::from_secs(2);
+type ResponseFrame<'a> = dyn FnMut(&[u8]) -> io::Result<bool> + 'a;
 
 enum ExchangeMode {
     Ordinary,
@@ -42,10 +43,18 @@ pub struct LineChannel {
     stderr_bytes: Vec<u8>,
     pending: Vec<u8>,
     limit: usize,
+    check_before_request: bool,
 }
 
 fn io_failure(cause: io::Error) -> InvokeError {
     process::failure(FailureKind::Io(Phase::Communicate), Some(cause))
+}
+
+fn unexpected_response() -> InvokeError {
+    io_failure(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "unexpected output outside the response frame",
+    ))
 }
 
 fn nonblocking(file: &File) -> io::Result<()> {
@@ -100,6 +109,7 @@ impl LineChannel {
             stderr_bytes: Vec::new(),
             pending: Vec::new(),
             limit: options.max_frame_bytes,
+            check_before_request: false,
         })
     }
 
@@ -111,7 +121,14 @@ impl LineChannel {
         deadline: Instant,
         stopped: impl Fn() -> bool,
     ) -> Result<Vec<u8>, InvokeError> {
-        self.exchange_inner(payload, deadline, stopped, ExchangeMode::Ordinary, || {})
+        self.exchange_inner(
+            payload,
+            deadline,
+            stopped,
+            ExchangeMode::Ordinary,
+            || {},
+            None,
+        )
     }
 
     /// A lifeline request gives its child time to clean up after the pipe closes.
@@ -128,6 +145,7 @@ impl LineChannel {
             stopped,
             ExchangeMode::Lifeline,
             before_cleanup,
+            None,
         )
     }
 
@@ -146,6 +164,26 @@ impl LineChannel {
             stopped,
             ExchangeMode::DrainOnStop(None),
             || {},
+            None,
+        )
+    }
+
+    /// Send once, accepting progress until the callback identifies the final
+    /// frame. Stop closes stdin and requires the final frame and a clean exit.
+    pub fn exchange_lifeline_frames(
+        &mut self,
+        payload: &[u8],
+        deadline: Instant,
+        stopped: impl Fn() -> bool,
+        mut frame: impl FnMut(&[u8]) -> io::Result<bool>,
+    ) -> Result<Vec<u8>, InvokeError> {
+        self.exchange_inner(
+            payload,
+            deadline,
+            stopped,
+            ExchangeMode::DrainOnStop(None),
+            || {},
+            Some(&mut frame),
         )
     }
 
@@ -156,6 +194,7 @@ impl LineChannel {
         stopped: impl Fn() -> bool,
         mut mode: ExchangeMode,
         before_cleanup: impl FnOnce(),
+        response: Option<&mut ResponseFrame<'_>>,
     ) -> Result<Vec<u8>, InvokeError> {
         process::budget(deadline, stopped())?;
         if !self.pending.is_empty() {
@@ -176,7 +215,15 @@ impl LineChannel {
                 "channel is closed",
             )));
         }
-        let result = self.communicate(Some(payload), deadline, &stopped, &mut mode);
+        let framed = response.is_some();
+        let ready = if std::mem::take(&mut self.check_before_request) {
+            self.reject_unexpected_output()
+        } else {
+            Ok(())
+        };
+        let result = ready.and_then(|()| {
+            self.communicate(Some(payload), deadline, &stopped, &mut mode, response)
+        });
         if let ExchangeMode::DrainOnStop(Some(drain_deadline)) = mode
             && let Ok(frame) = result
         {
@@ -211,6 +258,7 @@ impl LineChannel {
             child.finished = true;
             return Err(error);
         }
+        self.check_before_request = framed;
         result
     }
 
@@ -220,6 +268,7 @@ impl LineChannel {
         deadline: Instant,
         stopped: &impl Fn() -> bool,
         mode: &mut ExchangeMode,
+        mut response: Option<&mut ResponseFrame<'_>>,
     ) -> Result<Vec<u8>, InvokeError> {
         let streaming = payload.is_none();
         let mut input = payload.unwrap_or_default().to_vec();
@@ -336,6 +385,36 @@ impl LineChannel {
                 match self.stdout.as_mut().expect("open output").read(&mut bytes) {
                     Ok(0) => return Err(io_failure(io::ErrorKind::UnexpectedEof.into())),
                     Ok(count) => {
+                        if let Some(response) = response.as_deref_mut() {
+                            let mut frames = bytes[..count]
+                                .split_inclusive(|byte| *byte == b'\n')
+                                .peekable();
+                            while let Some(part) = frames.next() {
+                                let body = part.strip_suffix(b"\n").unwrap_or(part);
+                                if body.len() > self.limit.saturating_sub(output.len()) {
+                                    return Err(process::failure(
+                                        FailureKind::OutputLimit(Stream::Stdout),
+                                        None,
+                                    ));
+                                }
+                                output.extend_from_slice(body);
+                                if body.len() == part.len() {
+                                    break;
+                                }
+                                if written != input.len() {
+                                    return Err(unexpected_response());
+                                }
+                                if response(&output).map_err(io_failure)? {
+                                    if frames.peek().is_some() {
+                                        return Err(unexpected_response());
+                                    }
+                                    self.reject_unexpected_output()?;
+                                    return Ok(output);
+                                }
+                                output.clear();
+                            }
+                            continue;
+                        }
                         let frame = &bytes[..count];
                         let newline = frame.iter().position(|byte| *byte == b'\n');
                         let payload = newline.map_or(frame, |end| &frame[..end]);
@@ -348,10 +427,7 @@ impl LineChannel {
                         output.extend_from_slice(payload);
                         if let Some(end) = newline {
                             if written != input.len() || !streaming && end + 1 != count {
-                                return Err(io_failure(io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "unexpected output outside the response frame",
-                                )));
+                                return Err(unexpected_response());
                             }
                             if streaming {
                                 self.pending.extend_from_slice(&frame[end + 1..]);
@@ -370,6 +446,19 @@ impl LineChannel {
         }
     }
 
+    fn reject_unexpected_output(&mut self) -> Result<(), InvokeError> {
+        let mut byte = [0];
+        loop {
+            match self.stdout.as_mut().expect("open output").read(&mut byte) {
+                Ok(0) => return Ok(()),
+                Ok(_) => return Err(unexpected_response()),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(io_failure(error)),
+            }
+        }
+    }
+
     /// Read one bounded unsolicited newline frame without writing stdin.
     /// Unlike a request exchange, a stream failure leaves shutdown to its owner,
     /// which can terminate a supervising child gracefully before forced cleanup.
@@ -382,7 +471,7 @@ impl LineChannel {
         if self.child.is_none() {
             return Err(io_failure(io::ErrorKind::BrokenPipe.into()));
         }
-        self.communicate(None, deadline, &stopped, &mut ExchangeMode::Ordinary)
+        self.communicate(None, deadline, &stopped, &mut ExchangeMode::Ordinary, None)
     }
 
     /// Signal only this channel's owned group, then drain/reap within the caller's

@@ -1,9 +1,12 @@
 //! Local shell commands in a freshly observed member directory.
-use super::{Fault, Request, invalid};
+use super::{CommandProgress, Fault, Request, invalid};
 use crate::{
     delivery,
     host::{Host, OperationOptions},
-    process::{CommandFailure, UnixCommandRunner, runtime::observe_starts},
+    process::{
+        CommandFailure, ShellControl, ShellObserver, ShellStream, UnixCommandRunner,
+        runtime::observe_starts,
+    },
     storage::{
         Storage,
         saved_terminal::{
@@ -92,6 +95,7 @@ fn run_captured(
     command: &str,
     cwd: &Path,
     lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+    output: Option<&mut ShellObserver<'_>>,
 ) -> Result<crate::process::ShellOutput, Fault> {
     let mut interrupt = crate::interrupt::Interrupt::install_termination().map_err(|_| {
         Fault::new(
@@ -100,7 +104,12 @@ fn run_captured(
         )
     })?;
     interrupt.defer_emergency_exit();
-    UnixCommandRunner.run_shell_in_interrupt(command, cwd, Duration::from_secs(120), SHELL_OUTPUT_LIMIT, Some(&interrupt), lifeline).map_err(|error| {
+    let control = ShellControl {
+        interrupt: Some(&interrupt),
+        lifeline,
+        output,
+    };
+    UnixCommandRunner.run_shell_in_interrupt(command, cwd, Duration::from_secs(120), SHELL_OUTPUT_LIMIT, control).map_err(|error| {
         if matches!(error.kind, CommandFailure::Spawn) && !error.cleanup_failed() {
             Fault::new("SHELL_RUN_FAILED", "The shell could not be started. Nothing was run.")
         } else {
@@ -117,7 +126,7 @@ pub(super) fn run(
 ) -> Result<Vec<u8>, Fault> {
     let (entry, probe) = observe_member(storage, identity_id, None)?;
     let cwd = verified_cwd(&entry, &probe)?;
-    let result = run_captured(command, Path::new(&cwd), lifeline)?;
+    let result = run_captured(command, Path::new(&cwd), lifeline, None)?;
     if result.cancelled {
         return Err(Fault::new(
             "SHELL_RUN_CANCELLED",
@@ -172,6 +181,8 @@ enum CommandTarget {
 struct CommandInput {
     command: Option<String>,
     target: CommandTarget,
+    #[serde(default)]
+    stream: bool,
 }
 
 #[derive(Deserialize)]
@@ -536,6 +547,7 @@ pub(super) fn execute_saved(
     request: SavedTerminalRequest,
     session: &mut SavedCommandSession,
     lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+    progress: Option<&mut CommandProgress<'_>>,
 ) -> Result<Vec<u8>, Fault> {
     let staged = &mut session.0;
     match request.0 {
@@ -553,10 +565,53 @@ pub(super) fn execute_saved(
                     "Start a fresh session for another attempt.",
                 ));
             }
+            let progress = if input.stream {
+                Some(progress.ok_or_else(|| {
+                    Fault::new(
+                        "TERMINAL_COMMAND_STREAM_UNAVAILABLE",
+                        "Live output needs a dedicated framed session. Nothing was started.",
+                    )
+                })?)
+            } else {
+                None
+            };
             let launch = launch(storage, input)?;
             *staged = Some(StagedResult::Unkeepable);
             let started_ms = crate::request_runtime::wall_time_ms();
-            let captured = run_captured(&launch.command, Path::new(&launch.cwd), Some(lifeline))?;
+            let captured = if let Some(publish) = progress {
+                let mut stdout = tmt_pty_protocol::OutputSanitizer::default();
+                let mut stderr = tmt_pty_protocol::OutputSanitizer::default();
+                let mut sequence = 0;
+                run_captured(
+                    &launch.command,
+                    Path::new(&launch.cwd),
+                    Some(lifeline),
+                    Some(&mut |stream, bytes, deadline, cancelled| {
+                        let (stream, sanitizer) = match stream {
+                            ShellStream::Stdout => ("stdout", &mut stdout),
+                            ShellStream::Stderr => ("stderr", &mut stderr),
+                        };
+                        for chunk in bytes.chunks(512) {
+                            let text = sanitizer.push(chunk);
+                            if !text.is_empty() {
+                                let frame = json!({"commandOutput":{"sequence":sequence,"stream":stream,"text":text}});
+                                let body =
+                                    serde_json::to_vec(&frame).map_err(std::io::Error::other)?;
+                                publish(&body, deadline, cancelled)?;
+                                sequence += 1;
+                            }
+                        }
+                        Ok(())
+                    }),
+                )?
+            } else {
+                run_captured(
+                    &launch.command,
+                    Path::new(&launch.cwd),
+                    Some(lifeline),
+                    None,
+                )?
+            };
             if captured.cancelled {
                 return Err(Fault::new(
                     "SHELL_RUN_CANCELLED",

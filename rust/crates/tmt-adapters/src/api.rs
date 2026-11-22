@@ -597,7 +597,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
 }
 
 pub fn capabilities() -> Vec<u8> {
-    serde_json::to_vec(&json!({"version":1,"supported":{"min":1,"max":1},"operations":OPS,"limits":{"inputBytes":INPUT_LIMIT,"outputBytes":OUTPUT_LIMIT},"commands":["identity","list","room","x","reply","result","notes"],"session":{"framing":"ndjson"}})).expect("constant capabilities")
+    serde_json::to_vec(&json!({"version":1,"supported":{"min":1,"max":1},"operations":OPS,"limits":{"inputBytes":INPUT_LIMIT,"outputBytes":OUTPUT_LIMIT},"commands":["identity","list","room","x","reply","result","notes"],"session":{"framing":"ndjson","terminalCommandOutput":true}})).expect("constant capabilities")
 }
 
 fn identity(storage: &mut Storage, selector: &str) -> Result<String, Fault> {
@@ -619,6 +619,9 @@ fn identity_entry(storage: &mut Storage, selector: &str) -> Result<Identity, Fau
 pub const SESSION_STALE: &str = "API_SESSION_STALE";
 
 /// One invocation owns this connection. Request admission and settings are never cached.
+pub type CommandProgress<'a> =
+    dyn FnMut(&[u8], std::time::Instant, &dyn Fn() -> bool) -> std::io::Result<()> + 'a;
+
 pub struct Session {
     paths: ConfigPaths,
     storage: Option<Storage>,
@@ -655,8 +658,17 @@ impl Session {
         request: Request,
         lifeline: Option<std::os::fd::BorrowedFd<'_>>,
     ) -> Result<Vec<u8>, Fault> {
+        self.execute_with_progress(request, lifeline, None)
+    }
+
+    pub fn execute_with_progress(
+        &mut self,
+        request: Request,
+        lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+        progress: Option<&mut CommandProgress<'_>>,
+    ) -> Result<Vec<u8>, Fault> {
         self.validate_schema()?;
-        let pending = self.run(request, lifeline);
+        let pending = self.run(request, lifeline, progress);
         if let Some(storage) = &self.storage {
             storage.flush_observations();
         }
@@ -679,6 +691,7 @@ impl Session {
         &mut self,
         request: Request,
         lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+        progress: Option<&mut CommandProgress<'_>>,
     ) -> Result<Vec<u8>, Fault> {
         let paths = &self.paths;
         if matches!(request, Request::Capabilities) {
@@ -801,9 +814,14 @@ impl Session {
                 terminal_id,
                 command,
             } => terminal::run(paths, storage, &identity_id, &terminal_id, &command),
-            Request::SavedTerminal(request) => {
-                shell::execute_saved(paths, storage, *request, &mut self.saved_command, lifeline)
-            }
+            Request::SavedTerminal(request) => shell::execute_saved(
+                paths,
+                storage,
+                *request,
+                &mut self.saved_command,
+                lifeline,
+                progress,
+            ),
             Request::ShellRun {
                 identity_id,
                 command,

@@ -3,19 +3,71 @@
 use super::{Completed, Task};
 use crate::{
     board::BoardEvent,
-    core::{Core, SquadError},
+    core::{Core, SquadError, StandaloneProgress},
 };
 use std::{
     cell::RefCell,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc::{Sender, channel},
     },
 };
 
+#[derive(Clone, Default)]
+pub(in crate::board) struct Output(Arc<Mutex<PendingOutput>>);
+
+#[derive(Default)]
+struct PendingOutput {
+    text: String,
+    legacy: bool,
+    queued: bool,
+    stream: Option<bool>,
+    at_line_start: bool,
+}
+
+impl Output {
+    fn update(&self, progress: StandaloneProgress<'_>) -> bool {
+        let mut pending = self.0.lock().expect("live command output");
+        match progress {
+            StandaloneProgress::Legacy => pending.legacy = true,
+            StandaloneProgress::Text { stderr, text } => {
+                let text = crate::board::notes::sanitize(text);
+                if text.is_empty() {
+                    return false;
+                }
+                if pending.stream != Some(stderr) {
+                    if pending.stream.is_some() && !pending.at_line_start {
+                        pending.text.push('\n');
+                    }
+                    pending.stream = Some(stderr);
+                    pending.at_line_start = true;
+                }
+                for line in text.split_inclusive('\n') {
+                    if stderr && pending.at_line_start {
+                        pending.text.push_str("stderr · ");
+                    }
+                    pending.text.push_str(line);
+                    pending.at_line_start = line.ends_with('\n');
+                }
+            }
+        }
+        !std::mem::replace(&mut pending.queued, true)
+    }
+
+    pub(super) fn take(self) -> (String, bool) {
+        let mut pending = self.0.lock().expect("live command output");
+        pending.queued = false;
+        (
+            std::mem::take(&mut pending.text),
+            std::mem::take(&mut pending.legacy),
+        )
+    }
+}
+
 enum SessionTask {
     Run {
+        run: u64,
         input: serde_json::Value,
         stopped: Arc<AtomicBool>,
     },
@@ -36,16 +88,28 @@ impl Worker {
             let mut session = None;
             for task in queue {
                 let completed = match task {
-                    SessionTask::Run { input, stopped } => {
+                    SessionTask::Run {
+                        run,
+                        input,
+                        stopped,
+                    } => {
                         drop(session.take());
+                        let output = Output::default();
                         let outcome = core.standalone_session(&stopped).and_then(|mut opened| {
-                            let response = opened.run(input, &stopped);
+                            let response = opened.run(input, &stopped, |progress| {
+                                if output.update(progress) {
+                                    let _ = events.send(BoardEvent::Standalone(Completed::Output(
+                                        run,
+                                        output.clone(),
+                                    )));
+                                }
+                            });
                             if response.is_ok() {
                                 session = Some(opened);
                             }
                             response
                         });
-                        Completed::Run(outcome)
+                        Completed::Run(run, outcome)
                     }
                     SessionTask::Keep(run_id) => {
                         let outcome = session
@@ -77,11 +141,15 @@ impl Worker {
 
     pub(in crate::board) fn submit(&self, task: Task) {
         let request = match task {
-            Task::Run(input) => {
+            Task::Run(run, input) => {
                 let stopped = Arc::new(AtomicBool::new(false));
                 // A queued invocation keeps its flag when the next Run is submitted.
                 self.latest_run.replace(Some(stopped.clone()));
-                SessionTask::Run { input, stopped }
+                SessionTask::Run {
+                    run,
+                    input,
+                    stopped,
+                }
             }
             Task::Keep(run_id) => SessionTask::Keep(run_id),
             Task::Discard => SessionTask::Discard,
@@ -120,7 +188,7 @@ mod tests {
             latest_run: RefCell::new(None),
         };
 
-        worker.submit(Task::Run(json!({"command": "first"})));
+        worker.submit(Task::Run(1, json!({"command": "first"})));
         let SessionTask::Run { stopped: first, .. } = queue.try_recv().unwrap() else {
             panic!("expected the first Run");
         };
@@ -128,7 +196,7 @@ mod tests {
         worker.submit(Task::Stop);
         assert!(first.load(Ordering::Acquire));
 
-        worker.submit(Task::Run(json!({"command": "second"})));
+        worker.submit(Task::Run(2, json!({"command": "second"})));
         let SessionTask::Run {
             stopped: second, ..
         } = queue.try_recv().unwrap()

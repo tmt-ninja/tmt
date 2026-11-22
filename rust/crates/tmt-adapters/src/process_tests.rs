@@ -39,12 +39,15 @@ fn shell_signal_fixture() {
             &root,
             Duration::from_secs(30),
             65_536,
-            Some(&interrupt),
-            if std::env::var_os("TMT_TEST_SHELL_HANGUP").is_some() {
-                use std::os::fd::AsFd;
-                Some(stdin.as_fd())
-            } else {
-                None
+            crate::process::ShellControl {
+                interrupt: Some(&interrupt),
+                lifeline: if std::env::var_os("TMT_TEST_SHELL_HANGUP").is_some() {
+                    use std::os::fd::AsFd;
+                    Some(stdin.as_fd())
+                } else {
+                    None
+                },
+                output: None,
             },
         )
         .unwrap();
@@ -154,6 +157,94 @@ fn shell_run_reports_bounded_output() {
         .unwrap();
     assert_eq!(result.stdout, b"12345");
     assert!(result.truncated);
+}
+
+#[test]
+fn shell_observation_keeps_the_legacy_bytes_and_result() {
+    use crate::process::{ShellControl, ShellStream};
+    let root = TestDirectory::new();
+    let command = "printf '\\033[31mraw\\r\\n'; printf 'other\\tbytes' >&2; exit 7";
+    let timeout = Duration::from_secs(3);
+    let legacy = UnixCommandRunner
+        .run_shell_in(command, &root.path, timeout, 65_536)
+        .unwrap();
+    assert_eq!(legacy.stdout, b"\x1b[31mraw\r\n");
+    assert_eq!(legacy.stderr, b"other\tbytes");
+    assert_eq!(legacy.exit_code, Some(7));
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    let observed = UnixCommandRunner
+        .run_shell_in_interrupt(
+            command,
+            &root.path,
+            timeout,
+            65_536,
+            ShellControl {
+                output: Some(&mut |stream, bytes, _, _| {
+                    match stream {
+                        ShellStream::Stdout => &mut stdout,
+                        ShellStream::Stderr => &mut stderr,
+                    }
+                    .extend_from_slice(bytes);
+                    Ok(())
+                }),
+                ..ShellControl::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(observed, legacy);
+    assert_eq!(stdout, legacy.stdout);
+    assert_eq!(stderr, legacy.stderr);
+}
+
+#[test]
+fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
+    use crate::process::ShellControl;
+    use std::{io::Write, os::unix::net::UnixStream};
+
+    let root = TestDirectory::new();
+    let pidfile = root.path.join("child");
+    let command = format!(
+        "echo $$ > '{}'; printf ready; exec /bin/sleep 30",
+        pidfile.display()
+    );
+    let (_reader, mut writer) = UnixStream::pair().unwrap();
+    writer.set_nonblocking(true).unwrap();
+    let page = [0; 4096];
+    loop {
+        match writer.write(&page) {
+            Ok(0) => panic!("socket stopped accepting data without an error"),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("{error}"),
+        }
+    }
+
+    let mut attempted = false;
+    let result = UnixCommandRunner
+        .run_shell_in_interrupt(
+            &command,
+            &root.path,
+            Duration::from_secs(2),
+            65_536,
+            ShellControl {
+                output: Some(&mut |_, _bytes, deadline, cancelled| {
+                    attempted = true;
+                    crate::framed_stdio::publish_progress(
+                        &writer,
+                        b"progress",
+                        64,
+                        deadline,
+                        cancelled,
+                    )
+                }),
+                ..ShellControl::default()
+            },
+        )
+        .unwrap();
+    assert!(attempted);
+    assert!(result.timed_out);
+    assert_eq!(result.stdout, b"ready");
+    assert_eq!(kill(read_pid(&pidfile), None), Err(Errno::ESRCH));
 }
 
 #[test]

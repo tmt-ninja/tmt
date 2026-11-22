@@ -25,7 +25,7 @@ pub(super) use worker::Worker;
 pub enum Task {
     Target(String),
     Saved(SavedTask),
-    Run(Value),
+    Run(u64, Value),
     Keep(String),
     Discard,
     Stop,
@@ -34,7 +34,8 @@ pub enum Task {
 pub(super) enum Completed {
     Target(String, Result<Value, SquadError>),
     Saved(Box<SavedTask>, Result<Value, SquadError>),
-    Run(Result<Value, SquadError>),
+    Output(u64, worker::Output),
+    Run(u64, Result<Value, SquadError>),
     Keep(Result<Value, SquadError>),
 }
 
@@ -112,12 +113,17 @@ pub(super) struct Controller {
     hits: RefCell<DialogHits>,
     scroll: usize,
     scroll_position: std::cell::Cell<usize>,
+    scroll_end: std::cell::Cell<usize>,
+    follow_output: bool,
+    live: String,
+    run_id: u64,
     elapsed: std::cell::Cell<u64>,
     notice: Option<String>,
 }
 
 const MAX_COMMAND: usize = tmt_pty_protocol::COMMAND_LIMIT;
 const COMMAND_FIELD: &[FieldKind] = &[FieldKind::Text];
+const LEGACY_OUTPUT: &str = "Live output needs a newer tmt.";
 
 impl Controller {
     pub(super) fn start(&mut self, launch_directory: Option<String>) {
@@ -201,6 +207,9 @@ impl Controller {
         self.shown = true;
         self.scroll = 0;
         self.scroll_position.set(0);
+        self.scroll_end.set(0);
+        self.follow_output = false;
+        self.live.clear();
         self.notice = None;
         self.hits.replace(DialogHits::default());
         let (dialog, fields) = self.presentation();
@@ -238,7 +247,28 @@ impl Controller {
             started: Instant::now(),
             stopping: false,
         });
-        Effect::Standalone(Task::Run(request))
+        self.run_id = self.run_id.wrapping_add(1);
+        self.follow_output = true;
+        Effect::Standalone(Task::Run(self.run_id, request))
+    }
+
+    fn progress(&mut self, run: u64, text: &str, legacy: bool) {
+        if self.run_id == run && self.running() {
+            self.live.push_str(text);
+            if legacy {
+                self.notice = Some(LEGACY_OUTPUT.into());
+            }
+        }
+    }
+
+    fn scroll_output(&mut self, step: isize) {
+        let end = self.scroll_end.get();
+        self.scroll = self
+            .scroll_position
+            .get()
+            .saturating_add_signed(step)
+            .min(end);
+        self.follow_output = self.running() && step > 0 && self.scroll == end;
     }
 
     fn choose(&mut self, index: usize) -> Effect {
@@ -325,6 +355,10 @@ impl Controller {
             }
         }
         if let Event::Key(key) = event {
+            if self.running() && key.code == KeyCode::End {
+                self.follow_output = true;
+                return Effect::None;
+            }
             if key.modifiers.is_empty() && matches!(self.page, Some(Page::Finished { .. })) {
                 match key.code {
                     KeyCode::Char('k') => return self.choose(0),
@@ -336,24 +370,33 @@ impl Controller {
                 KeyCode::PageUp => Some(-10),
                 KeyCode::PageDown => Some(10),
                 KeyCode::Up
-                    if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) =>
+                    if matches!(
+                        self.page,
+                        Some(Page::Running { .. } | Page::Finished { .. } | Page::Saved(_))
+                    ) =>
                 {
                     Some(-1)
                 }
                 KeyCode::Down
-                    if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) =>
+                    if matches!(
+                        self.page,
+                        Some(Page::Running { .. } | Page::Finished { .. } | Page::Saved(_))
+                    ) =>
                 {
                     Some(1)
                 }
                 _ => None,
             };
             if let Some(step) = step {
-                self.scroll = self.scroll_position.get().saturating_add_signed(step);
+                self.scroll_output(step);
                 return Effect::None;
             }
         }
         if let Event::Mouse(mouse) = event
-            && matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_)))
+            && matches!(
+                self.page,
+                Some(Page::Running { .. } | Page::Finished { .. } | Page::Saved(_))
+            )
         {
             use ratatui::crossterm::event::MouseEventKind;
             let step = match mouse.kind {
@@ -362,7 +405,7 @@ impl Controller {
                 _ => 0,
             };
             if step != 0 {
-                self.scroll = self.scroll_position.get().saturating_add_signed(step);
+                self.scroll_output(step);
                 return Effect::None;
             }
         }
@@ -481,6 +524,7 @@ impl Controller {
         let look = app.look();
         let rows = self.lines();
         let status = self.notice.is_some();
+        let form = self.editing();
         // The shared modal reserves two borders, a position row and a footer.
         let wide = matches!(
             self.page,
@@ -491,7 +535,7 @@ impl Controller {
         } else {
             [
                 dialog.footer_width().max(76),
-                rows.len().min(14) as u16 + 4 + u16::from(status),
+                rows.len().min(14) as u16 + if form { 3 } else { 4 } + u16::from(status),
             ]
         };
         let area = dialog.areas(body, demand, status);
@@ -503,19 +547,38 @@ impl Controller {
             state,
             Overlay::Standalone,
         );
-        let content = hits.content;
-        let rows = if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) {
-            rows.iter()
-                .flat_map(|line| {
-                    tmt_tui::text::lines(line, content.width, tmt_tui::style::TextFlow::Wrap)
-                })
-                .collect()
+        if form {
+            // The form uses the otherwise empty position row immediately above its buttons.
+            hits.content.height += area.position.height;
+        }
+        let mut content = hits.content;
+        let role = look.role(tmt_cli_style::Role::Text);
+        let rows = if self.running() {
+            if content.height > 0 {
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect {
+                        height: 1,
+                        ..content
+                    },
+                    Line::styled(super::view::fit(&rows[0], content.width as usize), role),
+                );
+                content.y += 1;
+                content.height -= 1;
+            }
+            wrapped_output(self.live.lines(), content.width)
+        } else if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) {
+            wrapped_output(rows.iter().map(String::as_str), content.width)
         } else {
             rows
         };
         let maximum_scroll = rows.len().saturating_sub(content.height as usize);
-        self.scroll_position.set(self.scroll.min(maximum_scroll));
-        let role = look.role(tmt_cli_style::Role::Text);
+        self.scroll_end.set(maximum_scroll);
+        self.scroll_position.set(if self.follow_output {
+            maximum_scroll
+        } else {
+            self.scroll.min(maximum_scroll)
+        });
         for (index, line) in rows
             .into_iter()
             .skip(self.scroll_position.get())
@@ -619,6 +682,12 @@ impl Controller {
             None => Vec::new(),
         }
     }
+}
+
+fn wrapped_output<'a>(lines: impl Iterator<Item = &'a str>, width: u16) -> Vec<String> {
+    lines
+        .flat_map(|line| tmt_tui::text::lines(line, width, tmt_tui::style::TextFlow::Wrap))
+        .collect()
 }
 
 fn command_title(command: &str) -> String {
@@ -730,14 +799,25 @@ impl App {
                 }
             }
             Completed::Saved(task, result) => self.saved_completed(*task, result),
-            Completed::Run(result) => {
+            Completed::Output(run, output) => {
+                let (text, legacy) = output.take();
+                self.standalone.progress(run, &text, legacy);
+            }
+            Completed::Run(run, result) => {
+                if self.standalone.run_id != run || !self.standalone.running() {
+                    return;
+                }
                 let was_shown = self.standalone.shown;
+                let legacy = self.standalone.notice.as_deref() == Some(LEGACY_OUTPUT);
                 match result {
                     Ok(result) => self.standalone.show(Page::Finished {
                         result,
                         keeping: false,
                     }),
                     Err(error) => self.standalone.show(Page::Refused(error.message)),
+                }
+                if legacy {
+                    self.standalone.notice = Some(LEGACY_OUTPUT.into());
                 }
                 self.standalone.shown = was_shown;
                 if !was_shown {
