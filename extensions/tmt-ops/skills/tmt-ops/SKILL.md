@@ -314,17 +314,19 @@ Boards started before this behavior shipped need one manual restart.
 ## Board appearance
 
 The board opens one `OPS / UI` shell with `1 Agents`, `2 Work`, `3 Digest` and
-`4 Orchestration`. Work shows the Projects chapter gauges (from Colab with section
-progress, or `—` when absent), Squad Pulse, and 2-line work cards. Use `/` to
-search, `p` for project, `d` for the Done period, `c` for recent completions,
-`Space` to collapse or expand the read-only Detail inspector, `Tab` to focus its
-sections, and `t` to jump to the bound owner's Talk tab. Press `o` or `Enter` to open
-the work item when a link is available. `o` opens the selected section. Press
-`v` to manage saved views or use
-`+ Save` to store the current filter in Ops config (with an optional default on
-open). Project ordering requires Colab 0.1.0-alpha.481 or later. In a selected
-project, `m` opens Move for eligible numbered work. Confirm to change its position.
-If the order changed elsewhere, Work shows the current order without retrying.
+`4 Orchestration`. Work shows the Projects chapter gauges, Squad Pulse, and
+2-line work cards; an older Colab without section progress shows `—`, and a
+Colab older than 0.1.0-alpha.478 shows an empty Work tab with an update notice.
+Use `/` to search, `p` for project, `d` for the Done period, `c` for recent
+completions, `Space` to collapse or expand the read-only Detail inspector, `Tab`
+to focus its sections, and `t` to jump to the bound owner's Talk tab. Press
+`Enter` or `o` to open the selected work page when a link is available (with a
+section focused in Detail, `o` opens that section). Press `v` to manage saved
+views or use `+ Save` to store the current filter in Ops config (with an
+optional default on open). Project ordering requires Colab 0.1.0-alpha.481 or
+later. In a selected project, `m` opens Move for eligible numbered work.
+Confirm to change its position. If the order changed elsewhere, Work shows the
+current order without retrying.
 Shortcut caps precede tab and filter labels and show effective configured keys;
 unbound actions have no cap. Selected tabs use a brighter neutral cap.
 Agents holds the whole workspace: a full-width Usage band (global usage and provider
