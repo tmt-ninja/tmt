@@ -67,46 +67,84 @@ fn lines(path: PathBuf) -> Vec<String> {
         .collect()
 }
 
+const CANCELLATION_FRAME: &str = r#"printf '%s\n' '{"error":{"code":"SHELL_RUN_CANCELLED","message":"Shell cancelled; its process group was terminated and reaped."}}'"#;
+
+fn stopped_shell_exchange(
+    operation: &str,
+    tail: &str,
+    run: impl FnOnce(&Core, &std::sync::atomic::AtomicBool) -> Result<Value, SquadError> + Send,
+) -> Result<Value, SquadError> {
+    let fixture = Fixture::new();
+    let executable = fixture.0.join("tmt");
+    crate::test_support::write_ready_executable(
+        &executable,
+        &format!(
+            "#!/bin/sh\ncd '{}'\nIFS= read -r request\nprintf '%s\\n' \"$request\" > requests\nprintf ready > admitted\ncat >> requests\n{tail}\n",
+            fixture.0.display(),
+        ),
+    );
+    let core = Core::at(executable);
+    let stopped = std::sync::atomic::AtomicBool::new(false);
+    let result = std::thread::scope(|scope| {
+        let stopped = &stopped;
+        let running = scope.spawn(move || run(&core, stopped));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !fixture.0.join("admitted").exists() {
+            assert!(Instant::now() < deadline, "command was never admitted");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        stopped.store(true, Ordering::Release);
+        running.join().unwrap()
+    });
+    let requests = lines(fixture.0.join("requests"));
+    assert_eq!(requests.len(), 1, "Stop must never replay the request");
+    let request: Value = serde_json::from_str(&requests[0]).unwrap();
+    assert_eq!(request["operation"], operation);
+    result
+}
+
 #[test]
 fn standalone_stop_reports_the_cancellation_frame_only_after_clean_exit() {
-    let receipt = r#"printf '%s\n' '{"error":{"code":"SHELL_RUN_CANCELLED","message":"Shell cancelled; its process group was terminated and reaped."}}'"#;
     for (tail, expected) in [
-        (format!("{receipt}; exit 0"), "SHELL_RUN_CANCELLED"),
-        (format!("{receipt}; exit 7"), "SQUAD_CORE_UNAVAILABLE"),
+        (
+            format!("{CANCELLATION_FRAME}; exit 0"),
+            "SHELL_RUN_CANCELLED",
+        ),
+        (
+            format!("{CANCELLATION_FRAME}; exit 7"),
+            "SQUAD_CORE_UNAVAILABLE",
+        ),
         ("exit 0".into(), "SQUAD_CORE_UNAVAILABLE"),
     ] {
-        let fixture = Fixture::new();
-        let executable = fixture.0.join("tmt");
-        crate::test_support::write_ready_executable(
-            &executable,
-            &format!(
-                "#!/bin/sh\ncd '{}'\nIFS= read -r request\nprintf '%s\\n' \"$request\" > requests\nprintf ready > admitted\ncat >> requests\n{tail}\n",
-                fixture.0.display(),
-            ),
-        );
-        let core = Core::at(executable);
-        let stopped = std::sync::atomic::AtomicBool::new(false);
-        let error = std::thread::scope(|scope| {
-            let running = scope.spawn(|| {
-                core.standalone_session(&stopped)
-                    .unwrap()
-                    .run(json!({"command":"sleep 60"}), &stopped)
-                    .unwrap_err()
-            });
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while !fixture.0.join("admitted").exists() {
-                assert!(Instant::now() < deadline, "command was never admitted");
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            stopped.store(true, Ordering::Release);
-            running.join().unwrap()
-        });
+        let error = stopped_shell_exchange("terminal.command.run", &tail, |core, stop| {
+            core.standalone_session(stop)?
+                .run(json!({"command":"sleep 60"}), stop)
+        })
+        .unwrap_err();
         assert_eq!(error.code, expected, "{}", error.message);
-        let requests = lines(fixture.0.join("requests"));
-        assert_eq!(requests.len(), 1, "Stop must never replay the request");
-        let request: Value = serde_json::from_str(&requests[0]).unwrap();
-        assert_eq!(request["operation"], "terminal.command.run");
     }
+}
+
+#[test]
+fn standalone_completion_racing_stop_preserves_output_without_staging() {
+    let result = stopped_shell_exchange(
+        "terminal.command.run",
+        r#"printf '%s\n' '{"stdout":"finished","exitCode":0,"runId":"used"}'"#,
+        |core, stop| {
+            core.standalone_session(stop)?
+                .run(json!({"command":"pwd"}), stop)
+        },
+    )
+    .unwrap();
+    assert_eq!(result, json!({"stdout":"finished","exitCode":0}));
+}
+
+#[test]
+fn talk_shell_stop_keeps_the_existing_interrupt_path() {
+    let result = stopped_shell_exchange("shell.run", CANCELLATION_FRAME, |core, stop| {
+        core.shell_run(json!({"command":"sleep 60"}), stop)
+    });
+    assert!(result.unwrap_err().was_cancelled());
 }
 
 #[test]

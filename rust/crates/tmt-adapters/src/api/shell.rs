@@ -63,6 +63,7 @@ fn verified_cwd(entry: &BindingEntry, probe: &EndpointProbe) -> Result<String, F
 fn observe_member(
     storage: &mut Storage,
     identity_id: &str,
+    require_pane_start: bool,
 ) -> Result<(BindingEntry, EndpointProbe), Fault> {
     let entry = delivery::current(storage, identity_id)
         .map_err(|_| no_directory())?
@@ -71,15 +72,21 @@ fn observe_member(
     if binding.server.host != HostKind::Tmux && binding.server.host != HostKind::pty() {
         return Err(no_directory());
     }
-    let probe = Host::for_server(&binding.server)
-        .probe(
-            &binding.server,
-            OperationOptions {
-                deadline: None,
-                pane_ids: Some(std::slice::from_ref(&binding.pane_id)),
-            },
-        )
-        .map_err(|_| no_directory())?;
+    let probe = if require_pane_start && binding.server.host == HostKind::Tmux {
+        crate::tmux::Tmux::default()
+            .probe_with_pane_start(&binding.server, &binding.pane_id)
+            .map_err(|_| no_directory())?
+    } else {
+        Host::for_server(&binding.server)
+            .probe(
+                &binding.server,
+                OperationOptions {
+                    deadline: None,
+                    pane_ids: Some(std::slice::from_ref(&binding.pane_id)),
+                },
+            )
+            .map_err(|_| no_directory())?
+    };
     Ok((entry, probe))
 }
 
@@ -110,7 +117,7 @@ pub(super) fn run(
     command: &str,
     lifeline: Option<std::os::fd::BorrowedFd<'_>>,
 ) -> Result<Vec<u8>, Fault> {
-    let (entry, probe) = observe_member(storage, identity_id)?;
+    let (entry, probe) = observe_member(storage, identity_id, false)?;
     let cwd = verified_cwd(&entry, &probe)?;
     let result = run_captured(command, Path::new(&cwd), lifeline)?;
     if result.cancelled {
@@ -358,7 +365,7 @@ struct ObservedTarget {
 }
 
 fn member_target(storage: &mut Storage, identity: &str) -> Result<ObservedTarget, Fault> {
-    let (entry, probe) = observe_member(storage, identity)?;
+    let (entry, probe) = observe_member(storage, identity, true)?;
     let binding = entry.binding.as_ref().ok_or_else(no_directory)?;
     let BindingEvidence::Active(pane) = evaluate_binding(&entry, &probe) else {
         return Err(no_directory());

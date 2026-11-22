@@ -582,8 +582,12 @@ membership. A kept result owns its own terminal UUID.
   replacement command field. No target failure falls back to another directory.
 - Run takes one dedicated framed session with stdin as its lifeline. It shares the
   [shell command](#shell-command) admission, execution and bounds. Successful cleanup on
-  Stop or lifeline loss cancels the run without a keepable result. A confirmed timeout or
-  truncated capture can return partial output with its bound flag and a null exit and
+  Stop or lifeline loss cancels the run without a keepable result. On Stop, the caller
+  closes stdin and allows up to two seconds for the final frame and clean API exit.
+  Cancellation is confirmed only by a `SHELL_RUN_CANCELLED` frame and a clean exit.
+  Without that proof, a pending outcome stays unconfirmed. A completed result that
+  races Stop remains complete, but cannot be kept once its staging session has closed.
+  A confirmed timeout or truncated capture can return partial output with its bound flag and a null exit and
   signal. An unconfirmed result cannot be kept or automatically retried. The final response
   contains `runId`, command, cwd, start and end milliseconds, stdout, stderr, exit code,
   signal, timeout and truncation. A command attempt can use its session once.

@@ -775,28 +775,51 @@ impl StandaloneSession {
     ) -> Result<Value, SquadError> {
         let request =
             json!({"version": 1, "operation": "terminal.command.run", "input": input}).to_string();
-        let frame = self
-            .channel
-            .as_mut()
-            .expect("open session")
-            .exchange_lifeline(
-                request.as_bytes(),
-                Instant::now() + Duration::from_secs(130),
-                || stopped.load(std::sync::atomic::Ordering::Acquire),
-                || {},
-            );
-        Self::decode(frame)
+        let channel = self.channel.as_mut().expect("open session");
+        let frame = channel.exchange_lifeline_drain(
+            request.as_bytes(),
+            Instant::now() + Duration::from_secs(130),
+            || stopped.load(std::sync::atomic::Ordering::Acquire),
+        );
+        let session_closed = channel.pid().is_none();
+        if session_closed {
+            self.channel.take();
+            shell_spawn_guard().remove(&self.pid);
+        }
+        let mut outcome = Self::decode(frame);
+        if session_closed {
+            if let Ok(Value::Object(result)) = &mut outcome {
+                // Completion can race Stop. EOF releases the staged result,
+                // so the output remains useful without a Keep action.
+                result.remove("runId");
+            }
+        } else if outcome
+            .as_ref()
+            .is_err_and(|error| error.code == "SHELL_RUN_CANCELLED")
+        {
+            let channel = self.channel.take().expect("open session");
+            let confirmed = channel
+                .close(Instant::now() + Duration::from_secs(2), || false)
+                .is_ok_and(|exit| exit.status.success() && exit.stdout.is_empty());
+            shell_spawn_guard().remove(&self.pid);
+            if !confirmed {
+                return Err(unavailable(
+                    "Command outcome unconfirmed. Check before retrying.",
+                ));
+            }
+        }
+        outcome
     }
 
     pub(crate) fn keep(&mut self, run_id: &str) -> Result<Value, SquadError> {
         let request =
             json!({"version": 1, "operation": "terminal.command.keep", "input": {"runId": run_id}})
                 .to_string();
-        let frame = self.channel.as_mut().expect("open session").exchange(
-            request.as_bytes(),
-            Instant::now() + TIMEOUT,
-            || false,
-        );
+        let channel = self
+            .channel
+            .as_mut()
+            .ok_or_else(|| SquadError::new("API_UNAVAILABLE", "The result session has closed."))?;
+        let frame = channel.exchange(request.as_bytes(), Instant::now() + TIMEOUT, || false);
         Self::decode(frame)
     }
 
@@ -817,8 +840,8 @@ impl Drop for StandaloneSession {
     fn drop(&mut self) {
         if let Some(channel) = self.channel.take() {
             let _ = channel.close(Instant::now() + TIMEOUT, || false);
+            shell_spawn_guard().remove(&self.pid);
         }
-        shell_spawn_guard().remove(&self.pid);
     }
 }
 
