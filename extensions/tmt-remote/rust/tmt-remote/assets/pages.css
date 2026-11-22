@@ -472,6 +472,13 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-legend-seat {
   gap: var(--tmt-ui-space-s);
 }
+/* The cost's note sits in its own tile; the other tiles keep their values under their labels. */
+#digest-savings .tmt-ui-status-tile {
+  align-content: start;
+}
+.digest-cost-note {
+  margin: 0;
+}
 .digest-seat {
   display: block;
   max-width: 18ch;

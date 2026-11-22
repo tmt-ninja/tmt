@@ -1,10 +1,11 @@
 /**
  * What the Digest web view (`/digest/`) reads: the usage report the terminal Digest shows. The
  * types follow the public document of `tmt digest usage report --json` (digest `usage-v1.md`) and
- * the exchange flow of `tmt x flow --json`; the page depends only on `DigestSource`. The product
- * source reads the owner's browser reads (`x/-/digest/<range>` and `x/-/limits`, contracts/
- * remote-channel-v1.md); the seeded sample lives in `digest-mock.ts` for tests, the gallery and
- * dev only.
+ * the exchange flow of `tmt x flow --json`, and what Digest saved is `tmt digest decisions
+ * --report --json` (digest `digest-v1.md`); the page depends only on `DigestSource`. The product
+ * source reads the owner's browser reads (`x/-/digest/<range>`, `x/-/digest/savings/<range>` and
+ * `x/-/limits`, contracts/remote-channel-v1.md); the seeded sample lives in `digest-mock.ts` for
+ * tests, the gallery and dev only.
  */
 import { ownerRead, type OwnerReadAnswer, type OwnerReadReason } from './owner-reads.js';
 
@@ -25,6 +26,10 @@ export interface UsagePoint extends UsageTotals {
   complete: boolean;
 }
 
+export interface ModelUsage extends UsageTotals {
+  modelId: string;
+}
+
 export interface UsageSeat {
   id: string;
   /** Null when Core could not resolve the name. */
@@ -33,6 +38,11 @@ export interface UsageSeat {
   totals: UsageTotals;
   /** The model families its tokens belong to (`claude`, `gpt`, `other`, `unattributed`). */
   lines: readonly string[];
+  /** Core's attribution by model; null when Core attributed none of the total, absent on older
+   * reports. The rows may sum to less than `totals`. */
+  byModel?: readonly ModelUsage[] | null;
+  /** What no model row covers, present only when `byModel` is not null and falls short. */
+  unattributed?: UsageTotals;
   /** Hourly for 24h, daily for 7d and 30d, oldest first. */
   series: readonly UsagePoint[];
   coverage: {
@@ -239,6 +249,8 @@ export interface DigestReport extends AllowanceReport {
   /** Why the source cannot report; the page then shows only this. */
   unavailable?: string;
   document?: UsageDocument;
+  /** What the delivered digests saved over the same range (#6751 D), read with the report. */
+  savings?: SavingsReport;
 }
 
 export interface DigestSource {
@@ -364,14 +376,189 @@ export function createDigestSource(): DigestSource {
       }
       const selected =
         range === '7d' && weekly ? weekly : ownerRead<DigestPayload>(`digest/${range}`, signal);
+      // What Digest saved follows the selected range: every switch and refresh reads it again.
+      const savings = readSavings(range, signal);
       if (!allowance) {
         weekly = range === '7d' ? selected : ownerRead<DigestPayload>('digest/7d', signal);
         allowance = Promise.all([weekly, ownerRead<LimitsPayload>('limits', signal)]).then(
           ([weekly, limits]) => allowanceFromAnswers(weekly, limits),
         );
       }
-      const [digest, snapshot] = await Promise.all([selected, allowance]);
-      return reportFromAnswers(range, digest, snapshot);
+      const [digest, snapshot, saved] = await Promise.all([selected, allowance, savings]);
+      return { ...reportFromAnswers(range, digest, snapshot), savings: saved };
     },
   };
+}
+
+/** A count the delivery report names: a safe whole number from zero, else unknown (null); a value
+ * is never coerced, and a null stays null (#6752). */
+const count = (value: unknown): number | null =>
+  Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : null;
+/** `measuredSaved` may be negative (Digest added wake-ups), so it is any safe whole number. */
+const whole = (value: unknown): number | null =>
+  Number.isSafeInteger(value) ? (value as number) : null;
+const record = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+/** One row of `digest decisions --report` (digest `digest-v1.md`, Delivery report), as read. */
+export interface SavingsFigures {
+  messages: number | null;
+  deliveries: number | null;
+  /** Upper bound: every held message counted as its own wake-up. */
+  turnsSaved: number | null;
+  /** Measured: idle arrivals less their checklists' deliveries; null when none qualifies. */
+  measuredSaved: number | null;
+  /** Arrival to delivery, in ms; null when any of the three is unknown. */
+  delay: { median: number; p90: number; max: number } | null;
+  /** An estimate; `usdMicros` null with the report's reason when nothing could be priced. */
+  avoidedCost: SavingsCost;
+}
+
+/**
+ * The avoided cost as the report gives it (#6794): a member's only when every measured wake-up
+ * had a price; the total the sum over `covered`, with every other member with a saving in
+ * `unpriced` and no cost. A negative figure is Digest adding wake-ups. `covered` and `unpriced`
+ * are null on a member's row and on a total from a Digest that does not list them.
+ */
+export interface SavingsCost {
+  usdMicros: number | null;
+  reason: string | null;
+  covered: { id: string; measuredSaved: number | null; usdMicros: number | null }[] | null;
+  unpriced:
+    | { id: string; measuredSaved: number | null; models: string[]; reason: string | null }[]
+    | null;
+}
+
+export interface SavingsMember extends SavingsFigures {
+  id: string;
+  /** Plain text for display; null when the roster could not name it. */
+  name: string | null;
+  /** The member's evidence covers the whole range; null without a coverage row. */
+  complete: boolean | null;
+}
+
+export interface SavingsDocument {
+  since: UsageRange;
+  members: SavingsMember[];
+  total: SavingsFigures;
+  /** The price table the estimate used; null when the report names none. */
+  pricing: { version: string; asOf: string; origin: string } | null;
+}
+
+export interface SavingsReport {
+  range: UsageRange;
+  document?: SavingsDocument;
+  /** Why it cannot be shown, in words the person can act on. */
+  unavailable?: string;
+}
+
+function savingsFigures(row: Record<string, unknown>): SavingsFigures {
+  const actual = record(row.actual);
+  const delay = record(actual.delayMs);
+  const median = count(delay.median);
+  const p90 = count(delay.p90);
+  const max = count(delay.max);
+  const cost = record(row.avoidedCost);
+  const text = (value: unknown) => (typeof value === 'string' ? value : null);
+  const rows = (value: unknown) =>
+    Array.isArray(value)
+      ? value
+          .map(record)
+          .filter(
+            (entry): entry is Record<string, unknown> & { id: string } =>
+              typeof entry.id === 'string',
+          )
+      : null;
+  return {
+    messages: count(row.messages),
+    deliveries: count(actual.deliveries),
+    turnsSaved: whole(row.turnsSaved),
+    measuredSaved: whole(row.measuredSaved),
+    delay: median !== null && p90 !== null && max !== null ? { median, p90, max } : null,
+    avoidedCost: {
+      usdMicros: whole(cost.usdMicros),
+      reason: text(cost.reason),
+      covered:
+        rows(cost.covered)?.map((entry) => ({
+          id: entry.id,
+          measuredSaved: whole(entry.measuredSaved),
+          usdMicros: whole(entry.usdMicros),
+        })) ?? null,
+      unpriced:
+        rows(cost.unpriced)?.map((entry) => ({
+          id: entry.id,
+          measuredSaved: whole(entry.measuredSaved),
+          models: Array.isArray(entry.models)
+            ? entry.models.filter((model): model is string => typeof model === 'string')
+            : [],
+          reason: text(entry.reason),
+        })) ?? null,
+    },
+  };
+}
+
+const SAVINGS_REASONS: Record<OwnerReadReason | 'no-session' | 'unreachable', string> = {
+  not_installed:
+    'Digest is not installed on your machine. Run `tmt extension install digest`, then reload this page.',
+  core_unavailable: 'TMT on your machine did not answer. This page tries again shortly.',
+  timeout: 'Your machine took too long to read what Digest saved. This page tries again shortly.',
+  read_failed:
+    'Your machine could not read what Digest saved. Run `tmt digest decisions --report` in a terminal to see it.',
+  too_large:
+    'The savings report is too large for the browser. Run `tmt digest decisions --report` in a terminal to see it.',
+  not_sampled:
+    'Your machine could not read what Digest saved. Run `tmt digest decisions --report` in a terminal to see it.',
+  unknown:
+    'What Digest saved is not available right now. Run `tmt digest decisions --report` in a terminal to see it.',
+  'no-session':
+    'This browser has no owner session for your machine. Pair it from Remote to see what Digest saved.',
+  unreachable: 'Your machine did not answer. This page tries again shortly.',
+};
+
+/** What `x/-/digest/savings/<range>` answers, read to the figures the page shows (#6751 D). */
+export function savingsFromAnswer(
+  range: UsageRange,
+  answer: OwnerReadAnswer<{ since?: unknown; report?: unknown }>,
+): SavingsReport {
+  if (answer.state !== 'ok') {
+    const reason = answer.state === 'unavailable' ? answer.reason : answer.state;
+    return { range, unavailable: SAVINGS_REASONS[reason] ?? SAVINGS_REASONS.unknown };
+  }
+  const report = record(answer.payload.report);
+  if (answer.payload.since !== range || report.since !== range || !Array.isArray(report.members))
+    return { range, unavailable: SAVINGS_REASONS.unknown };
+  const pricing = record(record(report.wakeMethod).pricing);
+  return {
+    range,
+    document: {
+      since: range,
+      members: report.members.flatMap((entry: unknown) => {
+        const row = record(entry);
+        if (typeof row.id !== 'string') return [];
+        const coverage = row.coverage === null ? null : record(row.coverage);
+        return [
+          {
+            id: row.id,
+            name: typeof row.name === 'string' ? row.name : null,
+            complete: coverage && typeof coverage.complete === 'boolean' ? coverage.complete : null,
+            ...savingsFigures(row),
+          },
+        ];
+      }),
+      total: savingsFigures(record(report.total)),
+      pricing:
+        typeof pricing.version === 'string' &&
+        typeof pricing.asOf === 'string' &&
+        typeof pricing.origin === 'string'
+          ? { version: pricing.version, asOf: pricing.asOf, origin: pricing.origin }
+          : null,
+    },
+  };
+}
+
+/** One read of what Digest saved over `range`; the page's refresh owns the cadence. */
+export async function readSavings(range: UsageRange, signal: AbortSignal): Promise<SavingsReport> {
+  return savingsFromAnswer(range, await ownerRead(`digest/savings/${range}`, signal));
 }

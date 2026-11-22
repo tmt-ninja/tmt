@@ -4,7 +4,9 @@ import {
   allowanceFromAnswers,
   createDigestSource,
   limitHistoryFrom,
+  readSavings,
   reportFromAnswers,
+  savingsFromAnswer,
 } from '../src/digest-source.js';
 import { ownerAnswer } from '../src/owner-reads.js';
 
@@ -176,7 +178,10 @@ it('reads fixed weekly allowance for every range, sharing the selected 7d read a
     expect(report.allowance!.since).toBe('7d');
     expect(report.allowance!.limits).toEqual(mockDocument('7d').limits);
     expect(read.mock.calls.filter(([target]) => target === 'digest/7d')).toHaveLength(1);
-    expect(read).toHaveBeenCalledTimes(range === '7d' ? 2 : 3);
+    // What Digest saved is read for the range asked for, beside the report.
+    expect(read).toHaveBeenCalledWith(`digest/savings/${range}`, signal);
+    expect(report.savings!.range).toBe(range);
+    expect(read).toHaveBeenCalledTimes(range === '7d' ? 3 : 4);
     expect(read.mock.calls.every(([, actual]) => actual === signal)).toBe(true);
   }
 });
@@ -215,30 +220,149 @@ it('reuses one weekly read across switches, including in-flight requests, and re
   const third = source.report('7d');
   expect(read.mock.calls.map(([target]) => target)).toEqual([
     'digest/24h',
+    'digest/savings/24h',
     'digest/7d',
     'limits',
     'digest/30d',
+    'digest/savings/30d',
+    'digest/savings/7d',
   ]);
   release();
   const results = await Promise.all([first, second, third]);
   expect(results.every((report) => report.allowance === results[0]!.allowance)).toBe(true);
   read.mockClear();
   await source.report('24h');
-  expect(read.mock.calls.map(([target]) => target)).toEqual(['digest/24h']);
+  expect(read.mock.calls.map(([target]) => target)).toEqual(['digest/24h', 'digest/savings/24h']);
   read.mockClear();
+  // The weekly report is shared; what Digest saved over the week is still read again.
   await source.report('7d');
-  expect(read).not.toHaveBeenCalled();
+  expect(read.mock.calls.map(([target]) => target)).toEqual(['digest/savings/7d']);
+  read.mockClear();
   await source.report('30d', undefined, true);
-  expect(read.mock.calls.map(([target]) => target)).toEqual(['digest/30d', 'digest/7d', 'limits']);
+  expect(read.mock.calls.map(([target]) => target)).toEqual([
+    'digest/30d',
+    'digest/savings/30d',
+    'digest/7d',
+    'limits',
+  ]);
   read.mockReset();
   read.mockResolvedValue({ state: 'unreachable' });
   const failedSource = createDigestSource();
   await failedSource.report('24h');
   read.mockClear();
   const failed = await failedSource.report('30d');
-  expect(read.mock.calls.map(([target]) => target)).toEqual(['digest/30d']);
+  expect(read.mock.calls.map(([target]) => target)).toEqual(['digest/30d', 'digest/savings/30d']);
   expect(failed.allowanceUnavailable).toContain('Allowance could not be read');
   read.mockClear();
   await createDigestSource().report('24h');
-  expect(read.mock.calls.map(([target]) => target)).toEqual(['digest/24h', 'digest/7d', 'limits']);
+  expect(read.mock.calls.map(([target]) => target)).toEqual([
+    'digest/24h',
+    'digest/savings/24h',
+    'digest/7d',
+    'limits',
+  ]);
+});
+
+it('reads what Digest saved from the shared vector: figures, plain names, the price table (#6751 D)', () => {
+  const report = savingsFromAnswer('7d', answerOf('savings: the delivery report passes'));
+  expect(report.unavailable).toBeUndefined();
+  expect(report.document).toEqual({
+    since: '7d',
+    members: [
+      {
+        id: '00000000-0000-4000-8000-000000000001',
+        name: 'worker',
+        complete: true,
+        messages: 6,
+        deliveries: 3,
+        turnsSaved: 3,
+        measuredSaved: 1,
+        delay: { median: 15000, p90: 40000, max: 40000 },
+        avoidedCost: {
+          usdMicros: null,
+          reason: 'wake_turns_unavailable',
+          covered: null,
+          unpriced: null,
+        },
+      },
+    ],
+    total: {
+      messages: 6,
+      deliveries: 3,
+      turnsSaved: 3,
+      measuredSaved: 1,
+      delay: null,
+      avoidedCost: {
+        usdMicros: null,
+        reason: 'wake_turns_unavailable',
+        covered: [],
+        unpriced: [],
+      },
+    },
+    pricing: { version: '2026-11-15', asOf: '2026-11-15', origin: 'built-in' },
+  });
+});
+
+it('shows a bad count as unknown and never coerces it; a negative measured saving stays (#6752)', () => {
+  const member = {
+    id: 'a',
+    name: '<b>worker</b>',
+    messages: '6',
+    actual: { deliveries: -1, delayMs: { median: 1.5, p90: 2, max: 3 } },
+    turnsSaved: 2 ** 60,
+    measuredSaved: -2,
+    avoidedCost: { usdMicros: Number.NaN, reason: 7 },
+    coverage: null,
+  };
+  const report = savingsFromAnswer('24h', {
+    state: 'ok',
+    observedAtMs: 1,
+    payload: {
+      since: '24h',
+      report: { since: '24h', members: [member, { name: 'no id' }, null], total: null },
+    },
+  });
+  expect(report.document!.members).toEqual([
+    {
+      id: 'a',
+      // Plain text as the report wrote it; the page sets it as text, never markup.
+      name: '<b>worker</b>',
+      complete: null,
+      messages: null,
+      deliveries: null,
+      turnsSaved: null,
+      measuredSaved: -2,
+      delay: null,
+      avoidedCost: { usdMicros: null, reason: null, covered: null, unpriced: null },
+    },
+  ]);
+  expect(report.document!.total.messages).toBeNull();
+  expect(report.document!.pricing).toBeNull();
+});
+
+it('says why what Digest saved is unavailable, and never shows another range (#6751 D)', () => {
+  expect(
+    savingsFromAnswer('24h', answerOf('savings: the Digest extension is absent')).unavailable,
+  ).toContain('tmt extension install digest');
+  expect(
+    savingsFromAnswer('30d', answerOf('savings: the report command fails')).unavailable,
+  ).toContain('tmt digest decisions --report');
+  expect(savingsFromAnswer('24h', { state: 'no-session' }).unavailable).toContain(
+    'Pair it from Remote',
+  );
+  expect(
+    savingsFromAnswer('24h', { state: 'unavailable', observedAtMs: 1, reason: 'unknown' })
+      .unavailable,
+  ).toContain('not available right now');
+  const week = savingsFromAnswer('24h', answerOf('savings: the delivery report passes'));
+  expect(week.document).toBeUndefined();
+  expect(week.unavailable).toContain('not available right now');
+});
+
+it('reads the savings route of the range asked for', async () => {
+  read.mockReset();
+  read.mockResolvedValue({ state: 'no-session' });
+  const signal = new AbortController().signal;
+  await readSavings('30d', signal);
+  expect(read).toHaveBeenCalledWith('digest/savings/30d', signal);
 });

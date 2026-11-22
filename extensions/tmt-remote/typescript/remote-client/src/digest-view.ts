@@ -5,7 +5,15 @@
  */
 import type { Layer, SeriesChartOptions } from '@tmt/browser-ui/chart';
 import { isLimitAccount, providerRecords } from './digest-source.js';
-import type { LimitWindow, UsageDocument, UsagePoint, UsageTotals } from './digest-source.js';
+import type {
+  LimitHistory,
+  LimitWindow,
+  SavingsDocument,
+  UsageDocument,
+  UsagePoint,
+  UsageSeat,
+  UsageTotals,
+} from './digest-source.js';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -541,4 +549,361 @@ export function resetsIn(resetsAtMs: number, nowMs: number): string {
   if (ms <= 0) return 'now';
   if (ms >= DAY) return `${Math.floor(ms / DAY)}d ${Math.floor((ms % DAY) / HOUR)}h`;
   return `${Math.max(1, Math.floor(ms / HOUR))}h`;
+}
+
+/** Cached input as a share of input, in percent to one decimal; null without input. */
+export function cachedRatio(totals: Pick<UsageTotals, 'input' | 'cached'>): number | null {
+  return totals.input > 0 ? Math.round((totals.cached / totals.input) * 1000) / 10 : null;
+}
+
+const percentOf = (part: number, whole: number) =>
+  whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0;
+
+const plus = (a: UsageTotals, b: UsageTotals): UsageTotals => ({
+  input: a.input + b.input,
+  output: a.output + b.output,
+  cached: a.cached + b.cached,
+});
+const NONE: UsageTotals = { input: 0, output: 0, cached: 0 };
+
+/** A seat's tokens by model as Core attributed them, and what no model row covers. A seat Core
+ * attributed none of (`byModel` null or absent) is all unattributed: no model is guessed. */
+function attribution(seat: UsageSeat): { models: [string, UsageTotals][]; rest: UsageTotals } {
+  if (!Array.isArray(seat.byModel)) return { models: [], rest: seat.totals };
+  return {
+    models: seat.byModel.map((row) => [
+      row.modelId,
+      { input: row.input, output: row.output, cached: row.cached },
+    ]),
+    rest: seat.unattributed ?? NONE,
+  };
+}
+
+export interface ModelShare {
+  model: string;
+  totals: UsageTotals;
+  tokens: number;
+  /** Percent of every seat's tokens in the range, one decimal. */
+  share: number;
+  cachedRatio: number | null;
+  /** Seats whose tokens include this model. */
+  seats: number;
+}
+
+export interface ModelShares {
+  /** Models by tokens, largest first (ties by id). */
+  models: ModelShare[];
+  /** Tokens Core attributed to no model, as their own remainder; null when there are none. */
+  unattributed: (Omit<ModelShare, 'model' | 'seats'> & { seats: number }) | null;
+  /** Cached input over all input, for every seat together. */
+  cachedRatio: number | null;
+  /** A seat lacks evidence for part of the range, so every figure is a lower bound. */
+  partial: boolean;
+}
+
+/** #6751 C: token share by model over every seat, with the cached-input ratio. On tokens only:
+ * a cost weighting waits for a price row for every model, never an estimate. */
+export function modelShares(doc: UsageDocument): ModelShares {
+  const byModel = new Map<string, { totals: UsageTotals; seats: number }>();
+  let rest = NONE;
+  let restSeats = 0;
+  let all = NONE;
+  for (const seat of doc.usage.seats) {
+    const { models, rest: own } = attribution(seat);
+    for (const [model, totals] of models) {
+      const row = byModel.get(model) ?? { totals: NONE, seats: 0 };
+      byModel.set(model, { totals: plus(row.totals, totals), seats: row.seats + 1 });
+    }
+    if (tokensOf(own) > 0) {
+      rest = plus(rest, own);
+      restSeats++;
+    }
+    all = plus(all, seat.totals);
+  }
+  const whole = tokensOf(all);
+  const shareOf = (totals: UsageTotals) => ({
+    totals,
+    tokens: tokensOf(totals),
+    share: percentOf(tokensOf(totals), whole),
+    cachedRatio: cachedRatio(totals),
+  });
+  return {
+    models: [...byModel]
+      .map(([model, row]) => ({ model, ...shareOf(row.totals), seats: row.seats }))
+      .sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model)),
+    unattributed: tokensOf(rest) > 0 ? { ...shareOf(rest), seats: restSeats } : null,
+    cachedRatio: cachedRatio(all),
+    partial: doc.usage.seats.some((seat) => !seat.coverage.complete),
+  };
+}
+
+export interface SeatMix {
+  id: string;
+  name: string;
+  tokens: number;
+  /** Percent of every seat's tokens in the range, one decimal. */
+  share: number;
+  cachedRatio: number | null;
+  /** The seat's tokens by model, largest first, as percent of the seat's own tokens. */
+  models: { model: string; share: number }[];
+  /** Percent of the seat's tokens no model row covers; 0 when Core attributed them all. */
+  unattributed: number;
+  partial: boolean;
+}
+
+/** #6751 C: each seat's share of the range and its model mix, largest seat first. */
+export function seatMix(doc: UsageDocument): SeatMix[] {
+  const whole = doc.usage.seats.reduce((sum, seat) => sum + tokensOf(seat.totals), 0);
+  return doc.usage.seats
+    .map((seat) => {
+      const tokens = tokensOf(seat.totals);
+      const { models, rest } = attribution(seat);
+      return {
+        id: seat.id,
+        name: seatName(seat),
+        tokens,
+        share: percentOf(tokens, whole),
+        cachedRatio: cachedRatio(seat.totals),
+        models: models
+          .map(([model, totals]) => ({ model, tokens: tokensOf(totals) }))
+          .sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model))
+          .map(({ model, tokens: own }) => ({ model, share: percentOf(own, tokens) })),
+        unattributed: percentOf(tokensOf(rest), tokens),
+        partial: !seat.coverage.complete,
+      };
+    })
+    .sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name));
+}
+
+export interface Trend {
+  x: string[];
+  startsMs: number[];
+  /** Every seat's tokens in the bucket; null when no seat has a reading for it. */
+  tokens: (number | null)[];
+  cachedRatio: (number | null)[];
+  /** The bucket is a lower bound: a seat's reading in it was incomplete. */
+  partial: boolean[];
+  /** The busiest bucket; null when no bucket has tokens. */
+  peak: { at: string; tokens: number } | null;
+}
+
+/** #6751 E: all seats together per bucket: hourly for `24h`, daily for `7d` and `30d`. */
+export function trend(doc: UsageDocument, zone?: string): Trend {
+  const buckets = new Map<number, { totals: UsageTotals; partial: boolean }>();
+  for (const seat of doc.usage.seats)
+    for (const point of seat.series) {
+      const bucket = buckets.get(point.fromMs) ?? { totals: NONE, partial: false };
+      buckets.set(point.fromMs, {
+        totals: plus(bucket.totals, point),
+        partial: bucket.partial || !point.complete,
+      });
+    }
+  const startsMs = [...buckets.keys()].sort((a, b) => a - b);
+  const x = startsMs.map((at) => stamp(at, doc.since, zone));
+  const tokens = startsMs.map((at) => tokensOf(buckets.get(at)!.totals));
+  let peak: Trend['peak'] = null;
+  tokens.forEach((value, at) => {
+    if (value > 0 && (!peak || value > peak.tokens)) peak = { at: x[at]!, tokens: value };
+  });
+  return {
+    x,
+    startsMs,
+    tokens,
+    cachedRatio: startsMs.map((at) => cachedRatio(buckets.get(at)!.totals)),
+    partial: startsMs.map((at) => buckets.get(at)!.partial),
+    peak,
+  };
+}
+
+/** The recent pace looks back a day (ms), and needs six hours of samples (ms) to stand on. */
+const RUNWAY_RECENT_MS = 86_400_000;
+const RUNWAY_RECENT_MIN_MS = 21_600_000;
+
+export interface Runway {
+  /** `recent`: the last day of samples; `window`: the window's average since it began full. */
+  basis: 'recent' | 'window';
+  /** Percent of the allowance used per hour at that pace, never negative. */
+  perHour: number;
+  fromAtMs: number;
+  fromLeft: number;
+  resetsAtMs: number;
+  /** Percent left at the reset at that pace, one decimal; 0 when it runs out first. */
+  leftAtReset: number;
+  /** When it reaches 0 before the reset at that pace; null when it lasts to the reset. */
+  emptyAtMs: number | null;
+}
+
+/**
+ * #6751 B: where a weekly window is headed from its sampled history. The pace is the change over
+ * the last day of samples when they span six hours, else the window's average since its start
+ * (every window starts full). Null without a sample inside the window before its reset.
+ */
+export function runway(history: LimitHistory, nowMs: number): Runway | null {
+  const startsAtMs = history.resetsAtMs - history.windowMinutes * 60_000;
+  const points = history.points
+    .filter((point) => point.atMs <= nowMs && point.atMs < history.resetsAtMs)
+    .filter((point) => point.atMs >= startsAtMs)
+    .sort((a, b) => a.atMs - b.atMs);
+  const last = points.at(-1);
+  if (!last) return null;
+  const recent = points.find((point) => point.atMs >= last.atMs - RUNWAY_RECENT_MS)!;
+  let basis: Runway['basis'];
+  let perMs: number;
+  if (last.atMs - recent.atMs >= RUNWAY_RECENT_MIN_MS) {
+    basis = 'recent';
+    perMs = (recent.percentLeft - last.percentLeft) / (last.atMs - recent.atMs);
+  } else if (last.atMs > startsAtMs) {
+    basis = 'window';
+    perMs = (100 - last.percentLeft) / (last.atMs - startsAtMs);
+  } else return null;
+  perMs = Math.max(0, perMs);
+  const projected = last.percentLeft - perMs * (history.resetsAtMs - last.atMs);
+  const emptyAtMs = projected < 0 ? Math.round(last.atMs + last.percentLeft / perMs) : null;
+  return {
+    basis,
+    perHour: Math.round(perMs * HOUR * 100) / 100,
+    fromAtMs: last.atMs,
+    fromLeft: last.percentLeft,
+    resetsAtMs: history.resetsAtMs,
+    leftAtReset: emptyAtMs === null ? Math.round(projected * 10) / 10 : 0,
+    emptyAtMs,
+  };
+}
+
+/** The runway in words, against the owner's clock. */
+export function runwayWords(projection: Runway, nowMs: number): string {
+  const pace = projection.basis === 'recent' ? "the last day's pace" : "this window's average pace";
+  if (projection.emptyAtMs !== null)
+    return `At ${pace} it runs out in ${resetsIn(projection.emptyAtMs, nowMs)}, ${resetsIn(projection.resetsAtMs, projection.emptyAtMs)} before the reset.`;
+  if (projection.perHour === 0)
+    return `No use at ${pace}: ${Math.round(projection.fromLeft)}% left at the reset.`;
+  return `At ${pace} about ${Math.round(projection.leftAtReset)}% is left at the reset.`;
+}
+
+/** A figure the report could not give: never shown as zero. */
+export const UNKNOWN = 'Unknown';
+
+/** A duration in ms as the page reads it: 45s, 2m 40s, 1h 5m. */
+export function durationText(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return seconds % 60 ? `${minutes}m ${seconds % 60}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
+}
+
+/** US dollars from micro-dollars: cents from a dollar up, four places below it; a negative is
+ * Digest adding wake-ups. */
+export function usdText(micros: number): string {
+  if (micros < 0) return `−${usdText(-micros)}`;
+  const dollars = micros / 1_000_000;
+  const text = dollars.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: dollars >= 1 ? 2 : 4,
+  });
+  return `$${text}`;
+}
+
+/** Why the report could not estimate the avoided cost, in plain words; an unknown reason as is. */
+const COST_REASONS: Record<string, string> = {
+  wake_turns_unavailable: 'TMT on your machine has no wake-up measurements yet',
+  no_measured_turn: 'no wake-up was measured in this range',
+  no_price: 'a model has no list price',
+  unattributed: 'some tokens name no model',
+  no_known_arrivals: 'no message is known to have arrived while its member was idle',
+};
+
+const figure = (value: number | null) => (value === null ? UNKNOWN : value.toLocaleString('en-US'));
+
+export interface SavingsView {
+  tiles: { label: string; value: string }[];
+  /** Beside the cost: why it is unknown, or whose saved wake-ups it does not cover and why. */
+  costNote: string | null;
+  /** Member rows: name, messages, deliveries, measured, upper bound, median delay, coverage. */
+  rows: string[][];
+  /** Members with only part of the range or no coverage record: the figures are lower bounds. */
+  coverageNote: string | null;
+  /** The price table the estimate used. */
+  pricing: string | null;
+}
+
+const reasonWords = (reason: string | null) =>
+  reason ? (COST_REASONS[reason] ?? reason) : 'no estimate was reported';
+
+/**
+ * The avoided cost exactly as the report gives it (#6794): the sum over the members whose own
+ * cost is known, with whom it covers and the models that had no price. A report that does not
+ * list them comes from an older Digest whose total stretched a median over unpriced members, so
+ * its cost is Unknown rather than shown.
+ */
+function avoidedCost(doc: SavingsDocument): { value: string; note: string | null } {
+  const cost = doc.total.avoidedCost;
+  if (!cost.covered || !cost.unpriced)
+    return {
+      value: UNKNOWN,
+      note: 'Cost unknown: Digest on your machine does not say which members it covers. Upgrade TMT to see it.',
+    };
+  const models = [...new Set(cost.unpriced.flatMap((member) => member.models))].sort();
+  const others = new Set(
+    cost.unpriced
+      .filter((member) => !member.models.length)
+      .map((member) => reasonWords(member.reason ?? 'no_price')),
+  );
+  const why = [...(models.length ? [`no price for ${models.join(', ')}`] : []), ...others].join(
+    '; ',
+  );
+  if (cost.usdMicros === null)
+    return { value: UNKNOWN, note: `Cost unknown: ${why || reasonWords(cost.reason)}.` };
+  const members = cost.covered.length + cost.unpriced.length;
+  return {
+    value: usdText(cost.usdMicros),
+    note: cost.unpriced.length
+      ? `Covers ${cost.covered.length} of ${members} members; ${why}.`
+      : null,
+  };
+}
+
+/** #6751 D: what the delivered digests saved, measured first; a null is Unknown, never 0. */
+export function savingsView(doc: SavingsDocument): SavingsView {
+  const total = doc.total;
+  const partial = doc.members.filter((member) => member.complete === false).length;
+  const none = doc.members.filter((member) => member.complete === null).length;
+  const parts: string[] = [];
+  if (partial)
+    parts.push(
+      `${partial} ${partial === 1 ? 'member covers' : 'members cover'} only part of this range`,
+    );
+  if (none) parts.push(`${none} ${none === 1 ? 'member has' : 'members have'} no coverage record`);
+  const cost = avoidedCost(doc);
+  const messages =
+    total.messages === null || total.deliveries === null
+      ? figure(total.messages)
+      : `${figure(total.messages)} in ${figure(total.deliveries)}`;
+  const byMessages = (a: SavingsDocument['members'][number], b: typeof a) =>
+    (b.messages ?? -1) - (a.messages ?? -1) || (a.name ?? a.id).localeCompare(b.name ?? b.id);
+  return {
+    tiles: [
+      { label: 'Wake-ups saved (measured)', value: figure(total.measuredSaved) },
+      { label: 'Upper bound', value: figure(total.turnsSaved) },
+      { label: 'Messages delivered', value: messages },
+      { label: 'Avoided cost (estimate)', value: cost.value },
+    ],
+    costNote: cost.note,
+    rows: [...doc.members]
+      .sort(byMessages)
+      .map((member) => [
+        member.name ?? member.id.slice(0, 8),
+        figure(member.messages),
+        figure(member.deliveries),
+        figure(member.measuredSaved),
+        figure(member.turnsSaved),
+        member.delay ? durationText(member.delay.median) : UNKNOWN,
+        member.complete === null ? 'No record' : member.complete ? 'Whole range' : 'Partial',
+      ]),
+    coverageNote: parts.length ? `${parts.join('; ')}. Figures are lower bounds.` : null,
+    pricing: doc.pricing
+      ? `Estimate at list price, price table ${doc.pricing.version} (${doc.pricing.origin}).`
+      : null,
+  };
 }

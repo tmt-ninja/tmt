@@ -331,7 +331,7 @@ pub struct Mounts {
     host: String,
     sessions: Arc<dyn Sessions>,
     shell: Shell,
-    /// Owner browser reads of the Ops board and Digest usage; none without an executable.
+    /// Owner browser reads of the Ops board, Digest usage and savings; none without an executable.
     reads: Option<Reads>,
     extensions: &'static [Extension],
     /// Live tunnels per extension, indexed like `extensions`.
@@ -396,7 +396,7 @@ impl Mounts {
         self.origins = Some(origins);
         self
     }
-    /// Serve `x/-/ops`, `x/-/limits` and `x/-/digest` from `reads`.
+    /// Serve `x/-/ops`, `x/-/limits`, `x/-/digest` and `x/-/digest/savings` from `reads`.
     pub fn with_reads(mut self, reads: Reads) -> Self {
         self.reads = Some(reads);
         self
@@ -844,7 +844,8 @@ impl Mounts {
                         && !current.session.ended()
                 })
     }
-    /// `x/-/ops`, `x/-/limits` or `x/-/digest/<range>`, only when reads are configured.
+    /// `x/-/ops`, `x/-/limits`, `x/-/digest/<range>` or `x/-/digest/savings/<range>`, only when
+    /// reads are configured.
     fn read_route(&self, path: &str) -> Option<Target> {
         self.reads.as_ref()?;
         Target::route(path.strip_prefix(&self.base)?.strip_prefix("-/")?)

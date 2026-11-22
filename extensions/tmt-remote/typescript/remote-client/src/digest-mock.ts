@@ -8,6 +8,8 @@ import type {
   FlowPair,
   LimitHistory,
   LimitWindow,
+  SavingsDocument,
+  SavingsMember,
   UsageDocument,
   UsagePoint,
   UsageRange,
@@ -237,8 +239,103 @@ export function mockDocument(range: UsageRange, shape: MockShape = {}): UsageDoc
   };
 }
 
+/**
+ * What the sample's delivered digests saved over `range` (#6751 D), costed as Digest does
+ * (#6794): a member's cost only when every wake-up had a price, the total their sum.
+ * - `partial`: one member covers only part of the range, one has no coverage record, and one has
+ *   no known idle arrival, so its saving is unknown.
+ * - `mixed`: core-1 and feat-1 run models with no price row, and one of ux-1's wake-ups ran one.
+ * - `unpriced`: no member's model has a price.
+ */
+export type SavingsVariant = 'whole' | 'partial' | 'mixed' | 'unpriced';
+
+/** The unpriced models of each sample seat, by variant. */
+const UNPRICED: Record<SavingsVariant, Record<number, string[]>> = {
+  whole: {},
+  partial: {},
+  mixed: { 1: ['gpt-6.2-sol'], 2: ['claude-fable-5-2'], 3: ['gpt-6.2-astra'] },
+  unpriced: {
+    0: ['claude-fable-5-2'],
+    1: ['gpt-6.2-sol'],
+    2: ['claude-fable-5-2'],
+    3: ['gpt-6.2-astra'],
+    4: ['gpt-6-luna'],
+  },
+};
+
+export function mockSavings(range: UsageRange, variant: SavingsVariant = 'whole'): SavingsDocument {
+  const days = range === '24h' ? 1 : range === '7d' ? 7 : 30;
+  const partial = variant === 'partial';
+  const members: SavingsMember[] = SEATS.slice(0, 5).map((seat, index) => {
+    const messages = (seat.scale * 4 + 2) * days;
+    const deliveries = Math.ceil(messages / (2 + (index % 3)));
+    const unknown = partial && index === 3;
+    const measuredSaved = unknown ? null : Math.floor((messages - deliveries) * 0.6);
+    const models = UNPRICED[variant][index];
+    return {
+      id: seat.id,
+      name: seat.name,
+      complete: partial && index === 2 ? false : partial && index === 4 ? null : true,
+      messages,
+      deliveries,
+      turnsSaved: messages - deliveries,
+      measuredSaved,
+      delay: unknown ? null : { median: (40 + index * 25) * 1000, p90: 300_000, max: 900_000 },
+      avoidedCost: {
+        usdMicros: measuredSaved === null || models ? null : measuredSaved * 21_500,
+        reason: measuredSaved === null ? 'no_known_arrivals' : models ? 'no_price' : null,
+        covered: null,
+        unpriced: null,
+      },
+    };
+  });
+  const sum = (pick: (member: SavingsMember) => number | null) =>
+    members.some((member) => pick(member) === null)
+      ? null
+      : members.reduce((total, member) => total + pick(member)!, 0);
+  const saving = members.filter((member) => (member.measuredSaved ?? 0) !== 0);
+  const covered = saving.filter((member) => member.avoidedCost.usdMicros !== null);
+  const unpriced = saving.filter((member) => member.avoidedCost.usdMicros === null);
+  return {
+    since: range,
+    members,
+    total: {
+      messages: sum((member) => member.messages),
+      deliveries: sum((member) => member.deliveries),
+      turnsSaved: sum((member) => member.turnsSaved),
+      measuredSaved: sum((member) => member.measuredSaved),
+      delay: partial ? null : { median: 65_000, p90: 300_000, max: 900_000 },
+      avoidedCost: {
+        usdMicros:
+          covered.length || !unpriced.length
+            ? covered.reduce((total, member) => total + member.avoidedCost.usdMicros!, 0)
+            : null,
+        reason: !covered.length && unpriced.length ? 'no_price' : null,
+        covered: covered.map((member) => ({
+          id: member.id,
+          measuredSaved: member.measuredSaved,
+          usdMicros: member.avoidedCost.usdMicros,
+        })),
+        unpriced: unpriced.map((member) => ({
+          id: member.id,
+          measuredSaved: member.measuredSaved,
+          models: UNPRICED[variant][members.indexOf(member)]!,
+          reason: 'no_price',
+        })),
+      },
+    },
+    pricing: { version: '2026-11-15', asOf: '2026-11-15', origin: 'built-in' },
+  };
+}
+
 export const mockDigestSource: DigestSource = {
   async report(range) {
-    return { range, sample: true, document: mockDocument(range), allowance: mockDocument('7d') };
+    return {
+      range,
+      sample: true,
+      document: mockDocument(range),
+      allowance: mockDocument('7d'),
+      savings: { range, document: mockSavings(range) },
+    };
   },
 };

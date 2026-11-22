@@ -1,7 +1,7 @@
 /**
  * The Digest usage report follows the concept website: provider allowance cards, the token
- * chart and seat legend, a full-width Messages heatmap, and a coverage/method footer. It depends
- * only on DigestSource; product data comes from the existing owner reads. Samples are injected
+ * chart and seat legend, a full-width Messages heatmap, what Digest saved, and a coverage/method
+ * footer. It depends only on DigestSource; product data comes from the existing owner reads. Samples are injected
  * by tests, the gallery and local development. Range and view state belong to this mounted page.
  */
 import { compactCount, createSeriesChart, topLayers } from '@tmt/browser-ui/chart';
@@ -25,6 +25,7 @@ import {
   ranking,
   rankRows,
   resetsIn,
+  savingsView,
   tokenSeries,
   tokensOf,
   creditText,
@@ -806,6 +807,77 @@ function messageName(text: string): HTMLElement {
   return label;
 }
 
+/** #6751 D: what the delivered digests saved over the selected range, measured first. */
+function savingsCard(report: DigestReport): HTMLElement | undefined {
+  const savings = report.savings;
+  if (!savings) return undefined;
+  const id = 'digest-savings';
+  const title = 'What Digest saved';
+  const subtitle = 'Wake-ups the delivered digests saved in this range.';
+  if (!savings.document) {
+    const why = el('p', 'usage-note');
+    notAvailable(why, savings.unavailable ?? 'What Digest saved is not available.');
+    return card(id, title, [why], { subtitle });
+  }
+  const view = savingsView(savings.document);
+  const body: Node[] = [];
+  if (view.coverageNote)
+    body.push(el('p', 'usage-note digest-savings-coverage', view.coverageNote));
+  const tiles = view.tiles.map((figure) => tile(figure.label, figure.value));
+  // Whose saved wake-ups the cost covers, or why it is unknown, sits in the cost's own tile.
+  if (view.costNote) tiles.at(-1)!.append(el('dd', 'usage-note digest-cost-note', view.costNote));
+  body.push(bareTiles(...tiles));
+  if (!view.rows.length)
+    body.push(el('p', 'usage-note', 'No member held messages for a digest in this range.'));
+  else {
+    const grid = table(
+      [
+        'Member',
+        'Messages',
+        'Deliveries',
+        'Saved (measured)',
+        'Upper bound',
+        'Median delay',
+        'Coverage',
+      ],
+      view.rows.map(([name, messages, deliveries, measured, bound, delay, covered]) => {
+        // The report's name as text, never markup, cut like a seat name with the whole in its
+        // title; at phone width the compact line carries the dropped columns.
+        const label = el('span');
+        const member = el('span', 'digest-seat', name);
+        member.title = name!;
+        label.append(
+          member,
+          el(
+            'span',
+            ui.tableCompactMeta,
+            `${messages} messages in ${deliveries} deliveries · Upper bound ${bound} · Median ${delay} · ${covered}`,
+          ),
+        );
+        return [label, messages!, deliveries!, measured!, bound!, delay!, covered!];
+      }),
+    );
+    grid.dataset.roomy = '';
+    for (const row of grid.rows)
+      // Phone width keeps the name and the measured saving, which large figures still fit beside.
+      for (const cell of [1, 2, 4, 5, 6]) row.cells[cell]!.dataset.compactHide = '';
+    const scroll = el('div', `${ui.tableScroll} digest-savings-scroll`);
+    scroll.tabIndex = 0;
+    scroll.setAttribute('role', 'region');
+    scroll.setAttribute('aria-label', 'What Digest saved, by member');
+    scroll.append(grid);
+    body.push(scroll);
+  }
+  body.push(
+    el(
+      'p',
+      'usage-note',
+      `Measured counts only messages that arrived while their member was idle; the upper bound counts every held message as its own wake-up. Unknown is never counted as zero.${view.pricing ? ` ${view.pricing}` : ''}`,
+    ),
+  );
+  return card(id, title, body, { subtitle });
+}
+
 /** The sources the usage read does not carry yet, one line each, with the method below. */
 function coverageCard(): HTMLElement {
   const gaps: [string, string][] = [
@@ -973,12 +1045,14 @@ export function digestPage(
     const doc = report.document;
     state.dispose.splice(0).forEach((dispose) => dispose());
     const covered = coverageNotice(doc);
+    const saved = savingsCard(report);
     panel!.replaceChildren(
       ...(covered ? [covered] : []),
       allowanceRow(report, state),
       providerUsageCard(doc),
       tokensCard(doc, state),
       exchangeCard(doc, state),
+      ...(saved ? [saved] : []),
       coverageCard(),
     );
     for (const detail of panel!.querySelectorAll<HTMLDetailsElement>('details[id]'))

@@ -575,6 +575,76 @@ fn a_stalled_price_server_never_holds_status_past_its_deadline() {
     assert_eq!(server.hits(), 1);
 }
 
+/// `decisions --report` is a read (#6752): even with a price server reachable, it asks it nothing
+/// and writes no cache, with no cache, with an empty cache directory, and beside a cached table.
+#[test]
+fn the_savings_report_prices_from_the_cache_or_the_built_in_table_and_never_fetches_or_writes() {
+    let fixture = Fixture::new();
+    let server = support::PriceServer::serve(support::Reply::Body(fetched_file()));
+    let cache = fixture.0.join("state/digest/pricing");
+    let report = || {
+        let output = fixture
+            .command(&["decisions", "--report", "--json", "--since", "24h"])
+            .env("TMT_DIGEST_PRICING_URL", &server.url)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()["wakeMethod"]["pricing"].clone()
+    };
+    let listing = || {
+        fs::read_dir(&cache).map_or_else(
+            |_| None,
+            |entries| {
+                let mut names = entries
+                    .map(|entry| {
+                        let entry = entry.unwrap();
+                        let bytes = fs::read(entry.path()).unwrap();
+                        let modified = entry.metadata().unwrap().modified().unwrap();
+                        (entry.file_name(), bytes, modified)
+                    })
+                    .collect::<Vec<_>>();
+                names.sort();
+                Some(names)
+            },
+        )
+    };
+    // No cache: the built-in table, named as such, and no cache directory made.
+    let first = report();
+    assert_eq!(first["origin"], "built-in");
+    assert_eq!(first["version"], "2026-11-15");
+    assert_eq!(first["asOf"], "2026-11-15");
+    assert!(first["fetchedAtMs"].is_null());
+    assert!(listing().is_none());
+    // An empty cache directory stays empty.
+    fs::create_dir_all(&cache).unwrap();
+    for path in [fixture.0.join("state/digest"), cache.clone()] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    assert_eq!(report()["origin"], "built-in");
+    assert_eq!(listing(), Some(vec![]));
+    assert_eq!(server.hits(), 0);
+    // Status refreshes the cache; the report then reads it as it is, untouched.
+    fixture.write("stats.1.json", json!({"stats":[]}));
+    let output = fixture
+        .command(&["status", "--json"])
+        .env("TMT_DIGEST_PRICING_URL", &server.url)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output.stderr);
+    assert_eq!(server.hits(), 1);
+    let kept = listing();
+    let cached = report();
+    assert_eq!(cached["origin"], "cached");
+    assert_eq!(cached["version"], "2026-11-20");
+    assert!(cached["fetchedAtMs"].as_u64().unwrap() > 0);
+    assert_eq!(listing(), kept);
+    assert_eq!(server.hits(), 1);
+}
+
 #[test]
 fn status_with_the_fetch_off_names_the_built_in_table_and_asks_for_nothing() {
     let fixture = Fixture::new();

@@ -1301,9 +1301,21 @@ test.describe('the Ops route on the owner read', () => {
   });
 });
 
+/** The delivery report the shared vectors pass through, as `x/-/digest/savings/<range>` answers it. */
+const SAVED = (
+  JSON.parse(
+    readFileSync(new URL('../../../../../contracts/owner-reads-v1.json', import.meta.url), 'utf8'),
+  ) as { cases: { name: string; commands: Record<string, { stdout: Record<string, unknown> }> }[] }
+).cases.find((vector) => vector.name.startsWith('savings: the delivery report passes'))!;
+const savedReport = (range: UsageRange) => ({
+  ...Object.values(SAVED.commands)[0]!.stdout,
+  since: range,
+});
+
 /**
- * The Digest route on the owner reads `x/-/digest/<range>` and `x/-/limits`: the page's pieces are
- * the leaf's (card, status tile, segments, meter, badge, table), not page-local copies.
+ * The Digest route on the owner reads `x/-/digest/<range>`, `x/-/digest/savings/<range>` and
+ * `x/-/limits`: the page's pieces are the leaf's (card, status tile, segments, meter, badge,
+ * table), not page-local copies.
  */
 test.describe('the Digest route on the owner reads', () => {
   async function stub(page: Page) {
@@ -1320,6 +1332,19 @@ test.describe('the Digest route on the owner reads', () => {
           state: 'ok',
           since: range,
           report: mockDocument(range),
+          observedAtMs: Date.now(),
+        },
+      });
+    });
+    await page.route(new RegExp(`${origin}/r/owner/x/-/digest/savings/(24h|7d|30d)$`), (route) => {
+      const range = route.request().url().split('/').pop() as UsageRange;
+      reads.push(`digest/savings/${range}`);
+      return route.fulfill({
+        json: {
+          version: 1,
+          state: 'ok',
+          since: range,
+          report: savedReport(range),
           observedAtMs: Date.now(),
         },
       });
@@ -1348,7 +1373,10 @@ test.describe('the Digest route on the owner reads', () => {
       await expect(page.locator('.digest-total-label')).toContainText(range);
       expect(count('digest/7d')).toBe(1);
       expect(count('limits')).toBe(1);
+      // What Digest saved follows the range: each switch reads that range's report.
+      expect(count(`digest/savings/${range}`)).toBeGreaterThanOrEqual(1);
     }
+    await expect(page.locator('#digest-savings tbody th')).toContainText(['worker']);
     await page.clock.fastForward(60_000);
     await expect.poll(() => count('limits')).toBe(2);
     await expect.poll(() => count('digest/7d')).toBe(2);
@@ -1364,7 +1392,7 @@ test.describe('the Digest route on the owner reads', () => {
       });
       const cards = page.locator('#digest-sections .tmt-ui-card');
       await expect(cards.first()).toBeVisible();
-      await expect(cards).toHaveCount(5);
+      await expect(cards).toHaveCount(6);
       // This older report has seat usage but no provider projection; it is not zero usage.
       await expect(page.locator('#digest-provider-usage')).toContainText(
         'Provider usage is unavailable in this report.',

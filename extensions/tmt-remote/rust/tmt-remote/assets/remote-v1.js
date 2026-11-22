@@ -30,7 +30,7 @@ function text$3(value) {
 	}
 	return encoder$2.encode(value);
 }
-function count$1(value) {
+function count$2(value) {
 	requireValue$1(Number.isInteger(value) && value >= 0 && value <= 4294967295, "u32 length");
 	const result = /* @__PURE__ */ new Uint8Array(4);
 	new DataView(result.buffer).setUint32(0, value, false);
@@ -48,7 +48,7 @@ function concat(parts) {
 	return result;
 }
 function lp(value) {
-	return concat([count$1(value.length), value]);
+	return concat([count$2(value.length), value]);
 }
 var lpText = (value) => lp(text$3(value));
 function uuid(value) {
@@ -407,7 +407,7 @@ function valid$9(condition) {
 function input$1(condition) {
 	if (!condition) throw new TypeError("Invalid Remote operation input.");
 }
-function record(value) {
+function record$1(value) {
 	valid$9(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
@@ -438,10 +438,10 @@ var timestamp$1 = (value) => value === null || typeof value === "number" && Numb
 * Core state needs an additive SDK release but never breaks result(). */
 function messageState(value) {
 	if (value.messageState === void 0) return {};
-	const state = record(value.messageState);
+	const state = record$1(value.messageState);
 	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
 	valid$9(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
-	const why = record(state.reason);
+	const why = record$1(state.reason);
 	valid$9(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$7.encode(why.text).length <= 256);
 	return { messageState: {
 		state: state.state,
@@ -465,7 +465,7 @@ function text$2(value) {
 /** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
 function identity$1(value) {
 	if (value.identity === void 0) return {};
-	const notice = record(value.identity);
+	const notice = record$1(value.identity);
 	const keys = Object.keys(notice).sort().join();
 	if (notice.state === "anonymous") {
 		valid$9(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
@@ -487,11 +487,11 @@ function identity$1(value) {
 function sendState(value, id) {
 	return {
 		...sendStateBase(value, id),
-		...identity$1(record(value))
+		...identity$1(record$1(value))
 	};
 }
 function sendStateBase(value, id) {
-	const state = record(value);
+	const state = record$1(value);
 	valid$9(state.operationId === id);
 	switch (state.state) {
 		case "held": return {
@@ -524,7 +524,7 @@ function sendStateBase(value, id) {
 	}
 }
 function resultState(value, id) {
-	const state = record(value);
+	const state = record$1(value);
 	valid$9(state.requestId === id);
 	const requestMessage = {};
 	if (Object.hasOwn(state, "requestMessage")) {
@@ -565,7 +565,7 @@ var SEND_NOW_STATES = [
 /** The reply to a send-now ask. The request ID must be the asked one; an unknown state is
 * `unconfirmed`, so a future state can never read as `sent`. */
 function sendNowState(value, id) {
-	const state = record(value);
+	const state = record$1(value);
 	valid$9(state.requestId === id);
 	return {
 		state: SEND_NOW_STATES.includes(state.state) ? state.state : "unconfirmed",
@@ -576,10 +576,10 @@ function sendNowState(value, id) {
 	};
 }
 function agents(value) {
-	const rows = record(value).identities;
+	const rows = record$1(value).identities;
 	valid$9(Array.isArray(rows));
 	return rows.map((value) => {
-		const row = record(value);
+		const row = record$1(value);
 		valid$9(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
 		const activity = row.activity;
 		const observedAtMs = row.observedAtMs;
@@ -599,7 +599,7 @@ function agents(value) {
 }
 function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
-	const error = record(value.error);
+	const error = record$1(value.error);
 	valid$9(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const scope = error.scope;
 	valid$9(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && (scope === "talk" || scope === "results.read"));
@@ -711,7 +711,7 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 			});
 			if (abort.signal.aborted) throw new Error("Abandoned response.");
 			channel.machineSequence = reply.sequence;
-			const value = record(JSON.parse(strictUtf8$1.decode(reply.payload)));
+			const value = record$1(JSON.parse(strictUtf8$1.decode(reply.payload)));
 			const error = remoteError(value, channel.paired.address);
 			if (error) {
 				if (error instanceof RefusalError && [
@@ -751,10 +751,10 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 	}
 }
 function parseCapabilities(value) {
-	const reply = record(value);
+	const reply = record$1(value);
 	valid$9(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
 	valid$9(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
-	record(reply.limits);
+	record$1(reply.limits);
 	return reply.operations;
 }
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */
@@ -5178,7 +5178,7 @@ function icon(document, name) {
 	}
 	return svg;
 }
-function count(document, text) {
+function count$1(document, text) {
 	const badge = document.createElement("span");
 	badge.className = "tmt-ui-shell-count";
 	badge.textContent = text;
@@ -5412,9 +5412,9 @@ function mountShell(root, view, select, layerHost) {
 		if (badges.length || shown.length || item.actions?.length) {
 			const counts = document.createElement("span");
 			counts.className = "tmt-ui-shell-counts";
-			for (const badge of badges) counts.append(count(document, badge));
+			for (const badge of badges) counts.append(count$1(document, badge));
 			if (waiting) counts.append(attention$1(document));
-			if (total) counts.append(count(document, total.text));
+			if (total) counts.append(count$1(document, total.text));
 			anchor.append(counts);
 		}
 		if (item.leading || badges.length || shown.length) {
@@ -8076,10 +8076,11 @@ function whileVisible(intervalMs, signal, tick) {
 /**
 * What the Digest web view (`/digest/`) reads: the usage report the terminal Digest shows. The
 * types follow the public document of `tmt digest usage report --json` (digest `usage-v1.md`) and
-* the exchange flow of `tmt x flow --json`; the page depends only on `DigestSource`. The product
-* source reads the owner's browser reads (`x/-/digest/<range>` and `x/-/limits`, contracts/
-* remote-channel-v1.md); the seeded sample lives in `digest-mock.ts` for tests, the gallery and
-* dev only.
+* the exchange flow of `tmt x flow --json`, and what Digest saved is `tmt digest decisions
+* --report --json` (digest `digest-v1.md`); the page depends only on `DigestSource`. The product
+* source reads the owner's browser reads (`x/-/digest/<range>`, `x/-/digest/savings/<range>` and
+* `x/-/limits`, contracts/remote-channel-v1.md); the seeded sample lives in `digest-mock.ts` for
+* tests, the gallery and dev only.
 */
 var USAGE_RANGES = [
 	"24h",
@@ -8208,13 +8209,114 @@ function createDigestSource() {
 			allowance = void 0;
 		}
 		const selected = range === "7d" && weekly ? weekly : ownerRead(`digest/${range}`, signal);
+		const savings = readSavings(range, signal);
 		if (!allowance) {
 			weekly = range === "7d" ? selected : ownerRead("digest/7d", signal);
 			allowance = Promise.all([weekly, ownerRead("limits", signal)]).then(([weekly, limits]) => allowanceFromAnswers(weekly, limits));
 		}
-		const [digest, snapshot] = await Promise.all([selected, allowance]);
-		return reportFromAnswers(range, digest, snapshot);
+		const [digest, snapshot, saved] = await Promise.all([
+			selected,
+			allowance,
+			savings
+		]);
+		return {
+			...reportFromAnswers(range, digest, snapshot),
+			savings: saved
+		};
 	} };
+}
+/** A count the delivery report names: a safe whole number from zero, else unknown (null); a value
+* is never coerced, and a null stays null (#6752). */
+var count = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null;
+/** `measuredSaved` may be negative (Digest added wake-ups), so it is any safe whole number. */
+var whole = (value) => Number.isSafeInteger(value) ? value : null;
+var record = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+function savingsFigures(row) {
+	const actual = record(row.actual);
+	const delay = record(actual.delayMs);
+	const median = count(delay.median);
+	const p90 = count(delay.p90);
+	const max = count(delay.max);
+	const cost = record(row.avoidedCost);
+	const text = (value) => typeof value === "string" ? value : null;
+	const rows = (value) => Array.isArray(value) ? value.map(record).filter((entry) => typeof entry.id === "string") : null;
+	return {
+		messages: count(row.messages),
+		deliveries: count(actual.deliveries),
+		turnsSaved: whole(row.turnsSaved),
+		measuredSaved: whole(row.measuredSaved),
+		delay: median !== null && p90 !== null && max !== null ? {
+			median,
+			p90,
+			max
+		} : null,
+		avoidedCost: {
+			usdMicros: whole(cost.usdMicros),
+			reason: text(cost.reason),
+			covered: rows(cost.covered)?.map((entry) => ({
+				id: entry.id,
+				measuredSaved: whole(entry.measuredSaved),
+				usdMicros: whole(entry.usdMicros)
+			})) ?? null,
+			unpriced: rows(cost.unpriced)?.map((entry) => ({
+				id: entry.id,
+				measuredSaved: whole(entry.measuredSaved),
+				models: Array.isArray(entry.models) ? entry.models.filter((model) => typeof model === "string") : [],
+				reason: text(entry.reason)
+			})) ?? null
+		}
+	};
+}
+var SAVINGS_REASONS = {
+	not_installed: "Digest is not installed on your machine. Run `tmt extension install digest`, then reload this page.",
+	core_unavailable: "TMT on your machine did not answer. This page tries again shortly.",
+	timeout: "Your machine took too long to read what Digest saved. This page tries again shortly.",
+	read_failed: "Your machine could not read what Digest saved. Run `tmt digest decisions --report` in a terminal to see it.",
+	too_large: "The savings report is too large for the browser. Run `tmt digest decisions --report` in a terminal to see it.",
+	not_sampled: "Your machine could not read what Digest saved. Run `tmt digest decisions --report` in a terminal to see it.",
+	unknown: "What Digest saved is not available right now. Run `tmt digest decisions --report` in a terminal to see it.",
+	"no-session": "This browser has no owner session for your machine. Pair it from Remote to see what Digest saved.",
+	unreachable: "Your machine did not answer. This page tries again shortly."
+};
+/** What `x/-/digest/savings/<range>` answers, read to the figures the page shows (#6751 D). */
+function savingsFromAnswer(range, answer) {
+	if (answer.state !== "ok") return {
+		range,
+		unavailable: SAVINGS_REASONS[answer.state === "unavailable" ? answer.reason : answer.state] ?? SAVINGS_REASONS.unknown
+	};
+	const report = record(answer.payload.report);
+	if (answer.payload.since !== range || report.since !== range || !Array.isArray(report.members)) return {
+		range,
+		unavailable: SAVINGS_REASONS.unknown
+	};
+	const pricing = record(record(report.wakeMethod).pricing);
+	return {
+		range,
+		document: {
+			since: range,
+			members: report.members.flatMap((entry) => {
+				const row = record(entry);
+				if (typeof row.id !== "string") return [];
+				const coverage = row.coverage === null ? null : record(row.coverage);
+				return [{
+					id: row.id,
+					name: typeof row.name === "string" ? row.name : null,
+					complete: coverage && typeof coverage.complete === "boolean" ? coverage.complete : null,
+					...savingsFigures(row)
+				}];
+			}),
+			total: savingsFigures(record(report.total)),
+			pricing: typeof pricing.version === "string" && typeof pricing.asOf === "string" && typeof pricing.origin === "string" ? {
+				version: pricing.version,
+				asOf: pricing.asOf,
+				origin: pricing.origin
+			} : null
+		}
+	};
+}
+/** One read of what Digest saved over `range`; the page's refresh owns the cadence. */
+async function readSavings(range, signal) {
+	return savingsFromAnswer(range, await ownerRead(`digest/savings/${range}`, signal));
 }
 //#endregion
 //#region src/digest-view.ts
@@ -8544,6 +8646,106 @@ function resetsIn(resetsAtMs, nowMs) {
 	if (ms >= DAY$1) return `${Math.floor(ms / DAY$1)}d ${Math.floor(ms % DAY$1 / HOUR$1)}h`;
 	return `${Math.max(1, Math.floor(ms / HOUR$1))}h`;
 }
+/** A figure the report could not give: never shown as zero. */
+var UNKNOWN$1 = "Unknown";
+/** A duration in ms as the page reads it: 45s, 2m 40s, 1h 5m. */
+function durationText(ms) {
+	const seconds = Math.round(ms / 1e3);
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return seconds % 60 ? `${minutes}m ${seconds % 60}s` : `${minutes}m`;
+	const hours = Math.floor(minutes / 60);
+	return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
+}
+/** US dollars from micro-dollars: cents from a dollar up, four places below it; a negative is
+* Digest adding wake-ups. */
+function usdText(micros) {
+	if (micros < 0) return `−${usdText(-micros)}`;
+	const dollars = micros / 1e6;
+	return `$${dollars.toLocaleString("en-US", {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: dollars >= 1 ? 2 : 4
+	})}`;
+}
+/** Why the report could not estimate the avoided cost, in plain words; an unknown reason as is. */
+var COST_REASONS = {
+	wake_turns_unavailable: "TMT on your machine has no wake-up measurements yet",
+	no_measured_turn: "no wake-up was measured in this range",
+	no_price: "a model has no list price",
+	unattributed: "some tokens name no model",
+	no_known_arrivals: "no message is known to have arrived while its member was idle"
+};
+var figure = (value) => value === null ? UNKNOWN$1 : value.toLocaleString("en-US");
+var reasonWords = (reason) => reason ? COST_REASONS[reason] ?? reason : "no estimate was reported";
+/**
+* The avoided cost exactly as the report gives it (#6794): the sum over the members whose own
+* cost is known, with whom it covers and the models that had no price. A report that does not
+* list them comes from an older Digest whose total stretched a median over unpriced members, so
+* its cost is Unknown rather than shown.
+*/
+function avoidedCost(doc) {
+	const cost = doc.total.avoidedCost;
+	if (!cost.covered || !cost.unpriced) return {
+		value: UNKNOWN$1,
+		note: "Cost unknown: Digest on your machine does not say which members it covers. Upgrade TMT to see it."
+	};
+	const models = [...new Set(cost.unpriced.flatMap((member) => member.models))].sort();
+	const others = new Set(cost.unpriced.filter((member) => !member.models.length).map((member) => reasonWords(member.reason ?? "no_price")));
+	const why = [...models.length ? [`no price for ${models.join(", ")}`] : [], ...others].join("; ");
+	if (cost.usdMicros === null) return {
+		value: UNKNOWN$1,
+		note: `Cost unknown: ${why || reasonWords(cost.reason)}.`
+	};
+	const members = cost.covered.length + cost.unpriced.length;
+	return {
+		value: usdText(cost.usdMicros),
+		note: cost.unpriced.length ? `Covers ${cost.covered.length} of ${members} members; ${why}.` : null
+	};
+}
+/** #6751 D: what the delivered digests saved, measured first; a null is Unknown, never 0. */
+function savingsView(doc) {
+	const total = doc.total;
+	const partial = doc.members.filter((member) => member.complete === false).length;
+	const none = doc.members.filter((member) => member.complete === null).length;
+	const parts = [];
+	if (partial) parts.push(`${partial} ${partial === 1 ? "member covers" : "members cover"} only part of this range`);
+	if (none) parts.push(`${none} ${none === 1 ? "member has" : "members have"} no coverage record`);
+	const cost = avoidedCost(doc);
+	const messages = total.messages === null || total.deliveries === null ? figure(total.messages) : `${figure(total.messages)} in ${figure(total.deliveries)}`;
+	const byMessages = (a, b) => (b.messages ?? -1) - (a.messages ?? -1) || (a.name ?? a.id).localeCompare(b.name ?? b.id);
+	return {
+		tiles: [
+			{
+				label: "Wake-ups saved (measured)",
+				value: figure(total.measuredSaved)
+			},
+			{
+				label: "Upper bound",
+				value: figure(total.turnsSaved)
+			},
+			{
+				label: "Messages delivered",
+				value: messages
+			},
+			{
+				label: "Avoided cost (estimate)",
+				value: cost.value
+			}
+		],
+		costNote: cost.note,
+		rows: [...doc.members].sort(byMessages).map((member) => [
+			member.name ?? member.id.slice(0, 8),
+			figure(member.messages),
+			figure(member.deliveries),
+			figure(member.measuredSaved),
+			figure(member.turnsSaved),
+			member.delay ? durationText(member.delay.median) : UNKNOWN$1,
+			member.complete === null ? "No record" : member.complete ? "Whole range" : "Partial"
+		]),
+		coverageNote: parts.length ? `${parts.join("; ")}. Figures are lower bounds.` : null,
+		pricing: doc.pricing ? `Estimate at list price, price table ${doc.pricing.version} (${doc.pricing.origin}).` : null
+	};
+}
 //#endregion
 //#region src/not-available.ts
 /**
@@ -8572,8 +8774,8 @@ function notAvailable(note, text) {
 //#region src/digest-page.ts
 /**
 * The Digest usage report follows the concept website: provider allowance cards, the token
-* chart and seat legend, a full-width Messages heatmap, and a coverage/method footer. It depends
-* only on DigestSource; product data comes from the existing owner reads. Samples are injected
+* chart and seat legend, a full-width Messages heatmap, what Digest saved, and a coverage/method
+* footer. It depends only on DigestSource; product data comes from the existing owner reads. Samples are injected
 * by tests, the gallery and local development. Range and view state belong to this mounted page.
 */
 /** The terminal Digest's own cadence: the usage read refreshes once a minute. */
@@ -9143,6 +9345,67 @@ function messageName(text) {
 	label.title = text;
 	return label;
 }
+/** #6751 D: what the delivered digests saved over the selected range, measured first. */
+function savingsCard(report) {
+	const savings = report.savings;
+	if (!savings) return void 0;
+	const id = "digest-savings";
+	const title = "What Digest saved";
+	const subtitle = "Wake-ups the delivered digests saved in this range.";
+	if (!savings.document) {
+		const why = el$1("p", "usage-note");
+		notAvailable(why, savings.unavailable ?? "What Digest saved is not available.");
+		return card(id, title, [why], { subtitle });
+	}
+	const view = savingsView(savings.document);
+	const body = [];
+	if (view.coverageNote) body.push(el$1("p", "usage-note digest-savings-coverage", view.coverageNote));
+	const tiles = view.tiles.map((figure) => tile(figure.label, figure.value));
+	if (view.costNote) tiles.at(-1).append(el$1("dd", "usage-note digest-cost-note", view.costNote));
+	body.push(bareTiles(...tiles));
+	if (!view.rows.length) body.push(el$1("p", "usage-note", "No member held messages for a digest in this range."));
+	else {
+		const grid = table([
+			"Member",
+			"Messages",
+			"Deliveries",
+			"Saved (measured)",
+			"Upper bound",
+			"Median delay",
+			"Coverage"
+		], view.rows.map(([name, messages, deliveries, measured, bound, delay, covered]) => {
+			const label = el$1("span");
+			const member = el$1("span", "digest-seat", name);
+			member.title = name;
+			label.append(member, el$1("span", browserUiClasses.tableCompactMeta, `${messages} messages in ${deliveries} deliveries · Upper bound ${bound} · Median ${delay} · ${covered}`));
+			return [
+				label,
+				messages,
+				deliveries,
+				measured,
+				bound,
+				delay,
+				covered
+			];
+		}));
+		grid.dataset.roomy = "";
+		for (const row of grid.rows) for (const cell of [
+			1,
+			2,
+			4,
+			5,
+			6
+		]) row.cells[cell].dataset.compactHide = "";
+		const scroll = el$1("div", `${browserUiClasses.tableScroll} digest-savings-scroll`);
+		scroll.tabIndex = 0;
+		scroll.setAttribute("role", "region");
+		scroll.setAttribute("aria-label", "What Digest saved, by member");
+		scroll.append(grid);
+		body.push(scroll);
+	}
+	body.push(el$1("p", "usage-note", `Measured counts only messages that arrived while their member was idle; the upper bound counts every held message as its own wake-up. Unknown is never counted as zero.${view.pricing ? ` ${view.pricing}` : ""}`));
+	return card(id, title, body, { subtitle });
+}
 /** The sources the usage read does not carry yet, one line each, with the method below. */
 function coverageCard() {
 	const gaps = [
@@ -9275,7 +9538,8 @@ function digestPage(source = createDigestSource(), signal) {
 		const doc = report.document;
 		state.dispose.splice(0).forEach((dispose) => dispose());
 		const covered = coverageNotice(doc);
-		panel.replaceChildren(...covered ? [covered] : [], allowanceRow(report, state), providerUsageCard(doc), tokensCard(doc, state), exchangeCard(doc, state), coverageCard());
+		const saved = savingsCard(report);
+		panel.replaceChildren(...covered ? [covered] : [], allowanceRow(report, state), providerUsageCard(doc), tokensCard(doc, state), exchangeCard(doc, state), ...saved ? [saved] : [], coverageCard());
 		for (const detail of panel.querySelectorAll("details[id]")) detail.open = disclosures.get(detail.id) ?? false;
 		const scroll = document.getElementById("digest-exchange-scroll");
 		if (scroll) scroll.scrollLeft = matrixLeft;

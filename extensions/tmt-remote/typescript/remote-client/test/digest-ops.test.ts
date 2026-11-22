@@ -22,9 +22,23 @@ it('reads no sample data in the product: the default Digest source asks the owne
     expect(report.unavailable).toBe(
       'This browser has no owner session for your machine. Pair it from Remote to see your usage.',
     );
+    expect(report.savings).toEqual({
+      range,
+      unavailable:
+        'This browser has no owner session for your machine. Pair it from Remote to see what Digest saved.',
+    });
   }
-  // One fixed weekly snapshot per mount; range switches never repeat its read.
-  expect(asked).toEqual(['digest/24h', 'digest/7d', 'limits', 'digest/30d']);
+  // One fixed weekly snapshot per mount; range switches never repeat its read. What Digest saved
+  // follows the range.
+  expect(asked).toEqual([
+    'digest/24h',
+    'digest/savings/24h',
+    'digest/7d',
+    'limits',
+    'digest/savings/7d',
+    'digest/30d',
+    'digest/savings/30d',
+  ]);
 });
 
 it('marks the mock Digest source (tests, gallery, dev) as sample data for every range', async () => {

@@ -8,7 +8,11 @@ import { remoteShell } from './remote-shell.js';
 import type { Session } from './device.js';
 
 export type OwnerReadRange = '24h' | '7d' | '30d';
-export type OwnerReadName = 'ops' | 'limits' | `digest/${OwnerReadRange}`;
+export type OwnerReadName =
+  | 'ops'
+  | 'limits'
+  | `digest/${OwnerReadRange}`
+  | `digest/savings/${OwnerReadRange}`;
 
 /** The reasons the contract names; a client reads any other reason as `unknown`. */
 export const OWNER_READ_REASONS = [

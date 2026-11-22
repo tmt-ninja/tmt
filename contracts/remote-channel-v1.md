@@ -2465,7 +2465,7 @@ Visibility is the extension's rule, not a remote grant.
 
 ### Owner browser reads
 
-Three owner-session, read-only door GETs give the web app real Ops, limit-history and Digest data. They reuse the
+Four owner-session, read-only door GETs give the web app real Ops, limit-history, Digest usage and Digest savings data. They reuse the
 public JSON the terminal already reads; they add no grant, scope, pairing rule, write or push
 channel, and dispatch stays unreachable from them. They are siblings of the composed shell's
 `GET <prefix>/x/-/shell` and share its admission:
@@ -2475,9 +2475,10 @@ channel, and dispatch stays unreachable from them. They are siblings of the comp
 | `GET <prefix>/x/-/ops` | `ops squad ls --json`, `ops squad cron ls --json` and `ops squad config show --json` in parallel; then one bounded `room list --json` for nonempty squads and bounded Core `consumption.history` batches |
 | `GET <prefix>/x/-/limits`         | `ops limits --json`                                                               |
 | `GET <prefix>/x/-/digest/<range>` | `digest usage report --since <range> --json`, with `<range>` `24h`, `7d` or `30d` |
+| `GET <prefix>/x/-/digest/savings/<range>` | `digest decisions --report --since <range> --json`, the same ranges; never `--recompute` |
 
 The range is a path segment because the edge target grammar admits no query string beyond its two
-fixed forms; any other path, a bare `/digest`, an unknown range, another method or an upgrade is the
+fixed forms; any other path, a bare `/digest` or `/digest/savings`, an unknown range, another method or an upgrade is the
 generic 404 (a query string is refused by the edge before any session check). Cross-site
 `Sec-Fetch-Site` is 403. A request needs a live owner-device session (the mount-space cookie); the
 same device and grant revision are rechecked after the read and a changed or ended session gets the
@@ -2498,7 +2499,8 @@ Every answer is HTTP 200 with one JSON document:
 `reason` is one of `not_installed` (the extension command is absent: a fixed argv exits with
 `USAGE_ERROR`; an Ops without `limits` is also absent), `core_unavailable` (spawn, interruption or I/O failure), `timeout`, `read_failed`
 (non-zero exit, output that is not one JSON document, an unexpected `version` or, for Digest, a
-report for another range), `too_large` and, for limits only, `not_sampled` (the board has kept no samples). An unavailable read is never an empty list and never
+report for another range, and for savings `members` that is not an array or `total` that is not an
+object), `too_large` and, for limits only, `not_sampled` (the board has kept no samples). An unavailable read is never an empty list and never
 sample data; each reason is one empty state in the web app, and a client treats an unknown reason as
 a generic unavailable. `observedAtMs` is the owner's clock when the read finished.
 
@@ -2566,21 +2568,30 @@ The short window is not served.
 document's contents (names, UUIDs, token counts and content-free exchange metadata). The web app
 derives a shorter window from the `24h` hourly `series`; there is no 5-minute read and no turn count.
 
+**Savings payload** (`state:"ok"`): `{since, report}` where `report` is the
+[delivery report](../extensions/tmt-digest/contracts/digest-v1.md#delivery-report) unchanged: per
+member and in total, the messages delivered, the deliveries that took them, the measured and
+upper-bound saved wake-ups, the delays and the estimated avoided cost, with each figure's own null
+and reason. It holds member names, UUIDs, counts, times and cost estimates, never message text. The
+report prices from Digest's cached or built-in table and never fetches or writes it, so a read from
+the browser causes no network request and no write.
+
 **Bounds.** The door never schedules a read. One request at a time runs a given route; concurrent
 requests wait for it (at most 12 seconds in total, then `timeout`), and a finished answer, ok or
 unavailable, answers every request for the next 5 seconds, so any number of tabs cost at most one read
 per route per 5 seconds. Nothing runs between requests and nothing is persisted. Each subprocess
 captures at most 2 MiB of stdout; an answer is at most 512 KiB (Ops, limits) or 1 MiB (Digest) and a larger
-one is `too_large`. Ops projects at most 32 squads, 256 agents and 64 timers; text fields are cut to
+one is `too_large`; the savings read shares the Digest cap. Ops projects at most 32 squads, 256 agents and 64 timers; text fields are cut to
 64 scalars (names, model), 80 (state, schedule text), 200 (task, next, pending), 300 bytes (link) and
 120 scalars (`what`). The browser refreshes only while its route is visible and at the terminal's own
-cadence: Ops every 5 seconds (the board's default reload) and Digest every 60 seconds, backing off
+cadence: Ops every 5 seconds (the board's default reload) and Digest usage and savings every 60 seconds, backing off
 after failures. The SDK owns that timer and stops it with the route; the door has none.
 
 **Vectors.** [`owner-reads-v1.json`](owner-reads-v1.json) holds, per case, what the public commands
-print and the exact answer, the reasons, the strings that must appear nowhere in an answer and the
-bounds. The Remote tests run every case through the door's reader and compare the reason set and the
-bounds with the code.
+print and the exact answer, the reasons, the strings that must appear nowhere in an answer, the
+paths that are no read (the generic 404) and the bounds. The Remote tests run every case through the
+door's reader, check that no listed path is a read, and compare the reason set and the bounds with
+the code.
 
 ### Object channel frames
 

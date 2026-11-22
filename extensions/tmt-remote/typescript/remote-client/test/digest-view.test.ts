@@ -19,6 +19,12 @@ import {
   resetsIn,
   seatName,
   tokenSeries,
+  modelShares,
+  seatMix,
+  trend,
+  runway,
+  runwayWords,
+  savingsView,
 } from '../src/digest-view.js';
 
 const day = mockDocument('24h');
@@ -550,4 +556,360 @@ it('ignores a window whose account is malformed instead of folding it into anoth
     limits[2] = { ...limits[2]!, account: bad as never };
     expect(allowance({ ...doc, limits })).toHaveLength(2);
   }
+});
+
+/** Three seats: one model only, one with a remainder no model covers, one Core attributed none of. */
+const mixed = (): UsageDocument => {
+  const seat = day.usage.seats[0]!;
+  return {
+    ...day,
+    usage: {
+      ...day.usage,
+      seats: [
+        {
+          ...seat,
+          id: 'a',
+          name: 'lead',
+          totals: { input: 1000, output: 200, cached: 600 },
+          byModel: [{ modelId: 'claude-opus-5-5', input: 1000, output: 200, cached: 600 }],
+        },
+        {
+          ...seat,
+          id: 'b',
+          name: 'worker',
+          totals: { input: 600, output: 100, cached: 100 },
+          byModel: [{ modelId: 'gpt-6.1-terra', input: 500, output: 100, cached: 100 }],
+          unattributed: { input: 100, output: 0, cached: 0 },
+        },
+        {
+          ...seat,
+          id: 'c',
+          name: 'helper',
+          totals: { input: 300, output: 0, cached: 0 },
+          byModel: null,
+          coverage: { ...seat.coverage, complete: false },
+        },
+      ],
+    },
+  };
+};
+
+it('shares tokens by model over every seat; what no model covers stays its own row (#6751 C)', () => {
+  const shares = modelShares(mixed());
+  expect(shares.models).toEqual([
+    {
+      model: 'claude-opus-5-5',
+      totals: { input: 1000, output: 200, cached: 600 },
+      tokens: 1200,
+      share: 54.5,
+      cachedRatio: 60,
+      seats: 1,
+    },
+    {
+      model: 'gpt-6.1-terra',
+      totals: { input: 500, output: 100, cached: 100 },
+      tokens: 600,
+      share: 27.3,
+      cachedRatio: 20,
+      seats: 1,
+    },
+  ]);
+  // The remainder of one seat and the whole of a seat Core attributed none of; no model is guessed.
+  expect(shares.unattributed).toEqual({
+    totals: { input: 400, output: 0, cached: 0 },
+    tokens: 400,
+    share: 18.2,
+    cachedRatio: 0,
+    seats: 2,
+  });
+  // Cached input over all input: 700 of 1,900.
+  expect(shares.cachedRatio).toBe(36.8);
+  expect(shares.partial).toBe(true);
+  // No input at all is no ratio, never 0%.
+  const idle = mixed();
+  const empty = { ...idle, usage: { ...idle.usage, seats: [] } };
+  expect(modelShares(empty)).toEqual({
+    models: [],
+    unattributed: null,
+    cachedRatio: null,
+    partial: false,
+  });
+});
+
+it('gives each seat its share, cached ratio and model mix, largest seat first (#6751 C)', () => {
+  expect(seatMix(mixed())).toEqual([
+    {
+      id: 'a',
+      name: 'lead',
+      tokens: 1200,
+      share: 54.5,
+      cachedRatio: 60,
+      models: [{ model: 'claude-opus-5-5', share: 100 }],
+      unattributed: 0,
+      partial: false,
+    },
+    {
+      id: 'b',
+      name: 'worker',
+      tokens: 700,
+      share: 31.8,
+      cachedRatio: 16.7,
+      models: [{ model: 'gpt-6.1-terra', share: 85.7 }],
+      unattributed: 14.3,
+      partial: false,
+    },
+    {
+      id: 'c',
+      name: 'helper',
+      tokens: 300,
+      share: 13.6,
+      cachedRatio: 0,
+      models: [],
+      unattributed: 100,
+      partial: true,
+    },
+  ]);
+});
+
+it('adds every seat per bucket: hourly for 24h, daily for 7d and 30d, a lower bound marked (#6751 E)', () => {
+  const hours = trend(day, 'UTC');
+  expect(hours.x).toHaveLength(24);
+  expect(hours.x[0]).toMatch(/^\d\d:00$/);
+  // Each bucket is the sum of every seat's reading at that start.
+  const at = hours.startsMs[13]!;
+  const sum = day.usage.seats
+    .flatMap((seat) => seat.series.filter((point) => point.fromMs === at))
+    .reduce((total, point) => total + point.input + point.output, 0);
+  expect(hours.tokens[13]).toBe(sum);
+  expect(hours.partial.some(Boolean)).toBe(true);
+  expect(hours.peak!.tokens).toBe(Math.max(...hours.tokens.map((value) => value ?? 0)));
+  for (const [range, count] of [
+    ['7d', 7],
+    ['30d', 30],
+  ] as const) {
+    const days = trend(mockDocument(range), 'UTC');
+    expect(days.x).toHaveLength(count);
+    expect(days.x[0]).toMatch(/^\d\d-\d\d$/);
+  }
+  // A bucket that only an incomplete reading reached is a lower bound; one with no reading at all is
+  // not in the series.
+  const seat = day.usage.seats[0]!;
+  const one: UsageDocument = {
+    ...day,
+    usage: {
+      ...day.usage,
+      seats: [
+        {
+          ...seat,
+          series: [
+            { fromMs: 0, toMs: 3_600_000, input: 10, output: 5, cached: 5, complete: true },
+            {
+              fromMs: 7_200_000,
+              toMs: 10_800_000,
+              input: 0,
+              output: 0,
+              cached: 0,
+              complete: false,
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const gap = trend(one, 'UTC');
+  expect(gap.tokens).toEqual([15, 0]);
+  expect(gap.partial).toEqual([false, true]);
+  expect(gap.cachedRatio).toEqual([50, null]);
+  expect(gap.peak).toEqual({ at: '00:00', tokens: 15 });
+});
+
+it('projects a weekly window to its reset at the recent pace, or says when it runs out (#6751 B)', () => {
+  const hour = 3_600_000;
+  const reset = 1_800_000_000_000;
+  const week = (points: [number, number][]) => ({
+    provider: 'codex',
+    windowMinutes: 10080,
+    resetsAtMs: reset,
+    points: points.map(([hoursBefore, percentLeft]) => ({
+      atMs: reset - hoursBefore * hour,
+      percentLeft,
+    })),
+  });
+  // 10 points used over the last day, three days before the reset: 20% left at it.
+  const lasts = runway(
+    week([
+      [96, 60],
+      [84, 55],
+      [72, 50],
+    ]),
+    reset - 72 * hour,
+  )!;
+  expect(lasts).toMatchObject({ basis: 'recent', perHour: 0.42, leftAtReset: 20, emptyAtMs: null });
+  expect(runwayWords(lasts, reset - 72 * hour)).toBe(
+    "At the last day's pace about 20% is left at the reset.",
+  );
+  // 20 points over the last day with 20 left and three days to go: empty in a day, two before it.
+  const short = runway(
+    week([
+      [96, 40],
+      [72, 20],
+    ]),
+    reset - 72 * hour,
+  )!;
+  expect(short).toMatchObject({ basis: 'recent', leftAtReset: 0, emptyAtMs: reset - 48 * hour });
+  expect(runwayWords(short, reset - 72 * hour)).toBe(
+    "At the last day's pace it runs out in 1d 0h, 2d 0h before the reset.",
+  );
+  // Under six hours of samples, the window's average since it began full: 30 used in two days.
+  const young = runway(week([[120, 70]]), reset - 120 * hour)!;
+  expect(young).toMatchObject({ basis: 'window', perHour: 0.63 });
+  expect(young.emptyAtMs).toBe(reset - 120 * hour + Math.round((70 / 30) * 48 * hour));
+  // No use over the day: what is left now is left at the reset.
+  const still = runway(
+    week([
+      [96, 80],
+      [72, 80],
+    ]),
+    reset - 72 * hour,
+  )!;
+  expect(runwayWords(still, reset - 72 * hour)).toBe(
+    "No use at the last day's pace: 80% left at the reset.",
+  );
+  // Samples at or after the reset, or from before the window began, are not this window's.
+  expect(
+    runway(
+      week([
+        [0, 90],
+        [-1, 100],
+      ]),
+      reset + hour,
+    ),
+  ).toBeNull();
+  expect(runway(week([[200, 10]]), reset - 72 * hour)).toBeNull();
+  // The previous window's last sample never sets this one's pace.
+  expect(
+    runway(
+      week([
+        [175, 10],
+        [160, 90],
+      ]),
+      reset - 160 * hour,
+    ),
+  ).toMatchObject({
+    basis: 'window',
+    perHour: 1.25,
+  });
+  // A sample later than the owner's clock is not used either.
+  expect(
+    runway(
+      week([
+        [96, 60],
+        [12, 0],
+      ]),
+      reset - 72 * hour,
+    ),
+  ).toMatchObject({ fromLeft: 60 });
+});
+
+it('says what Digest saved, measured first, with every unknown figure as Unknown (#6751 D)', async () => {
+  const { mockSavings } = await import('../src/digest-mock.js');
+  const whole = savingsView(mockSavings('24h'));
+  expect(whole.tiles.map((tile) => tile.label)).toEqual([
+    'Wake-ups saved (measured)',
+    'Upper bound',
+    'Messages delivered',
+    'Avoided cost (estimate)',
+  ]);
+  expect(whole.tiles.every((tile) => tile.value !== 'Unknown')).toBe(true);
+  expect(whole.tiles[2]!.value).toMatch(/^\d+ in \d+$/);
+  expect(whole.tiles[3]!.value).toMatch(/^\$\d/);
+  expect(whole.coverageNote).toBeNull();
+  expect(whole.costNote).toBeNull();
+  expect(whole.pricing).toBe('Estimate at list price, price table 2026-11-15 (built-in).');
+  // Busiest member first.
+  expect(whole.rows[0]![0]).toBe('core-1');
+  const partial = savingsView(mockSavings('7d', 'partial'));
+  expect(partial.coverageNote).toBe(
+    '1 member covers only part of this range; 1 member has no coverage record. Figures are lower bounds.',
+  );
+  // One member the report could not measure: the measured total is Unknown, never a smaller sum.
+  expect(partial.tiles[0]!.value).toBe('Unknown');
+  // Every member with a saving was priced, so the cost is theirs, with nothing to qualify.
+  expect(partial.tiles[3]!.value).toMatch(/^\$\d/);
+  expect(partial.costNote).toBeNull();
+  const feat = partial.rows.find((row) => row[0] === 'feat-1')!;
+  expect(feat.slice(3)).toEqual(['Unknown', feat[4], 'Unknown', 'Whole range']);
+  expect(partial.rows.find((row) => row[0] === 'ux-1')![6]).toBe('Partial');
+  expect(partial.rows.find((row) => row[0] === 'remote-1')![6]).toBe('No record');
+});
+
+it('keeps a reason the page has no words for, and a zero as a zero', () => {
+  const empty = (reason: string) =>
+    savingsView({
+      since: '24h',
+      members: [],
+      total: {
+        messages: 0,
+        deliveries: 0,
+        turnsSaved: 0,
+        measuredSaved: null,
+        delay: null,
+        avoidedCost: { usdMicros: null, reason, covered: [], unpriced: [] },
+      },
+      pricing: null,
+    });
+  // What a real Digest with no history reports: words for its reason, not the code.
+  expect(empty('no_known_arrivals').costNote).toBe(
+    'Cost unknown: no message is known to have arrived while its member was idle.',
+  );
+  const view = savingsView({
+    since: '24h',
+    members: [],
+    total: {
+      messages: 0,
+      deliveries: 0,
+      turnsSaved: 0,
+      measuredSaved: null,
+      delay: null,
+      avoidedCost: { usdMicros: null, reason: 'brand_new_reason', covered: [], unpriced: [] },
+    },
+    pricing: null,
+  });
+  expect(view.tiles.map((tile) => tile.value)).toEqual(['Unknown', '0', '0 in 0', 'Unknown']);
+  expect(view.costNote).toBe('Cost unknown: brand_new_reason.');
+  expect(view.pricing).toBeNull();
+  expect(view.rows).toEqual([]);
+});
+
+it('shows the avoided cost as the report gives it: priced members only, with the unpriced models (#6794)', async () => {
+  const { mockSavings } = await import('../src/digest-mock.js');
+  const cost = (doc: ReturnType<typeof mockSavings>) => {
+    const view = savingsView(doc);
+    return { value: view.tiles[3]!.value, note: view.costNote };
+  };
+  // Every member priced: the report's sum, nothing to qualify.
+  expect(cost(mockSavings('24h'))).toEqual({ value: '$0.559', note: null });
+  // core-1, ux-1 and feat-1 have unpriced wake-ups: the report's sum covers tmt-lead and remote-1.
+  expect(cost(mockSavings('24h', 'mixed'))).toEqual({
+    value: '$0.1505',
+    note: 'Covers 2 of 5 members; no price for claude-fable-5-2, gpt-6.2-astra, gpt-6.2-sol.',
+  });
+  // No member priced: Unknown, with the models named.
+  expect(cost(mockSavings('24h', 'unpriced'))).toEqual({
+    value: 'Unknown',
+    note: 'Cost unknown: no price for claude-fable-5-2, gpt-6-luna, gpt-6.2-astra, gpt-6.2-sol.',
+  });
+  // An older Digest lists no members: its total stretched a median over unpriced ones, so the
+  // figure is not shown even though the report has one.
+  const older = mockSavings('24h');
+  older.total.avoidedCost = { ...older.total.avoidedCost, covered: null, unpriced: null };
+  expect(older.total.avoidedCost.usdMicros).toBe(559_000);
+  expect(cost(older)).toEqual({
+    value: 'Unknown',
+    note: 'Cost unknown: Digest on your machine does not say which members it covers. Upgrade TMT to see it.',
+  });
+  // A member listed without models still says why.
+  const unnamed = mockSavings('24h', 'mixed');
+  for (const member of unnamed.total.avoidedCost.unpriced!) member.models = [];
+  expect(cost(unnamed).note).toBe('Covers 2 of 5 members; a model has no list price.');
 });

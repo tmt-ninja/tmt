@@ -4,7 +4,7 @@
 
 use crate::{
     history::{ChecklistSettlement, Coverage, Decision},
-    pricing::Table,
+    pricing::Resolved,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -34,7 +34,7 @@ pub struct Input<'a> {
     pub recompute: Option<Recompute>,
     /// Core's measured wake-up turns in the window; none when Core could not answer.
     pub wake_turns: Option<&'a [WakeTurn]>,
-    pub prices: &'a Table,
+    pub prices: &'a Resolved,
 }
 
 #[derive(Default)]
@@ -81,6 +81,13 @@ pub fn document(input: &Input<'_>) -> Value {
         rows.push(member_json(id, &member, input));
         merge(&mut total, member);
     }
+    let mut summary = with_wake(
+        figures(&total, input.recompute.is_some()),
+        None,
+        &total,
+        input,
+    );
+    summary["avoidedCost"] = wake::total_cost(&rows, input.wake_turns.is_some());
     let mut document = json!({
         "version": 1,
         "since": input.since,
@@ -89,7 +96,7 @@ pub fn document(input: &Input<'_>) -> Value {
         "baseline": "each message delivered on its own; turnsSaved is an upper bound, because a busy agent may combine queued messages anyway",
         "delayBasis": "settled minus arrival",
         "members": rows,
-        "total": with_wake(figures(&total, input.recompute.is_some()), None, &total, input),
+        "total": summary,
         "wakeMethod": wake::method(input.prices),
     });
     if let Some(recompute) = input.recompute {
@@ -255,7 +262,7 @@ fn with_wake(mut value: Value, id: Option<&str>, tally: &Tally, input: &Input<'_
             .filter(|turn| id.is_none_or(|id| turn.identity_id == id))
             .collect::<Vec<_>>()
     });
-    let wake = wake::figures(turns.as_deref(), &tally.phases, input.prices);
+    let wake = wake::figures(turns.as_deref(), &tally.phases, input.prices.table());
     for (key, field) in wake.as_object().into_iter().flatten() {
         value[key] = field.clone();
     }
