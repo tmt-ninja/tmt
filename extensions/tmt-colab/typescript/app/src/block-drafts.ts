@@ -100,12 +100,20 @@ export class BlockDraftSession {
     const draft = target && this.latest.get(target);
     return draft && draft.value === value ? draft : undefined;
   }
-  admitted(draft: BlockDraft) {
-    if (this.latest.get(draft.target) === draft) {
-      this.latest.delete(draft.target);
-      this.durable.delete(draft.target);
-    }
-    void this.store.clear(this.page, draft);
+  async admitted(draft: BlockDraft): Promise<boolean> {
+    // A pending save must settle before its generation can be removed.
+    await this.writes.get(draft.target);
+    if (this.latest.get(draft.target) !== draft) return false;
+    if (!(await this.store.clear(this.page, draft))) return false;
+    if (this.latest.get(draft.target) !== draft) return false;
+    this.latest.delete(draft.target);
+    this.durable.delete(draft.target);
+    return true;
+  }
+  async forget(id: string, cell: TableCell | undefined): Promise<boolean> {
+    const target = this.targets.get(JSON.stringify([id, cell?.table, cell?.column]));
+    const draft = target && this.latest.get(target);
+    return draft ? this.admitted(draft) : true;
   }
   unsafe() {
     return [...this.latest.keys()].some((target) => !this.durable.has(target));

@@ -420,6 +420,68 @@ it('reopens a durable block draft until its own save is admitted', async () => {
   await expect.poll(() => reopened.load('page')).toEqual([]);
 });
 
+it('does not recover a resolved block draft when its local write was in flight', async () => {
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  const store = blockDraftStore('space', 'device');
+  let finish!: () => void;
+  const held = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const session = new BlockDraftSession(
+    {
+      ...store,
+      save: async (page, draft) => {
+        await held;
+        return store.save(page, draft);
+      },
+    },
+    'page',
+  );
+  session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+  const draft = session.matching('block-1', undefined, 'Plan Friday')!;
+  const resolved = session.admitted(draft);
+  finish();
+  await resolved;
+  expect(await store.load('page')).toEqual([]);
+});
+
+it('does not finish discarding a draft until its stored copy is removed', async () => {
+  const { blockDraftStore, BlockDraftSession } = await import('../src/block-drafts.js');
+  const store = blockDraftStore('space', 'device');
+  let release!: () => void;
+  let clearing!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    clearing = resolve;
+  });
+  const session = new BlockDraftSession(
+    {
+      ...store,
+      clear: async (page, draft) => {
+        clearing();
+        await held;
+        return store.clear(page, draft);
+      },
+    },
+    'page',
+  );
+  session.remember('block-1', undefined, 'Plan', 'Plan Friday');
+  expect(await session.waitForStorage()).toBe(true);
+  let completed = false;
+  const discard = session.forget('block-1', undefined).then((result) => {
+    completed = true;
+    return result;
+  });
+  await started;
+  expect(completed).toBe(false);
+  expect(await store.load('page')).toHaveLength(1);
+  release();
+  expect(await discard).toBe(true);
+  expect(await store.load('page')).toEqual([]);
+});
+
 it('writes the latest block edit promptly after a rapid typing burst', async () => {
   const { BlockDraftSession } = await import('../src/block-drafts.js');
   type Draft = import('../src/block-drafts.js').BlockDraft;

@@ -597,6 +597,7 @@ export function useBlockEditing(
         };
         setDrafts(new Map(drafts).set(previous.id, draft));
       } else {
+        void recovery?.forget(current.id, current.cell);
         // Only an editor the person typed in becomes a draft (#6725): one they only opened leaves
         // with its block, and the status line says why.
         setClosedByDelete((count) => count + 1);
@@ -611,6 +612,8 @@ export function useBlockEditing(
     [tree, drafts],
   );
   const changeDraft = (id: string, text: string, at: number) => {
+    const draft = latestDrafts.current.get(id);
+    if (draft) recovery?.remember(id, undefined, draft.block.text ?? '', text);
     setDrafts((now) => {
       const draft = now.get(id);
       return draft
@@ -618,12 +621,15 @@ export function useBlockEditing(
         : now;
     });
   };
-  const removeDraft = (id: string) =>
+  const removeDraft = async (id: string) => {
+    if (recovery && !(await recovery.forget(id, undefined))) return false;
     setDrafts((now) => {
       const next = new Map(now);
       next.delete(id);
       return next;
     });
+    return true;
+  };
   const keepDraft = async (id: string) => {
     const draft = drafts.get(id);
     if (!draft || !isBlockType(draft.block.type) || savingDrafts.current.has(id)) return;
@@ -647,27 +653,57 @@ export function useBlockEditing(
       text: draft.editing.text,
     });
     const saved = await out(undefined, [op], undefined, false);
-    savingDrafts.current.delete(id);
     if (!saved) {
+      savingDrafts.current.delete(id);
       noticeRef.current(strings.blockEdit.notApplied);
       return;
     }
-    const latest = latestDrafts.current.get(id)?.editing ?? draft.editing;
-    removeDraft(id);
+    let latest = latestDrafts.current.get(id)?.editing ?? draft.editing;
+    while (true) {
+      if (latest.text !== draft.editing.text && recovery) {
+        recovery.remember(newId, undefined, draft.editing.text, latest.text);
+        if (!(await recovery.waitForStorage())) {
+          savingDrafts.current.delete(id);
+          noticeRef.current(strings.blockEdit.notApplied);
+          return;
+        }
+      }
+      const current = latestDrafts.current.get(id)?.editing ?? latest;
+      if (current.text !== latest.text) {
+        latest = current;
+        continue;
+      }
+      if (await removeDraft(id)) break;
+      const changed = latestDrafts.current.get(id)?.editing;
+      if (!changed || changed.text === latest.text) {
+        savingDrafts.current.delete(id);
+        noticeRef.current(strings.blockEdit.notApplied);
+        return;
+      }
+      latest = changed;
+    }
+    latest = latestDrafts.current.get(id)?.editing ?? latest;
+    savingDrafts.current.delete(id);
     arriving.current = newId;
     const replacement = new BlockTextSync(newId, draft.editing.text);
     replacement.typed(latest.text);
     open(replacement, latest.caret);
     if (replacement.pending) flush();
   };
-  const discardDraft = (id: string) => {
+  const discardDraft = async (id: string) => {
     if (savingDrafts.current.has(id)) return;
+    savingDrafts.current.add(id);
+    if (!(await removeDraft(id))) {
+      savingDrafts.current.delete(id);
+      noticeRef.current(strings.blockEdit.notApplied);
+      return;
+    }
+    savingDrafts.current.delete(id);
     const siblings = drawTree.flat();
     const index = siblings.findIndex((block) => block.id === id);
     const next = [...siblings.slice(index + 1), ...siblings.slice(0, index).reverse()].find(
       (block) => tree.visible(block.id),
     );
-    removeDraft(id);
     if (next) setSelection(selectBlock(next.id));
     else
       requestAnimationFrame(() =>
