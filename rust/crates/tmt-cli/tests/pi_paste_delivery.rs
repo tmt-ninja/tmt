@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::{
     ffi::OsStr,
     fs,
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
@@ -266,6 +267,113 @@ impl Drop for PrivateTmux {
         }
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn tmux_command_target_verifies_cwd_and_refuses_a_changed_pane_before_launch() {
+    let tmux = PrivateTmux::new("cmd");
+    let bound = tmux.tmt_json(&["add", &tmux.pane_id, "command-target", "--json"]);
+    let identity = &bound["id"];
+    let request = |op: &str, data: Value| {
+        let mut command = support::command(&tmux.root, &["api", "--session"]);
+        tmux.tmt_env(&mut command);
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let envelope = serde_json::json!({"version":1,"operation":op,"input":data});
+        writeln!(stdin, "{envelope}").unwrap();
+        let mut response = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut response)
+            .unwrap();
+        drop(stdin);
+        assert!(child.wait().unwrap().success());
+        serde_json::from_str::<Value>(&response).unwrap_or_else(|_| panic!("{response:?}"))
+    };
+    let observed = request(
+        "terminal.command.target",
+        serde_json::json!({"identityId":identity}),
+    );
+    assert!(observed["paneIncarnation"].is_string(), "{observed}");
+    assert!(observed["bindingId"].is_string(), "{observed}");
+    let cwd = tmux.root.canonicalize().unwrap();
+    assert_eq!(
+        Path::new(observed["cwd"].as_str().unwrap())
+            .canonicalize()
+            .unwrap(),
+        cwd
+    );
+    let target = serde_json::json!({"kind":"member", "identityId":identity,
+        "cwd":observed["cwd"], "bindingId":observed["bindingId"],
+        "paneIncarnation":observed["paneIncarnation"]});
+    let run = |command: &str| {
+        request(
+            "terminal.command.run",
+            serde_json::json!({"target":target,"command":command}),
+        )
+    };
+    let output = run("pwd");
+    assert_eq!(output["exitCode"], 0, "{output}");
+    assert_eq!(
+        Path::new(output["stdout"].as_str().unwrap().trim())
+            .canonicalize()
+            .unwrap(),
+        cwd
+    );
+
+    let changed = cwd.join("changed-directory");
+    fs::create_dir(&changed).unwrap();
+    let change = format!("cd {}", quote(changed.to_str().unwrap()));
+    assert!(
+        tmux.tmux(&["send-keys", "-t", &tmux.pane_id, &change, "Enter"])
+            .status
+            .success()
+    );
+    wait_until("the bound pane is in the changed directory", || {
+        let output = tmux.tmux(&[
+            "display-message",
+            "-t",
+            &tmux.pane_id,
+            "-p",
+            "#{pane_current_path}",
+        ]);
+        output.status.success()
+            && String::from_utf8_lossy(&output.stdout).trim() == changed.to_str().unwrap()
+    });
+    let marker = cwd.join("command-started");
+    let command = format!("printf started > {}", quote(marker.to_str().unwrap()));
+    let refused = run(&command);
+    assert_eq!(
+        refused["error"]["code"], "TERMINAL_COMMAND_TARGET_CHANGED",
+        "{refused}"
+    );
+    assert!(!marker.exists());
+
+    assert!(
+        tmux.tmux(&[
+            "respawn-pane",
+            "-k",
+            "-t",
+            &tmux.pane_id,
+            "-c",
+            cwd.to_str().unwrap(),
+            "/bin/sh"
+        ])
+        .status
+        .success()
+    );
+    let pane = tmux.tmux(&["display-message", "-t", &tmux.pane_id, "-p", "#{pane_id}"]);
+    assert!(pane.status.success());
+    assert_eq!(String::from_utf8_lossy(&pane.stdout).trim(), tmux.pane_id);
+    let refused = run(&command);
+    assert_eq!(
+        refused["error"]["code"], "SHELL_RUN_UNAVAILABLE",
+        "{refused}"
+    );
+    assert!(!marker.exists());
 }
 
 #[test]

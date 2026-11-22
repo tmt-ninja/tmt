@@ -68,6 +68,48 @@ fn lines(path: PathBuf) -> Vec<String> {
 }
 
 #[test]
+fn standalone_stop_reports_the_cancellation_frame_only_after_clean_exit() {
+    let receipt = r#"printf '%s\n' '{"error":{"code":"SHELL_RUN_CANCELLED","message":"Shell cancelled; its process group was terminated and reaped."}}'"#;
+    for (tail, expected) in [
+        (format!("{receipt}; exit 0"), "SHELL_RUN_CANCELLED"),
+        (format!("{receipt}; exit 7"), "SQUAD_CORE_UNAVAILABLE"),
+        ("exit 0".into(), "SQUAD_CORE_UNAVAILABLE"),
+    ] {
+        let fixture = Fixture::new();
+        let executable = fixture.0.join("tmt");
+        crate::test_support::write_ready_executable(
+            &executable,
+            &format!(
+                "#!/bin/sh\ncd '{}'\nIFS= read -r request\nprintf '%s\\n' \"$request\" > requests\nprintf ready > admitted\ncat >> requests\n{tail}\n",
+                fixture.0.display(),
+            ),
+        );
+        let core = Core::at(executable);
+        let stopped = std::sync::atomic::AtomicBool::new(false);
+        let error = std::thread::scope(|scope| {
+            let running = scope.spawn(|| {
+                core.standalone_session(&stopped)
+                    .unwrap()
+                    .run(json!({"command":"sleep 60"}), &stopped)
+                    .unwrap_err()
+            });
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !fixture.0.join("admitted").exists() {
+                assert!(Instant::now() < deadline, "command was never admitted");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            stopped.store(true, Ordering::Release);
+            running.join().unwrap()
+        });
+        assert_eq!(error.code, expected, "{}", error.message);
+        let requests = lines(fixture.0.join("requests"));
+        assert_eq!(requests.len(), 1, "Stop must never replay the request");
+        let request: Value = serde_json::from_str(&requests[0]).unwrap();
+        assert_eq!(request["operation"], "terminal.command.run");
+    }
+}
+
+#[test]
 fn board_sessions_preserve_attribution_and_close_at_last_owner() {
     let fixture = Fixture::new();
     let core = session_fixture(&fixture);
