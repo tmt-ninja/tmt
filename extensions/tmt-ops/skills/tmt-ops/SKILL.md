@@ -505,11 +505,11 @@ keeps the mark and words. The top bar shows your global unread count beside
 waiting. `N+` is a lower bound from the 50-answer page, not an all-history
 count; zero observed unread never invents an unread state. Only answer body rows
 actually visible in the focused conversation are acknowledged in Core. Opening a
-conversation or jumping with `z` does not mark offscreen answers read. Clicking any
-`● N unread` or pressing `u` opens the Unread overlay: the unread answers of that
-agent, squad or pool (everyone for the top bar, or for `u` with nothing selected),
-grouped by agent, oldest first, with unread and read counts. The reader fills the board
-body with a list and selected answer detail side by side; ↑↓ choose, → moves ↑↓ and
+conversation or jumping with `z` does not mark offscreen answers read. Open Unread with `u` or click
+`● N unread` in the top bar, an Agents row's STATE, or the member header.
+Unread shows the agent, squad or pool (everyone from the top bar or with no
+selection). The list groups answers by agent, oldest first, with read and unread
+counts. List and detail sit side by side. ↑↓ choose, → moves ↑↓ and
 PgUp/PgDn into the detail and ← back to the list. Below 100
 columns it opens with the list only; Enter opens detail and ← returns to the list. Esc
 closes Unread on the screen it is on, and the same scope reopens there; Tab does nothing. Only the selected
