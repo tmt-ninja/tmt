@@ -10,9 +10,7 @@ pub(in crate::board) fn oldest(row: &Value) -> Option<&Value> {
 }
 
 pub(in crate::board) fn text(row: &Value) -> Option<&str> {
-    row["pending"]
-        .as_str()
-        .or_else(|| oldest(row)?["preview"].as_str())
+    oldest(row)?["preview"].as_str()
 }
 
 /// Shared viewport for every message composer. Paint and pointer use the same
@@ -216,7 +214,7 @@ pub(in crate::board) fn inline_prompt(
             .take(usize::from(content.height))
             .enumerate()
         {
-            if field == Some(2) && focus == 2 {
+            if field == Some(1) && focus == 1 {
                 let row = Rect {
                     y: content.y + index as u16,
                     height: 1,

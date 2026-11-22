@@ -387,7 +387,7 @@ fn status_reason_uses_completion_without_applying_status_or_changing_actor() {
     app.attach_row(send, "product".into());
     app.input.as_mut().unwrap().compose = Compose::Status;
     app.start_status();
-    app.status_draft.as_mut().unwrap().focus = 2;
+    app.status_draft.as_mut().unwrap().focus = 1;
     for ch in "tmt/docs".chars() {
         assert_eq!(key(&mut app, KeyCode::Char(ch)), Effect::None);
     }
@@ -463,7 +463,7 @@ fn message_surface(name: &str) -> App {
             app.attach_row(send, "product".into());
             app.input.as_mut().unwrap().compose = Compose::Status;
             app.start_status();
-            app.status_draft.as_mut().unwrap().focus = 2;
+            app.status_draft.as_mut().unwrap().focus = 1;
         }
         "cron" => {
             use crate::board::cronboard::{detail_id, test_cron, test_view};

@@ -457,11 +457,6 @@ impl Layout {
             Self::Minimal => &[],
         }
     }
-
-    /// Crew and team sort rows that owe the user a decision (`pending`) first.
-    pub fn pending_first(self) -> bool {
-        matches!(self, Self::Crew | Self::Team)
-    }
 }
 
 /// Default team settings, expressed in the same configuration grammar as overrides.
@@ -472,14 +467,13 @@ token_rate = { enabled = true }
 columns = [
     { name = "member", width = "22%", min = 12, max = 24 },
     { name = "state", width = "14%", min = 9, max = 10 },
-    { name = "task", grow = 1, min = 20 },
     { name = "pr", width = "24%", min = 12, max = 28, priority = 6 },
     { name = "model", from = "session.model", max = 8, priority = 2 },
     { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 1 },
     { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 8 },
     { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 9 },
 ]
-lines = [["member", "state", "task", "pr", "model", "tok_1", "tok_2", "tok_3"], ["", "", { field = "pending", span = 6, token = "waiting" }]]
+lines = [["member", "state", "pr", "model", "tok_1", "tok_2", "tok_3"]]
 [team.fields.pr]
 preset = "github-pr"
 every = "60s"
@@ -493,14 +487,13 @@ const CREW: &str = r#"
 columns = [
     { name = "member", width = 14 },
     { name = "state", width = 10 },
-    { name = "task", grow = 1, min = 20 },
     { name = "pr_link", title = "PR", width = 12, priority = 6 },
     { name = "model", from = "session.model", max = 8, priority = 2 },
     { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 1 },
     { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 8 },
     { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 9 },
 ]
-lines = [["member", "state", "task", "pr_link", "model", "tok_1", "tok_2", "tok_3"]]
+lines = [["member", "state", "pr_link", "model", "tok_1", "tok_2", "tok_3"]]
 "#;
 
 fn crew() -> &'static DocumentMut {
@@ -3791,9 +3784,7 @@ sort = ["state", "-name"]
                 .iter()
                 .map(|c| c.field.as_str())
                 .collect::<Vec<_>>(),
-            [
-                "member", "state", "task", "pr", "model", "tok_1", "tok_2", "tok_3"
-            ]
+            ["member", "state", "pr", "model", "tok_1", "tok_2", "tok_3"]
         );
         let columns = config.rows("product").unwrap().columns;
         assert_eq!(
@@ -3932,7 +3923,7 @@ sort = ["state", "-name"]
         for layout in ["crew", "pr-queue", "minimal"] {
             let config = read(&format!("[squad.x]\nlayout = \"{layout}\"\n"));
             if layout == "crew" {
-                assert_eq!(config.rows("x").unwrap().columns.len(), 8);
+                assert_eq!(config.rows("x").unwrap().columns.len(), 7);
             } else {
                 assert_eq!(config.rows("x").unwrap(), previous_rows);
             }
@@ -3961,22 +3952,16 @@ sort = ["state", "-name"]
             config.states("x", layout).unwrap(),
             default.states("x", Layout::Crew).unwrap()
         );
-        assert!(layout.pending_first());
         let rows = config.rows("x").unwrap();
         assert_eq!(
             rows.fields(),
-            [
-                "member", "state", "task", "pr", "model", "tok_1", "tok_2", "tok_3", "pending"
-            ]
+            ["member", "state", "pr", "model", "tok_1", "tok_2", "tok_3"]
         );
-        assert_eq!(rows.columns[4].from.as_ref().unwrap().path, "session.model");
+        assert_eq!(rows.columns[3].from.as_ref().unwrap().path, "session.model");
         assert!(
             !rows.reads_metadata(),
             "model uses the existing presence projection"
         );
-        assert_eq!(rows.lines[1][2].field.as_deref(), Some("pending"));
-        assert_eq!(rows.lines[1][2].span, 6);
-        assert_eq!(rows.lines[1][2].token, Some(tmt_cli_style::Role::Waiting));
         assert_eq!(config.providers("x").unwrap()[0].name, "pr");
         assert_eq!(
             config.providers("x").unwrap()[0].every(),
@@ -4632,11 +4617,11 @@ filter = "not pending"
             for selected in 0..3 {
                 rows.select_window(selected);
                 let metadata = rows.value();
-                assert_eq!(metadata["columns"][2]["min"], 20);
-                let priorities: Vec<_> = rows.columns[5..]
+                let priorities: Vec<_> = rows.columns[4..]
                     .iter()
                     .map(|column| column.priority.unwrap())
                     .collect();
+                assert_eq!(priorities.len(), 3);
                 assert_eq!(
                     priorities[selected],
                     *priorities.iter().min().unwrap(),
@@ -4665,16 +4650,15 @@ filter = "not pending"
             for selected in 0..3 {
                 rows.select_window(selected);
                 let metadata = rows.value();
-                assert_eq!(metadata["columns"][4]["from"], "session.model");
-                assert_eq!(metadata["columns"][4]["max"], 8);
-                assert_eq!(metadata["columns"][2]["min"], 20);
-                assert_eq!(metadata["columns"][5 + selected]["priority"], 1);
+                assert_eq!(metadata["columns"][3]["from"], "session.model");
+                assert_eq!(metadata["columns"][3]["max"], 8);
+                assert_eq!(metadata["columns"][4 + selected]["priority"], 1);
                 assert_eq!(
-                    metadata["columns"][5 + selected]["from"],
+                    metadata["columns"][4 + selected]["from"],
                     format!("usage.w{}", selected + 1)
                 );
                 assert_eq!(
-                    metadata["columns"][3]["field"],
+                    metadata["columns"][2]["field"],
                     if layout == "crew" { "pr_link" } else { "pr" }
                 );
             }
@@ -4722,7 +4706,7 @@ filter = "not pending"
         );
         assert_eq!(source, "board.tok");
         assert_eq!(
-            config.rows("other").unwrap().columns[5..]
+            config.rows("other").unwrap().columns[4..]
                 .iter()
                 .map(|column| column.title.as_str())
                 .collect::<Vec<_>>(),

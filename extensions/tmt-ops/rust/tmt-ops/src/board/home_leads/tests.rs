@@ -219,7 +219,7 @@ fn questions_precede_newer_exchanges_and_the_longest_wait_comes_first() {
     newer.row["waitingOnYou"] =
         json!([{"requestId":"newer","preparedAtMs":30,"preview":"newer ask"}]);
     let mut pending = lead("p", "undated-question");
-    pending.row["pending"] = json!("undated ask");
+    pending.row["waitingOnYou"] = json!([{"requestId":"undated","preview":"undated ask"}]);
     // The HOME mark follows the selected exchange, not every decision in the
     // source row: a newer reply can be selected over an older incoming ask.
     let mut replied = lead("r", "reply");
@@ -264,7 +264,8 @@ fn exchanges_sort_before_empty_leads_through_read_reconcile_and_replace() {
     question.row["waitingOnYou"] =
         json!([{"requestId":"question","preparedAtMs":50,"preview":"question"}]);
     let mut pending = lead("d", "pending");
-    pending.row["pending"] = json!("decision without a request timestamp");
+    pending.row["waitingOnYou"] =
+        json!([{"requestId":"undated","preview":"decision without a request timestamp"}]);
     let input = vec![
         lead("a", "empty"),
         pending,
@@ -440,10 +441,7 @@ fn withdrawn_history_never_replaces_an_open_ask_or_recipient_final() {
     }
     let mut manual = one;
     manual.row["pending"] = json!("independent decision");
-    let selected = latest(&manual, "me", &[], &[withdrawn], 100).unwrap();
-    assert_eq!(selected.kind, Kind::Question);
-    assert_eq!(selected.request, None);
-    assert_eq!(selected.preview, "independent decision");
+    assert!(latest(&manual, "me", &[], &[withdrawn], 100).is_none());
     assert_eq!(
         history, original,
         "HOME projections do not change Core history"

@@ -298,7 +298,7 @@ fn acquired_squad_counts_deduplicate_authored_rows_and_keep_distinct_memberships
     let acquired = f.acquired(&[("a", a), ("b", document("b", Value::Null, vec![waiting]))]);
     let home = model(&["a".into(), "b".into()], &acquired);
     assert_eq!(home.summary.members, 4);
-    assert_eq!(home.summary.waiting, 3);
+    assert_eq!(home.summary.waiting, 2);
     assert_eq!(home.summary.blocked, 3);
     assert_eq!(home.squads[0].squad, "a");
     assert_eq!(home.squads[1].squad, "b");
@@ -594,7 +594,7 @@ pub(in crate::board) mod oracle;
 fn aggregate_state_counts_preserve_public_attention_semantics_including_the_lead() {
     let fixture = Fixture::new("");
     let mut lead = row("L", "lead", "blocked");
-    lead["pending"] = json!("lead decision");
+    lead["waitingOnYou"] = json!([{"requestId":"lead-question"}]);
     let mut waiting = row("W", "waiting", "blocked");
     waiting["waitingOnYou"] = json!([{"requestId":"q"}]);
     let acquired = fixture.acquired(&[(

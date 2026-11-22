@@ -15,7 +15,6 @@ pub(super) enum Action {
 pub(super) struct Draft {
     pub target: Option<Target>,
     pub preview: Option<Preview>,
-    pub clear_pending: bool,
     pub replace_state: bool,
     pub state: tmt_tui::components::Editor,
     pub reason: tmt_tui::components::Editor,
@@ -26,7 +25,7 @@ pub(super) struct Draft {
 }
 impl Draft {
     pub(super) fn editable_reason(&self) -> bool {
-        self.focus == 2
+        self.focus == 1
             && !matches!(
                 self.outcome,
                 Some(Outcome::Applied { .. } | Outcome::Unknown(_))
@@ -46,7 +45,6 @@ impl Draft {
         match &outcome {
             Outcome::Conflict(result) => {
                 self.preview = None;
-                self.clear_pending = false;
                 self.replace_state = false;
                 self.focus = 0;
                 self.scroll = None;
@@ -160,12 +158,12 @@ impl App {
         if applied {
             match key.code {
                 KeyCode::Up => draft.focus = draft.focus.saturating_sub(1),
-                KeyCode::Down => draft.focus = (draft.focus + 1).min(3),
-                KeyCode::End => draft.focus = 3,
+                KeyCode::Down => draft.focus = (draft.focus + 1).min(2),
+                KeyCode::End => draft.focus = 2,
                 _ => {}
             }
             if key.code == KeyCode::Enter
-                && draft.focus == 3
+                && draft.focus == 2
                 && let Some(Outcome::Applied {
                     intent,
                     notification: Err(_),
@@ -181,14 +179,14 @@ impl App {
             }
             return Effect::None;
         }
-        if draft.focus == 2
+        if draft.focus == 1
             && (key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::SHIFT)
                 || key.code == KeyCode::Char('n') && key.modifiers.contains(KeyModifiers::CONTROL))
         {
             draft.reason.insert("\n", super::app::INPUT_LIMIT);
             return Effect::None;
         }
-        if draft.focus == 2
+        if draft.focus == 1
             && !matches!(
                 key.code,
                 KeyCode::Up | KeyCode::Down | KeyCode::Enter | KeyCode::Tab
@@ -198,7 +196,7 @@ impl App {
             draft.reason.key(key, width, super::app::INPUT_LIMIT);
             return Effect::None;
         }
-        if draft.focus == 1
+        if draft.focus == 0
             && !matches!(
                 key.code,
                 KeyCode::Up
@@ -212,7 +210,7 @@ impl App {
             draft.state.key(key, u16::MAX, super::app::INPUT_LIMIT);
             return Effect::None;
         }
-        let max = 3 + usize::from(!open.is_empty());
+        let max = 2 + usize::from(!open.is_empty());
         match key.code {
             KeyCode::Up => {
                 draft.focus = draft.focus.saturating_sub(1);
@@ -225,21 +223,19 @@ impl App {
             KeyCode::PageUp => draft.scroll = Some(draft.scroll.unwrap_or(0).saturating_sub(5)),
             KeyCode::PageDown => draft.scroll = Some(draft.scroll.unwrap_or(0).saturating_add(5)),
             KeyCode::Enter => match draft.focus {
-                0 => draft.clear_pending = !draft.clear_pending,
-                1 => draft.replace_state = !draft.replace_state,
-                2 => {}
-                3 => {
+                0 => draft.replace_state = !draft.replace_state,
+                1 => {}
+                2 => {
                     let Some(preview) = &draft.preview else {
                         return Effect::None;
                     };
                     return Effect::Act(Request::Status(Box::new(Action::Apply(Submit {
                         preview: preview.clone(),
-                        clear_pending: draft.clear_pending,
                         state: draft.replace_state.then(|| draft.state.to_string()),
                         reason: draft.reason.as_str().to_owned(),
                     }))));
                 }
-                4 if !open.is_empty() => {
+                3 if !open.is_empty() => {
                     let Some(send) = self.input.as_ref().and_then(|input| input.row_send.clone())
                     else {
                         return Effect::None;
@@ -267,58 +263,38 @@ pub(super) fn lines(app: &App, width: u16) -> Vec<(Option<usize>, String)> {
         return vec![(None, "Loading raw metadata…".into())];
     };
     if let Some(preview) = &draft.preview {
-        for (focus, label, old, next) in [
-            (
-                0,
-                format!(
-                    "[{}] Clear pending",
-                    if draft.clear_pending { "x" } else { " " }
-                ),
-                &preview.pending,
-                if draft.clear_pending {
-                    "(empty)".into()
+        let label = format!(
+            "[{}] Replace state: {}{}{}",
+            if draft.replace_state { "x" } else { " " },
+            &draft.state[..draft.state.cursor()],
+            if draft.focus == 0 { "▏" } else { "" },
+            &draft.state[draft.state.cursor()..]
+        );
+        let next = if draft.replace_state {
+            format!("{:?}", draft.state.as_str())
+        } else {
+            "(unchanged)".into()
+        };
+        let old = preview.state.as_ref().map_or_else(
+            || "(absent)".into(),
+            |value| {
+                if status_update::valid_value(value) {
+                    format!("{value:?}")
                 } else {
-                    "(unchanged)".into()
-                },
-            ),
-            (
-                1,
-                format!(
-                    "[{}] Replace state: {}{}{}",
-                    if draft.replace_state { "x" } else { " " },
-                    &draft.state[..draft.state.cursor()],
-                    if draft.focus == 1 { "▏" } else { "" },
-                    &draft.state[draft.state.cursor()..]
-                ),
-                &preview.state,
-                if draft.replace_state {
-                    format!("{:?}", draft.state.as_str())
-                } else {
-                    "(unchanged)".into()
-                },
-            ),
-        ] {
-            let old = old.as_ref().map_or_else(
-                || "(absent)".into(),
-                |value| {
-                    if status_update::valid_value(value) {
-                        format!("{value:?}")
-                    } else {
-                        format!("{value:?} (unsupported value)")
-                    }
-                },
-            );
-            lines.push((Some(focus), label));
-            if width >= tmt_cli_style::breakpoint::LG.cells {
-                lines.push((Some(focus), format!("  Old: {old} → New: {next}")));
-            } else {
-                lines.push((Some(focus), format!("  Old: {old}")));
-                lines.push((Some(focus), format!("  New: {next}")));
-            }
+                    format!("{value:?} (unsupported value)")
+                }
+            },
+        );
+        lines.push((Some(0), label));
+        if width >= tmt_cli_style::breakpoint::LG.cells {
+            lines.push((Some(0), format!("  Old: {old} → New: {next}")));
+        } else {
+            lines.push((Some(0), format!("  Old: {old}")));
+            lines.push((Some(0), format!("  New: {next}")));
         }
         lines.push((
-            Some(2),
-            if draft.focus == 2 {
+            Some(1),
+            if draft.focus == 1 {
                 "Reason:".into()
             } else {
                 format!("Reason: {}", draft.reason)
@@ -334,7 +310,7 @@ pub(super) fn lines(app: &App, width: u16) -> Vec<(Option<usize>, String)> {
             Some(Outcome::Unknown(_)) => "Outcome unknown — reopen only after inspecting metadata",
             _ => "Apply and notify",
         };
-        lines.push((Some(3), button.into()));
+        lines.push((Some(2), button.into()));
     } else if draft.error.is_none() {
         lines.push((None, "Loading raw metadata…".into()));
     }
@@ -356,7 +332,7 @@ pub(super) fn lines(app: &App, width: u16) -> Vec<(Option<usize>, String)> {
         ));
         if open.is_some_and(|open| !open.is_empty()) {
             lines.push((
-                Some(4),
+                Some(3),
                 "Message member (Core settles the oldest on direct delivery)".into(),
             ));
         } else {
@@ -422,10 +398,9 @@ mod tests {
             target,
             room: ROOM.into(),
             namespace: "squad.product.".into(),
-            keys: ["squad.product.pending".into(), "squad.product.state".into()],
+            key: "squad.product.state".into(),
             name: "auth-fix".into(),
             actor_name: "Ben".into(),
-            pending: Some(" exact raw pending ".into()),
             state: Some("blocked".into()),
         };
         app.status_draft
@@ -439,7 +414,7 @@ mod tests {
         let mut app = app();
         ready(&mut app);
         let draft = app.status_draft.as_mut().unwrap();
-        draft.focus = 1;
+        draft.focus = 0;
         draft.state = "one 你我".into();
         app.key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
         app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
@@ -447,7 +422,7 @@ mod tests {
         app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
         assert_eq!(app.status_draft.as_ref().unwrap().state.cursor(), 0);
         let draft = app.status_draft.as_mut().unwrap();
-        draft.focus = 2;
+        draft.focus = 1;
         draft.reason = "one two".into();
         app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
         assert_eq!(app.status_draft.as_ref().unwrap().reason.as_str(), "one ");
@@ -458,7 +433,7 @@ mod tests {
     fn status_reason_accepts_portable_and_distinct_newlines_without_submitting() {
         let mut app = app();
         ready(&mut app);
-        app.status_draft.as_mut().unwrap().focus = 2;
+        app.status_draft.as_mut().unwrap().focus = 1;
         for (code, modifiers) in [
             (KeyCode::Char('n'), KeyModifiers::CONTROL),
             (KeyCode::Enter, KeyModifiers::SHIFT),
@@ -480,9 +455,11 @@ mod tests {
             "Update status → product / auth-fix"
         );
         let draft = app.status_draft.as_ref().unwrap();
-        assert!(!draft.clear_pending && !draft.replace_state && draft.reason.is_empty());
-        press(&mut app, KeyCode::Enter); // explicit pending choice
-        press(&mut app, KeyCode::Down);
+        assert!(!draft.replace_state && draft.reason.is_empty());
+        for c in "working".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Down);
         for c in "Approved".chars() {
             press(&mut app, KeyCode::Char(c));
@@ -515,12 +492,11 @@ mod tests {
             panic!("must apply chosen fields")
         };
         assert_eq!(submit.preview, opening);
-        assert!(submit.clear_pending);
-        assert_eq!(submit.state, None);
+        assert_eq!(submit.state.as_deref(), Some("working"));
         assert_eq!(submit.reason, "Approved");
         app.status_draft.as_mut().unwrap().reason =
             "x".repeat(super::super::app::INPUT_LIMIT).into();
-        app.status_draft.as_mut().unwrap().focus = 2;
+        app.status_draft.as_mut().unwrap().focus = 1;
         press(&mut app, KeyCode::Char('z'));
         assert_eq!(
             app.status_draft.as_ref().unwrap().reason.chars().count(),
@@ -543,7 +519,7 @@ mod tests {
             app.input.as_ref().unwrap().compose,
             Compose::Status
         ));
-        app.status_draft.as_mut().unwrap().focus = 4;
+        app.status_draft.as_mut().unwrap().focus = 3;
         press(&mut app, KeyCode::Enter);
         assert!(
             matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "auth-fix")
@@ -566,7 +542,7 @@ mod tests {
         let mut preview = ready(&mut app);
         app.finished_status(Outcome::Unknown("unknown".into()));
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-        preview.pending = Some("intervening update".into());
+        preview.state = Some("intervening update".into());
         app.finished_status(Outcome::Conflict(Ok(preview.clone())));
         assert_eq!(
             app.status_draft.as_ref().unwrap().preview.as_ref(),
@@ -581,7 +557,7 @@ mod tests {
                 .unwrap()
                 .contains("submit again")
         );
-        assert!(!app.status_draft.as_ref().unwrap().clear_pending);
+        assert!(!app.status_draft.as_ref().unwrap().replace_state);
         assert_eq!(app.status_draft.as_ref().unwrap().focus, 0);
         assert_eq!(
             press(&mut app, KeyCode::Enter),
@@ -592,17 +568,21 @@ mod tests {
     #[test]
     fn selected_field_values_stack_at_narrow_widths_without_losing_raw_spaces() {
         let mut app = app();
-        ready(&mut app);
+        let mut preview = ready(&mut app);
+        preview.state = Some(" blocked ".into());
+        let draft = app.status_draft.as_mut().unwrap();
+        draft.loaded(Ok(preview));
+        draft.focus = 1;
         for width in [160, 100, 80] {
             let text = lines(&app, width)
                 .into_iter()
                 .map(|(_, line)| line)
                 .collect::<Vec<_>>()
                 .join("\n");
-            assert!(text.contains("\" exact raw pending \""));
+            assert!(!text.contains("Clear pending"));
             assert!(text.contains("Requires a reply"));
             if width < tmt_cli_style::breakpoint::LG.cells {
-                assert!(text.lines().any(|line| line.trim() == "Old: \"blocked\""));
+                assert!(text.lines().any(|line| line.trim() == "Old: \" blocked \""));
                 assert!(text.lines().any(|line| line.trim().starts_with("New:")));
             }
         }
@@ -615,7 +595,7 @@ mod tests {
     fn applied_failure_requires_explicit_retry_selection_and_never_marks_sent() {
         let mut app = app();
         let preview = ready(&mut app);
-        app.status_draft.as_mut().unwrap().focus = 3;
+        app.status_draft.as_mut().unwrap().focus = 2;
         assert!(matches!(press(&mut app, KeyCode::Enter), Effect::Act(_)));
         let intent = crate::send::Intent::new(
             &preview.target.actor,
@@ -754,16 +734,15 @@ mod tests {
             member_row(&mut app)["waitingOnYou"] = json!([{"requestId":"req_11111111-1111-4111-8111-111111111111","preview":"First question with a wrapping preview that remains identifiable"},
                     {"requestId":"req_22222222-2222-4222-8222-222222222222","preview":"Second question"}]);
             let preview = ready(&mut app);
-            assert!(draw(&app, width).contains("› [ ] Clear pending"));
+            assert!(draw(&app, width).contains("› [ ] Replace state"));
             assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-            assert!(draw(&app, width).contains("› [x] Clear pending"));
+            assert!(draw(&app, width).contains("› [x] Replace state"));
             assert_eq!(press(&mut app, KeyCode::Down), Effect::None);
             let text = draw(&app, width);
-            assert!(text.contains("[x] Clear pending") && !text.contains("› [x] Clear pending"));
-            assert!(text.contains("› [ ] Replace state"));
+            assert!(text.contains("[x] Replace state") && !text.contains("› [x] Replace state"));
+            assert!(text.contains("› Reason:"));
             let mut previous = text;
             for label in [
-                "Reason:",
                 "Apply and notify",
                 "Message member (Core settles the oldest on direct delivery)",
             ] {
@@ -776,8 +755,7 @@ mod tests {
                 );
                 previous = text;
             }
-            assert!(app.status_draft.as_ref().unwrap().clear_pending);
-            assert!(!app.status_draft.as_ref().unwrap().replace_state);
+            assert!(app.status_draft.as_ref().unwrap().replace_state);
             let intent = crate::send::Intent::new(
                 &preview.target.actor,
                 vec![crate::send::LeadRecipient {

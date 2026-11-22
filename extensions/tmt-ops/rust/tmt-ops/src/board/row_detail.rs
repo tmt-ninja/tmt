@@ -307,13 +307,8 @@ impl App {
             show_reply: true,
             ..Detail::default()
         };
-        if !visible.contains(&"task") {
-            detail.add("task", row["fields"]["task"].as_str(), Role::Text);
-        }
-        if !visible.contains(&"pending") {
-            let pending = super::view::waiting::text(row).map(|text| format!("◆ {text}"));
-            detail.add("pending", pending.as_deref(), Role::Waiting);
-        }
+        let waiting = super::view::waiting::text(row).map(|text| format!("◆ {text}"));
+        detail.add("waiting on you", waiting.as_deref(), Role::Waiting);
         if !visible.contains(&"note") {
             detail.add(
                 "note",

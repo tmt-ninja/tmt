@@ -266,8 +266,8 @@ mod interaction_tests {
                 .iter()
                 .map(|entry| entry.label.as_str())
                 .collect::<Vec<_>>(),
-            ["Message", "Jump to host", "Show in Agents"],
-            "missing copy fields and an unobserved lead hide those actions"
+            ["Message", "Jump to host", "Copy", "Show in Agents"],
+            "the default name/state copy is available; an unobserved lead hides Note"
         );
         // An outside press closes the menu where it was last painted, never an unseen one.
         Terminal::new(TestBackend::new(60, 24))
@@ -954,7 +954,7 @@ mod named_surface_tests {
         assert!(app.member_links.borrow().hits.is_empty());
         assert!(
             app.member_link_binding(&test_target(), Verb::Copy)
-                .is_none()
+                .is_some()
         );
     }
     #[test]
@@ -1116,25 +1116,14 @@ mod named_surface_tests {
         look: crate::look::Look,
     ) -> (App, Terminal<TestBackend>) {
         let mut app = app();
-        let target = test_target();
         app.view.as_mut().unwrap().look = look;
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         for held in snapshot.squad_looks.values_mut() {
             *held = look;
         }
-        snapshot.rows.get_mut(&target).unwrap()["fields"] =
-            serde_json::json!({"task":"Review night-2 then @night-2; ben builder stay plain"});
         app.overview_rows.borrow_mut().clear();
-        if scene == "task" || scene == "notice" {
+        if scene == "notice" {
             app.shell.tab = crate::board::shell::OpsTab::Agents;
-
-            // The selected squad detail owns the lead's task surface.
-            if scene == "task" {
-                snapshot.roster.squads[0].lead = Some(MEMBER.into());
-                app.workspace.selected =
-                    Some(crate::board::workspace::OpsTarget::Squad(ROOM.into()));
-                app.workspace_reconcile();
-            }
             app.focus = 0;
         } else {
             app.shell.tab = crate::board::shell::OpsTab::Agents;
@@ -1190,9 +1179,9 @@ mod named_surface_tests {
         (app, terminal)
     }
     #[test]
-    fn real_exchange_task_and_notice_surfaces_publish_only_visible_link_cells() {
+    fn real_exchange_and_notice_surfaces_publish_only_visible_link_cells() {
         let _no_commands = crate::runner::forbid_commands();
-        for scene in ["exchange", "task", "notice", "pane-output"] {
+        for scene in ["exchange", "notice", "pane-output"] {
             let (app, terminal) = rendered_scene(scene, 160, crate::look::Look::default());
             let links = app.member_links.borrow();
             assert!(
@@ -1234,7 +1223,7 @@ mod named_surface_tests {
         let output = std::env::var("TMT_MEMBER_NAMES_PACKET").expect("task-owned output path");
         let mut frames = Vec::new();
         crate::status::with_now_ms(1_791_600_000_000, || {
-            for scene in ["exchange", "task", "notice", "pane-output", "menu"] {
+            for scene in ["exchange", "notice", "pane-output", "menu"] {
                 for width in [160, 100, 60] {
                     for (base, depth) in [
                         ("tmt", tmt_cli_style::Depth::TrueColor),
@@ -1261,7 +1250,7 @@ mod named_surface_tests {
                 }
             }
         });
-        assert_eq!(frames.len(), 45);
+        assert_eq!(frames.len(), 36);
         std::fs::write(output, serde_json::to_vec(&frames).unwrap()).unwrap();
     }
     #[test]
@@ -1377,38 +1366,6 @@ mod named_surface_tests {
                 }
             }
         }
-    }
-    #[test]
-    fn squad_detail_mentions_do_not_take_a_same_named_row_title_as_their_geometry() {
-        let (mut app, mut terminal) = rendered_scene("task", 160, crate::look::Look::default());
-        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-        snapshot.roster.members.get_mut(MEMBER).unwrap().name = "night-2".into();
-        snapshot.rows.get_mut(&test_target()).unwrap()["name"] = serde_json::json!("night-2");
-        snapshot.roster.squads[0].name = "night-2".into();
-        app.overview_rows.borrow_mut().clear();
-        terminal
-            .draw(|frame| crate::board::view::render(frame, &app))
-            .unwrap();
-        let row = app
-            .hits
-            .borrow()
-            .iter()
-            .find(|hit| hit.target == crate::board::app::HitTarget::Row(1))
-            .cloned()
-            .unwrap();
-        let links = app.member_links.borrow();
-        let task_links: Vec<_> = links
-            .hits
-            .iter()
-            .filter(|hit| !hit.reader && hit.area.y != row.y)
-            .collect();
-        assert_eq!(task_links.len(), 2);
-        assert!(
-            task_links
-                .iter()
-                .all(|hit| hit.surface.x >= row.x + row.width && hit.area.x >= hit.surface.x),
-            "task links must stay in the squad detail, not the same named row: {task_links:?}"
-        );
     }
 }
 

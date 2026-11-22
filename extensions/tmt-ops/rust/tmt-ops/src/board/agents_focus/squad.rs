@@ -92,39 +92,6 @@ pub(super) fn render(
         }
         *y += 1;
     }
-    rule(frame, app, area, y, "Board", Line::default());
-    for key in ["task", "pending", "next"] {
-        let value = lead
-            .and_then(|row| row["fields"][key].as_str())
-            .filter(|value| !value.is_empty());
-        if *y < area.bottom() {
-            let value_area = key_value::paint_value(
-                frame.buffer_mut(),
-                Rect::new(area.x, *y, area.width, 1),
-                &key_value::Row {
-                    key,
-                    value: value.map_or(
-                        key_value::Value::Unreported("—"),
-                        key_value::Value::Observed,
-                    ),
-                    source: None,
-                },
-                look,
-            );
-            if let Some(value_area) = value_area {
-                if let Some(value) = value {
-                    let value = crate::board::notes::sanitize(value);
-                    crate::board::member_links::paint_plain_hits(
-                        frame, app, value_area, &value, &value, false,
-                    );
-                }
-                if let Some(target) = app.conversation_target() {
-                    crate::board::conversation::source::publish(app, target, value_area);
-                }
-            }
-            *y += 1;
-        }
-    }
     blank(area, y);
     if area.bottom().saturating_sub(*y) < 2 {
         return;
