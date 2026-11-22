@@ -318,8 +318,9 @@ The board opens one `OPS / UI` shell with `1 Agents`, `2 Work`, `3 Digest` and
 progress, or `—` when absent), Squad Pulse, and 2-line work cards. Use `/` to
 search, `p` for project, `d` for the Done period, `c` for recent completions,
 `Space` to collapse or expand the read-only Detail inspector, `Tab` to focus its
-sections, `o` or `Enter` to open the selected page when a link is available, and
-`t` to jump to the bound owner's Talk tab. Press `v` to manage saved views or use
+sections, and `t` to jump to the bound owner's Talk tab. Press `o` or `Enter` to open
+the work item when a link is available. `o` opens the selected section. Press
+`v` to manage saved views or use
 `+ Save` to store the current filter in Ops config (with an optional default on
 open). Project ordering requires Colab 0.1.0-alpha.481 or later. In a selected
 project, `m` opens Move for eligible numbered work. Confirm to change its position.

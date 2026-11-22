@@ -448,7 +448,10 @@ esac
         json!({"pageId": PAGE, "running": true, "link": anchor}).to_string(),
     )
     .unwrap();
-    assert_eq!(open_link(&core, &target), Ok((anchor, true)));
+    assert_eq!(
+        open_link(&core, &target),
+        Ok((anchor, "Opened Colab block."))
+    );
     assert_eq!(fs::read_to_string(&calls).unwrap(), block_call);
 
     fs::write(&calls, "").unwrap();
@@ -460,22 +463,39 @@ esac
     assert_eq!(fs::read_to_string(&calls).unwrap(), block_call);
 
     fs::write(scratch.join("refuse"), "").unwrap();
-    for (code, expected, expected_calls) in [
+    for (code, message, expected, expected_calls) in [
         (
             "COLAB_BLOCK_NOT_FOUND",
+            "Colab refused this block.",
             Err("Colab refused this block.".into()),
             block_call.clone(),
         ),
         (
+            "COLAB_INPUT_INVALID",
+            "The --block ID is invalid.",
+            Err("The --block ID is invalid.".into()),
+            block_call.clone(),
+        ),
+        (
             "COLAB_NOT_STRUCTURED",
-            Ok((page_link.into(), false)),
+            "Colab refused this block.",
+            Ok((page_link.into(), "Opened Colab page.")),
+            format!("{block_call}colab open {PAGE} --json\n"),
+        ),
+        (
+            "COLAB_INPUT_INVALID",
+            "error: unexpected argument '--block' found\n\nUsage: tmt colab open <page>",
+            Ok((
+                page_link.into(),
+                "Opened the page; this Colab cannot open a section",
+            )),
             format!("{block_call}colab open {PAGE} --json\n"),
         ),
     ] {
         fs::write(&calls, "").unwrap();
         fs::write(
             &response,
-            json!({"error":{"code":code,"message":"Colab refused this block."}}).to_string(),
+            json!({"error":{"code":code,"message":message}}).to_string(),
         )
         .unwrap();
         assert_eq!(open_link(&core, &target), expected);

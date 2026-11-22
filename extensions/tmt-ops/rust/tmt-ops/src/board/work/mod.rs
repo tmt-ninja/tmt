@@ -484,34 +484,48 @@ pub(in crate::board) struct OpenTarget {
 }
 
 pub(super) fn open(core: &crate::core::Core, target: &OpenTarget) -> Result<String, String> {
-    let (link, anchored) = open_link(core, target)?;
+    let (link, notice) = open_link(core, target)?;
     crate::effects::open(&link, None)?;
-    Ok(if anchored {
-        "Opened Colab block."
-    } else {
-        "Opened Colab page."
-    }
-    .into())
+    Ok(notice.into())
 }
 
-fn open_link(core: &crate::core::Core, target: &OpenTarget) -> Result<(String, bool), String> {
+fn open_link(
+    core: &crate::core::Core,
+    target: &OpenTarget,
+) -> Result<(String, &'static str), String> {
     let page = target.page.as_str();
     if !super::recent_responses::canonical_identity(page) {
         return Err("The Colab page ID is unavailable.".into());
     }
     let started = Instant::now();
     let page_args = ["colab", "open", page];
-    let (value, block) = if let Some(block) = target.block.as_deref() {
+    let (value, block, notice) = if let Some(block) = target.block.as_deref() {
         let option = format!("--block={block}");
         match core.json_within(&["colab", "open", page, &option], WITHIN) {
             Err(error) if error.code == "COLAB_NOT_STRUCTURED" => (
                 core.json_within(&page_args, WITHIN.saturating_sub(started.elapsed())),
                 None,
+                "Opened Colab page.",
             ),
-            result => (result, Some(block)),
+            Err(error)
+                if error.code == "COLAB_INPUT_INVALID"
+                    && error.message.lines().next()
+                        == Some("error: unexpected argument '--block' found") =>
+            {
+                (
+                    core.json_within(&page_args, WITHIN.saturating_sub(started.elapsed())),
+                    None,
+                    "Opened the page; this Colab cannot open a section",
+                )
+            }
+            result => (result, Some(block), "Opened Colab block."),
         }
     } else {
-        (core.json_within(&page_args, WITHIN), None)
+        (
+            core.json_within(&page_args, WITHIN),
+            None,
+            "Opened Colab page.",
+        )
     };
     let value = value.map_err(|error| super::notes::single_line(&error.message))?;
     if value["pageId"] != page {
@@ -532,7 +546,7 @@ fn open_link(core: &crate::core::Core, target: &OpenTarget) -> Result<(String, b
             return Err("Colab did not confirm the selected block.".into());
         }
     }
-    Ok((link.to_owned(), block.is_some()))
+    Ok((link.to_owned(), notice))
 }
 
 pub(super) fn row_chip(item: &Item, count: usize) -> String {
