@@ -28,7 +28,7 @@ import { usePageAttachmentDownload } from './page-attachment-download.js';
 import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
-import { restorable } from './block-drafts.js';
+import { blockDraftClipboardText, restorable, type BlockDraftStore } from './block-drafts.js';
 import { blockTree } from './block-projection.js';
 import type { BlockRecord } from './block-model.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
@@ -804,18 +804,75 @@ function TerminalFailure({
   );
 }
 
-/** The sentence and the one action of an ended connection, shared by the page card and the drawer row; the row leaves out the failure code. */
+/** Open the kept text only for a trusted Copy action. Pairing again opens a new device store. */
+function EndedDraftCopy({ store, page, blocks }: EndedDraftSource) {
+  const [feedback, setFeedback] = useState('');
+  const scope = useRef<AbortController>(null);
+  useLayoutEffect(() => {
+    const controller = new AbortController();
+    scope.current = controller;
+    setFeedback('');
+    return () => controller.abort();
+  }, [store, page]);
+
+  return (
+    <>
+      <p>{text.blockDraftsBeforePairing}</p>
+      <BrowserAction
+        type="button"
+        variant="secondary"
+        presentation="compact"
+        label={text.copyBlockDrafts}
+        onActivate={async (event) => {
+          if (!event.nativeEvent.isTrusted || !scope.current) return;
+          const { signal } = scope.current;
+          const read = async () => {
+            const drafts = restorable(page, await store.load(page));
+            signal.throwIfAborted();
+            if (!drafts.length) throw new Error('No kept block drafts');
+            return blockDraftClipboardText(drafts, blocks ?? {});
+          };
+          try {
+            if (typeof ClipboardItem === 'function' && navigator.clipboard.write) {
+              // Start the clipboard write in the click. Some browsers require user activation
+              // even though reading and opening the sealed record is asynchronous.
+              const plain = read().then((value) => new Blob([value], { type: 'text/plain' }));
+              void plain.catch(() => {}); // The clipboard may refuse before consuming the data.
+              await navigator.clipboard.write([new ClipboardItem({ 'text/plain': plain })]);
+            } else {
+              await navigator.clipboard.writeText(await read());
+            }
+            if (!signal.aborted) setFeedback(text.blockDraftsCopied);
+          } catch {
+            if (!signal.aborted) setFeedback(text.blockDraftsCopyFailed);
+          }
+        }}
+      />
+      <span role="status">{feedback}</span>
+    </>
+  );
+}
+
+interface EndedDraftSource {
+  store: BlockDraftStore;
+  page: string;
+  blocks: PageView['blocks'];
+}
+
+/** The ended message shared by the page card and the drawer row. The row leaves out the code. */
 function EndedBody({
   error,
   action,
   compact,
   kept,
+  draftCopy,
 }: {
   error: Error;
   action: EndedAction;
   compact?: boolean;
   /** A page of blocks: what was typed while it reconnected stays on this device (#6795). */
   kept?: boolean;
+  draftCopy?: EndedDraftSource;
 }) {
   if (error instanceof SessionEvictedError)
     return <SessionLimitBody limit={error.limit} settingsUrl={error.settingsUrl} />;
@@ -827,6 +884,7 @@ function EndedBody({
       {kept && <p>{text.blockDraftsKept}</p>}
       {action === 'pair' && (
         <>
+          {draftCopy && <EndedDraftCopy {...draftCopy} />}
           <p>{text.pairAgain}</p>
           <BrowserCommand text={text.pairCommand} />
         </>
@@ -2025,31 +2083,46 @@ function OpenPage({
     retryMove,
     runLifecycle,
   } = usePageWorkflow(transport, snapshot, view, space);
-  // An ended or archived page of blocks says when it still holds typing for this device to offer
-  // (#6795). A device paired again is a new device (#6796), and a page that is gone takes no text:
-  // neither says so.
-  const keepsDrafts =
-    view.pageType === 'blocks' &&
-    (endedError ? endedAction === 'reload' || endedAction === 'none' : !!archived);
-  const draftStore = keepsDrafts ? transport.blockDrafts : undefined;
-  const [draftsHeld, setDraftsHeld] = useState<{ page: string; kept: boolean }>();
+  // A new pairing cannot reopen this device's drafts (#6796), but the current page can still
+  // offer their text to copy. For a gone page there is no draft action.
+  const draftStore =
+    view.pageType === 'blocks' && (endedError ? endedAction !== 'pages' : archived)
+      ? transport.blockDrafts
+      : undefined;
+  const [draftsHeld, setDraftsHeld] = useState<{
+    store: BlockDraftStore;
+    page: string;
+    kept: boolean;
+  }>();
   useEffect(() => {
     if (!draftStore) return;
     setDraftsHeld(undefined);
-    let active = true;
-    const settle = (kept: boolean) => active && setDraftsHeld({ page: snapshot.id, kept });
-    void draftStore.load(snapshot.id).then(
-      (drafts) => settle(restorable(snapshot.id, drafts).length > 0),
-      () => settle(false),
-    );
-    return () => {
-      active = false;
+    let request = 0;
+    const check = () => {
+      const latest = ++request;
+      const settle = (kept: boolean) =>
+        latest === request && setDraftsHeld({ store: draftStore, page: snapshot.id, kept });
+      void draftStore.load(snapshot.id).then(
+        (drafts) => settle(restorable(snapshot.id, drafts).length > 0),
+        () => settle(false),
+      );
     };
-  }, [draftStore, snapshot.id]);
+    if (endedAction === 'pair') window.addEventListener('colab:block-draft-durable', check);
+    check();
+    return () => {
+      request++;
+      window.removeEventListener('colab:block-draft-durable', check);
+    };
+  }, [draftStore, endedAction, snapshot.id]);
   // The archived banner waits for the answer, so its kept sentence never arrives later and moves
   // the page.
-  const keptKnown = !draftStore || draftsHeld?.page === snapshot.id;
-  const keptDrafts = !!draftStore && draftsHeld?.page === snapshot.id && draftsHeld.kept;
+  const sameDrafts = draftsHeld?.store === draftStore && draftsHeld?.page === snapshot.id;
+  const keptKnown = !draftStore || sameDrafts;
+  const keptDrafts = endedAction !== 'pair' && sameDrafts && draftsHeld.kept;
+  const draftCopy =
+    endedAction === 'pair' && draftStore && sameDrafts && draftsHeld.kept
+      ? { store: draftStore, page: snapshot.id, blocks: view.blocks }
+      : undefined;
   useEffect(() => {
     sourceDraft.adoptSnapshot(snapshot);
     setView({
@@ -2928,7 +3001,13 @@ function OpenPage({
         <span aria-hidden="true">{endedPresentation?.state === 'inactive' ? '○ ' : '✗ '}</span>
         {text.blocked}
       </span>
-      <EndedBody error={endedError} action={endedAction} compact kept={keptDrafts} />
+      <EndedBody
+        error={endedError}
+        action={endedAction}
+        compact
+        kept={keptDrafts}
+        draftCopy={draftCopy}
+      />
       <EndedLink action={endedAction} />
     </div>
   );
@@ -3860,7 +3939,12 @@ function OpenPage({
               }
             >
               {endedError ? (
-                <EndedBody error={endedError} action={endedAction} kept={keptDrafts} />
+                <EndedBody
+                  error={endedError}
+                  action={endedAction}
+                  kept={keptDrafts}
+                  draftCopy={draftCopy}
+                />
               ) : (
                 <>
                   <p>{state === 'navigation' ? text.navigation : text.failed}</p>

@@ -16,11 +16,89 @@ async function mount(page: Page) {
   });
   await expect(app(page).getByRole('link', { name: 'Alpha plan' })).toBeVisible();
 }
+
+const draftValue = 'Retry this draft exactly.\n\nTrailing space: ';
+const copyLabel = 'Copy draft text';
+const pairingDisclosure =
+  'Pairing this browser again will not bring back what you typed on this page.';
+const draftKept =
+  'What you typed on this page is kept on this device and offered when the page opens again.';
+
+async function endDraftPage(
+  page: Page,
+  mode: 'readable' | 'unreadable' | 'empty',
+  code = 'REMOTE_DEVICE_REVOKED',
+) {
+  await page.goto('/');
+  await page.evaluate(
+    async (draft) => {
+      const path = '/test/page-reentry-browser.tsx';
+      await (await import(/* @vite-ignore */ path)).mount(draft);
+    },
+    { mode, value: draftValue },
+  );
+  await app(page).getByRole('link', { name: 'Alpha plan' }).click();
+  await page.waitForFunction(() => typeof window.endDraftPage === 'function');
+  await page.evaluate((reason) => window.endDraftPage?.(reason), code);
+  await expect(app(page).getByRole('heading', { name: 'Preview stopped' })).toBeVisible();
+}
 const app = (page: Page) => page.locator('#reentry-fixture');
+const endedCard = (page: Page) => app(page).locator('.notice-card');
 const failure = (page: Page) => app(page).getByTestId('page-open-failure');
 const retry = (page: Page) => app(page).getByRole('button', { name: 'Retry' });
 const body = (page: Page) =>
   page.frameLocator('#reentry-fixture iframe').getByText('Body of Alpha plan.');
+
+test('a pairing end offers the kept block text on Copy only', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/');
+  await page.evaluate(() => navigator.clipboard.writeText('Before Copy'));
+  await endDraftPage(page, 'readable');
+  const card = endedCard(page);
+  await expect(card.getByText(pairingDisclosure, { exact: false })).toBeVisible();
+  await expect(app(page)).not.toContainText(draftValue.trim());
+  await expect(app(page)).not.toContainText(draftKept);
+  const sealed = await page.evaluate(() => window.fixtureSealedDraft?.());
+  expect(sealed?.ciphertext).toBeTruthy();
+  const copy = card.getByRole('button', { name: copyLabel });
+  await copy.dispatchEvent('click');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Before Copy');
+  await copy.click();
+  await expect(card.getByText('Draft text copied.', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(draftValue);
+  expect(await page.evaluate(() => window.fixtureSealedDraft?.())).toEqual(sealed);
+});
+
+for (const mode of ['unreadable', 'empty'] as const)
+  test(`a pairing end offers no copy with an ${mode} draft store`, async ({ page }) => {
+    await endDraftPage(page, mode);
+    await page.evaluate(() => window.draftProbe);
+    await expect(app(page).getByRole('button', { name: copyLabel })).toHaveCount(0);
+    await expect(app(page)).not.toContainText(pairingDisclosure);
+    expect(await page.evaluate(() => window.fixtureDraftKeyExists?.())).toBe(false);
+  });
+
+test('an ended page that can reopen keeps its existing draft sentence', async ({ page }) => {
+  await endDraftPage(page, 'readable', 'Access ended');
+  await expect(endedCard(page).getByText(draftKept, { exact: true })).toBeVisible();
+  await expect(app(page).getByRole('button', { name: copyLabel })).toHaveCount(0);
+});
+
+for (const theme of ['light', 'dark'] as const)
+  for (const width of [1440, 390])
+    test(`captures: an ended pairing with kept block text at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      await endDraftPage(page, 'readable');
+      if (!process.env.COLAB_DRAFT_PAIRING_REFERENCE)
+        await expect(app(page).getByRole('button', { name: copyLabel })).toBeVisible();
+      await page.screenshot({
+        path: capturePath(`6796-ended-pairing-${width}-${theme}.png`),
+        animations: 'disabled',
+      });
+    });
 async function openAlphaFailing(page: Page, message: string) {
   await page.evaluate((message) => {
     window.failPages = message;

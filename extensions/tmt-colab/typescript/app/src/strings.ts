@@ -619,6 +619,11 @@ export const text = {
   reconnectingKept: 'Reconnecting… what you type is kept',
   blockDraftsKept:
     'What you typed on this page is kept on this device and offered when the page opens again.',
+  blockDraftsBeforePairing:
+    'Pairing this browser again will not bring back what you typed on this page. Copy your draft text before pairing again.',
+  copyBlockDrafts: 'Copy draft text',
+  blockDraftsCopied: 'Draft text copied.',
+  blockDraftsCopyFailed: 'Could not copy the draft text.',
   notConnected: 'not connected',
   sendOnHold: 'Send is on hold until the connection is back.',
   pairCommand,
