@@ -65,8 +65,20 @@ if (params.has('provider-fixture')) {
       const report = { range, sample: true, document: mockDocument(range, sampleShape()) };
       const allowance = structuredClone(mockDocument('7d', sampleShape()));
       allowance.observedAtMs += window.digestReads * 60_000;
-      if (params.has('expiring-window'))
+      if (params.has('expiring-window')) {
         allowance.limits = [{ ...allowance.limits[1]!, resetsAtMs: MOCK_NOW_MS + 120_000 }];
+        // Codex worked this week, so its card outlives the window that resets.
+        allowance.usage.providers = [
+          {
+            driver: 'codex',
+            totals: { input: 4000, output: 200, cached: 1000 },
+            seats: [allowance.usage.seats[0]!.id],
+            partialSeats: 0,
+            inputCost: null,
+            costUnavailable: ['no_price'],
+          },
+        ];
+      }
       if (params.has('allowance-failure') && window.digestReads === 2)
         return {
           ...report,

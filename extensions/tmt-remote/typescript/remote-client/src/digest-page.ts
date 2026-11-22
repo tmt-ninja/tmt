@@ -16,6 +16,8 @@ import {
   type UsageRange,
 } from './digest-source.js';
 import {
+  coverage,
+  coverageHeading,
   exchange,
   providerGroups,
   providerLabel,
@@ -24,6 +26,9 @@ import {
   rankRows,
   resetsIn,
   tokenSeries,
+  tokensOf,
+  creditText,
+  type ProviderGroup,
   type ProviderView,
 } from './digest-view.js';
 import { notAvailable } from './not-available.js';
@@ -268,6 +273,63 @@ function providerRow(view: ProviderView, nowMs: number): HTMLElement {
   return row;
 }
 
+/** A provider's usage in the allowance week and, where the report carries it, its credits. */
+function providerFacts(group: ProviderGroup, nowMs: number): HTMLElement[] {
+  const facts: HTMLElement[] = [];
+  if (group.usage)
+    facts.push(
+      el(
+        'p',
+        'usage-note digest-provider-usage',
+        `${compactCount(tokensOf(group.usage))} tokens in the last 7 days`,
+      ),
+    );
+  if (group.credits)
+    facts.push(
+      el(
+        'p',
+        'usage-note digest-provider-credits',
+        `${group.credits.balance === null ? 'No credits' : `Credits: ${creditText(group.credits.balance)}`} · observed ${observedAgo(group.credits.observedAtMs, nowMs)}`,
+      ),
+    );
+  return facts;
+}
+
+/** Coverage first (#6751 F): which seats the report cannot see, and why, above every number. */
+function coverageNotice(doc: UsageDocument): HTMLElement | undefined {
+  const seen = coverage(doc);
+  if (!seen.missingSeats && !seen.partialSeats && !seen.idle.length) return undefined;
+  const gap = seen.missingSeats > 0 || seen.partialSeats > 0;
+  const node = el('section', `${ui.banner} digest-coverage`);
+  node.id = 'digest-coverage';
+  // Idle seats alone are no gap: the band stays neutral and says so.
+  if (gap) node.dataset.tone = 'waiting';
+  const head = el('div', ui.bannerHead);
+  const title = el('h2', 'digest-coverage-title', coverageHeading(seen));
+  title.id = 'digest-coverage-title';
+  node.setAttribute('aria-labelledby', title.id);
+  head.append(title);
+  node.append(head);
+  const rows = [
+    ...seen.missing.map((gap) => [gap.id, `${gap.seats.length} ${gap.words}`, gap.seats] as const),
+    // Apart from the gaps: an idle seat simply did not work, and its usage is not missing.
+    ...(seen.idle.length
+      ? [['idle', `${seen.idle.length} idle, with no recent turn (not a gap)`, seen.idle] as const]
+      : []),
+  ];
+  if (rows.length) {
+    const list = el('ul', 'digest-coverage-causes');
+    for (const [id, words, seats] of rows) {
+      const item = el('li', 'digest-coverage-cause');
+      item.dataset.cause = id;
+      item.append(el('strong', undefined, words), el('span', 'usage-note', seats.join(', ')));
+      list.append(item);
+    }
+    node.append(list);
+  }
+  return node;
+}
+
 function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement {
   const doc = report.allowance;
   const intro = el('div', 'digest-allowance-intro');
@@ -295,23 +357,17 @@ function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement
     );
     return node;
   }
-  if (providers.length > 2) groups.dataset.many = '';
   for (const group of providers) {
     const host = el('div', 'digest-provider-group');
     host.id = `digest-provider-${encodeURIComponent(group.id)}`;
     if (group.primary) host.append(providerRow(group.primary, doc!.observedAtMs));
     else {
+      // A provider with no window shows its usage and one sentence why, never a 0% meter.
       const label = el('div', 'digest-provider-label');
-      label.append(el('strong', undefined, group.label), el('span', undefined, '○ not reported'));
-      host.append(
-        label,
-        el(
-          'p',
-          'usage-note',
-          report.allowanceUnavailable ?? 'No current seat has reported an active weekly window.',
-        ),
-      );
+      label.append(el('strong', undefined, group.label));
+      host.append(label, el('p', 'usage-note', report.allowanceUnavailable ?? group.note ?? ''));
     }
+    host.append(...providerFacts(group, doc!.observedAtMs));
     if (group.other.length) {
       const other = el('details', `${ui.disclosure} digest-other-windows`);
       other.id = `${host.id}-other`;
@@ -324,18 +380,24 @@ function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement
       other.append(summary, ...group.other.map((view) => providerRow(view, doc!.observedAtMs)));
       host.append(other);
     }
+    // The mark says the window's state, never which provider it is: ● current, ◐ stale, ○ none.
     const symbol = el(
       'span',
       'digest-provider-symbol',
-      group.source === 'claude' ? '✳' : group.source === 'codex' ? '⌘' : '○',
+      group.primary ? (group.primary.stale ? '◐' : '●') : '○',
     );
     symbol.setAttribute('aria-hidden', 'true');
     host.querySelector('.digest-provider-label')?.prepend(symbol);
     groups.append(host);
   }
   const controls = el('div', 'digest-carousel-controls');
+  const count = el('span', 'digest-carousel-count');
   const previous = el('button', ui.action, '←');
   const next = el('button', ui.action, '→');
+  // One card and its gap: a click moves by it, and the count reads the first card in view by it.
+  const step = () =>
+    (groups.firstElementChild?.getBoundingClientRect().width ?? groups.clientWidth) +
+    (Number.parseFloat(getComputedStyle(groups).columnGap) || 0);
   for (const [button, name, direction] of [
     [previous, 'Previous provider', -1],
     [next, 'Next provider', 1],
@@ -345,11 +407,7 @@ function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement
     button.setAttribute('aria-label', name);
     button.setAttribute('aria-controls', groups.id);
     button.addEventListener('click', () => {
-      const first = groups.firstElementChild;
-      const step =
-        (first?.getBoundingClientRect().width ?? groups.clientWidth) +
-        Number.parseFloat(getComputedStyle(groups).columnGap);
-      groups.scrollBy({ left: direction * step, behavior: 'smooth' });
+      groups.scrollBy({ left: direction * step(), behavior: 'smooth' });
     });
   }
   const sync = () => {
@@ -358,6 +416,8 @@ function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement
     groups.tabIndex = overflow ? 0 : -1;
     previous.disabled = groups.scrollLeft <= 1;
     next.disabled = groups.scrollLeft + groups.clientWidth >= groups.scrollWidth - 1;
+    const at = next.disabled ? providers.length : Math.round(groups.scrollLeft / step()) + 1;
+    count.textContent = `${Math.min(at, providers.length)} of ${providers.length}`;
   };
   groups.addEventListener('scroll', sync);
   const observer = new ResizeObserver(sync);
@@ -366,7 +426,7 @@ function allowanceRow(report: DigestReport, state: DigestViewState): HTMLElement
     observer.disconnect();
     groups.removeEventListener('scroll', sync);
   });
-  controls.append(previous, next);
+  controls.append(count, previous, next);
   intro.append(controls);
   node.append(intro, groups);
   if (report.allowanceUnavailable) node.append(el('p', 'usage-note', report.allowanceUnavailable));
@@ -912,7 +972,9 @@ export function digestPage(
     good = report;
     const doc = report.document;
     state.dispose.splice(0).forEach((dispose) => dispose());
+    const covered = coverageNotice(doc);
     panel!.replaceChildren(
+      ...(covered ? [covered] : []),
       allowanceRow(report, state),
       providerUsageCard(doc),
       tokensCard(doc, state),

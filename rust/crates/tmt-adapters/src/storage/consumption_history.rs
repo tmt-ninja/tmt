@@ -343,13 +343,17 @@ struct Delta {
 }
 
 /// Why an identity that reports nothing is not being sampled, from its binding row:
-/// `(runtime_state, an admitted provider session, a foreground launch owner)`.
+/// `(runtime_state, an admitted provider session, a foreground launch owner)`, and
+/// `quiet`: the bound session's recorded driver activity ended before the retained range.
+/// Such an owned session is `idle`, not a sampling fault (#6752). Absent activity proves
+/// nothing (a driver may record none), so it stays `not_sampled`.
 /// New hosts add values; consumers tolerate one they do not know.
-fn not_reporting_cause(binding: Option<(String, bool, bool)>) -> &'static str {
+fn not_reporting_cause(binding: Option<(String, bool, bool)>, quiet: bool) -> &'static str {
     match binding {
         None => "no_binding",
         Some((state, admitted, _)) if state != "running" || !admitted => "no_agent",
         Some((_, _, false)) => "no_sampler",
+        Some(_) if quiet => "idle",
         Some(_) => "not_sampled",
     }
 }
@@ -759,10 +763,13 @@ impl Storage {
                     })
                     .optional()
                     .map_err(|e| classify(e, "Read consumption binding"))?;
+                // Stored evidence only: the bound session's last recorded driver activity.
+                let quiet = super::requests::delivery::verified_activity(&transaction, id)?
+                    .is_some_and(|(_, activity)| activity.last_activity_ms < retained);
                 found
                     .as_object_mut()
                     .ok_or_else(invalid)?
-                    .insert("cause".into(), json!(not_reporting_cause(cause)));
+                    .insert("cause".into(), json!(not_reporting_cause(cause, quiet)));
             }
             if retired {
                 // The name stays with `references.resolve`, the one owner of labels.

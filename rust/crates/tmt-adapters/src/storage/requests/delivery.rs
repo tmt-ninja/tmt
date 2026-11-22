@@ -276,8 +276,8 @@ pub(super) fn running_turn(
 }
 
 /// The activity of the exact session and process the recipient is bound to, with the driver that
-/// reported it.
-fn verified_activity(
+/// reported it. Consumption history reads it for the `idle` cause.
+pub(in crate::storage) fn verified_activity(
     db: &Connection,
     identity: &str,
 ) -> Result<Option<(String, Activity)>, StorageError> {

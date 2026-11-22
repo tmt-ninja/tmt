@@ -4,7 +4,11 @@ import { mockDocument } from '../src/digest-mock.js';
 import type { LimitAccount, UsageDocument } from '../src/digest-source.js';
 import {
   allowance,
+  coverage,
+  coverageHeading,
+  creditText,
   exchange,
+  latestCredits,
   historyCharts,
   providers,
   providerGroups,
@@ -110,9 +114,9 @@ it('a large team ranks the top 8 and folds the rest into one Other row', () => {
   expect(ranking(team.map((row) => ({ ...row, partial: false }))).partial).toBe(false);
 });
 
-it('a one-provider sample has only the OpenAI weekly window and history', () => {
+it('a one-provider sample has only the Codex weekly window and history', () => {
   const one = mockDocument('24h', { oneProvider: true });
-  expect(providers(one).map((view) => view.provider)).toEqual(['OpenAI']);
+  expect(providers(one).map((view) => view.provider)).toEqual(['Codex']);
   expect(one.limitHistory!.map((history) => history.provider)).toEqual(['codex']);
 });
 
@@ -151,9 +155,9 @@ it('exchange retains every seat instead of silently keeping only the busiest eig
 it('allowance lists the weekly windows only, left = 100 - used, with the provider named', () => {
   const rows = allowance(day);
   expect(rows.map((row) => [row.provider, row.leftPercent])).toEqual([
-    ['OpenAI', 55],
-    ['OpenAI', 26],
-    ['OpenAI', 62],
+    ['Codex', 55],
+    ['Codex', 26],
+    ['Codex', 62],
   ]);
   const stale = allowance({
     ...day,
@@ -176,13 +180,198 @@ it('history charts exist only when the history field is served', () => {
 it('providers pair each weekly window with its history chart and a stable hue', () => {
   const views = providers(day, 'UTC');
   expect(views.map((view) => [view.provider, view.style])).toEqual([
-    ['OpenAI', 2],
-    ['OpenAI', 2],
-    ['OpenAI', 2],
+    ['Codex', 1],
+    ['Codex', 1],
+    ['Codex', 1],
   ]);
   expect(views.every((view) => view.chart?.series[0]!.key === view.key)).toBe(true);
-  expect(views[0]!.chart!.style).toBe(2);
+  expect(views[0]!.chart!.style).toBe(1);
   expect(providers({ ...day, limitHistory: undefined }).every((view) => !view.chart)).toBe(true);
+  // Hues follow the sorted sources, so a third provider gets its own instead of a shared grey.
+  expect(providers(withShares('agy', 'claude', 'codex')).map((view) => view.style)).toEqual([
+    3, 3, 3,
+  ]);
+});
+
+/** `day` with a recorded driver share for each named driver (digest `usage-v1.md`). */
+function withShares(...drivers: string[]): UsageDocument {
+  return {
+    ...day,
+    pricing: { version: '2026-11-01', basis: 'standard-base-input', origin: 'embedded' },
+    usage: {
+      ...day.usage,
+      providers: drivers.map((driver, at) => ({
+        driver,
+        totals: { input: 1000 * (at + 1), output: 10, cached: 0 },
+        seats: [day.usage.seats[at % day.usage.seats.length]!.id],
+        partialSeats: 0,
+        inputCost: null,
+        costUnavailable: ['no_price'],
+      })),
+    },
+  };
+}
+
+it('gives every provider with recorded usage a card; one without a window says so, never 0%', () => {
+  const doc = {
+    ...withShares('agy', 'codex'),
+    credits: {
+      points: [
+        {
+          fromMs: 0,
+          toMs: 1,
+          balance: '18655.5134485000',
+          observedAtMs: 8,
+          hasCredits: true,
+          unlimited: false,
+          serviceTiers: [],
+        },
+        {
+          fromMs: 1,
+          toMs: 2,
+          balance: '9',
+          observedAtMs: 7,
+          hasCredits: true,
+          unlimited: false,
+          serviceTiers: [],
+        },
+        {
+          fromMs: 2,
+          toMs: 3,
+          balance: 'lots',
+          observedAtMs: 9,
+          hasCredits: true,
+          unlimited: false,
+          serviceTiers: [],
+        },
+      ],
+    },
+  };
+  const groups = providerGroups(doc);
+  expect(groups.map((group) => [group.source, group.label, group.windowless])).toEqual([
+    ['agy', 'Agy', true],
+    ['codex', 'Codex', false],
+  ]);
+  const [agy, codex] = groups;
+  expect(agy!.primary).toBeUndefined();
+  expect(agy!.other).toEqual([]);
+  expect(agy!.usage).toEqual({ input: 1000, output: 10, cached: 0 });
+  expect(agy!.credits).toBeNull();
+  expect(agy!.note).toBe('No allowance reported by Agy.');
+  expect(codex!.primary!.leftPercent).toBe(55);
+  // The newest observation wins, not the latest bucket; a balance that is not a decimal is skipped.
+  expect(codex!.credits).toEqual({ balance: '18655.5134485000', observedAtMs: 8 });
+  // Model families never establish a provider: no share, no window, no card.
+  expect(providerGroups(day).map((group) => group.source)).toEqual(['codex']);
+  // Nor does a window that has reset: with no share, the provider has no card at all.
+  expect(
+    providerGroups({
+      ...day,
+      limits: day.limits.map((limit) => ({ ...limit, resetsAtMs: day.observedAtMs })),
+    }),
+  ).toEqual([]);
+});
+
+it('says why a provider with usage has no window: a read gap, a reset, or no allowance at all', () => {
+  const base = withShares('agy', 'claude');
+  const note = (doc: UsageDocument, source: string) =>
+    providerGroups(doc).find((group) => group.source === source)!;
+  // Claude has an allowance source: a missing window is a gap Core names, never "none".
+  for (const [reason, words] of [
+    ['not_observed', 'Allowance has not been observed yet.'],
+    ['none_observed', 'Allowance has not been observed yet.'],
+    ['expired', 'The weekly window has reset; no new one is reported yet.'],
+    ['read_timeout', 'Allowance could not be read just now.'],
+  ] as const) {
+    const claude = note({ ...base, limitsUnavailable: [{ line: 'claude', reason }] }, 'claude');
+    expect([claude.note, claude.windowless]).toEqual([words, false]);
+  }
+  const byAccount = note(
+    { ...base, limitsUnavailable: [{ provider: 'claude', reason: 'expired' }] },
+    'claude',
+  );
+  expect(byAccount.note).toBe('The weekly window has reset; no new one is reported yet.');
+  // A window that has reset, with nothing from Core about it, says so too.
+  const reset = note(
+    {
+      ...base,
+      limitsUnavailable: [],
+      limits: [{ ...day.limits[0]!, provider: 'claude', resetsAtMs: day.observedAtMs }],
+    },
+    'claude',
+  );
+  expect([reset.note, reset.primary]).toEqual([
+    'The weekly window has reset; no new one is reported yet.',
+    undefined,
+  ]);
+  // No window and no reason: the provider reports no allowance (agy today).
+  const agy = note(
+    { ...base, limitsUnavailable: [{ line: 'claude', reason: 'not_observed' }] },
+    'agy',
+  );
+  expect([agy.note, agy.windowless]).toEqual(['No allowance reported by Agy.', true]);
+  // A shown window has no note.
+  expect(providerGroups(base).find((group) => group.source === 'codex')!.note).toBeNull();
+});
+
+it('reads the credit balance as the provider reports it: unlimited, none, or absent', () => {
+  const point = { fromMs: 0, toMs: 1, balance: '0', observedAtMs: 1, serviceTiers: [] };
+  const of = (points: unknown) => latestCredits({ ...day, credits: { points } as never });
+  expect(of([{ ...point, hasCredits: true, unlimited: true }])!.balance).toBe('unlimited');
+  expect(of([{ ...point, hasCredits: false, unlimited: false }])!.balance).toBeNull();
+  expect(of([null, { ...point, hasCredits: 'yes', unlimited: false }])).toBeNull();
+  expect(latestCredits({ ...day, credits: null })).toBeNull();
+  expect(latestCredits(day)).toBeNull();
+  expect(
+    ['18655.5134485000', '12', '-0.50', 'unlimited'].map((balance) => creditText(balance)),
+  ).toEqual(['18,655.51', '12', '-0.5', 'unlimited']);
+});
+
+it('names what the report cannot see, by cause, most seats first, for the top of the page', () => {
+  const seat = { retired: false, reason: 'no_evidence' };
+  const doc: UsageDocument = {
+    ...day,
+    usage: {
+      ...day.usage,
+      unavailable: [
+        { ...seat, id: 'a', name: 'ben', cause: 'no_binding' },
+        { ...seat, id: 'b', name: 'amy', cause: 'no_binding' },
+        { ...seat, id: 'c', name: 'tui-9', cause: 'not_sampled' },
+        { ...seat, id: 'd', name: 'next', cause: 'future_cause' },
+        { ...seat, id: 'e', name: null, reason: 'read_failed' },
+        { ...seat, id: 'f', name: 'remote-3', cause: 'idle' },
+      ],
+    },
+  };
+  const seen = coverage(doc);
+  expect(seen.missing.map((gap) => [gap.id, gap.words, gap.seats])).toEqual([
+    ['no_binding', 'not running under TMT', ['amy', 'ben']],
+    ['future_cause', 'cause "future_cause"', ['next']],
+    ['not_sampled', 'running, but no sample accepted yet', ['tui-9']],
+    ['read_failed', 'could not be read', ['e']],
+  ]);
+  const none = { missing: [], idle: [], missingSeats: 0, partialSeats: 0, seats: 6 };
+  expect(coverageHeading({ ...none, missingSeats: 2, partialSeats: 1 })).toBe(
+    '2 seats have no usage in this range; 1 of 6 seats covers only part of it. Totals are lower bounds.',
+  );
+  expect(coverageHeading({ ...none, partialSeats: 1 })).toBe(
+    '1 of 6 seats covers only part of this range. Totals are lower bounds.',
+  );
+  expect(coverageHeading({ ...none, partialSeats: 2 })).toBe(
+    '2 of 6 seats cover only part of this range. Totals are lower bounds.',
+  );
+  expect(coverageHeading({ ...none, missingSeats: 1 })).toBe(
+    '1 seat has no usage in this range. Totals are lower bounds.',
+  );
+  expect(coverageHeading({ ...none, idle: ['remote-3'] })).toBe(
+    '1 seat was idle, with no recent turn.',
+  );
+  // An idle seat simply did not work: it is apart from the gaps and not counted as one.
+  expect(seen.idle).toEqual(['remote-3']);
+  expect(seen.missingSeats).toBe(5);
+  expect(seen.seats).toBe(day.usage.seats.length);
+  expect(seen.partialSeats).toBe(day.usage.seats.filter((row) => !row.coverage.complete).length);
+  expect(coverage({ ...day, usage: { ...day.usage, unavailable: [] } }).missing).toEqual([]);
 });
 
 it('the product entry never pulls in the sample: no import of the mock from page code', () => {
@@ -197,16 +386,16 @@ it('titles limits from their source even on Claude-model seats, and never infers
   expect(doc.usage.seats.find((seat) => seat.id === doc.limits[0]!.seats[0])!.lines).toEqual([
     'claude',
   ]);
-  expect(allowance(doc)[0]!.provider).toBe('OpenAI');
+  expect(allowance(doc)[0]!.provider).toBe('Codex');
   expect(
     allowance({ ...doc, limits: [{ ...doc.limits[0]!, provider: undefined as never }] }),
   ).toEqual([]);
   expect(
     allowance({ ...doc, limits: [{ ...doc.limits[0]!, provider: 'future-source' }] })[0]!.provider,
-  ).toBe('future-source');
+  ).toBe('Future-source');
   expect(
     allowance({ ...doc, limits: [{ ...doc.limits[0]!, provider: 'constructor' }] })[0]!.provider,
-  ).toBe('constructor');
+  ).toBe('Constructor');
   expect(providerGroups(doc).find((group) => group.source === 'claude')).toBeUndefined();
 });
 
@@ -238,7 +427,10 @@ it('chooses the latest current-seat window and drops resets already passed', () 
       },
     })[0]!.primary,
   ).toBeDefined();
-  expect(providerGroups({ ...doc, limits: [doc.limits[0]!] })[0]!.primary).toBeUndefined();
+  const retiredOnly = providerGroups({ ...doc, limits: [doc.limits[0]!] })[0]!;
+  expect(retiredOnly.primary).toBeUndefined();
+  // Its window is still active, reported only by a retired seat: that, not a reset or "none".
+  expect(retiredOnly.note).toBe('No current seat has reported an active weekly window.');
 });
 
 it('matches history only to the same source, duration and reset, keeping multiple windows distinct', () => {
@@ -289,11 +481,11 @@ it('one account, or none, reads exactly as a provider without accounts', () => {
       group.other.length,
     ]);
   const plain = shape(named([null, null, null]));
-  expect(plain[0]).toEqual(['codex', 'OpenAI', 'OpenAI', 55, 2]);
+  expect(plain[0]).toEqual(['codex', 'Codex', 'Codex', 55, 2]);
   expect(shape(named([WORK, WORK, WORK]))).toEqual(plain);
   // One named account beside windows that name none is still one account.
   expect(shape(named([WORK, null, null]))).toEqual(plain);
-  expect(allowance(named([WORK, WORK, WORK])).every((row) => row.provider === 'OpenAI')).toBe(true);
+  expect(allowance(named([WORK, WORK, WORK])).every((row) => row.provider === 'Codex')).toBe(true);
 });
 
 it('shows one entry per account when a provider has several, labelled by the account', () => {
@@ -301,8 +493,8 @@ it('shows one entry per account when a provider has several, labelled by the acc
   const groups = providerGroups(doc);
   const codex = groups.filter((group) => group.source === 'codex');
   expect(codex.map((group) => [group.id, group.label])).toEqual([
-    ['codex-0123456789ab', 'OpenAI · work'],
-    ['codex-ba9876543210', 'OpenAI · home'],
+    ['codex-0123456789ab', 'Codex · work'],
+    ['codex-ba9876543210', 'Codex · home'],
   ]);
   // Newest first: the account seen most recently leads, and each keeps only its own windows.
   expect(codex[0]!.primary!.leftPercent).toBe(55);
@@ -325,9 +517,9 @@ it('names the windows that report no account when a provider has several', () =>
     (group) => group.source === 'codex',
   );
   expect(groups.map((group) => group.label).sort()).toEqual([
-    'OpenAI · home',
-    'OpenAI · unknown account',
-    'OpenAI · work',
+    'Codex · home',
+    'Codex · unknown account',
+    'Codex · work',
   ]);
   expect(groups.map((group) => group.id)).toContain('codex-unknown');
 });

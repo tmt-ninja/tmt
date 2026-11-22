@@ -122,6 +122,20 @@ export interface UsageUnavailable {
   name: string | null;
   retired: boolean;
   reason: string;
+  /** Core's reason nothing is sampled, on a `no_evidence` row; a later host may add values. */
+  cause?: string;
+}
+
+/** One bucket's credit balance, the newest observation among the seats (digest `usage-v1.md`). */
+export interface CreditPoint {
+  fromMs: number;
+  toMs: number;
+  /** The provider's decimal text in its credit unit. */
+  balance: string;
+  observedAtMs: number;
+  hasCredits: boolean;
+  unlimited: boolean;
+  serviceTiers: readonly string[];
 }
 
 /**
@@ -203,10 +217,13 @@ export interface UsageDocument {
     unavailable: readonly UsageUnavailable[];
   };
   limits: readonly LimitWindow[];
-  limitsUnavailable: readonly { line: string; reason: string }[];
+  /** A line whose seats reported no limits, or an account Core knows without a current window. */
+  limitsUnavailable: readonly { line?: string; provider?: string; reason: string }[];
   exchange: { sinceMs: number; observedAtMs: number; pairs: readonly FlowPair[] } | null;
   limitHistory?: readonly LimitHistory[];
   pricing?: { version: string; basis: string; origin: string };
+  /** Codex's credit balance over the window; null when no seat observed one, absent on older reports. */
+  credits?: { points: readonly CreditPoint[] } | null;
 }
 
 export interface AllowanceReport {

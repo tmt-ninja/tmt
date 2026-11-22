@@ -996,8 +996,12 @@ is false, `cause`:
   `no_agent`: a bound pane with no admitted agent session (a shell, a plain tmux or
   Herdr pane, or an agent whose start hook never admitted its session). `no_sampler`:
   an admitted running agent session with no foreground owner, so only its Stop hook
-  collects (launched outside `tmt run`/`resume`). `not_sampled`: admitted and owned
-  but no accepted sample: the usage hook is not installed or consented, the
+  collects (launched outside `tmt run`/`resume`). `idle`: admitted and owned, and the
+  bound session's (the exact session and process) last recorded driver activity ended
+  before the retained range, so there was no turn to sample. It is read from stored
+  activity, never a process probe. `not_sampled`: admitted and owned, with recorded
+  activity in the retained range or none recorded at all (absent activity proves
+  nothing), but no accepted sample: the usage hook is not installed or consented, the
   foreground wrapper predates sampling (relaunch it through `tmt run`/`resume`), or
   the seat just started. A consumer must tolerate a `cause` it does not know: later
   hosts add values additively. The cause describes the state at the read; it is not

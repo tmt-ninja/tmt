@@ -284,6 +284,29 @@ body:not(:has(.tmt-ui-shell)) {
   display: grid;
   gap: var(--tmt-ui-space-xs);
 }
+/* Coverage first (#6751 F): the seats the report cannot see, above every number. */
+.digest-coverage-title {
+  margin: 0;
+  font: inherit;
+}
+.digest-coverage-causes {
+  display: grid;
+  gap: var(--tmt-ui-space-s);
+  margin: 0;
+  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-xl);
+  list-style: none;
+  font-size: var(--tmt-ui-header-action-size);
+}
+.digest-coverage-cause {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-m);
+  min-width: 0;
+}
+.digest-coverage-cause > .usage-note {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .digest-card .tmt-ui-chart-title {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-header-action-size);
@@ -309,12 +332,16 @@ body:not(:has(.tmt-ui-shell)) {
   display: grid;
   gap: var(--tmt-ui-space-m);
 }
+/* Every provider stays in view where the width holds them: at most three across, a fourth wraps,
+   each card as tall as its content. Only a narrow page scrolls them (#6751). */
 .digest-provider-groups {
-  display: flex;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(max(17rem, calc((100% - 2 * var(--tmt-ui-space-m)) / 3)), 1fr)
+  );
+  align-items: start;
   gap: var(--tmt-ui-space-m);
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
   min-width: 0;
 }
 .digest-provider-groups:focus-visible {
@@ -322,20 +349,22 @@ body:not(:has(.tmt-ui-shell)) {
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .digest-provider-group {
-  flex: 0 0 calc((100% - var(--tmt-ui-space-m)) / 2);
   box-sizing: border-box;
   padding: var(--tmt-ui-space-m);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   scroll-snap-align: start;
 }
-.digest-provider-groups[data-many] > .digest-provider-group {
-  flex-basis: 44%;
-}
 .digest-carousel-controls {
   display: flex;
+  align-items: center;
   justify-content: end;
   gap: var(--tmt-ui-space-s);
+}
+.digest-carousel-count {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-variant-numeric: tabular-nums;
 }
 .digest-carousel-controls[hidden] {
   display: none;
@@ -399,7 +428,8 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-provider-label {
   justify-content: space-between;
 }
-.digest-provider-label strong:last-child {
+/* The percent beside the name, never the name itself (a windowless card has only the name). */
+.digest-provider-label strong + strong {
   font-size: var(--tmt-ui-caption-size);
 }
 .digest-provider .tmt-ui-meter-fill {
@@ -505,6 +535,16 @@ body:not(:has(.tmt-ui-shell)) {
   .digest-provider-label {
     flex-wrap: wrap;
     gap: var(--tmt-ui-space-xs);
+  }
+  /* A narrow page shows one provider at a time; the next one peeks in and the count says more follow. */
+  .digest-provider-groups {
+    display: flex;
+    align-items: stretch;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+  .digest-provider-group {
+    flex: 0 0 85%;
   }
   .digest-head {
     grid-template-columns: minmax(0, 1fr);
