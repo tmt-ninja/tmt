@@ -75,16 +75,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn waiting_requires_a_pending_string_or_a_nonempty_request_array() {
-        for row in [
-            json!({"pending": "approve"}),
-            json!({"pending": "", "waitingOnYou": []}),
-            json!({"pending": null, "waitingOnYou": [{"requestId": "q"}]}),
-        ] {
-            assert!(waits_on_you(&row), "{row}");
-        }
+    fn waiting_requires_a_nonempty_request_array() {
+        assert!(waits_on_you(&json!({"waitingOnYou": [{"requestId": "q"}]})));
         for row in [
             json!({}),
+            json!({"pending": "approve"}),
+            json!({"pending": "", "waitingOnYou": []}),
             json!({"pending": null, "waitingOnYou": []}),
             json!({"pending": false, "waitingOnYou": "q"}),
             json!({"pending": [], "waitingOnYou": {"requestId": "q"}}),
@@ -111,13 +107,13 @@ mod tests {
         assert_eq!(
             attention,
             Attention {
-                waiting: 2,
+                waiting: 1,
                 blocked: 1
             }
         );
         assert_eq!(
             attention.document(),
-            json!({"state": "waiting", "waiting": 2, "blocked": 1})
+            json!({"state": "waiting", "waiting": 1, "blocked": 1})
         );
         assert_eq!(
             Attention {

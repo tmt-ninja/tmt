@@ -253,6 +253,59 @@ fn a_capped_previous_lead_fails_before_any_replacement_write() {
 }
 
 #[test]
+fn retired_board_fields_refuse_mixed_writes_and_clears_before_core_calls() {
+    let fixture = Fixture::new("retired-board-fields", json!([member("sol", json!({}))]));
+    for field in ["task", "next", "pending"] {
+        for value in ["change it", ""] {
+            let result = set(
+                &fixture.core,
+                &fixture.squad,
+                "sol",
+                &["state=review".into(), format!("{field}={value}")],
+            );
+            let error = result.err().expect("a retired field refuses the batch");
+            assert_eq!(error.code, "SQUAD_FIELD_RETIRED");
+            assert!(error.message.contains(field));
+            assert!(error.message.contains("state"));
+            assert!(error.message.contains("request"));
+            assert!(error.message.contains("issue"));
+            assert!(!fixture.root.join("calls").exists());
+        }
+    }
+}
+
+#[test]
+fn retained_board_fields_are_absent_from_the_roster_projection() {
+    let fixture = Fixture::new(
+        "retained-board-fields",
+        json!([member(
+            "sol",
+            json!({
+                "squad.p.task": "legacy task",
+                "squad.p.next": "legacy next step",
+                "squad.p.pending": "legacy ask",
+                "squad.other.task": "legacy other squad task",
+                "squad.p.state": "review",
+                "squad.p.branch": "work/sol",
+            })
+        )]),
+    );
+    let before = fs::read(fixture.root.join("sol-metadata")).unwrap();
+    let members = fixture.squad.roster(&fixture.core).unwrap();
+    let sol = &members[0];
+    assert_eq!(sol.fields.get("state").map(String::as_str), Some("review"));
+    assert_eq!(
+        sol.fields.get("branch").map(String::as_str),
+        Some("work/sol")
+    );
+    for field in ["task", "next", "pending"] {
+        assert!(!sol.fields.contains_key(field), "{field} is retired");
+    }
+    assert!(!sol.meta.contains_key("squad.other.task"));
+    assert_eq!(fs::read(fixture.root.join("sol-metadata")).unwrap(), before);
+}
+
+#[test]
 fn retired_note_refuses_all_pairs_before_core_reads_or_writes() {
     let fixture = Fixture::new("retired-note", json!([member("sol", json!({}))]));
     let error = set(

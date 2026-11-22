@@ -634,6 +634,22 @@ fn calls(f: &Fixture, command: &str) -> usize {
 }
 
 #[test]
+fn an_unavailable_inbox_defers_idle_notices() {
+    let f = Fixture::new();
+    enable(&f, "30m");
+    idle_worker(&f, NOW - 45 * MINUTE);
+    let mut watch = started(&f);
+    // The fixture executable refuses unhandled CLI commands, including inbox.
+    let warnings = scan(&f, &mut watch, NOW + MINUTE);
+    assert!(
+        sent(&f).is_empty(),
+        "an unknown inbox is not an empty inbox"
+    );
+    assert_eq!(calls(&f, "inbox"), 1);
+    assert_eq!(warnings.len(), 1);
+}
+
+#[test]
 fn the_first_look_reads_nothing_and_the_next_scan_tells_the_lead_once() {
     let f = Fixture::new();
     enable(&f, "30m");
