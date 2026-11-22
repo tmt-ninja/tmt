@@ -44,6 +44,18 @@ pub fn has_text(block_type: &str) -> bool {
         "paragraph" | "heading" | "list" | "todo" | "callout" | "code" | "question"
     )
 }
+/// The types a block may change between, keeping its ID, its text and what points at it (#6742).
+pub const RETYPE: [&str; 6] = ["paragraph", "heading", "list", "todo", "callout", "code"];
+
+/// Whether a block of `block_type` may hold the prop `name` with this `value`: a retype keeps a
+/// prop the two types share only when its value is one the new type allows (#6742).
+pub fn keeps_prop(block_type: &str, name: &str, value: &Value) -> bool {
+    schema(block_type)
+        .iter()
+        .find(|(key, _)| *key == name)
+        .is_some_and(|(_, kind)| check_prop(kind, value).is_ok())
+}
+
 pub fn rich(block_type: &str) -> bool {
     matches!(
         block_type,
@@ -295,6 +307,19 @@ fn markup(value: &Value) -> Result<()> {
     multiline(value, 64 * 1024).map(drop)
 }
 
+/// One prop's value against its kind.
+fn check_prop(kind: &Prop, value: &Value) -> Result<()> {
+    match kind {
+        Prop::Bool => require(value.is_boolean()),
+        Prop::Enum(allowed) => require(allowed.contains(&text(value)?)),
+        Prop::Int(low, high) => int(value, *low, *high),
+        Prop::Text(max) => plain(value, *max).map(drop),
+        Prop::Date => require(date(text(value)?)),
+        Prop::Id => id(value).map(drop),
+        Prop::Custom(check) => check(value),
+    }
+}
+
 /// The props of one block: only keys of its type's schema, each valid, within the type's size.
 pub fn validate_props(block_type: &str, props: &Value) -> Result<()> {
     let map = object(props)?;
@@ -304,15 +329,7 @@ pub fn validate_props(block_type: &str, props: &Value) -> Result<()> {
             .iter()
             .find(|(name, _)| name == key)
             .ok_or(Invalid)?;
-        match kind {
-            Prop::Bool => require(value.is_boolean()),
-            Prop::Enum(allowed) => require(allowed.contains(&text(value)?)),
-            Prop::Int(low, high) => int(value, *low, *high),
-            Prop::Text(max) => plain(value, *max).map(drop),
-            Prop::Date => require(date(text(value)?)),
-            Prop::Id => id(value).map(drop),
-            Prop::Custom(check) => check(value),
-        }?;
+        check_prop(kind, value)?;
     }
     // A mockup draws nothing without its markup, and a work card nothing without its page.
     match block_type {

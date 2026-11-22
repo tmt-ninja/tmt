@@ -130,15 +130,23 @@ for (const width of [1440, 800, 390])
     if (width > 900) expect(text).toBe(await textEdge(page, '.page-mobile-title h1'));
   });
 
-test('at 390px a phone shows no handle, as the design system says', async ({ page }) => {
+test('at 390px the handle sits at its block’s end, inside the window, as the design system says', async ({
+  page,
+}) => {
   await mountShell(page, 390);
   const target = page.locator('.structured-page-stage [data-block-id="two"]');
   const box = (await target.boundingBox())!;
   await page.mouse.move(box.x + 30, box.y + 12);
   await expect(target).toHaveCSS('background-color', /.+/);
-  await expect(page.locator('.structured-page-stage [data-slot="block-handle"]')).toBeHidden();
+  // No gutter at a phone's width (#6742): the handle sits over the block's end, not off the screen.
+  const handle = target.locator('[data-slot="block-handle"]');
+  await expect(handle).toBeVisible();
+  const at = (await handle.boundingBox())!;
+  expect(at.x).toBeGreaterThan(box.x + box.width / 2);
+  expect(at.x + at.width).toBeLessThanOrEqual(box.x + box.width + 1);
   // Nothing of the page reaches past the window.
   expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(at.x + at.width).toBeLessThanOrEqual(390);
 });
 
 for (const width of [1440, 390])

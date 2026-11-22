@@ -9,6 +9,7 @@ import {
 import { formatMarks, marksThrough } from './block-marks.js';
 import { posBetween } from './block-pos.js';
 import { BlockTree } from './block-tree.js';
+import { keepsProp } from './blocks.js';
 
 /** `entry` with `marks`, which a record leaves out when there are none (as the reader does). */
 function marked({ marks: _was, ...entry }: BlockRecord, marks: BlockRecord['marks']): BlockRecord {
@@ -57,6 +58,16 @@ export function applyOps(blocks: readonly BlockRecord[], ops: readonly BlockOp[]
           pos: posAfter(op.parent, op.after, op.id),
         });
         break;
+      case 'retype': {
+        const current = held(op.id);
+        map.set(op.id, {
+          ...current,
+          type: op.type,
+          props: op.props ? { ...op.props } : retypedProps(current.props, op.type, op.level),
+          ...(op.type === 'code' && { marks: [] }),
+        });
+        break;
+      }
       case 'props': {
         const current = held(op.id);
         const props = { ...current.props, ...op.set };
@@ -174,4 +185,18 @@ function tableOp(
       map.set(op.id, { ...table, props: { ...table.props, columns: next } });
     }
   }
+}
+
+/** A retype's props when it names none (#6742): those both types have whose value the new type
+ * allows, and a heading's `level`. The serve applies the same rule (`blocks::ops` retype,
+ * `schema::keeps_prop`), from the props it holds then. */
+export function retypedProps(
+  props: Readonly<Record<string, unknown>>,
+  type: string,
+  level: number | undefined,
+): Record<string, unknown> {
+  const kept = Object.fromEntries(
+    Object.entries(props).filter(([key, value]) => keepsProp(type, key, value)),
+  );
+  return level === undefined ? kept : { ...kept, level };
 }

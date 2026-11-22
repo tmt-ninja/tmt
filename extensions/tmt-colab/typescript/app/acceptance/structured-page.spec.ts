@@ -12,6 +12,10 @@ import { backToPageList, showAllPages } from '../test/home-list.js';
 
 test.afterEach(disposeActiveWorlds);
 
+/** The platform's key to the end of a block's text, past every line: a click puts the caret where
+ * it lands (#6742), so a case that types at the end goes there first. */
+const textEnd = process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End';
+
 // #6005: a structured page made and changed by the CLI draws in the browser from the fold, and the
 // person's typing goes out as a block batch that merges with an agent's edit of the same block.
 test('a structured page draws CLI blocks and keeps typing and an agent edit of the same block', async () => {
@@ -66,7 +70,7 @@ test('a structured page draws CLI blocks and keeps typing and an agent edit of t
 
     await block.click();
     const editor = block.locator('[contenteditable="true"]');
-    await editor.press('End');
+    await editor.press(textEnd);
     await editor.pressSequentially(' Today.', { delay: 40 });
     // The person's typing reaches the page as a block batch.
     await expect.poll(textNow, { timeout: 30_000 }).toBe('Ship the stack. Today.');
@@ -98,7 +102,7 @@ test('a structured page draws CLI blocks and keeps typing and an agent edit of t
     const other = await browser.context.newPage();
     await page.bringToFront();
     await block.click();
-    await block.locator('[contenteditable="true"]').press('End');
+    await block.locator('[contenteditable="true"]').press(textEnd);
     await page.evaluate((id) => {
       const state = window as Window & { inputSerial?: number; durableSerial?: number };
       state.inputSerial = 0;
@@ -147,7 +151,7 @@ test('a structured page draws CLI blocks and keeps typing and an agent edit of t
 
     // Keep a draft while the serve is down; a concurrent CLI edit must survive its recovery.
     await block.click();
-    await block.locator('[contenteditable="true"]').press('End');
+    await block.locator('[contenteditable="true"]').press(textEnd);
     await restartColab(world, door, async () => {
       await page.keyboard.type(' unsent');
       await expect(block).toContainText(`${expected} unsent`);
@@ -235,7 +239,7 @@ for (const departure of ['reload', 'navigate'] as const) {
       await page.goto(new URL(created.path, `${door.address}/`).href);
       const block = page.locator(`[data-block-id="${paragraph}"]`);
       await block.click();
-      await block.locator('[contenteditable="true"]').press('End');
+      await block.locator('[contenteditable="true"]').press(textEnd);
       await page.evaluate((id) => {
         const state = window as Window & { inputSerial?: number; durableSerial?: number };
         state.inputSerial = 0;
@@ -425,7 +429,7 @@ test('#6741 warns before leaving while a draft write is pending', async () => {
     await page.goto(new URL(created.path, `${door.address}/`).href);
     const block = page.locator(`[data-block-id="${paragraph}"]`);
     await block.click();
-    await block.locator('[contenteditable="true"]').press('End');
+    await block.locator('[contenteditable="true"]').press(textEnd);
     await page.evaluate(() => {
       const locks = navigator.locks;
       const request = locks.request.bind(locks);
@@ -622,7 +626,7 @@ test('a comment on a structured block survives reopening', async () => {
     await expect(page.getByRole('button', { name: 'Annotate', exact: true })).toHaveCount(0);
     // The keyboard path selects the same way.
     await block.getByText('Review this release before launch.').click();
-    await page.keyboard.press('End');
+    await page.keyboard.press(textEnd);
     for (const _ of 'launch.') await page.keyboard.press('Shift+ArrowLeft');
     await page.getByRole('button', { name: 'Annotate', exact: true }).click();
     const annotation = page.locator('.annotation-popover');
@@ -902,7 +906,7 @@ test('a person writes, rearranges and edits a table while an agent edits the sam
     // The person writes at the end of a block and starts a new one with Enter.
     await second.click();
     const editor = page.locator('[contenteditable="true"]');
-    await editor.press('End');
+    await editor.press(textEnd);
     await editor.pressSequentially(' Now.', { delay: 40 });
     // Meanwhile the agent adds a note under the heading and fills a cell.
     batch([
@@ -1306,7 +1310,7 @@ test('@ marks a block on another page, and the serve keeps it', async () => {
     await expect(page.getByText('See', { exact: true })).toBeVisible({ timeout: 30_000 });
     await page.getByText('See', { exact: true }).click();
     const editor = page.locator(`[data-block-id="${paragraph}"] [contenteditable="true"]`);
-    await editor.press('End');
+    await editor.press(textEnd);
     await editor.pressSequentially(' @rel', { delay: 20 });
     const menu = page.getByRole('listbox', { name: '@ mention' });
     await menu.getByRole('option', { name: 'Release checklist' }).click({ timeout: 30_000 });
@@ -1371,7 +1375,7 @@ test('a question written in the browser is registered and its answer reaches the
     await page.goto(new URL(pagePath, `${door.address}/`).href);
     await page.locator(`[data-block-id="${intro}"]`).click();
     const editor = page.locator('[contenteditable="true"]');
-    await editor.press('End');
+    await editor.press(textEnd);
     await editor.press('Enter');
     await editor.press('/');
     await editor.pressSequentially('q', { delay: 20 });
@@ -1836,7 +1840,7 @@ test('remote deletion preserves typing until the person keeps or discards the dr
       const block = page.locator(`[data-block-id="${id}"]`);
       await block.click();
       const editor = block.locator('[contenteditable=true]');
-      await editor.press('End');
+      await editor.press(textEnd);
       await page.keyboard.type(' today');
       cli('block', 'delete', created.pageId, id);
       await expect(notice).toBeVisible();
@@ -1912,7 +1916,7 @@ test('past a combine every batch lands at once', async () => {
     for (let round = 0; round < 8; round++) {
       const block = page.locator(`[data-block-id="${typed}"]`);
       await block.click();
-      await block.locator('[contenteditable=true]').press('End');
+      await block.locator('[contenteditable=true]').press(textEnd);
       await page.keyboard.type(` w${round}`);
       await page.keyboard.press('Escape');
       insert('paragraph', `Agent round ${round}`);

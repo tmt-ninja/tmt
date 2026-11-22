@@ -132,7 +132,7 @@ pub fn command() -> Command {
         placement(spec(
             "insert",
             "Add a block",
-            "Returns the new block's ID. The type cannot change later; delete and insert again to change it. A table's rows come from block table add-row.",
+            "Returns the new block's ID. A text block can change type later with block retype; other types cannot. A table's rows come from block table add-row.",
             example!("tmt colab block insert 10000000-0000-4000-8000-000000000001 --type paragraph --text 'Hello' --json"),
         ))
         .arg(page())
@@ -153,6 +153,24 @@ pub fn command() -> Command {
         .arg(id_arg())
         .arg(Arg::new("set").long("set").value_name("KEY=VALUE").action(ArgAction::Append))
         .arg(Arg::new("unset").long("unset").value_name("KEY").action(ArgAction::Append)),
+    )
+    .subcommand(
+        spec(
+            "retype",
+            "Turn a text block into another text type",
+            "In place: the block keeps its ID, its text and everything that points at it (discussion threads, block mentions, to-do numbers). Only between paragraph, heading, list, todo, callout and code. Props both types have stay (a list's and a to-do's indent); --level sets a heading's. Into code, the marks go.",
+            example!("tmt colab block retype 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000002 --type heading --level 3"),
+        )
+        .arg(page())
+        .arg(id_arg())
+        .arg(
+            Arg::new("type")
+                .long("type")
+                .required(true)
+                .value_name("TYPE")
+                .value_parser(["paragraph", "heading", "list", "todo", "callout", "code"]),
+        )
+        .arg(option("level", "2|3", "A heading's level").value_parser(["2", "3"])),
     )
     .subcommand(
         spec(
@@ -304,6 +322,18 @@ fn place(args: &ArgMatches, op: &mut Value) {
     }
 }
 
+/// `--level` names a heading's level, so it goes only with `--type heading`.
+fn require_heading(args: &ArgMatches) -> Result<()> {
+    if text_of(args, "type") == Some("heading") {
+        Ok(())
+    } else {
+        Err(fail(
+            "COLAB_INPUT_INVALID",
+            "--level goes with --type heading.",
+        ))
+    }
+}
+
 fn ops_for(verb: &str, args: &ArgMatches) -> Result<Value> {
     let id = text_of(args, "id").unwrap_or_default();
     Ok(match verb {
@@ -397,6 +427,14 @@ fn ops_for(verb: &str, args: &ArgMatches) -> Result<Value> {
             json!([op])
         }
         "delete" | "restore" => json!([{"op": verb, "id": id}]),
+        "retype" => {
+            let mut op = json!({"op": "retype", "id": id, "type": text_of(args, "type")});
+            if let Some(level) = text_of(args, "level") {
+                require_heading(args)?;
+                op["level"] = json!(level.parse::<u64>().unwrap_or(2));
+            }
+            json!([op])
+        }
         "table" => json!([table_op(args)?]),
         _ => unreachable!("clap admits only the block verbs"),
     })

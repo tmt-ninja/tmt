@@ -156,6 +156,7 @@ export function LiveStructuredPage({
     rowAction,
     columnAction,
     pasteUrl,
+    pasteStructure,
     check,
     authoring,
     author,
@@ -325,6 +326,7 @@ export function LiveStructuredPage({
       onRowAction={rowAction}
       onColumnAction={columnAction}
       onPasteUrl={pasteUrl}
+      onPasteStructure={pasteStructure}
       onChecked={check}
       authoring={authoring}
       onAuthor={author}

@@ -54,20 +54,28 @@ export const blockComponents: ComponentDoc[] = [
     slug: 'block',
     name: 'Block shell',
     description:
-      'Every block sits in the shell, and the shell draws nothing at rest: no border, fill or box, so the page reads as one document. The pointer adds no tint and selection a light one, never a border; the focus ring shows only for the keyboard. Each editor renders one BlockHandle (insert and the block menu, which is also the drag grip) inside the last block the pointer entered (it stays there until the pointer enters another block) or the focused block, in the gutter 8px to its left. Under 480px of document width the handle hides: a tap selects and a long press opens the block menu as a sheet.',
+      'Every block sits in the shell, and the shell draws nothing at rest: no border, fill or box, so the page reads as one document. The pointer adds no tint and selection a light one, never a border; the focus ring shows only for the keyboard. Each editor renders one BlockHandle (insert and the block menu, which is also the drag grip) inside the last block the pointer entered (it stays there until the pointer enters another block) or the focused block, in the gutter 8px to its left. With no gutter (under 480px of document width, or a document its host marks data-narrow) the handle sits at the block’s end over its text, on the sheet surface: a tap selects the block and shows it, and its grip opens the same block menu as a sheet. --tmt-block-handle-end leaves room for what the host draws at the block’s end.',
     preview: () => (
-      <BlockDocument>
-        <Block label="Paragraph: idle">
-          <TextBlock>Idle: no handle, no fill.</TextBlock>
-        </Block>
-        <Block label="Paragraph: hover" state="hover">
-          <BlockHandle />
-          <TextBlock>Hover: the one shared handle in the gutter, and no tint.</TextBlock>
-        </Block>
-        <Block label="Paragraph: selected" selected>
-          <TextBlock>Selected: the selection tint, no border.</TextBlock>
-        </Block>
-      </BlockDocument>
+      <>
+        <BlockDocument>
+          <Block label="Paragraph: idle">
+            <TextBlock>Idle: no handle, no fill.</TextBlock>
+          </Block>
+          <Block label="Paragraph: hover" state="hover">
+            <BlockHandle />
+            <TextBlock>Hover: the one shared handle in the gutter, and no tint.</TextBlock>
+          </Block>
+          <Block label="Paragraph: selected" selected>
+            <TextBlock>Selected: the selection tint, no border.</TextBlock>
+          </Block>
+        </BlockDocument>
+        <BlockDocument data-narrow="">
+          <Block label="Paragraph: narrow, selected" selected>
+            <BlockHandle />
+            <TextBlock>Narrow: no gutter, so the handle sits at the block’s end.</TextBlock>
+          </Block>
+        </BlockDocument>
+      </>
     ),
     usage: `${importLine('BlockDocument', 'Block', 'BlockHandle', 'BlockDropLine', 'BlockGhost', 'blockKeyAction')}<BlockDocument>
   <Block label="Table: Ticket status" kind="table" selected={selected} tabIndex={-1}
@@ -112,7 +120,7 @@ export const blockComponents: ComponentDoc[] = [
     slug: 'block-menu',
     name: 'Block menus',
     description:
-      'BlockMenu is the insert menu (a listbox opened by / or the handle’s +, filtered as the person types) and, with kind="actions", the block menu (Move to…, Move up, Move down, Duplicate, Copy link to block, @ this block in a comment, Delete; never "turn into"). Focus stays in the editor: the host drives the active item with nextBlockMenuItem and names it with activeId. On a phone it is a bottom sheet with 44px rows. insertGroups is the one catalog of insert types (icon, description, shortcut, group); items draws catalog rows by label, which is how the block-menu tag shows the same rows.',
+      'BlockMenu is the insert menu (a listbox opened by / or the handle’s +, filtered as the person types) and, with kind="actions", the block menu (Move to…, Move up, Move down, Duplicate, Copy link to block, @ this block in a comment, Delete). Turn into is not in the catalog: an editor that can change a block’s type adds it, with its list in the same menu (Colab). Focus stays in the editor: the host drives the active item with nextBlockMenuItem and names it with activeId. On a phone it is a bottom sheet with 44px rows. insertGroups is the one catalog of insert types (icon, description, shortcut, group); items draws catalog rows by label, which is how the block-menu tag shows the same rows.',
     preview: () => <p>See the frames below: a floating menu needs its own page.</p>,
     usage: `${importLine('BlockMenu', 'BlockMenuGroup', 'BlockMenuItem', 'BlockMenuSeparator', 'BlockMenuEmpty', 'BlockMenuFooter', 'BlockKbd', 'blockActions', 'insertGroups', 'nextBlockMenuItem')}<BlockMenu label="Insert block" activeId={\`insert-\${active}\`} placement={phone ? 'sheet' : 'below'}>
   <BlockMenuGroup>Basic</BlockMenuGroup>

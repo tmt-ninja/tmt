@@ -158,7 +158,8 @@
   gap: 1px;
   width: 300px;
   max-width: 100%;
-  max-height: 360px;
+  /* --tmt-block-menu-room: the room its host gives it on the side it opens (#6742). */
+  max-height: min(360px, var(--tmt-block-menu-room, 360px));
   overflow-y: auto;
   padding: 6px;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -631,13 +632,42 @@ a.tmt-block-mention:focus-visible {
   color: inherit;
 }
 
+/* With no gutter to hold it, the handle sits at its block's end, over the text, on the sheet
+   surface, so a tap reaches the same block menu (#6742). A document narrower than 480px has no
+   gutter; a host that takes the gutter away at a wider width marks the document data-narrow.
+   --tmt-block-handle-end leaves room for what a host draws at the block's end. */
+:where(.tmt-block-doc[data-narrow]) .tmt-block-handle {
+  inset-inline-start: auto;
+  inset-inline-end: var(--tmt-block-handle-end, 0);
+  top: 0;
+  z-index: 1;
+  gap: 2px;
+  width: auto;
+  padding: 2px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+
 /* Phone: the container, not the viewport, decides. */
 @container tmt-block-doc (max-width: 480px) {
   .tmt-block-doc-body {
     --tmt-block-gutter: 8px;
   }
+  /* The narrow handle, as for data-narrow above. */
   .tmt-block-handle {
-    display: none;
+    inset-inline-start: auto;
+    inset-inline-end: var(--tmt-block-handle-end, 0);
+    top: 0;
+    z-index: 1;
+    gap: 2px;
+    width: auto;
+    padding: 2px;
+    border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+    border-radius: var(--tmt-ui-radius);
+    background: var(--tmt-ui-surface-sheet);
+    box-shadow: var(--tmt-ui-shadow-overlay);
   }
   .tmt-block-todo {
     grid-template-columns: 20px minmax(0, 1fr);

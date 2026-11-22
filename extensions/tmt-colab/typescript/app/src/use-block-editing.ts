@@ -12,7 +12,7 @@ import {
   tableColumns,
 } from './block-model.js';
 import { filterInsert, insertType, opensInsert, type InsertEntry } from './block-insert.js';
-import { BlockHistory } from './block-history.js';
+import { BlockHistory, RUN_PAUSE_MS } from './block-history.js';
 import {
   addRow,
   deleteBlocks,
@@ -43,10 +43,12 @@ import {
   TEXT_MAX_WAIT_MS,
 } from './block-text-sync.js';
 import { marked, typedMarks } from './block-marks.js';
-import { indentBlock } from './block-ops.js';
+import { indentBlock, pasteBlocks, retypeBlock, type TurnInto } from './block-ops.js';
+import { PASTE_BLOCKS, pasted, type PastedBlock } from './block-paste.js';
 import type { TextRange } from './block-text-editor.js';
 import { applyOps } from './block-apply.js';
-import { richType, validMarkValue } from './blocks.js';
+import { BLOCK_TEXT_BYTES, RETYPE_TYPES, richType, validMarkValue } from './blocks.js';
+import { byteLength } from './closed.js';
 import { BlockTree } from './block-tree.js';
 import { attachment } from '@tmt/colab-client';
 import type { StoredAttachment } from './attachment-service.js';
@@ -114,20 +116,49 @@ function activeMention(entries: readonly MentionEntry[], active?: string): strin
 export const BLOCK_MENU_ACTIONS = ['move-up', 'move-down', 'duplicate', 'delete'] as const;
 /** A heading's section setting (#6619): done by hand, not progress, or counted automatically. */
 export const HEADING_MENU_ACTIONS = ['progress-done', 'progress-off', 'progress-auto'] as const;
+/** What Turn into offers (#6742), in its list's order. */
+export const TURN_INTO: readonly TurnInto[] = [
+  'paragraph',
+  'heading-2',
+  'heading-3',
+  'list',
+  'todo',
+  'callout',
+  'code',
+];
 export type BlockMenuAction =
   | (typeof BLOCK_MENU_ACTIONS)[number]
-  | (typeof HEADING_MENU_ACTIONS)[number];
-/** The block menu's items for a block: a heading adds the section settings it is not on. */
-export function blockMenuActions(block?: {
-  type: string;
-  props: Record<string, unknown>;
-}): readonly BlockMenuAction[] {
-  if (block?.type !== 'heading') return BLOCK_MENU_ACTIONS;
+  | (typeof HEADING_MENU_ACTIONS)[number]
+  | 'turn-into'
+  | 'turn-back'
+  | `turn-${TurnInto}`;
+/** What a text block is now, as Turn into names it. */
+const turnedAs = (block: { type: string; props: Record<string, unknown> }) =>
+  block.type === 'heading' ? `heading-${block.props.level === 3 ? 3 : 2}` : block.type;
+/** The block menu's items for a block: a text block adds Turn into (#6742), a heading the section
+ * settings it is not on. With `list` open, Turn into's own list: the way back, then the types. */
+export function blockMenuActions(
+  block?: { type: string; props: Record<string, unknown> },
+  list?: 'turn-into',
+): readonly BlockMenuAction[] {
+  const retype = Boolean(block && (RETYPE_TYPES as readonly string[]).includes(block.type));
+  if (list === 'turn-into' && block && retype)
+    return [
+      'turn-back',
+      ...TURN_INTO.filter((into) => into !== turnedAs(block)).map(
+        (into) => `turn-${into}` as const,
+      ),
+    ];
+  // Turn into goes before Delete, which stays last of the block's own actions.
+  const own: readonly BlockMenuAction[] = retype
+    ? ['move-up', 'move-down', 'duplicate', 'turn-into', 'delete']
+    : BLOCK_MENU_ACTIONS;
+  if (block?.type !== 'heading') return own;
   const current =
     block.props.progress === 'done' || block.props.progress === 'off'
       ? `progress-${block.props.progress}`
       : 'progress-auto';
-  return [...BLOCK_MENU_ACTIONS, ...HEADING_MENU_ACTIONS.filter((action) => action !== current)];
+  return [...own, ...HEADING_MENU_ACTIONS.filter((action) => action !== current)];
 }
 
 /** How long the status line after a delete stays. */
@@ -243,6 +274,50 @@ function carried(before: string, after: string, at: number): { at: number; text:
  * Enter and Backspace at a block's edges are one batch each: the split or join with the typing not
  * sent yet. They wait for the text op on its way, so each batch starts from what the page shows.
  */
+const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+
+/** Undo or redo from the keyboard, with the platform's command key: ⌘Z and ⌘⇧Z (or ⌘Y) on macOS,
+ * Ctrl+Z and Ctrl+Shift+Z (or Ctrl+Y) elsewhere. Ctrl+Y on macOS stays the text field's own. */
+function historyKey(event: KeyboardEvent): 'undo' | 'redo' | undefined {
+  const command = MAC ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  if (!command || event.altKey) return undefined;
+  const letter = event.key.toLowerCase();
+  if (letter === 'z') return event.shiftKey ? 'redo' : 'undo';
+  return letter === 'y' && !event.shiftKey ? 'redo' : undefined;
+}
+
+/** A text on its way, at the address a draft keeps. */
+interface SentText {
+  id: string;
+  cell?: TableCell;
+  base: string;
+  value: string;
+}
+
+/** The texts a batch carries, at the address a draft keeps (#6769): a block's text and a cell's. */
+function sentTexts(ops: readonly BlockOp[]): SentText[] {
+  return ops.flatMap((op): SentText[] =>
+    op.op === 'text' && 'set' in op
+      ? [{ id: op.id, base: op.base, value: op.set }]
+      : op.op === 'table' && op.action === 'set-cell' && op.base !== undefined
+        ? [
+            {
+              id: op.row,
+              cell: { table: op.id, column: op.column },
+              base: op.base,
+              value: op.text,
+            },
+          ]
+        : [],
+  );
+}
+
+/** The draft for a text on its way: the one already kept for it, or a new one. */
+function sending(recovery: BlockDraftSession, { id, cell, base, value }: SentText) {
+  if (!recovery.matching(id, cell, value)) recovery.remember(id, cell, base, value);
+  return recovery.matching(id, cell, value);
+}
+
 export function useBlockEditing(
   records: readonly BlockRecord[],
   /** Sends one batch; `stored` files join the page's attachment list in that same batch. */
@@ -314,12 +389,22 @@ export function useBlockEditing(
   sendRef.current = send;
   /** This tab's own gestures, for ⌘Z and Undo (`BlockHistory`). */
   const history = useRef(new BlockHistory());
+  /** A pause in typing ends the run: the next typing is a step of its own (#6742). */
+  const freshRun = useRef(false);
+  const lastKeyAt = useRef(0);
+  /** ⌘Z and ⌘⇧Z while typing, which is defined after the keys that reach it. */
+  const replayRef = useRef<(direction: 'undo' | 'redo') => void>(() => {});
   const [selection, setSelection] = useState<BlockSelection>();
   const [toast, setToast] = useState<DeleteToast>();
   /** Batches waiting longer than `SAVE_SLOW_MS`; while any does, the status line says so. */
   const [slow, setSlow] = useState(0);
   /** The block menu open on a block, and its active action. */
-  const [blockMenu, setBlockMenu] = useState<{ id: string; active?: string }>();
+  const [blockMenu, setBlockMenu] = useState<{
+    id: string;
+    active?: string;
+    /** Turn into's own list is open in the menu (#6742). */
+    list?: 'turn-into';
+  }>();
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** The block the insert menu is open on, and its active entry. */
   const [menuAt, setMenuAt] = useState<{ id: string; query: string; active?: string }>();
@@ -451,7 +536,11 @@ export function useBlockEditing(
       stored?: readonly StoredAttachment[],
       report = stored === undefined,
     ): Promise<boolean> => {
-      const captured = current && recovery?.matching(current.id, current.cell, current.text);
+      // Text leaving for the serve is the draft a reload restores until it lands (#6769), whoever
+      // sends it (typing, undo, a paste, a picked mention): it is remembered here, and its landing
+      // clears exactly that draft. A block this tab deletes takes its draft with it.
+      const captured = recovery ? sentTexts(ops).map((text) => sending(recovery, text)) : [];
+      const deleted = ops.flatMap((op) => (op.op === 'delete' ? [op.id] : []));
       const key = ++batchKey.current;
       setPending((now) => [...now, { key, ops }]);
       // This tab's batches commit in the order it made them (a column's rename after its add): each
@@ -485,7 +574,8 @@ export function useBlockEditing(
       }, drop);
       inflight.current = sent.then(
         (at) => {
-          if (captured) recovery?.admitted(captured);
+          for (const draft of captured) if (draft) void recovery?.admitted(draft);
+          for (const id of deleted) void recovery?.forget(id, undefined);
           if (current)
             showRef.current(
               current,
@@ -517,14 +607,30 @@ export function useBlockEditing(
     [recovery],
   );
   /** The typing not sent yet, with the marks its new characters take from the text they were
-   * typed into (as the editor draws them). */
-  const typedOps = useCallback((current: BlockTextSync): BlockOp[] => {
+   * typed into (as the editor draws them). It joins this tab's history as a typing run (#6742),
+   * unless the caller records it inside a gesture of its own (`record` false). */
+  const typedOps = useCallback((current: BlockTextSync, record = true): BlockOp[] => {
     const op = current.flush();
     if (!op) return [];
+    if (op.op === 'table' && op.action === 'set-cell') {
+      // A cell's typing is a step too, so ⌘Z in a cell takes it back (#6742).
+      const row = [treeRef.current.get(op.row), pageRef.current.get(op.row)].find(
+        (block) => (block?.cells?.[op.column] ?? '') === op.base,
+      );
+      if (record && row) {
+        history.current.typing(row, op, freshRun.current);
+        freshRun.current = false;
+      }
+      return [op];
+    }
     if (op.op !== 'text' || !('set' in op)) return [op];
     const from = [treeRef.current.get(op.id), pageRef.current.get(op.id)].find(
       (block) => block?.text === op.base,
     );
+    if (record && from) {
+      history.current.typing(from, op, freshRun.current);
+      freshRun.current = false;
+    }
     return [op, ...typedMarks(op.id, op.base, op.set, from?.marks)];
   }, []);
   const flush = useCallback(() => {
@@ -748,14 +854,16 @@ export function useBlockEditing(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageTree]);
 
+  /** Start editing `id`, the caret at `at` (where a click landed on its text) or at its end. */
   const focus = useCallback(
-    (id: string) => {
+    (id: string, at?: number) => {
       setSelection(undefined);
       if (sync.current?.id === id && !sync.current.cell) return;
       flush();
       const block = tree.get(id);
       if (!block || block.text === undefined) return;
-      open(new BlockTextSync(id, block.text), [...block.text].length);
+      const end = [...block.text].length;
+      open(new BlockTextSync(id, block.text), at === undefined ? end : Math.min(at, end));
     },
     [tree, flush, open],
   );
@@ -788,6 +896,9 @@ export function useBlockEditing(
       current.typed(text);
       recovery?.remember(id, current.cell, current.base, text);
       caret.current = at;
+      const now = Date.now();
+      if (now - lastKeyAt.current >= RUN_PAUSE_MS) freshRun.current = true;
+      lastKeyAt.current = now;
       const menu = menuRef.current;
       if (menu?.id === id) setMenuAt(text.startsWith('/') ? { ...menu, query: text } : undefined);
       // An @ at a word's start opens the @ menu in a block that takes marks; what follows filters it.
@@ -861,6 +972,14 @@ export function useBlockEditing(
       const current = sync.current;
       if (!current?.cell) return false;
       const { table, column } = current.cell;
+      // ⌘Z and ⌘⇧Z (or ⌘Y) in a cell use this tab's one history, as in a block (#6742): the cell's
+      // typing goes out as a step first, so ⌘Z takes it back, never an earlier step elsewhere.
+      const step = historyKey(event);
+      if (step) {
+        current.typed(text);
+        void settle().then(() => replayRef.current(step));
+        return true;
+      }
       const formatKey =
         (event.metaKey || event.ctrlKey) && !event.altKey && FORMAT_KEYS[event.key.toLowerCase()];
       if (formatKey || event.key === 'Enter') return true;
@@ -885,7 +1004,7 @@ export function useBlockEditing(
       // Tab never leaves the table, even at its first cell.
       return true;
     },
-    [flush, focusCell, addRowTo],
+    [flush, focusCell, addRowTo, settle],
   );
 
   /** Enter at scalar `at`: the rest of the text starts a new block, focused at its start. */
@@ -1010,6 +1129,110 @@ export function useBlockEditing(
       return true;
     },
     [format],
+  );
+
+  /** A paste that makes blocks (#6742): one gesture with the typing not sent yet. One block's worth
+   * goes into the focused block as typing does; more splits it, focused at the end of the paste. */
+  const pasteInto = useCallback(
+    async (current: BlockTextSync, range: TextRange, blocks: readonly PastedBlock[]) => {
+      clearTimeout(timer.current);
+      await inflight.current;
+      if (sync.current !== current) return;
+      const before = treeRef.current;
+      const block = before.get(current.id);
+      if (!block) return;
+      const scalars = [...current.text];
+      const rest = scalars.slice(0, range.from).join('') + scalars.slice(range.to).join('');
+      if (blocks.length === 1 && !(block.type === 'paragraph' && !rest)) {
+        // Inline: the pasted text is typing, with its own marks on top.
+        const [one] = blocks as [PastedBlock];
+        const head = scalars.slice(0, range.from).join('');
+        const text = head + one.text + scalars.slice(range.to).join('');
+        const shown = current.text;
+        current.typed(text);
+        const caretAt = [...head].length + [...one.text].length;
+        showRef.current(current, { text, caret: caretAt, dropped: false, from: shown });
+        const typing = typedOps(current, false);
+        const marks: BlockOp[] = one.marks.map((mark) => ({
+          op: 'text',
+          id: current.id,
+          format: {
+            from: mark.from + [...head].length,
+            to: mark.to + [...head].length,
+            mark: mark.mark,
+            value: mark.value ?? true,
+          },
+        }));
+        history.current.record(before, [...typing, ...marks]);
+        await out(current, [...typing, ...marks]);
+        return;
+      }
+      const made = blocks.length + (block.type === 'paragraph' && !rest ? 0 : -1);
+      const ids = Array.from({ length: made }, () => crypto.randomUUID());
+      const {
+        ops,
+        focus,
+        text,
+        caret: at,
+      } = pasteBlocks(
+        before,
+        current.id,
+        range,
+        { text: current.text, base: current.base },
+        blocks,
+        ids,
+      );
+      history.current.record(before, ops);
+      arriving.current = focus;
+      const into = new BlockTextSync(focus, text);
+      open(into, at);
+      handoff.current = { from: current.id, text: current.text, at: range.from, to: into };
+      if (!(await out(undefined, ops))) {
+        // Refused: nothing changed on the page. The person's text goes back where it was.
+        if (sync.current?.id === focus) {
+          arriving.current = undefined;
+          const back = new BlockTextSync(current.id, before.get(current.id)?.text ?? '');
+          back.typed(current.text);
+          open(back, range.from);
+          timer.current = setTimeout(flush, TEXT_FLUSH_MS);
+        }
+      }
+    },
+    [open, out, flush, typedOps],
+  );
+  /** Text or HTML pasted into the focused block: blocks when it holds structure, else the editor's
+   * own paste. A paste too large to make blocks of goes in as plain text, with a notice. */
+  const pasteStructure = useCallback(
+    (id: string, html: string, plain: string, text: string, range: TextRange): boolean => {
+      const current = sync.current;
+      const block = treeRef.current.get(id);
+      // A table cell keeps the editor's own paste.
+      if (current?.id !== id || current.cell || !block || !isBlockType(block.type)) return false;
+      if (block.text === undefined) return false;
+      const result = pasted(block.type, html, plain);
+      // A paste that would take a block's text past its limit pastes nothing and says so (#6742):
+      // the serve would refuse the batch, and the person would see their text not saved.
+      const scalars = [...text];
+      const head = scalars.slice(0, range.from).join('');
+      const tail = scalars.slice(range.to).join('');
+      const parts = result && 'blocks' in result ? result.blocks.map((one) => one.text) : [plain];
+      const texts = parts.map(
+        (part, at) => (at === 0 ? head : '') + part + (at === parts.length - 1 ? tail : ''),
+      );
+      if (texts.some((one) => byteLength(one) > BLOCK_TEXT_BYTES)) {
+        noticeRef.current(strings.blockEdit.pasteTooLong(BLOCK_TEXT_BYTES / 1024));
+        return true;
+      }
+      if (!result) return false;
+      if ('tooLarge' in result) {
+        noticeRef.current(strings.blockEdit.pasteTooLarge(PASTE_BLOCKS));
+        return false;
+      }
+      current.typed(text);
+      void pasteInto(current, range, result.blocks);
+      return true;
+    },
+    [pasteInto],
   );
 
   /** The insert menu's choice: a new block of its type replaces the slash paragraph (a block's
@@ -1263,6 +1486,15 @@ export function useBlockEditing(
     (id: string, event: KeyboardEvent, text: string, at: number, range: TextRange): boolean => {
       const current = sync.current;
       const block = treeRef.current.get(id);
+      // ⌘Z and ⌘⇧Z (or ⌘Y) while typing use this tab's one history, in time order (#6742): the
+      // typing goes out as a step first, after any batch still on its way, so ⌘Z takes back the
+      // latest typing, and ⌘⇧Z makes it again.
+      const step = historyKey(event);
+      if (current?.id === id && step) {
+        current.typed(text);
+        void settle().then(() => replayRef.current(step));
+        return true;
+      }
       const formatKey =
         (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
           ? FORMAT_KEYS[event.key.toLowerCase()]
@@ -1355,7 +1587,7 @@ export function useBlockEditing(
       }
       return false;
     },
-    [split, join, pick, flush, format, indent, mentionRows, pickMention, closePage],
+    [split, join, pick, flush, settle, format, indent, mentionRows, pickMention, closePage],
   );
 
   /** Take this tab's latest gesture back (or make it again), as a new batch that merges with what
@@ -1373,6 +1605,7 @@ export function useBlockEditing(
     },
     [out],
   );
+  replayRef.current = replay;
   const undo = useCallback(() => replay('undo'), [replay]);
 
   /** One gesture of this tab: recorded for ⌘Z, then sent. */
@@ -1469,8 +1702,23 @@ export function useBlockEditing(
   /** A block menu action, or its key, on `id`. */
   const act = useCallback(
     (action: BlockMenuAction, id: string) => {
-      setBlockMenu(undefined);
       const tree = treeRef.current;
+      // Turn into opens its list in the same menu, and the way back closes it (#6742).
+      if (action === 'turn-into' || action === 'turn-back') {
+        const list = action === 'turn-into' ? ('turn-into' as const) : undefined;
+        setBlockMenu({
+          id,
+          ...(list && { list }),
+          active: list ? blockMenuActions(tree.get(id), list)[1] : 'turn-into',
+        });
+        return;
+      }
+      setBlockMenu(undefined);
+      if (action.startsWith('turn-')) {
+        gesture(retypeBlock(tree, id, action.slice('turn-'.length) as TurnInto));
+        setSelection(selectBlock(id));
+        return;
+      }
       if (action === 'delete') return deleteIds([id]);
       if (action.startsWith('progress-')) {
         const value = action.slice('progress-'.length);
@@ -1573,7 +1821,7 @@ export function useBlockEditing(
           setBlockMenu({
             ...menuOn,
             active: nextBlockMenuItem(
-              blockMenuActions(treeRef.current.get(menuOn.id)),
+              blockMenuActions(treeRef.current.get(menuOn.id), menuOn.list),
               menuOn.active,
               event.key,
             ),
@@ -1590,19 +1838,12 @@ export function useBlockEditing(
         }
       }
       const selecting = Boolean(selection) && !sync.current;
+      const step = historyKey(event);
+      if (step) {
+        replay(step);
+        return true;
+      }
       const action = blockKeyAction(event, selecting);
-      if (action === 'undo') {
-        replay('undo');
-        return true;
-      }
-      const mod = event.metaKey || event.ctrlKey;
-      if (
-        mod &&
-        (event.key.toLowerCase() === 'y' || (event.shiftKey && event.key.toLowerCase() === 'z'))
-      ) {
-        replay('redo');
-        return true;
-      }
       if (!selection || !selecting) return false;
       const ids = treeRef.current.flat().map((block) => block.id);
       switch (action) {
@@ -1711,6 +1952,7 @@ export function useBlockEditing(
     rowAction,
     columnAction,
     pasteUrl,
+    pasteStructure,
     check,
     authoring,
     author: setAuthoring,

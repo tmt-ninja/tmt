@@ -969,15 +969,20 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
   is the `surface-selection` tint, and the focus ring shows only on `:focus-visible`.
 - Render one `BlockHandle` per editor, inside the last block the pointer entered (it stays when
   the pointer leaves that block, and hides while typing and off the page) or the keyboard-focused
-  block; it sits in the gutter 8px left of that block, is out of the Tab order and hides under
-  480px of document width. Its grip opens the block menu and starts a drag
+  block; it sits in the gutter 8px left of that block and is out of the Tab order. With no gutter
+  (under 480px of document width, or a document its host marks `data-narrow`) it sits at the
+  block's end over its text, on the sheet surface, so a tap reaches the block menu;
+  `--tmt-block-handle-end` leaves room for what the host draws there. Its grip opens the block
+  menu and starts a drag
   (`state="dragging"`, `BlockDropLine`, `BlockGhost`).
 - `blockKeyAction` is the one keyboard table: Menu, Shift+F10 or Cmd/Ctrl+/ open the block menu;
   Esc selects; arrows move and Shift+arrows extend the selection; Alt+Shift+arrows move;
   Cmd/Ctrl+D duplicates; Delete deletes; Cmd/Ctrl+Z undoes.
 - `BlockMenu` is the insert listbox or, with `kind="actions"`, the block menu (`blockActions`;
-  it never changes a block's type). Focus stays in the editor: drive `activeId` with
-  `nextBlockMenuItem`. `placement="sheet"` is the phone sheet with 44px rows. `items` names
+  Turn into is not in it: an editor that can change a block's type adds that row). Focus stays in the editor: drive `activeId` with
+  `nextBlockMenuItem`. `placement="sheet"` is the phone sheet with 44px rows; `below` and `above`
+  name the side of its block a floating menu opens on, and `--tmt-block-menu-room` caps its
+  height (360px at most) to the room the host gives it there. `items` names
   catalog rows by label or as `<id>:<text>`, which keeps the row's icon and key but shows `text`
   and no description, so a page in another language mixes in no English; `<id>:<text>:<description>`
   adds the row's own description; the tag's `hint-labels` names its three footer hints the same

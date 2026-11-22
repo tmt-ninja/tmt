@@ -92,6 +92,17 @@ pub enum Step {
     Restore {
         id: String,
     },
+    /// A block's new type (#6742): its ID and everything that points at it stay. The props, and a
+    /// code block's plain text, are new objects in the block, so a change another writer makes at
+    /// the same time to the old props or marks stays with the old objects and never shows.
+    Retype {
+        id: String,
+        #[serde(rename = "type")]
+        block_type: String,
+        props: Map<String, Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -308,6 +319,60 @@ impl Editing {
             });
         }
         self.note("props", key);
+        Ok(())
+    }
+
+    /// Turn a live text block into another of the six retype types (#6742), in place. `props` is the
+    /// complete props of the new type; without it the props both types have stay, and `level` sets
+    /// a heading's. Turning into code takes the marks off, since code is plain.
+    fn retype(&mut self, op: &Value) -> Result<()> {
+        keys(op, &["op", "id", "type"], &["props", "level"])?;
+        let key = id(&op["id"])?;
+        let from = self.block_type(key)?.to_owned();
+        let to = string(&op["type"])?.to_owned();
+        require(from != to && schema::RETYPE.contains(&from.as_str()))?;
+        require(schema::RETYPE.contains(&to.as_str()))?;
+        require(self.block(key)?.get("deleted").is_none())?;
+        let old = self.block(key)?["props"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        let props = match op.get("props") {
+            Some(props) => {
+                require(op.get("level").is_none())?;
+                object(props)?.clone()
+            }
+            None => {
+                let mut kept: Map<String, Value> = old
+                    .iter()
+                    .filter(|(name, value)| schema::keeps_prop(&to, name, value))
+                    .map(|(name, value)| (name.clone(), value.clone()))
+                    .collect();
+                if let Some(level) = op.get("level") {
+                    kept.insert("level".into(), level.clone());
+                }
+                kept
+            }
+        };
+        schema::validate_props(&to, &Value::Object(props.clone()))?;
+        // Code is plain: its text is the same characters, without the marks.
+        let text = match schema::rich(&to) {
+            true => None,
+            false => Some(string(&self.block(key)?["text"]["s"])?.to_owned()),
+        };
+        let block = self.doc.get_mut(key).ok_or(Refusal::NotFound)?;
+        block["type"] = Value::String(to.clone());
+        block["props"] = Value::Object(props.clone());
+        if text.is_some() {
+            block["text"]["marks"] = json!([]);
+        }
+        self.steps.push(Step::Retype {
+            id: key.into(),
+            block_type: to,
+            props,
+            text,
+        });
+        self.note("retype", key);
         Ok(())
     }
 
@@ -633,6 +698,7 @@ pub fn apply(base: &Value, body: &Value, attribution: &Value) -> Result<Applied>
             "insert" => batch.insert(op),
             "move" => batch.move_block(op),
             "props" => batch.props(op),
+            "retype" => batch.retype(op),
             "text" => batch.text(op),
             "delete" => batch.set_deleted(op, true),
             "restore" => batch.set_deleted(op, false),

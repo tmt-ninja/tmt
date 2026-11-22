@@ -34,6 +34,14 @@ const BLOCK_REF = new RegExp(`^(?:(${ID})/)?(${ID})$`);
  * rich text does; marks outside the text are clipped. A link opens only through `onLink`, the
  * page's trusted open path; a link whose scheme may not be opened is plain text.
  */
+/** `text` with each line feed drawn as one line break element: a soft break in a block's text. */
+function lines(text: string, key: string): ReactNode {
+  if (!text.includes('\n')) return text;
+  return text
+    .split('\n')
+    .flatMap((line, at) => (at ? [<br key={`${key}-${at}`} />, line] : [line]));
+}
+
 export function MarkedText({
   text,
   marks = [],
@@ -49,7 +57,7 @@ export function MarkedText({
   onLink?(href: string, newTab: boolean): void;
 }): ReactNode {
   const chars = Array.from(text);
-  if (!marks.length) return text;
+  if (!marks.length) return lines(text, 'text');
   const cuts = new Set([0, chars.length]);
   for (const run of marks) {
     cuts.add(Math.max(0, Math.min(chars.length, run.from)));
@@ -62,7 +70,7 @@ export function MarkedText({
     const to = edges[i + 1]!;
     if (from === to) continue;
     const on = marks.filter((run) => run.from <= from && run.to >= to);
-    let node: ReactNode = chars.slice(from, to).join('');
+    let node: ReactNode = lines(chars.slice(from, to).join(''), `${from}`);
     const has = (mark: TextMarkRun['mark']) => on.find((run) => run.mark === mark);
     if (has('code')) node = <code className="tmt-block-inline-code">{node}</code>;
     if (has('italic')) node = <em>{node}</em>;

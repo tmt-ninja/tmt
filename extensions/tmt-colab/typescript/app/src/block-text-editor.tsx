@@ -4,7 +4,6 @@ import { ReactExtension } from '@lexical/react/ReactExtension';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { PlainTextExtension } from '@lexical/plain-text';
-import { HistoryExtension } from '@lexical/history';
 import {
   $createParagraphNode,
   $createRangeSelection,
@@ -29,7 +28,8 @@ const PAGE_TAG = 'tmt-block-page-text';
 const blockTextExtension = defineExtension({
   name: 'TmtBlockText',
   namespace: 'TmtBlockText',
-  dependencies: [PlainTextExtension, HistoryExtension, ReactExtension],
+  // No editor history: ⌘Z goes to the page's one history for this tab, in time order (#6742).
+  dependencies: [PlainTextExtension, ReactExtension],
   // Inline code draws as the design system's, as it does at rest (`MarkedText`).
   theme: { text: { code: 'tmt-block-inline-code' } },
   $initialEditorState: () => {
@@ -211,6 +211,8 @@ export interface BlockTextEditorProps {
   onLink?(href: string): void;
   /** A URL pasted over a selected range: the block may link the range instead of pasting. */
   onPasteUrl?(url: string, text: string, range: TextRange): boolean;
+  /** Text or HTML pasted at `range`: true when the block made blocks of it instead (#6742). */
+  onPasteStructure?(html: string, plain: string, text: string, range: TextRange): boolean;
   placeholder?: string;
 }
 
@@ -238,6 +240,7 @@ function Editor({
   onTyped,
   onKey,
   onPasteUrl,
+  onPasteStructure,
   onLink,
   placeholder,
 }: BlockTextEditorProps) {
@@ -334,11 +337,17 @@ function Editor({
         onLink(href);
       }}
       onPasteCapture={(event) => {
-        const url = event.clipboardData.getData('text/plain').trim();
-        if (!onPasteUrl || !linkHref(url)) return;
+        const plain = event.clipboardData.getData('text/plain');
+        const url = plain.trim();
         const now = editor.getEditorState().read($text);
         const { from, to } = domRange(event.currentTarget, now);
-        if (from < to && onPasteUrl(url, now, { from, to })) {
+        if (onPasteUrl && linkHref(url) && from < to && onPasteUrl(url, now, { from, to })) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        const html = event.clipboardData.getData('text/html');
+        if (onPasteStructure?.(html, plain, now, { from, to })) {
           event.preventDefault();
           event.stopPropagation();
         }

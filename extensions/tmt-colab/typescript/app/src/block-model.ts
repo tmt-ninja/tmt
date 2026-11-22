@@ -214,4 +214,15 @@ export type BlockOp =
     }
   | ({ readonly op: 'table'; readonly id: string } & TableAction)
   | { readonly op: 'delete'; readonly id: string }
-  | { readonly op: 'restore'; readonly id: string };
+  | { readonly op: 'restore'; readonly id: string }
+  /** The block turns into another of the six retype types in place (#6742): its ID and text stay.
+   * `props` is the complete props of the new type (an undo's); without it the props both types
+   * have stay, as the serve holds them when it applies the op, and `level` sets a heading's. Into
+   * code, its marks go. */
+  | {
+      readonly op: 'retype';
+      readonly id: string;
+      readonly type: BlockType;
+      readonly props?: Readonly<Record<string, unknown>>;
+      readonly level?: 2 | 3;
+    };

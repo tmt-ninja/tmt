@@ -3234,7 +3234,7 @@ below; any other key, type or shape is refused.
 
 | Key       | Value                                                                                                                                                            |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`    | One of the thirteen types below, or the internal `row`; never changes                                                                                            |
+| `type`    | One of the thirteen types below, or the internal `row`; changes only by `retype` between the six [retype types](#retype-6742)                                    |
 | `parent`  | `root` or the ID of a `card`; a card never holds a card; a `row`'s parent is its table                                                                           |
 | `pos`     | Fractional sort key: 1 to 64 characters of `0-9A-Za-z`, never ending in `0`; siblings order by `(pos, id)`, so two writers that pick one key keep a stable order |
 | `props`   | Nested `Y.Map` of plain values; only the keys of the type's schema                                                                                               |
@@ -3327,14 +3327,15 @@ doubt. Without `appliedThrough` (an older serve) the tab waits for the reply's
 revision as before. A batch that has not completed after 2 s, or waits behind one that has not, says
 so in the page's status line until it does.
 
-| Op                  | Shape                                                                                                                                                                                           |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `insert`            | `{id, type, parent?, after?, props?, text?}`; `parent` defaults to `root`; `after` absent = last, `null` = first, else a child of `parent`; `row` is never insertable                           |
-| `move`              | `{id, parent, after?}`: the subtree moves; the last move wins                                                                                                                                   |
-| `props`             | `{id, set?: {key: value}, unset?: [key]}`: per key, checked against the type's schema                                                                                                           |
-| `text`              | `{id, cell?}` with one of `replace: {find, with}` (`find` must occur exactly once), `set` with `base` and optional `overlap` ([merge](#block-text-merge)), or `format: {from, to, mark, value}` |
-| `delete`, `restore` | `{id}`; both are idempotent                                                                                                                                                                     |
-| `table`             | `{id, action}` with `add-row`, `remove-row`, `set-cell` (`row`, `column`, `text`, optional `base` and `overlap`), `add-column`, `rename-column`, `move-column` or `remove-column`               |
+| Op                  | Shape                                                                                                                                                                                                |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `insert`            | `{id, type, parent?, after?, props?, text?}`; `parent` defaults to `root`; `after` absent = last, `null` = first, else a child of `parent`; `row` is never insertable                                |
+| `move`              | `{id, parent, after?}`: the subtree moves; the last move wins                                                                                                                                        |
+| `props`             | `{id, set?: {key: value}, unset?: [key]}`: per key, checked against the type's schema                                                                                                                |
+| `text`              | `{id, cell?}` with one of `replace: {find, with}` (`find` must occur exactly once), `set` with `base` and optional `overlap` ([merge](#block-text-merge)), or `format: {from, to, mark, value}`      |
+| `delete`, `restore` | `{id}`; both are idempotent                                                                                                                                                                          |
+| `retype`            | `{id, type, props?, level?}`: a live block turns into another [retype type](#retype-6742) in place; `props` is the new type's complete props, else the shared ones stay and `level` sets a heading's |
+| `table`             | `{id, action}` with `add-row`, `remove-row`, `set-cell` (`row`, `column`, `text`, optional `base` and `overlap`), `add-column`, `rename-column`, `move-column` or `remove-column`                    |
 
 The receipt lists `ops` (`{op, id}` for each op) and `droppedHunks` (`{id, from, to, text}`; empty when
 nothing overlapped). A batch with an attachment change also lists `attachments` (`{set, remove}`,
@@ -3428,6 +3429,54 @@ such a baseline and checks the validator, the isolated decoder and the base that
 test `a_new_epoch_of_a_page_of_blocks_purges_old_tombstones_and_keeps_its_metadata` advances a page's
 epoch through the owner path (the oldest tombstones go, a refused restore writes nothing, a kept
 tombstone still restores, and the question registry and state come across).
+
+#### Retype (#6742)
+
+A block of one of the six retype types, `paragraph`, `heading`, `list`, `todo`, `callout` and `code`,
+turns into another of them in place with the `retype` op (`tmt colab block retype`, and Turn into in
+the block actions menu). It keeps its ID, its `parent` and `pos`, and its `Y.Text`, so what points at
+the block stays: discussion threads anchored to it, `block` mention marks on this or other pages, Work
+orders and to-do numbers keyed `pageId:blockId`. Any other type never changes. The op sets `type` and
+the props, as one gesture:
+
+| From → to       | Props after the op                                                          |
+| --------------- | --------------------------------------------------------------------------- |
+| `list` ↔ `todo` | `indent` stays; `style`, `checked`, `assignee`, `due` and `thread` go       |
+| any → `heading` | `level` from the op (`level`, or `props`), else none; every other prop goes |
+| any → `code`    | none; the text is the same characters without marks, since code is plain    |
+| any other pair  | the props both types have stay, each only with a value the new type allows  |
+
+A shared name is not enough: `tone` is `default` or `muted` on a paragraph and `working`, `waiting`,
+`review` or `blocked` on a callout, so a toned callout turns into a paragraph without its tone, and
+a muted paragraph into a callout without its tone. An explicit `props` replaces this table: it must be the complete props of the new type. A retype to the
+type the block already has, of a deleted block or of any other type is refused (`COLAB_INPUT_INVALID`).
+Turn into in the browser, like `tmt colab block retype`, names no props (a heading's `level`
+only), so the serve keeps the shared props as it holds them when the op lands, including a change
+another writer made to one meanwhile. Undo in the browser sends `retype` back to the old type with
+its old props, and the marks code took off, as one step.
+
+The op writes the block's `type`, a new `props` map and, into code, a new plain `text` in one update:
+the old map and text are replaced, never edited key by key or mark by mark.
+
+**Races.** Two devices can race a retype before either has seen the other's update. Because the
+retype replaces whole objects, every merge is a block that every reader admits as it is, with no rule
+of its own, in either order:
+
+- a prop or mark the other writer sets for the type the block had goes to the replaced map or text,
+  so it is lost rather than left on a type that has no such prop;
+- into code, text the other writer types at the same moment goes to the replaced text and is lost
+  too; their change to anything else in the block (its place, or its deleting) stays;
+- two retypes at once resolve to one writer's type with that writer's props, never a mix.
+
+**Version skew.** Every reader admits a page by the state an update makes, not by the op that
+made it, so builds from before `retype` keep working with retyped blocks, races included:
+
+- their readers (the isolated decoder, the browser fold, `block ls` and `block get`) read a retyped
+  block as the type it now has;
+- their CLI and browser writes are checked against that type, so a prop of the old type is refused
+  as before;
+- a CLI of this build prepares its own update, so its `retype` lands on a page that an older serve
+  holds, and that serve admits it like any other valid update.
 
 #### Block text merge
 

@@ -95,6 +95,13 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   z-index: 20;
   padding-top: 4px;
 }
+/* With no room under its block, the menu opens above it (#6742). */
+.tmt-block-insert[data-side='above'] {
+  top: auto;
+  bottom: 100%;
+  padding-top: 0;
+  padding-bottom: 4px;
+}
 /* The phone sheet sits on the viewport's bottom edge, above the bottom safe area, over the
    design system's scrim, so the page under it reads as inactive. */
 .tmt-block-insert[data-sheet] {
@@ -110,8 +117,13 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
 .tmt-block:has(> .tmt-block-insert[data-sheet]) {
   z-index: 21;
 }
-.tmt-block:has(> .tmt-block-insert[data-sheet]) > :not(.tmt-block-insert) {
+.tmt-block:has(> .tmt-block-insert[data-sheet]) > :not(.tmt-block-insert, .tmt-block-handle) {
   position: relative;
+  z-index: 2;
+}
+/* The handle lifts with them and stays where the tap left it: the block never moves when its
+   menu opens (#6742). */
+.tmt-block:has(> .tmt-block-insert[data-sheet]) > .tmt-block-handle {
   z-index: 2;
 }
 .tmt-block-insert[data-sheet] {
@@ -625,14 +637,13 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     inset-inline-start: auto;
     inset-inline-end: 0;
   }
+  /* Comment markers keep the block's end; the design system's narrow handle goes before them. */
   .tmt-block:has(> .structured-annotation-markers) {
+    --tmt-block-handle-end: 32px;
     padding-inline-end: 32px;
   }
   :is(.tmt-ui-shell, .workspace):has(.structured-page-stage) {
     --colab-block-inset: 8px;
-  }
-  .structured-page-stage .tmt-block-handle {
-    display: none;
   }
 }
 .tmt-block-empty-start {
@@ -649,7 +660,13 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .tmt-block-empty .tmt-block-handle {
   display: flex;
   inset-inline-start: 0;
+  inset-inline-end: auto;
   width: 20px;
+  /* The empty page's own start button, never the narrow handle's sheet. */
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
 }
 .tmt-block-empty {
   padding-inline-start: 28px;

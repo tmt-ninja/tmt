@@ -14593,6 +14593,77 @@ fn invalid_heading_progress_names_the_values_and_clear_form() {
     pilot.call(&["block", "props", page, id, "--set", "progress=", "--json"]);
 }
 #[test]
+fn block_retype_keeps_the_id_text_and_shared_props_and_refuses_other_types() {
+    let pilot = Pilot::new(None);
+    let page = pilot.call(&["page", "create", "--title", "Plan", "--no-open", "--json"]);
+    let page = page["pageId"].as_str().unwrap();
+    let made = pilot.call(&[
+        "block",
+        "insert",
+        page,
+        "--type",
+        "list",
+        "--props",
+        r#"{"indent":1,"style":"number"}"#,
+        "--text",
+        "Ship it",
+        "--json",
+    ]);
+    let id = made["blockIds"][0].as_str().unwrap();
+    let todo = pilot.call(&["block", "retype", page, id, "--type", "todo", "--json"]);
+    assert_eq!(todo["ops"][0], json!({"op": "retype", "id": id}));
+    let got = pilot.call(&["block", "get", page, id, "--json"]);
+    assert_eq!(got["block"]["type"], "todo", "{got}");
+    // A list's indent stays on the to-do; its numbering style does not.
+    assert_eq!(got["block"]["props"], json!({"indent": 1}), "{got}");
+    assert_eq!(got["block"]["base"], "Ship it", "{got}");
+    pilot.call(&[
+        "block", "retype", page, id, "--type", "heading", "--level", "3", "--json",
+    ]);
+    let got = pilot.call(&["block", "get", page, id, "--json"]);
+    assert_eq!(got["block"]["props"], json!({"level": 3}), "{got}");
+    failure(
+        &pilot,
+        &[
+            "block",
+            "retype",
+            page,
+            id,
+            "--type",
+            "paragraph",
+            "--level",
+            "2",
+            "--json",
+        ],
+        "COLAB_INPUT_INVALID",
+    );
+    let table = pilot.call(&[
+        "block",
+        "insert",
+        page,
+        "--type",
+        "table",
+        "--props",
+        r#"{"columns":[{"id":"a","name":"A"}]}"#,
+        "--json",
+    ]);
+    let table = table["blockIds"][0].as_str().unwrap();
+    let refused = pilot
+        .command()
+        .args([
+            "block",
+            "retype",
+            page,
+            table,
+            "--type",
+            "paragraph",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+}
+#[test]
 fn work_order_moves_a_number_then_reads_the_same_order_offline() {
     let pilot = Pilot::new(None);
     let made = pilot.call(&[

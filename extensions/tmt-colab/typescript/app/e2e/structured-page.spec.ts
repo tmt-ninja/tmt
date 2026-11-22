@@ -3,6 +3,13 @@ import { servePageRuntime } from './page-runtime.js';
 import { capturePath } from './captures.js';
 import { text } from '../src/strings.js';
 
+/** The platform's key to the line's end: End, and Cmd+Right on macOS, where End scrolls the
+ * document as it does in any text field there. */
+const lineEnd = process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End';
+/** The platform's key to the end of the text, past every line: a click puts the caret where it
+ * lands, so a test that types at the end goes there first. */
+const textEnd = process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End';
+
 async function mountFixture(page: import('@playwright/test').Page, content = 'plan') {
   await page.goto('/');
   await page.evaluate(async (content) => {
@@ -473,6 +480,7 @@ test('the handle opens the block menu, moves and duplicates, and its grip drags 
     /Move up/,
     /Move down/,
     /Duplicate/,
+    'Turn into',
     /Delete/,
   ]);
   await menu.getByRole('menuitem', { name: /Move up/ }).click();
@@ -514,6 +522,7 @@ test('the handle opens the block menu, moves and duplicates, and its grip drags 
     /Move up/,
     /Move down/,
     /Duplicate/,
+    'Turn into',
     /Delete/,
     'Mark as done',
     'Not progress',
@@ -537,6 +546,604 @@ test('the handle opens the block menu, moves and duplicates, and its grip drags 
       (await page.evaluate(() => window.sent.map((op) => op.op))).filter((op) => op === 'move'),
     )
     .toHaveLength(3);
+});
+
+test('Turn into changes a block in place, keeping its ID and text, and one ⌘Z turns it back', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  const block = host.locator('[data-block-id="p"]');
+  const last = () => page.evaluate(() => window.sent.at(-1));
+  await block.hover();
+  await host.getByRole('button', { name: 'Block actions' }).click();
+  const menu = page.getByRole('menu', { name: 'Block actions' });
+  await menu.getByRole('menuitem', { name: 'Turn into' }).click();
+  // Its list opens in the same menu: the way back, then every type but the one the block is.
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    'Turn into',
+    'Heading 2',
+    'Heading 3',
+    'List',
+    'To-do',
+    'Callout',
+    'Code',
+  ]);
+  await menu.getByRole('menuitem', { name: 'To-do' }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(block.locator('[data-slot="todo"]')).toHaveCount(1);
+  await expect(block).toHaveText('Ship the stack.');
+  await expect.poll(last).toEqual({ op: 'retype', id: 'p', type: 'todo' });
+  // The keys: the selected block's menu, ↓ to Turn into, Enter opens its list, ↓ and Enter pick.
+  // The pointer still rests where To-do was, over the row Delete opens at: it must not take the row.
+  await expect(block).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+/');
+  await expect(menu).toBeVisible();
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(menu.getByRole('menuitem', { name: 'Paragraph' })).toBeVisible();
+  // Paragraph is active first; Heading 3 is two rows down.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(block.getByRole('heading', { level: 3, name: 'Ship the stack.' })).toBeVisible();
+  await expect.poll(last).toEqual({ op: 'retype', id: 'p', type: 'heading', level: 3 });
+  // One ⌘Z each: back to the to-do, then to the paragraph it was.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(last).toEqual({ op: 'retype', id: 'p', type: 'todo', props: {} });
+  await expect(block.locator('[data-slot="todo"]')).toHaveCount(1);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(last).toEqual({ op: 'retype', id: 'p', type: 'paragraph', props: {} });
+  await expect(block.locator('[data-slot="todo"]')).toHaveCount(0);
+  await expect(block).toHaveText('Ship the stack.');
+  // Into code the marks and props go; one ⌘Z brings back the paragraph, its tone and its bold.
+  // The agent writes once the undo has landed, so the undo's props do not replace its tone.
+  await expect.poll(() => page.evaluate(() => window.serveType('p'))).toBe('paragraph');
+  await page.evaluate(() =>
+    window.agentBatch([
+      { op: 'props', id: 'p', set: { tone: 'muted' }, unset: [] },
+      { op: 'text', id: 'p', format: { from: 0, to: 4, mark: 'bold', value: true } },
+    ]),
+  );
+  await expect(block.locator('strong')).toHaveText('Ship');
+  await block.hover();
+  await host.getByRole('button', { name: 'Block actions' }).click();
+  await menu.getByRole('menuitem', { name: 'Turn into' }).click();
+  await menu.getByRole('menuitem', { name: 'Code' }).click();
+  await expect.poll(last).toEqual({ op: 'retype', id: 'p', type: 'code' });
+  await expect(block.locator('strong')).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(block.locator('strong')).toHaveText('Ship');
+  await expect.poll(() => page.evaluate(() => window.serveProps('p'))).toEqual({ tone: 'muted' });
+  expect(await page.evaluate(() => window.serveMarks('p'))).toEqual([
+    { from: 0, to: 4, mark: 'bold' },
+  ]);
+  // A table turns into nothing: its menu has no Turn into.
+  const spec = await mountFixture(page, 'spec');
+  const table = spec
+    .locator('[data-block-id]')
+    .filter({ has: page.getByRole('table') })
+    .first();
+  await table.hover();
+  await spec.getByRole('button', { name: 'Block actions' }).click();
+  await expect(menu.getByRole('menuitem', { name: 'Turn into' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  // A callout waiting turns into a paragraph without its tone, which a paragraph cannot hold;
+  // ⌘Z brings the callout back with its tone and heading.
+  const callout = spec.locator('[data-block-id="agent"]');
+  await callout.hover();
+  await callout.getByRole('button', { name: 'Block actions' }).click();
+  await menu.getByRole('menuitem', { name: 'Turn into' }).click();
+  await menu.getByRole('menuitem', { name: 'Paragraph' }).click();
+  await expect.poll(() => page.evaluate(() => window.serveType('agent'))).toBe('paragraph');
+  expect(await page.evaluate(() => window.serveProps('agent'))).toEqual({});
+  await expect(callout).toHaveText('tmt colab block insert PAGE --type table --after b-12 --json');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => page.evaluate(() => window.serveType('agent'))).toBe('callout');
+  expect(await page.evaluate(() => window.serveProps('agent'))).toEqual({
+    tone: 'waiting',
+    label: '等你',
+    heading: 'agent 怎麼改',
+  });
+});
+
+/** The hover a browser sends when a menu appears under a pointer that has not moved: over, enter
+ * and move events with no movement. */
+const restingHover = (row: import('@playwright/test').Locator) =>
+  row.evaluate((node) => {
+    for (const type of ['mouseover', 'mouseenter', 'mousemove'])
+      node.dispatchEvent(
+        new MouseEvent(type, { bubbles: type !== 'mouseenter', movementX: 0, movementY: 0 }),
+      );
+  });
+
+test('the block menu, opened by keys, keeps its row under a resting pointer', async ({ page }) => {
+  const host = await mountFixture(page);
+  const last = () => page.evaluate(() => window.sent.at(-1));
+  await host.locator('[data-block-id="t"]').click();
+  await host.locator('[data-block-id="t"] [contenteditable="true"]').press('Escape');
+  await page.keyboard.press('ControlOrMeta+/');
+  const actions = page.getByRole('menu', { name: 'Block actions' });
+  // A hover without movement on Delete does not take the row: Enter runs the first, Move up.
+  await restingHover(actions.getByRole('menuitem', { name: /Delete/ }));
+  await page.keyboard.press('Enter');
+  await expect.poll(last).toMatchObject({ op: 'move', id: 't' });
+  await expect(host.locator('[data-block-id="t"]')).toHaveCount(1);
+});
+
+test('the insert menu keeps the keys’ row under a resting pointer and takes a real move', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  await host.locator('[data-block-id="e"]').click();
+  const editor = host.locator('[data-block-id="e"] [contenteditable="true"]');
+  await editor.press('/');
+  const insert = page.getByRole('listbox', { name: 'Insert a block' });
+  await restingHover(insert.getByRole('option', { name: /Table/ }));
+  await expect(insert.getByRole('option', { selected: true })).toHaveText(/Paragraph/);
+  await insert.getByRole('option', { name: /Table/ }).hover();
+  await expect(insert.getByRole('option', { selected: true })).toHaveText(/Table/);
+});
+
+test('at the window’s bottom edge the insert and @ menus open above their block, in view', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  const empty = host.locator('[data-block-id="e"]');
+  const box = (await empty.boundingBox())!;
+  // The empty paragraph sits on the window's bottom edge.
+  await page.setViewportSize({ width: 1440, height: Math.ceil(box.y + box.height + 8) });
+  await empty.click();
+  await host.locator('[data-block-id="e"] [contenteditable="true"]').press('/');
+  const insert = page.getByRole('listbox', { name: 'Insert a block' });
+  await expect(insert).toHaveAttribute('data-placement', 'above');
+  await expect(insert).toBeInViewport({ ratio: 1 });
+  expect(
+    (await insert.boundingBox())!.y + (await insert.boundingBox())!.height,
+  ).toBeLessThanOrEqual((await empty.boundingBox())!.y);
+  // The @ menu at the end of a block on the bottom edge.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const spec = await mountFixture(page, 'spec');
+  const { item, menu } = await atMenu(page, spec);
+  const at = (await item.boundingBox())!;
+  // The block sits low enough that the menu has no room under it.
+  expect(at.y + at.height).toBeGreaterThan(720 - 300);
+  await expect(menu).toHaveAttribute('data-placement', 'above');
+  await expect(menu.getByRole('option').first()).toBeInViewport();
+});
+
+test('the @ menu keeps the keys’ row under a resting pointer and takes a real move', async ({
+  page,
+}) => {
+  const spec = await mountFixture(page, 'spec');
+  const { menu } = await atMenu(page, spec);
+  const rows = menu.getByRole('option');
+  const first = (await rows.first().textContent())!;
+  await restingHover(rows.nth(1));
+  await expect(menu.getByRole('option', { selected: true })).toHaveText(first);
+  await rows.nth(1).hover();
+  await expect(menu.getByRole('option', { selected: true })).not.toHaveText(first);
+});
+
+/** The point just inside the left edge of character `index` of `text`, as `scope` draws it: a click
+ * there puts the caret right before that character. */
+async function charPoint(scope: import('@playwright/test').Locator, text: string, index: number) {
+  return scope.evaluate(
+    (node, { text, index }) => {
+      // A soft break draws as one line break element.
+      const drawnText = (at: Node): string =>
+        at.nodeType === Node.TEXT_NODE
+          ? (at as Text).data
+          : at.nodeName === 'BR'
+            ? '\n'
+            : [...at.childNodes].map(drawnText).join('');
+      const drawn = [node, ...node.querySelectorAll('*')].filter((el) => drawnText(el) === text);
+      const walker = document.createTreeWalker(
+        drawn.at(-1)!,
+        NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+      );
+      let left = index;
+      for (let at = walker.nextNode(); at; at = walker.nextNode()) {
+        if (at.nodeName === 'BR') {
+          if (left === 0) throw new Error(`Character ${index} is the line break`);
+          left--;
+          continue;
+        }
+        if (at.nodeType !== Node.TEXT_NODE) continue;
+        const scalars = [...(at as Text).data];
+        if (left < scalars.length) {
+          const start = scalars.slice(0, left).join('').length;
+          const range = document.createRange();
+          range.setStart(at, start);
+          range.setEnd(at, start + scalars[left]!.length);
+          const box = range.getBoundingClientRect();
+          return { x: box.left + 1, y: box.top + box.height / 2, top: box.top };
+        }
+        left -= scalars.length;
+      }
+      throw new Error(`No character ${index} in ${text}`);
+    },
+    { text, index },
+  );
+}
+
+test('a click starts editing with the caret where it landed, and a double click selects a word', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  const typeAt = async (id: string, text: string, index: number) => {
+    const at = await charPoint(host.locator(`[data-block-id="${id}"]`), text, index);
+    await page.mouse.click(at.x, at.y);
+    await page.keyboard.type('X');
+  };
+  const editor = (id: string) => host.locator(`[data-block-id="${id}"] [contenteditable="true"]`);
+  // Mid-word in a paragraph, and in a heading.
+  await typeAt('p', 'Ship the stack.', 11);
+  await expect(editor('p')).toHaveText('Ship the stXack.');
+  await typeAt('h', 'Plan', 2);
+  await expect(editor('h')).toHaveText('PlXan');
+  // On the second line of a paragraph that wraps.
+  const long = Array.from({ length: 12 }, (_, n) => `word${n} alpha beta gamma`).join(' ');
+  await page.evaluate(
+    (text) =>
+      window.agentBatch([
+        { op: 'insert', id: 'long', type: 'paragraph', parent: 'root', after: 'p', text },
+      ]),
+    long,
+  );
+  const wrapped = host.locator('[data-block-id="long"]');
+  await expect(wrapped).toHaveText(long);
+  const firstTop = (await charPoint(wrapped, long, 0)).top;
+  let second = 0;
+  while ((await charPoint(wrapped, long, second)).top <= firstTop) second++;
+  await typeAt('long', long, second + 2);
+  const scalars = [...long];
+  await expect(editor('long')).toHaveText(
+    [...scalars.slice(0, second + 2), 'X', ...scalars.slice(second + 2)].join(''),
+  );
+  // After a soft break: the break draws as one line break and counts as one position.
+  const broken = 'First line\nsecond line here';
+  await page.evaluate(
+    (text) =>
+      window.agentBatch([
+        { op: 'insert', id: 'brk', type: 'paragraph', parent: 'root', after: 'long', text },
+      ]),
+    broken,
+  );
+  const brk = host.locator('[data-block-id="brk"]');
+  await expect(brk.locator('br')).toHaveCount(1);
+  expect((await charPoint(brk, broken, 11)).top).toBeGreaterThan(
+    (await charPoint(brk, broken, 0)).top,
+  );
+  await typeAt('brk', broken, 14);
+  await expect
+    .poll(() => page.evaluate(() => window.serveText('brk')))
+    .toBe('First line\nsecXond line here');
+  // A double click selects the word, which typing then replaces.
+  const fresh = await mountFixture(page);
+  const word = await charPoint(fresh.locator('[data-block-id="p"]'), 'Ship the stack.', 11);
+  await page.mouse.dblclick(word.x, word.y);
+  await page.keyboard.type('Y');
+  await expect(fresh.locator('[data-block-id="p"] [contenteditable="true"]')).toHaveText(
+    'Ship the Y.',
+  );
+  // In a list item.
+  const spec = await mountFixture(page, 'spec');
+  const item = spec.locator('[data-block-id="l2"]');
+  await item.scrollIntoViewIfNeeded();
+  const at = await charPoint(item, '滑過或選取是淡色底。', 3);
+  await page.mouse.click(at.x, at.y);
+  await page.keyboard.type('X');
+  await expect(item.locator('[contenteditable="true"]')).toHaveText('滑過或X選取是淡色底。');
+});
+
+test('End and Home in a block do what they do in a plain contenteditable at the same place', async ({
+  page,
+}) => {
+  // The platform owns these keys (on macOS they scroll the document, and Cmd+arrows move the
+  // caret): a block matches plain editable text there and never takes them over (#6742).
+  const text = '滑過或選取是淡色底。';
+  const settle = async () => {
+    let last = -1;
+    for (let tries = 0; tries < 40; tries++) {
+      const now = await page.evaluate(() => Math.round(scrollY));
+      if (now === last) return now;
+      last = now;
+      await page.waitForTimeout(100);
+    }
+    return last;
+  };
+  const run = async (plain: boolean) => {
+    const spec = await mountFixture(page, 'spec');
+    const item = spec.locator('[data-block-id="l2"]');
+    await item.scrollIntoViewIfNeeded();
+    if (plain)
+      await item.evaluate((block, text) => {
+        const box = block.getBoundingClientRect();
+        const field = document.createElement('div');
+        field.id = 'plain-field';
+        field.contentEditable = 'true';
+        field.textContent = text;
+        field.style.cssText = `position:absolute;left:${box.left + scrollX}px;top:${box.top + scrollY}px;width:${box.width}px;z-index:99;background:Canvas;font:15px/1.6 sans-serif`;
+        document.body.append(field);
+      }, text);
+    const target = plain ? page.locator('#plain-field') : item;
+    const at = await charPoint(target, text, 1);
+    await page.mouse.click(at.x, at.y);
+    const start = await settle();
+    await page.keyboard.press('End');
+    const end = await settle();
+    await page.keyboard.type('X');
+    await page.keyboard.press('Home');
+    const home = await settle();
+    await page.keyboard.type('Y');
+    const typed = plain
+      ? await target.textContent()
+      : await item.locator('[contenteditable="true"]').textContent();
+    return {
+      endScrolls: Math.abs(end - start) > 200,
+      homeScrolls: Math.abs(home - end) > 200,
+      typed,
+    };
+  };
+  const plain = await run(true);
+  expect(await run(false)).toEqual(plain);
+});
+
+for (const width of [1440, 390])
+  test(`/To-do and Enter turn the slash paragraph into a to-do at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const host = await mountFixture(page);
+    await host.locator('[data-block-id="e"]').click();
+    const editor = host.locator('[data-block-id="e"] [contenteditable="true"]');
+    await editor.pressSequentially('/To-do', { delay: 20 });
+    const menu = page.getByRole('listbox', { name: 'Insert a block' });
+    await expect(menu.getByRole('option', { selected: true })).toHaveText(/To-do/);
+    await editor.press('Enter');
+    await expect(menu).toHaveCount(0);
+    await expect(host.locator('[data-block-id="e"]')).toHaveCount(0);
+    // The plan's own to-do and the new one.
+    await expect(host.locator('[data-slot="todo"]')).toHaveCount(2);
+  });
+
+test('the reload draft follows undo, redo, paste and a slash pick, and clears once each lands', async ({
+  page,
+}) => {
+  // A reload restores a block's draft (#6769). Whatever sends a block's text keeps it as the draft
+  // until it lands: after ⌘Z the undone text, never the text before; a paste as typing; a split
+  // or a picked slash entry leaves no stale draft behind.
+  const host = await mountFixture(page);
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  const served = () => page.evaluate(() => window.serveText('p'));
+  const drafts = () => page.evaluate(() => window.blockDrafts());
+  const lastSaved = () => page.evaluate(() => window.draftSaves.at(-1));
+  await host.locator('[data-block-id="p"]').click();
+  await editor.press(textEnd);
+  await editor.pressSequentially(' now', { delay: 20 });
+  await expect.poll(served).toBe('Ship the stack. now');
+  await expect.poll(drafts).toEqual([]);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(served).toBe('Ship the stack.');
+  expect(await lastSaved()).toBe('Ship the stack.');
+  await expect.poll(drafts).toEqual([]);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(served).toBe('Ship the stack. now');
+  expect(await lastSaved()).toBe('Ship the stack. now');
+  await expect.poll(drafts).toEqual([]);
+
+  const paste = (data: Record<string, string>) =>
+    editor.evaluate((node, data) => {
+      const transfer = new DataTransfer();
+      for (const [type, value] of Object.entries(data)) transfer.setData(type, value);
+      node.dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
+      );
+    }, data);
+  // A paste inside the block: its text is the draft until it lands.
+  await editor.press(textEnd);
+  await paste({ 'text/html': '<b>!</b>', 'text/plain': '!' });
+  await expect.poll(served).toBe('Ship the stack. now!');
+  expect(await lastSaved()).toBe('Ship the stack. now!');
+  await expect.poll(drafts).toEqual([]);
+  // Typing, then a paste that splits the block: the typing's draft goes once the split lands.
+  await editor.pressSequentially(' more', { delay: 20 });
+  await paste({ 'text/plain': 'One\n\nTwo' });
+  await expect.poll(served).toBe('Ship the stack. now! moreOne');
+  await expect.poll(drafts).toEqual([]);
+  // A slash entry picked clears the typed '/To-do' with the block's change; no draft of it stays.
+  await host.locator('[data-block-id="e"]').click();
+  const empty = host.locator('[data-block-id="e"] [contenteditable="true"]');
+  await empty.pressSequentially('/To-do', { delay: 20 });
+  await empty.press('Enter');
+  // The pick puts a to-do in the paragraph's place.
+  await expect(host.locator('[data-block-id="e"]')).toHaveCount(0);
+  await expect(host.locator('[data-slot="todo"]')).toHaveCount(2);
+  await expect.poll(drafts).toEqual([]);
+});
+
+test('a paste of paragraphs or of a web page makes blocks, and one ⌘Z takes the paste back', async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  page.on('request', (request) => requests.push(request.url()));
+  const host = await mountFixture(page);
+  const ids = () =>
+    host
+      .locator('[data-block-id]')
+      .evaluateAll((nodes) => nodes.map((node) => node.dataset.blockId));
+  const paste = (into: string, data: Record<string, string>) =>
+    host.locator(`[data-block-id="${into}"] [contenteditable="true"]`).evaluate((node, data) => {
+      const transfer = new DataTransfer();
+      for (const [type, value] of Object.entries(data)) transfer.setData(type, value);
+      node.dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
+      );
+    }, data);
+  // Plain text: a paragraph per blank-line break, in place of the empty paragraph.
+  await host.locator('[data-block-id="e"]').click();
+  await paste('e', { 'text/plain': 'One\n\nTwo\nstill two\n\nThree' });
+  await expect.poll(async () => (await ids()).length).toBe(6);
+  await expect(host.locator('[data-block-id="e"]')).toHaveCount(0);
+  await expect(host.locator('[data-block-id]').nth(2)).toHaveText('One');
+  // The single line feed stays in its block and draws as a line break.
+  await expect(host.locator('[data-block-id]').nth(3)).toHaveText('Two\nstill two', {
+    useInnerText: true,
+  });
+  await expect(host.locator('[data-block-id]').nth(4)).toHaveText('Three');
+  // The caret is at the end of the last pasted block; one ⌘Z there takes the whole paste back.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(ids).toEqual(['h', 'p', 'e', 't']);
+
+  // A web page: headings, list items, marks and links; its image and script never load or run.
+  const web = await mountFixture(page);
+  await web.locator('[data-block-id="e"]').click();
+  await paste('e', {
+    'text/html':
+      '<h1>Plan B</h1><ul><li><b>Ship</b> it</li><li>Test</li></ul>' +
+      '<p>See <a href="https://example.com/x">docs</a></p>' +
+      '<img src="https://img.example/x.png"><script>window.ran = 1</script>',
+    'text/plain': 'Plan B\nShip it\nTest\nSee docs',
+  });
+  await expect(web.getByRole('heading', { name: 'Plan B' })).toBeVisible();
+  await expect(web.locator('strong', { hasText: 'Ship' })).toBeVisible();
+  // The caret is in the last block, which draws its link as styled text while typing; at rest it
+  // is a link.
+  await page.keyboard.press('Escape');
+  await expect(web.getByRole('link', { name: 'docs' })).toHaveAttribute(
+    'href',
+    'https://example.com/x',
+  );
+  const inserted = await page.evaluate(() =>
+    window.sent.flatMap((op) => (op.op === 'insert' ? [op.type] : [])),
+  );
+  expect(inserted).toEqual(['heading', 'list', 'list', 'paragraph']);
+  expect(await page.evaluate(() => (window as { ran?: number }).ran)).toBeUndefined();
+  expect(requests.filter((url) => url.includes('img.example'))).toEqual([]);
+
+  // A pasted table: a paragraph per row, its cells apart so it stays readable.
+  const rows = await mountFixture(page);
+  await rows.locator('[data-block-id="e"]').click();
+  await paste('e', {
+    'text/html':
+      '<table><tr><th>Block</th><th>Use</th></tr><tr><td>Heading</td><td>## and ###</td></tr></table>',
+    'text/plain': 'Block\tUse\nHeading\t## and ###',
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.sent.flatMap((op) => (op.op === 'insert' ? [op.text] : []))),
+    )
+    .toEqual(['Block | Use', 'Heading | ## and ###']);
+
+  // Past the bound, the paste goes in as plain text, and the page says why.
+  const large = await mountFixture(page);
+  await large.locator('[data-block-id="e"]').click();
+  await paste('e', {
+    'text/plain': Array.from({ length: 201 }, (_, index) => `Line ${index}`).join('\n\n'),
+  });
+  await expect(
+    page.getByRole('status').filter({ hasText: text.blockEdit.pasteTooLarge(200) }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => window.sent.some((op) => op.op === 'insert'))).toBe(false);
+
+  // One paragraph past a block's text limit: nothing is pasted, and the page says why, instead of
+  // a batch the serve refuses.
+  const long = await mountFixture(page);
+  await long.locator('[data-block-id="e"]').click();
+  await paste('e', { 'text/plain': 'x'.repeat(70 * 1024) });
+  await expect(
+    page.getByRole('status').filter({ hasText: text.blockEdit.pasteTooLong(64) }),
+  ).toBeVisible();
+  await expect(long.locator('[data-block-id="e"] [contenteditable="true"]')).toHaveText('');
+  expect(await page.evaluate(() => window.sent.some((op) => op.op === 'text'))).toBe(false);
+});
+
+test('⌘Z takes typing back a run at a time, across blocks in time order, and ⌘⇧Z makes it again', async ({
+  page,
+}) => {
+  // The page's clock: a pause between runs without waiting for one.
+  await page.clock.install();
+  const host = await mountFixture(page);
+  const p = host.locator('[data-block-id="p"]');
+  await p.click();
+  const editor = p.locator('[contenteditable="true"]');
+  await editor.press(lineEnd);
+  await editor.pressSequentially(' One', { delay: 20 });
+  await page.clock.fastForward(1500);
+  await editor.pressSequentially(' Two', { delay: 20 });
+  await editor.press('ControlOrMeta+z');
+  await expect(editor).toHaveText('Ship the stack. One');
+  await editor.press('ControlOrMeta+z');
+  await expect(editor).toHaveText('Ship the stack.');
+  await editor.press('ControlOrMeta+Shift+z');
+  await expect(editor).toHaveText('Ship the stack. One');
+  await editor.press('ControlOrMeta+Shift+z');
+  await expect(editor).toHaveText('Ship the stack. One Two');
+  await expect
+    .poll(() => page.evaluate(() => window.serveText('p')))
+    .toBe('Ship the stack. One Two');
+
+  // Two blocks: the later typing comes back first, wherever the caret is.
+  const t = host.locator('[data-block-id="t"]');
+  await t.getByText('Review').click();
+  const todo = t.locator('[contenteditable="true"]');
+  await todo.press(lineEnd);
+  await todo.pressSequentially(' soon', { delay: 20 });
+  await todo.press('ControlOrMeta+z');
+  await expect(todo).toHaveText('Review');
+  await todo.press('ControlOrMeta+z');
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toBe('Ship the stack. One');
+  await expect(todo).toBeFocused();
+
+  // An agent's change to the same block stays: ⌘Z takes back only this tab's typing.
+  await p.click();
+  await editor.press(lineEnd);
+  await editor.pressSequentially(' Three', { delay: 20 });
+  await expect
+    .poll(() => page.evaluate(() => window.serveText('p')))
+    .toBe('Ship the stack. One Three');
+  await page.evaluate(() => window.agentReplace('p', 'Ship', 'Merge'));
+  await expect(editor).toHaveText('Merge the stack. One Three');
+  await editor.press('ControlOrMeta+z');
+  await expect(editor).toHaveText('Merge the stack. One');
+  await expect.poll(() => page.evaluate(() => window.serveText('p'))).toBe('Merge the stack. One');
+});
+
+test.describe('on a phone', () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+  test('a tap opens the block menu, and its Move up and Move down move the block', async ({
+    page,
+  }) => {
+    const host = await mountFixture(page);
+    const ids = () =>
+      host
+        .locator('[data-block-id]')
+        .evaluateAll((nodes) => nodes.map((node) => node.dataset.blockId));
+    await host.locator('[data-block-id="t"]').getByText('Review').tap();
+    const handle = host.locator('[data-block-id="t"] [data-slot="block-handle"]');
+    const block = host.locator('[data-block-id="t"]');
+    const box = block.getByRole('checkbox');
+    const before = [
+      (await handle.boundingBox())!,
+      (await block.boundingBox())!,
+      (await box.boundingBox())!,
+    ];
+    await host.locator('[data-block-id="t"]').getByRole('button', { name: 'Block actions' }).tap();
+    const menu = page.getByRole('menu', { name: 'Block actions' });
+    await expect(menu).toBeVisible();
+    // The block does not move when its menu opens: the handle and the text stay where they were.
+    expect([
+      (await handle.boundingBox())!,
+      (await block.boundingBox())!,
+      (await box.boundingBox())!,
+    ]).toEqual(before);
+    // A phone has no keyboard: the sheet shows no key hints.
+    await expect(menu.locator('kbd')).toHaveCount(0);
+    await menu.getByRole('menuitem', { name: /Move up/ }).tap();
+    await expect.poll(ids).toEqual(['h', 'p', 't', 'e']);
+    await host.locator('[data-block-id="t"]').getByText('Review').tap();
+    await host.locator('[data-block-id="t"]').getByRole('button', { name: 'Block actions' }).tap();
+    await menu.getByRole('menuitem', { name: /Move down/ }).tap();
+    await expect.poll(ids).toEqual(['h', 'p', 'e', 't']);
+  });
 });
 
 test('＋ on the handle chooses a type before inserting a block after it', async ({ page }) => {
@@ -824,6 +1431,22 @@ test('a table cell edits in place, Tab walks the cells and adds a row, and the t
   const table = host.locator('[data-block-id="table"]');
   const editor = table.locator('[contenteditable="true"]');
   const rows = () => page.evaluate(() => window.serveRows('table'));
+  // A line feed an agent writes into a cell draws as a line break.
+  await page.evaluate(() =>
+    window.agentBatch([
+      {
+        op: 'table',
+        id: 'table',
+        action: 'set-cell',
+        row: 'r1',
+        column: 'use',
+        text: '一行\n兩行',
+      },
+    ]),
+  );
+  const broken = table.locator('[data-cell-row="r1"][data-cell-column="use"]');
+  await expect(broken.locator('br')).toHaveCount(1);
+  await expect(broken).toHaveText('一行\n兩行', { useInnerText: true });
   const height = (await table.boundingBox())!.height;
   await table.getByText('一般文字').click();
   await expect(editor).toHaveCount(1);
@@ -875,10 +1498,15 @@ test('a table cell edits in place, Tab walks the cells and adds a row, and the t
   await expect
     .poll(async () => (await rows()).map((row) => row.cells?.name))
     .toEqual(['小標題', '段落', '卡片／區段', '圖片']);
-  // Esc selects the table; ⌘Z takes the added row back.
+  // Esc selects the table; ⌘Z takes back the typing in the new row, as a step of its own (#6742),
+  // then the added row.
   await editor.press('Escape');
   await expect(editor).toHaveCount(0);
   await expect(table).toHaveAttribute('data-selected', '');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect
+    .poll(async () => (await rows()).map((row) => row.cells?.name ?? ''))
+    .toEqual(['小標題', '段落', '卡片／區段', '']);
   await page.keyboard.press('ControlOrMeta+z');
   await expect(table.locator('tbody tr')).toHaveCount(3);
   await expect.poll(async () => (await rows()).length).toBe(3);
@@ -998,6 +1626,36 @@ test('the row and column menus add and remove rows, and add, rename, move and re
   await page.keyboard.press('ControlOrMeta+z');
   await expect.poll(names).toEqual(['區塊', '說明', '用途']);
   await expect(table.locator('tbody tr').first()).toContainText('常用');
+});
+
+test('⌘Z in a table cell takes back the cell’s typing, never an earlier step elsewhere', async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'spec');
+  const rows = () => page.evaluate(() => window.serveRows('table'));
+  const moves = () => page.evaluate(() => window.sent.filter((op) => op.op === 'move').length);
+  // An earlier step elsewhere on the page: a block moved down from its menu.
+  const first = host.locator('[data-block-id="first"]');
+  await first.hover();
+  await first.getByRole('button', { name: 'Block actions' }).click();
+  await page
+    .getByRole('menu', { name: 'Block actions' })
+    .getByRole('menuitem', { name: /Move down/ })
+    .click();
+  await expect.poll(moves).toBe(1);
+  const table = host.locator('[data-block-id="table"]');
+  await table.getByText('一般文字').click();
+  const editor = table.locator('[contenteditable="true"]');
+  await editor.press(textEnd);
+  await editor.pressSequentially('和清單', { delay: 20 });
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(async () => (await rows())[1]!.cells!.use).toBe('一般文字');
+  await expect(editor).toHaveText('一般文字');
+  // The move stays: ⌘Z took back the cell's typing only.
+  expect(await moves()).toBe(1);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(async () => (await rows())[1]!.cells!.use).toBe('一般文字和清單');
+  expect(await moves()).toBe(1);
 });
 
 test('an empty table offers Add a row, which adds one and focuses its first cell', async ({
@@ -1266,7 +1924,7 @@ for (const width of [1440, 390])
       });
       await host.locator('[data-block-id="long"]').click();
       const editor = host.locator('[data-block-id="long"] [contenteditable="true"]');
-      await editor.press('End');
+      await editor.press(textEnd);
       await editor.pressSequentially('我正在打', { delay: 20 });
       // The pointer leaves, so only the typed-in block shows a tint.
       await page.mouse.move(0, 0);
@@ -1330,7 +1988,7 @@ async function insertQuestion(page: import('@playwright/test').Page) {
   // Enter at the end of a paragraph, then / in the new empty one.
   await host.locator('[data-block-id="first"]').click();
   const editor = host.locator('[contenteditable="true"]');
-  await editor.press('End');
+  await editor.press(textEnd);
   await editor.press('Enter');
   await expect(editor).toHaveText('');
   await editor.press('/');
@@ -1990,7 +2648,7 @@ async function atMenu(
   const item = host.locator('[data-block-id="l2"]');
   await item.getByText('滑過或選取是淡色底。').click();
   const editor = item.locator('[contenteditable="true"]');
-  await editor.press('End');
+  await editor.press(lineEnd);
   await editor.pressSequentially(' @', { delay: 20 });
   return { item, editor, menu: page.getByRole('listbox', { name: '@ mention' }) };
 }

@@ -27,10 +27,14 @@ import {
   QUESTION_CHOICE_BYTES,
   QUESTION_CHOICES,
   questionChoice,
+  pasteBlocks,
+  retypeBlock,
   splitBlock,
 } from '../src/block-ops.js';
+import { PASTE_BLOCKS, pasted } from '../src/block-paste.js';
 import { dropTarget } from '../src/block-drop.js';
-import { BlockHistory, UNDO_DEPTH } from '../src/block-history.js';
+import { BlockHistory, RUN_SCALARS, UNDO_DEPTH } from '../src/block-history.js';
+import { insertGroups } from '@tmt/browser-ui/blocks';
 import { filterInsert, insertType, opensInsert } from '../src/block-insert.js';
 import { blockTree } from '../src/block-projection.js';
 import { posBetween, posRun, validPos } from '../src/block-pos.js';
@@ -42,6 +46,7 @@ import {
   settleSelection,
 } from '../src/block-selection.js';
 import { BlockTree } from '../src/block-tree.js';
+import { validateProps } from '../src/blocks.js';
 
 const block = (
   id: string,
@@ -402,6 +407,231 @@ describe('block selection', () => {
   });
 });
 
+describe('typing runs in the one history (#6742)', () => {
+  const before = block('p', 'F', PAGE_PARENT, { text: 'Hi' });
+  const text = (set: string, base: string) => ({ op: 'text' as const, id: 'p', set, base });
+  it('joins typing in one block into one step until a pause, a gesture or another writer', () => {
+    const history = new BlockHistory();
+    history.typing(before, text('Hi th', 'Hi'), false);
+    history.typing(before, text('Hi there', 'Hi th'), false);
+    // A pause starts a new step.
+    history.typing(before, text('Hi there. Ok', 'Hi there'), true);
+    expect(history.undo()).toEqual([
+      { op: 'text', id: 'p', set: 'Hi there', base: 'Hi there. Ok', overlap: 'both' },
+    ]);
+    expect(history.undo()).toEqual([
+      { op: 'text', id: 'p', set: 'Hi', base: 'Hi there', overlap: 'both' },
+    ]);
+    // Redo makes them again, in order, each from where it started.
+    expect(history.redo()).toEqual([
+      { op: 'text', id: 'p', set: 'Hi there', base: 'Hi', overlap: 'both' },
+    ]);
+    expect(history.redo()).toEqual([
+      { op: 'text', id: 'p', set: 'Hi there. Ok', base: 'Hi there', overlap: 'both' },
+    ]);
+  });
+  it("ends a run at another gesture, at another writer's change, and at about a paragraph", () => {
+    const history = new BlockHistory();
+    history.typing(before, text('Hi a', 'Hi'), false);
+    history.record(new BlockTree([before]), [
+      { op: 'props', id: 'p', set: { tone: 'muted' }, unset: [] },
+    ]);
+    history.typing(before, text('Hi ab', 'Hi a'), false);
+    // Someone else changed the text in between: the base moved, so this is a new step.
+    history.typing(before, text('Hi abX c', 'Hi abX'), false);
+    const long = 'x'.repeat(RUN_SCALARS);
+    history.typing(before, text(`Hi abX c${long}`, 'Hi abX c'), false);
+    const steps: unknown[] = [];
+    for (let op = history.undo(); op; op = history.undo()) steps.push(op);
+    expect(steps).toHaveLength(5);
+  });
+  it('runs typing in a table cell as its own step, apart from the same row’s other cells', () => {
+    const row = { ...block('r', 'F', 't', { text: undefined }), cells: { a: 'Go', b: '' } };
+    const cell = (column: string, text: string, base: string) =>
+      ({ op: 'table', id: 't', action: 'set-cell', row: 'r', column, text, base }) as const;
+    const history = new BlockHistory();
+    history.typing(row, cell('a', 'Go o', 'Go'), false);
+    history.typing(row, cell('a', 'Go on', 'Go o'), false);
+    history.typing(row, cell('b', 'x', ''), false);
+    const back = (column: string, text: string, base: string) => [
+      { ...cell(column, text, base), overlap: 'both' },
+    ];
+    expect(history.undo()).toEqual(back('b', '', 'x'));
+    expect(history.undo()).toEqual(back('a', 'Go', 'Go on'));
+    expect(history.undo()).toBeUndefined();
+    expect(history.redo()).toEqual(back('a', 'Go on', 'Go'));
+  });
+});
+
+describe('Turn into (#6742)', () => {
+  const page = () => [
+    block('p', 'F', PAGE_PARENT, {
+      text: 'Ship it',
+      props: { tone: 'muted' },
+      marks: [{ from: 0, to: 4, mark: 'bold' }],
+    }),
+    block('l', 'V', PAGE_PARENT, {
+      type: 'list',
+      text: 'item',
+      props: { style: 'number', indent: 1 },
+    }),
+    block('t', 'k', PAGE_PARENT, { type: 'table', text: undefined, props: {} }),
+  ];
+  it('retypes in place, keeping the ID, the text and the props both types have', () => {
+    const tree = new BlockTree(page());
+    // The op names no props: those both types have stay as the page holds them when it lands.
+    const heading = retypeBlock(tree, 'p', 'heading-3');
+    expect(heading).toEqual([{ op: 'retype', id: 'p', type: 'heading', level: 3 }]);
+    expect(new BlockTree(apply(page(), heading)).get('p')!.props).toEqual({ level: 3 });
+    // A list's indent stays when it becomes a to-do; its numbering style does not.
+    const todo = retypeBlock(tree, 'l', 'todo');
+    expect(todo).toEqual([{ op: 'retype', id: 'l', type: 'todo' }]);
+    expect(new BlockTree(apply(page(), todo)).get('l')!.props).toEqual({ indent: 1 });
+    // Another writer's indent, set before the op lands, stays.
+    const moved = apply(page(), [{ op: 'props', id: 'l', set: { indent: 2 }, unset: [] }]);
+    expect(new BlockTree(apply(moved, todo)).get('l')!.props).toEqual({ indent: 2 });
+    // A heading changing level is a props edit; the same type is nothing.
+    const level2 = new BlockTree(apply(page(), retypeBlock(tree, 'p', 'heading-2')));
+    expect(retypeBlock(level2, 'p', 'heading-3')).toEqual([
+      { op: 'props', id: 'p', set: { level: 3 }, unset: [] },
+    ]);
+    expect(retypeBlock(level2, 'p', 'heading-2')).toEqual([]);
+    expect(() => retypeBlock(tree, 't', 'paragraph')).toThrow('Only a text block');
+  });
+  it('keeps a shared prop only with a value the new type allows', () => {
+    // A callout's tone is not a paragraph's, nor a muted paragraph's a callout's: each turns
+    // without it, as the serve does, instead of a batch the serve refuses.
+    const toned = [
+      ...page(),
+      block('c', 'z', PAGE_PARENT, {
+        type: 'callout',
+        text: 'Wait',
+        props: { tone: 'waiting', heading: 'Hold' },
+      }),
+    ];
+    const tree = new BlockTree(toned);
+    for (const [id, into, type] of [
+      ['c', 'paragraph', 'paragraph'],
+      ['p', 'callout', 'callout'],
+    ] as const) {
+      const turned = new BlockTree(apply(toned, retypeBlock(tree, id, into))).get(id)!;
+      expect([turned.type, turned.props]).toEqual([type, {}]);
+      expect(() => validateProps(type, turned.props)).not.toThrow();
+    }
+  });
+  it('into code drops the marks, and one undo brings back the type, props and marks', () => {
+    const ops = retypeBlock(new BlockTree(page()), 'p', 'code');
+    const after = new BlockTree(apply(page(), ops)).get('p')!;
+    expect([after.type, after.props, after.marks ?? [], after.text]).toEqual([
+      'code',
+      {},
+      [],
+      'Ship it',
+    ]);
+    roundTrip(page(), ops);
+    const back = new BlockTree(
+      apply(apply(page(), ops), inverseOps(new BlockTree(apply(page(), [])), ops)),
+    ).get('p')!;
+    expect([back.type, back.props, back.marks]).toEqual([
+      'paragraph',
+      { tone: 'muted' },
+      [{ from: 0, to: 4, mark: 'bold' }],
+    ]);
+  });
+});
+
+describe('paste (#6742)', () => {
+  it('splits plain text at blank lines, keeps a single line feed, and leaves the rest to the editor', () => {
+    expect(pasted('paragraph', '', 'One\nstill one\n\n\nTwo\r\n\r\nThree')).toEqual({
+      blocks: [
+        { type: 'paragraph', text: 'One\nstill one', marks: [] },
+        { type: 'paragraph', text: 'Two', marks: [] },
+        { type: 'paragraph', text: 'Three', marks: [] },
+      ],
+    });
+    // One paragraph, a lone link, or anything pasted into code is the editor's own paste.
+    expect(pasted('paragraph', '', 'One line\nand another')).toBeUndefined();
+    expect(pasted('paragraph', '', ' https://github.com/tmt-ninja/tmt/pull/1 ')).toBeUndefined();
+    expect(pasted('code', '', 'a\n\nb')).toBeUndefined();
+    // Past the bound it goes in as plain text, never as part of the structure.
+    const many = Array.from({ length: PASTE_BLOCKS + 1 }, (_, at) => `p${at}`).join('\n\n');
+    expect(pasted('paragraph', '', many)).toEqual({ tooLarge: true });
+    expect(pasted('paragraph', '', many.split('\n\n').slice(1).join('\n\n'))).toHaveProperty(
+      'blocks',
+    );
+  });
+  it('makes one gesture: the first part joins the text before the caret, the last takes the rest', () => {
+    const tree = new BlockTree([
+      block('one', 'F', PAGE_PARENT, {
+        text: 'Hello world',
+        marks: [{ from: 6, to: 11, mark: 'bold' }],
+      }),
+      block('two', 'V'),
+    ]);
+    const blocks = [
+      { type: 'paragraph' as const, text: 'A', marks: [] },
+      { type: 'heading' as const, text: 'Big', marks: [], props: { level: 2 } },
+      {
+        type: 'list' as const,
+        text: 'item',
+        marks: [{ from: 0, to: 4, mark: 'italic' as const }],
+        props: { style: 'bullet' },
+      },
+    ];
+    const paste = pasteBlocks(tree, 'one', { from: 5, to: 6 }, undefined, blocks, ['h', 'l']);
+    expect(paste.ops).toEqual([
+      { op: 'text', id: 'one', set: 'HelloA', base: 'Hello world', overlap: 'both' },
+      {
+        op: 'insert',
+        id: 'h',
+        type: 'heading',
+        parent: PAGE_PARENT,
+        after: 'one',
+        props: { level: 2 },
+        text: 'Big',
+      },
+      {
+        op: 'insert',
+        id: 'l',
+        type: 'list',
+        parent: PAGE_PARENT,
+        after: 'h',
+        props: { style: 'bullet' },
+        text: 'itemworld',
+      },
+      { op: 'text', id: 'l', format: { from: 0, to: 4, mark: 'italic', value: true } },
+      // The bold rest of the line follows it into the last block.
+      { op: 'text', id: 'l', format: { from: 4, to: 9, mark: 'bold', value: true } },
+    ]);
+    expect(paste).toMatchObject({ focus: 'l', text: 'itemworld', caret: 4 });
+    const after = new BlockTree(apply(tree.flat() as BlockRecord[], paste.ops));
+    expect(after.children().map((entry) => [entry.id, entry.type, entry.text])).toEqual([
+      ['one', 'paragraph', 'HelloA'],
+      ['h', 'heading', 'Big'],
+      ['l', 'list', 'itemworld'],
+      ['two', 'paragraph', 'two'],
+    ]);
+    roundTrip(tree.flat() as BlockRecord[], paste.ops);
+  });
+  it('replaces an empty paragraph, so a pasted heading stays a heading', () => {
+    const tree = new BlockTree([block('e', 'F', PAGE_PARENT, { text: '' }), block('two', 'V')]);
+    const blocks = [
+      { type: 'heading' as const, text: 'Title', marks: [], props: { level: 2 } },
+      { type: 'paragraph' as const, text: 'Body', marks: [] },
+    ];
+    const paste = pasteBlocks(tree, 'e', { from: 0, to: 0 }, undefined, blocks, ['a', 'b']);
+    // The empty paragraph goes after the pasted blocks are placed beside it.
+    expect(paste.ops.at(-1)).toEqual({ op: 'delete', id: 'e' });
+    expect(paste).toMatchObject({ focus: 'b', text: 'Body', caret: 4 });
+    const after = new BlockTree(apply(tree.flat() as BlockRecord[], paste.ops));
+    expect(after.children().map((entry) => [entry.id, entry.type])).toEqual([
+      ['a', 'heading'],
+      ['b', 'paragraph'],
+      ['two', 'paragraph'],
+    ]);
+  });
+});
+
 describe('the insert menu', () => {
   // The design system's catalog rows (browser-ui insertGroups), as the menu passes them.
   const catalog = [
@@ -423,6 +653,19 @@ describe('the insert menu', () => {
     expect(shown('PARA')).toEqual(['text']);
     expect(shown('new')).toEqual([]);
     expect(shown('zz')).toEqual([]);
+    // A visible name typed whole, hyphen and all, finds its entry (#6742).
+    expect(shown('/To-do')).toEqual(['todo']);
+    expect(shown('/to do')).toEqual(['todo']);
+    expect(shown('/to-')).toEqual(['todo']);
+  });
+  it('finds every entry of the real catalog by its visible name, so Enter takes it (#6742)', () => {
+    const real = insertGroups.flatMap((group) =>
+      group.items.map(({ id, label, shortcut }) => ({ id, label, shortcut })),
+    );
+    const makeable = filterInsert(real, '');
+    expect(makeable.length).toBeGreaterThan(5);
+    for (const entry of makeable)
+      expect(filterInsert(real, `/${entry.label}`)[0]?.id).toBe(entry.id);
   });
   it('maps each entry to the block it makes, and opens on / in an empty paragraph only', () => {
     expect(insertType('text')).toBe('paragraph');

@@ -998,13 +998,12 @@ mod blocks_doc {
             let value = block[key].as_str().ok_or(DecodeFault::Rejected)?;
             map.insert(key.into(), In::Any(Any::String(value.into())));
         }
-        let props: HashMap<Arc<str>, In> = block["props"]
-            .as_object()
-            .ok_or(DecodeFault::Rejected)?
-            .iter()
-            .map(|(k, v)| Ok((Arc::from(k.as_str()), In::Any(any(v)?))))
-            .collect::<Result<_, DecodeFault>>()?;
-        map.insert("props".into(), In::Map(MapPrelim::from_iter(props)));
+        map.insert(
+            "props".into(),
+            In::Map(props_prelim(
+                block["props"].as_object().ok_or(DecodeFault::Rejected)?,
+            )?),
+        );
         if let Some(text) = block.get("text") {
             // A new block's text is plain: marks come only from later `format` steps.
             let s = text["s"].as_str().ok_or(DecodeFault::Rejected)?;
@@ -1023,6 +1022,14 @@ mod blocks_doc {
             map.insert("cells".into(), In::Map(MapPrelim::from_iter(cells)));
         }
         Ok(MapPrelim::from_iter(map))
+    }
+
+    fn props_prelim(props: &serde_json::Map<String, Value>) -> Result<MapPrelim, DecodeFault> {
+        let props: HashMap<Arc<str>, In> = props
+            .iter()
+            .map(|(k, v)| Ok((Arc::from(k.as_str()), In::Any(any(v)?))))
+            .collect::<Result<_, DecodeFault>>()?;
+        Ok(MapPrelim::from_iter(props))
     }
 
     fn block_map(txn: &TransactionMut, blocks: &MapRef, id: &str) -> Result<MapRef, DecodeFault> {
@@ -1191,6 +1198,22 @@ mod blocks_doc {
                 Step::Restore { id } => {
                     block_map(txn, blocks, id)?.remove(txn, "deleted");
                 }
+                Step::Retype {
+                    id,
+                    block_type,
+                    props,
+                    text,
+                } => {
+                    // The type, new props and (into code) new plain text as one change: a prop or
+                    // mark another writer sets on the old objects at the same time never shows,
+                    // and two retypes at once resolve to one writer's type and props (#6742).
+                    let block = block_map(txn, blocks, id)?;
+                    block.insert(txn, "type", block_type.as_str());
+                    block.insert(txn, "props", props_prelim(props)?);
+                    if let Some(text) = text {
+                        block.insert(txn, "text", TextPrelim::new(text.as_str()));
+                    }
+                }
             }
         }
         Ok(())
@@ -1305,6 +1328,91 @@ mod blocks_doc {
             let value = blocks_of(&doc);
             assert!(value[bid(3)].get("deleted").is_none());
             assert_eq!(value[bid(7)]["cells"]["b"]["s"], "late");
+        }
+
+        /// Two writers diverge from one page; each runs its ops; both merge the other's update, in
+        /// opposite orders. Returns both projections, which must agree.
+        fn diverge(base_ops: Value, one_ops: Value, two_ops: Value) -> (Value, Value) {
+            let one = page();
+            run(&one, base_ops);
+            let base = one
+                .transact()
+                .encode_state_as_update_v1(&StateVector::default());
+            let two = yrs::Doc::new();
+            two.get_or_insert_text("html");
+            two.get_or_insert_map("meta");
+            two.transact_mut()
+                .apply_update(Update::decode_v1(&base).unwrap())
+                .unwrap();
+            let from_one = run(&one, one_ops);
+            let from_two = run(&two, two_ops);
+            one.transact_mut()
+                .apply_update(Update::decode_v1(&from_two).unwrap())
+                .unwrap();
+            two.transact_mut()
+                .apply_update(Update::decode_v1(&from_one).unwrap())
+                .unwrap();
+            (blocks_of(&one), blocks_of(&two))
+        }
+
+        /// A retype racing another writer (#6742) merges, in either order, into a block that
+        /// `validate` admits as it is: the reader of a build from before retype, which knows no rule
+        /// for such races, opens the page. The other writer's change to the old props or marks
+        /// stays with the objects the retype replaced.
+        #[test]
+        fn a_retype_racing_another_writer_merges_to_a_block_every_reader_admits() {
+            let insert = |block_type: &str, props: Value| json!([{"op": "insert", "id": bid(1), "type": block_type, "props": props, "text": "Ship it"}]);
+            let bold = json!({"op": "text", "id": bid(1), "format": {"from": 0, "to": 4, "mark": "bold", "value": true}});
+            let cases = [
+                // A heading turned into a paragraph while the other sets its level.
+                (
+                    insert("heading", json!({"level": 2})),
+                    json!([{"op": "retype", "id": bid(1), "type": "paragraph"}]),
+                    json!([{"op": "props", "id": bid(1), "set": {"level": 3}}]),
+                    json!({"type": "paragraph", "props": {}}),
+                ),
+                // A to-do turned into a heading while the other checks it.
+                (
+                    insert("todo", json!({})),
+                    json!([{"op": "retype", "id": bid(1), "type": "heading", "level": 2}]),
+                    json!([{"op": "props", "id": bid(1), "set": {"checked": true}}]),
+                    json!({"type": "heading", "props": {"level": 2}}),
+                ),
+                // A paragraph turned into code while the other mutes it and bolds a word.
+                (
+                    insert("paragraph", json!({})),
+                    json!([{"op": "retype", "id": bid(1), "type": "code"}]),
+                    json!([{"op": "props", "id": bid(1), "set": {"tone": "muted"}}, bold]),
+                    json!({"type": "code", "props": {}, "text": {"s": "Ship it", "marks": []}}),
+                ),
+            ];
+            for (base, retype, other, expect) in cases {
+                for (one, two) in [(&retype, &other), (&other, &retype)] {
+                    let (a, b) = diverge(base.clone(), one.clone(), two.clone());
+                    assert_eq!(a, b);
+                    schema::validate(&a).unwrap();
+                    for (key, value) in expect.as_object().unwrap() {
+                        assert_eq!(&a[bid(1)][key], value, "{key} in {a}");
+                    }
+                    assert_eq!(a[bid(1)]["text"]["s"], "Ship it");
+                }
+            }
+            // Two writers turn one to-do into different types: one writer's type wins with its own
+            // props, never a mix.
+            let base = insert("todo", json!({"checked": true, "indent": 1}));
+            let heading = json!([{"op": "retype", "id": bid(1), "type": "heading", "level": 3}]);
+            let list = json!([{"op": "retype", "id": bid(1), "type": "list", "props": {"style": "number"}}]);
+            for (one, two) in [(&heading, &list), (&list, &heading)] {
+                let (a, b) = diverge(base.clone(), one.clone(), two.clone());
+                assert_eq!(a, b);
+                schema::validate(&a).unwrap();
+                let expected = match a[bid(1)]["type"].as_str().unwrap() {
+                    "heading" => json!({"level": 3}),
+                    "list" => json!({"style": "number"}),
+                    other => panic!("{other} won"),
+                };
+                assert_eq!(a[bid(1)]["props"], expected, "{a}");
+            }
         }
 
         #[test]
