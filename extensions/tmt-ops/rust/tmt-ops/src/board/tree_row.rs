@@ -150,7 +150,7 @@ pub(in crate::board) fn paint_line(
 }
 
 /// One of a member's terminals, under the member's row (#5991): the tree line, `Terminal N`, and
-/// `● running` or a grey `○ ended` in STATE. It has no tokens, session, model or timers.
+/// a muted `running` or `ended` in STATE. It has no tokens, session, model or timers.
 pub(in crate::board) struct TerminalRow<'a> {
     pub source: &'a OpsTreeRow,
     pub ended: bool,
@@ -159,8 +159,6 @@ pub(in crate::board) struct TerminalRow<'a> {
     /// Its member has a sibling below: the member's line goes on (`│`).
     pub trunk: bool,
     pub selected: bool,
-    /// The tree's colour for a live member.
-    pub live: Style,
 }
 
 pub(in crate::board) fn paint_terminal(
@@ -178,10 +176,16 @@ pub(in crate::board) fn paint_terminal(
             Line::styled(" ".repeat(usize::from(area.width)), base),
         );
     }
-    let (dot, word, style) = if row.ended {
-        ("○", "ended", look.role(Role::Muted))
+    let muted = look.selected(row.selected, look.role(Role::Muted));
+    let muted = if row.selected && base.bg.is_none() {
+        muted.add_modifier(ratatui::style::Modifier::DIM)
     } else {
-        ("●", "running", row.live)
+        muted
+    };
+    let name = if row.ended {
+        muted.add_modifier(ratatui::style::Modifier::DIM)
+    } else {
+        muted
     };
     for (field, slot) in slots {
         let cell = Rect::new(slot.x, area.y, slot.width, area.height.min(1)).intersection(area);
@@ -191,37 +195,30 @@ pub(in crate::board) fn paint_terminal(
         let line = match field {
             AgentsField::Agent => {
                 // The member's own indent, then its line and this terminal's branch.
-                let indent = "  ".repeat(usize::from(row.source.depth.saturating_sub(2)));
+                let indent = "  ".repeat(
+                    row.source
+                        .depth
+                        .saturating_sub(2)
+                        .min(usize::from(cell.width.saturating_sub(11)) / 2),
+                );
                 let branch = format!(
                     "{indent}{}{}",
                     if row.trunk { "  │ " } else { "    " },
                     if row.last { "└ " } else { "├ " }
                 );
-                let name_width = usize::from(cell.width).saturating_sub(1 + branch.width());
+                let marker = "›_ ";
+                let name_width =
+                    usize::from(cell.width).saturating_sub(1 + branch.width() + marker.width());
                 Line::from(vec![
-                    Span::styled(" ", look.role(Role::Muted)),
-                    Span::styled(branch, look.role(Role::Text)),
-                    Span::styled(
-                        crate::board::view::fit(&row.source.title, name_width),
-                        look.role(if row.ended { Role::Muted } else { Role::Text }),
-                    ),
+                    Span::styled(" ", muted),
+                    Span::styled(branch, muted),
+                    Span::styled(marker, muted),
+                    Span::styled(crate::board::view::fit(&row.source.title, name_width), name),
                 ])
             }
-            AgentsField::State => Line::from(vec![
-                Span::styled(dot, style),
-                Span::styled(format!(" {word}"), look.role(Role::Muted)),
-            ]),
+            AgentsField::State => Line::styled(if row.ended { "ended" } else { "running" }, name),
             _ => continue,
         };
-        let line = Line::from(
-            line.spans
-                .into_iter()
-                .map(|span| {
-                    let style = look.selected(row.selected, span.style);
-                    span.style(style)
-                })
-                .collect::<Vec<_>>(),
-        );
         strip::paint_left(buffer, cell, line);
     }
 }
@@ -255,10 +252,6 @@ pub(in crate::board) fn paint(
         let mut line = match field {
             AgentsField::Agent => {
                 let member = matches!(row.source.target, OpsTarget::Member { .. });
-                // Rows inside the Hidden group sit one level further in.
-                let indent = "  ".repeat(usize::from(
-                    row.source.depth.saturating_sub(u8::from(member)),
-                ));
                 let branch = if member {
                     match (row.last, row.folds, row.expanded) {
                         (true, false, _) => "  └ ",
@@ -273,7 +266,12 @@ pub(in crate::board) fn paint(
                 } else {
                     "▸ "
                 };
-                let branch = format!("{indent}{branch}");
+                let indent = row
+                    .source
+                    .depth
+                    .saturating_sub(usize::from(member))
+                    .min(usize::from(cell.width).saturating_sub(branch.width() + 3) / 2);
+                let branch = format!("{}{branch}", "  ".repeat(indent));
                 let offset = 1 + branch.width();
                 let show_label =
                     member && row.label.is_some() && offset + 4 <= usize::from(cell.width);

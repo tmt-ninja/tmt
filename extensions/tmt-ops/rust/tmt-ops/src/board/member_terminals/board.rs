@@ -93,7 +93,10 @@ impl App {
                             .then(|| row.target.clone())
                     })
                 });
-            if let Some(target) = member.and_then(|member| super::target(&member, &terminal)) {
+            if let Some(member) = member
+                && let Some(target) = super::target(&member, &terminal)
+            {
+                self.workspace.set_member_folded(&member, false);
                 self.workspace.selected = Some(target);
                 self.invalidate_frame_geometry();
             }
@@ -108,7 +111,9 @@ impl App {
         let mut spliced = Vec::with_capacity(rows.len());
         for row in rows {
             let terminals = match &row.target {
-                OpsTarget::Member { identity_id, .. } if !self.terminals.folded(identity_id) => {
+                OpsTarget::Member { identity_id, .. }
+                    if !self.workspace.member_folded(&row.target) =>
+                {
                     self.terminals.rows(identity_id)
                 }
                 _ => &[],

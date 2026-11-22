@@ -105,16 +105,13 @@ pub struct Draft {
     pub fields_button: Option<ReviewButton>,
     pub close: Option<super::close_member::Close>,
 }
-/// Review of a removal starts on Cancel, so a stray Enter never takes an agent out of a squad;
-/// any other review starts on its apply button, so Enter applies what was just reviewed.
-/// A review opens on its action, except Leave squad, which opens on Cancel. Delete member
-/// opens on Delete, so Enter deletes (Ben, #6462).
+/// Destructive member reviews open on Cancel. Other reviews open on their action.
 pub(in crate::board) fn review_start(
     kind: Kind,
     reopened: bool,
 ) -> tmt_tui::components::DialogState {
     tmt_tui::components::DialogState {
-        focus: if kind == Kind::Remove {
+        focus: if matches!(kind, Kind::Remove | Kind::RemoveMember) {
             review_cancel(reopened)
         } else {
             tmt_tui::components::Focus::Buttons(0)
@@ -405,11 +402,15 @@ impl Draft {
                     .get(member)
                     .map_or(member.as_str(), |member| member.name.as_str());
                 lines.push(format!("{name} leaves {}; it keeps running.", target.name));
-                lines.push("Its history and other squads stay.".into());
+                let mut outcome = "Its history and other squads stay.".to_owned();
                 if self.loses_lead {
-                    lines.push(format!("{} loses its lead.", target.name));
+                    outcome.push_str(&format!(" {} loses its lead.", target.name));
                 }
-                self.timer_review(&mut lines);
+                if let Some(timers) = self.timer_outcome() {
+                    outcome.push(' ');
+                    outcome.push_str(&timers);
+                }
+                lines.push(outcome);
             }
             Some(Operation::Assign {
                 source,
@@ -462,14 +463,12 @@ impl Draft {
         }
         lines.join("\n")
     }
-    /// Only a leave that pauses timers says so.
-    fn timer_review(&self, lines: &mut Vec<String>) {
+    /// Include the timer consequence when timers pause or their state is unknown.
+    fn timer_outcome(&self) -> Option<String> {
         match self.timer_impact {
-            Some(0) => {}
-            Some(count) => lines.push(format!(
-                "{count} of its timers pause until you resume them."
-            )),
-            None => lines.push("Its timers may pause; refresh to check.".into()),
+            Some(0) => None,
+            Some(count) => Some(format!("{count} timers pause until resumed.")),
+            None => Some("Its timers may pause; refresh to check.".into()),
         }
     }
     pub fn invalidate(&self) {

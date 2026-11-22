@@ -6,6 +6,7 @@ pub(crate) mod columns;
 pub(crate) mod manage;
 pub(crate) mod moving;
 pub(crate) mod observe;
+pub(in crate::board) mod placement;
 pub(crate) mod rename_member;
 pub(crate) mod render;
 
@@ -182,6 +183,10 @@ pub struct OpsWorkspace {
     pub query: String,
     pub(in crate::board) order: Option<crate::board::view_state::Order>,
     pub visibility: OpsVisibility,
+    pub(in crate::board) placements: placement::Placements,
+    pub(in crate::board) saving_placement: bool,
+    pub(in crate::board) placement_prune_failed: bool,
+    pub(in crate::board) folded_members: BTreeSet<OpsTarget>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,7 +202,7 @@ pub enum SelectionState {
 pub struct OpsTreeRow {
     pub target: OpsTarget,
     pub title: String,
-    pub depth: u8,
+    pub depth: usize,
     pub lead: bool,
     pub state: Option<String>,
     pub presence: Option<bool>,
@@ -429,7 +434,16 @@ impl OpsWorkspace {
     }
 
     pub fn rows(&self, roster: &OpsRoster, preferences: &OpsPreferences) -> Vec<OpsTreeRow> {
-        self.project_rows(roster, preferences, &self.query, false)
+        self.rows_with_draft(roster, preferences, None)
+    }
+
+    pub(in crate::board) fn rows_with_draft(
+        &self,
+        roster: &OpsRoster,
+        preferences: &OpsPreferences,
+        draft: Option<(Option<&str>, &placement::MemberOrder)>,
+    ) -> Vec<OpsTreeRow> {
+        self.project_rows(roster, preferences, &self.query, false, draft)
     }
 
     /// Count identities, not their repeated memberships or collapsed rows.
@@ -481,18 +495,163 @@ impl OpsWorkspace {
         )
     }
 
+    pub(super) fn complete_for_placement(roster: &OpsRoster, room: Option<&str>) -> bool {
+        roster.observation == OpsObservation::Complete
+            && room.map_or_else(
+                || roster.complete(),
+                |room| {
+                    roster.squads.iter().any(|squad| {
+                        squad.room_id == room && squad.observation == OpsObservation::Complete
+                    })
+                },
+            )
+    }
+
+    /// Default order of all members in a scope, including those hidden by a
+    /// fold or search. This is the baseline from which the lift is prepared.
+    pub(super) fn placement_members<'a>(roster: &'a OpsRoster, room: Option<&str>) -> Vec<&'a str> {
+        let squad = room.and_then(|id| roster.squads.iter().find(|squad| squad.room_id == id));
+        let mut members: Vec<_> = match squad {
+            Some(squad) => roster.members(squad).collect(),
+            None if room.is_none() => roster.pool().collect(),
+            None => return Vec::new(),
+        };
+        sort_members(&mut members, squad.and_then(|squad| squad.lead.as_deref()));
+        members.dedup_by(|a, b| a.id == b.id);
+        members
+            .into_iter()
+            .map(|member| member.id.as_str())
+            .collect()
+    }
+
+    pub(in crate::board) fn reveal_member_ancestors(&mut self, target: &OpsTarget) {
+        let Some((room, member)) = placement::member_parts(target) else {
+            return;
+        };
+        let Some(group) = self.placements.group(room) else {
+            return;
+        };
+        let mut cursor = member;
+        let mut seen = BTreeSet::new();
+        while let Some(parent) = group.parent(cursor).filter(|parent| seen.insert(*parent)) {
+            self.folded_members.remove(&OpsTarget::Member {
+                room_id: room.map(str::to_owned),
+                identity_id: parent.to_owned(),
+            });
+            cursor = parent;
+        }
+    }
+
+    pub(in crate::board) fn member_folded(&self, target: &OpsTarget) -> bool {
+        self.folded_members.contains(target)
+    }
+
+    pub(in crate::board) fn set_member_folded(&mut self, target: &OpsTarget, folded: bool) {
+        if folded {
+            self.folded_members.insert(target.clone());
+        } else {
+            self.folded_members.remove(target);
+        }
+    }
+
+    pub(in crate::board) fn member_has_children(
+        &self,
+        target: &OpsTarget,
+        roster: &OpsRoster,
+    ) -> bool {
+        let Some((room, member)) = placement::member_parts(target) else {
+            return false;
+        };
+        self.placements.group(room).is_some_and(|group| {
+            group.has_visible_child(member, |child| {
+                roster.contains(&OpsTarget::Member {
+                    room_id: room.map(str::to_owned),
+                    identity_id: child.into(),
+                })
+            })
+        })
+    }
+
+    fn project_members(
+        &self,
+        room: Option<&str>,
+        rows: impl Iterator<Item = OpsTreeRow>,
+        query: &str,
+        expand: bool,
+        draft: Option<&placement::MemberOrder>,
+    ) -> Vec<OpsTreeRow> {
+        let matches =
+            |row: &OpsTreeRow| crate::board::search_field::matches_query(&row.title, query);
+        let Some(group) = draft.or_else(|| self.placements.group(room)) else {
+            return rows.filter(matches).collect();
+        };
+        let mut rows: Vec<_> = rows.map(Some).collect();
+        let ids: Vec<_> = rows
+            .iter()
+            .filter_map(|row| placement::member_parts(&row.as_ref()?.target))
+            .map(|(_, member)| member)
+            .collect();
+        let by_id: std::collections::HashMap<_, _> = ids.iter().copied().zip(0..).collect();
+        let order: Vec<_> = group
+            .walk(&ids)
+            .map(|(id, depth)| (by_id[id], depth))
+            .collect();
+        let mut keep = vec![query.is_empty(); order.len()];
+        if !query.is_empty() {
+            // Expose matching children with their ancestor chain, without
+            // changing the user's fold state.
+            let mut parents = Vec::new();
+            for (at, &(index, depth)) in order.iter().enumerate() {
+                parents.truncate(depth);
+                if matches(rows[index].as_ref().expect("member")) {
+                    keep[at] = true;
+                    for parent in parents.iter().rev().copied() {
+                        if keep[parent] {
+                            break;
+                        }
+                        keep[parent] = true;
+                    }
+                }
+                parents.push(at);
+            }
+        }
+        let mut folded_depth = None;
+        let mut visible = Vec::new();
+        for ((index, depth), keep) in order.into_iter().zip(keep) {
+            if folded_depth.is_some_and(|parent| depth > parent) {
+                continue;
+            }
+            folded_depth = None;
+            let mut row = rows[index].take().expect("once per appearance");
+            if !expand && draft.is_none() && self.member_folded(&row.target) {
+                folded_depth = Some(depth);
+            }
+            if keep {
+                row.depth += depth;
+                visible.push(row);
+            }
+        }
+        visible
+    }
+
     fn project_rows(
         &self,
         roster: &OpsRoster,
         preferences: &OpsPreferences,
         query: &str,
         expand: bool,
+        draft: Option<(Option<&str>, &placement::MemberOrder)>,
     ) -> Vec<OpsTreeRow> {
         let query = query.to_lowercase();
         let matches = |name: &str| crate::board::search_field::matches_query(name, &query);
         let pool: Vec<_> = roster.pool().collect();
         // Keep an unfiltered unknown/empty pool, but search only shows matching
         // identities and their containing group.
+        let draft_for = |room: Option<&str>| {
+            draft
+                .filter(|(draft_room, _)| *draft_room == room)
+                .map(|(_, group)| group)
+        };
         let show_pool = self.visibility.scope.is_empty()
             && (query.is_empty()
                 || matches("Common pool")
@@ -518,15 +677,25 @@ impl OpsWorkspace {
                 },
             });
         }
-        if show_pool && (expand || self.pool_expanded || !query.is_empty()) {
+        if show_pool
+            && (expand || draft_for(None).is_some() || self.pool_expanded || !query.is_empty())
+        {
             let mut pool = pool;
-            pool.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
-            for member in pool
-                .into_iter()
-                .filter(|member| matches("Common pool") || matches(&member.name))
-            {
-                rows.push(member_row(member, None, false, roster.observation, None));
-            }
+            sort_members(&mut pool, None);
+            rows.extend(
+                self.project_members(
+                    None,
+                    pool.into_iter()
+                        .map(|member| member_row(member, None, false, roster.observation, None)),
+                    if draft_for(None).is_some() || matches("Common pool") {
+                        ""
+                    } else {
+                        &query
+                    },
+                    expand || !query.is_empty(),
+                    draft_for(None),
+                ),
+            );
         }
         // Outside a scope, hidden squads leave the list for the Hidden group at its end.
         let grouped = self.visibility.scope.is_empty();
@@ -570,7 +739,7 @@ impl OpsWorkspace {
         squads.sort_by(order);
         hidden.sort_by(order);
         // One squad row and its shown members, `depth` levels in.
-        let squad_rows = |squad: &OpsSquad, depth: u8| -> Vec<OpsTreeRow> {
+        let squad_rows = |squad: &OpsSquad, depth: usize| -> Vec<OpsTreeRow> {
             let mut rows = Vec::new();
             let mut members: Vec<_> = roster.members(squad).collect();
             let mut seen = BTreeSet::new();
@@ -602,28 +771,34 @@ impl OpsWorkspace {
                     .then(|| squad.members.iter().collect::<BTreeSet<_>>().len()),
                 observation: squad.observation,
             });
-            if expand || self.expanded.contains(&squad.room_id) || !query.is_empty() {
+            if expand
+                || draft_for(Some(&squad.room_id)).is_some()
+                || self.expanded.contains(&squad.room_id)
+                || !query.is_empty()
+            {
                 let unknown = OpsMembershipState::default();
-                members.sort_by(|a, b| {
-                    (squad.lead.as_deref() != Some(&a.id))
-                        .cmp(&(squad.lead.as_deref() != Some(&b.id)))
-                        .then_with(|| a.name.cmp(&b.name))
-                        .then_with(|| a.id.cmp(&b.id))
-                });
-                for member in members
-                    .into_iter()
-                    .filter(|member| squad_matches || matches(&member.name))
-                {
-                    let mut row = member_row(
-                        member,
-                        Some(&squad.room_id),
-                        squad.lead.as_deref() == Some(&member.id),
-                        squad.observation,
-                        Some(squad.member_states.get(&member.id).unwrap_or(&unknown)),
-                    );
-                    row.depth = depth + 1;
-                    rows.push(row);
-                }
+                sort_members(&mut members, squad.lead.as_deref());
+                rows.extend(self.project_members(
+                    Some(&squad.room_id),
+                    members.into_iter().map(|member| {
+                        let mut row = member_row(
+                            member,
+                            Some(&squad.room_id),
+                            squad.lead.as_deref() == Some(&member.id),
+                            squad.observation,
+                            Some(squad.member_states.get(&member.id).unwrap_or(&unknown)),
+                        );
+                        row.depth = depth + 1;
+                        row
+                    }),
+                    if draft_for(Some(&squad.room_id)).is_some() || squad_matches {
+                        ""
+                    } else {
+                        &query
+                    },
+                    expand || !query.is_empty(),
+                    draft_for(Some(&squad.room_id)),
+                ));
             }
             rows
         };
@@ -692,6 +867,15 @@ pub(in crate::board) fn member_target_row(
         squad.observation,
         Some(squad.member_states.get(identity_id).unwrap_or(&unknown)),
     ))
+}
+
+fn sort_members(members: &mut [&OpsMember], lead: Option<&str>) {
+    members.sort_by(|a, b| {
+        (lead != Some(&a.id))
+            .cmp(&(lead != Some(&b.id)))
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.id.cmp(&b.id))
+    });
 }
 
 fn member_row(

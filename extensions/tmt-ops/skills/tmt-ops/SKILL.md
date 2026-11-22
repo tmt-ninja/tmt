@@ -597,20 +597,20 @@ sorts by `SQUAD / AGENT` (name) and STATE (attention). The sorted word shows `�
 on TOK the mark takes the blank cell before the word. A click changes only the saved
 order, never the selection or a message.
 In Agents, `n` opens New member on any row. `N` creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
-member row, `m` manages a squad or moves an agent in place, and `x` opens Close and
-delete for the selected agent. Leave a squad with `m` to Common pool or Edit's Squad field. The Agents footer is one line of the keys the selected
-row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  r rename  m move  x close  / search  ? help  q quit`.
+member row, `m` manages a squad or arranges an agent in the tree, and `x` opens Close and
+delete for the selected agent. The Agents footer shows keys for the selected row.
+On a member row: `↑↓←→ move  ⏎ chat  n new  r rename  m move  x close  / search  ? help  q quit`.
 The selected member's name row shows its effective jump key, for example `z open`, when
 available and there is room after the name. Authored bindings win; unavailable hints are
 hidden. Talk, Measure and Checklist remain available through their keys and right-pane tabs.
 Squad, Common pool and Hidden group rows show their own keys. Narrow widths drop whole row
 keys from the right and keep search, help and quit; every other key still works and is listed in `?`.
 While the reply pane is focused, its selection guidance takes that line.
-On an agent row, `m` lifts the agent (`⇅ worker → product`, its old place dim
-`┆ worker · moving`); ↑↓ choose among the listed squads and Common pool (moving there leaves
-the squad), Enter applies and Esc cancels, with no dialog. It moves one membership; to join a
-second squad and keep the first, use `tmt ops squad add`. The result is one status line, and a
-refused move leaves the list as it was.
+On an agent row, `m` lifts that appearance. ↑↓ reorder siblings, → nests under the preceding
+member, ← places it after its former parent, Enter drops and Esc cancels. This saved grouping
+only affects the board. Left/Right fold and unfold a member's children, including terminals.
+A removed parent leaves its children one level higher. Use Actions → Move to squad to change
+membership (Common pool leaves the squad); `tmt ops squad add` keeps the old membership.
 Right-click a visible Agents row to select it and open Actions, or open Settings
 (default comma) and choose Actions. Close and delete is also a named action. Its
 confirmation starts on Cancel. Confirm stops the agent through Core and closes
@@ -1110,13 +1110,12 @@ Public `tmt ops sq ls --tab all --json` retains its aggregate document.
 Select a squad to inspect its lead-first MEMBER / STATE / TASK / NEXT ACTION roster,
 supplied usage facts and timers. Agents uses a 47% list in Side layout; Auto stacks
 below 120 columns and uses a single focused pane when the usable budgets do not fit.
-The table reserves one range/total/more row. Add a member, set or
-clear its lead, rename it, pin it or open Timers through the named controls or
-Manage. `N` creates from a name, optional lead and explicit members. `m` moves an
-agent to another squad in place; `tmt ops squad add` joins a second squad.
+The table reserves one range/total/more row. Use named controls or Manage to add members,
+set or clear the lead, rename, pin or open Timers. `N` creates from a name, optional lead and explicit members.
+`m` arranges an agent in the tree; Actions → Move to squad changes its squad, and `tmt ops squad add` joins a second squad.
 
-Rename and membership reviews show the human CLI equivalents. Rename still
-executes the UUID/expected-name check; `c` copies its displayed command.
+Membership reviews show what changes. Rename uses the UUID and expected-name
+check; `c` copies the reviewed command.
 Management reviews freeze exact room/identity UUIDs and revisions and show timer
 impact. Non-destructive reviews open on the apply button, so Enter applies what was
 reviewed; Leave squad and Close and delete open on Cancel. ←→ move between Cancel and

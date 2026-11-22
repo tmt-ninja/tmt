@@ -238,6 +238,7 @@ pub enum Request {
         edit: crate::config::LabelEdit,
     },
     WorkspaceOperation(super::workspace::manage::Change),
+    MemberPlacement(Box<super::workspace::placement::Save>),
     /// A cron job control, with its actor, job and viewed revision resolved.
     CronPreview(Box<super::cronboard::preview::Task>),
     Cron(super::cronboard::CronRequest),
@@ -276,6 +277,7 @@ impl Request {
             Self::MemberLabel { .. } => "Saving label…",
             Self::LabelEdit { .. } => "Saving labels…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
+            Self::MemberPlacement(_) => "Saving member placement…",
             Self::CronPreview(_) => "Reading the timer preview…",
             Self::Cron(_) => "Updating the job…",
         }

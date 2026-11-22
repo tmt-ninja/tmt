@@ -112,45 +112,29 @@ impl Plan {
                 Operation::Assign {
                     source,
                     destination,
-                    member,
                     move_member,
+                    ..
                 } => {
-                    if *move_member && source.is_some() {
-                        lines.push(
-                            "Source squad timers are paused before the move; they remain there."
-                                .into(),
-                        );
-                    }
-                    lines.push(line(vec![
-                        "ops".into(),
-                        "sq".into(),
-                        "add".into(),
-                        "--squad".into(),
-                        destination.name.clone(),
-                        "--".into(),
-                        member.clone(),
-                    ]));
-                    if *move_member && let Some(source) = source {
-                        lines.push(line(vec![
-                            "ops".into(),
-                            "sq".into(),
-                            "rm".into(),
-                            "--squad".into(),
-                            source.name.clone(),
-                            "--".into(),
-                            member.clone(),
-                        ]));
+                    let from = source
+                        .as_ref()
+                        .map_or("Common pool", |room| room.name.as_str());
+                    lines.push(format!(
+                        "{}: {from} → {}.",
+                        self.target.name(),
+                        destination.name
+                    ));
+                    if *move_member {
+                        lines.push("Source squad timers pause and stay in that squad.".into());
                     }
                 }
-                Operation::Remove { room, member } => lines.push(line(vec![
-                    "ops".into(),
-                    "sq".into(),
-                    "rm".into(),
-                    "--squad".into(),
-                    room.name.clone(),
-                    "--".into(),
-                    member.clone(),
-                ])),
+                Operation::Remove { room, .. } => {
+                    lines.push(format!(
+                        "{} leaves {}; it keeps running.",
+                        self.target.name(),
+                        room.name
+                    ));
+                    lines.push("Its conversation and other squads stay.".into());
+                }
                 _ => unreachable!("Edit only moves the selected membership"),
             }
         }

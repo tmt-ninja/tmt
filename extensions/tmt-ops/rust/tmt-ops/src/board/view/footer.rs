@@ -328,7 +328,16 @@ fn agents_legend(app: &App) -> Option<Hints> {
         return None;
     }
     if let Some(moving) = app.moving.as_ref().filter(|moving| !moving.applying) {
-        // A lifted membership takes only these keys.
+        if moving.order().is_some() {
+            return Some(Hints {
+                keys: vec![
+                    ("↑↓".into(), "reorder".into()),
+                    ("←→".into(), "outdent/nest".into()),
+                    ("⏎".into(), "drop".into()),
+                ],
+                tail: vec![("Esc".into(), "cancel".into())],
+            });
+        }
         let target = moving.target_name(&app.workspace_rows());
         return Some(Hints {
             keys: vec![
@@ -404,7 +413,7 @@ fn agents_legend(app: &App) -> Option<Hints> {
         &[
             (Ui::NewMember, "n", "new"),
             (Ui::Rename, "r", "rename"),
-            (Ui::MoveMembership, "m", "move"),
+            (Ui::OrderMember, "m", "move"),
             (Ui::RemoveMember, "x", "close"),
             (Ui::MemberSession, "R", "resume"),
         ]

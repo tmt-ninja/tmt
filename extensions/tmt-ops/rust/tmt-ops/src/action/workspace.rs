@@ -58,6 +58,7 @@ pub enum OpsUiAction {
     IdleAlert,
     RemoveMembership,
     MoveMembership,
+    OrderMember,
     RenameMember,
     RemoveMember,
     ScrollUp,
@@ -598,6 +599,13 @@ const SPECS: &[OpsUiSpec] = &[
         6
     ),
     spec!(
+        OrderMember,
+        "order-member",
+        "move",
+        "reorder or nest the selected member in the Agents tree",
+        9
+    ),
+    spec!(
         MoveMembership,
         "move-membership",
         "move",
@@ -635,6 +643,7 @@ impl OpsUiAction {
             Self::MemberLabel => Some("Label agent"),
             Self::RenameMember => Some("Rename agent"),
             Self::RemoveMember => Some("Close and delete"),
+            Self::MoveMembership => Some("Move to squad"),
             _ => None,
         }
     }
@@ -676,6 +685,7 @@ impl OpsUiAction {
             Self::RemoveMember
                 | Self::RemoveMembership
                 | Self::MoveMembership
+                | Self::OrderMember
                 | Self::RenameMember
                 | Self::MonitorDetails
                 | Self::MemberSession

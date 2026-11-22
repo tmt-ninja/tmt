@@ -408,6 +408,21 @@ fn terminal_tab_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+/// The same placement expanded, folded and lifted, at wide and narrow widths.
+fn member_nesting_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &[
+            "agents-nesting-expanded",
+            "agents-nesting-folded",
+            "agents-nesting-lifted",
+        ],
+        |_| grid(&[160, 100, 60], &[36]),
+        |scene, look, _, _| crate::board::workspace::moving::tests::nesting_scene(scene, look),
+        |_, _| {},
+    )
+}
+
 /// A built-in member's terminals (#5991): the tree with a live right panel, and the close
 /// confirm of a busy terminal (mocks 8 and 9).
 fn member_terminals_frames(styles: &mut Styles) -> Vec<Value> {
@@ -1824,7 +1839,8 @@ macro_rules! oracle_groups {
         $group!(8, 128, timeline_frames($styles));
         $group!(7, 32, snapshot_frames($styles));
         $group!(7, 88, terminal_tab_frames($styles));
-        $group!(7, 40, member_terminals_frames($styles));
+        $group!(7, 48, member_terminals_frames($styles));
+        $group!(7, 36, member_nesting_frames($styles));
         $group!(8, 36, offline_resume_frames($styles));
         $group!(8, 16, settings_keys_frames($styles));
         $group!(7, 52, label_frames($styles));

@@ -319,7 +319,13 @@ state only, no squad data or durable preference policy.
   Right-click on a fresh visible Agents row selects that typed row and opens the
   existing Actions menu; loading, overlays and invalidated frame hits cannot use it.
   In list focus, the keyboard path remains Settings (default comma), then Actions; no direct default
-  menu key is added, and member `m` remains move-membership.
+  menu key is added. Member `m` lifts its roster appearance for display-only ordering
+  and nesting. Actions → Move to squad keeps the guarded membership operation.
+  Ops stores placement by squad UUID (or Common pool) and member UUID in its
+  versioned `member-placement.json` under the Ops state root. The base roster
+  supplies authority, deleting a confirmed missing parent promotes its children,
+  and a partial read leaves saved placement intact. The action lane writes the
+  document and the tree paints the saved order or the lift's draft.
   Footer fitting follows `view::footer::hints` below.
   Opaque modals hide the base hints;
   notices/error precedence remains with the existing frame owner. Theme and Token

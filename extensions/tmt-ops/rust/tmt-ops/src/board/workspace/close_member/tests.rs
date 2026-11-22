@@ -166,15 +166,16 @@ fn confirmed_stop_and_kept_pane_reason_survive_a_failed_remove() {
         matches!(result,Outcome::Refused{step:Step::Delete,pane_reason:Some(reason),..} if reason=="Host could not close the pane.")
     );
 }
-fn paint(app: &App, width: u16, height: u16) -> String {
+fn draw(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
     let mut terminal =
         ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
     terminal
         .draw(|frame| crate::board::view::render(frame, app))
         .unwrap();
-    terminal
-        .backend()
-        .buffer()
+    terminal.backend().buffer().clone()
+}
+fn paint(app: &App, width: u16, height: u16) -> String {
+    draw(app, width, height)
         .content
         .chunks(usize::from(width))
         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
@@ -187,7 +188,7 @@ fn key(app: &mut App, code: KeyCode) -> Effect {
 fn begin(app: &mut App) -> Request {
     assert_eq!(key(app, KeyCode::Char('x')), Effect::None);
     paint(app, 100, 36);
-    paint(app, 100, 36);
+    key(app, KeyCode::Left);
     let Effect::Act(Action::WorkspaceOperation(Change::CloseMember(request))) =
         key(app, KeyCode::Enter)
     else {
@@ -417,15 +418,19 @@ fn close_pending_survives_hide_reopen_and_late_unrelated_completion_is_ignored()
 }
 
 #[test]
-fn close_controls_require_current_geometry_and_open_on_delete() {
+fn close_controls_require_current_geometry_and_open_on_cancel() {
     let mut app = board();
     let _commands = crate::runner::forbid_commands();
+    key(&mut app, KeyCode::Char('x'));
+    paint(&app, 150, 45);
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(!app.modal_open(), "Enter chooses the initial Cancel button");
     key(&mut app, KeyCode::Char('x'));
     for (width, height) in [(60, 36), (100, 36), (160, 50)] {
         paint(&app, width, height);
         let draft = app.workspace_form.as_ref().unwrap();
         assert!(draft.close.as_ref().unwrap().hits.borrow().buttons[1].is_some());
-        assert_eq!(draft.review.focus, tmt_tui::components::Focus::Buttons(0));
+        assert_eq!(draft.review.focus, tmt_tui::components::Focus::Buttons(1));
         app.invalidate_frame_geometry();
         assert_eq!(
             app.workspace_confirm(),
@@ -453,6 +458,47 @@ fn close_controls_require_current_geometry_and_open_on_delete() {
     assert_eq!(app.workspace_confirm(), Effect::None);
     key(&mut app, KeyCode::Esc);
     assert!(!app.modal_open());
+    // Use the exact SPEC-36 capture, whose complete outcome fits two rows.
+    let mut app = crate::board::app::workspace::tests::review_modal::crud_capture_case(
+        "close-member-confirm",
+        crate::look::Look::default(),
+    );
+    let buffer = draw(&app, 150, 43);
+    let draft = app.workspace_form.as_ref().unwrap();
+    let hits = draft.close.as_ref().unwrap().hits.borrow();
+    assert_eq!(hits.content.height, 2);
+    let outcome: Vec<String> = (hits.content.y..hits.content.bottom())
+        .map(|y| {
+            (hits.content.x..hits.content.right())
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(
+        outcome,
+        [
+            "worker stops and leaves the board.",
+            "Its conversation and notes are kept."
+        ]
+    );
+    let delete = hits.buttons[0].expect("Delete is available when both outcome rows fit");
+    assert_eq!(
+        Some(buffer[(delete.x + 1, delete.y)].fg),
+        app.look().role(tmt_cli_style::Role::Blocked).fg,
+        "the available Delete button uses the destructive role"
+    );
+    drop(hits);
+    assert_eq!(key(&mut app, KeyCode::Left), Effect::None);
+    let Effect::Act(Action::WorkspaceOperation(Change::CloseMember(request))) =
+        key(&mut app, KeyCode::Enter)
+    else {
+        panic!("Left then Enter dispatches the reviewed close");
+    };
+    assert_eq!(request.identity_id, MEMBER);
+    assert_eq!(request.expected_name, NAME);
+    assert_eq!(request.mode, Mode::CloseAndDelete);
 }
 #[test]
 fn close_keeps_the_reviewed_identity_and_refuses_a_different_viewer() {
@@ -462,6 +508,7 @@ fn close_keeps_the_reviewed_identity_and_refuses_a_different_viewer() {
     paint(&app, 100, 36);
     app.workspace.selected = Some(crate::board::workspace::OpsTarget::Pool);
     paint(&app, 100, 36);
+    key(&mut app, KeyCode::Left);
     let Effect::Act(Action::WorkspaceOperation(Change::CloseMember(request))) =
         key(&mut app, KeyCode::Enter)
     else {
@@ -472,7 +519,7 @@ fn close_keeps_the_reviewed_identity_and_refuses_a_different_viewer() {
     let mut app = board();
     key(&mut app, KeyCode::Char('x'));
     paint(&app, 100, 36);
-    paint(&app, 100, 36);
+    key(&mut app, KeyCode::Left);
     app.view.as_mut().unwrap().me = Some("different-viewer".into());
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);

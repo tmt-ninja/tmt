@@ -1,8 +1,9 @@
-//! `m` lifts the selected agent's membership out of its squad; ↑↓ carry it between the squads
-//! the list shows, Common pool last, and Enter applies the move through the existing membership
-//! path (Common pool is leaving the squad). Esc puts it back. The list is projected, never
-//! mutated, and nothing changes until the operation's result arrives.
-use super::{OpsTarget, OpsTreeRow};
+//! Lift and drop in the Agents list. Display placement and guarded squad
+//! membership changes share the lifted-row UI and commit through separate owners.
+use super::{
+    OpsTarget, OpsTreeRow, OpsWorkspace,
+    placement::{MemberOrder, Save, Shift},
+};
 use crate::board::app::{App, Effect, Request};
 use crate::membership::workspace::Operation;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
@@ -23,6 +24,13 @@ pub(in crate::board) struct Moving {
     pub target: Option<String>,
     /// Enter sent the operation; the result line ends the move.
     pub applying: bool,
+    order: Option<Order>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Order {
+    initial: MemberOrder,
+    draft: MemberOrder,
 }
 
 /// Where the list paints a lifted membership: the source row becomes a placeholder, and the
@@ -31,7 +39,7 @@ pub(in crate::board) struct Placement {
     pub source: usize,
     pub after: Option<usize>,
     /// The lifted line's tree depth: one level inside its target group.
-    pub depth: u8,
+    pub depth: usize,
 }
 
 impl Placement {
@@ -52,6 +60,18 @@ fn short(name: &str) -> String {
 
 impl Moving {
     pub(in crate::board) fn target_name(&self, rows: &[OpsTreeRow]) -> String {
+        if let Some((room, draft)) = self.order()
+            && let Some(parent) = draft.parent(&self.member)
+        {
+            let parent = OpsTarget::Member {
+                room_id: room.map(str::to_owned),
+                identity_id: parent.into(),
+            };
+            return rows
+                .iter()
+                .find(|row| row.target == parent)
+                .map_or_else(|| "parent member".into(), |row| row.title.clone());
+        }
         match &self.target {
             None => "Common pool".into(),
             Some(room) => rows
@@ -60,6 +80,12 @@ impl Moving {
                 .map_or_else(|| room.clone(), |row| row.title.clone()),
         }
     }
+    pub(in crate::board) fn order(&self) -> Option<(Option<&str>, &MemberOrder)> {
+        self.order
+            .as_ref()
+            .map(|order| (self.source.as_deref(), &order.draft))
+    }
+
     fn member_target(&self) -> OpsTarget {
         OpsTarget::Member {
             room_id: self.source.clone(),
@@ -129,7 +155,7 @@ pub(in crate::board) fn paint_lifted(
     area: Rect,
     app: &App,
     rows: &[OpsTreeRow],
-    depth: u8,
+    depth: usize,
 ) {
     let Some(moving) = app.moving.as_ref() else {
         return;
@@ -137,7 +163,7 @@ pub(in crate::board) fn paint_lifted(
     let look = app.look();
     let text = format!(
         " {}⇅ {}  → {}",
-        "  ".repeat(usize::from(depth)),
+        "  ".repeat(depth.min(usize::from(area.width) / 2)),
         short(&moving.name),
         moving.target_name(rows)
     );
@@ -154,21 +180,28 @@ pub(in crate::board) fn paint_lifted(
 }
 
 /// `┆ worker · moving`, the lifted membership's old place.
-pub(in crate::board) fn paint_placeholder(buffer: &mut Buffer, area: Rect, app: &App, depth: u8) {
+pub(in crate::board) fn paint_placeholder(
+    buffer: &mut Buffer,
+    area: Rect,
+    app: &App,
+    depth: usize,
+) {
     let Some(moving) = app.moving.as_ref() else {
         return;
     };
     let text = format!(
         " {}┆ {} · moving",
-        "  ".repeat(usize::from(depth)),
+        "  ".repeat(depth.min(usize::from(area.width) / 2)),
         short(&moving.name)
     );
     strip::paint_left(buffer, area, Line::styled(text, app.look().role(Role::Dim)));
 }
 
 impl App {
-    /// `m` on an agent row lifts that membership.
-    pub(in crate::board) fn begin_move(&mut self) -> Effect {
+    pub(in crate::board) fn begin_move(&mut self, display_only: bool) -> Effect {
+        if self.workspace.saving_placement {
+            return self.say("Saving member placement…");
+        }
         let Some(OpsTarget::Member {
             room_id,
             identity_id,
@@ -190,15 +223,48 @@ impl App {
         else {
             return self.say("Select a visible agent to move.");
         };
-        if targets(&rows).len() < 2 {
+        if !display_only && targets(&rows).len() < 2 {
             return self.say("There is no other squad to move it to.");
         }
+        let order = if display_only {
+            let Some(snapshot) = self.workspace_snapshot() else {
+                return self.say("The member roster is not available.");
+            };
+            let roster = &snapshot.roster;
+            if !OpsWorkspace::complete_for_placement(roster, room_id.as_deref()) {
+                return self.say("Refresh for a complete member list before moving an agent.");
+            }
+            let mut members = OpsWorkspace::placement_members(roster, room_id.as_deref());
+            if self
+                .workspace
+                .placements
+                .group(room_id.as_deref())
+                .is_none()
+            {
+                let unread = self.unread_identities();
+                members.sort_by_key(|id| std::cmp::Reverse(unread.contains(*id)));
+            }
+            let initial = self
+                .workspace
+                .placements
+                .group(room_id.as_deref())
+                .cloned()
+                .unwrap_or_default()
+                .admitted(&members);
+            Some(Order {
+                draft: initial.clone(),
+                initial,
+            })
+        } else {
+            None
+        };
         self.moving = Some(Moving {
             member: identity_id,
             name,
             source: room_id.clone(),
             target: room_id,
             applying: false,
+            order,
         });
         self.invalidate_frame_geometry();
         Effect::None
@@ -208,6 +274,9 @@ impl App {
     /// is ignored so no other action runs on a half-chosen move.
     pub(in crate::board) fn moving_key(&mut self, key: KeyEvent) -> Option<Effect> {
         let moving = self.moving.as_ref().filter(|moving| !moving.applying)?;
+        if moving.order.is_some() {
+            return Some(self.order_key(key));
+        }
         let rows = self.workspace_rows();
         let targets = targets(&rows);
         let at = targets
@@ -239,6 +308,91 @@ impl App {
             KeyCode::Enter => self.apply_move(&rows),
             _ => Effect::None,
         })
+    }
+
+    fn order_key(&mut self, key: KeyEvent) -> Effect {
+        match key.code {
+            KeyCode::Enter => {
+                let moving = self.moving.take().expect("lifted");
+                let order = moving.order.expect("display placement");
+                self.invalidate_frame_geometry();
+                if order.initial == order.draft {
+                    return Effect::None;
+                }
+                let room = moving.source.as_deref();
+                let still_current = self.workspace_snapshot().is_some_and(|snapshot| {
+                    OpsWorkspace::complete_for_placement(&snapshot.roster, room)
+                        && order
+                            .initial
+                            .same_members(&OpsWorkspace::placement_members(&snapshot.roster, room))
+                });
+                if !still_current {
+                    return self.say("The member list changed. Lift the agent again.");
+                }
+                let mut next = self.workspace.placements.clone();
+                let parent = order
+                    .draft
+                    .parent(&moving.member)
+                    .map(|id| OpsTarget::Member {
+                        room_id: moving.source.clone(),
+                        identity_id: id.into(),
+                    });
+                next.replace(moving.source.as_deref(), order.draft);
+                // Restore a folded destination only after the change is saved.
+                self.workspace.saving_placement = true;
+                Effect::Act(Request::MemberPlacement(Box::new(Save {
+                    expected: self.workspace.placements.clone(),
+                    next,
+                    reveal: parent,
+                    notice: Some(format!("Moved {} in the Agents list.", moving.name)),
+                })))
+            }
+            KeyCode::Esc => {
+                self.moving = None;
+                self.invalidate_frame_geometry();
+                Effect::None
+            }
+            KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
+                let direction = match key.code {
+                    KeyCode::Up => Shift::Earlier,
+                    KeyCode::Down => Shift::Later,
+                    KeyCode::Right => Shift::Nest,
+                    _ => Shift::Outdent,
+                };
+                let moving = self.moving.as_mut().expect("lifted");
+                moving
+                    .order
+                    .as_mut()
+                    .expect("display placement")
+                    .draft
+                    .shift(&moving.member, direction);
+                self.invalidate_frame_geometry();
+                Effect::None
+            }
+            _ => Effect::None,
+        }
+    }
+
+    pub(in crate::board) fn prune_member_placement(&mut self) -> Effect {
+        if self.workspace.saving_placement
+            || self.workspace.placement_prune_failed
+            || self.moving.is_some()
+        {
+            return Effect::None;
+        }
+        let Some(next) = self
+            .workspace_snapshot()
+            .and_then(|snapshot| self.workspace.placements.pruned(&snapshot.roster))
+        else {
+            return Effect::None;
+        };
+        self.workspace.saving_placement = true;
+        Effect::Act(Request::MemberPlacement(Box::new(Save {
+            expected: self.workspace.placements.clone(),
+            next,
+            reveal: None,
+            notice: None,
+        })))
     }
 
     fn apply_move(&mut self, rows: &[OpsTreeRow]) -> Effect {
@@ -327,4 +481,4 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;

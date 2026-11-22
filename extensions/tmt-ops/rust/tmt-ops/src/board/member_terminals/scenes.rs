@@ -22,6 +22,7 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "terminals-panel-selected",
     "terminals-panel-switching",
     "terminals-close-confirm",
+    "terminals-row-roles",
 ];
 
 fn listed(n: u8, busy: bool) -> Listed {
@@ -33,6 +34,16 @@ fn listed(n: u8, busy: bool) -> Listed {
         shell: Some("zsh".into()),
         program: busy.then(|| "cargo".into()),
     }
+}
+
+pub(in crate::board) fn listed_rows(app: &mut App) {
+    app.terminals.finished(
+        Completed::Listed(vec![(
+            MEMBER.into(),
+            List::Terminals(vec![listed(1, false), listed(2, true)]),
+        )]),
+        0,
+    );
 }
 
 /// A shell that ran `git status` and a passing test, as mock 8 shows.
@@ -78,13 +89,16 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     workspace.rows.get_mut(&target).unwrap()["pane"]["cwd"] = "/work/core-ops-spinner".into();
     app.terminal = tab().0;
     app.focus = 0;
-    app.terminals.finished(
-        Completed::Listed(vec![(
-            MEMBER.into(),
-            List::Terminals(vec![listed(1, false), listed(2, true)]),
-        )]),
-        0,
-    );
+    listed_rows(&mut app);
+    if scene == "terminals-row-roles" {
+        app.terminals.finished(
+            Completed::Listed(vec![(
+                MEMBER.into(),
+                List::Terminals(vec![listed(1, false)]),
+            )]),
+            0,
+        );
+    }
     let pick = if scene == "terminals-close-confirm" {
         2
     } else {

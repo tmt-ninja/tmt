@@ -175,24 +175,6 @@ fn a_failed_open_says_why_and_a_close_removes_the_row_or_keeps_it_with_the_reaso
 }
 
 #[test]
-fn folding_needs_rows_and_a_new_terminal_unfolds_its_member() {
-    let mut terminals = automatic();
-    assert!(!terminals.toggle_fold(MEMBER, false), "nothing to fold");
-    terminals.finished(listed(vec![terminal(1, 10, false)]), 0);
-    assert!(terminals.toggle_fold(MEMBER, false));
-    assert!(terminals.folded(MEMBER));
-    assert!(!terminals.toggle_fold(MEMBER, false));
-    terminals.finished(
-        Completed::Opened {
-            identity: MEMBER.into(),
-            outcome: Ok(terminal(2, 20, false)),
-        },
-        1,
-    );
-    assert!(!terminals.folded(MEMBER));
-}
-
-#[test]
 fn only_core_shaped_terminals_are_read() {
     let good = serde_json::json!({"terminalId": format!("term_{}", "ab".repeat(16)),
         "socket": "/tmp/pty/x.sock", "busy": true, "createdMs": 5});
@@ -291,15 +273,72 @@ mod board {
                 ("Terminal 2", rows[at].depth + 1)
             ]
         );
+        app.terminals.finished(
+            Completed::Listed(vec![(
+                MEMBER.into(),
+                List::Terminals(vec![terminal(2, 20, true)]),
+            )]),
+            0,
+        );
+        select(&mut app, &member, 2);
+        let look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+            depth: tmt_cli_style::Depth::TrueColor,
+        };
+        let view = app.view.as_mut().unwrap();
+        view.look = look;
+        view.home.as_mut().unwrap().workspace.squad_looks.clear();
+        let mut screen =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        screen
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let buffer = screen.backend().buffer();
+        let markers: Vec<_> = buffer
+            .content
+            .iter()
+            .filter(|cell| cell.symbol() == "›")
+            .collect();
+        assert_eq!(markers.len(), 2);
+        assert!(
+            markers
+                .iter()
+                .all(|cell| Some(cell.fg) == look.role(tmt_cli_style::Role::Muted).fg)
+        );
+        assert_eq!(Some(markers[1].bg), look.selection().bg);
+        for (name, state) in [("›_ Terminal 1", "ended"), ("›_ Terminal 2", "running")] {
+            let row = buffer
+                .content
+                .chunks(160)
+                .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
+                .find(|line| line.contains(name))
+                .unwrap_or_else(|| panic!("missing {name}"));
+            assert!(
+                row.split('│').next().unwrap().trim_end().ends_with(state),
+                "{row}"
+            );
+            assert!(
+                !row.contains(&format!("● {state}")) && !row.contains(&format!("○ {state}")),
+                "{row}"
+            );
+        }
+        app.workspace.selected = Some(member.clone());
         press(&mut app, KeyCode::Left);
-        assert!(app.terminals.folded(MEMBER));
+        assert!(app.workspace.member_folded(&member));
         assert!(
             !app.workspace_rows()
                 .iter()
                 .any(|row| matches!(row.target, OpsTarget::Terminal { .. }))
         );
         press(&mut app, KeyCode::Right);
-        assert!(!app.terminals.folded(MEMBER));
+        assert!(!app.workspace.member_folded(&member));
+        press(&mut app, KeyCode::Left);
+        app.terminals_done(Completed::Opened {
+            identity: MEMBER.into(),
+            outcome: Ok(terminal(3, 30, false)),
+        });
+        assert!(!app.workspace.member_folded(&member));
+        assert_eq!(app.selected_terminal().unwrap().1.title(), "Terminal 3");
     }
 
     #[test]

@@ -2,9 +2,11 @@
 use super::*;
 use crate::look::Look;
 use ratatui::{Frame, text::Line};
-use tmt_cli_style::{Role, grid::Align};
+use tmt_cli_style::Role;
 use tmt_tui::components::strip;
-use tmt_tui::components::{Modal, Placement};
+use tmt_tui::components::{
+    Button, Dialog, DialogKind, DialogState, Focus as DialogFocus, Modal, Placement,
+};
 /// The form's label column: `AI tool` and two spaces, then the value.
 const LABEL: usize = 10;
 fn safe(text: &str) -> String {
@@ -38,17 +40,18 @@ impl Controller {
         }
     }
     /// The command the form runs, one dim line: `Runs  <command>  e edit`.
-    fn runs_line(&self) -> Option<String> {
+    fn runs_line(&self) -> Option<(String, &'static str)> {
         self.loaded
             .as_ref()
             .and_then(|loaded| self.draft.review(loaded).ok())
             .map(|review| {
                 let command = safe(&crate::launch::line(&review.display.command));
-                if review.outer.is_some() {
-                    format!("{command}  e edit")
+                let suffix = if review.outer.is_some() {
+                    "e edit"
                 } else {
-                    format!("{command}  copy only")
-                }
+                    "copy only"
+                };
+                (command, suffix)
             })
     }
     /// The More line's summary of its folded fields.
@@ -125,7 +128,10 @@ impl Controller {
                 _ => 0,
             })
             .chain(self.rows().iter().map(|choice| width(&choice.label) + 2))
-            .chain(self.runs_line().map(|line| width(&line)))
+            .chain(
+                self.runs_line()
+                    .map(|(command, suffix)| width(&command) + 2 + width(suffix)),
+            )
             .max()
             .unwrap_or(0);
         LABEL + values
@@ -196,12 +202,99 @@ impl Controller {
             true,
             status,
         );
-        modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-        app.input_band.set(Some(areas.outer));
-        app.peek_areas
-            .set(crate::board::app::Overlay::NewMember, Some(areas.outer));
         let content = areas.content;
-        let mut complete = content.width >= 34;
+        let mut complete = content.width >= 34 && body.height >= 10 && !unavailable;
+        if matches!(self.stage, Stage::Form | Stage::Hosts | Stage::Template) {
+            complete &= usize::from(content.height) >= demand;
+        }
+        let copy_only = self
+            .loaded
+            .as_ref()
+            .and_then(|l| self.draft.review(l).ok())
+            .is_some_and(|r| r.outer.is_none());
+        use super::Control;
+        let (cancel, apply, focus) = match self.stage {
+            Stage::Form if unavailable => ("Cancel", "", None),
+            Stage::Form if self.list.is_some() => ("Back", "Choose", Some(Control::Apply)),
+            Stage::Form => (
+                "Cancel",
+                if copy_only { "Copy commands" } else { "Create" },
+                match self.at {
+                    Focus::Cancel => Some(Control::First),
+                    Focus::Discard => Some(Control::Discard),
+                    Focus::Create => Some(Control::Apply),
+                    Focus::Slot(_) | Focus::More => None,
+                },
+            ),
+            Stage::Hosts if unavailable => ("Close", "", None),
+            Stage::Hosts => ("Close", "Edit template", Some(Control::Apply)),
+            // Back steps to the form or host list; the editor holds focus at 0.
+            Stage::Template => (
+                "Back",
+                "Save template",
+                self.focus
+                    .checked_sub(1)
+                    .and_then(|at| self.template_controls().get(at).copied()),
+            ),
+            Stage::Launching | Stage::Saving => ("", "", None),
+            Stage::Result(_) => ("Close", "", Some(Control::First)),
+        };
+        let discard = self.discards() && !unavailable;
+        let mut controls = Vec::new();
+        let mut buttons = Vec::new();
+        if !apply.is_empty() {
+            controls.push(Control::Apply);
+            buttons.push(Button::primary(apply).enabled(complete));
+        }
+        if !cancel.is_empty() {
+            controls.push(Control::First);
+            buttons.push(Button::secondary(cancel));
+        }
+        if discard {
+            controls.push(Control::Discard);
+            buttons.push(Button::secondary("Discard"));
+        }
+        let state = DialogState {
+            focus: DialogFocus::Buttons(
+                controls
+                    .iter()
+                    .position(|control| Some(*control) == focus)
+                    .unwrap_or(controls.len()),
+            ),
+        };
+        let dialog = Dialog {
+            title: modal.title,
+            kind: if self.list.is_some() {
+                DialogKind::List
+            } else {
+                DialogKind::Form
+            },
+            placement: modal.placement,
+            hints: self.hint(unavailable).into(),
+            buttons,
+        };
+        let owner = super::super::app::Overlay::NewMember;
+        let hits = super::super::buttons::paint_dialog(
+            app,
+            frame.buffer_mut(),
+            &dialog,
+            areas,
+            &state,
+            owner,
+        );
+        let hit = |control| {
+            controls
+                .iter()
+                .position(|c| *c == control)
+                .and_then(|i| hits.buttons.get(i).copied().flatten())
+        };
+        self.controls.set([
+            hit(Control::First),
+            hit(Control::Apply).filter(|_| complete),
+        ]);
+        self.discard.set(hit(Control::Discard));
+        app.input_band.set(Some(areas.outer));
+        app.peek_areas.set(owner, Some(areas.outer));
         let paint = |frame: &mut Frame, text: &str, row: usize, role: Role| {
             if row < usize::from(content.height) {
                 strip::paint_left(
@@ -223,7 +316,6 @@ impl Controller {
                     0,
                     Role::Muted,
                 );
-                complete = false;
             }
             Stage::Form => {
                 let label = LABEL as u16;
@@ -232,7 +324,6 @@ impl Controller {
                 let mut y = 0usize;
                 for row in self.rows_shown() {
                     if y >= usize::from(content.height) {
-                        complete = false;
                         y += 1;
                         continue;
                     }
@@ -335,7 +426,6 @@ impl Controller {
                         y += 1;
                         for (index, choice) in self.rows().iter().enumerate() {
                             if y >= usize::from(content.height) {
-                                complete = false;
                                 y += 1;
                                 continue;
                             }
@@ -437,23 +527,20 @@ impl Controller {
                     y += 1;
                 }
                 if self.list.is_none()
-                    && let Some(runs) = self.runs_line()
+                    && let Some((command, suffix)) = self.runs_line()
                 {
                     y += 1;
                     paint(frame, "Runs", y, Role::Muted);
                     if y < usize::from(content.height) {
                         let area =
                             Rect::new(content.x + label, content.y + y as u16, value_width, 1);
-                        let fitted = runs;
                         let width = usize::from(area.width);
-                        let line = if unicode_width::UnicodeWidthStr::width(fitted.as_str()) > width
-                        {
-                            let mut cut: String =
-                                fitted.chars().take(width.saturating_sub(1)).collect();
-                            cut.push('…');
-                            cut
+                        let suffix_width = unicode_width::UnicodeWidthStr::width(suffix) + 2;
+                        let line = if width > suffix_width {
+                            let command = super::super::view::fit(&command, width - suffix_width);
+                            format!("{command}  {suffix}")
                         } else {
-                            fitted
+                            super::super::view::fit(&command, width)
                         };
                         strip::paint_left(
                             frame.buffer_mut(),
@@ -501,7 +588,6 @@ impl Controller {
                         0,
                         Role::Muted,
                     );
-                    complete = false;
                 }
             }
             Stage::Template => {
@@ -529,7 +615,6 @@ impl Controller {
                     look.role(Role::Text),
                     look.selection(),
                 );
-                complete &= layout.lines.len() <= usize::from(area.height);
                 self.editor_width.set(area.width);
                 if self.focus == 0
                     && let Some(cursor) = cursor
@@ -574,103 +659,6 @@ impl Controller {
                 Line::styled(safe(notice), look.role(Role::Waiting)),
             );
         }
-        let copy_only = self
-            .loaded
-            .as_ref()
-            .and_then(|l| self.draft.review(l).ok())
-            .is_some_and(|r| r.outer.is_none());
-        use super::Control;
-        let (cancel, apply, focus) = match self.stage {
-            Stage::Form if unavailable => ("Cancel", "", None),
-            Stage::Form if self.list.is_some() => ("Back", "Choose", Some(Control::Apply)),
-            Stage::Form => (
-                "Cancel",
-                if copy_only { "Copy commands" } else { "Create" },
-                match self.at {
-                    Focus::Cancel => Some(Control::First),
-                    Focus::Discard => Some(Control::Discard),
-                    Focus::Create => Some(Control::Apply),
-                    Focus::Slot(_) | Focus::More => None,
-                },
-            ),
-            Stage::Hosts if unavailable => ("Close", "", None),
-            Stage::Hosts => ("Close", "Edit template", Some(Control::Apply)),
-            // Back steps to the form or host list; the editor holds focus at 0.
-            Stage::Template => (
-                "Back",
-                "Save template",
-                self.focus
-                    .checked_sub(1)
-                    .and_then(|at| self.template_controls().get(at).copied()),
-            ),
-            Stage::Launching | Stage::Saving => ("", "", None),
-            Stage::Result(_) => ("Close", "", Some(Control::First)),
-        };
-        complete &= body.height >= 10;
-        if matches!(self.stage, Stage::Form | Stage::Hosts) {
-            complete &= usize::from(content.height) >= demand;
-        }
-        let discard = self.discards() && !unavailable;
-        let mut controls = Vec::new();
-        let mut buttons = Vec::new();
-        if !apply.is_empty() {
-            controls.push(Control::Apply);
-            buttons.push(
-                super::super::buttons::Button::primary(apply)
-                    .focused(focus == Some(Control::Apply))
-                    .enabled(complete),
-            );
-        }
-        if !cancel.is_empty() {
-            controls.push(Control::First);
-            buttons.push(
-                super::super::buttons::Button::secondary(cancel)
-                    .focused(focus == Some(Control::First)),
-            );
-        }
-        if discard {
-            controls.push(Control::Discard);
-            buttons.push(
-                super::super::buttons::Button::secondary("Discard")
-                    .focused(focus == Some(Control::Discard)),
-            );
-        }
-        let hits = super::super::buttons::paint(
-            app,
-            frame.buffer_mut(),
-            areas.footer,
-            &buttons,
-            Align::Left,
-            Some(super::super::app::Overlay::NewMember),
-        );
-        let hit = |control| {
-            controls
-                .iter()
-                .position(|c| *c == control)
-                .and_then(|i| hits.get(i).copied().flatten())
-        };
-        self.controls.set([
-            hit(Control::First),
-            hit(Control::Apply).filter(|_| complete),
-        ]);
-        self.discard.set(hit(Control::Discard));
         self.readable.set(complete);
-        let used = hits
-            .iter()
-            .flatten()
-            .map(|r| r.right())
-            .max()
-            .unwrap_or(areas.footer.x)
-            .saturating_sub(areas.footer.x);
-        let hint = self.hint(unavailable);
-        let width = unicode_width::UnicodeWidthStr::width(hint) as u16;
-        // Hints are dim and right-aligned; they drop before any button.
-        if used + 2 + width <= areas.footer.width {
-            strip::paint_right(
-                frame.buffer_mut(),
-                areas.footer,
-                Line::styled(hint, look.role(Role::Dim)),
-            );
-        }
     }
 }
