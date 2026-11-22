@@ -357,17 +357,11 @@ pub fn preview(
         })
     {
         Some(format!("Recipient {} still has access to this page.", r.id))
-    } else if let Some(cut) = snap
-        .cuts
-        .iter()
-        .find(|cut| cut.namespace == "content" && cut.stream != local && cut.tail_seq > 0)
-    {
-        Some(format!(
-            "Content from writer {} must be preserved.",
-            cut.stream
-        ))
     } else {
-        None
+        snap.cuts
+            .iter()
+            .find(|cut| cut.namespace == "content" && cut.stream != local && cut.tail_seq > 0)
+            .map(|cut| format!("Content from writer {} must be preserved.", cut.stream))
     };
     if result.blocked.is_some() {
         return Ok(result);
