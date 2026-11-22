@@ -363,7 +363,7 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
     anatomy: sample('conversation-loading', [16, 25]),
     parts: [
       { name: 'Active detail tab', row: 17, text: 'Talk' },
-      { name: 'Loading content', row: 25, text: 'Loading conversation' },
+      { name: 'Loading content', row: 24, text: 'Loading conversation' },
     ],
     states: [
       {
