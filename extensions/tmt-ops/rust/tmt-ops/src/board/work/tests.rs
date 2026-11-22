@@ -192,7 +192,7 @@ fn colab_work_renders_now_and_next_in_the_owner_order() {
             .position(|line| line.contains(label))
             .unwrap_or_else(|| panic!("Missing {label} in {lines:?}"))
     };
-    assert!(row("── Now") < row("COLAB-119     ✗ Blocked"));
+    assert!(row("── Now") < row("COLAB-119"));
     assert!(row("── Next") < row("CORE-88"));
     assert!(row("CORE-88") < row("COLAB-143"));
     assert!(row("── No preference") > row("COLAB-143"));
@@ -713,26 +713,22 @@ fn colab_work_captures_align_headings_and_show_bound_chips() {
                 .collect::<Vec<_>>()
         };
         let lines = render(&mut terminal, "work-projects");
-        let heading = lines
-            .iter()
-            .find(|line| line.contains("NUMBER") && line.contains("STATUS"))
-            .unwrap();
         let selected = lines
             .iter()
-            .find(|line| line.contains("› COLAB-119"))
+            .find(|line| line.contains("▸ ✗ COLAB-119"))
             .unwrap();
-        assert_eq!(heading.find("NUMBER"), Some(3));
-        assert_eq!(heading.find("STATUS"), Some(17));
-        assert_eq!(
-            selected.find("✗ Blocked").map(|x| x - ("›".len() - 1)),
-            Some(17)
-        );
-        assert!(heading.contains("AGE ") && !heading.contains("AGE…"));
-        assert!(selected.contains("worker") && !selected.contains("before"));
-        assert!(lines.iter().any(|line| line.contains("in COLAB-119")));
+        let selected_meta = lines
+            .iter()
+            .find(|line| line.contains("worker") && line.contains("0/2"))
+            .unwrap();
+        assert!(selected.contains("Large design reads"));
+        assert!(!selected_meta.contains("before"));
+        assert!(lines.iter().any(|line| line.contains("Detail · COLAB-119")));
+        assert!(lines.iter().any(|line| line.contains("Projects")));
+        assert!(lines.iter().any(|line| line.contains("Squad Pulse")));
         let stale = render(&mut terminal, "work-stale");
         assert!(stale.iter().all(|line| !line.contains("⏎ open page")));
-        assert!(lines.iter().all(|line| !line.trim_start().starts_with('·')));
+        assert!(stale.iter().any(|line| line.contains("Stale ·")));
         assert!(lines[34].contains("⏎ open page"));
         assert!(lines[35].contains("⏎ open page") && lines[35].contains("c recently done"));
         let agents = render(&mut terminal, "agents-work");
@@ -740,5 +736,202 @@ fn colab_work_captures_align_headings_and_show_bound_chips() {
             agents.iter().any(|line| line.contains("sam ○ W-91")),
             "{agents:?}"
         );
+    }
+}
+
+#[test]
+fn colab_work_decodes_sections_and_honest_unknown_progress() {
+    let mut document = owner_list(1_800_000_000_000);
+    document["pages"][0]["summary"]["needsYou"] = json!(1);
+    document["pages"][0]["summary"]["sections"] = json!([
+        {"id": "h1", "title": "Plan", "level": 2, "done": 1, "total": 2, "state": "working"},
+        {"id": "h1-sub", "title": "Details", "level": 3, "done": 1, "total": 2, "state": "working"},
+        {"id": "h2", "title": "Verify", "level": 2, "done": 0, "total": 1, "state": "unchecked"}
+    ]);
+    document["pages"][2]["summary"]["sectionsOmitted"] = json!(true);
+    let list = List::decode(&document).unwrap();
+    let colab_119 = list
+        .items
+        .iter()
+        .find(|item| item.page == PAGE && !item.todo)
+        .unwrap();
+    assert_eq!(colab_119.needs_you, 1);
+    assert_eq!(colab_119.sections.len(), 3);
+    // Top-level sections (level 2) sum to 1/3 without double-counting level 3.
+    assert_eq!(colab_119.progress, Some(Progress { done: 1, total: 3 }));
+    // Core includes PAGE (1/3) and UNCHECKED (sectionsOmitted -> None): honest None.
+    assert_eq!(list.project_progress("Core"), None);
+    // Colab includes PAGE (1/3) and DONE (no sections): sums known 1/3.
+    assert_eq!(
+        list.project_progress("Colab"),
+        Some(Progress { done: 1, total: 3 })
+    );
+
+    // Explicit summary.sectionProgress overrides sections fallback.
+    document["pages"][0]["summary"]["sectionProgress"] =
+        json!({"done": 2, "inProgress": 1, "todo": 1, "unknown": 0, "total": 4});
+    let list = List::decode(&document).unwrap();
+    let colab_119 = list
+        .items
+        .iter()
+        .find(|item| item.page == PAGE && !item.todo)
+        .unwrap();
+    assert_eq!(colab_119.progress, Some(Progress { done: 2, total: 4 }));
+}
+
+#[test]
+fn colab_work_w168_dashboard_search_space_collapse_and_inspector() {
+    let now = 1_800_000_000_000;
+    let mut document = owner_list(now);
+    document["pages"][0]["summary"]["needsYou"] = json!(1);
+    document["pages"][0]["summary"]["sections"] = json!([
+        {"id": "h1", "title": "Protocol handshake", "level": 2, "done": 1, "total": 1, "state": "done"},
+        {"id": "h2", "title": "Reconnect prompt", "level": 2, "done": 0, "total": 1, "state": "needs-you"}
+    ]);
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+
+    let draw = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(120)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+    };
+
+    let lines = draw(&app);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("Projects") && l.contains("chapters"))
+    );
+    assert!(lines.iter().any(|l| l.contains("Squad Pulse")));
+    assert!(lines.iter().any(|l| l.contains("Detail · COLAB-119")));
+    assert!(lines.iter().any(|l| l.contains("answer in Colab")));
+    assert!(lines.iter().any(|l| l.contains("Protocol handshake")));
+    assert!(
+        lines.iter().any(|l| l.contains("—")),
+        "unknown progress renders —"
+    );
+
+    // Space collapses the right detail inspector into full-width cards.
+    key(&mut app, KeyCode::Char(' '));
+    assert!(app.work.detail_collapsed);
+    let collapsed = draw(&app);
+    assert!(
+        collapsed
+            .iter()
+            .any(|l| l.contains("collapsed · Space to expand"))
+    );
+    key(&mut app, KeyCode::Char(' '));
+    assert!(!app.work.detail_collapsed);
+
+    // Tab focuses the Detail Inspector; Down moves section cursor; Esc returns to list.
+    key(&mut app, KeyCode::Tab);
+    assert!(app.work.inspector_focused);
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.work.inspector_cursor, 1);
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.work.inspector_focused);
+
+    // `/` live search filters cards and Esc clears.
+    key(&mut app, KeyCode::Char('/'));
+    assert!(app.searching);
+    for ch in "W-91".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    let filtered = draw(&app);
+    assert!(filtered.iter().any(|l| l.contains("W-91")));
+    assert!(!filtered.iter().any(|l| l.contains("CORE-88")));
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.searching);
+    assert!(app.search.is_empty());
+
+    // `t` jumps to the bound owner's Talk tab in Agents.
+    key(&mut app, KeyCode::Home);
+    key(&mut app, KeyCode::Char('t'));
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
+}
+
+#[test]
+fn colab_work_6809_section_progress_contract_and_narrow_widths() {
+    let now: u64 = 1_800_000_000_000;
+    let document = json!({
+        "spaceId": "fixture",
+        "projects": ["ops", "core"],
+        "pages": [
+            {
+                "pageId": PAGE,
+                "workNumber": "W-168",
+                "title": "Work dashboard",
+                "projects": ["ops"],
+                "lastUpdateAtMs": now - 240_000,
+                "link": "https://example.test/w168",
+                "summary": {
+                    "status": "needs-you",
+                    "needsYou": 1,
+                    "sectionProgress": {"done": 2, "inProgress": 1, "todo": 1, "unknown": 0, "total": 4},
+                    "fields": {"owner": {"id": MEMBER, "name": "worker"}, "next": "Answer question"}
+                }
+            },
+            {
+                "pageId": OTHER,
+                "workNumber": "W-169",
+                "title": "No sections page",
+                "projects": ["core"],
+                "lastUpdateAtMs": now - 600_000,
+                "link": "https://example.test/w169",
+                "summary": {
+                    "status": "working",
+                    "fields": {"owner": {"id": MEMBER, "name": "worker"}}
+                }
+            }
+        ]
+    });
+    let list = List::decode(&document).unwrap();
+    assert_eq!(
+        list.project_progress("ops"),
+        Some(Progress { done: 2, total: 4 })
+    );
+    assert_eq!(list.project_progress("core"), None);
+
+    let mut app = board();
+    app.shell.tab = OpsTab::Work;
+    app.work.apply(Instant::now(), Ok(list));
+
+    for (width, height, expect_split) in [(100_u16, 36_u16, true), (80_u16, 30_u16, false)] {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let lines = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(usize::from(width))
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>();
+        assert!(lines.iter().any(|l| l.contains("W-168")));
+        assert!(lines.iter().any(|l| l.contains("—")));
+        if expect_split {
+            assert!(lines.iter().any(|l| l.contains("Detail · W-168")));
+            assert!(
+                lines
+                    .iter()
+                    .any(|l| l.contains("More sections in Colab · o open")),
+                "sectionProgress without section rows renders muted Colab hint"
+            );
+        } else {
+            assert!(!lines.iter().any(|l| l.contains("Detail · W-168")));
+        }
     }
 }
