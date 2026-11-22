@@ -11,13 +11,13 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "▸━ Squads ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━┬─  T  Talk   M  Measure   C  Checklist ── alpha ─────────────────────── ● working ──",
-      "  SQUAD / AGENT ↑             STATE                ACTIVITY 1h   TOK 1h  ◷ │ product · member · — · — · tmux",
-      " ▸ Common pool                                                        —  — │",
-      " ▾ product                    ●                                       —  1 │── Conversation ────────────────────────────────────────────────────────────────────",
+      "",
+      "",
+      "▸━ Squads ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━┬   T  Talk    M  Measure    C  Checklist",
+      "  SQUAD / AGENT ↑             STATE                ACTIVITY 1h   TOK 1h  ◷ │ alpha   PRODUCT / MEMBER                                      ● working  ○ 0 unread",
+      " ▸ Common pool                                                        —  — │  —  —  ·  tmux  ·  —  ·  —",
+      " ▾ product                    ●                                       —  1 │",
       "   └ alpha            z open  ⠋ working                               —  1 │",
-      "                                                                           │",
-      "                                                                           │",
       "                                                                           │",
       "                                                                           │",
       "                                                                           │",
@@ -29,7 +29,7 @@
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ alpha  ● 0 unread                                ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ talk  l label  n new  r rename  m move  x close  / search  ? help  q quit"
     ],
-    "hits": "[Hit { y: 9, x: 0, width: 75, row: 0 }, Hit { y: 10, x: 0, width: 75, row: 1 }, Hit { y: 11, x: 0, width: 75, row: 2 }]"
+    "hits": "[Hit { y: 11, x: 0, width: 75, row: 0 }, Hit { y: 12, x: 0, width: 75, row: 1 }, Hit { y: 13, x: 0, width: 75, row: 2 }]"
   },
   {
     "scenario": "workspace tree",
@@ -43,14 +43,14 @@
       "                                                                                      TOK  % of all",
       "          No token observations yet                                                     —         —",
       "",
+      "",
+      "",
       "  SQUAD / AGENT ↑                STATE                HOST                 ACTIVITY 1h   TOK 1h  ◷",
       "   └ alpha               z open  ⠋ working            —                                       —  1",
       " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
-      "─  T  Talk   M  Measure   C  Checklist ── alpha ─────────────────────────────────────── ● working ──",
-      " product · member · — · — · tmux",
-      "",
-      "── Conversation ────────────────────────────────────────────────────────────────────────────────────",
-      "",
+      "   T  Talk    M  Measure    C  Checklist                                                    ────────",
+      " alpha   PRODUCT / MEMBER                                                      ● working  ○ 0 unread",
+      "  —  —  ·  tmux  ·  —  ·  —",
       "",
       "",
       "",
@@ -61,7 +61,7 @@
       " alpha  ● 0 unread                                                ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ talk  l label  n new  r rename  m move  x close  / search  ? help  q quit"
     ],
-    "hits": "[Hit { y: 8, x: 0, width: 100, row: 2 }]"
+    "hits": "[Hit { y: 10, x: 0, width: 100, row: 2 }]"
   },
   {
     "scenario": "workspace tree",
@@ -75,14 +75,14 @@
       "                                                                  TOK  % of all",
       "          No token observations yet                                 —         —",
       "",
+      "",
+      "",
       "  SQUAD / AGENT ↑                STATE                ACTIVITY 1h   TOK 1h  ◷",
       "   └ alpha               z open  ⠋ working                               —  1",
       " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
-      "─  T  Talk   M  Measure   C  Checklist ── alpha ─────────────────── ● working ──",
-      " product · member · — · — · tmux",
-      "",
-      "── Conversation ────────────────────────────────────────────────────────────────",
-      "",
+      "   T  Talk    M  Measure    C  Checklist                                ────────",
+      " alpha   PRODUCT / MEMBER                                  ● working  ○ 0 unread",
+      "  —  —  ·  tmux  ·  —  ·  —",
       "",
       "",
       "",
@@ -93,7 +93,7 @@
       " alpha  ● 0 unread                            ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓←→ move  ⏎ talk  n new  r rename  m move  x close  / search  ? help  q quit"
     ],
-    "hits": "[Hit { y: 8, x: 0, width: 80, row: 2 }]"
+    "hits": "[Hit { y: 10, x: 0, width: 80, row: 2 }]"
   },
   {
     "scenario": "scoped Timers",
@@ -107,13 +107,13 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "▸━ Squads ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━┬─  T  Talk   M  Measure   C  Checklist ── alpha ─────────────────────── ● working ──",
-      "  SQUAD / AGENT ↑             STATE                ACTIVITY 1h   TOK 1h  ◷ │ product · member · — · — · tmux",
-      " ▸ Common pool                                                        —  — │",
-      " ▾ product                    ●                                       —  1 │── Conversation ────────────────────────────────────────────────────────────────────",
+      "",
+      "",
+      "▸━ Squads ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━┬   T  Talk    M  Measure    C  Checklist",
+      "  SQUAD / AGENT ↑             STATE                ACTIVITY 1h   TOK 1h  ◷ │ alpha   PRODUCT / MEMBER                                      ● working  ○ 0 unread",
+      " ▸ Common pool                                                        —  — │  —  —  ·  tmux  ·  —  ·  —",
+      " ▾ product                    ●                                       —  1 │",
       "   └ alpha                    ⠋ working                               —  1 │",
-      "                                                                           │",
-      "                                                                           │",
       "                                                                           │",
       "                                                                           │",
       "                                                                           │",
@@ -125,7 +125,7 @@
       " 1–3 / 3└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
       ""
     ],
-    "hits": "[Hit { y: 9, x: 0, width: 75, row: 0 }, Hit { y: 10, x: 0, width: 75, row: 1 }, Hit { y: 11, x: 0, width: 75, row: 2 }]"
+    "hits": "[Hit { y: 11, x: 0, width: 75, row: 0 }, Hit { y: 12, x: 0, width: 75, row: 1 }, Hit { y: 13, x: 0, width: 75, row: 2 }]"
   },
   {
     "scenario": "scoped Timers",
@@ -139,14 +139,14 @@
       "                                                                                      TOK  % of all",
       "          No token observations yet                                                     —         —",
       "",
+      "",
+      "",
       "  SQUAD / AGENT ↑                STATE                HOST                 ACTIVITY 1h   TOK 1h  ◷",
       "   └ alpha                       ⠋ working            —                                       —  1",
       " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
-      "─  T  Talk   M  Measure   C  Checklist ── alpha ─────────────────────────────────────── ● working ──",
-      " product · member · — · — · tmux",
-      "",
-      "── Conversation ────────────────────────────────────────────────────────────────────────────────────",
-      "",
+      "   T  Talk    M  Measure    C  Checklist                                                    ────────",
+      " alpha   PRODUCT / MEMBER                                                      ● working  ○ 0 unread",
+      "  —  —  ·  tmux  ·  —  ·  —",
       "",
       "",
       "     ┌ cron · product · owner someone ────────────────────────────────────────────────────────┐",
@@ -157,7 +157,7 @@
       "     └────────────────────────────────────────────────────────────────────────────────────────┘",
       ""
     ],
-    "hits": "[Hit { y: 8, x: 0, width: 100, row: 2 }]"
+    "hits": "[Hit { y: 10, x: 0, width: 100, row: 2 }]"
   },
   {
     "scenario": "scoped Timers",
@@ -171,14 +171,14 @@
       "                                                                  TOK  % of all",
       "          No token observations yet                                 —         —",
       "",
+      "",
+      "",
       "  SQUAD / AGENT ↑                STATE                ACTIVITY 1h   TOK 1h  ◷",
       "   └ alpha                       ⠋ working                               —  1",
       " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
-      "─  T  Talk   M  Measure   C  Checklist ── alpha ─────────────────── ● working ──",
-      " product · member · — · — · tmux",
-      "",
-      "── Conversation ────────────────────────────────────────────────────────────────",
-      "",
+      "   T  Talk    M  Measure    C  Checklist                                ────────",
+      " alpha   PRODUCT / MEMBER                                  ● working  ○ 0 unread",
+      "  —  —  ·  tmux  ·  —  ·  —",
       "",
       "",
       "┌ cron · product · owner someone ──────────────────────────────────────────────┐",
@@ -189,6 +189,6 @@
       "└──────────────────────────────────────────────────────────────────────────────┘",
       ""
     ],
-    "hits": "[Hit { y: 8, x: 0, width: 80, row: 2 }]"
+    "hits": "[Hit { y: 10, x: 0, width: 80, row: 2 }]"
   }
 ]
