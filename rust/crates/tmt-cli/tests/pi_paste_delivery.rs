@@ -126,6 +126,7 @@ impl PrivateTmux {
         Command::new("tmux")
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")
+            .env("TMT_HOME", support::state_dir(&self.root))
             .env("TMUX_TMPDIR", self.root.join("tmux"))
             .arg("-u")
             .arg("-S")
@@ -149,6 +150,7 @@ impl PrivateTmux {
 
     fn tmt_env(&self, command: &mut Command) {
         command
+            .env("TMT_HOME", support::state_dir(&self.root))
             .env("PATH", self.isolated_path())
             .env(
                 "TMUX",
