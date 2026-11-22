@@ -169,13 +169,23 @@ pub fn read(path: &Path) -> io::Result<Vec<u8>> {
 /// Publishes `next` in place of `original`: a private sibling candidate is
 /// checked by `check` (Herdr's own validator), then the file is compared to
 /// `original` again and the candidate renamed over it. A failed check or a
-/// concurrent edit leaves the file untouched and removes the candidate.
+/// concurrent edit leaves the file untouched and removes the candidate. A
+/// symlinked configuration (a dotfiles link) is written at the file it names,
+/// so the link stays; a dangling link refuses.
 pub fn publish(
     path: &Path,
     original: &[u8],
     next: &str,
     check: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<(), WriteError> {
+    let resolved;
+    let path = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            resolved = fs::canonicalize(path).map_err(WriteError::Io)?;
+            resolved.as_path()
+        }
+        _ => path,
+    };
     let directory = path.parent().ok_or_else(|| {
         WriteError::Io(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -383,6 +393,60 @@ mod tests {
         let twice = format!("{installed}{installed}");
         assert_eq!(state(&twice, launcher()), State::Edited);
     }
+
+    #[test]
+    fn a_symlinked_configuration_keeps_its_link_through_install_refresh_and_removal() {
+        use std::os::unix::fs::symlink;
+        let root = scratch("symlink");
+        let real = root.join("dotfiles/herdr.toml");
+        fs::create_dir_all(real.parent().unwrap()).unwrap();
+        fs::write(&real, USER_TEXT).unwrap();
+        let link = root.join("herdr/config.toml");
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        symlink(&real, &link).unwrap();
+        let is_link = || {
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        };
+
+        let installed = with_block(USER_TEXT, launcher()).unwrap();
+        publish(&link, USER_TEXT.as_bytes(), &installed, |_| Ok(())).unwrap();
+        assert!(is_link());
+        assert_eq!(fs::read_to_string(&real).unwrap(), installed);
+
+        assert_eq!(
+            refresh(&link, Path::new("/new/tmt"), |_| Ok(())).unwrap(),
+            Some(true)
+        );
+        assert!(is_link());
+        assert_eq!(
+            fs::read_to_string(&real).unwrap(),
+            with_block(USER_TEXT, Path::new("/new/tmt")).unwrap()
+        );
+
+        assert!(remove(&link).unwrap());
+        assert!(is_link());
+        assert_eq!(fs::read_to_string(&real).unwrap(), USER_TEXT);
+        let mut left: Vec<_> = fs::read_dir(link.parent().unwrap())
+            .unwrap()
+            .chain(fs::read_dir(real.parent().unwrap()).unwrap())
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["config.toml", "herdr.toml"], "no candidate is left");
+
+        fs::remove_file(&real).unwrap();
+        assert!(matches!(
+            publish(&link, b"", "a = 1\n", |_| Ok(())),
+            Err(WriteError::Io(_))
+        ));
+        assert!(is_link(), "a dangling link is never replaced");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    const USER_TEXT: &str = "[ui]\ntheme = \"dark\"\n";
 
     #[test]
     fn publish_checks_a_candidate_and_never_replaces_changed_or_rejected_bytes() {

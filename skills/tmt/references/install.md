@@ -60,8 +60,10 @@ and asks; `--yes` agrees non-interactively. Without consent, when the configurat
 already binds `prefix+G`, or when `herdr config check` rejects the result, it prints
 the block to add instead and changes nothing. A written block is checked by
 `herdr config check` before it replaces the file; run `herdr server reload-config`
-to load it. `tmt upgrade` refreshes the block only while it exists, an edited block
-is never overwritten, and `tmt uninstall` removes exactly the block.
+to load it. A symlinked configuration is written at the file it links to. `tmt upgrade`
+refreshes the block only while it exists, replacing whatever is between its markers
+(keep your own keys outside them); a block whose markers were edited is never
+overwritten, and `tmt uninstall` removes exactly the block.
 
 ### View and install the bundled skill
 
