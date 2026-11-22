@@ -21,7 +21,7 @@ on redirected stdin and emits one compact resource or error JSON line per reques
 on stdout, in order, without a second wrapper. An explicitly opted-in
 [standalone run](#standalone-command-results) can emit progress before that line.
 `capabilities.session.framing` is
-`"ndjson"` when this mode is available. No startup frame or request ID is added.
+`"ndjson"` when this mode is available. There is no startup frame or implicit request ID.
 Each input payload and output resource retains the advertised byte bound, excluding
 the newline delimiter. A request cannot contain a literal newline; JSON string
 newlines must be escaped. Ordinary request errors, including malformed JSON on a
@@ -566,7 +566,7 @@ membership. A kept result owns its own terminal UUID.
 | -------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `terminal.command.target`  | `identityId`                                   | Fresh, local `cwd`, `bindingId` and `paneIncarnation`. See [Standalone command results](#standalone-command-results).               |
 | `terminal.command.run`     | `target, command where applicable, stream?`    | Session-owned bounded result and `runId`. See [Standalone command results](#standalone-command-results).                            |
-| `terminal.command.keep`    | `runId`                                        | Keep that session’s result, returning saved metadata. See [Standalone command results](#standalone-command-results).                |
+| `terminal.command.keep`    | `runId, replyTag?`                             | Keep that session’s result, returning saved metadata. See [Standalone command results](#standalone-command-results).                |
 | `terminal.saved.list`      | `{}`                                           | Up to 64 results, metadata only. See [Standalone command results](#standalone-command-results).                                     |
 | `terminal.saved.get`       | `terminalId`                                   | Saved metadata and the two output streams. See [Standalone command results](#standalone-command-results).                           |
 | `terminal.saved.move`      | `terminalId, expectedRevision, placement`      | Revision-guarded saved metadata. See [Standalone command results](#standalone-command-results).                                     |
@@ -607,10 +607,16 @@ membership. A kept result owns its own terminal UUID.
   run deadline and stdin lifeline. Failed publication closes the session after
   process cleanup. Progress is ephemeral and cannot establish completion, enable
   Keep or confirm Stop. EOF without a valid final, a missing sequence number, an
-  oversized frame or output beyond the final is a failed exchange. A caller on
-  an older Core can still request the single final response.
+  oversized frame or extra output observed at the final boundary is a failed
+  exchange. A caller on an older Core can still request the single final response.
 - `terminal.command.keep {runId}` on the same session writes Core's own staged result.
   Repeating Keep for that run returns the same receipt without another write or launch.
+  After a streamed run, send an unsigned integer `replyTag` that is unique within the
+  session. A framed Keep with this tag returns `{"keepReply":{"replyTag":1,"resource":…}}`
+  around its usual resource or fault. Require that exact tag and shape before accepting
+  the result. A delayed Run frame arriving after Keep was sent cannot count as its reply.
+  Close an exchange that receives an unexpected frame. Reconcile the saved list before
+  retrying an unconfirmed Keep. An untagged Keep retains the original response shape.
   Closing the session releases an unkept result. A rerun replaces the prior output only at
   its expected revision. Core retains up to 64 rows per data root with up to 64 KiB of
   combined raw output per row, enforced within the write. List returns metadata ordered

@@ -197,17 +197,66 @@ fn shell_observation_keeps_the_legacy_bytes_and_result() {
 }
 
 #[test]
-fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
+fn shell_output_stop_during_backpressure_observes_each_byte_once() {
     use crate::process::ShellControl;
-    use std::{io::Write, os::unix::net::UnixStream};
+    use std::{
+        cell::Cell,
+        net::Shutdown,
+        os::{fd::AsFd, unix::net::UnixStream},
+    };
 
     let root = TestDirectory::new();
     let pidfile = root.path.join("child");
     let command = format!(
-        "echo $$ > '{}'; printf ready; exec /bin/sleep 30",
+        "echo $$ > '{}'; printf x; exec /bin/sleep 6",
         pidfile.display()
     );
-    let (_reader, mut writer) = UnixStream::pair().unwrap();
+    let (_reader, writer) = full_progress_sink();
+    let (stop, lifeline) = UnixStream::pair().unwrap();
+    let checks = Cell::new(0);
+    let mut calls = 0;
+    let result = UnixCommandRunner
+        .run_shell_in_interrupt(
+            &command,
+            &root.path,
+            Duration::from_secs(2),
+            64,
+            ShellControl {
+                lifeline: Some(lifeline.as_fd()),
+                output: Some(&mut |_, bytes, deadline, cancelled| {
+                    calls += 1;
+                    assert_eq!(bytes, b"x");
+                    crate::framed_stdio::publish_progress(
+                        &writer,
+                        b"progress",
+                        64,
+                        deadline,
+                        &|| {
+                            checks.set(checks.get() + 1);
+                            if checks.get() == 2 {
+                                stop.shutdown(Shutdown::Write).unwrap();
+                            }
+                            cancelled()
+                        },
+                    )
+                }),
+                ..ShellControl::default()
+            },
+        )
+        .unwrap();
+    assert!(result.cancelled);
+    assert_eq!(kill(read_pid(&pidfile), None), Err(Errno::ESRCH));
+    assert_eq!(calls, 1, "Stop must not replay an already captured byte");
+    assert_eq!(result.stdout, b"x");
+}
+
+fn full_progress_sink() -> (
+    std::os::unix::net::UnixStream,
+    std::os::unix::net::UnixStream,
+) {
+    use std::{io::Write, os::unix::net::UnixStream};
+
+    let (reader, mut writer) = UnixStream::pair().unwrap();
     writer.set_nonblocking(true).unwrap();
     let page = [0; 4096];
     loop {
@@ -218,17 +267,38 @@ fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
             Err(error) => panic!("{error}"),
         }
     }
+    (reader, writer)
+}
 
+#[test]
+fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
+    use crate::process::{
+        CLEANUP_TIMEOUT, ShellControl,
+        runtime::{ProcessObservation, observe_runtime_process},
+    };
+
+    let root = TestDirectory::new();
+    let pidfile = root.path.join("child");
+    let member_file = root.path.join("member");
+    let command = format!(
+        "echo $$ > '{}'; /bin/sleep 6 & echo $! > '{}'; printf ready; wait",
+        pidfile.display(),
+        member_file.display(),
+    );
+    let (_reader, writer) = full_progress_sink();
+    let timeout = Duration::from_secs(2);
     let mut attempted = false;
+    let started = Instant::now();
     let result = UnixCommandRunner
         .run_shell_in_interrupt(
             &command,
             &root.path,
-            Duration::from_secs(2),
+            timeout,
             65_536,
             ShellControl {
                 output: Some(&mut |_, _bytes, deadline, cancelled| {
                     attempted = true;
+                    assert!(kill(read_pid(&member_file), None).is_ok());
                     crate::framed_stdio::publish_progress(
                         &writer,
                         b"progress",
@@ -245,6 +315,23 @@ fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
     assert!(result.timed_out);
     assert_eq!(result.stdout, b"ready");
     assert_eq!(kill(read_pid(&pidfile), None), Err(Errno::ESRCH));
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed <= timeout + CLEANUP_TIMEOUT + CLEANUP_WAIT,
+        "back-pressure exceeded the deadline and reap allowance: {elapsed:?}"
+    );
+    assert!(
+        matches!(
+            observe_runtime_process(
+                &UnixCommandRunner,
+                read_pid(&member_file).as_raw() as u64,
+                Instant::now() + CLEANUP_WAIT,
+            )
+            .unwrap(),
+            ProcessObservation::Gone,
+        ),
+        "a live member survived verified group cleanup"
+    );
 }
 
 #[test]

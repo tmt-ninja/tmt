@@ -152,6 +152,15 @@ pub(super) fn run(
 // result of that session can be kept.
 pub struct SavedTerminalRequest(SavedOperation);
 
+impl SavedTerminalRequest {
+    pub(super) fn keep_reply_tag(&self) -> Option<u64> {
+        match &self.0 {
+            SavedOperation::Keep(keep) => keep.reply_tag,
+            _ => None,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(
     tag = "kind",
@@ -225,6 +234,7 @@ struct MemberTarget {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct KeepRun {
     run_id: String,
+    reply_tag: Option<u64>,
 }
 
 #[derive(Deserialize)]

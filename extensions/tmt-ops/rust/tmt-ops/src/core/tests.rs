@@ -70,6 +70,35 @@ fn lines(path: PathBuf) -> Vec<String> {
 const CANCELLATION_FRAME: &str = r#"printf '%s\n' '{"error":{"code":"SHELL_RUN_CANCELLED","message":"Shell cancelled; its process group was terminated and reaped."}}'"#;
 
 #[test]
+fn delayed_run_output_after_keep_submission_cannot_be_its_receipt() {
+    let fixture = Fixture::new();
+    let executable = fixture.0.join("tmt");
+    crate::test_support::write_ready_executable(
+        &executable,
+        r#"#!/bin/sh
+IFS= read -r capability
+printf '%s\n' '{"session":{"terminalCommandOutput":true}}'
+IFS= read -r run
+printf '%s\n' '{"stdout":"first\n","stderr":"","exitCode":0,"runId":"run"}'
+IFS= read -r keep
+case "$keep" in *'"operation":"terminal.command.keep"'*) ;; *) exit 2 ;; esac
+printf '%s\n' '{"terminalId":"delayed-run-frame"}'
+cat >/dev/null
+"#,
+    );
+    let core = Core::at(executable);
+    let stopped = std::sync::atomic::AtomicBool::new(false);
+    let mut session = core.standalone_session(&stopped).unwrap();
+    let result = session
+        .run(json!({"command":"printf first"}), &stopped, |_| {})
+        .unwrap();
+    assert_eq!(result["runId"], "run");
+    let error = session.keep("run").unwrap_err();
+    assert_eq!(error.code, "SQUAD_CORE_UNAVAILABLE");
+    assert!(error.message.contains("Keep outcome unconfirmed"));
+}
+
+#[test]
 fn standalone_advertisement_selects_streaming_without_breaking_older_core() {
     for (supported, sequence) in [(false, 0), (true, 0), (true, 1)] {
         let fixture = Fixture::new();

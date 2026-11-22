@@ -618,10 +618,20 @@ fn identity_entry(storage: &mut Storage, selector: &str) -> Result<Identity, Fau
 
 pub const SESSION_STALE: &str = "API_SESSION_STALE";
 
-/// One invocation owns this connection. Request admission and settings are never cached.
+impl Request {
+    /// Correlation for an explicitly tagged Keep on the framed session.
+    pub fn keep_reply_tag(&self) -> Option<u64> {
+        match self {
+            Self::SavedTerminal(request) => request.keep_reply_tag(),
+            _ => None,
+        }
+    }
+}
+
 pub type CommandProgress<'a> =
     dyn FnMut(&[u8], std::time::Instant, &dyn Fn() -> bool) -> std::io::Result<()> + 'a;
 
+/// One invocation owns this connection. Request admission and settings are never cached.
 pub struct Session {
     paths: ConfigPaths,
     storage: Option<Storage>,

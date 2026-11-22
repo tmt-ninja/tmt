@@ -200,11 +200,25 @@ fn a_standalone_command_streams_before_completion_and_keeps_only_its_final() {
     assert!(final_frame["runId"].is_string());
     assert!(final_frame.get("commandOutput").is_none());
 
+    let wrong_keep = serde_json::json!({
+        "version":1,"operation":"terminal.command.keep",
+        "input":{"runId":"00000000-0000-4000-8000-000000000000","replyTag":1},
+    });
+    writeln!(input, "{wrong_keep}").unwrap();
+    let fault = read();
+    assert_eq!(fault["keepReply"]["replyTag"], 1);
+    assert_eq!(
+        fault["keepReply"]["resource"]["error"]["code"],
+        "TERMINAL_COMMAND_RESULT_UNAVAILABLE"
+    );
     let keep = serde_json::json!({
-        "version":1,"operation":"terminal.command.keep","input":{"runId":final_frame["runId"]},
+        "version":1,"operation":"terminal.command.keep",
+        "input":{"runId":final_frame["runId"],"replyTag":2},
     });
     writeln!(input, "{keep}").unwrap();
-    assert!(read()["terminalId"].is_string());
+    let receipt = read();
+    assert_eq!(receipt["keepReply"]["replyTag"], 2);
+    assert!(receipt["keepReply"]["resource"]["terminalId"].is_string());
     drop(input);
     assert!(world.finish(0).status.success());
 }

@@ -5,6 +5,7 @@ enum Escape {
     #[default]
     Text,
     Introducer,
+    Intermediate,
     Csi,
     String,
     StringEnd,
@@ -46,7 +47,14 @@ impl OutputSanitizer {
                         self.utf8_tail.extend_from_slice(rest);
                         return display;
                     };
-                    self.filter("�", &mut display);
+                    // An isolated C1 byte is a terminal control. Recognize
+                    // it before lossy decoding, but preserve a valid UTF-8
+                    // scalar containing that same continuation byte.
+                    if let [byte @ 0x80..=0x9f] = &rest[..length] {
+                        self.control(char::from(*byte), &mut display);
+                    } else {
+                        self.filter("�", &mut display);
+                    }
                     input = &rest[length..];
                 }
             }
@@ -54,38 +62,48 @@ impl OutputSanitizer {
     }
 
     fn filter(&mut self, text: &str, display: &mut String) {
-        use Escape::*;
         for ch in text.chars() {
-            self.escape = match self.escape {
-                Text => match ch {
-                    '\u{1b}' => Introducer,
-                    '\u{9b}' => Csi,
-                    '\u{90}' | '\u{98}' | '\u{9d}' | '\u{9e}' | '\u{9f}' => String,
-                    _ => {
-                        match ch {
-                            '\t' => display.push_str("    "),
-                            '\n' => display.push(ch),
-                            ch if !ch.is_control() && !hidden_format(ch) => display.push(ch),
-                            _ => {}
-                        }
-                        Text
-                    }
-                },
-                Introducer => match ch {
-                    '[' => Csi,
-                    ']' | 'P' | 'X' | '^' | '_' => String,
-                    _ => Text,
-                },
-                Csi if ('@'..='~').contains(&ch) => Text,
-                Csi => Csi,
-                String | StringEnd => match ch {
-                    '\u{7}' | '\u{9c}' => Text,
-                    '\\' if matches!(self.escape, StringEnd) => Text,
-                    '\u{1b}' => StringEnd,
-                    _ => String,
-                },
-            };
+            self.control(ch, display);
         }
+    }
+
+    fn control(&mut self, ch: char, display: &mut String) {
+        use Escape::*;
+        self.escape = match self.escape {
+            Text => match ch {
+                '\u{1b}' => Introducer,
+                '\u{9b}' => Csi,
+                '\u{90}' | '\u{98}' | '\u{9d}' | '\u{9e}' | '\u{9f}' => String,
+                _ => {
+                    match ch {
+                        '\t' => display.push_str("    "),
+                        '\n' => display.push(ch),
+                        ch if !ch.is_control() && !hidden_format(ch) => display.push(ch),
+                        _ => {}
+                    }
+                    Text
+                }
+            },
+            Introducer => match ch {
+                '[' => Csi,
+                ']' | 'P' | 'X' | '^' | '_' => String,
+                ' '..='/' => Intermediate,
+                _ => Text,
+            },
+            Intermediate => match ch {
+                '\u{1b}' => Introducer,
+                '0'..='~' => Text,
+                _ => Intermediate,
+            },
+            Csi if ('@'..='~').contains(&ch) => Text,
+            Csi => Csi,
+            String | StringEnd => match ch {
+                '\u{7}' | '\u{9c}' => Text,
+                '\\' if matches!(self.escape, StringEnd) => Text,
+                '\u{1b}' => StringEnd,
+                _ => String,
+            },
+        };
     }
 }
 
@@ -117,6 +135,15 @@ fn hidden_format(character: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_c1_and_escape_intermediates_cannot_leak_their_contents() {
+        let raw = b"a\x9d52;hidden\x9cb\x1b(Bc\x9b31md\x90payload\x1b\\e\xc5\x9df";
+        assert_eq!(sanitize_output(raw), "abcdeŝf");
+        let mut output = OutputSanitizer::default();
+        let text: String = raw.iter().map(|byte| output.push(&[*byte])).collect();
+        assert_eq!(text, "abcdeŝf");
+    }
 
     #[test]
     fn every_byte_boundary_keeps_escape_payloads_out_and_complete_glyphs_in() {

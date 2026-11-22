@@ -646,7 +646,15 @@ impl Write for ShellCapture<'_> {
         if let Some(observe) = self.observe
             && allowed != 0
         {
-            observe(self.stream, &bytes[..allowed])?;
+            observe(self.stream, &bytes[..allowed]).map_err(|error| {
+                // write_all retries Interrupted with the same bytes. These
+                // bytes are already charged, and Stop needs outer cleanup.
+                if error.kind() == io::ErrorKind::Interrupted {
+                    io::Error::other(error)
+                } else {
+                    error
+                }
+            })?;
         }
         if allowed < bytes.len() {
             self.truncated.set(true);

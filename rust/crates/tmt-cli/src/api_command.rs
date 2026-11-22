@@ -13,6 +13,18 @@ struct Response {
     stale: bool,
 }
 impl Response {
+    fn with_keep_reply_tag(mut self, tag: Option<u64>) -> Self {
+        if let Some(tag) = tag {
+            let resource: serde_json::Value =
+                serde_json::from_slice(&self.body).expect("API response is JSON");
+            self.body = serde_json::to_vec(&serde_json::json!({
+                "keepReply": {"replyTag":tag,"resource":resource},
+            }))
+            .expect("bounded Keep response");
+        }
+        self
+    }
+
     fn fault(mut fault: api::Fault, paths: Option<&ConfigPaths>) -> Self {
         let stale = fault.code() == api::SESSION_STALE;
         let (status, body) = if let Some((error, effect)) = fault.take_storage_access() {
@@ -59,6 +71,7 @@ fn call(
             return Response::fault(fault, None);
         }
     };
+    let keep_tag = lifeline.and_then(|_| request.keep_reply_tag());
     // Discovery must not even select paths before the first non-constant request.
     if session.is_none() && matches!(request, api::Request::Capabilities) {
         return Response {
@@ -70,7 +83,10 @@ fn call(
     if session.is_none() {
         match ConfigPaths::discover() {
             Ok(paths) => *session = Some(api::Session::new(paths)),
-            Err(_) => return Response::fault(api::Fault::unavailable(), None),
+            Err(_) => {
+                return Response::fault(api::Fault::unavailable(), None)
+                    .with_keep_reply_tag(keep_tag);
+            }
         }
     }
     let session = session.as_mut().expect("selected paths");
@@ -82,6 +98,7 @@ fn call(
         },
         Err(fault) => Response::fault(fault, Some(session.paths())),
     }
+    .with_keep_reply_tag(keep_tag)
 }
 fn close(session: Option<api::Session>) -> Result<(), api::Fault> {
     session.map_or(Ok(()), api::Session::close)

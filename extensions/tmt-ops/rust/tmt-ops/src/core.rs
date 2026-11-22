@@ -402,6 +402,7 @@ impl Core {
         Ok(StandaloneSession {
             channel: Some(channel),
             pid,
+            keep_tag: None,
         })
     }
 
@@ -765,6 +766,7 @@ fn reject_self(selected: &Path) -> Result<(), SquadError> {
 pub(crate) struct StandaloneSession {
     channel: Option<tmt_invoke::LineChannel>,
     pid: u32,
+    keep_tag: Option<u64>,
 }
 
 pub(crate) enum StandaloneProgress<'a> {
@@ -799,6 +801,7 @@ impl StandaloneSession {
             ));
         }
         let stream = advertisement["session"]["terminalCommandOutput"] == true;
+        self.keep_tag = stream.then_some(0);
         if stream {
             input["stream"] = true.into();
         } else {
@@ -887,19 +890,60 @@ impl StandaloneSession {
     }
 
     pub(crate) fn keep(&mut self, run_id: &str) -> Result<Value, SquadError> {
+        let mut input = json!({"runId": run_id});
+        if let Some(tag) = &mut self.keep_tag {
+            *tag += 1;
+            input["replyTag"] = json!(*tag);
+        }
         let request =
-            json!({"version": 1, "operation": "terminal.command.keep", "input": {"runId": run_id}})
-                .to_string();
+            json!({"version": 1, "operation": "terminal.command.keep", "input": input}).to_string();
         let channel = self
             .channel
             .as_mut()
             .ok_or_else(|| SquadError::new("API_UNAVAILABLE", "The result session has closed."))?;
-        let frame = channel.exchange(request.as_bytes(), Instant::now() + TIMEOUT, || false);
-        let result = Self::decode(frame)?;
+        let deadline = Instant::now() + TIMEOUT;
+        let unconfirmed = || unavailable("Keep outcome unconfirmed. Check the saved list.");
+        let result = if let Some(tag) = self.keep_tag {
+            let mut resource = None;
+            channel
+                .exchange_lifeline_frames(
+                    request.as_bytes(),
+                    deadline,
+                    || false,
+                    |frame| {
+                        let invalid = || {
+                            std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "Unmatched Keep response",
+                            )
+                        };
+                        let mut document: Value =
+                            serde_json::from_slice(frame).map_err(|_| invalid())?;
+                        let reply = document
+                            .as_object_mut()
+                            .filter(|object| object.len() == 1)
+                            .and_then(|object| object.get_mut("keepReply"))
+                            .and_then(Value::as_object_mut)
+                            .ok_or_else(invalid)?;
+                        if reply.len() != 2
+                            || reply.get("replyTag").and_then(Value::as_u64) != Some(tag)
+                        {
+                            return Err(invalid());
+                        }
+                        resource = reply.remove("resource").filter(Value::is_object);
+                        if resource.is_none() {
+                            return Err(invalid());
+                        }
+                        Ok(true)
+                    },
+                )
+                .map_err(|_| unconfirmed())?;
+            Self::resource(resource.ok_or_else(unconfirmed)?)?
+        } else {
+            Self::decode(channel.exchange(request.as_bytes(), deadline, || false))?
+        };
         if result["terminalId"].as_str().is_none() {
-            return Err(unavailable(
-                "Keep outcome unconfirmed. Check the saved list.",
-            ));
+            return Err(unconfirmed());
         }
         Ok(result)
     }
@@ -909,6 +953,10 @@ impl StandaloneSession {
             .map_err(|_| unavailable("Command outcome unconfirmed. Check before retrying."))?;
         let document: Value = serde_json::from_slice(&bytes)
             .map_err(|_| unavailable("Command outcome unconfirmed. Check before retrying."))?;
+        Self::resource(document)
+    }
+
+    fn resource(document: Value) -> Result<Value, SquadError> {
         if document.get("error").is_some() {
             resource_error(&document)
         } else {
