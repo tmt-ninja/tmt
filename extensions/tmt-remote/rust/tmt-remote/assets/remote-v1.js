@@ -398,7 +398,7 @@ var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var coreId = (value) => typeof value === "string" && UUID$4.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 var requestId = (value) => typeof value === "string" && value.startsWith("req_") && coreId(value.slice(4));
-var utf8$6 = new TextEncoder();
+var utf8$7 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
 function valid$9(condition) {
@@ -413,14 +413,14 @@ function record(value) {
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid$9(typeof value.reason === "string" && utf8$6.encode(value.reason).length <= 256);
+	valid$9(typeof value.reason === "string" && utf8$7.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 /** One plain line of at most 256 bytes, sent with a `reason`: Core's sentence for its code. */
 function reasonText(value) {
 	if (value.reasonText === void 0) return {};
 	const text = value.reasonText;
-	valid$9(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$6.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
+	valid$9(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$7.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
 	return { reasonText: text };
 }
 var MESSAGE_STATES = [
@@ -442,7 +442,7 @@ function messageState(value) {
 	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
 	valid$9(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
 	const why = record(state.reason);
-	valid$9(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$6.encode(why.text).length <= 256);
+	valid$9(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$7.encode(why.text).length <= 256);
 	return { messageState: {
 		state: state.state,
 		reason: {
@@ -460,7 +460,7 @@ var USER_NAME_REASONS = [
 	"USER_NAME_TAKEN"
 ];
 function text$2(value) {
-	return typeof value === "string" && value.length > 0 && utf8$6.encode(value).length <= 512;
+	return typeof value === "string" && value.length > 0 && utf8$7.encode(value).length <= 512;
 }
 /** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
 function identity$1(value) {
@@ -764,7 +764,7 @@ async function synchronize(channel, timeoutMs) {
 	const unavailable = () => new ClientError("sequence_unavailable", "Remote sequence recovery failed; reopen before observing the original operation.");
 	if (unresolved === "unavailable") throw unavailable();
 	const id = crypto.randomUUID();
-	const payload = utf8$6.encode("{}");
+	const payload = utf8$7.encode("{}");
 	try {
 		try {
 			await attempt(channel, timeoutMs, "capabilities", id, payload, channel.clientSequence, parseCapabilities);
@@ -805,7 +805,7 @@ function verifiedSessionRequest(session, options = {}) {
 	const timeoutMs = options.timeoutMs ?? 4e4;
 	input$1(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
 	return function call(operation, id, value, parse, mutationOutcome = false) {
-		const payload = utf8$6.encode(JSON.stringify(value));
+		const payload = utf8$7.encode(JSON.stringify(value));
 		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome));
 	};
 }
@@ -820,7 +820,7 @@ function operations(session, options = {}) {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
 			const roomSend = "room" in value;
-			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$6.encode(value.message)) === value.message && (roomSend ? !("agentId" in value) && value.room !== null && typeof value.room === "object" && Object.keys(value.room).sort().join() === "revision,roomId" && coreId(value.room.roomId) && Number.isSafeInteger(value.room.revision) && value.room.revision > 0 && Array.isArray(value.recipientIds) && value.recipientIds.length >= 1 && value.recipientIds.length <= 64 && value.recipientIds.every(coreId) && new Set(value.recipientIds).size === value.recipientIds.length && (value.kind === void 0 || ["request", "announcement"].includes(value.kind)) : !("recipientIds" in value) && coreId(value.agentId)));
+			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$7.encode(value.message)) === value.message && (roomSend ? !("agentId" in value) && value.room !== null && typeof value.room === "object" && Object.keys(value.room).sort().join() === "revision,roomId" && coreId(value.room.roomId) && Number.isSafeInteger(value.room.revision) && value.room.revision > 0 && Array.isArray(value.recipientIds) && value.recipientIds.length >= 1 && value.recipientIds.length <= 64 && value.recipientIds.every(coreId) && new Set(value.recipientIds).size === value.recipientIds.length && (value.kind === void 0 || ["request", "announcement"].includes(value.kind)) : !("recipientIds" in value) && coreId(value.agentId)));
 			const { operationId, message } = value;
 			const frozen = roomSend ? {
 				operationId,
@@ -901,9 +901,9 @@ var RESPONSE = 1048576;
 var ANSWER = 16384;
 var QUESTIONS = 4;
 var OPTIONS = 8;
-var utf8$5 = new TextEncoder();
+var utf8$6 = new TextEncoder();
 var integer$2 = (v) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
-var text$1 = (v, max) => typeof v === "string" && utf8$5.encode(v).length <= max;
+var text$1 = (v, max) => typeof v === "string" && utf8$6.encode(v).length <= max;
 function valid$8(v) {
 	if (!v) throw new TypeError("Invalid provider form document.");
 }
@@ -915,7 +915,7 @@ function keys$2(v, required, optional = []) {
 	valid$8(required.every((k) => Object.hasOwn(v, k)) && Object.keys(v).every((k) => required.includes(k) || optional.includes(k)));
 }
 function size(value, max) {
-	valid$8(utf8$5.encode(JSON.stringify(value)).length <= max);
+	valid$8(utf8$6.encode(JSON.stringify(value)).length <= max);
 }
 function parseForm(value) {
 	const f = object$6(value);
@@ -1090,7 +1090,7 @@ function hasControl(value) {
 		return point < 32 || point >= 127 && point <= 159;
 	});
 }
-var utf8$4 = new TextDecoder("utf-8", { fatal: true });
+var utf8$5 = new TextDecoder("utf-8", { fatal: true });
 /** Reads the native v2 carrier unchanged, with no network or authority inference. */
 function decodeDetails(token, now) {
 	valid$7(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
@@ -1098,7 +1098,7 @@ function decodeDetails(token, now) {
 	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
 	const raw = atob(encoded);
 	valid$7(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
-	const text = utf8$4.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+	const text = utf8$5.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
 	const value = JSON.parse(text);
 	valid$7(JSON.stringify(value) === text);
 	const invite = object$5(value, [
@@ -1135,8 +1135,8 @@ function decodeDetails(token, now) {
 		"owner_principal"
 	]);
 	valid$7(binding.backend === "firestore");
-	const project = utf8$4.decode(bytes(binding.reference));
-	const principal = utf8$4.decode(bytes(binding.owner_principal));
+	const project = utf8$5.decode(bytes(binding.reference));
+	const principal = utf8$5.decode(bytes(binding.owner_principal));
 	valid$7(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
 	const config = invite.publicConfig;
 	valid$7(config !== null && typeof config === "object" && !Array.isArray(config));
@@ -5185,7 +5185,7 @@ function count(document, text) {
 	badge.setAttribute("aria-hidden", "true");
 	return badge;
 }
-function attention(document) {
+function attention$1(document) {
 	const dot = document.createElement("span");
 	dot.className = "tmt-ui-attention-dot";
 	dot.setAttribute("aria-hidden", "true");
@@ -5413,7 +5413,7 @@ function mountShell(root, view, select, layerHost) {
 			const counts = document.createElement("span");
 			counts.className = "tmt-ui-shell-counts";
 			for (const badge of badges) counts.append(count(document, badge));
-			if (waiting) counts.append(attention(document));
+			if (waiting) counts.append(attention$1(document));
 			if (total) counts.append(count(document, total.text));
 			anchor.append(counts);
 		}
@@ -5612,7 +5612,7 @@ function mountShell(root, view, select, layerHost) {
 			label.textContent = item.label;
 			anchor.append(icon(document, item.icon), label);
 			if (badge) {
-				anchor.append(attention(document));
+				anchor.append(attention$1(document));
 				tipFor(anchor, `${item.label}, ${badge.text} need you${item.note ? `: ${item.note}` : ""}`);
 			}
 			const row = document.createElement("li");
@@ -9375,6 +9375,93 @@ function commandCopy(text) {
 	return command;
 }
 //#endregion
+//#region src/ops-composer-slot.ts
+/** The Ops message box slot (#5704): loads the composer island on first use and holds its place
+* with a still box of the same height until it arrives. */
+/** The composer's own module, served beside the SDK (see vite.composer.config.ts). */
+var COMPOSER = "/sdk/ops-composer-v1.js";
+/** Where this tab keeps unsent words, so a reload brings them back (#6757): plain text in this
+* tab's sessionStorage, like the members page's unsent names, gone when the tab closes, never sent
+* anywhere, and cleared when the session changes or the browser is no longer paired. */
+var STORE = "tmt-ops-drafts-v1";
+var utf8$4 = new TextEncoder();
+var keepable = (text) => text.trim() !== "" && utf8$4.encode(text).length <= 65536;
+function readStore() {
+	try {
+		const data = JSON.parse(sessionStorage.getItem(STORE) ?? "[]");
+		if (!Array.isArray(data)) return /* @__PURE__ */ new Map();
+		const rows = data.filter((item) => Array.isArray(item) && item.length === 2 && typeof item[0] === "string" && typeof item[1] === "string" && keepable(item[1]));
+		return new Map(rows.slice(-50));
+	} catch {
+		return /* @__PURE__ */ new Map();
+	}
+}
+function writeStore() {
+	const kept = [...drafts].filter(([, text]) => keepable(text));
+	try {
+		if (kept.length) sessionStorage.setItem(STORE, JSON.stringify(kept));
+		else sessionStorage.removeItem(STORE);
+	} catch {}
+}
+/** The unsent words of each place (`channel:<squad>` or a member id), for the rail's draft mark
+* and for the box after a reload; every box on the page reports here. */
+var drafts = readStore();
+var draftListeners = /* @__PURE__ */ new Set();
+var hasDraft = (key) => drafts.has(key);
+/** Calls `listener` whenever a place gains or loses its draft; returns the unsubscribe. */
+function onDrafts(listener) {
+	draftListeners.add(listener);
+	return () => draftListeners.delete(listener);
+}
+/** The unsent words of the place `key` now; blank when it holds none. */
+function keepDraft(key, text) {
+	const had = drafts.has(key);
+	drafts.delete(key);
+	if (text.trim() !== "") drafts.set(key, text);
+	const dropped = [...drafts.keys()].slice(0, Math.max(0, drafts.size - 50));
+	for (const old of dropped) drafts.delete(old);
+	writeStore();
+	if (had === drafts.has(key) && !dropped.length) return;
+	for (const listener of draftListeners) listener();
+}
+/** The session changed, or this browser is no longer paired: no unsent words stay for the next
+* one to see. */
+function forgetDrafts() {
+	const had = drafts.size > 0;
+	drafts.clear();
+	writeStore();
+	if (had) for (const listener of draftListeners) listener();
+}
+/** The composer is a lazily loaded React island, so pages that never open a channel skip it. */
+function composerSlot(host) {
+	let handle;
+	let wanted;
+	let loading = false;
+	return { show(shown) {
+		const options = {
+			...shown,
+			saved: drafts.get(shown.key),
+			onDraft: keepDraft
+		};
+		wanted = options;
+		if (handle) return handle.update(options);
+		if (loading) return;
+		loading = true;
+		const still = el("div", "ops-composer-still");
+		still.setAttribute("aria-hidden", "true");
+		still.append(el("span", "ops-composer-still-text", options.placeholder));
+		host.replaceChildren(still);
+		import(
+			/* @vite-ignore */
+			COMPOSER
+).then(({ mountComposer }) => {
+			handle = mountComposer(host, wanted);
+		}, () => {
+			host.replaceChildren(el("p", "ops-empty", "The message box could not load. Reload the page to try again."));
+		});
+	} };
+}
+//#endregion
 //#region src/ops-source.ts
 /**
 * What the Ops web view (`/ops/`) reads: the owner's squad board through the owner browser read
@@ -9407,6 +9494,17 @@ var AGENT_STATES = {
 		tone: "neutral"
 	}
 };
+var TASK_TONES = {
+	working: "working",
+	green: "working",
+	waiting: "waiting",
+	amber: "waiting",
+	blocked: "blocked",
+	red: "blocked",
+	review: "review",
+	magenta: "review",
+	dim: "muted"
+};
 /** The four uncoloured states exposed by the board; pending is not presence. */
 function agentState(agent) {
 	if (agent.presence === "offline") return "offline";
@@ -9436,6 +9534,15 @@ function unavailableBoard(reason) {
 	};
 }
 var safeNumber = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+function attention(value) {
+	if (!safeNumber(value.waiting) || !safeNumber(value.blocked)) return void 0;
+	const { state, waiting, blocked } = value;
+	return state === "normal" || state === "waiting" || state === "blocked" ? {
+		state,
+		waiting,
+		blocked
+	} : void 0;
+}
 function usage1d(value) {
 	return value && safeNumber(value.tokens) && typeof value.complete === "boolean" && (value.complete || value.tokens > 0) ? {
 		tokens: value.tokens,
@@ -9454,18 +9561,25 @@ function opsBoard(payload) {
 				revision: squad.room.revision
 			} : null,
 			...squad.lead ? { lead: squad.lead.name } : {},
-			...typeof squad.idleAlertMs === "number" && Number.isFinite(squad.idleAlertMs) ? { idleAlertMs: squad.idleAlertMs } : {}
+			...typeof squad.idleAlertMs === "number" && Number.isFinite(squad.idleAlertMs) ? { idleAlertMs: squad.idleAlertMs } : {},
+			...squad.attention && { attention: attention(squad.attention) }
 		})),
 		agents: payload.agents.map((agent) => {
 			const state = agentState(agent);
 			return {
 				id: agent.id,
 				...agent.presence ? { presence: agent.presence } : {},
-				...agent.activity ? { activity: { state: agent.activity.state } } : {},
+				...agent.activity ? { activity: {
+					state: agent.activity.state,
+					...safeNumber(agent.activity.sinceMs) ? { sinceMs: agent.activity.sinceMs } : {}
+				} } : {},
 				name: agent.name,
 				squad: agent.squad,
 				role: agent.role,
 				state,
+				...agent.state ? { taskState: agent.state } : {},
+				...agent.stateTone && Object.hasOwn(TASK_TONES, agent.stateTone) ? { taskTone: TASK_TONES[agent.stateTone] } : {},
+				...agent.staleness === "fresh" || agent.staleness === "stale" ? { staleness: agent.staleness } : {},
 				...agent.task ? { task: agent.task } : {},
 				...agent.next ? { next: agent.next } : {},
 				...agent.pending ? { pending: agent.pending } : {},
@@ -9494,7 +9608,9 @@ function boardFromAnswer(answer) {
 }
 /** The source the page reads: the owner's board through `x/-/ops`. */
 var opsSource = { async board(signal) {
-	return boardFromAnswer(await ownerRead("ops", signal));
+	const answer = await ownerRead("ops", signal);
+	if (answer.state === "no-session") forgetDrafts();
+	return boardFromAnswer(answer);
 } };
 //#endregion
 //#region src/ops-parts.ts
@@ -9528,6 +9644,106 @@ function bySquad(board, keepEmpty = false) {
 		name,
 		agents: board.agents.filter((agent) => agent.squad === name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"))
 	})).filter((group) => keepEmpty || group.agents.length);
+}
+//#endregion
+//#region src/ops-timers.ts
+var DAYS = {
+	mon: "Mon",
+	tue: "Tue",
+	wed: "Wed",
+	thu: "Thu",
+	fri: "Fri",
+	sat: "Sat",
+	sun: "Sun"
+};
+var UNITS = {
+	s: ["second", "seconds"],
+	m: ["minute", "minutes"],
+	h: ["hour", "hours"],
+	d: ["day", "days"]
+};
+var two = (value) => value.padStart(2, "0");
+/**
+* A board schedule in words: `every 30m from 09:00`, `daily 09:00`, `weekdays 09:00`,
+* `mon,thu 10:00` and the simple cron shapes read as a sentence; anything else stays as written.
+*/
+function scheduleWords(text) {
+	const every = /^every (\d+)([smhd])(?: from (\S+))?$/.exec(text);
+	if (every) {
+		const [, count, unit, from] = every;
+		const [one, many] = UNITS[unit];
+		const step = count === "1" ? `Every ${one}` : `Every ${count} ${many}`;
+		return from ? `${step} from ${from}` : step;
+	}
+	const at = /^(daily|weekdays|[a-z]{3}(?:,[a-z]{3})*) (\d{1,2}:\d{2})$/.exec(text);
+	if (at) {
+		const [, on, time] = at;
+		if (on === "daily") return `Every day at ${time}`;
+		if (on === "weekdays") return `Weekdays at ${time}`;
+		const days = on.split(",").map((day) => DAYS[day]);
+		if (days.every(Boolean)) return `${days.join(", ")} at ${time}`;
+	}
+	const cron = /^cron (\S+) (\S+) (\S+) (\S+) (\S+)$/.exec(text);
+	if (cron) {
+		const [, minute, hour, dom, month, dow] = cron;
+		const plain = dom === "*" && month === "*";
+		const step = /^\*\/(\d+)$/.exec(minute);
+		if (plain && dow === "*" && hour === "*" && step) return `Every ${step[1]} minutes`;
+		if (plain && dow === "*" && hour === "*" && /^\d+$/.test(minute)) return `Every hour at :${two(minute)}`;
+		if (plain && /^\d+$/.test(minute) && /^\d+$/.test(hour)) {
+			const time = `${two(hour)}:${two(minute)}`;
+			if (dow === "*") return `Every day at ${time}`;
+			if (dow === "1-5") return `Weekdays at ${time}`;
+		}
+	}
+	return text;
+}
+/** One timer row: what it sends, its schedule in words, and whose it is. */
+function timerRow(job) {
+	const row = el("li", "ops-timer-row");
+	row.dataset.timerId = job.id;
+	const icon = el("span", "ops-timer-icon", "⏱");
+	icon.setAttribute("aria-hidden", "true");
+	const name = el("span", "ops-timer-name", job.what || job.id);
+	const words = scheduleWords(job.when);
+	const when = el("span", "ops-timer-when", words);
+	if (words !== job.when) when.title = job.when;
+	const meta = el("span", "ops-timer-meta");
+	meta.append(when);
+	if (job.nextMs !== null) {
+		const next = el("time", "ops-timer-next", nextIn(job.nextMs));
+		next.dateTime = new Date(job.nextMs).toISOString();
+		next.title = new Date(job.nextMs).toLocaleString();
+		meta.append(next);
+	}
+	if (job.owner) meta.append(el("span", "ops-timer-owner", job.owner));
+	row.append(icon, name, meta);
+	if (job.state) {
+		row.dataset.state = job.state;
+		row.append(el("span", "ops-timer-state", job.state === "on" ? "On" : "Paused"));
+	}
+	return row;
+}
+/** "Next in 20m", "Next in 3h 5m", or the day and time when it is further out. */
+function nextIn(at, now = Date.now()) {
+	const minutes = Math.round((at - now) / 6e4);
+	if (minutes <= 0) return "Due now";
+	if (minutes < 60) return `Next in ${minutes}m`;
+	if (minutes < 1440) return `Next in ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+	return `Next ${new Date(at).toLocaleString(void 0, {
+		weekday: "short",
+		hour: "2-digit",
+		minute: "2-digit"
+	})}`;
+}
+/** The panel's timers: a list, or a sentence that never reads an unknown as none. */
+function timerList(jobs, truncated) {
+	if (jobs === null) return sentence$1("Timers are unavailable from this machine right now.");
+	if (!jobs.length) return sentence$1(truncated ? "No timers in this partial read." : "No timers are set.");
+	const list = el("ul", "ops-timer-list");
+	list.setAttribute("aria-label", "Timers");
+	list.append(...jobs.map(timerRow));
+	return list;
 }
 //#endregion
 //#region src/orchestration-client.ts
@@ -9762,49 +9978,6 @@ async function readSending(api, memberQuery) {
 		truncated
 	};
 }
-var JOB_STATES = [
-	"on",
-	"held",
-	"paused",
-	"no_owner"
-];
-function jobSchedule(value) {
-	const row = value && typeof value === "object" ? value : {};
-	if (row.kind === "every" && safe(row.seconds)) {
-		const minutes = Math.round(row.seconds / 60);
-		return minutes % 60 === 0 ? `every ${minutes / 60}h` : `every ${minutes} min`;
-	}
-	if (row.kind === "at" && text(row.at)) return text(row.on) ? `${row.on} ${row.at}` : `daily ${row.at}`;
-	if (row.kind === "cron" && text(row.expression)) return row.expression;
-	return "—";
-}
-function decodeJobs(rows) {
-	return rows.flatMap((value) => {
-		const row = object$1(value);
-		if (!text(row.jobId) || !JOB_STATES.includes(row.state)) return [];
-		const displayId = text(row.displayId) ? row.displayId : row.jobId;
-		return [{
-			id: row.jobId,
-			displayId,
-			title: text(row.title) && row.title ? row.title : text(row.messagePreview) ? row.messagePreview : displayId,
-			schedule: jobSchedule(row.schedule),
-			state: row.state,
-			nextRunAtMs: safe(row.nextRunAtMs) ? row.nextRunAtMs : null
-		}];
-	});
-}
-/** One member's jobs, first page only (`more` when Core has another). */
-async function readJobs(api, ownerIdentityId) {
-	const answer = await api.read({
-		view: "jobs",
-		ownerIdentityId,
-		limit: 50
-	});
-	return {
-		jobs: decodeJobs(Array.isArray(answer.jobs) ? answer.jobs : []),
-		more: text(answer.nextCursor)
-	};
-}
 /** The confirm dialog's lines for a preview: Core's own effect, never a local guess. */
 function previewLines(preview, name) {
 	const lines = [];
@@ -9877,12 +10050,6 @@ var SENDING = {
 var ROUTINE = {
 	run: "Run",
 	hold: "Hold"
-};
-var JOB = {
-	on: "● ready",
-	held: "◆ held",
-	paused: "⏸ paused",
-	no_owner: "○ no owner"
 };
 var WEEKDAYS = [
 	"Mon",
@@ -9996,9 +10163,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 	let selected;
 	let target;
 	let why;
-	const jobs = /* @__PURE__ */ new Map();
-	const reading = /* @__PURE__ */ new Set();
-	let jobsRound = 0;
+	let timers;
 	let generation = 0;
 	const say = (text) => {
 		status.textContent = text;
@@ -10128,7 +10293,6 @@ function orchestrationView(connect, now = () => Date.now()) {
 			const next = decodeOverview(await api.read(input));
 			const nextSending = await readSending(api, memberQuery || void 0);
 			if (mine !== generation) return;
-			jobsRound += 1;
 			overview = next;
 			sending = nextSending;
 			if (!member(selected)) selected = next.members[0]?.identityId;
@@ -10431,42 +10595,10 @@ function orchestrationView(connect, now = () => Date.now()) {
 		}
 		return list;
 	};
-	function drawJobs(row) {
-		const entry = jobs.get(row.identityId)?.value;
-		if (entry === void 0) return [el("p", "ops-orchestration-caption", "Jobs · reading…")];
-		if (entry === "failed") return [el("p", "ops-orchestration-caption", "Jobs · Core could not read them right now.")];
-		const head = el("h4", browserUiClasses.sectionHeading, `Jobs ${entry.jobs.length}${entry.more ? "+" : ""}`);
-		if (!entry.jobs.length) return [head, el("p", "ops-orchestration-caption", "No jobs.")];
-		const list = el("ul", "ops-orchestration-jobs");
-		list.setAttribute("aria-label", `Jobs · ${row.name}`);
-		for (const job of entry.jobs) {
-			const item = el("li");
-			const next = job.nextRunAtMs === null ? "" : ` · next ${moment(job.nextRunAtMs)}`;
-			const title = el("span", void 0, job.title);
-			title.title = job.title;
-			item.append(title, el("span", void 0, JOB[job.state]), el("span", void 0, `${job.schedule}${next}`));
-			item.dataset.state = job.state;
-			list.append(item);
-		}
-		return [head, list];
-	}
-	async function loadJobs(id) {
-		if (jobs.get(id)?.round === jobsRound || reading.has(id) || !api) return;
-		const round = jobsRound;
-		reading.add(id);
-		try {
-			jobs.set(id, {
-				round,
-				value: await readJobs(api, id)
-			});
-		} catch {
-			jobs.set(id, {
-				round,
-				value: "failed"
-			});
-		}
-		reading.delete(id);
-		if (selected === id) drawInspector();
+	function drawTimers(row) {
+		if (timers === void 0) return [el("p", "ops-orchestration-caption", "Timers · reading…")];
+		const mine = timers.jobs && timers.jobs.filter((job) => job.owner === row.name);
+		return [el("h4", browserUiClasses.sectionHeading, mine ? `Timers ${mine.length}` : "Timers"), timerList(mine, timers.truncated)];
 	}
 	function drawInspector() {
 		const parts = [];
@@ -10540,9 +10672,8 @@ function orchestrationView(connect, now = () => Date.now()) {
 				for (const line of why.lines) list.append(el("li", browserUiClasses.listRow, line));
 				section.append(list);
 			}
-			section.append(...drawJobs(row));
+			section.append(...drawTimers(row));
 			parts.push(section);
-			loadJobs(row.identityId);
 		}
 		if (!parts.length) parts.push(sentence$1("No members match."));
 		const focused = document.activeElement;
@@ -10660,7 +10791,12 @@ function orchestrationView(connect, now = () => Date.now()) {
 	return {
 		node,
 		/** One refresh; the page's owner calls it while the section is visible. */
-		refresh: load
+		refresh: load,
+		/** The board's timers changed: the inspector shows the selected member's. */
+		timers(next) {
+			timers = next;
+			if (overview) drawInspector();
+		}
 	};
 }
 //#endregion
@@ -10799,106 +10935,6 @@ function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => 
 	};
 }
 //#endregion
-//#region src/ops-timers.ts
-var DAYS = {
-	mon: "Mon",
-	tue: "Tue",
-	wed: "Wed",
-	thu: "Thu",
-	fri: "Fri",
-	sat: "Sat",
-	sun: "Sun"
-};
-var UNITS = {
-	s: ["second", "seconds"],
-	m: ["minute", "minutes"],
-	h: ["hour", "hours"],
-	d: ["day", "days"]
-};
-var two = (value) => value.padStart(2, "0");
-/**
-* A board schedule in words: `every 30m from 09:00`, `daily 09:00`, `weekdays 09:00`,
-* `mon,thu 10:00` and the simple cron shapes read as a sentence; anything else stays as written.
-*/
-function scheduleWords(text) {
-	const every = /^every (\d+)([smhd])(?: from (\S+))?$/.exec(text);
-	if (every) {
-		const [, count, unit, from] = every;
-		const [one, many] = UNITS[unit];
-		const step = count === "1" ? `Every ${one}` : `Every ${count} ${many}`;
-		return from ? `${step} from ${from}` : step;
-	}
-	const at = /^(daily|weekdays|[a-z]{3}(?:,[a-z]{3})*) (\d{1,2}:\d{2})$/.exec(text);
-	if (at) {
-		const [, on, time] = at;
-		if (on === "daily") return `Every day at ${time}`;
-		if (on === "weekdays") return `Weekdays at ${time}`;
-		const days = on.split(",").map((day) => DAYS[day]);
-		if (days.every(Boolean)) return `${days.join(", ")} at ${time}`;
-	}
-	const cron = /^cron (\S+) (\S+) (\S+) (\S+) (\S+)$/.exec(text);
-	if (cron) {
-		const [, minute, hour, dom, month, dow] = cron;
-		const plain = dom === "*" && month === "*";
-		const step = /^\*\/(\d+)$/.exec(minute);
-		if (plain && dow === "*" && hour === "*" && step) return `Every ${step[1]} minutes`;
-		if (plain && dow === "*" && hour === "*" && /^\d+$/.test(minute)) return `Every hour at :${two(minute)}`;
-		if (plain && /^\d+$/.test(minute) && /^\d+$/.test(hour)) {
-			const time = `${two(hour)}:${two(minute)}`;
-			if (dow === "*") return `Every day at ${time}`;
-			if (dow === "1-5") return `Weekdays at ${time}`;
-		}
-	}
-	return text;
-}
-/** One timer row: what it sends, its schedule in words, and whose it is. */
-function timerRow(job) {
-	const row = el("li", "ops-timer-row");
-	row.dataset.timerId = job.id;
-	const icon = el("span", "ops-timer-icon", "⏱");
-	icon.setAttribute("aria-hidden", "true");
-	const name = el("span", "ops-timer-name", job.what || job.id);
-	const words = scheduleWords(job.when);
-	const when = el("span", "ops-timer-when", words);
-	if (words !== job.when) when.title = job.when;
-	const meta = el("span", "ops-timer-meta");
-	meta.append(when);
-	if (job.nextMs !== null) {
-		const next = el("time", "ops-timer-next", nextIn(job.nextMs));
-		next.dateTime = new Date(job.nextMs).toISOString();
-		next.title = new Date(job.nextMs).toLocaleString();
-		meta.append(next);
-	}
-	if (job.owner) meta.append(el("span", "ops-timer-owner", job.owner));
-	row.append(icon, name, meta);
-	if (job.state) {
-		row.dataset.state = job.state;
-		row.append(el("span", "ops-timer-state", job.state === "on" ? "On" : "Paused"));
-	}
-	return row;
-}
-/** "Next in 20m", "Next in 3h 5m", or the day and time when it is further out. */
-function nextIn(at, now = Date.now()) {
-	const minutes = Math.round((at - now) / 6e4);
-	if (minutes <= 0) return "Due now";
-	if (minutes < 60) return `Next in ${minutes}m`;
-	if (minutes < 1440) return `Next in ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-	return `Next ${new Date(at).toLocaleString(void 0, {
-		weekday: "short",
-		hour: "2-digit",
-		minute: "2-digit"
-	})}`;
-}
-/** The panel's timers: a list, or a sentence that never reads an unknown as none. */
-function timerList(jobs, truncated) {
-	if (jobs === null) return sentence$1("Timers are unavailable from this machine right now.");
-	if (!jobs.length) return sentence$1(truncated ? "No timers in this partial read." : "No timers are set.");
-	const list = el("ul", "ops-timer-list");
-	list.setAttribute("aria-label", "Timers");
-	list.append(...jobs.map(timerRow));
-	return list;
-}
-//#endregion
 //#region src/command-run.ts
 var terminalId = (value) => typeof value === "string" && /^term_[0-9a-f]{32}$/.test(value);
 var utf8$3 = new TextEncoder();
@@ -10993,56 +11029,6 @@ function commandRun(shell) {
 			}
 		}
 	};
-}
-//#endregion
-//#region src/ops-composer-slot.ts
-/** The Ops message box slot (#5704): loads the composer island on first use and holds its place
-* with a still box of the same height until it arrives. */
-/** The composer's own module, served beside the SDK (see vite.composer.config.ts). */
-var COMPOSER = "/sdk/ops-composer-v1.js";
-/** The places (`channel:<squad>` or a member id) whose message box holds unsent words, for the
-* rail's draft mark; every box on the page reports here. */
-var drafts = /* @__PURE__ */ new Set();
-var draftListeners = /* @__PURE__ */ new Set();
-var hasDraft = (key) => drafts.has(key);
-/** Calls `listener` whenever a place gains or loses its draft; returns the unsubscribe. */
-function onDrafts(listener) {
-	draftListeners.add(listener);
-	return () => draftListeners.delete(listener);
-}
-function noteDraft(key, present) {
-	if (drafts.has(key) === present) return;
-	if (present) drafts.add(key);
-	else drafts.delete(key);
-	for (const listener of draftListeners) listener();
-}
-/** The composer is a lazily loaded React island, so pages that never open a channel skip it. */
-function composerSlot(host) {
-	let handle;
-	let wanted;
-	let loading = false;
-	return { show(shown) {
-		const options = {
-			...shown,
-			onDraft: noteDraft
-		};
-		wanted = options;
-		if (handle) return handle.update(options);
-		if (loading) return;
-		loading = true;
-		const still = el("div", "ops-composer-still");
-		still.setAttribute("aria-hidden", "true");
-		still.append(el("span", "ops-composer-still-text", options.placeholder));
-		host.replaceChildren(still);
-		import(
-			/* @vite-ignore */
-			COMPOSER
-).then(({ mountComposer }) => {
-			handle = mountComposer(host, wanted);
-		}, () => {
-			host.replaceChildren(el("p", "ops-empty", "The message box could not load. Reload the page to try again."));
-		});
-	} };
 }
 //#endregion
 //#region src/conversations.ts
@@ -12915,6 +12901,7 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}, for
 	const panels = [membersPanel, timersPanel];
 	const toggle = el("button", "ops-channel-collapse");
 	toggle.type = "button";
+	toggle.setAttribute("aria-label", "Hide details");
 	toggle.setAttribute("aria-controls", `${membersPanel.id} ${timersPanel.id}`);
 	let selected = 0;
 	let open = true;
@@ -12950,7 +12937,19 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}, for
 	tabs.append(...buttons);
 	const summary = el("button", "ops-channel-summary");
 	summary.type = "button";
-	summary.addEventListener("click", () => setOpen(true));
+	summary.setAttribute("aria-expanded", "false");
+	summary.setAttribute("aria-controls", `${membersPanel.id} ${timersPanel.id}`);
+	const summaryLabel = el("span", "ops-channel-summary-label", "Members and timers");
+	const summaryCounts = el("span", "ops-channel-summary-counts");
+	const chevron = el("span", "ops-channel-summary-chevron");
+	chevron.setAttribute("aria-hidden", "true");
+	const summaryText = el("span", "ops-channel-summary-text");
+	summaryText.append(summaryLabel, summaryCounts);
+	summary.append(chevron, summaryText);
+	summary.addEventListener("click", () => {
+		setOpen(true);
+		toggle.focus();
+	});
 	bar.append(summary, tabs, toggle);
 	panel.append(bar, ...panels);
 	function select(index) {
@@ -12968,11 +12967,15 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}, for
 		panel.dataset.open = String(value);
 		tabs.hidden = !value;
 		summary.hidden = value;
+		toggle.hidden = !value;
 		toggle.setAttribute("aria-expanded", String(value));
-		toggle.setAttribute("aria-label", value ? "Hide details" : "Show details");
 		select(selected);
 	}
-	toggle.addEventListener("click", () => setOpen(!open));
+	toggle.addEventListener("click", () => {
+		const focused = document.activeElement === toggle;
+		setOpen(!open);
+		if (focused && !open) summary.focus();
+	});
 	const history = el("section", "ops-channel-history");
 	const stream = channelStream(shell, port, rereadBoard);
 	const formsHost = el("div", "ops-forms-host");
@@ -13165,12 +13168,14 @@ function channelView(pathname, shell, port = void 0, rereadBoard = () => {}, for
 			const working = people.filter((agent) => memberState(agent) === "Working").length;
 			const idle = people.filter((agent) => memberState(agent) === "Idle").length;
 			const timersWord = timerCount === void 0 ? "Timers unavailable" : `Timers ${timerCount}`;
-			summary.replaceChildren(...member ? [] : [el("span", void 0, [
+			summaryLabel.textContent = member ? "Timers" : "Members and timers";
+			summaryCounts.textContent = (member ? [timerCount === void 0 ? "unavailable" : String(timerCount)] : [
 				board.truncated ? "Members (partial)" : `${people.length} member${people.length === 1 ? "" : "s"}`,
 				`${working} working`,
 				`${idle} idle`,
-				...formsWord(people)
-			].join(" · "))], el("span", "ops-channel-summary-timers", timersWord));
+				...formsWord(people),
+				timersWord
+			]).join(" · ");
 			buttons[0].hidden = !!member;
 			buttons[0].textContent = board.truncated ? "Members" : `Members ${people.length}`;
 			buttons[1].textContent = timerCount === void 0 ? "Timers" : `Timers ${timerCount}`;
@@ -13773,6 +13778,10 @@ function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = 
 		if (seen !== last) {
 			last = seen;
 			board = next;
+			orchestration.timers({
+				jobs: next.unavailable ? null : next.schedules,
+				truncated: next.truncated
+			});
 			if (next.unavailable) notAvailable(note, next.unavailable);
 			else if (next.truncated) notAvailable(note, "The board is larger than the browser shows. `tmt ops ui` shows all of it.");
 			else {
@@ -15785,10 +15794,16 @@ var answer;
 var observed = false;
 var publishSearch;
 var heldBy;
+/** The session is about to change: modules the shell keeps suspended hold the old one, so release
+* them first; and no unsent Ops words stay for the next session to see (#6757). */
+function sessionChanging() {
+	started?.sessionChanging();
+	forgetDrafts();
+}
 /** A verified replacement retires the old search transport/providers; it grants no access. */
 function observedSession(next) {
 	if (session === next) return;
-	if (session) started?.sessionChanging();
+	if (session) sessionChanging();
 	session = next;
 	search?.replace();
 	publishSearch?.();
@@ -15819,7 +15834,7 @@ function rootSession(signal) {
 }
 function forgetSession(previous) {
 	if (session !== previous) return;
-	started?.sessionChanging();
+	sessionChanging();
 	session = void 0;
 	search?.replace();
 	publishSearch?.();

@@ -24,7 +24,13 @@ it('turns the contract board into rows with uncoloured activity states', () => {
   );
   expect(answer({ ...ops[0]!.expect, defaultIdleAlertMs: null }).defaultIdleAlertMs).toBeNull();
   expect(board.squads).toEqual([
-    { name: 'tmt-core', room: null, lead: 'tmt-lead', idleAlertMs: 1_800_000 },
+    {
+      name: 'tmt-core',
+      room: null,
+      lead: 'tmt-lead',
+      idleAlertMs: 1_800_000,
+      attention: { state: 'normal', waiting: 0, blocked: 0 },
+    },
   ]);
   expect(board.defaultIdleAlertMs).toBeNull();
   const enriched = structuredClone(ops[0]!.expect) as unknown as OpsPayload;
@@ -57,11 +63,14 @@ it('turns the contract board into rows with uncoloured activity states', () => {
     {
       id: '00000000-0000-4000-8000-000000000001',
       presence: 'active',
-      activity: { state: 'working' },
+      activity: { state: 'working', sinceMs: 1000 },
       name: 'tmt-lead',
       squad: 'tmt-core',
       role: 'lead',
       state: 'working',
+      taskState: 'working',
+      taskTone: 'working',
+      staleness: 'fresh',
       task: 'review',
       waitingOnYou: 0,
       tokens1d: null,
@@ -73,8 +82,12 @@ it('turns the contract board into rows with uncoloured activity states', () => {
       name: 'core-3',
       squad: 'tmt-core',
       role: 'member',
-      // Offline wins over what it waits for; raw board text is not another state.
+      // Offline wins over what it waits for; raw board text is not another state, but stays as
+      // the task's own state with its colour.
       state: 'offline',
+      taskState: 'blocked: waits on CI now',
+      taskTone: 'blocked',
+      staleness: 'stale',
       task: '#4325',
       next: 'contract',
       pending: 'approve the plan',
@@ -173,4 +186,40 @@ it('keeps identity and plain-state evidence, and refuses missing or non-UUID mem
     malformed.agents[0]!.id = id;
     expect(answer(malformed).unavailable).toMatch(/could not read/);
   }
+});
+
+it('keeps the task state’s colour and the squad’s attention only when the owner sent known values', () => {
+  const with_ = (agent: Record<string, unknown>, attention?: unknown) =>
+    answer({
+      ...ops[0]!.expect,
+      squads: [{ ...(ops[0]!.expect.squads as object[])[0], attention }],
+      agents: [{ ...(ops[0]!.expect.agents as object[])[0], ...agent }],
+    });
+  // Ops' colour roles and their older names; any other token is neutral.
+  for (const [token, tone] of [
+    ['red', 'blocked'],
+    ['amber', 'waiting'],
+    ['green', 'working'],
+    ['magenta', 'review'],
+    ['review', 'review'],
+    ['dim', 'muted'],
+    ['accent', undefined],
+    ['constructor', undefined],
+  ] as const)
+    expect(with_({ stateTone: token }).agents[0]!.taskTone).toBe(tone);
+  expect(with_({ staleness: 'unknown' }).agents[0]!.staleness).toBeUndefined();
+  expect(with_({ activity: { state: 'idle', sinceMs: -1 } }).agents[0]!.activity).toEqual({
+    state: 'idle',
+  });
+  expect(with_({}, { state: 'waiting', waiting: 2, blocked: 1 }).squads[0]!.attention).toEqual({
+    state: 'waiting',
+    waiting: 2,
+    blocked: 1,
+  });
+  for (const malformed of [
+    { state: 'busy', waiting: 0, blocked: 0 },
+    { state: 'waiting', waiting: -1, blocked: 0 },
+    { state: 'blocked', waiting: 0, blocked: '1' },
+  ])
+    expect(with_({}, malformed).squads[0]!.attention).toBeUndefined();
 });

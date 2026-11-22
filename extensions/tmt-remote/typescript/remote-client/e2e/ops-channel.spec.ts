@@ -16,10 +16,10 @@ async function open(page: Page, width = 1440, theme = 'light') {
   await page.goto(`${origin}/ops/#channel/sample`);
   await expect(page.locator('.ops-channel-name')).toHaveText('#sample');
 }
-/** Phones open a channel with its details folded away. */
+/** Phones open a channel with its details folded away, behind one labelled disclosure. */
+const disclosure = (page: Page) => page.locator('.ops-channel-summary');
 async function details(page: Page) {
-  const show = page.getByRole('button', { name: 'Show details', exact: true });
-  if (await show.isVisible()) await show.click();
+  if (await disclosure(page).isVisible()) await disclosure(page).click();
 }
 const memberLink = (page: Page, name: string) =>
   page.locator('.ops-member-list').getByRole('link', { name, exact: true });
@@ -157,6 +157,25 @@ for (const width of [1440, 390])
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / sample-lead');
       await page.goBack();
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #sample');
+      if (width === 390) {
+        // Folded, the details are one disclosure: the chevron beside its label, the counts as its
+        // summary, and no second control at the far edge (#6757).
+        const fold = page.getByRole('button', { name: /^Members and timers/ });
+        await expect(fold).toHaveText(
+          'Members and timers3 members · 1 working · 1 idle · Timers 1',
+        );
+        await expect(fold).toHaveAttribute('aria-expanded', 'false');
+        await expect(page.getByRole('button', { name: 'Show details' })).toHaveCount(0);
+        await shot(page, `details-folded-${width}-${theme}`);
+        // Opening keeps the person's place on its inverse; hiding again returns to the disclosure.
+        await fold.focus();
+        await page.keyboard.press('Enter');
+        const hide = page.getByRole('button', { name: 'Hide details', exact: true });
+        await expect(hide).toBeFocused();
+        await expect(page.getByRole('tab', { name: 'Members 3', exact: true })).toBeVisible();
+        await page.keyboard.press('Enter');
+        await expect(fold).toBeFocused();
+      }
       await details(page);
       const usage = page.locator('.ops-member-row').first().locator('.ops-member-usage');
       await expect(usage).toBeEmpty();
@@ -893,6 +912,8 @@ test('channel posts to the lead or each mention with the board room, and shows r
     await page.evaluate(() => window.roomCalls.some((input) => input.since === 'room_1')),
   ).toBe(true);
   await expect(box).toHaveText('');
+  // Sent words are no draft: nothing is kept to come back after a reload (#6757).
+  expect(await page.evaluate(() => sessionStorage.getItem('tmt-ops-drafts-v1'))).toBeNull();
   // A post Core holds for two members: Send now asks for each one's request once, and a refusal
   // shows Core's sentence.
   await page.evaluate(() => {
@@ -1048,9 +1069,13 @@ test('a busy channel lands at the latest, groups a run, offers the latest when s
   await expect(page.locator('.ops-composer-host')).toBeInViewport();
 });
 
-test('a phone DM leads back to its channel, the rail marks drafts quietly, and a chosen route focuses its title', async ({
+test('a phone DM leads back to its channel, the rail marks drafts quietly and keeps them over a reload, and a chosen route focuses its title', async ({
   page,
 }) => {
+  // The channel has its room, so it has a message box of its own to keep words in.
+  await page.addInitScript(() => {
+    window.channelRoom = true;
+  });
   await openHistory(page, 390);
   const rail = page.locator('.tmt-ui-rail');
   // The DM leads back to its channel; with no timers it shows no Timers bar.
@@ -1066,6 +1091,13 @@ test('a phone DM leads back to its channel, the rail marks drafts quietly, and a
   await expect(page.locator('.ops-channel-name')).toBeFocused();
   // A route taken with the pointer moves focus quietly, with no ring.
   await expect(page.locator('.ops-channel-name')).toHaveAttribute('data-quiet-focus', '');
+  // Unsent words in the channel and in the DM come back after a reload, with the rail's mark (#6757).
+  const channelBox = page.locator('.ops-channel-compose [contenteditable="true"]');
+  await channelBox.click();
+  await page.keyboard.type('Not sent yet');
+  await page.reload();
+  await expect(page.locator('.ops-channel-name')).toHaveText('#sample');
+  await expect(channelBox).toHaveText('Not sent yet');
   await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
   const dm = rail.getByRole('link', { name: /^sample-1/ });
   await expect(dm).toContainText('✎ Draft');
@@ -1078,6 +1110,14 @@ test('a phone DM leads back to its channel, the rail marks drafts quietly, and a
   await page.locator('.ops-dm [contenteditable="true"]').click();
   await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.press('Backspace');
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  await expect(rail.getByRole('link', { name: /^sample-1/ })).not.toContainText('Draft');
+  // A cleared draft stays cleared over a reload; the channel's still comes back.
+  await page.reload();
+  await expect(page.locator('.ops-channel-name')).toHaveText('sample-1');
+  await expect(page.locator('.ops-dm [contenteditable="true"]')).toHaveText('');
+  await page.getByRole('link', { name: 'Back to #sample', exact: true }).click();
+  await expect(channelBox).toHaveText('Not sent yet');
   await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
   await expect(rail.getByRole('link', { name: /^sample-1/ })).not.toContainText('Draft');
 });

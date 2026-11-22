@@ -326,63 +326,6 @@ export async function readSending(api: OrchestrationApi, memberQuery?: string): 
   return { routes, talks, truncated };
 }
 
-export type JobState = 'on' | 'held' | 'paused' | 'no_owner';
-export interface Job {
-  id: string;
-  displayId: string;
-  title: string;
-  /** Core's schedule in short words: `every 1h`, `daily 23:30`, or the cron expression. */
-  schedule: string;
-  state: JobState;
-  nextRunAtMs: number | null;
-}
-const JOB_STATES: readonly JobState[] = ['on', 'held', 'paused', 'no_owner'];
-function jobSchedule(value: unknown): string {
-  const row = value && typeof value === 'object' ? (value as Json) : {};
-  if (row.kind === 'every' && safe(row.seconds)) {
-    const minutes = Math.round(row.seconds / 60);
-    return minutes % 60 === 0 ? `every ${minutes / 60}h` : `every ${minutes} min`;
-  }
-  if (row.kind === 'at' && text(row.at))
-    return text(row.on) ? `${row.on} ${row.at}` : `daily ${row.at}`;
-  if (row.kind === 'cron' && text(row.expression)) return row.expression;
-  return '—';
-}
-export function decodeJobs(rows: unknown[]): Job[] {
-  return rows.flatMap((value) => {
-    const row = object(value);
-    if (!text(row.jobId) || !JOB_STATES.includes(row.state as JobState)) return [];
-    const displayId = text(row.displayId) ? row.displayId : row.jobId;
-    return [
-      {
-        id: row.jobId,
-        displayId,
-        title:
-          text(row.title) && row.title
-            ? row.title
-            : text(row.messagePreview)
-              ? row.messagePreview
-              : displayId,
-        schedule: jobSchedule(row.schedule),
-        state: row.state as JobState,
-        nextRunAtMs: safe(row.nextRunAtMs) ? row.nextRunAtMs : null,
-      },
-    ];
-  });
-}
-export const JOBS_PAGE = 50;
-/** One member's jobs, first page only (`more` when Core has another). */
-export async function readJobs(
-  api: OrchestrationApi,
-  ownerIdentityId: string,
-): Promise<{ jobs: Job[]; more: boolean }> {
-  const answer = await api.read({ view: 'jobs', ownerIdentityId, limit: JOBS_PAGE });
-  return {
-    jobs: decodeJobs(Array.isArray(answer.jobs) ? answer.jobs : []),
-    more: text(answer.nextCursor),
-  };
-}
-
 /** The confirm dialog's lines for a preview: Core's own effect, never a local guess. */
 export function previewLines(preview: Json, name: (id: string) => string): string[] {
   const lines: string[] = [];

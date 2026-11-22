@@ -41,14 +41,11 @@ export function mark(shape: AgentMark | 'clock', tone?: string): HTMLSpanElement
 }
 
 /** A state as a chip: the mark and its word on the state's soft surface. */
-export function stateChip(state: AgentState, text?: string): HTMLSpanElement {
+export function stateChip(state: AgentState): HTMLSpanElement {
   const info = AGENT_STATES[state];
   const chip = el('span', browserUiClasses.chip);
   chip.dataset.tone = info.tone;
-  chip.append(
-    mark(info.mark, info.markTone),
-    el('span', browserUiClasses.chipLabel, text ?? info.word),
-  );
+  chip.append(mark(info.mark, info.markTone), el('span', browserUiClasses.chipLabel, info.word));
   return chip;
 }
 

@@ -4,12 +4,10 @@ import {
   ROUTES_PAGE,
   ROUTES_PAGES,
   applyInput,
-  decodeJobs,
   decodeOverview,
   decodeRoutes,
   decodeTalks,
   previewLines,
-  readJobs,
   readSending,
   receivingCell,
   type Json,
@@ -109,44 +107,6 @@ it('decodes only what the page draws and refuses an unreadable overview', () => 
   expect(member!.fields.talkLimit).toEqual({ value: 20, source: { kind: 'plan', planId: 'p1' } });
   expect(member!.activePlans).toEqual(['p1']);
   expect(member!.nextChangeAtMs).toBe(5_000);
-  expect(
-    decodeJobs([
-      {
-        jobId: 'j-1',
-        displayId: 'j1',
-        title: 'Night review',
-        schedule: { kind: 'every', zone: 'UTC', seconds: 3600, anchorMs: 0 },
-        state: 'on',
-        nextRunAtMs: 9,
-      },
-      {
-        jobId: 'j-2',
-        title: null,
-        messagePreview: 'Archive',
-        schedule: { kind: 'at', at: '23:30', on: null },
-        state: 'paused',
-        nextRunAtMs: null,
-      },
-      { jobId: 'j-3', state: 'running' },
-    ]),
-  ).toEqual([
-    {
-      id: 'j-1',
-      displayId: 'j1',
-      title: 'Night review',
-      schedule: 'every 1h',
-      state: 'on',
-      nextRunAtMs: 9,
-    },
-    {
-      id: 'j-2',
-      displayId: 'j-2',
-      title: 'Archive',
-      schedule: 'daily 23:30',
-      state: 'paused',
-      nextRunAtMs: null,
-    },
-  ]);
   expect(() => decodeOverview({ ...overview(), atMs: -1 })).toThrow(TypeError);
   expect(() => decodeOverview({ ...overview(), members: [{ name: 'no id' }] })).toThrow(TypeError);
 });
@@ -233,13 +193,10 @@ it('reads an older Core without routes or talks as not available, and rethrows a
     throw new OrchestrationRefused('ORCH_INPUT_INVALID');
   });
   expect(await readSending(older)).toEqual({ routes: null, talks: null, truncated: false });
-  // Every Core with orchestration has the jobs view: a refusal there is an error, not absence.
-  await expect(readJobs(older, 'a')).rejects.toMatchObject({ code: 'ORCH_INPUT_INVALID' });
   const failing = api(() => {
     throw new OrchestrationRefused('ORCH_STORAGE');
   });
   await expect(readSending(failing)).rejects.toMatchObject({ code: 'ORCH_STORAGE' });
-  await expect(readJobs(failing, 'a')).rejects.toMatchObject({ code: 'ORCH_STORAGE' });
 });
 
 it('shows Core’s own preview and applies exactly that preview with consent', () => {

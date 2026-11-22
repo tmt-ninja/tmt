@@ -6,15 +6,15 @@ import { browserUiClasses as c } from '@tmt/browser-ui/static';
 import { createIcon } from '@tmt/browser-ui/glyph';
 import { el, sentence } from './ops-parts.js';
 import { notAvailable } from './not-available.js';
+import type { OpsSchedule } from './ops-source.js';
+import { timerList } from './ops-timers.js';
 import {
   OrchestrationRefused,
   applyInput,
   decodeOverview,
   previewLines,
-  readJobs,
   readSending,
   receivingCell,
-  type Job,
   type Json,
   type Member,
   type OrchestrationApi,
@@ -36,12 +36,6 @@ const STATE: Record<string, string> = {
 };
 const SENDING: Record<string, string> = { anyone: 'Anyone', leads: 'Leads only', paused: 'Paused' };
 const ROUTINE: Record<string, string> = { run: 'Run', hold: 'Hold' };
-const JOB: Record<Job['state'], string> = {
-  on: '● ready',
-  held: '◆ held',
-  paused: '⏸ paused',
-  no_owner: '○ no owner',
-};
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /** Core's receiving value in words for the member panel. */
@@ -155,15 +149,9 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   let selected: string | undefined;
   let target: string | undefined;
   let why: { id: string; lines: string[] } | undefined;
-  // Each member's jobs as last read, tagged with the overview read they belong to: every overview
-  // read (the 30 s refresh, after a save) starts a new round, and the shown member is read again
-  // while its earlier list stays on screen.
-  const jobs = new Map<
-    string,
-    { round: number; value: { jobs: Job[]; more: boolean } | 'failed' }
-  >();
-  const reading = new Set<string>();
-  let jobsRound = 0;
+  // The board's timers, as the page last read them (#6757): the inspector shows the selected
+  // member's, the same rows as Channel details. The door serves no jobs view of its own.
+  let timers: { jobs: readonly OpsSchedule[] | null; truncated: boolean } | undefined;
   let generation = 0;
 
   const say = (text: string) => {
@@ -339,7 +327,6 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       const next = decodeOverview(await api.read(input));
       const nextSending = await readSending(api, memberQuery || undefined);
       if (mine !== generation) return;
-      jobsRound += 1;
       overview = next;
       sending = nextSending;
       if (!member(selected)) selected = next.members[0]?.identityId;
@@ -737,42 +724,11 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
     return list;
   };
 
-  function drawJobs(row: Member): HTMLElement[] {
-    const entry = jobs.get(row.identityId)?.value;
-    if (entry === undefined) return [el('p', 'ops-orchestration-caption', 'Jobs · reading…')];
-    if (entry === 'failed')
-      return [el('p', 'ops-orchestration-caption', 'Jobs · Core could not read them right now.')];
-    const head = el('h4', c.sectionHeading, `Jobs ${entry.jobs.length}${entry.more ? '+' : ''}`);
-    if (!entry.jobs.length) return [head, el('p', 'ops-orchestration-caption', 'No jobs.')];
-    const list = el('ul', 'ops-orchestration-jobs');
-    list.setAttribute('aria-label', `Jobs · ${row.name}`);
-    for (const job of entry.jobs) {
-      const item = el('li');
-      const next = job.nextRunAtMs === null ? '' : ` · next ${moment(job.nextRunAtMs)}`;
-      const title = el('span', undefined, job.title);
-      title.title = job.title;
-      item.append(
-        title,
-        el('span', undefined, JOB[job.state]),
-        el('span', undefined, `${job.schedule}${next}`),
-      );
-      item.dataset.state = job.state;
-      list.append(item);
-    }
-    return [head, list];
-  }
-
-  async function loadJobs(id: string) {
-    if (jobs.get(id)?.round === jobsRound || reading.has(id) || !api) return;
-    const round = jobsRound;
-    reading.add(id);
-    try {
-      jobs.set(id, { round, value: await readJobs(api, id) });
-    } catch {
-      jobs.set(id, { round, value: 'failed' });
-    }
-    reading.delete(id);
-    if (selected === id) drawInspector();
+  function drawTimers(row: Member): HTMLElement[] {
+    if (timers === undefined) return [el('p', 'ops-orchestration-caption', 'Timers · reading…')];
+    const mine = timers.jobs && timers.jobs.filter((job) => job.owner === row.name);
+    const head = el('h4', c.sectionHeading, mine ? `Timers ${mine.length}` : 'Timers');
+    return [head, timerList(mine, timers.truncated)];
   }
 
   function drawInspector() {
@@ -896,12 +852,11 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
         for (const line of why.lines) list.append(el('li', c.listRow, line));
         section.append(list);
       }
-      section.append(...drawJobs(row));
+      section.append(...drawTimers(row));
       parts.push(section);
-      void loadJobs(row.identityId);
     }
     if (!parts.length) parts.push(sentence('No members match.'));
-    // A redraw (jobs arriving, the 30 s refresh) keeps focus on the same heading.
+    // A redraw (the board's timers, the 30 s refresh) keeps focus on the same heading.
     const focused = document.activeElement;
     const kept =
       focused instanceof HTMLHeadingElement && inspector.contains(focused)
@@ -1048,5 +1003,10 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
     node,
     /** One refresh; the page's owner calls it while the section is visible. */
     refresh: load,
+    /** The board's timers changed: the inspector shows the selected member's. */
+    timers(next: { jobs: readonly OpsSchedule[] | null; truncated: boolean }) {
+      timers = next;
+      if (overview) drawInspector();
+    },
   };
 }

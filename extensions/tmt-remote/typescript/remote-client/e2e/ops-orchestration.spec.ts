@@ -99,8 +99,10 @@ for (const width of [1440, 390])
       await expect(inspector).toContainText('Blocked · explained');
       await expect(inspector).toContainText('State● Awake ← Shift B · Night');
       await expect(inspector).toContainText('Talk limit20 / h ← Shift B · Night');
-      await expect(page.getByRole('list', { name: 'Jobs · night-1' })).toContainText(
-        'Night review● readyevery 1h · next 00:00',
+      // The member's timers are the board's, the same rows as Channel details (#6757).
+      await expect(inspector.getByRole('heading', { name: 'Timers 1' })).toBeVisible();
+      await expect(inspector.getByRole('list', { name: 'Timers' })).toContainText(
+        'Night reviewEvery hournight-1On',
       );
       await expect(matrix.locator('th[data-cross]')).toHaveText(['core-1', 'night-1']);
       // At any width the matrix scrolls inside its card and the row names stay on its left edge.
@@ -197,12 +199,8 @@ test('a change shows Core’s preview and saves only that preview after Save', a
   await inspector.getByRole('button', { name: 'Focus now 1h', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Orchestration saved.');
-  // Each reread (here the next 30 s refresh after the save) reads the shown member’s jobs again.
-  const jobReads = async () =>
-    (await calls(page)).filter((call) => call.input.view === 'jobs').length;
-  const before = await jobReads();
-  await page.clock.runFor(61_000);
-  await expect.poll(jobReads).toBe(before + 1);
+  // The page never asks the door for a view it refuses by design: timers come from the board (#6757).
+  expect((await calls(page)).filter((call) => call.input.view === 'jobs')).toEqual([]);
   writes = (await calls(page)).filter((call) => call.kind === 'write');
   expect(writes.map((call) => call.input.phase)).toEqual(['preview', 'preview', 'apply']);
   expect(writes[2]!.input).toMatchObject({

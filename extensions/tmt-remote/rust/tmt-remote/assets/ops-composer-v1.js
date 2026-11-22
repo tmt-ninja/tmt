@@ -18222,9 +18222,9 @@ function km({ options: e }) {
 		a.current !== e.cleared && (a.current = e.cleared, n((t) => ({
 			...t,
 			[e.key]: ""
-		})), e.onDraft?.(e.key, !1), i((e) => e + 1));
+		})), e.onDraft?.(e.key, ""), i((e) => e + 1));
 	}, [e.cleared, e.key]);
-	let o = t[e.key] ?? "", s = e.canSend && !e.busy && o.trim() !== "", c = () => {
+	let o = t[e.key] ?? e.saved ?? "", s = e.canSend && !e.busy && o.trim() !== "", c = () => {
 		s && e.onSend?.(o);
 	}, l = (0, y.createElement)(Em, {
 		label: e.label,
@@ -18255,7 +18255,7 @@ function km({ options: e }) {
 			n((n) => ({
 				...n,
 				[e.key]: t.value
-			})), e.onDraft?.(e.key, t.value.trim() !== "");
+			})), e.onDraft?.(e.key, t.value);
 		},
 		document: Dm,
 		disabled: e.busy,

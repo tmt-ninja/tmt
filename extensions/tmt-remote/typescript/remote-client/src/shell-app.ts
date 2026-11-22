@@ -27,6 +27,7 @@ import {
   type ModuleLoad,
 } from './module-entry.js';
 import { opsPage } from './ops-page.js';
+import { forgetDrafts } from './ops-composer-slot.js';
 import { remoteApp } from './remote-app.js';
 import { REMOTE_PATHS, remoteItem } from './remote-routes.js';
 import { homePage, hostRemote, remoteShell, setRouteTitle } from './remote-shell.js';
@@ -421,11 +422,17 @@ let observed = false;
 let publishSearch: (() => void) | undefined;
 let heldBy: (() => string) | undefined;
 
+/** The session is about to change: modules the shell keeps suspended hold the old one, so release
+ * them first; and no unsent Ops words stay for the next session to see (#6757). */
+function sessionChanging(): void {
+  started?.sessionChanging();
+  forgetDrafts();
+}
+
 /** A verified replacement retires the old search transport/providers; it grants no access. */
 function observedSession(next: object): void {
   if (session === next) return;
-  // Modules the shell keeps suspended hold the old session: release them before it changes.
-  if (session) started?.sessionChanging();
+  if (session) sessionChanging();
   session = next;
   search?.replace();
   publishSearch?.();
@@ -457,7 +464,7 @@ function rootSession(signal?: AbortSignal): Promise<Session> {
 }
 function forgetSession(previous: Session): void {
   if (session !== previous) return;
-  started?.sessionChanging();
+  sessionChanging();
   session = undefined;
   search?.replace();
   publishSearch?.();

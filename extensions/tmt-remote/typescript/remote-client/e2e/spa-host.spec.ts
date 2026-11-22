@@ -1220,7 +1220,7 @@ test.describe('the Ops route on the owner read', () => {
         'Working',
         'Offline',
       ]);
-      await page.getByRole('button', { name: 'Show details', exact: true }).click();
+      await page.getByRole('button', { name: /^Members and timers/ }).click();
       await page.getByRole('tab', { name: /^Timers/ }).click();
       await expect(page.getByRole('tabpanel', { name: /^Timers/ })).toContainText('Hourly pass');
       await modulePages(page).getByRole('link', { name: 'core-3 · Offline', exact: true }).click();
