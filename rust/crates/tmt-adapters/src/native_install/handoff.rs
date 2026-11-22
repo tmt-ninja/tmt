@@ -51,19 +51,175 @@ fn caller(version: u32) -> super::Caller {
     }
 }
 
+const PROBE_DEADLINE: Duration = Duration::from_secs(30);
+const PROBE_EXCERPT_LIMIT: usize = 256;
+
+fn sanitize_excerpt(bytes: &[u8], limit: usize) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let mut clean = String::with_capacity(text.len().min(limit));
+    for ch in text.chars() {
+        let mapped = if ch.is_control() { ' ' } else { ch };
+        if clean.len() + mapped.len_utf8() > limit {
+            break;
+        }
+        clean.push(mapped);
+    }
+    clean.trim().to_owned()
+}
+
+fn describe_json_mismatch(expected: &serde_json::Value, actual: &serde_json::Value) -> String {
+    let (Some(exp_obj), Some(act_obj)) = (expected.as_object(), actual.as_object()) else {
+        return sanitize_excerpt(
+            format!("expected JSON object, got {actual}").as_bytes(),
+            PROBE_EXCERPT_LIMIT,
+        );
+    };
+    for (key, exp_val) in exp_obj {
+        match act_obj.get(key) {
+            None => {
+                return sanitize_excerpt(
+                    format!("missing field {key:?} (expected {exp_val})").as_bytes(),
+                    PROBE_EXCERPT_LIMIT,
+                );
+            }
+            Some(act_val) if act_val != exp_val => {
+                return sanitize_excerpt(
+                    format!("field {key:?}: expected {exp_val}, got {act_val}").as_bytes(),
+                    PROBE_EXCERPT_LIMIT,
+                );
+            }
+            Some(_) => {}
+        }
+    }
+    for key in act_obj.keys() {
+        if !exp_obj.contains_key(key) {
+            return sanitize_excerpt(
+                format!("unexpected field {key:?}").as_bytes(),
+                PROBE_EXCERPT_LIMIT,
+            );
+        }
+    }
+    "value differed from expected probe version".to_owned()
+}
+
 #[derive(Debug)]
-pub(super) struct Unsupported(Option<CommandError>);
+pub(super) enum UnsupportedReason {
+    Timeout {
+        elapsed_ms: u128,
+        limit_ms: u128,
+        source: CommandError,
+    },
+    Exit {
+        code: Option<u32>,
+        signal: Option<i32>,
+        stderr: Option<String>,
+        source: CommandError,
+    },
+    Command {
+        kind: CommandFailure,
+        source: CommandError,
+    },
+    UnexpectedStderr {
+        stderr: String,
+    },
+    InvalidJson {
+        detail: String,
+    },
+    VersionMismatch {
+        detail: String,
+    },
+}
+
+#[derive(Debug)]
+pub(super) struct Unsupported(UnsupportedReason);
+
+impl Unsupported {
+    fn from_command_error(error: CommandError, elapsed: Duration, limit: Duration) -> Self {
+        let reason = match error.kind {
+            CommandFailure::Timeout => UnsupportedReason::Timeout {
+                elapsed_ms: elapsed.as_millis(),
+                limit_ms: limit.as_millis(),
+                source: error,
+            },
+            CommandFailure::Exit { code, signal } => {
+                let stderr = error
+                    .output
+                    .as_ref()
+                    .map(|out| sanitize_excerpt(&out.stderr, PROBE_EXCERPT_LIMIT))
+                    .filter(|s| !s.is_empty());
+                UnsupportedReason::Exit {
+                    code,
+                    signal,
+                    stderr,
+                    source: error,
+                }
+            }
+            kind => UnsupportedReason::Command {
+                kind,
+                source: error,
+            },
+        };
+        Self(reason)
+    }
+}
+
+impl std::fmt::Display for UnsupportedReason {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Timeout {
+                elapsed_ms,
+                limit_ms,
+                ..
+            } => write!(
+                formatter,
+                "timed out after {elapsed_ms}ms (limit {limit_ms}ms)"
+            ),
+            Self::Exit {
+                code,
+                signal,
+                stderr,
+                ..
+            } => {
+                match (code, signal) {
+                    (Some(code), _) => write!(formatter, "exited with code {code}")?,
+                    (None, Some(sig)) => write!(formatter, "terminated by signal {sig}")?,
+                    (None, None) => write!(formatter, "exited with unknown status")?,
+                }
+                if let Some(excerpt) = stderr {
+                    write!(formatter, ", stderr: {excerpt}")?;
+                }
+                Ok(())
+            }
+            Self::Command { kind, .. } => write!(formatter, "command failed ({kind:?})"),
+            Self::UnexpectedStderr { stderr } => {
+                write!(formatter, "unexpected stderr: {stderr}")
+            }
+            Self::InvalidJson { detail } => write!(formatter, "invalid JSON: {detail}"),
+            Self::VersionMismatch { detail } => write!(formatter, "JSON mismatch: {detail}"),
+        }
+    }
+}
+
 impl std::fmt::Display for Unsupported {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/{OFFICIAL_REPOSITORY}/releases/latest/download/install.sh | sh"
+            "This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/{OFFICIAL_REPOSITORY}/releases/latest/download/install.sh | sh (probe: {})",
+            self.0
         )
     }
 }
+
 impl std::error::Error for Unsupported {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0.as_ref().map(|error| error as _)
+        match &self.0 {
+            UnsupportedReason::Timeout { source, .. }
+            | UnsupportedReason::Exit { source, .. }
+            | UnsupportedReason::Command { source, .. } => Some(source),
+            UnsupportedReason::UnexpectedStderr { .. }
+            | UnsupportedReason::InvalidJson { .. }
+            | UnsupportedReason::VersionMismatch { .. } => None,
+        }
     }
 }
 
@@ -386,6 +542,7 @@ pub(super) fn upgrade_observed(
         let archive = staging.write(&downloaded.archive_name, &downloaded.archive, 0o600)?;
         let manifest = staging.write("dist-manifest.json", &downloaded.manifest, 0o600)?;
         checkpoint()?;
+        let probe_started = Instant::now();
         let probe = runner
             .execute(CommandRequest {
                 program: std::ffi::OsStr::new("/usr/bin/env"),
@@ -404,15 +561,40 @@ pub(super) fn upgrade_observed(
                     "--json".into(),
                 ],
                 input: &[],
-                deadline: Instant::now() + Duration::from_secs(10),
+                deadline: probe_started + PROBE_DEADLINE,
                 max_output_bytes: limit,
             })
-            .map_err(|error| io::Error::other(Unsupported(Some(error))))?;
-        if !probe.stderr.is_empty()
-            || serde_json::from_slice::<serde_json::Value>(&probe.stdout).ok()
-                != Some(probe_version(version))
-        {
-            return Err(io::Error::other(Unsupported(None)));
+            .map_err(|error| {
+                io::Error::other(Unsupported::from_command_error(
+                    error,
+                    probe_started.elapsed(),
+                    PROBE_DEADLINE,
+                ))
+            })?;
+        if !probe.stderr.is_empty() {
+            return Err(io::Error::other(Unsupported(
+                UnsupportedReason::UnexpectedStderr {
+                    stderr: sanitize_excerpt(&probe.stderr, PROBE_EXCERPT_LIMIT),
+                },
+            )));
+        }
+        let expected_probe = probe_version(version);
+        match serde_json::from_slice::<serde_json::Value>(&probe.stdout) {
+            Err(error) => {
+                return Err(io::Error::other(Unsupported(
+                    UnsupportedReason::InvalidJson {
+                        detail: sanitize_excerpt(error.to_string().as_bytes(), PROBE_EXCERPT_LIMIT),
+                    },
+                )));
+            }
+            Ok(actual) if actual != expected_probe => {
+                return Err(io::Error::other(Unsupported(
+                    UnsupportedReason::VersionMismatch {
+                        detail: describe_json_mismatch(&expected_probe, &actual),
+                    },
+                )));
+            }
+            Ok(_) => {}
         }
         checkpoint()?;
         let transfer = Request {
