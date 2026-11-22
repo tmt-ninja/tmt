@@ -120,7 +120,7 @@ fn annotations(
 
 /// Per sender identity ID, the requests waiting on the user, oldest first,
 /// from `tmt inbox`: core decides what still takes an answer.
-pub(crate) fn waiting(inbox: &Window) -> BTreeMap<String, Vec<Value>> {
+fn waiting(inbox: &Window) -> BTreeMap<String, Vec<Value>> {
     let mut found: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     for item in &inbox.items {
         if let Some(sender) = item["from"]["identityId"].as_str() {
@@ -186,14 +186,14 @@ pub fn overlay(
     me: Option<&crate::me::Me>,
     document: &mut Value,
     room: Option<Window>,
-) -> Result<(Option<Sent>, Option<Window>), SquadError> {
+) -> Result<Option<Sent>, SquadError> {
     let Some(me) = me else {
         let empty = Window {
             items: Vec::new(),
             complete: true,
         };
         apply(document, &squad.name, "", &empty, &empty);
-        return Ok((None, None));
+        return Ok(None);
     };
     let me_id = me.id.clone();
     let room = match room {
@@ -202,7 +202,7 @@ pub fn overlay(
     };
     let inbox = inbox(core, &me_id)?;
     apply(document, &squad.name, &me_id, &room, &inbox);
-    Ok((Some(Sent { me: me_id, room }), Some(inbox)))
+    Ok(Some(Sent { me: me_id, room }))
 }
 
 /// The same bounded room history for annotations, replies and activity.
@@ -223,9 +223,7 @@ pub fn inbox(core: &Core, me_id: &str) -> Result<Window, SquadError> {
         &(PAGE * PAGES).to_string(),
     ])?;
     Ok(Window {
-        items: inbox["items"].as_array().cloned().ok_or_else(|| {
-            SquadError::new("SQUAD_CORE_UNAVAILABLE", "Core returned no inbox items.")
-        })?,
+        items: inbox["items"].as_array().cloned().unwrap_or_default(),
         complete: inbox["more"] != true,
     })
 }

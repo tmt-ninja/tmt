@@ -879,24 +879,18 @@ fn workspace_field_preview_omits_empty_values_and_clamps_safe_wrapped_text() {
             .iter()
             .any(|line| line.contains("task") || line.contains("model") || line.contains("links"))
     );
-    workspace_row(&mut app)["fields"]["task"] = json!("old task text");
-    workspace_row(&mut app)["waitingOnYou"] = json!([{
-        "requestId":"question", "preview":"one\ntwo\t\u{1b}[31m long question that wraps over several preview lines"
-    }]);
-    let detail = app.row_detail(&target, &[]).unwrap();
-    assert_eq!(detail.value()["fields"][0]["label"], "waiting on you");
+    workspace_row(&mut app)["fields"]["task"] =
+        json!("one\ntwo\t\u{1b}[31m long task that wraps over several preview lines");
     let text = buffer_text(&entity_detail_buffer(&app, 18, 20));
-    assert!(text.iter().any(|line| line.contains("◆ one")), "{text:?}");
-    assert!(!text.iter().any(|line| line.contains("old task")));
+    assert!(text.iter().any(|line| line.contains("task")));
     assert!(text.iter().any(|line| line.contains('…')));
     assert!(
         text.iter()
             .all(|line| line.width() <= 18 && !line.contains('\u{1b}'))
     );
-    assert_eq!(
-        text.iter().position(|line| line.starts_with("│reply")),
-        Some(3),
-        "exactly three request preview lines before the separate reply block: {text:?}"
+    assert!(
+        text.len() <= 4,
+        "three task preview lines and the reply placeholder: {text:?}"
     );
     entity_detail_buffer(&app, 0, 0);
     entity_detail_buffer(&app, 1, 1);

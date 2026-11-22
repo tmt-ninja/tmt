@@ -33,59 +33,24 @@ fn member_value(member: &Member) -> Value {
     let mut row = json!({
         "id": member.id, "name": member.name, "lifetime": member.lifetime,
         "presence": member.presence, "pane": member.pane, "activity": member.activity,
-        "state": field("state"),
+        "state": field("state"), "pending": field("pending"),
         "fields": member.fields, "failed": member.failed, "staleness": crate::staleness::unavailable("disabled"),
     });
     if !member.colors.is_empty() {
         row["colors"] = json!(member.colors);
     }
-    for section in ["fields", "colors"] {
-        if let Some(fields) = row.get_mut(section).and_then(Value::as_object_mut) {
-            fields.retain(|name, _| !crate::squad::retired_field(name));
-        }
-    }
-    if let Some(failed) = row["failed"].as_array_mut() {
-        failed.retain(|name| !name.as_str().is_some_and(crate::squad::retired_field));
-    }
     row
 }
 
-pub(crate) fn projected_row(member: &Member, rows: &Rows) -> Value {
-    let mut row = member_value(member);
-    let shown = |key: &str| {
-        matches!(key, "state" | "role" | "link" | "pr_link" | "model")
-            || rows.columns.iter().any(|column| column.field == key)
-            || rows
-                .lines
-                .iter()
-                .flatten()
-                .any(|cell| cell.field.as_deref() == Some(key))
-    };
-    for section in ["fields", "colors"] {
-        if let Some(fields) = row.get_mut(section).and_then(Value::as_object_mut) {
-            fields.retain(|name, _| shown(name));
-        }
-    }
-    if row["colors"]
-        .as_object()
-        .is_some_and(serde_json::Map::is_empty)
-    {
-        row.as_object_mut()
-            .expect("member row is an object")
-            .remove("colors");
-    }
-    if let Some(failed) = row["failed"].as_array_mut() {
-        failed.retain(|name| name.as_str().is_some_and(shown));
-    }
-    row
-}
-
-/// The default order follows state (unknown after known), then name.
-pub(crate) fn sort(rows: &mut [Member], states: &States) {
+/// Crew puts rows that owe the user a decision first; then the layout's state
+/// order (unknown states after known ones); then name.
+pub(crate) fn sort(rows: &mut [Member], layout: Layout, states: &States) {
     let rank = |member: &Member| {
+        let pending = layout.pending_first() && !member.fields.contains_key("pending");
         let state = member.fields.get("state").map(String::as_str);
         let order = states.rank(state);
         (
+            pending,
             order,
             state.unwrap_or_default().to_owned(),
             member.name.clone(),
@@ -299,7 +264,7 @@ pub fn document(
     mut members: Vec<Member>,
 ) -> Value {
     prepare(row_layout, states, &mut members);
-    prepared_document(squad, layout, states, sections, row_layout, members)
+    prepared_document(squad, layout, states, sections, members)
 }
 
 pub(crate) fn prepared_document(
@@ -307,21 +272,20 @@ pub(crate) fn prepared_document(
     layout: Layout,
     states: &States,
     sections: &[Section],
-    row_layout: &Rows,
     members: Vec<Member>,
 ) -> Value {
     let (leads, mut members): (Vec<_>, Vec<_>) = members.into_iter().partition(Member::is_lead);
-    sort(&mut members, states);
+    sort(&mut members, layout, states);
     let sections = self::sections(
         &members,
         sections,
         |key, a, b| compare(key, states, a, b),
-        |member| projected_row(member, row_layout),
+        member_value,
     );
     json!({
         "squad": {
             "name": squad.name, "roomId": squad.room_id, "layout": layout.as_str(),
-            "lead": leads.first().map_or(Value::Null, |member| projected_row(member, row_layout)), "notesStaleness": crate::staleness::unavailable("disabled"),
+            "lead": leads.first().map_or(Value::Null, member_value), "notesStaleness": crate::staleness::unavailable("disabled"),
         },
         "sections": sections,
     })
@@ -344,10 +308,7 @@ fn column_cell<'a>(row: &'a Value, field: &str) -> &'a str {
 /// One leading mark: `◆` when the member waits on the reader's decision,
 /// otherwise its presence.
 fn mark(row: &Value) -> Mark {
-    if row["waitingOnYou"]
-        .as_array()
-        .is_some_and(|requests| !requests.is_empty())
-    {
+    if row["pending"].is_string() {
         Mark::Decision
     } else {
         match row["presence"].as_str() {
@@ -361,12 +322,8 @@ fn mark(row: &Value) -> Mark {
 /// What the reader needs first: the decision owed and the latest annotation.
 fn detail(row: &Value) -> String {
     let mut parts = Vec::new();
-    if let Some(preview) = row["waitingOnYou"]
-        .as_array()
-        .and_then(|requests| requests.first())
-        .and_then(|request| request["preview"].as_str())
-    {
-        parts.push(format!("waiting on you: {preview}"));
+    if let Some(pending) = row["pending"].as_str() {
+        parts.push(format!("waiting on you: {pending}"));
     }
     if let Some(text) = row["annotation"]["text"].as_str() {
         parts.push(format!("✎ to {}: {text}", cell(&row["annotation"]["to"])));
@@ -760,7 +717,7 @@ mod tests {
 
     #[test]
     fn a_decision_owed_leads_the_row_over_presence() {
-        let row = |presence: &str, pending: Option<&str>| json!({"presence": presence, "waitingOnYou": pending.map(|preview| [json!({"preview":preview})])});
+        let row = |presence: &str, pending: Option<&str>| json!({"presence": presence, "pending": pending});
         assert_eq!(mark(&row("active", Some("approve"))), Mark::Decision);
         assert_eq!(mark(&row("offline", Some("approve"))), Mark::Decision);
         assert_eq!(mark(&row("active", None)), Mark::Running);
@@ -880,13 +837,7 @@ sort = ["state"]
             member("kai", &[("state", "custom")]),
             member(
                 "bob",
-                &[
-                    ("state", "blocked"),
-                    ("task", "review the patch"),
-                    ("next", "send the result"),
-                    ("pending", "approve the plan"),
-                    ("now", "reviewing"),
-                ],
+                &[("state", "blocked"), ("pending", "approve the plan")],
             ),
         ]
     }
@@ -963,7 +914,7 @@ sort = ["state"]
     }
 
     #[test]
-    fn crew_ignores_retired_metadata_and_keeps_state_order_and_one_shape() {
+    fn crew_puts_pending_first_then_state_order_and_keeps_one_shape() {
         let squad = Squad {
             name: "product".into(),
             room_id: "room".into(),
@@ -976,14 +927,14 @@ sort = ["state"]
             &Rows::preset(),
             members(),
         );
-        assert_eq!(names(&crew), ["zed", "bob", "amy", "kai"]);
+        assert_eq!(names(&crew), ["bob", "zed", "amy", "kai"]);
         assert_eq!(crew["squad"]["lead"]["name"], "sol");
         assert_eq!(crew["sections"].as_array().unwrap().len(), 1);
         assert_eq!(crew["sections"][0]["title"], Value::Null);
-        let bob = &crew["sections"][0]["rows"][1];
-        assert!(!bob.as_object().unwrap().contains_key("pending"));
-        assert_eq!(bob["fields"], json!({"state": "blocked"}));
+        let bob = &crew["sections"][0]["rows"][0];
+        assert_eq!(bob["pending"], "approve the plan");
         assert!(!bob.as_object().unwrap().contains_key("note"));
+        assert_eq!(crew["sections"][0]["rows"][1]["pending"], Value::Null);
 
         let minimal = document(
             &squad,
@@ -1001,10 +952,10 @@ sort = ["state"]
             text(&crew, Terminal::PLAIN),
             "squad product · lead sol · layout crew\n\n\
              LEAD\n\
-             \x20 ○  sol  -\n\n\
+             \x20 ◆  sol  -        waiting on you: lead items stay in the header\n\n\
              MEMBERS 4\n\
+             \x20 ◆  bob  blocked  waiting on you: approve the plan\n\
              \x20 ○  zed  working\n\
-             \x20 ○  bob  blocked\n\
              \x20 ○  amy  review\n\
              \x20 ○  kai  custom\n"
         );
@@ -1052,11 +1003,15 @@ sort = ["state"]
                 .map(|row| row["name"].as_str().unwrap())
                 .collect()
         };
-        assert_eq!(names(0), ["bob"], "the lead stays in the header");
+        assert_eq!(
+            names(0),
+            ["bob"],
+            "the lead's own pending stays in the header"
+        );
         assert_eq!(names(1), ["zed", "kai", "bob", "amy"]);
         assert!(names(2).is_empty());
         let rendered = text(&document, Terminal::PLAIN);
-        assert!(rendered.contains("NEEDS ME 1\n  ○  bob  blocked"));
+        assert!(rendered.contains("NEEDS ME 1\n  ◆  bob  blocked  waiting on you"));
         assert!(rendered.ends_with("EMPTY 0\n    (no members)\n"));
     }
 
@@ -1078,7 +1033,7 @@ sort = ["state"]
         assert!(!off.contains("idle"), "{off}");
         let since = now_ms() - 32 * 60_000;
         crew["squad"]["idleAlert"] = json!({"enabled": true, "afterMs": 1_800_000});
-        crew["sections"][0]["rows"][0]["idleAlert"] = json!({"state": "over", "sinceMs": since});
+        crew["sections"][0]["rows"][1]["idleAlert"] = json!({"state": "over", "sinceMs": since});
         crew["sections"][0]["rows"][2]["idleAlert"] =
             json!({"state": "excepted", "reason": "hold", "sinceMs": since});
         let on = text(&crew, Terminal::PLAIN);
@@ -1136,11 +1091,11 @@ sort = ["state"]
         assert_eq!(
             listed,
             [
-                (json!("Needs me"), vec![]),
-                (Value::Null, vec!["zed", "bob", "amy", "kai"]),
+                (json!("Needs me"), vec!["bob"]),
+                (Value::Null, vec!["zed", "amy", "kai"]),
             ]
         );
-        let retired_only = super::document(
+        let all_matched = super::document(
             &squad,
             Layout::Crew,
             &states(Layout::Crew),
@@ -1149,9 +1104,9 @@ sort = ["state"]
             vec![member("bob", &[("pending", "x")])],
         );
         assert_eq!(
-            retired_only["sections"].as_array().unwrap().len(),
-            2,
-            "legacy filters cannot match a retired field"
+            all_matched["sections"].as_array().unwrap().len(),
+            1,
+            "no empty trailing section"
         );
     }
 
@@ -1159,12 +1114,12 @@ sort = ["state"]
     fn opted_in_piped_lists_share_fitting_without_changing_full_row_values() {
         let config: toml_edit::DocumentMut = r#"[p.rows]
 columns = [{ name = "member", width = "20%" },
-           { name = "topic", width = "40%", overflow = "wrap", max_lines = 2 }]
+           { name = "task", width = "40%", overflow = "wrap", max_lines = 2 }]
 "#
         .parse()
         .unwrap();
         let rows = crate::rows::read(config["p"].as_table_like(), "p").unwrap();
-        let topic =
+        let task =
             "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron";
         let mut document = document(
             &Squad {
@@ -1175,7 +1130,7 @@ columns = [{ name = "member", width = "20%" },
             &states(Layout::Minimal),
             &[],
             &rows,
-            vec![member("worker", &[("topic", topic)])],
+            vec![member("worker", &[("task", task)])],
         );
         let metadata = rows.value();
         document["columns"] = metadata["columns"].clone();
@@ -1196,7 +1151,7 @@ columns = [{ name = "member", width = "20%" },
             "{rendered}"
         );
         assert_eq!(document, before);
-        assert_eq!(document["sections"][0]["rows"][0]["fields"]["topic"], topic);
+        assert_eq!(document["sections"][0]["rows"][0]["fields"]["task"], task);
         let narrow = text(
             &document,
             Terminal {
@@ -1218,11 +1173,11 @@ columns = [{ name = "member", width = "20%" },
             "squad": {"name": "x", "layout": "minimal"},
             "columns": [
                 {"field": "member", "width": 14},
-                {"field": "topic", "width": "40%", "overflow": "wrap", "max_lines": 2},
+                {"field": "task", "width": "40%", "overflow": "wrap", "max_lines": 2},
                 {"field": "model", "width": 200, "min": 200, "max": 200, "grow": 100, "valueOnly": true}
             ],
-            "lines": [[{"field": "member", "span": 1}, {"field": "topic", "span": 1}], [{"field": null,"span": 1},{"field": "model","span": 1}]],
-            "sections": [{"title": null, "rows": [{"name": "worker", "presence": "offline", "fields": {"topic": "long task ".repeat(20), "model": "test-model"}}]}]
+            "lines": [[{"field": "member", "span": 1}, {"field": "task", "span": 1}], [{"field": null,"span": 1},{"field": "model","span": 1}]],
+            "sections": [{"title": null, "rows": [{"name": "worker", "presence": "offline", "fields": {"task": "long task ".repeat(20), "model": "test-model"}}]}]
         });
         let before = document.clone();
         let rendered = text(
@@ -1289,18 +1244,19 @@ columns = [{ name = "member", width = "20%" },
             room_id: format!("room-{name}"),
         };
         let config: toml_edit::DocumentMut =
-            "[p.columns]\nshow = [\"member\", \"state\", \"topic\"]\n"
+            "[p.columns]\nshow = [\"member\", \"state\", \"task\"]\n"
                 .parse()
                 .unwrap();
-        let row_layout = crate::rows::read(config["p"].as_table_like(), "p").unwrap();
-        let rows = row_layout.value();
+        let rows = crate::rows::read(config["p"].as_table_like(), "p")
+            .unwrap()
+            .value();
         let with_columns = |name: &str, members: Vec<Member>| {
             let mut document = document(
                 &squad(name),
                 Layout::Crew,
                 &states(Layout::Crew),
                 &[],
-                &row_layout,
+                &Rows::preset(),
                 members,
             );
             document["columns"] = rows["columns"].clone();
@@ -1311,7 +1267,7 @@ columns = [{ name = "member", width = "20%" },
             "product",
             vec![member(
                 "zed",
-                &[("state", "working"), ("topic", "cache room reads")],
+                &[("state", "working"), ("task", "cache room reads")],
             )],
         );
         assert_eq!(

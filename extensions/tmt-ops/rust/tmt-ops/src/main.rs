@@ -195,7 +195,7 @@ fn grammar() -> Command {
                         .long("format")
                         .value_name("TEMPLATE")
                         .allow_hyphen_values(true)
-                        .help("Text with {field} placeholders [default: \"{name} ({state})\"]"),
+                        .help("Text with {field} placeholders [default: \"{name}: {task} ({state})\"]"),
                 )
                 .arg(squad_option()),
         )

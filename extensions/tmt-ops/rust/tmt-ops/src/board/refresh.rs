@@ -2441,7 +2441,7 @@ esac
             if let Some(home) = &view.home {
                 assert_eq!(home.squads.len(), 2);
                 assert_eq!(home.summary.members, 2);
-                assert_eq!(home.summary.waiting, 0);
+                assert_eq!(home.summary.waiting, 1);
             }
             assert_eq!(view.rows.value()["columns"], listed["columns"]);
             assert_eq!(view.rows.value()["lines"], listed["lines"]);
@@ -2451,7 +2451,7 @@ esac
             );
             if key == LEADS {
                 assert_eq!(listed["sections"][0]["rows"].as_array().unwrap().len(), 1);
-                assert!(listed["sections"][0]["rows"][0].get("pending").is_none());
+                assert_eq!(listed["sections"][0]["rows"][0]["pending"], "approve");
             } else {
                 assert_eq!(
                     listed["sections"][0]["rows"].as_array().unwrap().len(),
@@ -2490,7 +2490,7 @@ identity) printf '%s\n' '{"identity":{"id":"7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f
 ls) printf '%s\n' '{"identities":[]}' ;;
 inbox)
  if test -f "$root/fail-inbox"; then printf '%s\n' '{"error":{"code":"READ_FAILED","message":"inbox unavailable"}}'; exit 1; fi
- printf '%s\n' '{"items":[{"requestId":"R","from":{"identityId":"S"},"preview":"approve","preparedAtMs":1},{"requestId":"LQ","from":{"identityId":"L"},"preview":"review","preparedAtMs":2}],"more":false}' ;;
+ printf '%s\n' '{"items":[{"requestId":"R","from":{"identityId":"S"},"preview":"approve","preparedAtMs":1}],"more":false}' ;;
 api)
  input=$(cat)
  case "$input" in
@@ -2591,7 +2591,7 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
             if partial {
                 assert_eq!(listed["partial"], true);
                 assert_eq!(listed["failures"].as_array().unwrap().len(), 2);
-                assert!(listed["sections"][1]["rows"].as_array().unwrap().is_empty());
+                assert_eq!(listed["sections"][1]["rows"][0]["name"], "legacy");
                 let text = crate::status::text(&listed, tmt_cli_style::Terminal::PLAIN);
                 assert!(text.contains("inbox unavailable") && text.contains("roster unavailable"));
             } else {
@@ -2607,7 +2607,6 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
                         .collect::<Vec<_>>(),
                     [("product", "legacy"), ("product", "sol"), ("quiet", "sol")]
                 );
-                assert_eq!(rows[0]["waitingOnYou"][0]["requestId"], "LQ");
                 assert_eq!(rows[1]["waitingOnYou"][0]["requestId"], "R");
                 assert_eq!(rows[0]["fields"]["ctx"], "950");
                 assert_eq!(rows[1]["fields"]["ctx"], "1.2k");
@@ -2906,9 +2905,9 @@ printf '%s\n' '{{}}'
             })
         );
         assert_eq!(
-            app.perform(&crate::action::Action::parse("copy {name}").unwrap()),
+            app.perform(&crate::action::Action::parse("copy {task}").unwrap()),
             super::super::app::Effect::Act(super::super::app::Request::Copy {
-                text: "alice".into(),
+                text: "ship".into(),
                 program: Some(vec!["fixture-clipboard".into()]),
                 feedback: crate::board::app::CopyFeedback::Destination,
             })
@@ -3102,10 +3101,10 @@ printf '%s\n' '{{}}'
                 &roster_document(&config, &squad, roster(), Some(("ME", &inbox))).unwrap()
             ),
             Attention {
-                waiting: 1,
+                waiting: 2,
                 blocked: 1
             },
-            "only B has a real request and is in the squad"
+            "the lead's decision and B's request; X is not in the squad"
         );
         // Presence is unknown from the roster alone, and never matters:
         // blocked and waiting come from fields and requests only (#568).
@@ -3119,11 +3118,11 @@ printf '%s\n' '{{}}'
                 &roster_document(&config, &squad, roster(), Some(("ME", &inbox))).unwrap()
             )
         );
-        // Without a known user there is no admitted request.
+        // Without a known user only member-set decisions count.
         assert_eq!(
             Attention::of(&roster_document(&config, &squad, roster(), None).unwrap()),
             Attention {
-                waiting: 0,
+                waiting: 1,
                 blocked: 1
             }
         );
@@ -3144,7 +3143,7 @@ printf '%s\n' '{{}}'
             (
                 "product".to_owned(),
                 squad(Some(
-                    json!({"id": "S", "name": "sol", "waitingOnYou": [{"requestId":"q"}], "fields": {}, "colors": {"state": "review"}}),
+                    json!({"id": "S", "name": "sol", "pending": "approve", "fields": {}, "colors": {"state": "review"}}),
                 )),
             ),
             (

@@ -110,8 +110,8 @@ mod tests {
     }
     #[test]
     fn host_preview_uses_the_effective_custom_argv_without_inventing_a_focus_command() {
-        let row = json!({"id":"uuid", "pane":{"location":{"host":"tmux"}}, "presence":"active", "fields":{"topic":"literal $(id)"}});
-        let action = Action::parse("run recorder {topic}").unwrap();
+        let row = json!({"id":"uuid", "pane":{"location":{"host":"tmux"}}, "presence":"active", "fields":{"task":"literal $(id)"}});
+        let action = Action::parse("run recorder {task}").unwrap();
         let preview = host_preview(&row, true, Some(("j", &action)), None);
         assert!(preview.contains(&format!("argv {:?}", action.argv(&row).unwrap())));
         assert!(!preview.contains("tmt focus"));

@@ -158,7 +158,7 @@ fn member_copy_key_uses_the_selected_row_even_with_conversation_focus() {
             assert!(
                 matches!(
                     &copied,
-                    Effect::Act(Request::Copy { text, .. }) if text == "worker (working)"
+                    Effect::Act(Request::Copy { text, .. }) if text == "worker: ship the fix (working)"
                 ),
                 "{tab:?} reader={reader}: {copied:?}; notice={:?}",
                 app.notice

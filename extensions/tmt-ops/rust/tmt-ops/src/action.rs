@@ -742,7 +742,7 @@ mod tests {
             "name": "auth-fix", "state": "blocked", "pending": null, "note": "needs a call",
             "pane": {"id": "%5", "target": "crew:2.0", "cwd": "/w/app 3"},
             "fields": {
-                "topic": "rotate; $(rm -rf ~) `id` \"quoted\" *.rs",
+                "task": "rotate; $(rm -rf ~) `id` \"quoted\" *.rs",
                 "worktree": "-rf /",
                 "pr_link": "https://example.com/pull/412",
             }
@@ -752,7 +752,7 @@ mod tests {
     #[test]
     fn run_fills_each_field_into_exactly_one_argument() {
         let action =
-            Action::parse(r#"run code --wait "{cwd} (lead)" --topic={topic} --dir={worktree}"#)
+            Action::parse(r#"run code --wait "{cwd} (lead)" --task={task} --dir={worktree}"#)
                 .unwrap();
         assert_eq!(action.verb, Verb::Run);
         assert_eq!(
@@ -761,7 +761,7 @@ mod tests {
                 "code",
                 "--wait",
                 "/w/app 3 (lead)",
-                "--topic=rotate; $(rm -rf ~) `id` \"quoted\" *.rs",
+                "--task=rotate; $(rm -rf ~) `id` \"quoted\" *.rs",
                 "--dir=-rf /",
             ]
         );

@@ -1735,6 +1735,7 @@ fn roster_preview(
                     squad.and_then(|s| s.member_states.get(&member.id)),
                 );
                 let y = viewport.y + (index - offset) as u16;
+                let raw = snapshot.rows.get(&row.target);
                 for (field, slot) in &slots {
                     let cell = Rect::new(slot.x, y, slot.width, 1).intersection(viewport);
                     if *field == RosterField::State
@@ -1750,6 +1751,16 @@ fn roster_preview(
                             columns::state_symbol(row.state.as_deref()),
                             safe(row.state.as_deref().unwrap_or("unreported"))
                         ),
+                        RosterField::Task => {
+                            let task = raw.and_then(|r| r["fields"]["task"].as_str()).unwrap_or("");
+                            let next = raw.and_then(|r| r["fields"]["next"].as_str()).unwrap_or("");
+                            safe(&match (task.is_empty(), next.is_empty()) {
+                                (true, true) => "—".into(),
+                                (false, true) => task.into(),
+                                (true, false) => next.into(),
+                                _ => format!("{task} → {next}"),
+                            })
+                        }
                     };
                     let style = if *field == RosterField::State {
                         app.selection_ink_regions.borrow_mut().push(cell);
@@ -1769,7 +1780,18 @@ fn roster_preview(
                             style,
                         )
                     });
+                    let displayed = line.to_string();
                     strip::paint_left(frame.buffer_mut(), cell, line);
+                    if *field == RosterField::Task {
+                        crate::board::conversation::source::publish(
+                            app,
+                            crate::board::app::RowTarget::Workspace(row.target.clone()),
+                            cell,
+                        );
+                        crate::board::member_links::paint_plain_hits(
+                            frame, app, cell, &text, &displayed, false,
+                        );
+                    }
                 }
                 if interactive {
                     app.workspace_action_hits.borrow_mut().push((

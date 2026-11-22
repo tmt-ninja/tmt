@@ -476,10 +476,10 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
 
 ## Decisions and composers
 
-- `attention::waits_on_you` owns the acquired open-inbox-request predicate. The
+- `attention::waits_on_you` owns the acquired pending/request predicate. The
   workspace tree does not disclose private waiting previews. Reply/annotation
   actions use the selected target's acquired row and exact source request; reading
-  or annotating never settles requests. Visible-clock admission belongs to the
+  or annotating never clears pending data. Visible-clock admission belongs to the
   frame registry above, not unpainted request ages or retired continuation rows.
 - `view::footer::hints` uses the effective scoped Config table and typed action
   ranks, independently of menu ordering. The catalog excludes AgentsFilter and

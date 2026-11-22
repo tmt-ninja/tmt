@@ -134,8 +134,8 @@ former boards (#2342).
 ## Team preset
 
 The `team` preset retains the same `Layout`/`Board::preset` and config readers for
-CLI listing: crew states, member/state/pr/model values,
-a 60-second `github-pr` field and a 30-minute observed-age default.
+CLI listing: crew states, pending-first order, member/state/task/pr/model values,
+a pending line, a 60-second `github-pr` field and a 30-minute observed-age default.
 These do not compose a second interactive grid. Model reads the existing session
 projection and providers stay on the shared fetcher path.
 
@@ -229,7 +229,7 @@ refuse concurrent file changes and never write during inspection.
 
 Authored `[squad.<name>]` layout/rows/columns/sections remain accepted through their
 existing parsers and continue shaping public CLI documents and lists. Their old
-grid and wrapping geometry no longer shapes the workspace;
+grid, wrapping and pending-continuation geometry no longer shapes the workspace;
 located migration notices explain this while preserving the file. Invalid values
 still fail admission. Section action bindings remain effective on the acquired
 membership target; unsupported legacy actions are reported rather than remapped.

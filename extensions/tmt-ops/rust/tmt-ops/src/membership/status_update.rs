@@ -19,14 +19,16 @@ pub(crate) struct Preview {
     pub target: Target,
     pub room: String,
     pub namespace: String,
-    pub key: String,
+    pub keys: [String; 2],
     pub name: String,
     pub actor_name: String,
+    pub pending: Option<String>,
     pub state: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Submit {
     pub preview: Preview,
+    pub clear_pending: bool,
     pub state: Option<String>,
     pub reason: String,
 }
@@ -68,9 +70,10 @@ pub(crate) fn read(core: &Core, target: &Target) -> Result<Preview, SquadError> 
         target: target.clone(),
         room: squad.room_id.clone(),
         namespace: squad.prefix(),
-        key: squad.key("state")?,
+        keys: [squad.key("pending")?, squad.key("state")?],
         name: member.name,
         actor_name,
+        pending: member.fields.get("pending").cloned(),
         state: member.fields.get("state").cloned(),
     })
 }
@@ -80,7 +83,7 @@ fn context(core: &Core, preview: &Preview) -> Result<Config, SquadError> {
     let current = Squad::resolve(core, Some(&preview.target.squad))?;
     if current.room_id != preview.room
         || current.prefix() != preview.namespace
-        || current.key("state")? != preview.key
+        || [current.key("pending")?, current.key("state")?] != preview.keys
     {
         return Err(refuse(
             "The room or metadata namespace changed; action refused.",
@@ -113,6 +116,13 @@ impl Submit {
         }
         let mut changes = Vec::new();
         let mut lines = Vec::new();
+        if self.clear_pending {
+            let expect = expected(&self.preview.pending)?;
+            changes.push(json!({"key":self.preview.keys[0],"expect":expect,"then":"remove"}));
+            if let Some(old) = &self.preview.pending {
+                lines.push(format!("pending: {old} → (empty)"));
+            }
+        }
         if let Some(next) = &self.state {
             if !valid_value(next) {
                 return Err(refuse(
@@ -120,7 +130,7 @@ impl Submit {
                 ));
             }
             let expect = expected(&self.preview.state)?;
-            changes.push(json!({"key":self.preview.key,"expect":expect,"then":{"set":next}}));
+            changes.push(json!({"key":self.preview.keys[1],"expect":expect,"then":{"set":next}}));
             if self.preview.state.as_ref() != Some(next) {
                 lines.push(format!(
                     "state: {} → {next}",
@@ -130,7 +140,7 @@ impl Submit {
         }
         if lines.is_empty() {
             return Err(refuse(
-                "Choose an explicit different state. Nothing applied.",
+                "Choose Clear pending or an explicit different state. Nothing applied.",
             ));
         }
         Ok((changes, lines))
@@ -195,7 +205,7 @@ pub(crate) fn apply(core: &Core, submit: &Submit) -> Outcome {
                 return Outcome::Unknown("Apply returned an invalid conflict document; no notification sent or replay permitted.".into());
             }
             let current = read(core, &submit.preview.target).and_then(|current| {
-                if current.room != submit.preview.room || current.namespace != submit.preview.namespace || current.key != submit.preview.key {
+                if current.room != submit.preview.room || current.namespace != submit.preview.namespace || current.keys != submit.preview.keys {
                     return Err(refuse("The room or metadata namespace changed; action refused."));
                 }
                 Ok(current)

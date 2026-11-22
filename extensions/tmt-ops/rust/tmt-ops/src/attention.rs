@@ -7,14 +7,16 @@ use std::collections::BTreeSet;
 
 /// The same decision predicate serves tab counts and board presentation.
 pub fn waits_on_you(row: &Value) -> bool {
-    row["waitingOnYou"]
-        .as_array()
-        .is_some_and(|requests| !requests.is_empty())
+    row["pending"].is_string()
+        || row["waitingOnYou"]
+            .as_array()
+            .is_some_and(|requests| !requests.is_empty())
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Attention {
-    /// Members with an open request waiting on the user.
+    /// Members that owe the user a decision (`pending`, ◆) or sent a request
+    /// that waits on the user.
     pub waiting: usize,
     /// Members in the `blocked` state.
     pub blocked: usize,
@@ -73,12 +75,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn waiting_requires_a_nonempty_request_array() {
-        assert!(waits_on_you(&json!({"waitingOnYou": [{"requestId": "q"}]})));
+    fn waiting_requires_a_pending_string_or_a_nonempty_request_array() {
         for row in [
-            json!({}),
             json!({"pending": "approve"}),
             json!({"pending": "", "waitingOnYou": []}),
+            json!({"pending": null, "waitingOnYou": [{"requestId": "q"}]}),
+        ] {
+            assert!(waits_on_you(&row), "{row}");
+        }
+        for row in [
+            json!({}),
             json!({"pending": null, "waitingOnYou": []}),
             json!({"pending": false, "waitingOnYou": "q"}),
             json!({"pending": [], "waitingOnYou": {"requestId": "q"}}),
@@ -105,13 +111,13 @@ mod tests {
         assert_eq!(
             attention,
             Attention {
-                waiting: 1,
+                waiting: 2,
                 blocked: 1
             }
         );
         assert_eq!(
             attention.document(),
-            json!({"state": "waiting", "waiting": 1, "blocked": 1})
+            json!({"state": "waiting", "waiting": 2, "blocked": 1})
         );
         assert_eq!(
             Attention {

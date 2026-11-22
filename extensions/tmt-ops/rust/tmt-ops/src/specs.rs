@@ -257,10 +257,10 @@ pub const REMOVE: &CommandSpec = spec!(
 
 pub const SET: &CommandSpec = spec!(
     "set",
-    "Set member state or a configured field (field= clears)",
+    "Set member fields such as state, task, pending, note or links (field= clears)",
     [
-        "Mark a member blocked" => "tmt ops squad set auth-fix state=blocked",
-        "Clear a field with an empty value" => "tmt ops squad set auth-fix state=",
+        "Mark a member blocked on your decision" => "tmt ops squad set auth-fix state=blocked pending=\"approve the plan\"",
+        "Clear a field with an empty value" => "tmt ops squad set auth-fix pending=",
         "Record a link for open and copy" => "tmt ops squad set auth-fix pr_link=https://github.com/acme/app/pull/412",
     ]
 );
@@ -355,7 +355,7 @@ pub const COPY: &CommandSpec = spec!(
     "copy",
     "Copy a member's summary to the clipboard",
     [
-        "Copy \"name (state)\"" => "tmt ops squad copy auth-fix",
+        "Copy \"name: task (state)\"" => "tmt ops squad copy auth-fix",
         "Copy a Markdown list item" => "tmt ops squad copy auth-fix --format '- [{name}]({pr_link})'",
     ]
 );

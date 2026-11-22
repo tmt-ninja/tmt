@@ -297,7 +297,7 @@ entry point; source changes do not authorize frozen regeneration.
 The selected member's focus contains identity, HOUR tokens/trend/squad share,
 state, supplier Digest and owned-timer tiles, followed by its resolved link and
 actor-only `Exchanges with you`. State-since labels wait for proven evidence.
-The selected squad contains its observed current lead,
+The selected squad contains its observed current lead, task/pending/next fields,
 per-member HOUR spark rows and shares, scoped Timers, and the same exchange/input
 owner. A missing lead grants no substitute recipient. Common pool stays virtual.
 `identity_line` and `stat_tiles` own their fitted inert elements.

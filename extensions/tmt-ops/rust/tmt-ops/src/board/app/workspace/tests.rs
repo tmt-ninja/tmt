@@ -292,12 +292,12 @@ fn configured_refresh_normalizes_control_keys_and_section_wins_without_owning_se
 ctrl-r = "copy {name}"
 f5 = "refresh"
 [[squad.product.section]]
-title = "Topics"
-filter = "topic"
+title = "Tasks"
+filter = "task"
 [squad.product.section.bind]
 ctrl-r = "refresh"
 "#,
-        json!({"id":MEMBER,"name":"worker","fields":{"topic":"ship"}}),
+        json!({"id":MEMBER,"name":"worker","fields":{"task":"ship"}}),
     );
     let refresh = KeyEvent::new(
         KeyCode::Char('R'),
@@ -331,14 +331,14 @@ fn configured_section_action_overrides_global_and_missing_fields_refuse_on_selec
 o = "open {link}"
 f5 = "refresh"
 [[squad.product.section]]
-title = "Topics"
-filter = "topic"
+title = "Tasks"
+filter = "task"
 [squad.product.section.bind]
-o = "run code {name} --topic={topic}"
+o = "run code {name} --task={task}"
 "#;
     let mut app = configured_member(
         text,
-        json!({"id":MEMBER,"name":"worker","fields":{"link":"https://example.com/pull/42","topic":"ship"}}),
+        json!({"id":MEMBER,"name":"worker","fields":{"link":"https://example.com/pull/42","task":"ship"}}),
     );
     assert_eq!(key(&mut app, KeyCode::F(5)), Effect::Refresh);
     assert_eq!(
@@ -346,7 +346,7 @@ o = "run code {name} --topic={topic}"
         Effect::Act(Request::Run(vec![
             "code".into(),
             "worker".into(),
-            "--topic=ship".into()
+            "--task=ship".into()
         ]))
     );
     let mut app = configured_member(
@@ -465,12 +465,12 @@ f8 = "run flat {name}"
 f8 = "run host {pane}"
 o = "run host-o {pane}"
 [[squad.product.section]]
-title = "Topics"
-filter = "topic"
+title = "Tasks"
+filter = "task"
 [squad.product.section.bind]
 f8 = "run section {name}"
 "#,
-        json!({"id":MEMBER,"name":"worker","fields":{"topic":"ship"},"pane":{"id":"%1","location":{"host":"tmux"}}}),
+        json!({"id":MEMBER,"name":"worker","fields":{"task":"ship"},"pane":{"id":"%1","location":{"host":"tmux"}}}),
     );
     assert_eq!(
         key(&mut app, KeyCode::F(8)),
@@ -3571,7 +3571,7 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                         } else {
                             assert!(
                                 lines.iter().any(|line| line.contains(if selected_squad {
-                                    "── Usage "
+                                    "── Board "
                                 } else {
                                     "Measure"
                                 })),

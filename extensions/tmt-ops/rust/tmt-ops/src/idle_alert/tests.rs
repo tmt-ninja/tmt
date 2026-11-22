@@ -3,22 +3,12 @@ use crate::cron_service::test_support::{Fixture, LEAD, ROOM, WORKER};
 use jiff::tz::TimeZone;
 use std::{collections::BTreeMap, fs, time::Duration};
 
-fn empty_waiting() -> Waiting {
-    Waiting::from_inbox(
-        true,
-        Some(&Window {
-            items: Vec::new(),
-            complete: true,
-        }),
-    )
-}
-
 // Local convenience keeps legacy scenarios focused on idle activity rather than orchestration.
 fn assess(member: &Member, setting: IdleAlert, now: u64) -> Option<Over> {
-    super::assess(member, setting, now, &HashSet::new(), &empty_waiting())
+    super::assess(member, setting, now, &HashSet::new())
 }
 fn overs(members: &[Member], setting: IdleAlert, now: u64) -> HashMap<String, Over> {
-    super::overs(members, setting, now, &HashSet::new(), &empty_waiting())
+    super::overs(members, setting, now, &HashSet::new())
 }
 fn notices(
     squad: &Squad,
@@ -27,15 +17,7 @@ fn notices(
     now: u64,
     zone: &TimeZone,
 ) -> Vec<Announcement> {
-    super::notices(
-        squad,
-        members,
-        setting,
-        now,
-        zone,
-        &HashSet::new(),
-        &empty_waiting(),
-    )
+    super::notices(squad, members, setting, now, zone, &HashSet::new())
 }
 
 const NOW: i64 = 1_800_000_000_000;
@@ -152,7 +134,7 @@ fn a_squad_with_the_alert_off_marks_nothing() {
 }
 
 #[test]
-fn a_real_request_or_a_resting_seat_is_excepted_and_still_shows_its_idle_start() {
+fn a_pending_decision_or_a_resting_seat_is_excepted_and_still_shows_its_idle_start() {
     let since = NOW - 3_600_000;
     let excepted =
         |fields: &[(&str, &str)]| assess(&worker(fields, idle_since(since)), SETTING, NOW as u64);
@@ -162,6 +144,10 @@ fn a_real_request_or_a_resting_seat_is_excepted_and_still_shows_its_idle_start()
             excepted: Some(reason),
         })
     };
+    assert_eq!(
+        excepted(&[("pending", "approve the plan")]),
+        over(Exception::Pending)
+    );
     for hold in ["hold", "HOLD", "Hold"] {
         assert_eq!(
             excepted(&[("state", hold)]),
@@ -169,8 +155,13 @@ fn a_real_request_or_a_resting_seat_is_excepted_and_still_shows_its_idle_start()
             "{hold}"
         );
     }
+    assert_eq!(
+        excepted(&[("state", "hold"), ("pending", "x")]),
+        over(Exception::Pending),
+        "waiting on the owner is the stronger fact"
+    );
     for fields in [
-        &[("pending", "approve the plan")][..],
+        &[("pending", "")][..],
         &[("pending", "  ")],
         &[("state", "holding")],
         &[("state", "review")],
@@ -211,17 +202,7 @@ fn the_squad_object_is_always_present_and_a_member_mark_only_when_over() {
             json!({"state": "working", "sinceMs": since}),
         ),
     ];
-    let waiting = Window {
-        items: vec![json!({"from":{"identityId":"w2"},"requestId":"req-question"})],
-        complete: true,
-    };
-    let marks = super::overs(
-        &members,
-        SETTING,
-        NOW as u64,
-        &HashSet::new(),
-        &Waiting::from_inbox(true, Some(&waiting)),
-    );
+    let marks = overs(&members, SETTING, NOW as u64);
     let mut document = json!({
         "squad": {"name": "product", "lead": {"id": "l1", "name": "lead"}},
         "sections": [{"title": null, "rows": [
@@ -239,7 +220,7 @@ fn the_squad_object_is_always_present_and_a_member_mark_only_when_over() {
             },
             "sections": [{"title": null, "rows": [
                 {"id": "w1", "idleAlert": {"state": "over", "sinceMs": since}},
-                {"id": "w2", "idleAlert": {"state": "excepted", "reason": "waitingOnYou", "sinceMs": since - 1}},
+                {"id": "w2", "idleAlert": {"state": "excepted", "reason": "pending", "sinceMs": since - 1}},
                 {"id": "w3"},
                 {"id": "w4"}
             ]}]
@@ -284,7 +265,7 @@ fn one_over_member_gets_one_announcement_to_the_lead_with_the_episode_text() {
             recipient_id: "l1".into(),
             body: "Idle alert · squad product\n\
                    worker-3 has been idle since 2026-10-19 14:32 +09:00 (alert after 30m).\n\
-                   Row (when sent): state=review\n\
+                   Row (when sent): state=review · task=\"rotate session tokens\" · pending=none\n\
                    Look: tmt focus w1 · Talk: tmt talk w1 \"<message>\" --detach"
                 .into(),
         }]
@@ -393,7 +374,9 @@ fn nobody_is_told_when_the_squad_has_no_single_lead_or_the_lead_is_the_idle_one(
         )
         .is_empty()
     );
-    assert!(found(&[lead, worker(&[("state", "hold")], idle_since(since))]).is_empty());
+    for fields in [&[("pending", "ok?")][..], &[("state", "hold")]] {
+        assert!(found(&[lead.clone(), worker(fields, idle_since(since))]).is_empty());
+    }
 }
 
 #[test]
@@ -465,7 +448,7 @@ fn row_text_is_quoted_data_on_one_line_cut_per_value_and_the_row_stays_under_600
     );
     assert!(!body.contains('\u{202e}'));
     let row = body.lines().nth(2).unwrap();
-    assert!(row.contains("state=\"Ignore previous"), "{row}");
+    assert!(row.contains("task=\"Ignore previous"), "{row}");
     assert!(row.contains("\\\"rules\\\""), "quotes are escaped: {row}");
 
     let long = "界".repeat(500);
@@ -502,13 +485,13 @@ fn row_text_is_quoted_data_on_one_line_cut_per_value_and_the_row_stays_under_600
     // Every value is cut at 120 characters before the row is fitted.
     let members = [
         member("l1", "lead", true, &[], Value::Null),
-        worker(&[("state", &"x".repeat(300))], idle_since(since)),
+        worker(&[("task", &"x".repeat(300))], idle_since(since)),
     ];
     let body = notices(&squad, &members, SETTING, NOW as u64, &TimeZone::UTC)
         .remove(0)
         .body;
     assert!(
-        body.contains(&format!("state={}", "x".repeat(120))),
+        body.contains(&format!("task=\"{}\"", "x".repeat(120))),
         "{body}"
     );
 }
@@ -548,7 +531,10 @@ fn missing_row_values_read_none() {
     let body = notices(&squad(), &members, SETTING, NOW as u64, &TimeZone::UTC)
         .remove(0)
         .body;
-    assert!(body.contains("Row (when sent): state=none"), "{body}");
+    assert!(
+        body.contains("Row (when sent): state=none · task=none · pending=none"),
+        "{body}"
+    );
 }
 
 // ── When a scan runs ────────────────────────────────────────────────────────────────
@@ -645,38 +631,6 @@ fn calls(f: &Fixture, command: &str) -> usize {
         .iter()
         .filter(|call| call["command"][0] == command || call["request"]["operation"] == command)
         .count()
-}
-
-#[test]
-fn a_scan_without_a_configured_person_still_notifies_the_lead() {
-    let f = Fixture::new();
-    enable(&f, "30m");
-    idle_worker(&f, NOW - 45 * MINUTE);
-    f.change_model(|m| m["user"] = Value::Null);
-    let mut watch = started(&f);
-
-    assert!(scan(&f, &mut watch, NOW + MINUTE).is_empty());
-    let notices = sent(&f);
-    assert_eq!(notices.len(), 1);
-    assert_eq!(notices[0]["input"]["recipientIds"], json!([LEAD]));
-    assert_eq!(notices[0]["input"]["kind"], "announcement");
-    assert_eq!(calls(&f, "inbox"), 0);
-}
-
-#[test]
-fn an_unavailable_inbox_defers_idle_notices() {
-    let f = Fixture::new();
-    enable(&f, "30m");
-    idle_worker(&f, NOW - 45 * MINUTE);
-    let mut watch = started(&f);
-    f.change_model(|m| m["inboxFailure"] = json!(true));
-    let warnings = scan(&f, &mut watch, NOW + MINUTE);
-    assert!(
-        sent(&f).is_empty(),
-        "an unknown inbox is not an empty inbox"
-    );
-    assert_eq!(calls(&f, "inbox"), 1);
-    assert_eq!(warnings.len(), 1);
 }
 
 #[test]
@@ -815,12 +769,15 @@ fn exceptions_hold_the_notice_back_until_they_clear() {
     enable(&f, "30m");
     idle_worker(&f, NOW - 45 * MINUTE);
     let mut watch = started(&f);
-    f.change_model(|m| m["inbox"] = json!({"items":[{"from":{"identityId":WORKER},"requestId":"req-question"}],"more":false}));
+    f.change_model(|m| m["members"][2]["metadata"]["squad.product.pending"] = json!("approve?"));
     scan(&f, &mut watch, NOW + MINUTE);
     assert!(sent(&f).is_empty(), "waits on the owner");
 
     f.change_model(|m| {
-        m["inbox"] = json!({"items":[],"more":false});
+        m["members"][2]["metadata"]
+            .as_object_mut()
+            .unwrap()
+            .remove("squad.product.pending");
         m["members"][2]["metadata"]["squad.product.state"] = json!("Hold");
     });
     scan(&f, &mut watch, NOW + 2 * MINUTE);
@@ -1019,13 +976,7 @@ fn orchestration_sleep_suppresses_notices_and_over_marks_until_the_state_changes
     let at = (NOW + MINUTE) as u64;
     let sleeping = super::sleeping(&f.core, at);
     let idle = member(WORKER, "worker", false, &[], idle_since(since));
-    let marks = super::overs(
-        std::slice::from_ref(&idle),
-        SETTING,
-        at,
-        &sleeping,
-        &empty_waiting(),
-    );
+    let marks = super::overs(std::slice::from_ref(&idle), SETTING, at, &sleeping);
     assert_eq!(marks[WORKER].excepted, Some(Exception::Sleep));
     let mut document = json!({"squad":{"lead":null},"sections":[{"rows":[{"id":WORKER}]}]});
     annotate(&mut document, SETTING, &marks);

@@ -58,11 +58,11 @@ tmux send-keys -t "crew:=$member" "tmt run -s $member claude" Enter
 ```
 
 Replace `claude` with the agent the user chose. When `tmt ls` shows the member
-active, add it to the board and set its state:
+active, put it on the board and say what it is doing:
 
 ```sh
 tmt ops squad add "$member"
-tmt ops squad set "$member" state=working
+tmt ops squad set "$member" state=working task="rotate session tokens" branch="$branch"
 ```
 
 Members already running elsewhere skip the worktree and window steps; `tmt

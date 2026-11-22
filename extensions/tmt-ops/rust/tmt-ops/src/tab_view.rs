@@ -294,10 +294,6 @@ fn roster_documents_with(
         },
         None => None,
     };
-    let idle_waiting = crate::idle_alert::Waiting::from_inbox(
-        me.is_some(),
-        waiting.as_ref().map(|(_, inbox)| inbox),
-    );
     let mut sleep_observation = None;
     let no_sleep = std::collections::HashSet::new();
     let idle_now = status::now_ms();
@@ -330,7 +326,7 @@ fn roster_documents_with(
                 .collect::<BTreeSet<_>>();
             let providers = config.providers(&squad.name)?;
             let cached = crate::provider::Cache::load(&squad.name);
-            // Record raw state before provider and column projection.
+            // Record raw task/state before provider and column projection.
             // Missing optional evidence does not invent notes or activity age.
             let ages = observer.map(|observer| {
                 observer.record(&members, &providers, &cached, None, None, status::now_ms())
@@ -348,24 +344,18 @@ fn roster_documents_with(
                 } else {
                     &no_sleep
                 };
-                crate::idle_alert::overs(&seen, idle_alert, idle_now, sleeping, &idle_waiting)
+                crate::idle_alert::overs(&seen, idle_alert, idle_now, sleeping)
             });
             status::prepare(&rows, &states, &mut members);
-            let mut document = status::prepared_document(
-                squad,
-                layout,
-                &states,
-                &sections,
-                &rows,
-                members.clone(),
-            );
+            let mut document =
+                status::prepared_document(squad, layout, &states, &sections, members.clone());
             crate::idle_alert::annotate(&mut document, idle_alert, &overs);
-            status::sort(&mut members, &states);
+            status::sort(&mut members, layout, &states);
             members.sort_by_key(|member| !member.is_lead());
             // Collect once before source sections or lead selection can omit or
             // repeat identities; both documents use the public member projection.
             let mut flat = json!({"squad": {"lead": null}, "sections":
-                status::sections(&members, &[], |_, _, _| Ordering::Equal, |member| status::projected_row(member, &rows))});
+                status::sections(&members, &[], |_, _, _| Ordering::Equal, status::row)});
             crate::idle_alert::annotate(&mut flat, idle_alert, &overs);
             if let Some((me, inbox)) = &waiting {
                 requests::apply_waiting(&mut document, &squad.name, me, inbox);

@@ -133,6 +133,7 @@ pub(in crate::board) struct AgentsLayout {
 pub enum RosterField {
     Member,
     State,
+    Task,
 }
 
 impl RosterField {
@@ -140,6 +141,7 @@ impl RosterField {
         match self {
             Self::Member => "MEMBER",
             Self::State => "STATE",
+            Self::Task => "TASK / NEXT ACTION",
         }
     }
 }
@@ -150,8 +152,9 @@ impl AgentsLayout {
             .as_ref()
             .is_none_or(|(width, _)| *width != area.width)
         {
-            let state = 18;
-            let member = area.width.saturating_sub(state + 1);
+            let member = if area.width >= 66 { 22 } else { 12 };
+            let state = 15;
+            let task = area.width.saturating_sub(member + state + 2);
             self.roster = Some((
                 area.width,
                 solve_tracks(
@@ -159,6 +162,7 @@ impl AgentsLayout {
                     &[
                         (RosterField::Member, member, "MEMBER", 1),
                         (RosterField::State, state, "STATE", 1),
+                        (RosterField::Task, task, "TASK / NEXT ACTION", 0),
                     ],
                 ),
             ));

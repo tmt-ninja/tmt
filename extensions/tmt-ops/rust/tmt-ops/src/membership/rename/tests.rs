@@ -153,9 +153,7 @@ fn interrupted_second_step_prints_exact_repair_and_never_repeats_room_cas() {
     let f = Fixture::new();
     f.add(&f.actor(USER), WORKER).unwrap();
     f.change_model(|model| {
-        model["members"][2]["metadata"] = json!({
-            "squad.product.task":"keep draft", "squad.product.topic":"move draft"
-        });
+        model["members"][2]["metadata"] = json!({"squad.product.task":"keep draft"});
         model["applyFailure"] = json!("STORAGE_UNAVAILABLE");
     });
     let mut config = config(&f);
@@ -177,8 +175,8 @@ fn interrupted_second_step_prints_exact_repair_and_never_repeats_room_cas() {
     assert!(repaired.complete);
     assert_eq!(room_writes(&f), 1);
     assert_eq!(
-        f.model()["members"][2]["metadata"],
-        json!({"squad.product.task":"keep draft","squad.renamed.topic":"move draft"})
+        f.model()["members"][2]["metadata"]["squad.renamed.task"],
+        "keep draft"
     );
     assert_eq!(add_after_rename(&f, &config), "c2");
 }
@@ -238,7 +236,7 @@ fn unconfirmed_metadata_exchange_is_partial_and_repair_observes_the_recorded_exc
     let f = Fixture::new();
     f.change_model(|model| {
         model["members"][1]["metadata"] = json!({});
-        model["members"][2]["metadata"] = json!({"squad.product.topic":"keep"});
+        model["members"][2]["metadata"] = json!({"squad.product.task":"keep"});
         model["malformedApplyResponse"] = json!(true);
     });
     let mut config = config(&f);
@@ -247,7 +245,7 @@ fn unconfirmed_metadata_exchange_is_partial_and_repair_observes_the_recorded_exc
     assert_eq!(outcome.document["failed"]["stage"], "metadata");
     assert_eq!(
         f.model()["members"][2]["metadata"],
-        json!({"squad.renamed.topic":"keep"})
+        json!({"squad.renamed.task":"keep"})
     );
     assert!(
         rename_squad(&f.core, &mut config, &request(true))
@@ -311,7 +309,7 @@ fn stale_revision_refuses_and_other_room_timers_do_not_block_rename() {
 fn explicit_repair_refuses_conflicting_metadata_instead_of_overwriting_it() {
     let f = Fixture::new();
     f.change_model(|model| {
-        model["members"][2]["metadata"] = json!({"squad.product.topic":"original"});
+        model["members"][2]["metadata"] = json!({"squad.product.task":"original"});
         model["applyFailure"] = json!("STORAGE_UNAVAILABLE");
     });
     let mut config = config(&f);
@@ -322,7 +320,7 @@ fn explicit_repair_refuses_conflicting_metadata_instead_of_overwriting_it() {
     );
     f.change_model(|model| {
         model["applyFailure"] = json!(false);
-        model["members"][2]["metadata"]["squad.product.topic"] = json!("new user value");
+        model["members"][2]["metadata"]["squad.product.task"] = json!("new user value");
     });
     let outcome = rename_squad(&f.core, &mut config, &request(true)).unwrap();
     assert!(!outcome.complete);
@@ -331,7 +329,7 @@ fn explicit_repair_refuses_conflicting_metadata_instead_of_overwriting_it() {
         "METADATA_CONFLICT"
     );
     assert_eq!(
-        f.model()["members"][2]["metadata"]["squad.product.topic"],
+        f.model()["members"][2]["metadata"]["squad.product.task"],
         "new user value"
     );
     assert_eq!(room_writes(&f), 1);

@@ -144,16 +144,7 @@ fn baseline() -> Value {
         if let Some(hidden) = projected.get("hidden_columns") {
             view.document["hidden_columns"] = hidden.clone();
         }
-        let mut document = view.document.clone();
-        // The shared legacy input predates field retirement. Model the current
-        // projection without changing the source fixture used by other tests.
-        crate::display_rows::each_row(&mut document, |row| {
-            let row = row.as_object_mut().expect("parity row");
-            row.remove("pending");
-            if let Some(fields) = row.get_mut("fields").and_then(Value::as_object_mut) {
-                fields.retain(|key, _| !crate::squad::retired_field(key));
-            }
-        });
+        let document = view.document.clone();
         // Factory layouts still define these public CLI bytes. They do not
         // instantiate another interactive shell or an implicit notebook pane.
         let mut app = workspace_board(&config, &document);
@@ -193,23 +184,9 @@ fn baseline() -> Value {
     json!({"source": "f8c73805d64538647f4fada66910cd652c225394", "fixtures": fixtures})
 }
 
-fn assert_retired_fields_are_absent(fixture: &Value) {
-    let mut document: Value = serde_json::from_str(fixture["ls_json"].as_str().unwrap()).unwrap();
-    crate::display_rows::each_row(&mut document, |row| {
-        assert!(row.get("pending").is_none(), "{row}");
-        for key in ["task", "next", "pending"] {
-            assert!(row["fields"].get(key).is_none(), "{key}: {row}");
-        }
-    });
-}
-
 #[test]
 fn markup_slices_preserve_frozen_board_and_list_bytes() {
-    let actual = baseline();
-    for fixture in actual["fixtures"].as_array().unwrap() {
-        assert_retired_fields_are_absent(fixture);
-    }
-    let actual = serde_json::to_string(&actual).unwrap();
+    let actual = serde_json::to_string(&baseline()).unwrap();
     assert_eq!(actual, include_str!("parity.json").trim_end());
 }
 
@@ -266,16 +243,13 @@ fn inspect_markup_parity_diff() {
     {
         let layout = old["layout"].as_str().unwrap();
         assert_eq!(old["layout"], new["layout"]);
-        assert_retired_fields_are_absent(new);
         for key in ["ls_text", "ls_json"] {
-            if old[key] == new[key] {
-                println!("{layout}: {key} byte-identical");
-            } else {
-                println!("{layout}: {key} changed");
-                println!("  before: {}", old[key]);
-                println!("  after: {}", new[key]);
-            }
+            assert_eq!(
+                old[key], new[key],
+                "{layout}: {key} must stay byte-identical"
+            );
         }
+        println!("{layout}: list text/JSON byte-identical");
         for kind in ["frames", "folded_frames"] {
             let before = old[kind].as_array().unwrap();
             let after = new[kind].as_array().unwrap();

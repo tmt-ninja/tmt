@@ -245,7 +245,7 @@ async function readyContextFixture(sandbox: Sandbox, file: string, payload: stri
 const squadVersion = workspaceVersion('tmt-ops');
 
 describe('squad extension', () => {
-  const crewFields = ['member', 'state', 'pr_link', 'model', 'tok_1', 'tok_2', 'tok_3'];
+  const crewFields = ['member', 'state', 'task', 'pr_link', 'model', 'tok_1', 'tok_2', 'tok_3'];
 
   it('refuses an indirect Ops configuration launcher after one wrapper invocation', async () => {
     await withSandbox(async (sandbox) => {
@@ -293,7 +293,7 @@ describe('squad extension', () => {
       const file = path.join(sandbox.cwd, 'board.xml');
       writeFileSync(
         file,
-        "<tmt-view version='1'><tmt-repeat each='$.rows' as='row'><tmt-cell bind='row.fields.topic'/></tmt-repeat></tmt-view>"
+        "<tmt-view version='1'><tmt-repeat each='$.rows' as='row'><tmt-cell bind='row.fields.task'/></tmt-repeat></tmt-view>"
       );
       const before = existsSync(sandbox.database);
       const valid = await runCli(offline, ['squad', 'layout', 'validate', file, '--json']);
@@ -415,7 +415,7 @@ o = "run touch ${marker}"
         'set',
         'settings-worker',
         'state=working',
-        'topic=Keep topic',
+        'task=Keep task',
         'pr_link=https://example.com/keep-hidden',
       ]);
       const marker = path.join(sandbox.root, 'must-not-run');
@@ -427,8 +427,8 @@ layout = "crew"
 [squad.product.board]
 refresh = "5s" # keep timing comment
 [squad.product.rows]
-columns = [{name="member"}, {name="state"}, {name="topic"}, {name="pr_link"}]
-lines = [["member", "state", "topic", "pr_link"], [{field="topic", span=4}]]
+columns = [{name="member"}, {name="state"}, {name="task"}, {name="pr_link"}]
+lines = [["member", "state", "task", "pr_link"], [{field="task", span=4}]]
 [squad.product.fields.probe]
 run = ["touch", "${marker}"]
 [bind]
@@ -458,7 +458,7 @@ o = "run touch ${marker}"
       for (const [key, value] of [
         ['board.refresh', '0s'],
         ['board.hidden_columns', '["unknown"]'],
-        ['board.hidden_columns', '["member","state","topic","pr_link"]'],
+        ['board.hidden_columns', '["member","state","task","pr_link"]'],
         ['fields.probe', 'run touch /never'],
         ['bind.o', 'refresh'],
       ]) {
@@ -501,7 +501,7 @@ o = "run touch ${marker}"
           .fields.pr_link
       ).toBe('https://example.com/keep-hidden');
       const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
-      expect(text.stdout).toContain('Keep topic');
+      expect(text.stdout).toContain('Keep task');
       expect(text.stdout).not.toContain('example.com/keep-hidden');
       expect(
         (
@@ -680,6 +680,7 @@ o = "run touch ${marker}"
         'squad',
         'member',
         'state',
+        'task',
       ]);
       const all = await squad(sandbox, ['ls', '--tab', 'all']);
       expect(all.status).toBe(0);
@@ -757,9 +758,19 @@ o = "run touch ${marker}"
       writeFileSync(toml, 'me = "Ben"\n');
       expect((await squad(sandbox, ['add', 'linked', 'unlinked'])).status).toBe(0);
       expect(
-        (await squad(sandbox, ['set', 'linked', 'pr_link=https://example.com/pull/412'])).status
+        (
+          await squad(sandbox, [
+            'set',
+            'linked',
+            'task=review PR',
+            'pr_link=https://example.com/pull/412',
+          ])
+        ).status
       ).toBe(0);
-      expect((await squad(sandbox, ['set', 'unlinked', 'state=working'])).status).toBe(0);
+      expect(
+        (await squad(sandbox, ['set', 'unlinked', 'task=write notes', 'pending=approve the plan']))
+          .status
+      ).toBe(0);
       const calls = path.join(sandbox.root, 'gh-calls');
       const gh = path.join(bin, 'gh');
       writeExecutable(
@@ -774,22 +785,28 @@ o = "run touch ${marker}"
       expect(listed.body.columns.map((column: { field: string }) => column.field)).toEqual([
         'member',
         'state',
+        'task',
         'pr',
         'model',
         'tok_1',
         'tok_2',
         'tok_3',
       ]);
-      expect(listed.body.columns[3].from).toBe('session.model');
-      expect(listed.body.lines).toHaveLength(1);
+      expect(listed.body.columns[4].from).toBe('session.model');
+      expect(listed.body.lines[1]).toEqual([
+        { field: null, span: 1 },
+        { field: null, span: 1 },
+        { field: 'pending', span: 6, token: 'waiting' },
+      ]);
       const rows = listed.body.sections[0].rows;
       expect(rows[0].fields).not.toHaveProperty('tok_1');
-      expect(rows.map((row: { name: string }) => row.name)).toEqual(['linked', 'unlinked']);
-      expect(rows[1]).toMatchObject({
+      expect(rows.map((row: { name: string }) => row.name)).toEqual(['unlinked', 'linked']);
+      expect(rows[0]).toMatchObject({
         state: 'working',
+        pending: 'approve the plan',
         staleness: { state: 'fresh' },
       });
-      expect(rows[0].fields.pr).toContain('#412 open');
+      expect(rows[1].fields.pr).toContain('#412 open');
       expect(readFileSync(calls, 'utf8').trim().split('\n')).toHaveLength(1);
       const refresh = await squad(sandbox, ['ls', '--squad', 'product', '--refresh-fields']);
       expect(refresh.status).toBe(0);
@@ -824,7 +841,7 @@ o = "run touch ${marker}"
       ).toBe(0);
       for (const command of ['rm', 'remove']) {
         expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
-        expect((await squad(sandbox, ['set', 'worker', 'topic=Review'])).status).toBe(0);
+        expect((await squad(sandbox, ['set', 'worker', 'task=Review'])).status).toBe(0);
         expect((await squad(sandbox, [command, 'worker'])).status).toBe(0);
         expect(observe(sandbox).members).toEqual([]);
         expect(observe(sandbox).metadata).toEqual([
@@ -1033,7 +1050,7 @@ o = "run touch ${marker}"
         ['init', 'product', '--me', 'Ben'],
         ['lead', 'Sol'],
         ['add', 'Rin'],
-        ['set', 'Rin', 'state=working'],
+        ['set', 'Rin', 'task=review tokens', 'state=working'],
       ])
         expect((await squad(sandbox, args)).status).toBe(0);
       const toml = path.join(sandbox.globalDir, 'ops.toml');
@@ -1720,11 +1737,6 @@ o = "run touch ${marker}"
         expect(observe(sandbox)).toEqual(legacy);
       }
 
-      const config = path.join(sandbox.globalDir, 'ops.toml');
-      writeFileSync(
-        config,
-        `${readOpsConfig(config)}\n[squad.product.rows]\ncolumns = [{name="member"}, {name="state"}, {name="lead"}]\n`
-      );
       expect(
         (await squad(sandbox, ['set', 'Sol', 'role=reviews every merge', 'lead=ordinary data']))
           .status
@@ -1951,60 +1963,6 @@ o = "run touch ${marker}"
     });
   });
 
-  it('omits retired fields and keeps the original metadata through removal', async () => {
-    await withSandbox(async (sandbox) => {
-      installSquad(sandbox);
-      await identity(sandbox, 'worker');
-      expect((await squad(sandbox, ['init', 'product'])).status).toBe(0);
-      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
-      const retired = ['task', 'next', 'pending'];
-      for (const field of retired) {
-        const key = `squad.product.${field}`;
-        expect(
-          (
-            await runCli(sandbox, [
-              'identity',
-              'meta',
-              'set',
-              key,
-              `old ${field}`,
-              '--identity',
-              'worker',
-            ])
-          ).status
-        ).toBe(0);
-      }
-      expect((await squad(sandbox, ['set', 'worker', 'now=current progress'])).status).toBe(0);
-      const before = observe(sandbox);
-      for (const field of retired) {
-        const refused = await squad(sandbox, ['set', 'worker', 'state=review', `${field}=`]);
-        expect(refused.status).toBe(1);
-        expect(refused.body.error).toMatchObject({ code: 'SQUAD_FIELD_RETIRED' });
-        expect(refused.body.error.message).toContain(`Field '${field}' is retired`);
-      }
-      const listed = await squad(sandbox, ['ls', '--squad', 'product']);
-      expect(listed.status).toBe(0);
-      const row = listed.body.sections[0].rows[0];
-      expect(row).not.toHaveProperty('pending');
-      expect(row.fields).toEqual({ state: 'working' });
-      expect(listed.body.squad.attention).toEqual({ state: 'normal', waiting: 0, blocked: 0 });
-      sandbox.env.NO_COLOR = '1';
-      const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
-      expect(text.stdout.split('\n')).toContain('  ○  worker        working');
-      expect(text.stdout).not.toMatch(/old (task|next|pending)|current progress/);
-      expect(observe(sandbox)).toEqual(before);
-
-      const removed = await squad(sandbox, ['rm', 'worker']);
-      expect(removed.status).toBe(0);
-      expect(removed.body.cleared.sort()).toEqual(['now', 'state']);
-      expect(observe(sandbox).metadata).toEqual(
-        before.metadata.filter(({ key }) =>
-          retired.some((field) => key === `squad.product.${field}`)
-        )
-      );
-    });
-  });
-
   it('retires row notes without deleting legacy metadata and still accepts an explicit clear', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -2025,10 +1983,12 @@ o = "run touch ${marker}"
         ).status
       ).toBe(0);
       const before = observe(sandbox);
-      const invalid = await squad(sandbox, ['set', 'coder', 'state=working', 'note=new summary']);
+      const invalid = await squad(sandbox, ['set', 'coder', 'task=new task', 'note=new summary']);
       expect(invalid.status).toBe(1);
       expect(invalid.body.error).toMatchObject({ code: 'SQUAD_NOTE_RETIRED' });
       expect(invalid.body.error.message).toContain('tmt notes path --identity <member>');
+      expect(invalid.body.error.message).toContain('task=');
+      expect(invalid.body.error.message).toContain('pending=');
       expect(observe(sandbox)).toEqual(before);
       const human = await runCli(sandbox, ['ops', 'sq', 'set', 'coder', 'note=new summary']);
       expect(human.status).toBe(1);
@@ -2086,8 +2046,13 @@ o = "run touch ${marker}"
       expect(observe(sandbox)).toEqual(before);
       const outsider = await squad(sandbox, ['set', 'Rin', 'state=working']);
       expect(outsider.body.error.code).toBe('SQUAD_NOT_MEMBER');
-      const set = await squad(sandbox, ['set', 'auth-fix', 'state=blocked']);
-      expect(set.body.applied).toEqual(['squad.product.state']);
+      const set = await squad(sandbox, [
+        'set',
+        'auth-fix',
+        'state=blocked',
+        'pending=approve the token rotation plan',
+      ]);
+      expect(set.body.applied).toEqual(['squad.product.state', 'squad.product.pending']);
 
       writeFileSync(
         path.join(sandbox.globalDir, 'ops.toml'),
@@ -2100,19 +2065,19 @@ o = "run touch ${marker}"
         layout: 'crew',
         lead: { name: 'Sol' },
         // The tab state the board colors, never carried by color alone (#507).
-        attention: { state: 'blocked', waiting: 0, blocked: 1 },
+        attention: { state: 'waiting', waiting: 1, blocked: 1 },
       });
       expect(status.body.sections).toHaveLength(1);
       expect(status.body.sections[0].title).toBeNull();
       const rows = status.body.sections[0].rows;
-      expect(rows.map((row: { name: string }) => row.name)).toEqual(['docs-sweep', 'auth-fix']);
-      const [working, blocked] = rows;
-      expect(blocked).toMatchObject({
+      expect(rows.map((row: { name: string }) => row.name)).toEqual(['auth-fix', 'docs-sweep']);
+      expect(rows[0]).toMatchObject({
         state: 'blocked',
+        pending: 'approve the token rotation plan',
         presence: 'offline',
         fields: { state: 'blocked' },
       });
-      expect(working).toMatchObject({ state: 'working' });
+      expect(rows[1]).toMatchObject({ state: 'working', pending: null });
       expect(rows[0]).not.toHaveProperty('note');
       expect(rows[1]).not.toHaveProperty('note');
       // The lead skill documents this row shape; it must not drift silently.
@@ -2145,8 +2110,8 @@ o = "run touch ${marker}"
         remainingMs: 0,
         heldCount: 0,
       });
-      expect(blocked.colors).toEqual({ state: 'blocked' });
-      expect(working.colors).toEqual({ state: 'working' });
+      expect(rows[0].colors).toEqual({ state: 'blocked' });
+      expect(rows[1].colors).toEqual({ state: 'working' });
       const nested = skill.slice(skill.indexOf('- Every row'), skill.indexOf('- A row with'));
       const ageFields = [...nested.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
@@ -2177,8 +2142,12 @@ o = "run touch ${marker}"
       expect(await runCli(sandbox, ['ops', 'ui'])).toEqual(statusText);
       expect((await ops(sandbox, ['ui', '--squad', 'product'])).body).toEqual(status.body);
       const text = await runCli(sandbox, ['ops', 'sq', 'status']);
-      expect(text.stdout).toMatch(/\n {2}○ {2}auth-fix +blocked/);
+      // One leading mark: ◆ when the member waits on you; the state has its column.
+      expect(text.stdout).toMatch(
+        /\n {2}◆ {2}auth-fix +blocked +waiting on you: approve the token rotation plan/
+      );
 
+      expect((await squad(sandbox, ['set', 'auth-fix', 'pending='])).status).toBe(0);
       expect((await squad(sandbox, ['lead', 'Rin'])).body.replaced).toEqual(['Sol']);
       const removed = await squad(sandbox, ['remove', 'auth-fix']);
       expect(removed.body.cleared.sort()).toEqual(['state']);
@@ -2278,7 +2247,7 @@ o = "run touch ${marker}"
       for (const name of ['Ben', 'Sol', 'Rin']) await identity(sandbox, name);
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
       await squad(sandbox, ['lead', 'Sol']);
-      await squad(sandbox, ['set', 'Sol', 'role=lead', 'topic=Review']);
+      await squad(sandbox, ['set', 'Sol', 'role=lead', 'task=Review']);
       const before = observe(sandbox);
       for (const args of [['lead'], ['lead', 'Sol', '--none']]) {
         expect((await squad(sandbox, args)).status).toBe(1);
@@ -2295,7 +2264,7 @@ o = "run touch ${marker}"
       );
       expect(
         (await squad(sandbox, ['ls', '--squad', 'product'])).body.sections[0].rows
-      ).toMatchObject([{ name: 'Sol', fields: { role: 'lead' } }]);
+      ).toMatchObject([{ name: 'Sol', fields: { role: 'lead', task: 'Review' } }]);
       expect((await squad(sandbox, ['lead', '--none'])).body.replaced).toEqual([]);
       expect(observe(sandbox)).toEqual(after);
       const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
@@ -2321,7 +2290,7 @@ o = "run touch ${marker}"
         { name: 'coder', added: true, stateSet: 'working' },
         { name: 'coder', added: false, stateSet: null },
       ]);
-      await squad(sandbox, ['set', 'coder', 'state=blocked', 'topic=Review']);
+      await squad(sandbox, ['set', 'coder', 'state=blocked', 'task=Review']);
       const before = observe(sandbox);
       expect((await squad(sandbox, ['add', 'coder'])).body.results).toMatchObject([
         { added: false, stateSet: null },
@@ -2352,9 +2321,9 @@ o = "run touch ${marker}"
         stderr: "error: Could not add ghost: Identity 'ghost' was not found\n",
       });
       expect((await text(['add', 'coder'])).stdout).toBe('coder is already in squad product.\n');
-      expect(await text(['set', 'coder', 'state=blocked', 'topic=needs review'])).toMatchObject({
+      expect(await text(['set', 'coder', 'state=blocked', 'task=needs review'])).toMatchObject({
         status: 0,
-        stdout: '✓ Set state, topic on coder\n',
+        stdout: '✓ Set state, task on coder\n',
         stderr: '',
       });
       expect(await text(['set', 'outsider', 'state=working'])).toMatchObject({
@@ -2364,7 +2333,7 @@ o = "run touch ${marker}"
       });
       expect(await text(['remove', 'coder'])).toMatchObject({
         status: 0,
-        stdout: '✓ Removed coder from squad product; cleared state, topic\n',
+        stdout: '✓ Removed coder from squad product; cleared state, task\n',
         stderr: '',
       });
     });
@@ -2381,10 +2350,11 @@ o = "run touch ${marker}"
         `${readOpsConfig(legacyConfig)}\n[squad.product]\nlayout = "crew"\n`
       );
       await squad(sandbox, ['add', 'auth-fix']);
+      await squad(sandbox, ['set', 'auth-fix', 'task=rotate session tokens']);
       const ls = await runCli(sandbox, ['ops', 'sq', 'ls']);
       expect(ls.status).toBe(0);
-      // The board's default columns: member, state, topic, PR.
-      expect(ls.stdout).toContain('auth-fix  working');
+      // The board's default columns: member, state, task, PR.
+      expect(ls.stdout).toContain('auth-fix  working  rotate session tokens');
       for (const args of [
         ['ops', 'sq', 'status'],
         ['ops', 'ui'],
@@ -2421,7 +2391,10 @@ o = "run touch ${marker}"
       expect(json.body.squads[0]).toEqual({ ...one.body, you: undefined });
       expect(one.body.hidden_columns).toEqual(['tok_1', 'tok_2', 'tok_3']);
       expect(one.body.columns.map((column: { field: string }) => column.field)).toEqual(crewFields);
-      expect(one.body.columns[2]).toMatchObject({ field: 'pr_link', width: 12, priority: 6 });
+      // The preset's grid: fixed widths, a growing task, and a link that
+      // steps aside first on a narrow board; one line per row.
+      expect(one.body.columns[2]).toMatchObject({ field: 'task', width: null, grow: 1, min: 20 });
+      expect(one.body.columns[3]).toMatchObject({ field: 'pr_link', width: 12, priority: 6 });
       expect(one.body.lines).toEqual([crewFields.map((field) => ({ field, span: 1 }))]);
       for (const args of [
         ['ops', 'sq', 'status', '--json'],
@@ -2452,7 +2425,7 @@ o = "run touch ${marker}"
       await squad(sandbox, ['add', 'worker']);
       const task =
         'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron';
-      await squad(sandbox, ['set', 'worker', `topic=${task}`]);
+      await squad(sandbox, ['set', 'worker', `task=${task}`]);
       const before = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(
         before.body.columns.every(
@@ -2467,7 +2440,7 @@ o = "run touch ${marker}"
           '[squad.product.rows]',
           'columns = [',
           '  { name = "member", width = "20%", overflow = "ellipsis" },',
-          '  { name = "topic", width = "40%", overflow = "wrap", max_lines = 2 },',
+          '  { name = "task", width = "40%", overflow = "wrap", max_lines = 2 },',
           ']',
           '',
         ].join('\n')
@@ -2481,13 +2454,13 @@ o = "run touch ${marker}"
       });
       expect(configured.body.columns[0]).not.toHaveProperty('max_lines');
       expect(configured.body.columns[1]).toMatchObject({
-        field: 'topic',
+        field: 'task',
         width: '40%',
         overflow: 'wrap',
         max_lines: 2,
       });
       expect(configured.body.columns[1]).not.toHaveProperty('lines');
-      expect(before.body.sections[0].rows[0].fields).not.toHaveProperty('topic');
+      expect(configured.body.sections).toEqual(before.body.sections);
       const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
       expect(text.status).toBe(0);
       const data = text.stdout.split('\n').filter((line) => line.startsWith('  '));
@@ -2496,7 +2469,7 @@ o = "run touch ${marker}"
       expect(data[0]).toContain('alpha beta');
       expect(data[1]).toContain('…');
       expect(data[1]).not.toContain('worker');
-      expect(configured.body.sections[0].rows[0].fields.topic).toBe(task);
+      expect(configured.body.sections[0].rows[0].fields.task).toBe(task);
       const after = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(after.body).toEqual(configured.body);
     });
@@ -2511,7 +2484,7 @@ o = "run touch ${marker}"
       await squad(sandbox, [
         'set',
         'worker',
-        'topic=alpha beta gamma delta epsilon zeta eta theta',
+        'task=alpha beta gamma delta epsilon zeta eta theta',
         'pr_state=OPEN',
       ]);
       const example = readFileSync(
@@ -2544,7 +2517,7 @@ o = "run touch ${marker}"
         { field: 'ctx', span: 1 },
         { field: 'model', span: 2 },
       ]);
-      expect(result.body.sections[0].rows[0].fields.topic).toBe(
+      expect(result.body.sections[0].rows[0].fields.task).toBe(
         'alpha beta gamma delta epsilon zeta eta theta'
       );
       const first = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'checkout']);
@@ -2668,7 +2641,7 @@ sort = 9
       await squad(sandbox, ['init', 'product', '--me', 'Ben']);
       await squad(sandbox, ['lead', 'Sol']);
       await squad(sandbox, ['add', 'auth-fix', 'docs-sweep', 'perf-cache']);
-      await squad(sandbox, ['set', 'auth-fix', 'state=blocked']);
+      await squad(sandbox, ['set', 'auth-fix', 'state=blocked', 'pending=approve the plan']);
       await squad(sandbox, ['set', 'docs-sweep', 'state=review']);
       const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       const base = readOpsConfig(squadToml);
@@ -2697,7 +2670,7 @@ sort = ["-name"]
         ['Everyone', ['perf-cache', 'docs-sweep', 'auth-fix']],
       ]);
       const text = await runCli(sandbox, ['ops', 'sq', 'status']);
-      expect(text.stdout).toMatch(/\nNEEDS ME 1\n {2}○ {2}auth-fix /);
+      expect(text.stdout).toMatch(/\nNEEDS ME 1\n {2}◆ {2}auth-fix /);
 
       writeFileSync(
         squadToml,
@@ -2775,7 +2748,7 @@ sort = ["-name"]
       await squad(sandbox, [
         'set',
         'auth-fix',
-        `topic=${task}`,
+        `task=${task}`,
         'pr_link=https://example.com/pull/412?x=1&y=2',
         'issue_link=https://example.com/issues/9',
         'doc_link=file:///etc/passwd',
@@ -2794,7 +2767,7 @@ sort = ["-name"]
       const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         squadToml,
-        `${readOpsConfig(squadToml)}\nopener = ["record-open", "--new-tab"]\nclipboard = ["${clipboard}"]\n[squad.product.rows]\ncolumns = [{name="member"}, {name="state"}, {name="topic"}, {name="issue_link"}, {name="doc_link"}, {name="pr_link"}]\n`
+        `${readOpsConfig(squadToml)}\nopener = ["record-open", "--new-tab"]\nclipboard = ["${clipboard}"]\n`
       );
       const waitForOpened = () =>
         vi.waitFor(() => readFileSync(opened, 'utf8'), { timeout: 5000, interval: 25 });
@@ -2834,12 +2807,8 @@ sort = ["-name"]
       const copy = await squad(sandbox, ['copy', 'auth-fix']);
       expect(copy).toMatchObject({
         status: 0,
-        body: { copied: 'auth-fix (working)', to: 'program' },
+        body: { copied: `auth-fix: ${task} (working)`, to: 'program' },
       });
-      expect(readFileSync(copied, 'utf8')).toBe('auth-fix (working)');
-      expect(
-        (await squad(sandbox, ['copy', 'auth-fix', '--format', '{name}: {topic} ({state})'])).status
-      ).toBe(0);
       expect(readFileSync(copied, 'utf8')).toBe(`auth-fix: ${task} (working)`);
       expect(
         (await squad(sandbox, ['copy', 'Sol', '--format', '- [{name}]({member})'])).body
@@ -4148,7 +4117,9 @@ describe('Squad checklist native commands', () => {
   it('binds real dispatch, alias, streams, revisions, full inventory, tombstones and inert content', async () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox);
-      expect((await squad(sandbox, ['set', 'worker', 'state=busy'])).status).toBe(0);
+      expect((await squad(sandbox, ['set', 'worker', 'state=busy', 'pending=review'])).status).toBe(
+        0
+      );
       const before = unrelatedState(sandbox);
       const cli = (words: string[]) => squad(sandbox, ['checklist', ...words]);
       const list = (filters: string[] = []) => cli(['ls', '--room', f.roomId, ...filters]);
@@ -5884,7 +5855,6 @@ describe('large board responsiveness', () => {
             tmux(['send-keys', '-t', pane, 'Right', 'Enter']);
             await until(`mention actions at ${width} columns`, (menu) => {
               expect(menu).toContain('Message');
-              expect(menu).toContain('Copy');
               expect(menu).toContain('Show in Agents');
               // This identity has no host binding: unavailable actions are hidden.
               expect(menu).not.toContain('Jump to host');
@@ -5895,12 +5865,9 @@ describe('large board responsiveness', () => {
               text: screen(),
               ansi: tmux(['capture-pane', '-p', '-e', '-t', pane]),
             });
-            // Navigate past Copy to Show in Agents without sending the retained draft.
-            tmux(['send-keys', '-t', pane, 'Down', 'Down']);
-            await until(`Show in Agents selected at ${width} columns`, (menu) => {
-              expect(menu).toMatch(/›[ \t]+Show in Agents/);
-            });
-            tmux(['send-keys', '-t', pane, 'Enter']);
+            // Message is first; keep testing explicit Show in Agents navigation
+            // without sending the retained draft.
+            tmux(['send-keys', '-t', pane, 'Down', 'Enter']);
             await vi.waitFor(() => expect(screen()).not.toContain('Show in Agents'), {
               timeout: 10_000,
               interval: 25,

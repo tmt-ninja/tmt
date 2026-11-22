@@ -14,7 +14,7 @@ enum Part {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Template(Vec<Part>);
 
-pub const DEFAULT_COPY: &str = "{name} ({state})";
+pub const DEFAULT_COPY: &str = "{name}: {task} ({state})";
 
 fn field_name(name: &str) -> bool {
     if let Some(path) = name
@@ -353,8 +353,9 @@ fn failed_path(row: &Value, path: &str) -> bool {
 pub fn field_value<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
     match field {
         "board_pane" => None, // Reserved invocation context is never agent-authored metadata.
-        field if crate::squad::retired_field(field) => None,
-        "name" | "id" | "lifetime" | "presence" | "state" | "note" => row[field].as_str(),
+        "name" | "id" | "lifetime" | "presence" | "state" | "pending" | "note" => {
+            row[field].as_str()
+        }
         "member" => row["name"].as_str(),
         "pane" => row["pane"]["id"].as_str(),
         "target" => row["pane"]["target"].as_str(),
@@ -574,12 +575,11 @@ mod tests {
             "name": "auth-fix", "state": "blocked", "pending": null,
             "pane": {"id": "%5", "cwd": "/w/app 3"},
             "activity": {"activity": "editing"},
-            "fields": {"topic": "rotate; $(rm -rf ~)", "pr_link": "https://example.com/pull/412"}
+            "fields": {"task": "rotate; $(rm -rf ~)", "pr_link": "https://example.com/pull/412"}
         });
         let fill = |text: &str| Template::parse(text).unwrap().fill(&row);
-        assert_eq!(fill(DEFAULT_COPY).unwrap(), "auth-fix (blocked)");
         assert_eq!(
-            fill("{name}: {topic} ({state})").unwrap(),
+            fill(DEFAULT_COPY).unwrap(),
             "auth-fix: rotate; $(rm -rf ~) (blocked)"
         );
         assert_eq!(
@@ -611,7 +611,7 @@ mod tests {
     fn an_argument_refuses_a_leading_dash_only_from_a_value() {
         let row = json!({
             "name": "rin",
-            "fields": {"pr_link": "--repo=evil/x", "topic": "a -b", "branch": "-x"}
+            "fields": {"pr_link": "--repo=evil/x", "task": "a -b", "branch": "-x"}
         });
         let argument = |text: &str| Template::parse(text).unwrap().fill_argument(&row);
         assert_eq!(
@@ -621,7 +621,7 @@ mod tests {
         assert!(argument("{branch}").is_err());
         assert_eq!(argument("--json").unwrap(), "--json");
         assert_eq!(argument("--head={branch}").unwrap(), "--head=-x");
-        assert_eq!(argument("{topic}").unwrap(), "a -b");
+        assert_eq!(argument("{task}").unwrap(), "a -b");
         assert_eq!(argument("{name}").unwrap(), "rin");
         // Copy text is not an argument: it keeps any value.
         assert_eq!(

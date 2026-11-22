@@ -619,8 +619,9 @@ pub(super) fn members(
                     .and_then(|item| item["preparedAtMs"].as_u64())
                     .filter(|at| *at > 0 && *at <= now),
                 preview: safe_preview(
-                    question
-                        .and_then(|item| item["preview"].as_str())
+                    member.row["pending"]
+                        .as_str()
+                        .or_else(|| question.and_then(|item| item["preview"].as_str()))
                         .unwrap_or_default(),
                 ),
                 status: "retained".into(),
@@ -655,6 +656,20 @@ fn latest(
                 request: item["requestId"].as_str().map(str::to_owned),
                 since_ms: item["preparedAtMs"].as_u64().filter(|at| *at <= now),
                 preview: safe_preview(item["preview"].as_str().unwrap_or_default()),
+                status: "retained".into(),
+            },
+            3,
+        ));
+    }
+    if exchanges.is_empty()
+        && let Some(pending) = lead.row["pending"].as_str().filter(|text| !text.is_empty())
+    {
+        exchanges.push((
+            LeadPreview {
+                kind: Kind::Question,
+                request: None,
+                since_ms: None,
+                preview: safe_preview(pending),
                 status: "retained".into(),
             },
             3,
