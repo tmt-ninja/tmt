@@ -5537,72 +5537,73 @@ fn disagreeing_board(waiting: bool, look: crate::look::Look) -> App {
     app
 }
 
+fn select_squad_lead_detail(app: &mut App) {
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .lead = Some(MEMBER.into());
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
+}
+
 #[test]
 fn agents_list_keeps_observed_activity_and_detail_keeps_the_authored_state() {
     use crate::board::overview::monitor;
     use tmt_cli_style::Role;
-    for (waiting, words) in [
-        (false, "● working · blocked"),
-        (true, "● working · blocked"),
-    ] {
+    for waiting in [false, true] {
         let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
         assert!(tree.contains("● working"), "tree: {tree}");
         assert!(!tree.contains("· blocked"), "tree: {tree}");
-        assert!(
-            paint(&app, 160, 36).join("\n").contains(words),
-            "focus keeps the full state"
-        );
-        app.shell.tab = OpsTab::Agents;
-
-        let overview = paint(&app, 160, 36).join("\n");
-        assert!(overview.contains(words), "overview: {overview}");
-        // Counters follow core activity, never the task or the request.
+        // Counters follow Core activity, independent of authored state and requests.
         let scene = monitor::scene(&app, app.workspace_snapshot().unwrap());
         assert_eq!(scene.summary.working, 1);
         assert_eq!(scene.summary.unknown_activity, 0);
-        // The wide Overview cell shows the whole task: red only when it is blocked.
-        let screen_rows = paint(&app, 160, 36);
-        let (y, x) = screen_rows
-            .iter()
-            .enumerate()
-            .find_map(|(y, line)| {
-                line.find("· blocked")
-                    .map(|byte| (y, line[..byte].chars().count() + 2))
-            })
-            .expect("the Overview row shows the whole task");
-        let mut shown = Terminal::new(TestBackend::new(160, 36)).unwrap();
-        shown
-            .draw(|frame| crate::board::view::render(frame, &app))
-            .unwrap();
-        assert_eq!(
-            shown.backend().buffer()[(x as u16, y as u16)].fg,
-            look.role(Role::Blocked).fg.unwrap()
-        );
         // Only the glyph carries request attention colour; the words stay text.
         let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))
             .unwrap();
+        let index = app
+            .workspace_rows()
+            .iter()
+            .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
+            .unwrap();
+        let hit = *app
+            .hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.row() == Some(index))
+            .unwrap();
+        let start = tree.find("● working").unwrap();
+        let x = hit.x + tree[..start].chars().count() as u16;
         let buffer = terminal.backend().buffer();
-        let glyph = buffer
+        assert_eq!(buffer[(x, hit.y)].fg, look.role(Role::Working).fg.unwrap());
+        assert_eq!(buffer[(x + 2, hit.y)].fg, look.role(Role::Text).fg.unwrap());
+        select_squad_lead_detail(&mut app);
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let blocked = buffer
             .content
             .chunks(160)
-            .enumerate()
-            .find_map(|(y, row)| {
-                let symbols: Vec<_> = row.iter().map(|cell| cell.symbol()).collect();
-                (0..row.len())
-                    .find(|x| symbols[*x..].concat().starts_with(words))
-                    .map(|x| y * 160 + x)
+            .find_map(|row| {
+                let words = row.iter().map(|cell| cell.symbol()).collect::<String>();
+                let needle = "● working · blocked";
+                let start = words.find(needle)?;
+                let index = words[..start].chars().count() + "● working · ".chars().count();
+                Some(&row[index])
             })
-            .unwrap();
-        let glyph_role = Role::Working;
-        assert_eq!(buffer.content[glyph].fg, look.role(glyph_role).fg.unwrap());
-        assert_eq!(
-            buffer.content[glyph + 2].fg,
-            look.role(Role::Text).fg.unwrap()
-        );
+            .expect("squad lead detail shows the full authored state");
+        assert_eq!(blocked.fg, look.role(Role::Blocked).fg.unwrap());
     }
 }
 
@@ -5821,28 +5822,11 @@ fn unread_replies_replace_agents_activity_words_and_keep_authored_state_in_detai
         assert!(before.contains("● working"), "{before}");
         assert!(!before.contains("· blocked"), "{before}");
         with_unread_replies(&mut app);
-        let tree = painted_member_row(&app, 160, 36);
-        assert!(tree.contains("● 2 unread"), "{depth:?} tree: {tree}");
-        assert!(!tree.contains("· blocked"), "{depth:?} tree: {tree}");
-        assert!(!tree.contains("working"), "{depth:?} tree: {tree}");
-        assert!(
-            paint(&app, 160, 36)
-                .join("\n")
-                .contains("● 2 unread · blocked"),
-            "focus keeps full unread/task words"
-        );
-        app.shell.tab = OpsTab::Agents;
-
-        for (width, words) in [
-            (160, "● 2 unread · blocked"),
-            // The row's room drops the whole task first.
-            (82, "● 2 unread "),
-            (60, "● 2 unread  "),
-        ] {
-            let screen = paint(&app, width, 36).join("\n");
-            assert!(screen.contains(words), "{depth:?} {width}: {screen}");
-            let member = painted_member_row(&app, width, 36);
-            assert!(!member.contains("working"), "{depth:?} {width}: {member}");
+        for width in [160, 82, 60] {
+            let tree = painted_member_row(&app, width, 36);
+            assert!(tree.contains("● 2 unread"), "{depth:?} {width}: {tree}");
+            assert!(!tree.contains("· blocked"), "{depth:?} {width}: {tree}");
+            assert!(!tree.contains("working"), "{depth:?} {width}: {tree}");
         }
         let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
         terminal
@@ -5856,7 +5840,7 @@ fn unread_replies_replace_agents_activity_words_and_keep_authored_state_in_detai
             .find_map(|(y, row)| {
                 let symbols: Vec<_> = row.iter().map(|cell| cell.symbol()).collect();
                 (0..row.len())
-                    .find(|x| symbols[*x..].concat().starts_with("● 2 unread · blocked"))
+                    .find(|x| symbols[*x..].concat().starts_with("● 2 unread"))
                     .map(|x| y * 160 + x)
             })
             .unwrap();
@@ -5872,11 +5856,13 @@ fn unread_replies_replace_agents_activity_words_and_keep_authored_state_in_detai
         if depth != tmt_cli_style::Depth::None {
             assert_ne!(buffer.content[glyph + 2].fg, buffer.content[glyph].fg);
         }
+        select_squad_lead_detail(&mut app);
+        let detail = paint(&app, 160, 36).join("\n");
+        assert!(detail.contains("● 2 unread · blocked"), "{detail}");
     }
 }
 
-/// The Agents list shows observed activity or unread. The selected member and
-/// squad-lead detail retain authored state when unread replaces the activity word.
+/// The squad-lead detail retains authored state when unread replaces the activity word in the list.
 #[test]
 fn unread_replies_keep_repeated_authored_state_in_detail_only() {
     use crate::board::activity::Phase;
@@ -5885,7 +5871,7 @@ fn unread_replies_keep_repeated_authored_state_in_detail_only() {
         ("idle", Phase::Idle, false, "◌"),
         ("waiting", Phase::Working, true, "●"),
     ] {
-        // The activity word on screen is the one vocabulary's; the task text stays Core's.
+        // Use the observed activity word in the list.
         let shown = if word == "waiting" { "working" } else { word };
         let mut app = disagreeing_board(waiting, crate::look::Look::default());
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -5920,33 +5906,15 @@ fn unread_replies_keep_repeated_authored_state_in_detail_only() {
         let tree = painted_member_row(&app, 160, 36);
         assert!(tree.contains("● 2 unread"), "{word} tree: {tree}");
         assert!(!tree.contains(&unread), "{word} tree: {tree}");
-        assert!(
-            paint(&app, 160, 36).join("\n").contains(&unread),
-            "{word} member focus"
-        );
-        // The final squad focus shows its observed lead instead of a roster STATE column.
-        app.view
-            .as_mut()
-            .unwrap()
-            .home
-            .as_mut()
-            .unwrap()
-            .workspace
-            .roster
-            .squads[0]
-            .lead = Some(MEMBER.into());
-        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
-        app.workspace_reconcile();
+        select_squad_lead_detail(&mut app);
         let roster = paint(&app, 160, 44).join("\n");
         assert!(roster.contains(&unread), "{word} roster: {roster}");
-        app.shell.tab = OpsTab::Agents;
-
         app.workspace.selected = Some(target);
         app.workspace_reconcile();
-        // The narrower Overview layout drops the whole task at 80 columns.
-        for (width, words) in [(110, unread.clone()), (80, "● 2 unread".to_owned())] {
-            let screen = paint(&app, width, 36).join("\n");
-            assert!(screen.contains(&words), "{word} {width}: {screen}");
+        for width in [110, 80] {
+            let tree = painted_member_row(&app, width, 36);
+            assert!(tree.contains("● 2 unread"), "{word} {width}: {tree}");
+            assert!(!tree.contains(&unread), "{word} {width}: {tree}");
         }
     }
 }

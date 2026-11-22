@@ -778,7 +778,7 @@ fn board_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
 // A member's task state ignores an authored token; the 16-cell STATE track drops a task it
 // cannot show whole, so neither `blocked` nor `waiting` is cut or recoloured there.
 #[test]
-fn a_task_the_state_track_cannot_show_whole_is_dropped_whatever_the_projected_token() {
+fn the_agents_state_track_omits_authored_text_whatever_the_projected_token() {
     use crate::board::app::workspace::tests::{MEMBER, ROOM};
     use crate::board::workspace::OpsTarget;
     for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
@@ -835,14 +835,10 @@ fn a_task_the_state_track_cannot_show_whole_is_dropped_whatever_the_projected_to
                         .map(|x| buffer[(x, hit.y)].symbol())
                         .collect();
                     let row_text = cells.concat();
-                    if state.len() <= 7 {
-                        assert!(row_text.contains(&format!("· {state}")), "{row_text}");
-                    } else {
-                        assert!(
-                            !row_text.contains("· blocked"),
-                            "a task that does not fit is dropped whole: {row_text}"
-                        );
-                    }
+                    assert!(
+                        !row_text.contains("· blocked") && !row_text.contains("· waiting"),
+                        "the Agents row omits authored text: {row_text}"
+                    );
                     assert!(row_text.contains(" working"), "{row_text}");
                     assert!(
                         row_text.chars().any(|ch| "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏".contains(ch)),
