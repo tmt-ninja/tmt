@@ -764,7 +764,16 @@ fn read_column(
                 column.from = Some(
                     value
                         .as_str()
-                        .and_then(|path| ColumnSource::parse(path, field_name, provided))
+                        .and_then(|path| {
+                            ColumnSource::parse(
+                                path,
+                                |field| {
+                                    field_name(field)
+                                        || crate::squad::retired_metadata(&format!("squad.{field}"))
+                                },
+                                provided,
+                            )
+                        })
                         .ok_or_else(|| invalid(format!("`{place}` must be one of: {PATHS}.")))?,
                 );
             }

@@ -337,10 +337,10 @@ async function hostActionBoard(fixture: E2EFixture, action: string, task: string
   expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
   expectJsonResult(await squadCli(fixture, ['lead', 'left-agent']));
   expectJsonResult(await squadCli(fixture, ['add', 'worker']));
-  expectJsonResult(await squadCli(fixture, ['set', 'worker', `task=${task}`]));
+  expectJsonResult(await squadCli(fixture, ['set', 'worker', `topic=${task}`]));
   fs.appendFileSync(
     path.join(fixture.globalDir, 'ops.toml'),
-    `\n[board]\nrefresh = "off"\n[bind]\nj = ${JSON.stringify(action)}\n`
+    `\n[board]\nrefresh = "off"\n[squad.product.rows]\ncolumns = [{name = "member"}, {name = "topic"}]\n[bind]\nj = ${JSON.stringify(action)}\n`
   );
   await fixture.attachSessionClient('e2e');
   // Both pane processes are tracked by the fixture; joining avoids an unowned child.
@@ -483,7 +483,7 @@ renameSync(output+'.tmp',output);
       );
       const task = `one argument ; $(touch ${forbidden})`;
       // JSON quoting is for the Action/TOML grammars; no shell consumes this line.
-      const command = `run ${[process.execPath, script, output].map((arg) => JSON.stringify(arg)).join(' ')} {board_pane} {pane} {task} {{left-of}}`;
+      const command = `run ${[process.execPath, script, output].map((arg) => JSON.stringify(arg)).join(' ')} {board_pane} {pane} {topic} {{left-of}}`;
       const panes = await hostActionBoard(fixture, command, task);
       const before = hostPaneSlots(fixture);
       const caller = clientPlace(fixture);
