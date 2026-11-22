@@ -489,8 +489,25 @@ fn close_controls_require_current_geometry_and_open_on_cancel() {
         app.look().role(tmt_cli_style::Role::Blocked).fg,
         "the available Delete button uses the destructive role"
     );
+    let unfocused_bg = buffer[(delete.x + 1, delete.y)].bg;
     drop(hits);
     assert_eq!(key(&mut app, KeyCode::Left), Effect::None);
+    let buffer = draw(&app, 150, 43);
+    let focused = &buffer[(delete.x + 1, delete.y)];
+    assert_eq!(focused.symbol(), "D");
+    let look = app.look();
+    let error_fill = tmt_cli_style::theme::screen::fill(
+        &look.theme,
+        tmt_cli_style::Role::Blocked,
+        look.depth,
+        tmt_cli_style::theme::screen::Fill::Solid,
+    );
+    assert_eq!(
+        (Some(focused.fg), Some(focused.bg)),
+        (error_fill.fg, error_fill.bg),
+        "focused Delete uses the error fill and its contrasting ink"
+    );
+    assert_ne!(focused.bg, unfocused_bg, "focus still changes the fill");
     let Effect::Act(Action::WorkspaceOperation(Change::CloseMember(request))) =
         key(&mut app, KeyCode::Enter)
     else {

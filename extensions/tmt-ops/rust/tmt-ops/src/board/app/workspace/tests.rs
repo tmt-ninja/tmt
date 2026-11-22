@@ -1355,29 +1355,41 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
 }
 
 #[test]
-fn clicking_the_visible_member_host_jumps_to_that_member() {
+fn clicking_member_header_chip_model_or_host_jumps_to_that_member() {
     let mut app = board();
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(json!({
+        "identities": [{"id": MEMBER, "name": "worker", "runningDriver": "codex",
+                        "hue": "green", "resume": {"model": "gpt-6.2-astra"}}]
+    })));
     let screen = paint(&app, 160, 36);
     let (y, line) = screen
         .iter()
         .enumerate()
-        .find(|(_, line)| line.contains("tmux") && line.contains("—  ·"))
+        .find(|(_, line)| line.contains("tmux") && line.contains("worker  PRODUCT"))
         .expect("member metadata");
-    let x = unicode_width::UnicodeWidthStr::width(&line[..line.find("tmux").unwrap()]);
-    let click = ratatui::crossterm::event::MouseEvent {
-        kind: ratatui::crossterm::event::MouseEventKind::Down(
-            ratatui::crossterm::event::MouseButton::Left,
-        ),
-        column: x as u16,
-        row: y as u16,
-        modifiers: KeyModifiers::NONE,
+    let click = |label: &str| {
+        let start = line.find(label).expect("painted member metadata");
+        let x = unicode_width::UnicodeWidthStr::width(&line[..start]);
+        ratatui::crossterm::event::MouseEvent {
+            kind: ratatui::crossterm::event::MouseEventKind::Down(
+                ratatui::crossterm::event::MouseButton::Left,
+            ),
+            column: x as u16,
+            row: y as u16,
+            modifiers: KeyModifiers::NONE,
+        }
     };
-    assert_eq!(
-        app.mouse(click, std::time::Instant::now()),
-        Effect::Act(Request::Jump(MEMBER.into()))
-    );
+    for label in ["Codex", "gpt-6.2-astra", "tmux"] {
+        assert_eq!(
+            app.mouse(click(label), std::time::Instant::now()),
+            Effect::Act(Request::Jump(MEMBER.into()))
+        );
+    }
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
-    assert_eq!(app.mouse(click, std::time::Instant::now()), Effect::None);
+    assert_eq!(
+        app.mouse(click("Codex"), std::time::Instant::now()),
+        Effect::None
+    );
     assert!(app.notice.as_deref().unwrap().contains("target changed"));
 }
 
@@ -4641,9 +4653,7 @@ fn search_follows_first_match_and_clearing_keeps_the_current_selection() {
             .as_str()
             .unwrap();
         assert!(
-            lines
-                .iter()
-                .any(|line| line.contains(name) && line.contains(" / MEMBER")),
+            lines.iter().any(|line| line.contains(&format!("{name}  "))),
             "the previous conversation remains painted"
         );
     } else {

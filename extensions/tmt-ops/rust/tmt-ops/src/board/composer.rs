@@ -120,11 +120,19 @@ impl App {
         projection: &Projection<'a>,
     ) -> super::input_field::Info<'a> {
         let identity = projection.key.as_ref().map(|(_, id)| id.as_str());
+        let target = self.conversation_target();
+        let member_header = matches!(
+            target,
+            Some(RowTarget::Workspace(
+                super::workspace::OpsTarget::Member { .. }
+            ))
+        );
         let row = identity.and_then(|identity| {
             // The usual recipient is the painted conversation target; use its
             // held row directly instead of walking the roster on every frame.
-            self.conversation_target()
-                .and_then(|target| self.target_row(&target))
+            target
+                .as_ref()
+                .and_then(|target| self.target_row(target))
                 .filter(|row| row["id"].as_str() == Some(identity))
                 .or_else(|| {
                     self.workspace_snapshot().and_then(|snapshot| {
@@ -160,7 +168,8 @@ impl App {
                 && !self.bindings().contains_key("ctrl-l")
                 && self.conversation_checklist_key().is_some(),
             checklist_reference: projection.focused && self.checklist_reference_key().is_some(),
-            unread: identity.map_or_else(Default::default, |id| self.unread_count(id)),
+            unread: (!member_header)
+                .then(|| identity.map_or_else(Default::default, |id| self.unread_count(id))),
             open: row
                 .and_then(|row| row["waitingOnYou"].as_array())
                 .map(Vec::len),

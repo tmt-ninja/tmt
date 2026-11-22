@@ -357,7 +357,8 @@ fn agents_legend(app: &App) -> Option<Hints> {
             return Some(Hints {
                 keys: vec![
                     ("↑↓".into(), "reorder".into()),
-                    ("←→".into(), "outdent/nest".into()),
+                    ("→".into(), "nest".into()),
+                    ("←".into(), "out".into()),
                     ("⏎".into(), "drop".into()),
                 ],
                 tail: vec![("Esc".into(), "cancel".into())],

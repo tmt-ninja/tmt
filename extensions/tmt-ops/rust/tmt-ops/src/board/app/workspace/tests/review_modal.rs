@@ -472,6 +472,7 @@ pub(in crate::board) const CRUD_SCENES: &[&str] = &[
     "crud-moving",
     "crud-moving-pool",
     "close-member-confirm",
+    "close-member-delete-focused",
     "close-member-refused",
     "close-member-signalled",
     "close-member-unavailable",
@@ -507,6 +508,7 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
         "crud-squad" => app.workspace.selected = Some(OpsTarget::Squad(ROOM.into())),
         "crud-pool" => app.workspace.selected = Some(OpsTarget::Pool),
         "close-member-confirm"
+        | "close-member-delete-focused"
         | "close-member-refused"
         | "close-member-signalled"
         | "close-member-unavailable"
@@ -518,6 +520,8 @@ pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) 
             let draft = app.workspace_form.as_mut().unwrap();
             if scene == "close-member-pending" {
                 draft.stage = Stage::Pending;
+            } else if scene == "close-member-delete-focused" {
+                draft.review.focus = tmt_tui::components::Focus::Buttons(0);
             } else if scene != "close-member-confirm" {
                 let (step, code, message, signalled) = match scene {
                     "close-member-signalled" => (

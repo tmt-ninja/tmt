@@ -223,8 +223,10 @@ fn unread_projections_require_a_nonempty_page_for_the_current_actor() {
     }
     let shown = draw(&app);
     assert!(
-        shown.contains("● 0 unread"),
-        "the stable info line reports known zero"
+        shown
+            .lines()
+            .any(|line| line.contains("worker  PRODUCT") && line.contains("○ 0 unread")),
+        "the member header reports known zero"
     );
     assert!(
         !shown.contains("1 unread"),
@@ -571,10 +573,11 @@ mod mark_read {
         }
     }
     fn chip(app: &App) -> Option<ratatui::layout::Rect> {
-        app.composer
-            .unread_hit
+        let composer = app.input_band.get()?;
+        app.unread_hits
             .borrow()
-            .as_ref()
+            .iter()
+            .find(|hit| hit.area.x >= composer.x && hit.area.y < composer.y && hit.target.is_some())
             .map(|hit| hit.area)
     }
     fn text(buffer: &Buffer, area: ratatui::layout::Rect) -> String {

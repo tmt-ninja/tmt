@@ -289,6 +289,15 @@ fn drop_nests_under_the_previous_member_and_outdent_returns_to_root() {
         identity_id: MEMBER.into(),
     };
     press(&mut app, KeyCode::Char('m'));
+    let shown = lines(&app, 160);
+    assert!(shown.iter().any(|line| line.contains("Moving worker")));
+    assert!(!shown.iter().any(|line| line.contains("choose a squad")));
+    assert!(
+        shown
+            .last()
+            .unwrap()
+            .contains("↑↓ reorder  → nest  ← out  ⏎ drop  Esc cancel")
+    );
     press(&mut app, KeyCode::Right);
     press(&mut app, KeyCode::Esc);
     assert_eq!(

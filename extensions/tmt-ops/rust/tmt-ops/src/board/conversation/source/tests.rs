@@ -1211,7 +1211,7 @@ mod click_focus {
                     (0..WIDE)
                         .map(|x| buffer[(x, y)].symbol())
                         .collect::<String>()
-                        .contains("PRODUCT / MEMBER")
+                        .contains("worker  PRODUCT")
                 })
                 .expect("the conversation pane title row")
         };
