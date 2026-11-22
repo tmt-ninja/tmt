@@ -476,3 +476,78 @@ fn squad_timer_overflow_more_hint_renders_exact_text() {
         "{text}"
     );
 }
+
+fn talk_with_work() -> App {
+    const PAGE: &str = "77777777-7777-4777-8777-777777777777";
+    let mut app = observed("One short observed response.");
+    app.focus = 1;
+    app.work.list = Some(
+        super::super::work::List::decode(&json!({
+            "spaceId": "private-fixture",
+            "pages": [{
+                "pageId": PAGE,
+                "title": "Restore focus",
+                "workNumber": "WEB-31",
+                "link": "https://example.test/colab",
+                "summary": {
+                    "status": "needs-you",
+                    "fields": {"owner": {"id": MEMBER, "name": "worker"}},
+                    "sectionProgress": {"done": 1, "total": 3},
+                    "sections": [
+                        {"id": "accepted", "title": "Confirm scope", "level": 2,
+                            "done": 1, "total": 1, "state": "done"},
+                        {"id": "decision", "title": "Return target", "level": 2,
+                            "done": 0, "total": 1, "state": "needs-you"},
+                        {"id": "navigation", "title": "Back navigation", "level": 2,
+                            "done": 0, "total": 1, "state": "unchecked"}
+                    ]
+                }
+            }]
+        }))
+        .unwrap(),
+    );
+    app
+}
+
+#[test]
+fn talk_work_expands_in_place_and_opens_only_the_fresh_bound_page() {
+    let mut app = talk_with_work();
+    let recipient = app.workspace.selected.clone();
+    let collapsed = screen(&draw(&mut app, 160, 42));
+    let summary = collapsed
+        .lines()
+        .find(|row| row.contains("Work WEB-31"))
+        .expect("work summary is pinned in Talk");
+    assert!(summary.contains("◆ Needs you") && summary.contains("1/3"));
+    assert!(!collapsed.contains("Return target"));
+    let input = app.input_band.get().unwrap();
+    let press = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    assert_eq!(app.key(press(KeyCode::Char('w'))), Effect::None);
+    let expanded = screen(&draw(&mut app, 160, 42));
+    assert!(expanded.contains("✓ Confirm scope"), "{expanded}");
+    assert!(expanded.contains("◆ Return target ← next"), "{expanded}");
+    assert!(expanded.contains("· Back navigation"), "{expanded}");
+    assert!(expanded.contains("Open in Colab"), "{expanded}");
+    assert!(expanded.contains("One short observed response."));
+    assert_eq!(app.workspace.selected, recipient);
+    assert_eq!(app.input_band.get(), Some(input));
+    assert_eq!(
+        app.key(press(KeyCode::Enter)),
+        Effect::OpenWorkPage("77777777-7777-4777-8777-777777777777".into())
+    );
+
+    app.work.stale = true;
+    let stale = screen(&draw(&mut app, 160, 42));
+    assert!(stale.contains("stale"), "{stale}");
+    assert!(!stale.contains("Open in Colab"));
+    assert_ne!(
+        app.key(press(KeyCode::Char('o'))),
+        Effect::OpenWorkPage("77777777-7777-4777-8777-777777777777".into())
+    );
+    assert_eq!(app.key(press(KeyCode::Esc)), Effect::None);
+    let collapsed = screen(&draw(&mut app, 160, 42));
+    assert!(!collapsed.contains("Return target"));
+    assert_eq!(app.focused(), Pane::Replies);
+    assert_eq!(app.workspace.selected, recipient);
+    assert_eq!(app.input_band.get(), Some(input));
+}
