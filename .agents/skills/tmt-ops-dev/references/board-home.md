@@ -91,10 +91,10 @@ Aggregate `+` is the OR of eligible members' partial flags;
 observed zero renders no unread state, even when older replies are possible. Its ordered lane acknowledges painted body rows and explicit Mark read through public `requests.ack`, and consumes legacy cutoffs through bounded pages under Config's lock.
 
 StateCell supplies `● N unread` in place of the glyph and activity words
-(working/idle/ended/stale/`?`); the member's task state still follows, as
-`● N unread · <task>`, and clips first in a narrow cell. Only the activity form
-leaves out a task that repeats its activity word; the unread form keeps it. One owner,
-`columns::activity_projection`, supplies the tree and other admitted row surfaces.
+(working/idle/ended/stale/`?`). The Agents tree passes observed activity alone to
+`columns::activity_projection`. Other admitted surfaces can append the member's
+authored squad state. That suffix clips first, and the activity form omits a
+suffix that repeats its activity word.
 Only the glyph uses the canonical `unread` role, with neutral count/words and
 unchanged text under NO_COLOR. TeamStrip retains lead-first UUID order and admits
 whole labels or its existing overflow mark. Unread members sort first within tree
@@ -584,8 +584,8 @@ conversation Checklist page. The existing write epoch fences late reads. Scope p
 delivery update the cached header total, so paint does not scan every list.
 An admitted room-modal observation updates its room summary and fences older quiet reads.
 Shared completion counts treat references as attributes, including linked open items.
-`columns::todo_span` adds the whole suffix after the existing state/task, only for
-a known positive count; the state and unread words keep their width first. If the full
+`columns::todo_span` adds the whole suffix after the displayed state only for a
+known positive count. The state and unread words keep their width first. If the full
 `N todo` suffix does not fit, the suffix is omitted.
 The shared track solver keeps header, row and hit geometry aligned. The Agents tree
 shows twelve grey activity cells for the saved 1m, 5m, 10m or 1h window. `b` and the

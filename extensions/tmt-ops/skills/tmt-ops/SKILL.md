@@ -685,7 +685,7 @@ are preserved, and these source descriptions grant no request or navigation auth
 
 Member STATE cells append `· N todo`; squad STATE cells append their room list's
 `· ○ N todo`. Counts appear only when known and positive and the whole suffix fits
-after the existing state and task. State/unread words keep their width first.
+after the existing activity or unread words. Those words keep their width first.
 Pending, unavailable and zero counts
 add no row suffix; the global header carries the unknown or partial observation.
 Every open, nonarchived item counts as a todo, including a linked item, regardless of
@@ -1653,22 +1653,21 @@ own reader and validation; it is not a second interactive editor or shell.
 Agents shows one expandable squad tree and Common pool, with explicit room and
 identity targets. Lead badges and member counts include the lead once.
 
-A member's STATE shows core's provider activity first and the squad task state
-second, such as `● working 12m · review`. The first word is core's `working` or `idle` with how long
-that phase has run, or `ended`; pending requests never override it. Unknown activity has no word: the cell is a
-muted `?` and then the task state, such as `? idle · member`. When the board's last read failed, or
-is older than its refresh interval (at least 5 s) plus 10 s, the word is `stale`
-with the time of core's last event, such as `? stale 4m ago`; with refresh off,
-rows go stale and stay stale until you refresh. Stale and unknown never mean
-idle, and the age is never made up when core gives no time. A narrow cell clips
-the task first, then drops the age. Unread replies from an agent replace the
-activity words: the cell is `● N unread` and then the task state, such as
-`● 2 unread · review`, with only the `●` in the unread colour. The working and idle counts follow core
-activity, each agent once, and count a stale agent as unknown. In a squad row
-each TEAM glyph shows core activity (`?` when stale or unknown); a task state
-never overrides it. Attention and
-presence are scoped observations, and failed observations remain partial/stale
-rather than becoming idle or zero.
+In the Agents list, a member's STATE shows Core's observed activity, such as
+`● working 12m`, `idle` or `ended`. The elapsed time comes from Core. Unknown
+activity is a muted `?`. When the board's last read failed, or is older than its
+refresh interval (at least 5 s) plus 10 s, the cell says `stale` with the time of
+Core's last event, such as `? stale 4m ago`. With refresh off, rows go stale and
+stay stale until you refresh. A narrow cell can omit the age. Unread replies
+replace the activity words with `● N unread`, with only the glyph in the unread
+colour. The idle alert mark stays alongside the idle word when due. The Agents
+list omits the authored squad state suffix. The selected member detail retains
+it, and the squad Board section retains task, pending and next.
+
+The working and idle counts use Core activity once per agent and count a stale
+agent as unknown. Each squad TEAM glyph shows Core activity (`?` when stale or
+unknown). Attention and presence are scoped observations. Failed observations
+remain partial or stale.
 A collapsed squad shows its worst observed state. Display names never provide
 operation authority.
 

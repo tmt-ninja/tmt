@@ -361,6 +361,10 @@ fn capture_rendered_quote_chip_packet() {
 }
 
 fn task_field_fixture(look: crate::look::Look) -> App {
+    squad_fields_fixture(look, json!({"task": "task proof"}))
+}
+
+fn squad_fields_fixture(look: crate::look::Look, fields: serde_json::Value) -> App {
     let mut app = fixture_with_look("separate reply", look);
     let target = app.workspace.selected.clone().unwrap();
     app.view
@@ -372,7 +376,7 @@ fn task_field_fixture(look: crate::look::Look) -> App {
         .workspace
         .rows
         .get_mut(&target)
-        .unwrap()["fields"] = json!({"task":"task proof"});
+        .unwrap()["fields"] = fields;
     app.view
         .as_mut()
         .unwrap()
@@ -408,6 +412,75 @@ fn task_field_start(app: &App, buffer: &ratatui::buffer::Buffer) -> (u16, u16) {
         }
     }
     panic!("the published task field contains its displayed text");
+}
+
+fn seeded_agents_state(
+    look: crate::look::Look,
+    phase: crate::board::activity::Phase,
+    state: &str,
+) -> App {
+    let mut app = squad_fields_fixture(look, json!({"task": "Fix X", "next": "Ship Y"}));
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    workspace.roster.squads[0]
+        .member_states
+        .get_mut(MEMBER)
+        .unwrap()
+        .state = Some(state.to_owned());
+    workspace
+        .roster
+        .members
+        .get_mut(MEMBER)
+        .unwrap()
+        .activity
+        .phase = phase;
+    app
+}
+
+fn agents_test_row(buffer: &ratatui::buffer::Buffer) -> (usize, String) {
+    buffer
+        .content
+        .chunks(usize::from(buffer.area.width))
+        .enumerate()
+        .find_map(|(y, cells)| {
+            let line: String = cells.iter().map(|cell| cell.symbol()).collect();
+            let row = line.split('│').next().unwrap();
+            row.contains("worker").then(|| (y, row.to_owned()))
+        })
+        .expect("the seeded member is visible in the Agents list")
+}
+
+#[test]
+fn agents_list_uses_observed_state_and_keeps_task_and_next_in_squad_board() {
+    use crate::board::activity::Phase;
+
+    for (phase, manual_state, observed) in [
+        (Phase::Unknown, "Inspect quota", "?"),
+        (Phase::Working, "Audit", "working"),
+    ] {
+        let mut app = seeded_agents_state(crate::look::Look::default(), phase, manual_state);
+        let buffer = draw(&mut app, 160, 36);
+        let (_, row) = agents_test_row(&buffer);
+        assert!(row.contains(observed), "observed activity must stay: {row}");
+        for hidden in [manual_state, "Fix X", "Ship Y"] {
+            assert!(!row.contains(hidden), "Agents row shows {hidden}: {row}");
+        }
+        assert!(locate(&buffer, "TASK / NEXT ACTION").is_none());
+        let detail = buffer
+            .content
+            .chunks(160)
+            .filter_map(|cells| {
+                let line: String = cells.iter().map(|cell| cell.symbol()).collect();
+                line.split_once('│').map(|(_, detail)| detail.to_owned())
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        for retained in ["Board", manual_state, "Fix X", "Ship Y"] {
+            assert!(
+                detail.contains(retained),
+                "squad detail missing {retained}: {detail}"
+            );
+        }
+    }
 }
 
 #[test]

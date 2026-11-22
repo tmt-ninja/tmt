@@ -730,6 +730,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
             let (state, state_primary_width, state_attention) = if let Some(mut label) =
                 app.activity_label_in_frame(row, now, now_ms)
             {
+                if app.shell.tab == OpsTab::Agents {
+                    // The list shows observed activity. The authored state remains in the detail.
+                    label.task = None;
+                }
                 if label.state == "working"
                     && let Some(at) = label.at
                 {
