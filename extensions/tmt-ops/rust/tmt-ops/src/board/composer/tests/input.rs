@@ -121,19 +121,19 @@ fn context_comes_from_the_acquired_running_recipient_and_preserves_unknown_windo
         }]})
     };
     for (driver, window, wanted, absent) in [
-        (json!("codex"), json!(258000), "ctx 142k / 258k", None),
+        (
+            json!("codex"),
+            json!(258000),
+            "ctx 55% · 142k / 258k",
+            &[][..],
+        ),
         (
             json!("claude"),
             serde_json::Value::Null,
             "ctx 142k",
-            Some("/ 258k"),
+            &["%", "/ 258k"],
         ),
-        (
-            serde_json::Value::Null,
-            json!(258000),
-            "worker",
-            Some("ctx"),
-        ),
+        (serde_json::Value::Null, json!(258000), "worker", &["ctx"]),
     ] {
         app.references =
             crate::board::inventory::Inventory::from_listed(&Ok(listed(driver, window)));
@@ -141,7 +141,7 @@ fn context_comes_from_the_acquired_running_recipient_and_preserves_unknown_windo
         let area = app.input_band.get().unwrap();
         let info = band_text(&buffer, Rect::new(area.x, area.bottom() - 1, area.width, 1));
         assert!(info.contains(wanted), "{info}");
-        if let Some(absent) = absent {
+        for &absent in absent {
             assert!(!info.contains(absent), "{info}");
         }
     }

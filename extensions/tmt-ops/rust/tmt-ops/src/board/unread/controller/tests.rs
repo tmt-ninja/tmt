@@ -223,8 +223,10 @@ fn unread_projections_require_a_nonempty_page_for_the_current_actor() {
     }
     let shown = draw(&app);
     assert!(
-        shown.contains("● 0 unread"),
-        "the stable info line reports known zero"
+        shown
+            .lines()
+            .any(|line| line.contains("worker  PRODUCT") && line.contains("○ 0 unread")),
+        "the member header reports known zero"
     );
     assert!(
         !shown.contains("1 unread"),
