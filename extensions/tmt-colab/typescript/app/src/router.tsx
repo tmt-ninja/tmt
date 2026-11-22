@@ -28,6 +28,7 @@ import { usePageAttachmentDownload } from './page-attachment-download.js';
 import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
+import { restorable } from './block-drafts.js';
 import { blockTree } from './block-projection.js';
 import type { BlockRecord } from './block-model.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
@@ -808,10 +809,13 @@ function EndedBody({
   error,
   action,
   compact,
+  kept,
 }: {
   error: Error;
   action: EndedAction;
   compact?: boolean;
+  /** A page of blocks: what was typed while it reconnected stays on this device (#6795). */
+  kept?: boolean;
 }) {
   if (error instanceof SessionEvictedError)
     return <SessionLimitBody limit={error.limit} settingsUrl={error.settingsUrl} />;
@@ -820,6 +824,7 @@ function EndedBody({
   return (
     <>
       <TerminalFailure error={error} reference={!compact} />
+      {kept && <p>{text.blockDraftsKept}</p>}
       {action === 'pair' && (
         <>
           <p>{text.pairAgain}</p>
@@ -2020,6 +2025,31 @@ function OpenPage({
     retryMove,
     runLifecycle,
   } = usePageWorkflow(transport, snapshot, view, space);
+  // An ended or archived page of blocks says when it still holds typing for this device to offer
+  // (#6795). A device paired again is a new device (#6796), and a page that is gone takes no text:
+  // neither says so.
+  const keepsDrafts =
+    view.pageType === 'blocks' &&
+    (endedError ? endedAction === 'reload' || endedAction === 'none' : !!archived);
+  const draftStore = keepsDrafts ? transport.blockDrafts : undefined;
+  const [draftsHeld, setDraftsHeld] = useState<{ page: string; kept: boolean }>();
+  useEffect(() => {
+    if (!draftStore) return;
+    setDraftsHeld(undefined);
+    let active = true;
+    const settle = (kept: boolean) => active && setDraftsHeld({ page: snapshot.id, kept });
+    void draftStore.load(snapshot.id).then(
+      (drafts) => settle(restorable(snapshot.id, drafts).length > 0),
+      () => settle(false),
+    );
+    return () => {
+      active = false;
+    };
+  }, [draftStore, snapshot.id]);
+  // The archived banner waits for the answer, so its kept sentence never arrives later and moves
+  // the page.
+  const keptKnown = !draftStore || draftsHeld?.page === snapshot.id;
+  const keptDrafts = !!draftStore && draftsHeld?.page === snapshot.id && draftsHeld.kept;
   useEffect(() => {
     sourceDraft.adoptSnapshot(snapshot);
     setView({
@@ -2890,14 +2920,15 @@ function OpenPage({
     renderer.current?.select(openThreadId);
   }, [state, contentRevision, anchoredThreads, openThreadId]);
   // A modal drawer makes the page-level card inert, so an ended connection also speaks in the
-  // drawer: the same sentence and action under its header. A reconnecting page shows nothing.
+  // drawer: the same sentence and action under its header. A reconnecting page says so only in its
+  // bar (#6795).
   const endedNotice = endedError && (
     <div className="drawer-recovery" role="status" data-tone={endedPresentation?.state}>
       <span className="drawer-recovery-state">
         <span aria-hidden="true">{endedPresentation?.state === 'inactive' ? '○ ' : '✗ '}</span>
         {text.blocked}
       </span>
-      <EndedBody error={endedError} action={endedAction} compact />
+      <EndedBody error={endedError} action={endedAction} compact kept={keptDrafts} />
       <EndedLink action={endedAction} />
     </div>
   );
@@ -3135,6 +3166,15 @@ function OpenPage({
           // The page's heading is its own title below; the bar repeats it without a second h1.
           accessibleTitle={view.title || snapshot.title || text.unknownPageTitle}
           workNumber={snapshot.workNumber}
+          // Not live: on a phone the bar says so in the title's place (#6795).
+          phoneTitle={
+            recoveryRequired && !archived ? (
+              <>
+                <span data-mark>◐</span>
+                {text.reconnecting}
+              </>
+            ) : undefined
+          }
           remote={{ deviceName: transport.backendName }}
           home={routing.home}
           status={
@@ -3190,6 +3230,15 @@ function OpenPage({
                 <span className="status-label">{accessLabel}</span>
               </span>
               <RemoteAttention />
+              {recoveryRequired && !archived && (
+                // Not live, so the person is told (#6795): a page of blocks keeps their typing.
+                <span className="page-attention" data-attention="reconnecting">
+                  <span aria-hidden="true">◐</span>
+                  <span className="page-attention-word">
+                    {blockPage ? text.reconnectingKept : text.reconnecting}
+                  </span>
+                </span>
+              )}
               {archived ? (
                 <span
                   className="page-attention"
@@ -3454,7 +3503,7 @@ function OpenPage({
         onConfirm={() => void runLifecycle()}
         onCancel={() => setPageOperation(undefined)}
       />
-      {(archived || pageOperationNotice) && (
+      {((archived && keptKnown) || pageOperationNotice) && (
         <div className="page-lifecycle-notice">
           <BrowserNotice
             tone={pageOperationNotice?.failed ? 'blocked' : 'muted'}
@@ -3473,7 +3522,12 @@ function OpenPage({
                 <Archive aria-hidden="true" />
               )
             }
-            body={pageOperationNotice?.text ?? text.archiveAnnouncement}
+            body={
+              pageOperationNotice?.text ??
+              (keptDrafts
+                ? `${text.archiveAnnouncement} ${text.archivedDraftsKept}`
+                : text.archiveAnnouncement)
+            }
             actions={
               archived && transport.management ? (
                 <BrowserAction
@@ -3489,6 +3543,14 @@ function OpenPage({
       )}
       <p role="status" className="archive-announcement tmt-ui-visually-hidden">
         {archiveAnnouncement}
+      </p>
+      {/* Said once when the page starts reconnecting; cleared, not announced, when it is live. */}
+      <p role="status" className="connection-announcement tmt-ui-visually-hidden">
+        {recoveryRequired && !archived
+          ? blockPage
+            ? text.reconnectingKept
+            : text.reconnecting
+          : ''}
       </p>
       <ExportPanel
         key={`export:${snapshot.id}`}
@@ -3739,6 +3801,7 @@ function OpenPage({
                       annotate();
                     }}
                     binding={liveError || archived ? undefined : snapshot.binding}
+                    held={recoveryRequired && !archived}
                     workSource={workSource}
                     mentionPages={atPages}
                     blockPageHref={(page, block) =>
@@ -3797,7 +3860,7 @@ function OpenPage({
               }
             >
               {endedError ? (
-                <EndedBody error={endedError} action={endedAction} />
+                <EndedBody error={endedError} action={endedAction} kept={keptDrafts} />
               ) : (
                 <>
                   <p>{state === 'navigation' ? text.navigation : text.failed}</p>

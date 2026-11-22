@@ -131,6 +131,39 @@ function bury(page: string, generations: readonly string[]) {
     // Without session storage the device store's own clearing is all there is.
   }
 }
+/** `value` made from `base` by one insertion (typing at one place): where, and what. */
+function insertion(base: string, value: string): { at: number; text: string } | undefined {
+  const from = [...base];
+  const to = [...value];
+  let head = 0;
+  while (head < from.length && head < to.length && from[head] === to[head]) head++;
+  let tail = 0;
+  while (
+    tail < from.length - head &&
+    tail < to.length - head &&
+    from[from.length - 1 - tail] === to[to.length - 1 - tail]
+  )
+    tail++;
+  if (from.length - head - tail !== 0) return undefined;
+  return { at: head, text: to.slice(head, to.length - tail).join('') };
+}
+
+/** The page already holds what `draft` would restore: its text, or more of the same typing. A
+ * draft saved early in a run of typing, whose later saves a reload cut off while the whole run
+ * landed, adds nothing, so it is not offered (#6795). */
+export function heldByPage(draft: Pick<BlockDraft, 'base' | 'value'>, present: string): boolean {
+  if (present === draft.value) return true;
+  const typed = insertion(draft.base, draft.value);
+  const page = insertion(draft.base, present);
+  return (
+    !!typed &&
+    !!page &&
+    typed.text !== '' &&
+    typed.at === page.at &&
+    page.text.startsWith(typed.text)
+  );
+}
+
 /** The stored drafts a reload offers: none whose text this tab saw land. */
 export function restorable(page: string, drafts: readonly BlockDraft[]): BlockDraft[] {
   const landed = new Set(landedIn(page));

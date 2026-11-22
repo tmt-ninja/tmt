@@ -10,7 +10,7 @@ export type EndedAction = 'pair' | 'pages' | 'reload' | 'none';
 
 /**
  * What a failure the page publishes becomes (#2572):
- * - `reconnecting`: silent, drafts and the open thread kept. `transport` is a lost tunnel or
+ * - `reconnecting`: a quiet status in the page's bar (#6795), drafts and the open thread kept. `transport` is a lost tunnel or
  *   session that a fresh open can replace; `epoch` is an epoch advance that reopens the page.
  * - `ended`: one reason and one action; recovery is exhausted or was never possible.
  */

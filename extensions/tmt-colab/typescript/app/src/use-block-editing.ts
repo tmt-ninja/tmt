@@ -60,7 +60,14 @@ import { BlockTree } from './block-tree.js';
 import { attachment } from '@tmt/colab-client';
 import type { StoredAttachment } from './attachment-service.js';
 import { type BlockFiles, fileBlock, fitsAttachments, readBlockFile } from './block-uploads.js';
-import { SaveNotApplied, SaveOutcomeUnknown, SaveRefused, canSendAgain } from './save.js';
+import {
+  SaveHeld,
+  SaveKept,
+  SaveNotApplied,
+  SaveOutcomeUnknown,
+  SaveRefused,
+  canSendAgain,
+} from './save.js';
 import { text as strings } from './strings.js';
 import {
   type MentionEntry,
@@ -240,6 +247,10 @@ function refusalOf(key: number, ops: BlockOp[], error: unknown): Refusal {
     };
   if (error instanceof SaveNotApplied)
     return { key, ops, retryable: true, message: strings.blockEdit.notApplied };
+  if (error instanceof SaveHeld)
+    return { key, ops, retryable: true, message: strings.blockEdit.held };
+  if (error instanceof SaveKept)
+    return { key, ops, retryable: false, message: strings.blockEdit.kept };
   if (error instanceof SaveOutcomeUnknown)
     return { key, ops, retryable: false, message: strings.blockEdit.unknown };
   return { key, ops, retryable: false, message: strings.blockEdit.failed };
@@ -319,6 +330,18 @@ function sentTexts(ops: readonly BlockOp[]): SentText[] {
   );
 }
 
+/** Typed text only (a block's or a cell's): what waits while the page reconnects (#6795). */
+export function heldText(ops: readonly BlockOp[]): boolean {
+  return (
+    ops.length > 0 &&
+    ops.every(
+      (op) =>
+        (op.op === 'text' && 'set' in op) ||
+        (op.op === 'table' && op.action === 'set-cell' && op.base !== undefined),
+    )
+  );
+}
+
 /** The draft for a text on its way: the one already kept for it, or a new one. */
 function sending(recovery: BlockDraftSession, { id, cell, base, value }: SentText) {
   if (!recovery.matching(id, cell, value)) recovery.remember(id, cell, base, value);
@@ -339,6 +362,8 @@ export function useBlockEditing(
   pages?: MentionPages,
   recovery?: BlockDraftSession,
   fits?: (ops: readonly BlockOp[]) => boolean,
+  /** The page is reconnecting (#6795): typed text waits for it, anything else is refused at once. */
+  held = false,
 ) {
   /** This tab's batches on their way: the page draws them at once and drops each when the page's
    * view shows it (`shownAt`: the view order of its commit), or when it was refused (#6249). A
@@ -395,6 +420,8 @@ export function useBlockEditing(
   const arriving = useRef<string | undefined>(undefined);
   const sendRef = useRef(send);
   sendRef.current = send;
+  const heldRef = useRef(held);
+  heldRef.current = held;
   /** This tab's own gestures, for ⌘Z and Undo (`BlockHistory`). */
   const history = useRef(new BlockHistory());
   /** A pause in typing ends the run: the next typing is a step of its own (#6742). */
@@ -554,7 +581,12 @@ export function useBlockEditing(
       // This tab's batches commit in the order it made them (a column's rename after its add): each
       // goes once the one before it settles, and is drawn at once meanwhile. A stale batch is sent
       // again inside its own turn (`resendStale`), so a later batch never lands before it.
-      const sent = queue.current.then(() => sendRef.current(ops, stored));
+      // While the page reconnects only typed text waits in the queue; any other change is refused
+      // now with a notice, never queued behind it to land unseen later (#6795).
+      const sent =
+        heldRef.current && (stored?.length || !heldText(ops))
+          ? Promise.reject(new SaveHeld())
+          : queue.current.then(() => sendRef.current(ops, stored));
       queue.current = sent.then(
         () => {},
         () => {},
@@ -1042,7 +1074,13 @@ export function useBlockEditing(
       const into = new BlockTextSync(newId, tail);
       open(into, Math.max(0, Math.min([...tail].length, [...text].length - length)));
       handoff.current = { from: current.id, text, at, to: into };
-      if (!(await out(undefined, ops))) {
+      // Keys typed while the batch before was out were kept as this block's draft, with the text
+      // the split now moves to the new block. The split carries them, so that draft goes when it
+      // lands, even when this block's own text needs no op (#6795).
+      const ahead = recovery?.matching(current.id, undefined, text);
+      const landed = await out(undefined, ops);
+      if (landed && ahead) void recovery?.admitted(ahead);
+      if (!landed) {
         // Refused: nothing changed on the page. The person's text goes back where it was.
         if (sync.current?.id === newId) {
           arriving.current = undefined;
@@ -1053,7 +1091,7 @@ export function useBlockEditing(
         }
       }
     },
-    [open, out, flush, fits],
+    [open, out, flush, fits, recovery],
   );
 
   /** Backspace at the start: the text joins the end of the text block before it, focused at the

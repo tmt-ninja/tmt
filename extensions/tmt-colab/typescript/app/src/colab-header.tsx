@@ -68,6 +68,7 @@ export function ColabHeader({
   title,
   accessibleTitle,
   titleVisible = true,
+  phoneTitle,
   caption,
   actions,
   home,
@@ -87,6 +88,9 @@ export function ColabHeader({
   brandOnly = false,
 }: {
   title: string;
+  /** Shown in the title's place in a phone's shared bar while a passing state lasts (Reconnecting…,
+   * #6795): the page heading below repeats the title, and the bar has no room for both. */
+  phoneTitle?: ReactNode;
   /** A short visible label may keep the full page title in the connection identity. */
   accessibleTitle?: string;
   titleVisible?: boolean;
@@ -243,6 +247,11 @@ export function ColabHeader({
                 )}
                 {title}
               </span>
+              {phoneTitle !== undefined && (
+                <span className="colab-topbar-phone-title" aria-hidden="true">
+                  {phoneTitle}
+                </span>
+              )}
             </TitleElement>
             {(headingSuffix !== undefined || caption !== undefined) && (
               <div className="tmt-ui-topbar-title-chips">

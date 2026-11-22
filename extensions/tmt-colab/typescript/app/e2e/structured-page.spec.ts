@@ -995,6 +995,40 @@ test('the reload draft follows undo, redo, paste and a slash pick, and clears on
   await expect.poll(drafts).toEqual([]);
 });
 
+test('while the page reconnects, typing is kept on this device and sent once, and a split is refused with a notice (#6795)', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  const editor = host.locator('[data-block-id="p"] [contenteditable="true"]');
+  const served = () => page.evaluate(() => window.serveText('p'));
+  const drafts = () => page.evaluate(() => window.blockDrafts());
+  const sent = () =>
+    page.evaluate(() =>
+      window.sent.flatMap((op) =>
+        op.op === 'text' && 'set' in op && op.id === 'p' ? [op.set] : [],
+      ),
+    );
+  await page.evaluate(() => window.reconnect(true));
+  // A new edit opens as it does when the page is live.
+  await host.locator('[data-block-id="p"]').click();
+  await editor.press(textEnd);
+  await editor.pressSequentially(' later', { delay: 20 });
+  // Kept on this device before anything is sent: a reload now would offer it.
+  await expect.poll(drafts).toEqual([{ id: 'p', value: 'Ship the stack. later' }]);
+  expect(await served()).toBe('Ship the stack.');
+  // A split cannot wait for the page: it is refused with a notice, and the typing stays.
+  await editor.press('Enter');
+  const notice = host.locator('[data-slot="block-toast"]');
+  await expect(notice).toContainText('The page is reconnecting, so that change was not made.');
+  await expect(host.locator('[data-block-id]')).toHaveCount(4);
+  await expect(host.locator('[data-block-id="p"]')).toContainText('Ship the stack. later');
+  // Back: the typed text goes out once, and its draft clears when it lands.
+  await page.evaluate(() => window.reconnect(false));
+  await expect.poll(served).toBe('Ship the stack. later');
+  await expect.poll(drafts).toEqual([]);
+  expect(await sent()).toEqual(['Ship the stack. later']);
+});
+
 test('a paste of paragraphs or of a web page makes blocks, and one ⌘Z takes the paste back', async ({
   page,
 }) => {
@@ -1179,6 +1213,97 @@ test.describe('on a phone', () => {
     await menu.getByRole('menuitem', { name: /Move down/ }).tap();
     await expect.poll(ids).toEqual(['h', 'p', 'e', 't']);
   });
+
+  test('a block low on the page never covers a row of its menu sheet (#6795)', async ({ page }) => {
+    // The block whose menu is open shows over the scrim. A code box, a callout, a table or an
+    // image under the sheet once drew over its rows and took the press meant for Delete.
+    const host = await mountFixture(page, 'spec');
+    await page.evaluate(() => {
+      window.agentBatch([
+        {
+          op: 'insert',
+          id: 'code',
+          type: 'code',
+          parent: 'root',
+          after: 'kinds',
+          text: 'tmt colab ls --json\ntmt colab show PAGE --json\ntmt colab block ls PAGE',
+        },
+      ]);
+      // Room to bring any block to the bottom of the window.
+      document.getElementById('structured-page-fixture')!.style.marginBlock = '900px';
+    });
+    await expect(host.locator('[data-block-id="code"]')).toBeVisible();
+    const menu = page.getByRole('menu', { name: 'Block actions' });
+    for (const id of ['code', 'order', 'table', 'pics']) {
+      const block = host.locator(`[data-block-id="${id}"]`);
+      await block.evaluate((node) =>
+        window.scrollBy(0, node.getBoundingClientRect().top - (innerHeight - 140)),
+      );
+      await block.hover();
+      await block.getByRole('button', { name: 'Block actions' }).first().click();
+      await expect(menu).toBeVisible();
+      const rows = menu.getByRole('menuitem');
+      // The block sits under the sheet, so the case is the one that failed.
+      const [sheet, under] = [(await menu.boundingBox())!, (await block.boundingBox())!];
+      expect(under.y + under.height, id).toBeGreaterThan(sheet.y);
+      expect(await rows.count(), id).toBeGreaterThan(2);
+      for (const row of await rows.all()) {
+        const box = (await row.boundingBox())!;
+        for (const x of [box.x + 4, box.x + box.width / 2, box.x + box.width - 4]) {
+          const hit = await page.evaluate(
+            ([x, y]) =>
+              document.elementFromPoint(x!, y!)?.closest('[role="menuitem"]')?.textContent,
+            [x, box.y + box.height / 2],
+          );
+          expect(hit, `${id}: ${await row.textContent()} at ${Math.round(x)}`).toBe(
+            await row.textContent(),
+          );
+        }
+      }
+      await page.keyboard.press('Escape');
+      await expect(menu).toBeHidden();
+    }
+    // The slash sheet the lift was made for (#6186): its rows win over the block typed in, low on
+    // the page, and the typed filter shows over the scrim when the block sits above the sheet.
+    await page.evaluate(() =>
+      window.agentBatch([
+        { op: 'insert', id: 'slash', type: 'paragraph', parent: 'root', after: 'kinds', text: '' },
+      ]),
+    );
+    const slash = host.locator('[data-block-id="slash"]');
+    const options = page.getByRole('listbox', { name: 'Insert a block' });
+    for (const low of [true, false]) {
+      await slash.evaluate(
+        (node, low) =>
+          window.scrollBy(0, node.getBoundingClientRect().top - (low ? innerHeight - 60 : 120)),
+        low,
+      );
+      await slash.click();
+      await slash.locator('[contenteditable="true"]').pressSequentially('/t', { delay: 20 });
+      await expect(options).toBeVisible();
+      for (const row of await options.getByRole('option').all()) {
+        const box = (await row.boundingBox())!;
+        const hit = await page.evaluate(
+          ([x, y]) => document.elementFromPoint(x!, y!)?.closest('[role="option"]')?.textContent,
+          [box.x + box.width / 2, box.y + box.height / 2],
+        );
+        expect(hit, `slash ${low ? 'low' : 'high'}: ${await row.textContent()}`).toBe(
+          await row.textContent(),
+        );
+      }
+      if (!low) {
+        // Over the scrim: nothing but the block itself is drawn above the typed filter.
+        const typed = (await slash.locator('[contenteditable="true"]').boundingBox())!;
+        expect(typed.y + typed.height).toBeLessThan((await options.boundingBox())!.y);
+        await expect(slash.locator('[contenteditable="true"]')).toHaveText('/t');
+      }
+      await page.keyboard.press('Escape');
+      await expect(options).toBeHidden();
+      await page.keyboard.press('ControlOrMeta+a');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.press('Escape');
+    }
+  });
 });
 
 test('＋ on the handle chooses a type before inserting a block after it', async ({ page }) => {
@@ -1218,6 +1343,10 @@ test('keys typed right after Enter, while the text before is in flight, stay in 
   await expect(blocks.nth(1)).toHaveText('Ship the stack. Now');
   await expect(blocks.nth(2)).toHaveText('Third.');
   await expect.poll(() => page.evaluate((id) => window.serveText(id!), third)).toBe('Third.');
+  // The keys typed while Enter waited were the first block's draft for a moment; the split moved
+  // them, so a reload offers nothing back once it all landed (#6795).
+  await page.keyboard.press('Escape');
+  await expect.poll(() => page.evaluate(() => window.blockDrafts())).toEqual([]);
 });
 
 test('a gesture shows at once, before the serve commits it', async ({ page }) => {
