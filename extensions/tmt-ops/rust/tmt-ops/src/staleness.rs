@@ -353,12 +353,11 @@ impl Observer {
         let mut snapshot = Snapshot::unavailable("unknown");
         let mut retained = serde_json::Map::new();
         for member in members {
-            let task = member.fields.get("task");
             let state = member.fields.get("state");
-            if task.is_none() && state.is_none() {
+            if state.is_none() {
                 continue;
             }
-            let fingerprint = digest(json!([task, state]).to_string().as_bytes());
+            let fingerprint = digest(json!([Value::Null, state]).to_string().as_bytes());
             let old = &self.document["members"][&member.id];
             let same = old["fingerprint"] == fingerprint;
             let since = if same {

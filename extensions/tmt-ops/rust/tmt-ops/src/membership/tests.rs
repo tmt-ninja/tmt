@@ -112,7 +112,7 @@ fn legacy_lead_is_materialized_before_role_is_changed_or_cleared() {
 #[test]
 fn ordinary_fields_and_unchanged_roles_do_not_allocate_markers() {
     for (name, role, pair) in [
-        ("ordinary-field", "reviewer", "task=reviewing"),
+        ("ordinary-field", "reviewer", "topic=reviewing"),
         ("ordinary-role", "reviewer", "role=testing"),
         ("same-lead", "lead", "role=lead"),
     ] {

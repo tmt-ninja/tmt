@@ -33,7 +33,7 @@ order = ["tab:needs-me", "leads", "all"]
 pin = ["tab:needs-me"]
 
 [tabs.needs-me]
-filter = "pending or waiting_on_you"
+filter = "waiting_on_you"
 sort = ["squad", "name"]
 
 [tabs.needs-me.bind]
@@ -56,15 +56,15 @@ rules; `leads`, `all`, `colors`, `order`, `pin` and `hide` are reserved.
 interactive shell tabs.
 
 Filters use the section language: field presence, `=`, `!=`, `and`, `or`, `not`
-and parentheses. Fields include `squad`, `name`/`member`, `state`, `pending`,
-`presence`, `lifetime`, `role`, `task`, `activity`, projected custom fields, and
+and parentheses. Fields include `squad`, `name`/`member`, `state`,
+`presence`, `lifetime`, `role`, `activity`, projected custom fields, and
 `waiting_on_you` (present when a member waits on the user). With no
 user name resolved, that field is absent. Sort keys ascend by default; prefix `-` to
 descend. Missing values stay last; bound numeric values retain numeric order.
 The view filter selects rows before sections. Each matching section may repeat
 a row, with unmatched rows following untitled; an omitted filter selects all.
 Tab bindings override global bindings, and section bindings override tab bindings.
-Views use the squad/member/state/task row preset; per-tab `rows` are unsupported.
+Views use the squad/member/state row preset; per-tab `rows` are unsupported.
 At most 16 user views and 16 sections per view are allowed. Invalid definitions
 fail Config reading with their setting path, including hidden views.
 
@@ -78,12 +78,10 @@ squad or none), so read `.squads[]` unless you pass `--squad`. `columns` and
 `lines` describe the independent CLI row projection: each column's field, title and sizing, and
 the fields each line of a row shows (`{field, span}`, field null for an empty
 cell). These values remain accepted and validated; they do not compose the
-workspace's tree, conversation or pending-continuation geometry.
+workspace's tree or conversation geometry.
 
 - A cell has optional `token`, its semantic theme role, which overrides
-  threshold/provider colors for that cell. Team publishes
-  `lines[1][2].token = "waiting"` for its pending second line; unstyled cells
-  omit the key. This is decoration metadata, not a changed row value.
+  threshold/provider colors for that cell. Unstyled cells omit the key.
 - A column's `width` is null, a cell count or a percentage string such as
   `"30%"`. Covered-track percentage widths total at most 100% and resolve against data width
   after the CLI grid's gaps. `min`/`max` remain cells; this geometry does not
@@ -122,27 +120,30 @@ workspace's tree, conversation or pending-continuation geometry.
   [idle alert](#alert-the-lead-to-an-idle-member) setting, present for every squad.
 - A row, the lead's included, has the optional `idleAlert` object only while that alert is on and
   Core reports the member `idle` for at least the threshold: `{state, sinceMs}` where `state` is
-  `over` (the lead is told or due to be) or `excepted` with `reason` `pending` or `hold` (no notice).
+  `over` (the lead is told or due to be) or `excepted` with `reason` `waitingOnYou`, `hold` or `sleep`.
   `sinceMs` is Core's idle start in both states. It is absent, never null, otherwise.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
-  `pending`, `fields` (the `squad.<name>.*` values except the internal
-  leadership marker and retired row note, by field name,
-  with the user's column sources, formats and field providers applied;
+  `fields` (manual state, structured role and links, observations and user-authored
+  tracks, with the user's column sources, formats and field providers applied;
   these strings are already display text and must not be formatted again),
   `failed` (fields whose provider failed; they show `?`), `annotation` (the user's open note
   about this row, or null) and `waitingOnYou` (open requests from this member to
-  the user), and `staleness` (observed task/state age).
+  the user), and `staleness` (observed state age).
 - Every row has a separate `staleness` object, and `squad.notesStaleness`
   describes the lead's notebook: `state` (`disabled`, `unknown`, `fresh`,
   `stale`), `unchangedSinceMs`, `ageMs`, `activityAfterUpdate` and `reasons`.
-  Unknown timestamps are null. Age is observed raw task/state or exact notes
+  Unknown timestamps are null. Age is observed raw state or exact notes
   content age, not file/core modification time. First observation starts the
   clock; never infer older age from a cursor or missing evidence. Text `ls`
   labels stale rows and notes with their age. See the reminder configuration
   below for reset and evidence limits.
-- A row with `pending` owes the user a decision. It is marked ◆, and the crew
-  and team layouts list it first.
+- A row with an open request in `waitingOnYou` has a ◆ mark in the text list.
+  A failed or incomplete inbox read cannot establish that a member has no open request.
+- The former top-level `pending` and nested `fields.task`, `fields.next` and
+  `fields.pending` keys are omitted. Old values remain in identity metadata.
+  Default views omit agent-written progress. An independently named custom
+  field appears when the user defines a track for it.
 - A row has the optional `digest` object when Core supports the digest policy read:
   `{active, digestUntilMs, remainingMs, heldCount}`. Times are milliseconds; inactive
   windows have zero remaining time. Failed/older Core reads omit it. The board shows
@@ -678,7 +679,7 @@ are preserved, and these source descriptions grant no request or navigation auth
 
 Member STATE cells append `· N todo`; squad STATE cells append their room list's
 `· ○ N todo`. Counts appear only when known and positive and the whole suffix fits
-after the existing state and task. State/unread words keep their width first.
+after the existing activity and manual state. State/unread words keep their width first.
 Pending, unavailable and zero counts
 add no row suffix; the global header carries the unknown or partial observation.
 Every open, nonarchived item counts as a todo, including a linked item, regardless of
@@ -964,7 +965,7 @@ do not create a second detail grid or notebook pane.
 The response region shows the selected agent's latest available response as safe
 Markdown. Scrolling, copying and source selection send and acknowledge nothing.
 A response that is unavailable or still loading is labelled; a withdrawal is not
-a recipient reply or approval and does not clear manual pending/state. The shell
+a recipient reply or approval and does not change manual state. The shell
 owns global attention; selected-target context never substitutes a guessed
 recipient for a hidden, removed or unknown target.
 
@@ -1001,7 +1002,7 @@ after Send. Factory `t` is unassigned; compatible explicit bindings retain their
 meaning. Writing requires a sender (the user). Common pool supports Talk without
 inventing
 a squad; notes and manual squad status require a real membership.
-On a selected workspace member, `y` copies `{name}: {task} ({state})`, and `a`
+On a selected workspace member, `y` copies `{name} ({state})`, and `a`
 opens a note to its observed squad lead with the member named, even when a request
 is pending. Both actions follow the selection while the conversation is focused.
 A missing lead or Common pool membership shows a notice instead of opening a
@@ -1030,17 +1031,14 @@ Member Rename defaults to `r` in the Agents list only;
 its reviewed UUID and exact current name must still match before Core changes the name.
 
 Choose **Update status** from the selected lead or member's Actions menu. The
-shared band shows exact raw manual `pending` and `state` values separately from
-**Requires a reply**. Up/down selects a field or action; Enter toggles **Clear
-pending** or **Replace state**. Type the explicit replacement on its row and a
-reason on **Reason**, then choose **Apply and notify**. Neither change is
-preselected. Clearing pending never infers a new state. PgUp/PgDn scroll long
-previews; old/new values stack at narrow widths. The status form leaves the
-member's message draft intact; Esc cancels.
+shared band shows the exact raw manual state separately from **Requires a reply**.
+Use Up/Down to move between fields and actions. Type a different state and
+press Enter on **Replace state** to select it. Enter a reason, then choose
+**Apply and notify**. PgUp/PgDn scroll long previews. Old and new values stack
+at narrow widths. Esc cancels, and the member's message draft stays available.
 
-Every selected field participates in the atomic apply with its exact raw value
-expectation, including locally unchanged selections. The previewed identity UUID,
-room, namespace and metadata keys remain fixed. Only actual changes are announced.
+The update compares the exact previewed state at the same identity UUID,
+room, namespace and metadata key before writing.
 A conflict changes nothing,
 refreshes the preview, clears field choices and requires another explicit submit. Legacy empty or invalid
 metadata refuses with an unsupported-value notice. An unknown apply outcome sends
@@ -1347,7 +1345,7 @@ items, edit content, complete and reopen unarchived items. Initial assignment
 requires manager permission, including self-assignment; only managers assign,
 unassign, archive, restore, delete or reorder. Assignment chooses an exact active
 same-room member UUID. Departure retains its UUID/last label as unavailable;
-Unassign needs no live former assignee. Completion changes no pending/state/request
+Unassign needs no live former assignee. Completion changes no state or request
 or dispatch/notification data.
 
 Each actual item change increments only its revision; Create/Delete/actual Reorder
@@ -1480,9 +1478,11 @@ There is no per-member setting.
 A member is over when Core reports its activity `idle` (the admitted end of a turn, from the
 hooks `tmt setup` or `tmt run` install) for at least `after`. Working, ended, unknown, stale
 or missing activity never counts, so a member without hooks never alerts. An over member is
-excepted, and not announced, while its row has a non-empty `pending` (it waits on the user)
-or `state` `hold`, in any letter case (a resting seat). The lead is never announced to
-itself, and a squad without exactly one lead sends nothing until it has one.
+excepted while an open request waits on the configured user, its manual state is
+`hold` (case-insensitive), or Core reports effective Orchestration Sleep. Each
+eligible scan reads the user's bounded inbox once for all enabled squads. A failed
+or incomplete read defers notices for that scan. The lead receives no alert for
+itself. A squad needs exactly one lead to send alerts.
 
 At the first scan where a member is over and not excepted, the clock sends the lead one
 announcement (no reply expected, origin `automation`, not urgent, so the lead's Digest rules
@@ -1493,15 +1493,13 @@ told once. The body:
 ```text
 Idle alert · squad product
 worker-3 has been idle since 2026-10-19 14:32 +09:00 (alert after 30m).
-Row (when sent): state=review · task="rotate session tokens" · pending=none
+Row (when sent): state=review
 Look: tmt focus 3f2a9c1e-5b7d-4e08-9a6c-0d1e2f3a4b5c · Talk: tmt talk 3f2a9c1e-5b7d-4e08-9a6c-0d1e2f3a4b5c "<message>" --detach
 ```
 
 The two commands carry the member's identity UUID, never its display name, which may hold
-spaces and shell characters. The row line quotes the member's `state`, `task` and `pending` as
-data, never instructions:
-one line each, cut at 120 characters, at most 600 bytes together, read when the notice was
-first attempted. The dispatch operation is derived from the room, member, lead and idle
+spaces and shell characters. The row line contains the member's manual state at
+the first attempt, on one line with at most 120 characters and 600 bytes. The dispatch operation is derived from the room, member, lead and idle
 start, so a retry, a restart or a second clock cannot duplicate it. When a retry's row text
 differs, Core refuses it as a changed intent and the clock treats that as already accepted.
 Nothing about delivery is stored; the notice is in the lead's inbox.
@@ -1646,19 +1644,19 @@ own reader and validation; it is not a second interactive editor or shell.
 Agents shows one expandable squad tree and Common pool, with explicit room and
 identity targets. Lead badges and member counts include the lead once.
 
-A member's STATE shows core's provider activity first and the squad task state
+A member's STATE shows core's provider activity first and the manual squad state
 second, such as `● working 12m · review`. The first word is core's `working` or `idle` with how long
 that phase has run, or `ended`; pending requests never override it. Unknown activity has no word: the cell is a
-muted `?` and then the task state, such as `? idle · member`. When the board's last read failed, or
+muted `?` and then the manual state, such as `? idle · member`. When the board's last read failed, or
 is older than its refresh interval (at least 5 s) plus 10 s, the word is `stale`
 with the time of core's last event, such as `? stale 4m ago`; with refresh off,
 rows go stale and stay stale until you refresh. Stale and unknown never mean
 idle, and the age is never made up when core gives no time. A narrow cell clips
-the task first, then drops the age. Unread replies from an agent replace the
-activity words: the cell is `● N unread` and then the task state, such as
+the manual state first, then drops the age. Unread replies from an agent replace the
+activity words: the cell is `● N unread` and then the manual state, such as
 `● 2 unread · review`, with only the `●` in the unread colour. The working and idle counts follow core
 activity, each agent once, and count a stale agent as unknown. In a squad row
-each TEAM glyph shows core activity (`?` when stale or unknown); a task state
+each TEAM glyph shows core activity (`?` when stale or unknown); a manual state
 never overrides it. Attention and
 presence are scoped observations, and failed observations remain partial/stale
 rather than becoming idle or zero.
@@ -1875,27 +1873,24 @@ user configuration. There is no factory-view or legacy-mode fallback.
 
 ## Keep it current
 
-A stale board is worse than none. Update the board as part of every dispatch
-and every reply you receive, not later.
+Update the member’s manual state when it changes. Keep progress on the issue and
+ask the user through a real request or Colab question.
 
 ```sh
 tmt ops squad add <name>...                       # agents that are already running
-tmt ops squad set <member> state=review task="rotate session tokens"
-tmt ops squad set <member> pending="approve the token rotation plan"
-tmt ops squad set <member> pending=               # clear it once answered
+tmt ops squad set <member> state=review
 tmt ops squad set <member> pr_link=https://github.com/acme/app/pull/412
 tmt ops squad rm <name>                           # leaves the squad; the agent keeps running
 ```
 
-- `task` describes what the member is doing; `pending` describes what it waits
-  on the user for. Keep member context in that member's own saved-identity
-  notebook (`tmt notes path --identity <member>`).
+- `task`, `next` and `pending` are retired. Setting or clearing any of them
+  refuses the entire command with `SQUAD_FIELD_RETIRED`. Existing metadata
+  remains under its old key when a member leaves or a squad is renamed.
+  Keep member context in the member’s notebook (`tmt notes path --identity <member>`).
 - The per-member `note` field is retired: nonempty `note=` fails before any
   writes. Empty `note=` still clears an old value. Reads preserve stored legacy
   notes but exclude them from rows and row `fields`; `note` remains reserved
   and cannot be reused by a field provider or bound column.
-- `pending` is the one decision the member needs from the user. Keep it short
-  and clear it when it's resolved.
 - Field names are `[a-z][a-z0-9_-]*`. Values are one line of at most 1024
   bytes. `field=` removes a field.
 - `set` applies its pairs in order and reports what it applied. After a
@@ -1927,15 +1922,15 @@ tmt ops squad rm <name>                           # leaves the squad; the agent 
   lead marker alone does not grant Core lead authority. Retired identities need no
   cleanup: Core excludes them from its effective leads.
 - Repeating `tmt ops squad add <name>` reports that the member is already in the
-  squad and preserves its state and task. A missing state receives the configured
+  squad and preserves its state. A missing state receives the configured
   initial value.
 - Legacy members with only `role=lead` still appear as lead until a role write
   would change leadership or `squad lead` records their separate marker. Listing
   and opening the board never perform that conversion. The reserved metadata suffix `lead.marker` is not a
   user field and never appears in row `fields`; leadership is shown through
   `squad.lead` and the section partition.
-- Removing a member clears its fields for this squad only. Its requests and
-  notes keep the history.
+- Removing a member clears its supported fields for this squad. Retired keys,
+  requests and notes keep their history.
 - Squad has no `talk`, `reply`, `replies` or `annotate` command. To talk to a
   member use `tmt talk <member> "…" --detach`; to answer what someone is waiting
   on you for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you
@@ -2119,7 +2114,7 @@ there is no popup. Keyboard operation remains available without mouse motion.
 
 Use `[squad.<name>.rows]`; `columns` defines positional tracks and value
 sources, and `lines` places cells from track zero. A string names a field,
-`""` is an empty cell, and `{ field = "pending", span = 3 }` covers three
+`""` is an empty cell, and `{ field = "model", span = 3 }` covers three
 tracks. A cell can add `token = "waiting"` (or another semantic theme role),
 which overrides its projected field color without changing the value. Literal
 colors and legacy color aliases are refused. Missing/empty values and failed
@@ -2151,7 +2146,7 @@ Supported `from` paths are `member`, `presence`, `cwd`, `target`,
 `session.driver`, `session.model`, `session.usage.tokens`,
 `session.usage.remaining`, `meta.<key>`, `meta.squad.<field>` and
 `fields.<configured-provider>`. Without `from`, a format reads the column's
-squad field; `member`, `role`, `state`, `pending` and `note` cannot use either.
+squad field; `member`, `role`, `state` and `note` cannot use either.
 
 On the board, `%` is a share of the **whole content width** after borders and
 row marks, before fixed columns are deducted; gaps are additional, as in CSS.
@@ -2174,7 +2169,7 @@ entries; ordinary columns omit the key. Their source/format metadata and full
 row values remain available. Text `ls` lists their values naturally and ignores
 their width/min/max/grow settings.
 
-This checkout example splits the remainder with task/PR weights **62:26**;
+This checkout example splits the remainder with topic/PR weights **62:26**;
 `ctx` and `model` supply footer-line values on existing tracks, not extra widths:
 
 ```toml
@@ -2182,14 +2177,13 @@ This checkout example splits the remainder with task/PR weights **62:26**;
 columns = [
   { name = "member", width = 30, truncate = "middle" },
   { name = "state", width = 10, overflow = "wrap", max_lines = 4 },
-  { name = "task", grow = 62, min = 20, title = "WORK", overflow = "wrap", max_lines = 3 },
+  { name = "topic", grow = 62, min = 20, title = "WORK", overflow = "wrap", max_lines = 3 },
   { name = "pr_state", grow = 26, min = 10, title = "PR", priority = 2 },
   { name = "ctx", from = "session.usage.tokens", format = "tokens", width = 6, title = "" },
   { name = "model", from = "session.model", width = 14, title = "" },
 ]
 lines = [
-  ["member", "state", "task", "pr_state"],
-  ["", { field = "pending", span = 3 }],
+  ["member", "state", "topic", "pr_state"],
   ["", { field = "ctx" }, { field = "model", span = 2 }],
 ]
 ```
@@ -2200,7 +2194,6 @@ Don't guess, and don't invent conventions. Ask the user and record what you
 agree on. Examples:
 
 - which states to use and what each one means;
-- what counts as pending;
 - who writes which fields;
 - how members are started (worktrees, windows, sessions).
 
@@ -2212,8 +2205,8 @@ starts members, worktrees or windows; that is yours to arrange with the user.
 
 Workflow presets remain independent of the new shell. Squads with no layout key
 use team unless their simple board form keeps crew; explicit crew, pr-queue and
-minimal keep their workflow settings. Team uses crew states, pending-first order,
-the existing task/PR/model projections and a 30-minute observed-age default.
+minimal keep their workflow settings. Team uses crew states,
+the existing PR/model projections and a 30-minute observed-age default.
 A missing PR link never invokes `gh`; unavailable or failed provider values keep
 the normal missing/unknown distinction. Authored row/provider tables and reminder
 overrides retain their validation. They do not revive a factory board view.
@@ -2235,17 +2228,17 @@ Missing or unreadable notes, unavailable cache and rollback clocks are unknown.
 Cache loss/corruption starts a new period; config edits do not reset age.
 Disabling stops observation; after re-enabling, surviving fingerprint matches
 keep their first-observed time. Disabled observation does no cache work and
-never creates a notebook. Observation belongs to the unchanged task/state fingerprint, not an authoritative
+never creates a notebook. Observation belongs to the unchanged state fingerprint, not an authoritative
 blocked-start time. Disabled or unavailable evidence supplies no age. Request
-ages use the real inbox timestamp; pending-only rows have no request age. The
+ages use the real inbox timestamp. The
 workspace retains these data distinctions without the former Notes-pane or
 lead/HOME-tab placement.
 
-The row's age changes only when its raw task/state changes; links, notes and
+The row's age changes only when its raw state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant
 observed PR link changes, successful current `github-pr` state transitions to
 open/merged, a submitted member final, or an authoritative idle transition in
-public `session.activity` after the task/state update. Ordinary `ls` and board
+public `session.activity` after the state update. Ordinary `ls` and board
 reads retain that idle evidence; the reminder never probes live presence or
 uses self-reported activity. Cold provider data and bounded room history can
 miss transitions. Idle is never guessed from silence or offline presence.
@@ -2284,7 +2277,7 @@ factory values remain independent CLI projections.
 
 The `squad-projected-v1` schema declares `$.squad.name` and `$.rows` (a collection).
 With `each="$.rows" as="row"`, each row declares stable `row.id`, scalar `name`,
-`presence`, `pending`, and `fields`/`colors` with valid Squad row field names.
+`presence`, `state`, and `fields`/`colors` with valid Squad row field names.
 Field names and sources reuse the row/config owners; IDs must bind stable IDs.
 Binding checks repeat bodies even without data. Sources reuse column `from`/`format`
 in lexical `row` scope. Provider field names are checked syntactically offline;
@@ -2295,7 +2288,7 @@ provider configuration/data availability is not checked. Direct binds retain dis
   <tmt-repeat each="$.rows" as="row">
     <tmt-row id-bind="row.id" row-bind="row.id" class="grid grid-cols-[12_1fr] gap-1">
       <tmt-cell bind="row.name"/>
-      <tmt-cell bind="row.fields.task" wrap="true"/>
+      <tmt-cell bind="row.fields.topic" wrap="true"/>
     </tmt-row>
   </tmt-repeat>
 </tmt-view>
@@ -2315,8 +2308,8 @@ form. Every branch is checked offline, so an error shows at every width.
     <tmt-row id-bind="row.id" row-bind="row.id" class="flex-row gap-1">
       <tmt-cell bind="row.name"/>
       <tmt-switch>
-        <tmt-case min="lg"><tmt-cell bind="row.fields.task" wrap="true"/></tmt-case>
-        <tmt-default><tmt-cell bind="row.fields.task" class="truncate"/></tmt-default>
+        <tmt-case min="lg"><tmt-cell bind="row.fields.topic" wrap="true"/></tmt-case>
+        <tmt-default><tmt-cell bind="row.fields.topic" class="truncate"/></tmt-default>
       </tmt-switch>
       <tmt-cell bind="row.presence" hide-below="md"/>
     </tmt-row>

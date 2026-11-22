@@ -77,6 +77,9 @@ if a[0]=='api':
    if room is None: save(m); fail('ROOM_NOT_FOUND')
    ids=room['memberIds']
   out={'room':room,'members':[x for x in m['members'] if x['id'] not in m['retired'] and x['id'] in ids]}
+ elif op=='user.person':
+  user=next((x for x in m['members'] if x['id']==m.get('user') and x['id'] not in m['retired']),None)
+  out={'person':{'identityId':user['id'],'name':user['name']} if user else None}
  elif op=='user.identity':
   user=next((x for x in m['members'] if x['id']==m.get('user') and x['id'] not in m['retired']),None)
   if user is None: save(m); fail('USER_NAME_UNAVAILABLE')
@@ -184,6 +187,10 @@ elif a[0]=='room' and a[1]=='show':
   room=next((room for room in m.get('otherRooms',{}).values() if a[2] in [room['id'],room['name']]),None)
   if room is None: fail('ROOM_NOT_FOUND')
  print(json.dumps({'room':room}))
+elif a[0]=='inbox':
+ m['calls'].append({'command':a}); save(m)
+ if m.get('inboxFailure'): fail('STORAGE_UNAVAILABLE')
+ print(json.dumps(m.get('inbox',{'items':[],'more':False})))
 elif a[0]=='ls':
  m['calls'].append({'command':a}); save(m); print(json.dumps({'identities':m.get('ls',[])}))
 elif a[0]=='room': print(json.dumps({'rooms':m.get('roomList',[{'id':m['room'],'name':m.get('roomName','squad-product')}])}))

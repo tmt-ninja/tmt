@@ -160,18 +160,19 @@ impl Observation {
         } else {
             Default::default()
         };
-        let overs = crate::idle_alert::overs(&members, shape.idle_alert, now, &sleeping);
         let mut document = status::document(
             squad,
             shape.layout,
             shape.states,
             shape.sections,
             shape.rows,
-            members,
+            members.clone(),
         );
+        let (sent, inbox) = requests::overlay(core, squad, me, &mut document, room)?;
+        let waiting = crate::idle_alert::Waiting::from_inbox(inbox.as_ref());
+        let overs = crate::idle_alert::overs(&members, shape.idle_alert, now, &sleeping, &waiting);
         crate::idle_alert::annotate(&mut document, shape.idle_alert, &overs);
         snapshot.apply(&mut document);
-        let sent = requests::overlay(core, squad, me, &mut document, room)?;
         Ok(Projected { document, sent })
     }
 }
@@ -222,6 +223,7 @@ case "$1" in
       *'"requests.list"'*) printf '%s\n' room >> "$root/calls"; printf '%s\n' '{"items":[]}' ;;
       *) exit 2 ;;
     esac ;;
+  inbox) cat "$root/inbox" ;;
   ls)
     printf '%s\n' ls >> "$root/calls"
     if [ -f "$root/ls" ]; then cat "$root/ls"; else printf '%s\n' '{"identities":[]}'; fi ;;
@@ -273,7 +275,14 @@ esac
                 .document(
                     &self.core,
                     &self.squad,
-                    None,
+                    self.root
+                        .join("inbox")
+                        .is_file()
+                        .then(|| Me {
+                            id: "USER".into(),
+                            name: "user".into(),
+                        })
+                        .as_ref(),
                     &[],
                     Shape {
                         layout,
@@ -370,6 +379,15 @@ esac
         )
         .unwrap();
         fixture.config = Config::read(fixture.config.path().to_owned()).unwrap();
+        fs::write(
+            fixture.root.join("inbox"),
+            json!({
+                "items":[{"from":{"identityId":"ZED"},"requestId":"req-question"}],
+                "more":false
+            })
+            .to_string(),
+        )
+        .unwrap();
         let on = fixture.read(false).document;
         assert_eq!(
             on["squad"]["idleAlert"],
@@ -393,7 +411,7 @@ esac
         );
         assert_eq!(
             mark("zed"),
-            Some(json!({"state": "excepted", "reason": "pending", "sinceMs": since - 1}))
+            Some(json!({"state": "excepted", "reason": "waitingOnYou", "sinceMs": since - 1}))
         );
         assert_eq!(
             mark("kai"),

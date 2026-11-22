@@ -328,6 +328,7 @@ pub struct Member {
 impl Row for Member {
     fn value(&self, field: &str) -> Option<&str> {
         match field {
+            retired if retired_field(retired) => None,
             "name" => Some(&self.name),
             "presence" => Some(&self.presence),
             "lifetime" => Some(&self.lifetime),

@@ -44,6 +44,7 @@ fn schema(element: &tmt_tui::MarkupElement) -> Schema {
             if let [_, "fields" | "colors", field] = parts.as_slice()
                 && matches!(key.as_str(), "bind" | "token-bind")
                 && rows::field_name(field)
+                && !crate::squad::retired_field(field)
             {
                 fields.insert((*field).into(), Schema::Scalar);
             }
@@ -54,7 +55,7 @@ fn schema(element: &tmt_tui::MarkupElement) -> Schema {
         ("fields".into(), Schema::Object(fields.clone())),
         ("colors".into(), Schema::Object(fields)),
     ]);
-    for name in ["name", "presence", "pending"] {
+    for name in ["name", "presence", "state"] {
         row.insert(name.into(), Schema::Scalar);
     }
     let squad = Schema::Object(BTreeMap::from([("name".into(), Schema::Scalar)]));
@@ -111,7 +112,8 @@ mod tests {
         };
         for field in rows::OWN_FIELDS
             .iter()
-            .chain(["task", "model", "custom-field"].iter())
+            .chain(["model", "custom-field"].iter())
+            .filter(|field| !crate::squad::retired_field(field))
         {
             let body = format!(
                 "<tmt-cell id-bind='row.id' token-bind='row.colors.state' bind='row.fields.{field}'/>"
