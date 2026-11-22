@@ -1605,19 +1605,32 @@ it('diagnostic clones share invocation IDs without changing successful calls', a
 
 it('diagnostic long private fixture values remain hashed within the report budget', async () => {
   const f = diagnosticFixture();
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  const readDirectory = fs.readdirSync.bind(fs);
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  vi.spyOn(fs, 'readdirSync').mockImplementation((file, options) =>
+    String(file) === '/proc' ? [] : readDirectory(file, options)
+  );
+  syncBuiltinESMExports();
   try {
     await withSandbox(
       async (sandbox) => {
         const privateValue = 'private fixture 雪'.repeat(1000);
+        // The call's root is resolved during Linux cleanup. Use a real private
+        // path that exceeds the diagnostic bound, as opposed to an invalid path.
+        const directory = 'private fixture '.repeat(8);
+        const longRoot = path.join(sandbox.root, directory, directory);
+        fs.mkdirSync(longRoot, { recursive: true });
         const pending = runCli(
           {
             ...sandbox,
-            root: privateValue,
+            root: longRoot,
             cli: { executable: privateValue, args: Array(12).fill(privateValue) },
           },
           Array(12).fill(privateValue)
         ).catch((error: unknown) => error);
-        await vi.advanceTimersByTimeAsync(5010);
+        // Drive the cleanup bound too, so a failed mock settles before teardown.
+        await vi.advanceTimersByTimeAsync(6010);
         expect(await pending).toMatchObject({
           message: 'CLI subprocess exceeded the 5000 millisecond test bound.',
         });
@@ -1629,6 +1642,7 @@ it('diagnostic long private fixture values remain hashed within the report budge
         expect(report).toMatchObject({
           fixtureArgc: 12,
           argc: 12,
+          sandboxRoot: expect.stringContaining('path exceeds 256 bytes; sha256='),
           executableSha256: createHash('sha256').update(privateValue).digest('hex'),
           cleanup: { closeObserved: true, failed: false },
           deadlineMs: 5000,
@@ -1639,6 +1653,7 @@ it('diagnostic long private fixture values remain hashed within the report budge
       { TMT_TEST_CLI: JSON.stringify({ executable: process.execPath, args: [] }) }
     );
   } finally {
+    Object.defineProperty(process, 'platform', platform);
     f.restore();
   }
 });
