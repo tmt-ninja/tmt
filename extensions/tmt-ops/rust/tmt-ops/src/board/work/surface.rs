@@ -25,7 +25,7 @@ use crate::board::{
 };
 use crate::config::WorkView;
 
-use super::{Item, List, Progress, Status, ViewDialog, ViewSelection};
+use super::{Item, List, Progress, Status, ViewDialog, ViewSelection, age_label};
 
 #[derive(Clone, Debug)]
 pub(in crate::board) enum Hit {
@@ -433,20 +433,6 @@ fn paint_ds<C: Component>(frame: &mut Frame, app: &App, area: Rect, props: &C::P
     );
 }
 
-fn age_label(at: Option<i64>, now: i64) -> String {
-    at.filter(|at| *at <= now).map_or_else(
-        || "—".into(),
-        |at| {
-            let minutes = (now - at) / 60_000;
-            match minutes {
-                0..=59 => format!("{minutes}m"),
-                60..=1439 => format!("{}h", minutes / 60),
-                _ => format!("{}d", minutes / 1440),
-            }
-        },
-    )
-}
-
 fn mini_bar(progress: Option<Progress>, width: usize) -> String {
     match progress {
         Some(progress) if progress.total > 0 => {
@@ -815,25 +801,20 @@ fn paint_inspector(
             Line::styled(fit(msg, width), look.role(Role::Muted)),
         );
     } else {
-        for (idx, section) in item.sections.iter().enumerate() {
-            if y >= area.bottom().saturating_sub(2) {
-                let remaining = item.sections.len().saturating_sub(idx);
-                if remaining > 0 && y < area.bottom() {
-                    paint_ds::<MoreHint>(
-                        frame,
-                        app,
-                        Rect::new(area.x, y, area.width, 1),
-                        &MoreHintProps {
-                            count: remaining as u64,
-                            direction: MoreDirection::Down,
-                            ascii: ascii_mode(app),
-                        },
-                    );
-                    y += 1;
-                }
-                break;
-            }
-            let active = state.inspector_focused && state.inspector_cursor == idx;
+        let total = item.sections.len();
+        let available = usize::from(area.bottom().saturating_sub(y).saturating_sub(2));
+        let show_hints = total > available && available > 1;
+        let shown = total.min(available - usize::from(show_hints));
+        let cursor = if state.inspector_focused {
+            state.inspector_cursor.min(total - 1)
+        } else {
+            0
+        };
+        // Follow the cursor past the first screen without storing a second selection.
+        let start = cursor.saturating_sub(shown.saturating_sub(1));
+        let end = start + shown;
+        for (idx, section) in item.sections.iter().enumerate().take(end).skip(start) {
+            let active = state.inspector_focused && cursor == idx;
             let cursor = if active { " ▸ " } else { "   " };
             let mark = section.state.mark();
             let waiting_note = if matches!(section.state, Status::NeedsYou | Status::Working) {
@@ -855,6 +836,23 @@ fn paint_inspector(
             );
             hits.push((line_rect, Hit::Section(idx)));
             y += 1;
+        }
+        if show_hints {
+            let hints = [
+                (start, MoreDirection::Up),
+                (total - end, MoreDirection::Down),
+            ]
+            .into_iter()
+            .filter(|(count, _)| *count > 0)
+            .map(|(count, direction)| MoreHint::label(count as u64, direction, ascii_mode(app)))
+            .collect::<Vec<_>>()
+            .join(" · ");
+            inspector_line(
+                frame,
+                area,
+                &mut y,
+                Line::styled(fit(&hints, width), look.role(Role::Dim)),
+            );
         }
         if item.sections_omitted && y < area.bottom().saturating_sub(2) {
             inspector_line(

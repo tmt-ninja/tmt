@@ -260,7 +260,12 @@ fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
     } else {
         String::new()
     };
-    let stale = if app.work.stale { " · stale" } else { "" };
+    let stale = if app.work.stale {
+        let age = super::work::age_label(app.work.last_read_at, crate::status::now_ms() as i64);
+        format!(" · stale · read {age} ago")
+    } else {
+        String::new()
+    };
     let role = match item.status {
         Status::NeedsYou => Role::Waiting,
         Status::Blocked => Role::Blocked,

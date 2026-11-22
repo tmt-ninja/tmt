@@ -18,6 +18,20 @@ pub(super) use model::{Item, List, Progress, Status};
 pub(super) use order::{Job as OrderJob, Move as OrderMove, Reply as OrderReply, run as run_order};
 pub(super) use surface::render;
 
+pub(super) fn age_label(at: Option<i64>, now: i64) -> String {
+    at.filter(|at| *at <= now).map_or_else(
+        || "—".into(),
+        |at| {
+            let minutes = (now - at) / 60_000;
+            match minutes {
+                0..=59 => format!("{minutes}m"),
+                60..=1439 => format!("{}h", minutes / 60),
+                _ => format!("{}d", minutes / 1440),
+            }
+        },
+    )
+}
+
 const WITHIN: Duration = Duration::from_secs(3);
 const REFRESH_EVERY: Duration = Duration::from_secs(60);
 
