@@ -454,7 +454,7 @@ fn selected_member_identity_line_names_its_label() {
     assert!(
         screen
             .lines()
-            .any(|line| line.contains("SQUAD-00 / MEMBER") && line.contains("· review")),
+            .any(|line| line.contains("SQUAD-00") && line.contains("· review")),
         "{screen}"
     );
 }
@@ -721,7 +721,7 @@ fn escape_returns_one_level_and_never_quits_the_board() {
             Effect::None
         );
         let screen = paint(&app, width, height).join("\n");
-        assert!(screen.contains("worker   PRODUCT / MEMBER"), "{screen}");
+        assert!(screen.contains("worker  PRODUCT"), "{screen}");
         assert!(screen.contains("Esc back"), "{screen}");
         assert!(
             !screen.contains("press j:"),

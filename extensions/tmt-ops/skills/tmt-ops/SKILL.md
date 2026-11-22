@@ -499,8 +499,7 @@ waiting. `N+` is a lower bound from the 50-answer page, not an all-history
 count; zero observed unread never invents an unread state. Only answer body rows
 actually visible in the focused conversation are acknowledged in Core. Opening a
 conversation or jumping with `z` does not mark offscreen answers read. Clicking any
-`● N unread` (the top bar's, an Agents row's STATE, the conversation header's or the
-composer's; each highlights under the pointer) or pressing `u` opens the Unread overlay: the unread answers of that
+`● N unread` or pressing `u` opens the Unread overlay: the unread answers of that
 agent, squad or pool (everyone for the top bar, or for `u` with nothing selected),
 grouped by agent, oldest first, with unread and read counts. The reader fills the board
 body with a list and selected answer detail side by side; ↑↓ choose, → moves ↑↓ and
@@ -1719,8 +1718,9 @@ With list focus, actions stay available, ↑/↓ change the target, and Home res
 the Common pool tree. Select a member to retrieve its draft, or enlarge the
 terminal to reveal more of the list.
 
-The info line shows the recipient, unread and open-request counts, context usage
-when known, and key hints. Narrow widths shorten hint words before dropping keys.
+Above Talk, the tabs sit over one member row with scope, provider, model, driver,
+state and clickable unread. The composer shows the recipient, open requests, key
+hints and known context, such as `ctx 57% · 147k / 258k`.
 Talk adds `# item` when the member has a Checklist and the hint fits. Type `#` to
 pick from that list. Enter or Tab inserts `#Title (id)` as one unit. On the Checklist
 page, `r` quotes the selected item into Talk. A resolved transcript reference

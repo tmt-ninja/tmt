@@ -531,6 +531,12 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   removes an active selection first. Ctrl-Home/End reach the text edges.
   Read-only response selection retains Ctrl-A select-all. Authored Alt bindings
   match their modifier exactly; unbound Alt letters reach the editor.
+- The selected member's header paints tabs and the refresh spinner above one
+  metadata row. The provider chip and model share the jump action; the state
+  and clickable unread count align right. The row drops the unread word,
+  driver, then model as space narrows. The member composer owns context
+  usage, with percentage only for an observed window, and omits its duplicate
+  unread count.
 - Message fields use the same editor for grapheme-safe multiline
   editing, source-preserving bracketed paste and cached cell geometry. Enter
   submits; distinct Shift+Enter, Alt+Enter, Ctrl+J or retained Ctrl+N inserts a newline, and Escape

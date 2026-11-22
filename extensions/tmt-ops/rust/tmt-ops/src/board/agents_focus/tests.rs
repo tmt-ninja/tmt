@@ -53,6 +53,55 @@ fn observed(body: &str) -> App {
 }
 
 #[test]
+fn member_info_keeps_state_and_compacts_unread_driver_and_model_in_order() {
+    let mut app = observed("One short observed response.");
+    app.references = crate::board::inventory::Inventory::from_listed(&Ok(json!({
+        "identities": [{"id": MEMBER, "name": "worker", "runningDriver": "codex",
+                        "hue": "green", "resume": {"model": "gpt-6.2-astra"}}]
+    })));
+    let target = app.workspace.selected.as_ref().unwrap();
+    let snapshot = app.workspace_snapshot().unwrap();
+    let mut row = snapshot.rows[target].clone();
+    row["pane"]["target"] = json!("work:2.1");
+    for (width, words, driver, model) in [
+        (84, true, true, true),
+        (73, false, true, true),
+        (60, false, false, true),
+        (44, false, false, false),
+    ] {
+        let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
+        terminal
+            .draw(|frame| {
+                assert_eq!(
+                    member::render_header(
+                        frame,
+                        &app,
+                        frame.area(),
+                        "worker",
+                        &row,
+                        target,
+                        snapshot.roster.squads.first()
+                    ),
+                    2
+                );
+            })
+            .unwrap();
+        let text = screen(terminal.backend().buffer());
+        let info = text.lines().nth(1).unwrap();
+        for required in ["worker", "Codex", "working"] {
+            assert!(info.contains(required), "{width}: {info}");
+        }
+        assert_eq!(info.contains("unread"), words, "{width}: {info}");
+        assert_eq!(info.contains("tmux work:2.1"), driver, "{width}: {info}");
+        assert_eq!(info.contains("gpt-6.2-astra"), model, "{width}: {info}");
+        assert!(
+            info.trim_end()
+                .ends_with(if words { "○ 0 unread" } else { "○ 0" })
+        );
+    }
+}
+
+#[test]
 fn sparse_and_overflowing_exchanges_keep_the_bottom_input_envelope() {
     let mut app = observed("One short observed response.");
     let target = app.workspace.selected.clone().unwrap();
@@ -69,7 +118,7 @@ fn sparse_and_overflowing_exchanges_keep_the_bottom_input_envelope() {
     let sparse = draw(&mut app, 148, 51);
     let text = screen(&sparse);
     for value in [
-        "PRODUCT / MEMBER",
+        "worker  PRODUCT",
         "One short observed response.",
         "tmux work:2.1",
     ] {
@@ -83,9 +132,11 @@ fn sparse_and_overflowing_exchanges_keep_the_bottom_input_envelope() {
             row.contains("Talk") && row.contains("Measure") && row.contains("Checklist")
         })
         .unwrap();
-    assert!(rows[tabs + 1].contains("PRODUCT / MEMBER"), "{text}");
+    assert!(rows[tabs + 1].contains("worker  PRODUCT"), "{text}");
     assert!(rows[tabs + 1].contains("○ 0 unread"), "{text}");
-    assert!(rows[tabs + 2].contains("tmux work:2.1"), "{text}");
+    assert!(rows[tabs + 1].contains("tmux work:2.1"), "{text}");
+    let composer = rows[usize::from(app.input_band.get().unwrap().bottom() - 1)];
+    assert!(!composer.contains("unread"), "{composer}");
     // The cells belong to Measure, not to the conversation.
     assert!(!text.contains("TIMERS"), "{text}");
     app.right_tab = crate::board::shell::RightTab::Measure;

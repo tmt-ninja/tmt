@@ -571,10 +571,11 @@ mod mark_read {
         }
     }
     fn chip(app: &App) -> Option<ratatui::layout::Rect> {
-        app.composer
-            .unread_hit
+        let composer = app.input_band.get()?;
+        app.unread_hits
             .borrow()
-            .as_ref()
+            .iter()
+            .find(|hit| hit.area.x >= composer.x && hit.area.y < composer.y && hit.target.is_some())
             .map(|hit| hit.area)
     }
     fn text(buffer: &Buffer, area: ratatui::layout::Rect) -> String {

@@ -12,7 +12,7 @@ pub(in crate::board) struct Info<'a> {
     pub newline: crate::board::app::NewlineKey,
     pub checklist: bool,
     pub checklist_reference: bool,
-    pub unread: Count,
+    pub unread: Option<Count>,
     pub open: Option<usize>,
     pub context: Option<ContextUsage>,
 }
@@ -27,20 +27,22 @@ impl Info<'_> {
             crate::board::notes::single_line(self.name),
             look.role(Role::Muted),
         )];
-        spans.push(Span::raw("  "));
-        spans.push(
-            crate::board::state_cell::unread_mark(self.unread, look)
-                .unwrap_or_else(|| Span::styled("●", look.role(Role::Muted))),
-        );
-        spans.push(Span::styled(
-            format!(
-                " {}{}{}",
-                self.unread.total,
-                if self.unread.more { "+" } else { "" },
-                if words { " unread" } else { "" }
-            ),
-            look.role(Role::Muted),
-        ));
+        if let Some(unread) = self.unread {
+            spans.push(Span::raw("  "));
+            spans.push(
+                crate::board::state_cell::unread_mark(unread, look)
+                    .unwrap_or_else(|| Span::styled("●", look.role(Role::Muted))),
+            );
+            spans.push(Span::styled(
+                format!(
+                    " {}{}{}",
+                    unread.total,
+                    if unread.more { "+" } else { "" },
+                    if words { " unread" } else { "" }
+                ),
+                look.role(Role::Muted),
+            ));
+        }
         if let Some(private) = self.shell {
             spans.push(Span::styled(
                 if private {
@@ -64,13 +66,22 @@ impl Info<'_> {
             ));
         }
         if let Some(context) = self.context {
-            let mut text = format!(
-                " · ctx {}",
-                crate::source::tokens(u128::from(context.used_tokens))
-            );
-            if let Some(limit) = context.window_tokens.filter(|_| window) {
-                text.push_str(&format!(" / {}", crate::source::tokens(u128::from(limit))));
-            }
+            let used = u128::from(context.used_tokens);
+            let used_label = crate::source::tokens(used);
+            let text = if let Some(limit) = context.window_tokens.filter(|limit| *limit > 0) {
+                let limit = u128::from(limit);
+                let percent = ((used * 100 + limit / 2) / limit).min(100);
+                if window {
+                    format!(
+                        " · ctx {percent}% · {used_label} / {}",
+                        crate::source::tokens(limit)
+                    )
+                } else {
+                    format!(" · ctx {percent}% · {used_label}")
+                }
+            } else {
+                format!(" · ctx {used_label}")
+            };
             spans.push(Span::styled(text, look.role(Role::Muted)));
         }
         Line::from(spans)
@@ -152,7 +163,9 @@ impl Info<'_> {
             2
         };
         let left_area = Rect::new(line.x, line.y, line.width.saturating_sub(width + gap), 1);
-        let unread = (self.unread.total > 0)
+        let unread = self
+            .unread
+            .is_some_and(|count| count.total > 0)
             .then(|| {
                 // Name and two spaces, then the mark and its count: the spans `left` builds first.
                 let before: usize = left.spans[..2].iter().map(Span::width).sum();
@@ -201,7 +214,7 @@ mod tests {
                 checklist: true,
                 checklist_reference: true,
                 newline,
-                unread: Count::default(),
+                unread: Some(Count::default()),
                 open: Some(0),
                 context: None,
             };
@@ -244,7 +257,7 @@ mod tests {
             checklist: false,
             checklist_reference: false,
             newline: crate::board::app::NewlineKey::Alt,
-            unread: Count::default(),
+            unread: Some(Count::default()),
             open: Some(0),
             context: None,
         };
@@ -255,11 +268,13 @@ mod tests {
             observed_at_ms: 123,
         });
         assert!(info.left(true, true, look).to_string().ends_with("ctx 0"));
-        info.context.as_mut().unwrap().window_tokens = Some(258000);
+        let context = info.context.as_mut().unwrap();
+        context.window_tokens = Some(258000);
+        context.used_tokens = 147000;
         assert!(
             info.left(true, true, look)
                 .to_string()
-                .ends_with("ctx 0 / 258k")
+                .ends_with("ctx 57% · 147k / 258k")
         );
         let mut buffer = Buffer::empty(Rect::new(0, 0, 40, 4));
         let area = buffer.area;
@@ -286,7 +301,7 @@ mod tests {
                 checklist: false,
                 checklist_reference: false,
                 newline: key,
-                unread: Count::default(),
+                unread: Some(Count::default()),
                 open: Some(0),
                 context: None,
             };
@@ -318,7 +333,7 @@ mod tests {
                 checklist: false,
                 checklist_reference: false,
                 newline: key,
-                unread: Count::default(),
+                unread: Some(Count::default()),
                 open: Some(0),
                 context: None,
             };

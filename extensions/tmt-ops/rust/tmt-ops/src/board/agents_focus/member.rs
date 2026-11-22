@@ -36,7 +36,8 @@ pub(super) fn render_header(
         return y;
     }
 
-    let mut status = app
+    let area = Rect::new(area.x, y, area.width, 1);
+    let status = app
         .workspace_snapshot()
         .and_then(|snapshot| super::super::workspace::member_target_row(&snapshot.roster, target))
         .and_then(|row| app.activity_label(&row))
@@ -55,89 +56,37 @@ pub(super) fn render_header(
             },
         );
     let count = app.unread_target(target);
-    let unread = state_cell::unread(count, look).unwrap_or_else(|| neutral("○ 0 unread", look));
-    if status.width() + unread.width() + 3 < usize::from(area.width) {
-        status.spans.push(Span::raw("  "));
-    } else {
-        status = Line::default();
-    }
-    let unread_start = status.width();
-    status.spans.extend(unread.spans);
-    let status_width = status.width().min(usize::from(area.width)) as u16;
-    let name_width = area.width.saturating_sub(status_width);
-    let name_area = Rect::new(area.x, y, name_width, 1);
+    let mut unread = state_cell::unread(count, look).unwrap_or_else(|| neutral("○ 0 unread", look));
     let name = super::super::notes::single_line(name);
-    let scope = squad.map_or_else(
+    let scope_name = squad.map_or_else(
         || "COMMON POOL".to_owned(),
         |squad| super::super::notes::single_line(&squad.name).to_uppercase(),
     );
-    let label = format!("   {scope} / MEMBER");
-    let mut title = vec![Span::styled(
+    let label = app.workspace_snapshot().and_then(|snapshot| {
+        let labels = &snapshot.preferences.labels;
+        let assigned = labels.members.get(identity_id)?;
+        labels
+            .definitions
+            .iter()
+            .find(|label| &label.id == assigned)
+    });
+    let scope_text = label.map_or(scope_name.clone(), |label| {
         format!(
-            " {}",
-            super::super::view::fit(&name, usize::from(name_width.saturating_sub(1))).trim_end()
-        ),
-        look.role(Role::Text).add_modifier(Modifier::BOLD),
-    )];
-    if title[0].width() + label.width() < usize::from(name_width) {
-        title.push(Span::styled(label, look.role(Role::Muted)));
-        if let Some(label) = app.workspace_snapshot().and_then(|snapshot| {
-            let labels = &snapshot.preferences.labels;
-            let assigned = labels.members.get(identity_id)?;
-            labels
-                .definitions
-                .iter()
-                .find(|label| &label.id == assigned)
-        }) {
-            let label = format!(" · {}", super::super::notes::single_line(&label.name));
-            if title.iter().map(Span::width).sum::<usize>() + label.width()
-                <= usize::from(name_width)
-            {
-                title.push(Span::styled(label, look.role(Role::Muted)));
-            }
-        }
-    }
-    strip::paint_left(frame.buffer_mut(), name_area, Line::from(title));
-    let status_area = Rect::new(name_area.right(), y, status_width, 1);
-    strip::paint_left(frame.buffer_mut(), status_area, status);
-    if unread_start < usize::from(status_width) {
-        app.push_unread_row_hit(
-            Rect::new(
-                status_area.x + unread_start as u16,
-                y,
-                status_width - unread_start as u16,
-                1,
-            ),
-            target,
-        );
-    }
-    y += 1;
+            "{scope_name} · {}",
+            super::super::notes::single_line(&label.name)
+        )
+    });
+    let mut scope = Span::styled(format!("  {scope_text}"), look.role(Role::Muted));
 
     let observed = app.references.agents.get(identity_id);
     let runtime = observed
         .and_then(|agent| agent.runtime.as_deref())
         .or_else(|| row["runningDriver"].as_str());
-    let model = observed
+    let model_name = observed
         .and_then(|agent| agent.model.as_deref())
         .or_else(|| row["fields"]["model"].as_str());
     let effort = row["resume"]["launch"]["effort"].as_str();
-    let driver = row["pane"]["location"]["host"].as_str();
-    let context = observed.and_then(|agent| agent.context).and_then(|usage| {
-        usage
-            .window_tokens
-            .filter(|window| *window > 0)
-            .map(|window| {
-                let percent =
-                    (u128::from(usage.used_tokens) * 100 / u128::from(window)).min(100) as usize;
-                let full = (percent * 8 + 50) / 100;
-                vec![
-                    Span::styled("ctx ", look.role(Role::Muted)),
-                    Span::styled("█".repeat(full), look.role(Role::Working)),
-                    Span::styled("░".repeat(8 - full), look.role(Role::Dim)),
-                    Span::styled(format!(" {percent}%"), look.role(Role::Working)),
-                ]
-            })
-    });
+    let host = row["pane"]["location"]["host"].as_str();
     let provider = runtime.map_or_else(
         || "—".into(),
         |id| {
@@ -154,86 +103,141 @@ pub(super) fn render_header(
                 Role::Muted
             });
     use tmt_cli_style::theme::screen::{Fill, fill};
-    let provider_style =
+    let chip_style =
         fill(&look.theme, provider_role, look.depth, Fill::Solid).add_modifier(Modifier::BOLD);
-    let provider_style = if provider_style.bg.is_none() {
-        provider_style.add_modifier(Modifier::REVERSED)
+    let chip_style = if chip_style.bg.is_none() {
+        chip_style.add_modifier(Modifier::REVERSED)
     } else {
-        provider_style
+        chip_style
     };
-    let model = model.map_or_else(
+    let provider = super::super::notes::single_line(&provider);
+    let chip = Span::styled(format!(" {provider} "), chip_style);
+    let model_text = model_name.map_or_else(
         || "—".into(),
         |model| effort.map_or_else(|| model.into(), |effort| format!("{model} · {effort}")),
     );
-    let tokens = app
-        .member_usage_observation(
-            identity_id,
-            crate::config::TokenWindow::HOUR,
-            crate::status::now_instant(),
-        )
-        .map_or_else(
-            || "—".into(),
-            |(_, reading)| format!("{} tok 1h", token_label(Some(reading))),
-        );
-    let host_label = driver.map(|host| {
-        row["pane"]["target"]
+    let mut model = Span::styled(
+        format!(" {}", super::super::notes::single_line(&model_text)),
+        look.role(Role::Accent),
+    );
+    let mut driver = host.map_or(Span::raw(""), |host| {
+        let label = row["pane"]["target"]
             .as_str()
             .filter(|target| !target.is_empty())
-            .map_or_else(|| host.to_owned(), |target| format!("{host} {target}"))
-    });
-    let fields = [
-        vec![Span::styled(
-            format!(" {} ", super::super::notes::single_line(&provider)),
-            provider_style,
-        )],
-        vec![Span::styled(
-            super::super::notes::single_line(&model),
-            look.role(Role::Accent),
-        )],
-        vec![Span::styled(
-            super::super::notes::single_line(host_label.as_deref().unwrap_or("—")),
+            .map_or_else(|| host.to_owned(), |target| format!("{host} {target}"));
+        Span::styled(
+            format!(" · {}", super::super::notes::single_line(&label)),
             look.role(Role::Waiting),
-        )],
-        context.unwrap_or_else(|| vec![Span::styled("—", look.role(Role::Dim))]),
-        vec![Span::styled(tokens, look.role(Role::Text))],
-    ];
-    let mut info = vec![Span::raw(" ")];
-    let mut used = 1;
-    let mut driver_hit = None;
-    for (index, field) in fields.into_iter().enumerate() {
-        let width: usize = field.iter().map(Span::width).sum();
-        let separator = if index == 0 {
-            ""
-        } else if index == 1 {
-            " "
-        } else {
-            "  ·  "
-        };
-        let start = used + separator.width();
-        if start + width > usize::from(area.width) {
-            break;
-        }
-        if index == 2 && driver.is_some() {
-            driver_hit = Some(Rect::new(area.x + start as u16, y, width as u16, 1));
-        }
-        info.push(Span::styled(separator, look.role(Role::Dim)));
-        info.extend(field);
-        used = start + width;
+        )
+    });
+
+    const NAME_PAD: usize = 1;
+    const CHIP_GAP: usize = 2;
+    const SIDE_GAP: usize = 2;
+    const UNREAD_GAP: usize = 2;
+    let width = usize::from(area.width);
+    let mut left = NAME_PAD
+        + name.width()
+        + scope.width()
+        + CHIP_GAP
+        + chip.width()
+        + model.width()
+        + driver.width();
+    let mut right = status.width() + UNREAD_GAP + unread.width();
+    if left + SIDE_GAP + right > width {
+        let caption = unread.spans.last_mut().expect("unread has a caption");
+        let shortened = caption.content.trim_end_matches(" unread").to_owned();
+        caption.content = shortened.into();
+        right = status.width() + UNREAD_GAP + unread.width();
     }
-    let info_y = y;
-    line(frame, area, &mut y, Line::from(info));
-    if y > info_y
+    for optional in [&mut driver, &mut model, &mut scope] {
+        if left + SIDE_GAP + right > width {
+            left -= optional.width();
+            *optional = Span::raw("");
+        }
+    }
+
+    // On very small panes preserve the identity, chip and state before counts.
+    let min_identity = NAME_PAD + 1 + CHIP_GAP + chip.width();
+    if min_identity + SIDE_GAP + right > width {
+        unread = Line::default();
+        right = status.width();
+    }
+    let mut status = status;
+    if min_identity + SIDE_GAP + right > width {
+        status.spans.truncate(1);
+        right = status.width();
+    }
+    let right = right.min(width);
+    let left_width = width.saturating_sub(right + SIDE_GAP);
+    let chip_width = chip
+        .width()
+        .min(left_width.saturating_sub(NAME_PAD + 1 + CHIP_GAP));
+    let name_width = left_width.saturating_sub(
+        NAME_PAD + scope.width() + CHIP_GAP + chip_width + model.width() + driver.width(),
+    );
+    let name = super::super::view::fit(&name, name_width);
+    let name = name.trim_end();
+    let chip_x = NAME_PAD + name.width() + scope.width() + CHIP_GAP;
+    let chip = Span::styled(
+        super::super::view::fit(&chip.content, chip_width),
+        chip_style,
+    );
+    let jump_width = chip.width() + model.width();
+    let driver_separator = if let Some(label) = driver.content.strip_prefix(" · ") {
+        driver.content = label.to_owned().into();
+        " · "
+    } else {
+        ""
+    };
+    let driver_x = chip_x + jump_width + driver_separator.width();
+    let driver_width = driver.width();
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect::new(area.x, y, left_width as u16, 1),
+        Line::from(vec![
+            Span::styled(
+                format!(" {name}"),
+                look.role(Role::Text).add_modifier(Modifier::BOLD),
+            ),
+            scope,
+            Span::raw("  "),
+            chip,
+            model,
+            Span::styled(driver_separator, look.role(Role::Dim)),
+            driver,
+        ]),
+    );
+    let status_x = area.right() - right as u16;
+    let unread_x = status_x + (right.saturating_sub(unread.width())) as u16;
+    let unread_width = unread.width();
+    if unread_width > 0 {
+        status.spans.push(Span::raw("  "));
+        status.spans.extend(unread.spans);
+    }
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect::new(status_x, y, right as u16, 1),
+        status,
+    );
+    if unread_width > 0 {
+        app.push_unread_row_hit(Rect::new(unread_x, y, unread_width as u16, 1), target);
+    }
+    if host.is_some()
         && app.workspace_selection_visible()
-        && let Some(hit) = driver_hit
         && let Some(action) = app.bindings().get("z").cloned()
     {
-        app.workspace_action_hits.borrow_mut().push((
-            hit,
-            target.clone(),
-            crate::board::app::Choice::Action(action),
-        ));
+        for (x, width) in [(chip_x, jump_width), (driver_x, driver_width)] {
+            if width > 0 {
+                app.workspace_action_hits.borrow_mut().push((
+                    Rect::new(area.x + x as u16, y, width as u16, 1),
+                    target.clone(),
+                    crate::board::app::Choice::Action(action.clone()),
+                ));
+            }
+        }
     }
-    y
+    y + 1
 }
 
 /// The four Measure cells of one agent: TOK 1h, STATE, DIGEST and TIMERS.
