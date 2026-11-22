@@ -1168,6 +1168,25 @@ for (const kind of ['duplicate', 'image', 'mockup'] as const)
       await expect(chosen).toContainText('Edited block text');
       await expect(chosen.getByRole('button', { name: 'Open comment 1' })).toBeVisible();
       await expect(other.getByRole('button', { name: 'Open comment 1' })).toHaveCount(0);
+      // Turned into a heading in place (#6742), the block keeps its ID, so its comment stays.
+      await run(page, 'retypeStructuredBlock', {
+        block: id(99),
+        type: 'heading',
+        props: { level: 3 },
+      });
+      await expect(chosen.getByRole('heading', { level: 3 })).toHaveText('Edited block text');
+      await expect(chosen.getByRole('button', { name: 'Open comment 1' })).toBeVisible();
+      // Into code, the comment's quote may no longer be found, but its thread opens on the block.
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await run(page, 'retypeStructuredBlock', { block: id(99), type: 'code', props: {} });
+      await expect(page.getByRole('group', { name: 'code: Edited block text' })).toBeVisible();
+      await chosen.getByRole('button', { name: 'Open comment 1' }).click();
+      const discussion = page.getByRole('complementary', { name: 'Discussion' }).first();
+      await expect(discussion.getByText('Review this block', { exact: true })).toBeVisible();
+      await discussion.getByRole('button', { name: 'Close (Esc)' }).click();
+      await expect(discussion).toHaveCount(0);
+      expect(errors).toEqual([]);
       await run(page, 'removeStructuredBlock', id(99));
       await expect(chosen).toHaveCount(0);
       await expect(other.getByRole('button', { name: 'Open comment 1' })).toHaveCount(0);

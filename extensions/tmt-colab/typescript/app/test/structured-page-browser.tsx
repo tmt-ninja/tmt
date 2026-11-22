@@ -26,6 +26,7 @@ import { destination, id as fixtureId } from './ask-fixtures.js';
 import { StructuredPage } from '../src/structured-page.js';
 import { resendStale, SaveOutcomeUnknown, SaveRefused } from '../src/save.js';
 import { useBlockEditing } from '../src/use-block-editing.js';
+import { BlockDraftSession, type BlockDraft, type BlockDraftStore } from '../src/block-drafts.js';
 import type { AttachmentInput, StoredAttachment } from '../src/attachment-service.js';
 import type { BlockFiles } from '../src/block-uploads.js';
 import type { MentionPages } from '../src/mention-pages.js';
@@ -310,6 +311,11 @@ declare global {
     /** The serve's cells for a table's rows now, in order. */
     serveRows(table: string): { id: string; cells?: Record<string, string> }[];
     serveProps(id: string): Readonly<Record<string, unknown>> | undefined;
+    serveType(id: string): string | undefined;
+    /** The block drafts this tab keeps for a reload (#6769), as the store holds them now. */
+    blockDrafts(): { id: string; value: string }[];
+    /** Every draft value this tab saved, in order. */
+    draftSaves: string[];
     /** The serve's marks on a block's text now. */
     serveMarks(id: string): readonly Mark[] | undefined;
     /** The attachments the page's authorized read opened, by ID. */
@@ -786,6 +792,7 @@ export function mount(
   window.serveText = (id) => blocks.find((block) => block.id === id)?.text;
   window.agentBatch = (ops) => void publish(applyOps(blocks, ops));
   window.serveProps = (id) => blocks.find((block) => block.id === id)?.props;
+  window.serveType = (id) => blocks.find((block) => block.id === id)?.type;
   window.serveMarks = (id) => blocks.find((block) => block.id === id)?.marks;
   window.serveRows = (table) =>
     new BlockTree(blocks).rows(table).map(({ id, cells }) => ({ id, ...(cells && { cells }) }));
@@ -845,6 +852,26 @@ export function mount(
   // As the page's own sender: a batch the serve refused as stale is sent again as a new one.
   const sendStale = (ops: BlockOp[], stored?: readonly StoredAttachment[]) =>
     stored?.length ? send(ops, stored) : resendStale(() => send(ops));
+  // The reload store, in memory: what a reload would restore (#6769).
+  const draftRecords = new Map<string, BlockDraft>();
+  window.draftSaves = [];
+  window.blockDrafts = () => [...draftRecords.values()].map(({ id, value }) => ({ id, value }));
+  const drafts = new BlockDraftSession(
+    {
+      load: async () => [...draftRecords.values()],
+      save: async (_page: string, draft: BlockDraft) => {
+        draftRecords.set(draft.target, draft);
+        window.draftSaves.push(draft.value);
+        return true;
+      },
+      clear: async (_page: string, draft: BlockDraft) => {
+        if (draftRecords.get(draft.target)?.generation === draft.generation)
+          draftRecords.delete(draft.target);
+        return true;
+      },
+    } as BlockDraftStore,
+    'fixture',
+  );
   function Page() {
     const [view, setView] = useState({ records: blocks, seq });
     const [pageThreads, setPageThreads] = useState(threads);
@@ -879,6 +906,7 @@ export function mount(
       typed,
       key,
       pasteUrl,
+      pasteStructure,
       check,
       authoring,
       author,
@@ -917,6 +945,7 @@ export function mount(
       content === 'spec' ? files : undefined,
       ['tmt-gui-lead', 'gui-2'],
       content === 'spec' ? pages : undefined,
+      drafts,
     );
     return (
       <section ref={subscribe}>
@@ -932,6 +961,7 @@ export function mount(
           onRowAction={rowAction}
           onColumnAction={columnAction}
           onPasteUrl={pasteUrl}
+          onPasteStructure={pasteStructure}
           onChecked={check}
           authoring={authoring}
           onAuthor={author}

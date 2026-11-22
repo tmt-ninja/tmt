@@ -1487,6 +1487,24 @@ export function changeStructuredBlock(block: string) {
   emit();
 }
 
+/** Another writer turned the block into another type in place (#6742). */
+export function retypeStructuredBlock(change: {
+  block: string;
+  type: string;
+  props: Record<string, unknown>;
+}) {
+  const previous = current.blocks?.[change.block];
+  if (!previous) throw new Error('Missing block');
+  current = {
+    ...current,
+    blocks: {
+      ...current.blocks,
+      [change.block]: { ...previous, type: change.type, props: change.props },
+    },
+  };
+  emit();
+}
+
 export function change(source: string) {
   current = { ...current, source, title: 'Changed live title' };
   emit();

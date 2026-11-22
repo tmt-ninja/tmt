@@ -51,6 +51,20 @@ for (const theme of ['light', 'dark'])
     );
   });
 
+test('with no gutter the handle sits at its block’s end, over the text', async ({ page }) => {
+  // A phone-width document has no gutter (#6742): the same handle, at the block's end.
+  await open(page, 'part=editor', 390, 'light');
+  const block = page.locator('[data-block-id="b-2"]');
+  await block.hover();
+  const handle = page.locator('.tmt-block-handle');
+  await expect(handle).toHaveCount(1);
+  const at = (await handle.boundingBox())!;
+  const box = (await block.boundingBox())!;
+  expect(at.x).toBeGreaterThanOrEqual(box.x);
+  expect(Math.abs(at.x + at.width - (box.x + box.width))).toBeLessThanOrEqual(1);
+  await expect(handle.getByRole('button', { name: 'Block actions' })).toBeVisible();
+});
+
 test('one shared handle follows the pointer, and the focus ring shows only for the keyboard', async ({
   page,
 }) => {

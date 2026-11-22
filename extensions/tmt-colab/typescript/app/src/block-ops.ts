@@ -1,4 +1,5 @@
 import { markOps, marksThrough, typedMarks } from './block-marks.js';
+import { RETYPE_TYPES } from './blocks.js';
 import {
   type BlockOp,
   type BlockRecord,
@@ -12,6 +13,7 @@ import {
   TEXT_TYPES,
 } from './block-model.js';
 import type { BlockTree } from './block-tree.js';
+import type { PastedBlock } from './block-paste.js';
 
 /**
  * What each editor gesture sends (#6005, spec 編輯 / 瀏覽器裡的動作): the same block ops an agent's
@@ -207,6 +209,106 @@ export function splitBlock(
   ];
 }
 
+/** The ops of a paste that makes blocks (#6742), as one gesture, and the block and caret the editor
+ * goes to after it. The first pasted block's text joins the text before `range` in `id`; the rest
+ * follow as new blocks (`ids`, one each) in the same parent, the last one taking the text after
+ * `range`. An empty paragraph is replaced: every pasted block is new, and the paragraph goes. Marks
+ * are set explicitly over each block's final text, so pasted text never takes a neighbour's marks. */
+export function pasteBlocks(
+  tree: BlockTree,
+  id: string,
+  range: { from: number; to: number },
+  typed: Typed | undefined,
+  blocks: readonly PastedBlock[],
+  ids: readonly string[],
+): { ops: BlockOp[]; focus: string; text: string; caret: number } {
+  const block = tree.get(id);
+  const parent = tree.parentOf(id);
+  if (!block || parent === undefined || !TEXT_TYPES.has(block.type) || block.text === undefined)
+    throw new Error('Only a text block takes a paste.');
+  const { text, base } = typed ?? { text: block.text, base: block.text };
+  const scalars = [...text];
+  const marks = marksThrough(block.text, text, block.marks);
+  const head = scalars.slice(0, range.from).join('');
+  const tail = scalars.slice(range.to).join('');
+  const length = (value: string) => [...value].length;
+  const replace = block.type === 'paragraph' && !head && !tail;
+  const made = replace ? blocks : blocks.slice(1);
+  if (ids.length !== made.length) throw new Error('One new ID per pasted block.');
+  const formats = (target: string, pasted: PastedBlock, by: number): BlockOp[] =>
+    pasted.marks.map((mark) => ({
+      op: 'text',
+      id: target,
+      format: {
+        from: mark.from + by,
+        to: mark.to + by,
+        mark: mark.mark,
+        value: mark.value ?? true,
+      },
+    }));
+  const ops: BlockOp[] = [];
+  let after = id;
+  if (!replace) {
+    const first = blocks[0]!;
+    const set = head + first.text;
+    if (set !== base) ops.push({ op: 'text', id, set, base, overlap: 'both' });
+    ops.push(...markOps(id, marks, 0, range.from, 0), ...formats(id, first, length(head)));
+  }
+  made.forEach((pasted, at) => {
+    const last = at === made.length - 1;
+    const own = ids[at]!;
+    ops.push({
+      op: 'insert',
+      id: own,
+      type: pasted.type,
+      parent,
+      after,
+      ...(pasted.props && { props: pasted.props }),
+      text: last ? pasted.text + tail : pasted.text,
+    });
+    ops.push(...formats(own, pasted, 0));
+    if (last)
+      ops.push(...markOps(own, marks, range.to, scalars.length, length(pasted.text) - range.to));
+    after = own;
+  });
+  // The empty paragraph goes last: the pasted blocks are placed after it first.
+  if (replace) ops.push({ op: 'delete', id });
+  const focus = after;
+  const lastText = made.length ? made[made.length - 1]!.text : blocks[0]!.text;
+  return {
+    ops,
+    focus,
+    text: made.length ? lastText + tail : head + lastText + tail,
+    caret: made.length ? length(lastText) : length(head) + length(lastText),
+  };
+}
+
+/** What a block may turn into (#6742), as the block actions menu offers it. */
+export type TurnInto =
+  | 'paragraph'
+  | 'heading-2'
+  | 'heading-3'
+  | 'list'
+  | 'todo'
+  | 'callout'
+  | 'code';
+
+/** Turn `id` into another text type in place: one `retype` op, or none when it already is that.
+ * Props both types have (a list's and a to-do's indent) stay; a heading takes its level. */
+export function retypeBlock(tree: BlockTree, id: string, into: TurnInto): BlockOp[] {
+  const block = tree.get(id);
+  const from: readonly string[] = RETYPE_TYPES;
+  if (!block || !tree.visible(id) || !from.includes(block.type))
+    throw new Error('Only a text block turns into another.');
+  const type = (into.startsWith('heading') ? 'heading' : into) as BlockType;
+  const level = into === 'heading-3' ? 3 : into === 'heading-2' ? 2 : undefined;
+  if (block.type === type && (level === undefined || block.props.level === level)) return [];
+  if (block.type === type) return [{ op: 'props', id, set: { level }, unset: [] }];
+  // No props: the serve keeps those both types have as it holds them, so a change another writer
+  // made to one meanwhile stays (#6742).
+  return [{ op: 'retype', id, type, ...(level !== undefined && { level }) }];
+}
+
 /** The text block Backspace at the start of `id` joins into: the one right before it among its
  * siblings, when that one holds text. */
 export function joinTarget(tree: BlockTree, id: string): BlockRecord | undefined {
@@ -255,8 +357,16 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
         case 'restore':
           return { op: 'delete', id: op.id };
         case 'text':
-          if ('set' in op)
-            return { op: 'text', id: op.id, set: op.base, base: op.set, overlap: 'both' };
+          if ('set' in op) {
+            // The text comes back with the marks it had, which the replaced characters lost.
+            const was = before.get(op.id);
+            return [
+              { op: 'text', id: op.id, set: op.base, base: op.set, overlap: 'both' },
+              ...(was?.text === op.base
+                ? markOps(op.id, was.marks, 0, [...op.base].length, 0)
+                : []),
+            ];
+          }
           if ('format' in op) {
             // Marks that go with text the same batch inserts or replaces leave with that text.
             if (
@@ -352,6 +462,17 @@ export function inverseOps(before: BlockTree, ops: readonly BlockOp[]): BlockOp[
           if (parent === undefined) throw new Error('That block is not on the page.');
           const index = before.indexOf(op.id);
           return { op: 'move', id: op.id, parent, after: afterAt(before, parent, index, op.id) };
+        }
+        case 'retype': {
+          // One step back: the type and props it had, and the marks code took off.
+          const block = before.get(op.id);
+          if (!block) throw new Error('That block is not on the page.');
+          return [
+            { op: 'retype', id: op.id, type: block.type as BlockType, props: { ...block.props } },
+            ...(op.type === 'code'
+              ? markOps(op.id, block.marks, 0, [...(block.text ?? '')].length, 0)
+              : []),
+          ];
         }
         case 'props': {
           const block = before.get(op.id);

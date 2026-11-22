@@ -6,6 +6,7 @@ import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -182,7 +183,9 @@ export interface StructuredPageProps {
     from?: string;
   };
   /** The person focused a text block. */
-  onFocus?(id: string): void;
+  /** A click starts editing a text block, with the caret at `at` (a scalar offset) when the click
+   * landed on its text, else at its end. */
+  onFocus?(id: string, at?: number): void;
   /** Typing in the focused block. */
   onTyped?(id: string, text: string, caret: number): void;
   /** A key in the focused block (Enter, Backspace at its start, a format key); true when the page
@@ -223,6 +226,14 @@ export interface StructuredPageProps {
   onLink?(href: string, newTab: boolean): void;
   /** A URL pasted over a selected range of the focused block; true when the page linked it. */
   onPasteUrl?(id: string, url: string, text: string, range: TextRange): boolean;
+  /** Text or HTML pasted into the focused block; true when the page made blocks of it (#6742). */
+  onPasteStructure?(
+    id: string,
+    html: string,
+    plain: string,
+    text: string,
+    range: TextRange,
+  ): boolean;
   /** No editing at all: a reader, or a page this device may not change. */
   readonly?: boolean;
   /** The insert menu open under the focused block. */
@@ -245,7 +256,7 @@ export interface StructuredPageProps {
   toast?: DeleteToast;
   onUndo?(): void;
   /** The block menu open on a block, its active action, and what it does. */
-  blockMenu?: { id: string; active?: string };
+  blockMenu?: { id: string; active?: string; list?: 'turn-into' };
   onAction?(action: BlockMenuAction, id: string): void;
   onHoverAction?(action: string): void;
   onCloseBlockMenu?(): void;
@@ -375,10 +386,14 @@ export function StructuredPage(props: StructuredPageProps) {
   }, [focus]);
   if (!props.selectionFocus) focus.applied = undefined;
   const pointer: Pointer = { hovered, drag, startDrag: start, wasDrag, focus };
+  const narrow = useNarrow();
   return (
     <>
       <BlockDocument
         ref={root}
+        // The page takes the gutter away at phone width: the design system then draws the handle
+        // at the block's end (#6742).
+        data-narrow={narrow ? '' : undefined}
         onKeyDown={(event) => {
           if ((event.target as HTMLElement).closest('[data-deleted-draft]')) return;
           if (typesInto(event)) setHovered(undefined);
@@ -404,7 +419,10 @@ export function StructuredPage(props: StructuredPageProps) {
           setHovered(entered.current);
         }}
         onPointerMove={() => setHovered((now) => now ?? entered.current)}
-        onPointerLeave={() => {
+        // A finger leaves the page with every tap: the handle stays on the block it tapped, so a
+        // phone reaches the block menu too.
+        onPointerLeave={(event) => {
+          if (event.pointerType === 'touch') return;
           entered.current = undefined;
           setHovered(undefined);
         }}
@@ -689,7 +707,8 @@ function Blocks({
           !(event.target as HTMLElement).closest('[contenteditable="true"]')
         )
           return;
-        if (!rest.readonly && TEXT_TYPES.has(block.type)) rest.onFocus?.(block.id);
+        if (!rest.readonly && TEXT_TYPES.has(block.type))
+          rest.onFocus?.(block.id, clickedAt(event, block.text));
       }}
     >
       {rest.annotations?.get(block.id)?.some((item) => item.open) && (
@@ -736,6 +755,7 @@ function Blocks({
           onTyped: rest.onDraftChange,
           onKey: undefined,
           onPasteUrl: undefined,
+          onPasteStructure: undefined,
         })}
       />
       {rest.restored
@@ -777,6 +797,7 @@ function Blocks({
         <ActionsPopover
           block={block}
           active={rest.blockMenu.active}
+          list={rest.blockMenu.list}
           onAction={rest.onAction}
           onHoverAction={rest.onHoverAction}
           onClose={rest.onCloseBlockMenu}
@@ -824,22 +845,114 @@ function DragGhost({
   );
 }
 
+/** The text `node` draws: its text, with a line break element as the line feed it stands for. */
+const drawnText = (node: Node): string =>
+  node.nodeType === Node.TEXT_NODE
+    ? (node as Text).data
+    : node.nodeName === 'BR'
+      ? '\n'
+      : [...node.childNodes].map(drawnText).join('');
+
+/**
+ * Where a click landed in a block's drawn text, as a scalar offset (#6742): the browser's caret at
+ * the click point, counted from the start of the element that draws exactly the block's text. Marks
+ * draw inside it, a soft break is one line break element and one position, and a checkbox or list
+ * marker sits beside it. None when the click is not on that text: editing then starts at the end.
+ */
+function clickedAt(
+  event: React.MouseEvent<HTMLElement>,
+  text: string | undefined,
+): number | undefined {
+  if (!text) return undefined;
+  const doc = event.currentTarget.ownerDocument;
+  const position = doc.caretPositionFromPoint?.(event.clientX, event.clientY);
+  const range = position ? undefined : doc.caretRangeFromPoint?.(event.clientX, event.clientY);
+  const node = position?.offsetNode ?? range?.startContainer;
+  const offset = position?.offset ?? range?.startOffset;
+  if (!node || offset === undefined || !event.currentTarget.contains(node)) return undefined;
+  let drawn: Node | null = node;
+  while (drawn && drawn !== event.currentTarget && drawnText(drawn) !== text)
+    drawn = drawn.parentNode;
+  if (!drawn || drawnText(drawn) !== text) return undefined;
+  const before = doc.createRange();
+  before.setStart(drawn, 0);
+  before.setEnd(node, offset);
+  return [...drawnText(before.cloneContents())].length;
+}
+
+/** The page's phone width, where its blocks have no gutter (the stage's 8px inset). */
+const NARROW = '(max-width: 640px)';
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof matchMedia === 'function' && matchMedia(NARROW).matches,
+  );
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return;
+    const query = matchMedia(NARROW);
+    const change = () => setNarrow(query.matches);
+    query.addEventListener('change', change);
+    return () => query.removeEventListener('change', change);
+  }, []);
+  return narrow;
+}
+
+/** Where the insert and @ menus open (#6742): under their block, or above it when the window has
+ * no room for the menu below and more above, so a block at the window's bottom edge keeps its menu
+ * in view. Chosen as the menu opens, before it is drawn, so it does not jump while the person
+ * types. */
+function useMenuSide(menu: { current: HTMLElement | null }): {
+  side: 'below' | 'above';
+  room?: number;
+} {
+  const [place, setPlace] = useState<{ side: 'below' | 'above'; room?: number }>({
+    side: 'below',
+  });
+  useLayoutEffect(() => {
+    const block = menu.current?.parentElement;
+    if (!menu.current || !block) return;
+    const { top, bottom } = block.getBoundingClientRect();
+    // The menu's own 4px gap and 8px from the window's edge.
+    const below = innerHeight - bottom - 12;
+    const above = top - 12;
+    if (menu.current.offsetHeight <= below + 4) return;
+    setPlace(above > below ? { side: 'above', room: above } : { side: 'below', room: below });
+  }, [menu]);
+  return place;
+}
+
+/** The design system's cap for a floating menu's height: the room on the side it opens. */
+const roomStyle = (room: number) =>
+  ({ '--tmt-block-menu-room': `${Math.max(room, 120)}px` }) as React.CSSProperties;
+
+/** A menu row takes the pointer only when the pointer moves over it (#6742). A menu that opens, or
+ * whose rows change, under a resting pointer keeps the row the keys chose, so Enter never runs the
+ * row the menu happened to open under (Delete, in the block menu). The block, insert and @ menus
+ * all go through here. */
+function movedOver(onHover: ((id: string) => void) | undefined, id: string) {
+  return (event: React.MouseEvent) => {
+    if (event.movementX || event.movementY) onHover?.(id);
+  };
+}
+
 /** The block menu from the handle's ⋯ or the menu key: the design system's block actions this
  * editor runs. A table is not duplicated here (its rows come with the table step). */
 function ActionsPopover({
   block,
   active,
+  list,
   onAction,
   onHoverAction,
   onClose,
 }: {
   block: BlockRecord;
   active?: string;
+  /** Turn into's own list is open (#6742). */
+  list?: 'turn-into';
   onAction?(action: BlockMenuAction, id: string): void;
   onHoverAction?(action: string): void;
   onClose?(): void;
 }) {
-  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches;
+  const sheet = typeof matchMedia === 'function' && matchMedia(NARROW).matches;
   const popup = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -887,43 +1000,75 @@ function ActionsPopover({
         placement={sheet ? 'sheet' : 'below'}
         activeId={active && `block-action-${active}`}
       >
-        {actions.map((action) => (
-          <BlockMenuItem
-            key={action.id}
-            id={`block-action-${action.id}`}
-            shortcut={action.shortcut}
-            danger={action.danger}
-            active={action.id === active}
-            onMouseEnter={() => onHoverAction?.(action.id)}
-            onMouseDown={(event) => {
-              event.preventDefault();
-              onAction?.(action.id as BlockMenuAction, block.id);
-            }}
-          >
-            {action.label}
-          </BlockMenuItem>
-        ))}
+        {list === 'turn-into' &&
+          blockMenuActions(block, list).map((id) => {
+            const turn = id.slice('turn-'.length) as keyof typeof strings.blockActions.turnTypes;
+            return (
+              <BlockMenuItem
+                key={id}
+                id={`block-action-${id}`}
+                back={id === 'turn-back'}
+                active={id === active}
+                onMouseMove={movedOver(onHoverAction, id)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  onAction?.(id, block.id);
+                }}
+              >
+                {id === 'turn-back'
+                  ? strings.blockActions.turnInto
+                  : strings.blockActions.turnTypes[turn]}
+              </BlockMenuItem>
+            );
+          })}
+        {!list &&
+          blockMenuActions(block)
+            .filter((id) => !id.startsWith('progress-'))
+            .map((id) => {
+              // Turn into (#6742) opens its list in this menu; the rest are the catalog's actions.
+              const action = actions.find((entry) => entry.id === id);
+              if (id !== 'turn-into' && !action) return null;
+              return (
+                <BlockMenuItem
+                  key={id}
+                  id={`block-action-${id}`}
+                  // The touch sheet has no keyboard: no key hints there.
+                  shortcut={sheet ? undefined : action?.shortcut}
+                  danger={action?.danger}
+                  submenu={id === 'turn-into'}
+                  active={id === active}
+                  onMouseMove={movedOver(onHoverAction, id)}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    onAction?.(id, block.id);
+                  }}
+                >
+                  {action?.label ?? strings.blockActions.turnInto}
+                </BlockMenuItem>
+              );
+            })}
         {/* A heading's section setting (#6619), after the block's own actions. */}
-        {blockMenuActions(block)
-          .filter((id) => id.startsWith('progress-'))
-          .map((id) => (
-            <BlockMenuItem
-              key={id}
-              id={`block-action-${id}`}
-              active={id === active}
-              onMouseEnter={() => onHoverAction?.(id)}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                onAction?.(id, block.id);
-              }}
-            >
-              {id === 'progress-done'
-                ? strings.sections.markDone
-                : id === 'progress-off'
-                  ? strings.sections.notProgress
-                  : strings.sections.automatic}
-            </BlockMenuItem>
-          ))}
+        {!list &&
+          blockMenuActions(block)
+            .filter((id) => id.startsWith('progress-'))
+            .map((id) => (
+              <BlockMenuItem
+                key={id}
+                id={`block-action-${id}`}
+                active={id === active}
+                onMouseMove={movedOver(onHoverAction, id)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  onAction?.(id, block.id);
+                }}
+              >
+                {id === 'progress-done'
+                  ? strings.sections.markDone
+                  : id === 'progress-off'
+                    ? strings.sections.notProgress
+                    : strings.sections.automatic}
+              </BlockMenuItem>
+            ))}
       </BlockMenu>
     </div>
   );
@@ -937,8 +1082,9 @@ function InsertPopover({
   onHover,
   onCloseMenu,
 }: Pick<StructuredPageProps, 'onPick' | 'onHover' | 'onCloseMenu'> & { menu: InsertMenu }) {
-  const sheet = typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches;
+  const sheet = typeof matchMedia === 'function' && matchMedia(NARROW).matches;
   const element = useRef<HTMLDivElement>(null);
+  const { side, room } = useMenuSide(element);
   useEffect(() => {
     if (menu.direct) element.current?.querySelector<HTMLElement>('[role="listbox"]')?.focus();
   }, [menu.direct]);
@@ -947,6 +1093,8 @@ function InsertPopover({
       ref={element}
       className="tmt-block-insert"
       data-sheet={sheet ? '' : undefined}
+      data-side={sheet ? undefined : side}
+      style={sheet || room === undefined ? undefined : roomStyle(room)}
       onKeyDown={(event) => {
         if (!menu.direct) return;
         if (event.key === 'Escape') {
@@ -979,7 +1127,7 @@ function InsertPopover({
       <BlockMenu
         kind="insert"
         label={strings.blockInsert.label}
-        placement={sheet ? 'sheet' : 'below'}
+        placement={sheet ? 'sheet' : side}
         activeId={menu.active && `block-insert-${menu.active}`}
       >
         {menu.entries.map((entry) => {
@@ -992,7 +1140,7 @@ function InsertPopover({
               description={row?.description}
               shortcut={entry.shortcut}
               active={entry.id === menu.active}
-              onMouseEnter={() => onHover?.(entry.id)}
+              onMouseMove={movedOver(onHover, entry.id)}
               // Choosing never takes focus from the editor.
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -1021,6 +1169,8 @@ function MentionPopover({
   onPick?(entry: string): void;
   onHover?(entry: string): void;
 }) {
+  const element = useRef<HTMLDivElement>(null);
+  const { side, room } = useMenuSide(element);
   const rowId = (entry: string) => `block-mention-${entry.replace(/[^A-Za-z0-9-]/g, '-')}`;
   const row = (entry: MentionMenu['entries'][number]) => (
     <BlockMenuItem
@@ -1029,7 +1179,7 @@ function MentionPopover({
       active={entry.id === mention.active}
       submenu={entry.mark === 'page'}
       back={entry.mark === 'back'}
-      onMouseEnter={() => onHover?.(entry.id)}
+      onMouseMove={movedOver(onHover, entry.id)}
       // Choosing never takes focus from the editor.
       onMouseDown={(event) => {
         event.preventDefault();
@@ -1044,11 +1194,16 @@ function MentionPopover({
   const pages = mention.entries.filter((entry) => entry.mark === 'page');
   const active = mention.entries.find((entry) => entry.id === mention.active)?.mark;
   return (
-    <div className="tmt-block-insert">
+    <div
+      ref={element}
+      className="tmt-block-insert"
+      data-side={side}
+      style={room === undefined ? undefined : roomStyle(room)}
+    >
       <BlockMenu
         kind="insert"
         label={strings.blockMention.label}
-        placement="below"
+        placement={side}
         activeId={mention.active && rowId(mention.active)}
       >
         {here.map(row)}
@@ -1357,8 +1512,9 @@ function Table({
                 onKey={(event, text) => onCellKey?.(event, text) ?? false}
               />
             ) : (
+              // A line feed in a cell draws as a line break, as in a block's text and the export.
               <span key={column.id} data-cell-row={row.id} data-cell-column={column.id}>
-                {value}
+                <MarkedText text={value} />
               </span>
             );
           }),
@@ -1427,6 +1583,9 @@ function Content({
       onKey={(event, value, caret, range) => onKey?.(block.id, event, value, caret, range) ?? false}
       onLink={(href) => rest.onLink?.(href, false)}
       onPasteUrl={(url, value, range) => rest.onPasteUrl?.(block.id, url, value, range) ?? false}
+      onPasteStructure={(html, plain, value, range) =>
+        rest.onPasteStructure?.(block.id, html, plain, value, range) ?? false
+      }
     />
   ) : // Empty text stays empty, so the part keeps its one-line height (`data-empty`).
   block.text ? (

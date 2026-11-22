@@ -98,6 +98,16 @@ export const text = {
   },
   blockActions: {
     label: 'Block actions',
+    turnInto: 'Turn into',
+    turnTypes: {
+      paragraph: 'Paragraph',
+      'heading-2': 'Heading 2',
+      'heading-3': 'Heading 3',
+      list: 'List',
+      todo: 'To-do',
+      callout: 'Callout',
+      code: 'Code',
+    },
   },
   blockTable: {
     addRow: 'Add a row',
@@ -140,6 +150,10 @@ export const text = {
       'Your last change may not have been saved. Reload the page to check before you make it again.',
     failed: 'Your last change was not saved.',
     saving: 'Saving your change…',
+    pasteTooLarge: (blocks: number) =>
+      `That paste would make more than ${blocks} blocks, so it went in as plain text.`,
+    pasteTooLong: (kib: number) =>
+      `That paste would make a block longer than ${kib} KB, so nothing was pasted. Paste a shorter part.`,
   },
   blockFiles: {
     full: (limit: number) =>

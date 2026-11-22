@@ -384,7 +384,8 @@ export type BlockAction =
   | 'mention'
   | 'delete';
 
-/** The block menu's items in their order, with their keys. A block menu never turns a block into another type. */
+/** The block menu's items in their order, with their keys. Turn into is not in the catalog: an editor
+ * that can change a block's type adds it (Colab, #6742). */
 export const blockActions: readonly {
   id: BlockAction;
   label: string;

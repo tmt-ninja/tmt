@@ -442,6 +442,22 @@ function propsBytes(type: string): number {
 }
 
 /** The props of one block: only keys of its type's schema, each valid, within the type's size. */
+/** The types a block may change between, keeping its ID, text and what points at it (#6742). */
+export const RETYPE_TYPES = ['paragraph', 'heading', 'list', 'todo', 'callout', 'code'] as const;
+
+/** Whether a block of `type` may hold the prop `name` with this `value`: a retype keeps a prop the
+ * two types share only when its value is one the new type allows (#6742). */
+export function keepsProp(type: string, name: string, value: unknown): boolean {
+  const schema = SCHEMA[type] ?? {};
+  if (!Object.hasOwn(schema, name)) return false;
+  try {
+    checkProp(schema[name]!, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function validateProps(type: string, props: unknown) {
   const map = object(props);
   requireValue(byteLength(canonical(props)) <= propsBytes(type));
@@ -449,40 +465,45 @@ export function validateProps(type: string, props: unknown) {
   for (const [key, value] of Object.entries(map)) {
     const prop = Object.hasOwn(schema, key) ? schema[key]! : undefined;
     requireValue(prop !== undefined);
-    switch (prop.kind) {
-      case 'bool':
-        requireValue(typeof value === 'boolean');
-        break;
-      case 'enum':
-        requireValue(typeof value === 'string' && prop.values.includes(value));
-        break;
-      case 'int':
-        requireValue(
-          Number.isSafeInteger(value) &&
-            (value as number) >= prop.low &&
-            (value as number) <= prop.high,
-        );
-        break;
-      case 'text':
-        plain(value, prop.max);
-        break;
-      case 'date':
-        requireValue(
-          typeof value === 'string' &&
-            /^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(value),
-        );
-        break;
-      case 'id':
-        id(value);
-        break;
-      case 'custom':
-        prop.check(value);
-        break;
-    }
+    checkProp(prop, value);
   }
   // A mockup draws nothing without its markup, and a work card nothing without its page.
   if (type === 'mockup') requireValue(Object.hasOwn(map, 'markup'));
   if (type === 'work-bundle') requireValue(Object.hasOwn(map, 'page'));
+}
+
+/** One prop's value against its kind. */
+function checkProp(prop: Prop, value: unknown) {
+  switch (prop.kind) {
+    case 'bool':
+      requireValue(typeof value === 'boolean');
+      break;
+    case 'enum':
+      requireValue(typeof value === 'string' && prop.values.includes(value));
+      break;
+    case 'int':
+      requireValue(
+        Number.isSafeInteger(value) &&
+          (value as number) >= prop.low &&
+          (value as number) <= prop.high,
+      );
+      break;
+    case 'text':
+      plain(value, prop.max);
+      break;
+    case 'date':
+      requireValue(
+        typeof value === 'string' &&
+          /^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.test(value),
+      );
+      break;
+    case 'id':
+      id(value);
+      break;
+    case 'custom':
+      prop.check(value);
+      break;
+  }
 }
 
 function validateBlock(key: string, block: unknown, all: Record<string, unknown>) {

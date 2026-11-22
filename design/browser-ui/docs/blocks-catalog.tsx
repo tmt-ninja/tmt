@@ -238,7 +238,7 @@ export const blockComponents: ComponentDoc[] = [
     slug: 'marked-text',
     name: 'Marked text',
     description:
-      'A block’s text with its inline marks: bold, italic and inline code, a link, and @agent or @block mentions. Offsets count scalar values. A link draws only for an https, http or mailto URL (linkHref) and opens through the host’s onLink; anything else is plain text.',
+      'A block’s text with its inline marks: bold, italic and inline code, a link, and @agent or @block mentions. Offsets count scalar values, and a line feed (a soft break) draws as one line break. A link draws only for an https, http or mailto URL (linkHref) and opens through the host’s onLink; anything else is plain text.',
     preview: () => (
       <p>
         <MarkedText
@@ -255,6 +255,17 @@ export const blockComponents: ComponentDoc[] = [
     ),
     usage: `${entry('MarkedText')}<MarkedText text={text} marks={marks} onLink={openLink} />`,
     variants: [
+      [
+        'A soft line break',
+        () => (
+          <p>
+            <MarkedText
+              text={'Ship the stack today.\nThe spec follows on its own line.'}
+              marks={[{ from: 0, to: 4, mark: 'bold' }]}
+            />
+          </p>
+        ),
+      ],
       [
         'A script link draws as text',
         () => (

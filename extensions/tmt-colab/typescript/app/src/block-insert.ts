@@ -9,7 +9,7 @@ export interface InsertEntry {
 
 /**
  * The insert menu's rows for what follows `/` (#6005, spec 插入選單): an entry stays while every
- * word of the query starts a word of its label, or the query starts its ID or shortcut, ignoring
+ * word of the query (split at spaces and hyphens, as labels are) starts a word of its label, or the query starts its ID or shortcut, ignoring
  * case. Catalog order is kept, and entries whose label starts with the query come first. Entries
  * the editor cannot make yet are left out.
  */
@@ -17,7 +17,8 @@ export function filterInsert(entries: readonly InsertEntry[], query: string): In
   const typed = query.trim().toLowerCase().replace(/^\//, '');
   const makeable = entries.filter((entry) => Object.hasOwn(INSERT_TYPES, entry.id));
   if (!typed) return makeable;
-  const words = typed.split(/\s+/);
+  // Split like the labels are, so a typed visible name ("to-do", "image or file") finds its entry.
+  const words = typed.split(/[\s-]+/).filter(Boolean);
   const matches = (entry: InsertEntry) => {
     const label = entry.label.toLowerCase();
     const labelWords = label.split(/[\s-]+/);

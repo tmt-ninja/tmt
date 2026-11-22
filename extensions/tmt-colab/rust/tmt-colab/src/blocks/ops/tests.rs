@@ -528,3 +528,116 @@ fn a_batch_is_closed() {
         );
     }
 }
+
+#[test]
+fn retype_keeps_the_id_and_text_and_sets_the_new_props_in_place() {
+    let base = must(
+        &empty(),
+        json!([
+            {"op": "insert", "id": bid(1), "type": "paragraph", "props": {"tone": "muted"}, "text": "Ship it"},
+            {"op": "text", "id": bid(1), "format": {"from": 0, "to": 4, "mark": "bold", "value": true}},
+            {"op": "insert", "id": bid(2), "type": "table", "props": {"columns": [{"id": "a", "name": "A"}]}},
+        ]),
+    )
+    .next;
+    let heading = must(
+        &base,
+        json!([{"op": "retype", "id": bid(1), "type": "heading", "props": {"level": 3}}]),
+    );
+    assert_eq!(heading.next[bid(1)]["type"], "heading");
+    assert_eq!(heading.next[bid(1)]["props"], json!({"level": 3}));
+    // The text and its marks stay; the ID is the same, so threads, mentions and numbers keep it.
+    assert_eq!(heading.next[bid(1)]["text"]["marks"][0]["mark"], "bold");
+    assert_eq!(
+        heading.receipt["ops"][0],
+        json!({"op": "retype", "id": bid(1)})
+    );
+    // One step: the type with the whole new props, which replace the old ones (#6742).
+    assert_eq!(
+        heading.steps,
+        [Step::Retype {
+            id: bid(1),
+            block_type: "heading".into(),
+            props: json!({"level": 3}).as_object().unwrap().clone(),
+            text: None,
+        }]
+    );
+    // Without props, those both types have stay: a list's indent on the to-do it becomes.
+    let list = must(
+        &empty(),
+        json!([{"op": "insert", "id": bid(3), "type": "list", "props": {"indent": 1, "style": "number"}, "text": "a"}]),
+    )
+    .next;
+    let todo = must(
+        &list,
+        json!([{"op": "retype", "id": bid(3), "type": "todo"}]),
+    );
+    assert_eq!(todo.next[bid(3)]["props"], json!({"indent": 1}));
+    // A shared prop stays only with a value the new type allows: a callout's tone is not a
+    // paragraph's, and a paragraph's `muted` is not a callout's; each turns without it.
+    let toned = must(
+        &empty(),
+        json!([
+            {"op": "insert", "id": bid(4), "type": "callout", "props": {"tone": "waiting", "heading": "Wait"}, "text": "a"},
+            {"op": "insert", "id": bid(5), "type": "paragraph", "props": {"tone": "muted"}, "text": "b"},
+        ]),
+    )
+    .next;
+    let turned = must(
+        &toned,
+        json!([
+            {"op": "retype", "id": bid(4), "type": "paragraph"},
+            {"op": "retype", "id": bid(5), "type": "callout"},
+        ]),
+    );
+    assert_eq!(turned.next[bid(4)]["props"], json!({}));
+    assert_eq!(turned.next[bid(5)]["props"], json!({}));
+    schema::validate(&turned.next).unwrap();
+    // Into code: plain text in place of the old, so no mark comes along.
+    let code = must(
+        &base,
+        json!([{"op": "retype", "id": bid(1), "type": "code"}]),
+    );
+    assert_eq!(
+        code.next[bid(1)]["text"],
+        json!({"s": "Ship it", "marks": []})
+    );
+    assert_eq!(
+        code.steps,
+        [Step::Retype {
+            id: bid(1),
+            block_type: "code".into(),
+            props: Map::new(),
+            text: Some("Ship it".into()),
+        }]
+    );
+    schema::validate(&code.next).unwrap();
+    // Undo is one batch: back to the paragraph with its props, then its marks on the same text.
+    let back = must(
+        &code.next,
+        json!([
+            {"op": "retype", "id": bid(1), "type": "paragraph", "props": {"tone": "muted"}},
+            {"op": "text", "id": bid(1), "format": {"from": 0, "to": 4, "mark": "bold", "value": true}},
+        ]),
+    );
+    assert_eq!(back.next[bid(1)], base[bid(1)]);
+    // Only between the six text types, to another type, with that type's props, on a live block.
+    for refused in [
+        json!({"op": "retype", "id": bid(2), "type": "paragraph", "props": {}}),
+        json!({"op": "retype", "id": bid(1), "type": "table", "props": {}}),
+        json!({"op": "retype", "id": bid(1), "type": "paragraph", "props": {}}),
+        json!({"op": "retype", "id": bid(1), "type": "heading", "props": {"tone": "muted"}}),
+        json!({"op": "retype", "id": bid(1), "type": "heading", "props": {}, "level": 2}),
+        json!({"op": "retype", "id": bid(1), "type": "heading", "props": {}, "text": "x"}),
+    ] {
+        assert!(run(&base, json!([refused.clone()])).is_err(), "{refused}");
+    }
+    let gone = must(&base, json!([{"op": "delete", "id": bid(1)}])).next;
+    assert!(
+        run(
+            &gone,
+            json!([{"op": "retype", "id": bid(1), "type": "heading", "props": {}}])
+        )
+        .is_err()
+    );
+}
