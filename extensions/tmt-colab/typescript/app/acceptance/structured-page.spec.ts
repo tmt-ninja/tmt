@@ -17,6 +17,51 @@ test.afterEach(disposeActiveWorlds);
  * it lands (#6742), so a case that types at the end goes there first. */
 const textEnd = process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End';
 
+test('open --block scrolls the loopback door to the exact heading and to-do', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'block-link-reader');
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const { pageId } = JSON.parse(
+      run(world, colab, ['page', 'create', '--title', 'Block links', '--no-open', '--json']),
+    ) as { pageId: string };
+    const insert = (kind: string, label: string) =>
+      (
+        JSON.parse(
+          run(world, colab, ['block', 'insert', pageId, '--type', kind, '--text', label, '--json']),
+        ) as { blockIds: string[] }
+      ).blockIds[0]!;
+    const spacer = 'This paragraph keeps the next block below the fold. '.repeat(100);
+    insert('paragraph', spacer);
+    const heading = insert('heading', 'Release');
+    insert('paragraph', spacer);
+    const todo = insert('todo', 'Ship the release');
+    const page = await browser.context.newPage();
+    await page.setViewportSize({ width: 390, height: 850 });
+    const target = (id: string) => page.locator(`[data-block-id="${id}"]`);
+    const plain = JSON.parse(run(world, colab, ['open', pageId, '--json'])) as { link: string };
+    await page.goto(plain.link);
+    await expect(target(heading)).toBeAttached();
+    await expect(target(todo)).toBeAttached();
+    await expect(target(heading)).not.toBeInViewport();
+    await expect(target(todo)).not.toBeInViewport();
+    for (const [block, other] of [
+      [heading, todo],
+      [todo, heading],
+    ] as const) {
+      const { link, opened } = JSON.parse(
+        run(world, colab, ['open', pageId, '--block', block, '--json']),
+      ) as { link: string; opened: boolean };
+      expect(opened).toBe(false);
+      expect(new URL(link).origin).toBe(new URL(door.address).origin);
+      await page.goto(link);
+      await expect(target(block)).toBeInViewport();
+      await expect(target(other)).not.toBeInViewport();
+    }
+  });
+});
+
 // #6005: a structured page made and changed by the CLI draws in the browser from the fold, and the
 // person's typing goes out as a block batch that merges with an agent's edit of the same block.
 test('a structured page draws CLI blocks and keeps typing and an agent edit of the same block', async () => {

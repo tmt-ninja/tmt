@@ -80,6 +80,7 @@ not `link`; if null, inspect serving status, never invent a URL.
 
 Asked to open a page: `tmt colab open PAGE` (omit PAGE for home). As an agent it only prints the
 link unless `--open`; it never starts or pairs services. Open browsers only on request.
+On a page of blocks, `open PAGE --block ID` opens at a block. HTML section IDs use plain page open.
 
 ## Edit a page
 

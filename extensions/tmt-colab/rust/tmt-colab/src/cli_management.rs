@@ -1217,13 +1217,40 @@ fn run_once(
             .get_one::<String>("page")
             .map(|operand| resolve_catalog_page(&store, &key, &catalog, operand, false))
             .transpose()?;
+        let block = args.get_one::<String>("block").map(String::as_str);
+        if let (Some(page), Some(block)) = (id.as_deref(), block) {
+            let mut decoder = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)?;
+            let read = tmt_colab::page::read_blocks(&store, &key, page, &mut decoder).map_err(
+                |error| {
+                    if error.downcast_ref::<tmt_colab::page::Fault>()
+                        == Some(&tmt_colab::page::Fault::NotStructured)
+                    {
+                        return fail(
+                            "COLAB_NOT_STRUCTURED",
+                            "Only pages of blocks have block anchors. HTML section IDs are outline positions. Open the page without --block.",
+                        );
+                    }
+                    error
+                },
+            )?;
+            if !read.blocks.get(block).is_some_and(|entry| {
+                entry.get("deleted").is_none() && entry["type"] != tmt_colab::blocks::schema::ROW
+            }) {
+                return Err(fail(
+                    "COLAB_BLOCK_NOT_FOUND",
+                    "No live block with that ID can be opened on this page. List the page's block IDs with tmt colab block ls PAGE --json.",
+                ));
+            }
+        }
         // The browser handoff uses verified catalog/link facts; it never starts
         // a service, pairs a browser or mutates a page.
         let path = match &id {
             Some(id) => crate::reach::Reach::path(&key.space_id, id),
             None => format!("x/colab/#space={}", key.space_id),
         };
-        let reach = crate::reach::Reach::gather().with_pages(&ids);
+        let reach = crate::reach::Reach::gather()
+            .with_pages(&ids)
+            .with_block(block);
         let running = layout.running()?;
         let mut facts =
             json!({"spaceId":key.space_id,"pageId":id,"running":running,"opened":false});

@@ -225,7 +225,7 @@ fn grammar() -> Command {
             },
         ],
         outputs: OutputModes::HumanAndJson,
-        details: "Omit PAGE for the existing space home. This explicit request opens even without a terminal or with the automatic-open setting off, but under an agent (TMT_AGENT set) it only prints the link unless --open is passed. --no-open and --json only print link facts. Uses the running Colab and Remote services; never starts another service, pairs a browser or changes page access. If Colab is stopped, run tmt colab serve. Missing, deleted or ambiguous pages are refused before opening.",
+        details: "Omit PAGE for the existing space home. With PAGE, --block ID opens at an existing block on a page of blocks. This explicit request opens even without a terminal or with the automatic-open setting off, but under an agent (TMT_AGENT set) it only prints the link unless --open is passed. --no-open and --json only print link facts. Uses the running Colab and Remote services; never starts another service, pairs a browser or changes page access. If Colab is stopped, run tmt colab serve. Missing, deleted or ambiguous pages are refused before opening.",
     };
     const SETTINGS: CommandSpec = CommandSpec {
         name: "settings",
@@ -372,7 +372,15 @@ fn grammar() -> Command {
             ))
             .subcommand(tmt_cli_style::command(&STOP))
             .subcommand(open_args(
-                tmt_cli_style::command(&OPEN).arg(cli_grammar::page().required(false)),
+                tmt_cli_style::command(&OPEN)
+                    .arg(cli_grammar::page().required(false))
+                    .arg(
+                        Arg::new("block")
+                            .long("block")
+                            .value_name("ID")
+                            .requires("page")
+                            .help("Open at this block ID on the page"),
+                    ),
             ))
             .subcommand(
                 tmt_cli_style::command(&SETTINGS)

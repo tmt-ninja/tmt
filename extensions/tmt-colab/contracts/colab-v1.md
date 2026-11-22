@@ -5353,6 +5353,14 @@ retains the link. JSON adds `spaceId`, full `pageId` (null for home), `running` 
 `opened: false` to the existing path/link/shortLink/paired/next facts; a stopped Colab
 adds `tmt colab serve` to `next`. Browser navigation still undergoes existing admission.
 
+With `PAGE --block ID`, `open` validates the exact block ID against the selected page's
+admitted block map before handing off. The existing path, link and shortLink use
+`/colab/p/<page-prefix>#anchor=block-<id>`, including the root-relative path when no door
+is available. The fragment is a scroll target and carries no admission. The block handoff
+uses the plain browser opener and never starts a pairing. A missing, foreign or deleted
+block or a table row refuses with `COLAB_BLOCK_NOT_FOUND`. An HTML outline ordinal
+is not a block ID. `--block` on a page without blocks refuses with `COLAB_NOT_STRUCTURED`.
+
 ### Colab in the TMT web app (#3937)
 
 The door serves one TMT web app document for its routes

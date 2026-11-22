@@ -7,6 +7,7 @@ pub struct Reach {
     lookup: Lookup,
     unavailable_hint: &'static str,
     pages: Vec<String>,
+    block: Option<String>,
     /// Read only while a door runs: there is nothing to pair with otherwise.
     pairing: Option<Pairing>,
 }
@@ -20,6 +21,7 @@ impl Reach {
             unavailable_hint: Door::INSTALL_HINT,
             pairing,
             pages: Vec::new(),
+            block: None,
         }
     }
     pub fn from_creation(observation: crate::door::CreationObservation) -> Self {
@@ -29,11 +31,23 @@ impl Reach {
             unavailable_hint: "Remote link unavailable from the creation snapshot",
             pairing,
             pages: Vec::new(),
+            block: None,
         }
     }
     pub fn with_pages(mut self, pages: &[String]) -> Self {
         self.pages = pages.to_vec();
         self
+    }
+    pub fn with_block(mut self, block: Option<&str>) -> Self {
+        self.block = block.map(str::to_owned);
+        self
+    }
+    fn short_path(&self, path: &str) -> Option<String> {
+        let id = self.short_id(path)?;
+        Some(match &self.block {
+            Some(block) => format!("/colab/p/{id}#anchor=block-{block}"),
+            None => format!("/colab/p/{id}"),
+        })
     }
     fn short_id<'a>(&self, path: &'a str) -> Option<&'a str> {
         let page = path
@@ -44,9 +58,9 @@ impl Reach {
         Some(tmt_colab::short_links::shortest_id(page, &self.pages))
     }
     pub fn short_link(&self, path: &str) -> Option<String> {
-        let id = self.short_id(path)?;
+        let path = self.short_path(path)?;
         match &self.lookup {
-            Lookup::Running(door) => Some(format!("{}/colab/p/{id}", door.origin())),
+            Lookup::Running(door) => Some(format!("{}{path}", door.origin())),
             _ => None,
         }
     }
@@ -65,8 +79,8 @@ impl Reach {
     /// The full link, only while a door runs.
     pub fn link(&self, path: &str) -> Option<String> {
         match &self.lookup {
-            Lookup::Running(door) => Some(match self.short_id(path) {
-                Some(id) => format!("{}/colab/p/{id}", door.origin()),
+            Lookup::Running(door) => Some(match self.short_path(path) {
+                Some(path) => format!("{}{path}", door.origin()),
                 None if path.starts_with("/read/") => format!("{}{}", door.origin(), path),
                 None => format!("{}/colab/", door.origin()),
             }),
@@ -75,10 +89,10 @@ impl Reach {
     }
     /// The link, or the path with why there is no full link.
     pub fn text(&self, path: &str) -> String {
-        if let Some(id) = self.short_id(path) {
+        if let Some(relative) = self.short_path(path) {
             return self
                 .short_link(path)
-                .unwrap_or_else(|| self.hint(&format!("/colab/p/{id}")));
+                .unwrap_or_else(|| self.hint(&relative));
         }
         self.link(path).unwrap_or_else(|| {
             self.hint(if path.starts_with("/read/") {
@@ -101,8 +115,7 @@ impl Reach {
     /// Adds `path` (root-relative) and `link` (full, `null` without a door) to a JSON object.
     pub fn annotate_link(&self, value: &mut Value, path: &str) {
         value["path"] = json!(
-            self.short_id(path)
-                .map(|id| format!("/colab/p/{id}"))
+            self.short_path(path)
                 .unwrap_or_else(|| "/colab/".to_owned())
         );
         value["link"] = json!(self.link(path));
@@ -147,6 +160,7 @@ mod tests {
         let ordinary = Reach {
             lookup: Lookup::Unknown,
             pages: Vec::new(),
+            block: None,
             pairing: None,
             unavailable_hint: Door::INSTALL_HINT,
         };

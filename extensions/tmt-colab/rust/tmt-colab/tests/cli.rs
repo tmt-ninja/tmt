@@ -8018,6 +8018,104 @@ fn explicit_open_hands_off_home_and_resolved_page_without_mutating_content() {
     serving.stop(Signal::SIGTERM);
 }
 #[test]
+fn explicit_open_at_block_resolves_heading_and_todo_without_pairing() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    let created = pilot.call(&["page", "create", "--title", "Work", "--no-open", "--json"]);
+    let page = created["pageId"].as_str().unwrap();
+    let insert = |kind, caption| {
+        pilot.call(&[
+            "block", "insert", page, "--type", kind, "--text", caption, "--json",
+        ])["blockIds"][0]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let heading = insert("heading", "Review");
+    let todo = insert("todo", "Ship");
+    let html = pilot.call(&[
+        "page",
+        "create",
+        "--html",
+        "--reason",
+        "Exercise the HTML outline path",
+        "--title",
+        "HTML",
+        "--no-open",
+        "--json",
+    ]);
+    let html = html["pageId"].as_str().unwrap();
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    serving.ready();
+    let core = pilot.with_launch(&pilot.door_core(DOOR, None), 0, LAUNCH_OPENED);
+    let path_for = |id| format!("/colab/p/{}#anchor=block-{id}", &page[..8]);
+    for block in [&heading, &todo] {
+        let path = path_for(block);
+        let url = format!("http://127.0.0.1:53253{path}");
+        let run = |flags: &[&str]| {
+            let output = pilot
+                .command()
+                .env("TMT_EXECUTABLE", &core)
+                .args(["open", &page[..8], "--block", block])
+                .args(flags)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            output.stdout
+        };
+        let facts: Value = serde_json::from_slice(&run(&["--json"])).unwrap();
+        assert_eq!(facts["pageId"], page);
+        assert_eq!(facts["path"], path);
+        assert_eq!(facts["link"], url);
+        assert_eq!(facts["shortLink"], url);
+        assert_eq!(facts["opened"], false);
+        let human = String::from_utf8(run(&["--no-open"])).unwrap();
+        assert!(human.contains(&url), "{human}");
+        assert!(pilot.launch_calls().is_empty());
+        run(&["--open"]);
+        assert_eq!(pilot.opened().last(), Some(&url));
+    }
+    assert_eq!(pilot.opened().len(), 2);
+    assert!(pilot.launch_calls().is_empty());
+    failure(
+        &pilot,
+        &["open", page, "--block", PAGE, "--json"],
+        "COLAB_BLOCK_NOT_FOUND",
+    );
+    let refusal = failure(
+        &pilot,
+        &["open", html, "--block", "h1", "--json"],
+        "COLAB_NOT_STRUCTURED",
+    );
+    assert!(
+        refusal["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("without --block")
+    );
+    pilot.call(&["block", "delete", page, &todo, "--json"]);
+    failure(
+        &pilot,
+        &["open", page, "--block", &todo, "--json"],
+        "COLAB_BLOCK_NOT_FOUND",
+    );
+    serving.stop(Signal::SIGTERM);
+    let facts = pilot.call(&["open", page, "--block", &heading, "--json"]);
+    assert_eq!(facts["running"], false);
+    assert_eq!(facts["path"], path_for(&heading));
+    assert!(facts["link"].is_null());
+    pilot.call(&["delete", page, "--yes", "--json"]);
+    failure(
+        &pilot,
+        &["open", page, "--block", &heading, "--json"],
+        "COLAB_PAGE_DELETED",
+    );
+}
+#[test]
 fn explicit_open_hands_the_short_target_to_remotes_launch_seam() {
     let pilot = Pilot::new(None);
     pilot.opener(0);
