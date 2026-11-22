@@ -1706,6 +1706,7 @@ export const text = {
   crashTitle: 'Colab stopped',
   crashBody: 'Colab hit an error and stopped. The rest of TMT is unaffected.',
   crashRetry: 'Try again',
+  mountRetrying: 'Trying again…',
   failureAccessEnded: 'Your access to this page ended. Open it again to continue.',
   failurePairingRemoved: "This browser's pairing was removed.",
   failurePairingExpired: "This browser's pairing expired.",

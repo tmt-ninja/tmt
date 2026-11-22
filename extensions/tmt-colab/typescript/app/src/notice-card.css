@@ -35,3 +35,8 @@
   font-size: 0.875em;
   overflow-wrap: anywhere;
 }
+
+.mount-recovery-status {
+  align-self: center;
+  color: var(--c-muted);
+}

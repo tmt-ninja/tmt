@@ -1,4 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { expect, test, type Page } from '@playwright/test';
 import { backToPageList, showAllPages } from '../test/home-list.js';
 import { createPage, freePort, openPage, run, selectInRenderer } from './harness/ask.js';
 import {
@@ -135,5 +137,67 @@ test('real Colab keeps public short entries across admission, reload and history
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
     );
+  });
+});
+
+async function captureRecovery(page: Page, route: string) {
+  const directory = process.env.COLAB_RESTART_RECOVERY_CAPTURE_DIR;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => {
+        document.documentElement.dataset.theme = value;
+      }, theme);
+      await page.screenshot({ path: path.join(directory, `${route}-${width}-${theme}.png`) });
+    }
+  }
+}
+
+test('an open Colab tab recovers its page and home list after Colab restarts', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const created = createPage(world, 'Restart recovery', '<h1 id="proof">Recovered page</h1>');
+    const browser = await pairBrowser(world, 'restart-owner');
+    const page = await openPage(door, browser, created);
+    const proof = page.frameLocator('iframe').locator('#proof');
+    await expect(proof).toHaveText('Recovered page');
+    const pageUrl = page.url();
+    await backToPageList(page);
+    await showAllPages(page);
+    const homeUrl = page.url();
+
+    const home = await openPage(door, browser, created);
+    await expect(home.frameLocator('iframe').locator('#proof')).toHaveText('Recovered page');
+    const row = home.locator(`[data-page-id="${created.pageId}"]`).getByRole('link');
+    const waitForOutage = async (tab: Page, route: 'page' | 'home') => {
+      const unavailable = tab.getByRole(route === 'page' ? 'status' : 'alert').filter({
+        hasText: 'Colab registration unavailable (404)',
+      });
+      await expect(unavailable).toBeVisible();
+      const retry = route === 'page' ? 'Retry' : 'Try again';
+      await expect(unavailable.getByRole('button', { name: retry, exact: true })).toBeVisible();
+      await expect(unavailable.getByText('Trying again…', { exact: true })).toBeVisible();
+      await captureRecovery(tab, route);
+    };
+
+    await restartColab(world, door, async () => {
+      await page.bringToFront();
+      await page.goBack();
+      await waitForOutage(page, 'page');
+      await expect(page).toHaveURL(pageUrl);
+
+      await home.bringToFront();
+      await backToPageList(home);
+      await waitForOutage(home, 'home');
+      await expect(home).toHaveURL(homeUrl);
+      await page.bringToFront();
+    });
+    await expect(proof).toHaveText('Recovered page', { timeout: 8_000 });
+    await expect(page).toHaveURL(pageUrl);
+    await home.bringToFront();
+    await expect(row).toBeVisible({ timeout: 8_000 });
+    await expect(home).toHaveURL(homeUrl);
   });
 });
