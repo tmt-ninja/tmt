@@ -13328,6 +13328,69 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
         "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
+    // Keep a real signed discussion alongside the content checkpoints throughout the churn.
+    {
+        use tmt_colab::{
+            decoder::{Decoder, OwnRecord},
+            keyring::{Keyring, Layout},
+            page,
+            store::Store,
+        };
+        let layout = Layout::existing(&pilot.root.join("selected"))
+            .unwrap()
+            .unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let mut store = Store::write_existing(&layout).unwrap();
+        let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
+        let thread = "50000000-0000-4000-8000-000000000018";
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+        let writer: String = db
+            .query_row(
+                "SELECT stream FROM receipts WHERE page=?1 AND namespace='content' LIMIT 1",
+                [page],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let record = OwnRecord {
+            root: "threads".into(),
+            key: format!("{thread}:1"),
+            value: json!({"version":1,"kind":"thread","spaceId":key.space_id,"pageId":page,
+                "epoch":"1","senderDevice":writer,"revision":"1",
+                "deleted":false,"deviceName":"Private owner","at":now.to_string(),"threadId":thread,
+                "anchor":{"exact":"page","prefix":"","suffix":""},"resolved":false}),
+        };
+        let message = "60000000-0000-4000-8000-000000000018";
+        let comment = OwnRecord {
+            root: "messages".into(),
+            key: format!("{message}:1"),
+            value: json!({"version":1,"kind":"comment","spaceId":key.space_id,"pageId":page,
+                "epoch":"1","senderDevice":writer,"revision":"1","deleted":false,
+                "deviceName":"Private owner","at":now.to_string(),"messageId":message,
+                "thread":{"writer":writer,"id":thread},"body":"Keep this comment intact."}),
+        };
+        let publication =
+            page::prepare_own_records(&store, &key, page, &[record, comment], &mut decoder, now)
+                .unwrap();
+        page::commit_publication(
+            &mut store,
+            &key,
+            publication.job(),
+            publication.packet(),
+            publication.chain(),
+            now,
+        )
+        .unwrap();
+        store.close().unwrap();
+    }
+    for revision in 0..201 {
+        let source = format!("<p>{}</p>", sha256_hex(&revision.to_string()));
+        fs::write(&file, source).unwrap();
+        pilot.patch_call(page, &["--file", file.to_str().unwrap(), "--json"]);
+    }
     let before = pilot.call(&["page", "read", page, "--json"]);
     let storage = pilot.call(&["storage", "--json"]);
     let human = pilot.command().args(["storage"]).output().unwrap();
@@ -13345,7 +13408,7 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
         .unwrap();
     assert!(row["contentBytes"].as_u64().unwrap() > 0, "{row}");
     assert!(row["historyBytes"].is_u64(), "{row}");
-    assert!(row["commentsBytes"].is_u64(), "{row}");
+    assert!(row["commentsBytes"].as_u64().unwrap() > 0, "{row}");
     assert!(
         row["attachmentsBytes"].is_null(),
         "unknown object inventory must not become zero: {row}"
@@ -13361,8 +13424,32 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
     if lock.exists() {
         fs::remove_file(&lock).unwrap();
     }
+    let discussion = pilot.call(&["threads", page, "--json"]);
+    assert!(
+        discussion.to_string().contains("Keep this comment intact."),
+        "{discussion}"
+    );
     let persisted = fs::read(&db).unwrap();
     let preview = pilot.call(&["page", "reclaim", page, "--dry-run", "--json"]);
+    let history = &preview["historyPreview"];
+    assert!(history["blocked"].is_null(), "{history}");
+    assert!(history["afterGzipBytes"].as_u64().unwrap() > 0);
+    assert!(
+        history["afterGzipBytes"].as_u64().unwrap() < history["beforeGzipBytes"].as_u64().unwrap(),
+        "{history}"
+    );
+    assert!(history["writeFits"].is_null());
+    fs::write(&file, "<p>Proposed replacement</p>").unwrap();
+    let measured = pilot.call(&[
+        "page",
+        "reclaim",
+        page,
+        "--dry-run",
+        "--source",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(measured["historyPreview"]["writeFits"], true, "{measured}");
     assert!(!lock.exists(), "dry-run created the serve lock");
     assert_eq!(
         fs::read(&db).unwrap(),
@@ -13373,6 +13460,7 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
     assert_eq!(preview["dryRun"], true);
     assert!(preview["freeable"]["history"].is_u64(), "{preview}");
     assert_eq!(preview["freeable"]["files"], 0);
+    assert_eq!(pilot.call(&["threads", page, "--json"]), discussion);
     let after = pilot.call(&["page", "read", page, "--json"]);
     assert_eq!(before["source"], after["source"]);
     assert_eq!(before["revision"], after["revision"]);

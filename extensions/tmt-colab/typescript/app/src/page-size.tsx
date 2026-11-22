@@ -30,6 +30,7 @@ export function outcomeOf(report: CompactReport): CompactOutcome {
 }
 
 export interface PageSize {
+  pageId: string;
   /** Absent until the serve answered, or where this device cannot ask. */
   usage: PageUsage | null;
   outcome: CompactOutcome | null;
@@ -41,7 +42,7 @@ export interface PageSize {
 }
 /** How full the page is, for a device that may save. A device without `usage` (a reader) gets
  * nothing, so no Compact is offered to it anywhere. */
-export function usePageSize(binding: PageBinding | undefined): PageSize {
+export function usePageSize(pageId: string, binding: PageBinding | undefined): PageSize {
   const [usage, setUsage] = useState<PageUsage | null>(null);
   const [outcome, setOutcome] = useState<CompactOutcome | null>(null);
   const [compacting, setCompacting] = useState(false);
@@ -86,7 +87,7 @@ export function usePageSize(binding: PageBinding | undefined): PageSize {
     }
     return result;
   }, [binding]);
-  return { usage, outcome, compacting, refresh, compact };
+  return { pageId, usage, outcome, compacting, refresh, compact };
 }
 
 function share(used: number, limit: number): string {
@@ -229,7 +230,7 @@ export function PageSizeNotice({ size, exportPage }: { size: PageSize; exportPag
         stateLabel={full ? text.pageSize.noticeFull : text.pageSize.noticeNearly}
         title={offered ? text.pageSize.noticeUsed(usage.percent) : text.pageSize.noticeCannotFree}
         mark={full ? <X /> : <Diamond fill="currentColor" />}
-        body={null}
+        body={usage.limiting === 'stored-size' ? text.pageSize.preview(size.pageId) : null}
         actions={<PageSizeActions size={size} exportPage={exportPage} why={false} />}
       />
     </div>

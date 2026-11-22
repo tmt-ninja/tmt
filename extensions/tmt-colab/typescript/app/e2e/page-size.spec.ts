@@ -149,6 +149,7 @@ test('when combining cannot free room the notice says so and offers Export inste
   const editor = await source(page);
   const notice = editor.locator('.source-notice');
   await expect(notice).toContainText('Combining cannot free more room.');
+  await expect(notice).toContainText('tmt colab page reclaim notes --dry-run');
   await expect(notice.getByRole('button')).toHaveText(['Export page']);
   await expect(page.getByRole('button', { name: 'Compact page' })).toHaveCount(0);
   await notice.getByRole('button', { name: 'Export page' }).click();
@@ -244,7 +245,7 @@ test('a refusal that combining cannot fix offers Export, and a failed Compact ke
   await editor.locator('textarea').fill('<p>kept</p>');
   await editor.getByRole('button', { name: 'Save' }).click();
   await expect(editor).toContainText(
-    'This page is full, and combining cannot free room. Export it and continue in a new page.',
+    'This page is full. The owner can preview history recovery with tmt colab page reclaim notes --dry-run.',
   );
   await expect(editor.getByRole('button', { name: 'Compact page' })).toHaveCount(0);
   await expect(editor.getByRole('button', { name: 'Export page' }).last()).toBeVisible();
