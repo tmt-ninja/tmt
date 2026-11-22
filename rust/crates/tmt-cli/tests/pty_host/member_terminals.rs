@@ -3,7 +3,7 @@
 //! gone once the member is closed, removed or its supervisor ends.
 use super::terminal_stream::View;
 use super::*;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use tmt_adapters::pty::protocol::{ClientMessage, ServerMessage};
 
 fn call(world: &World, operation: &str, input: Value) -> Value {
@@ -106,6 +106,115 @@ fn close(world: &World, terminal: &str, force: bool) -> Value {
         "terminal.close",
         serde_json::json!({"terminalId": terminal, "force": force}),
     )
+}
+
+#[test]
+fn a_kept_command_opens_one_independent_shell_and_removes_it_with_the_result() {
+    let mut world = World::new();
+    let cwd = world.root.join("saved-command");
+    fs::create_dir(&cwd).unwrap();
+    let mut session = world
+        .command(&["api", "--session"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = session.stdin.take().unwrap();
+    let mut output = BufReader::new(session.stdout.take().unwrap());
+    let mut request = |operation: &str, data: Value| {
+        let envelope = serde_json::json!({"version":1,"operation":operation,"input":data});
+        writeln!(input, "{envelope}").unwrap();
+        let mut line = String::new();
+        output.read_line(&mut line).unwrap();
+        let value: Value = serde_json::from_str(&line).unwrap_or_else(|_| panic!("{line:?}"));
+        assert!(value.get("error").is_none(), "{operation}: {value}");
+        value
+    };
+    let result = request(
+        "terminal.command.run",
+        serde_json::json!({"command":"printf result; exit 7","target":{"kind":"local","cwd":cwd}}),
+    );
+    assert_eq!(result["exitCode"], 7);
+    assert_eq!(result["stdout"], "result");
+    assert_eq!(
+        call(&world, "terminal.saved.list", serde_json::json!({}))["terminals"],
+        serde_json::json!([])
+    );
+    let saved = request(
+        "terminal.command.keep",
+        serde_json::json!({"runId":result["runId"]}),
+    );
+    drop(input);
+    assert!(session.wait().unwrap().success());
+    let id = &saved["terminalId"];
+    let opening = serde_json::json!({"terminalId":id,"expectedRevision":saved["revision"]});
+    let (first, second) = std::thread::scope(|scope| {
+        let first = scope.spawn(|| call(&world, "terminal.saved.openShell", opening.clone()));
+        let second = scope.spawn(|| call(&world, "terminal.saved.openShell", opening.clone()));
+        (first.join().unwrap(), second.join().unwrap())
+    });
+    world.remember();
+    let (opened, refused) = if first.get("socket").is_some() {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    assert_eq!(
+        refused["error"]["code"], "TERMINAL_SAVED_REVISION_CONFLICT",
+        "{refused}"
+    );
+    let socket = PathBuf::from(
+        opened["socket"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{opened}")),
+    );
+    assert!(socket.starts_with(support::state_dir(&world.root)));
+    assert!(
+        no_terminal_socket(&world),
+        "the member namespace is untouched"
+    );
+    assert_eq!(
+        world.json(&["ls", "--json"])["identities"],
+        serde_json::json!([])
+    );
+    let mut view = View::open(&socket);
+    view.send(&ClientMessage::Input(
+        b"pwd > shell-cwd; printf 'SHELL-%s\\n' READY\r".to_vec(),
+    ));
+    view.output_until("SHELL-READY");
+    assert_eq!(
+        PathBuf::from(fs::read_to_string(cwd.join("shell-cwd")).unwrap().trim())
+            .canonicalize()
+            .unwrap(),
+        cwd.canonicalize().unwrap(),
+    );
+    drop(view);
+
+    let current = serde_json::json!({"terminalId":id,"expectedRevision":opened["revision"]});
+    assert_eq!(
+        call(&world, "terminal.saved.openShell", current.clone()),
+        opened
+    );
+    let loaded = call(
+        &world,
+        "terminal.saved.get",
+        serde_json::json!({"terminalId":id}),
+    );
+    assert_eq!(loaded["stdout"], "result");
+    assert_eq!(loaded["exitCode"], 7);
+    assert_eq!(
+        call(&world, "terminal.saved.remove", current),
+        serde_json::json!({"removed":true})
+    );
+    assert!(!socket.exists());
+    assert_eq!(
+        call(
+            &world,
+            "terminal.saved.get",
+            serde_json::json!({"terminalId":id})
+        )["error"]["code"],
+        "TERMINAL_SAVED_NOT_FOUND"
+    );
 }
 
 #[test]

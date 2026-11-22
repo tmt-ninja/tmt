@@ -384,6 +384,205 @@ pub(crate) fn run(
     }
 }
 
+const SAVED_PREFIX: &str = "saved_";
+
+pub fn is_saved_shell_id(id: &str) -> bool {
+    id.strip_prefix(SAVED_PREFIX).is_some_and(|hex| {
+        hex.len() == 32
+            && hex
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
+
+pub(crate) fn new_saved_shell_id() -> String {
+    format!("{SAVED_PREFIX}{}", uuid::Uuid::new_v4().simple())
+}
+
+/// A saved shell lives under its saved record ID, outside the member-terminal
+/// namespace. Its socket and own supervisor incarnation prove attachment.
+pub(crate) struct SavedShellView {
+    pub terminal: Terminal,
+    pub process: tmt_core::endpoint::ProcessIncarnation,
+}
+
+fn saved_unknown(message: &'static str) -> TerminalError {
+    TerminalError::CloseUnconfirmed(io::Error::other(message))
+}
+
+fn saved_process_gone(process: &tmt_core::endpoint::ProcessIncarnation, deadline: Instant) -> bool {
+    use tmt_core::binding::session::RuntimeLiveness;
+    matches!(
+        observe_runtime_process(&UnixCommandRunner, process.pid(), deadline),
+        Ok(observation) if observation.matches(process) == RuntimeLiveness::Gone
+    )
+}
+
+fn connect_saved_shell(
+    paths: &ConfigPaths,
+    owner: &str,
+    id: &str,
+    expected: Option<&tmt_core::endpoint::ProcessIncarnation>,
+    deadline: Instant,
+) -> Result<Option<(Connection, SavedShellView)>, TerminalError> {
+    use tmt_core::endpoint::ProcessIncarnation;
+
+    let pty = paths.pty_directory();
+    if !is_saved_shell_id(id) || super::validate(&pty, id).is_err() {
+        return Err(TerminalError::NotFound);
+    }
+    let socket = socket_path(&pty, id);
+    match fs::symlink_metadata(&socket) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return if expected.is_some_and(|process| saved_process_gone(process, deadline)) {
+                Ok(None)
+            } else {
+                Err(saved_unknown("the saved shell's absence is unconfirmed"))
+            };
+        }
+        Ok(metadata) if std::os::unix::fs::FileTypeExt::is_socket(&metadata.file_type()) => {}
+        _ => {
+            return Err(saved_unknown(
+                "the saved shell socket could not be verified",
+            ));
+        }
+    }
+    let mut client =
+        Connection::connect_until(&pty, id, deadline).map_err(TerminalError::CloseUnconfirmed)?;
+    let left = || {
+        deadline
+            .saturating_duration_since(Instant::now())
+            .max(Duration::from_millis(1))
+    };
+    let ControlReply::Terminal {
+        owner: reported,
+        created_ms,
+        busy,
+    } = client
+        .control(Control::Terminal, left())
+        .map_err(TerminalError::CloseUnconfirmed)?
+    else {
+        return Err(saved_unknown(
+            "the socket did not name a saved terminal owner",
+        ));
+    };
+    if reported != owner {
+        return Err(saved_unknown("the saved shell's owner changed"));
+    }
+    let ControlReply::State {
+        supervisor_pid,
+        ended: None,
+        ..
+    } = client
+        .control(Control::Inspect, left())
+        .map_err(TerminalError::CloseUnconfirmed)?
+    else {
+        return Err(saved_unknown(
+            "the saved shell did not confirm its live supervisor",
+        ));
+    };
+    let process = match observe_runtime_process(&UnixCommandRunner, supervisor_pid.into(), deadline)
+    {
+        Ok(ProcessObservation::Live(process)) => process,
+        _ => return Err(saved_unknown("the saved shell incarnation is unconfirmed")),
+    };
+    if expected.is_some_and(|previous: &ProcessIncarnation| previous != &process) {
+        return Err(saved_unknown("the saved shell's supervisor changed"));
+    }
+    let terminal = Answer {
+        owner: reported,
+        created_ms,
+        busy,
+        shell: None,
+        program: None,
+    }
+    .terminal(&pty, id.into());
+    Ok(Some((client, SavedShellView { terminal, process })))
+}
+
+pub(crate) fn saved_shell(
+    paths: &ConfigPaths,
+    owner: &str,
+    id: &str,
+    expected: Option<&tmt_core::endpoint::ProcessIncarnation>,
+) -> Result<Option<SavedShellView>, TerminalError> {
+    connect_saved_shell(paths, owner, id, expected, Instant::now() + CLOSE_WAIT)
+        .map(|opened| opened.map(|(_, view)| view))
+}
+
+pub(crate) fn start_saved_shell(
+    executable: &OsStr,
+    paths: &ConfigPaths,
+    owner: &str,
+    id: &str,
+    directory: &Path,
+    shell: &[String],
+) -> Result<SavedShellView, TerminalError> {
+    let pty = paths.pty_directory();
+    if !is_saved_shell_id(id) {
+        return Err(TerminalError::NotFound);
+    }
+    ensure_private_directory(&pty).map_err(TerminalError::NotStarted)?;
+    super::validate(&pty, id).map_err(TerminalError::NotStarted)?;
+    let log_path = pty.join(format!("{id}.startup.log"));
+    let log = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&log_path)
+        .map_err(TerminalError::NotStarted)?;
+    let mut argv: Vec<OsString> = vec![
+        "__pty-serve".into(),
+        "--terminal-owner".into(),
+        owner.into(),
+        "--created-ms".into(),
+        now_ms().to_string().into(),
+        "--terminal-directory".into(),
+        directory.as_os_str().into(),
+        pty.as_os_str().into(),
+        id.into(),
+        "80".into(),
+        "24".into(),
+    ];
+    argv.extend(shell.iter().map(OsString::from));
+    let unconfirmed = |cause: io::Error| TerminalError::Unconfirmed {
+        id: id.into(),
+        cause,
+    };
+    detached::start_line(executable, &argv, log, b"ready ", None).map_err(unconfirmed)?;
+    let view = saved_shell(paths, owner, id, None)
+        .map_err(|error| unconfirmed(io::Error::other(error)))?
+        .ok_or_else(|| unconfirmed(io::Error::other("saved shell stopped before verification")))?;
+    let _ = fs::remove_file(&log_path);
+    Ok(view)
+}
+
+pub(crate) fn close_saved_shell(
+    paths: &ConfigPaths,
+    owner: &str,
+    id: &str,
+    expected: Option<&tmt_core::endpoint::ProcessIncarnation>,
+    force: bool,
+) -> Result<(), TerminalError> {
+    let deadline = Instant::now() + CLOSE_WAIT;
+    let Some((client, view)) = connect_saved_shell(paths, owner, id, expected, deadline)? else {
+        return Ok(());
+    };
+    if view.terminal.busy && !force {
+        return Err(TerminalError::Busy);
+    }
+    close_connected(&paths.pty_directory(), id, client, deadline)?;
+    while Instant::now() < deadline {
+        if saved_process_gone(&view.process, deadline) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Err(saved_unknown(
+        "the saved shell supervisor did not confirm exit",
+    ))
+}
+
 /// Closes terminal `id`: refused while busy unless `force`, then confirmed once its
 /// supervisor ended.
 pub fn close(paths: &ConfigPaths, id: &str, force: bool) -> Result<(), TerminalError> {
@@ -441,8 +640,17 @@ pub fn close_all(paths: &ConfigPaths, identity: &str) -> Vec<String> {
 }
 
 fn close_now(pty: &Path, id: &str, deadline: Instant) -> Result<(), TerminalError> {
-    let mut client =
+    let client =
         Connection::connect_until(pty, id, deadline).map_err(|_| TerminalError::NotFound)?;
+    close_connected(pty, id, client, deadline)
+}
+
+fn close_connected(
+    pty: &Path,
+    id: &str,
+    mut client: Connection,
+    deadline: Instant,
+) -> Result<(), TerminalError> {
     let remaining = deadline.saturating_duration_since(Instant::now());
     match client.control(Control::Close, remaining.max(Duration::from_millis(1))) {
         Ok(ControlReply::Applied(true)) => {}

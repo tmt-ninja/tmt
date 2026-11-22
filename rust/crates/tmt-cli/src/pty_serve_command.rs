@@ -34,6 +34,12 @@ pub fn execute(
             None,
         ),
         Some(terminal) => {
+            let standalone = tmt_adapters::pty::terminal::is_saved_shell_id(id);
+            if standalone && (terminal.member_pid != 0 || !terminal.member_start.is_empty()) {
+                return Failure::new("PTY_SERVE_FAILED", "A saved shell has no member owner.", 2)
+                    .publish(OutputMode::default());
+            }
+
             if let Err(error) = std::env::set_current_dir(&terminal.directory) {
                 return Failure::new(
                     "PTY_SERVE_FAILED",
@@ -50,10 +56,14 @@ pub fn execute(
                     created_ms: terminal.created_ms,
                     member_pid: terminal.member_pid,
                     member_start: terminal.member_start.clone(),
-                    member_alive: tmt_adapters::pty::terminal::member_alive(
-                        terminal.member_pid,
-                        terminal.member_start,
-                    ),
+                    member_alive: if standalone {
+                        Box::new(|| true)
+                    } else {
+                        tmt_adapters::pty::terminal::member_alive(
+                            terminal.member_pid,
+                            terminal.member_start,
+                        )
+                    },
                 }),
             )
         }

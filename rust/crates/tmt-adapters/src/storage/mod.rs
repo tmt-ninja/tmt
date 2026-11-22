@@ -26,6 +26,7 @@ mod requests;
 mod responses;
 mod room;
 mod room_roster;
+pub(crate) mod saved_terminal;
 mod storage_cutover;
 mod usage_changes;
 
