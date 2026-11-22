@@ -757,18 +757,9 @@ o = "run touch ${marker}"
       writeFileSync(toml, 'me = "Ben"\n');
       expect((await squad(sandbox, ['add', 'linked', 'unlinked'])).status).toBe(0);
       expect(
-        (
-          await squad(sandbox, [
-            'set',
-            'linked',
-            'pr_link=https://example.com/pull/412',
-          ])
-        ).status
+        (await squad(sandbox, ['set', 'linked', 'pr_link=https://example.com/pull/412'])).status
       ).toBe(0);
-      expect(
-        (await squad(sandbox, ['set', 'unlinked', 'state=working']))
-          .status
-      ).toBe(0);
+      expect((await squad(sandbox, ['set', 'unlinked', 'state=working'])).status).toBe(0);
       const calls = path.join(sandbox.root, 'gh-calls');
       const gh = path.join(bin, 'gh');
       writeExecutable(
@@ -1965,8 +1956,17 @@ o = "run touch ${marker}"
       for (const field of retired) {
         const key = `squad.product.${field}`;
         expect(
-          (await runCli(sandbox, ['identity', 'meta', 'set', key, `old ${field}`, '--identity', 'worker']))
-            .status
+          (
+            await runCli(sandbox, [
+              'identity',
+              'meta',
+              'set',
+              key,
+              `old ${field}`,
+              '--identity',
+              'worker',
+            ])
+          ).status
         ).toBe(0);
       }
       expect((await squad(sandbox, ['set', 'worker', 'now=current progress'])).status).toBe(0);
@@ -1992,7 +1992,9 @@ o = "run touch ${marker}"
       expect(removed.status).toBe(0);
       expect(removed.body.cleared.sort()).toEqual(['now', 'state']);
       expect(observe(sandbox).metadata).toEqual(
-        before.metadata.filter(({ key }) => retired.some((field) => key === `squad.product.${field}`))
+        before.metadata.filter(({ key }) =>
+          retired.some((field) => key === `squad.product.${field}`)
+        )
       );
     });
   });
@@ -2078,11 +2080,7 @@ o = "run touch ${marker}"
       expect(observe(sandbox)).toEqual(before);
       const outsider = await squad(sandbox, ['set', 'Rin', 'state=working']);
       expect(outsider.body.error.code).toBe('SQUAD_NOT_MEMBER');
-      const set = await squad(sandbox, [
-        'set',
-        'auth-fix',
-        'state=blocked',
-      ]);
+      const set = await squad(sandbox, ['set', 'auth-fix', 'state=blocked']);
       expect(set.body.applied).toEqual(['squad.product.state']);
 
       writeFileSync(
@@ -4144,9 +4142,7 @@ describe('Squad checklist native commands', () => {
   it('binds real dispatch, alias, streams, revisions, full inventory, tombstones and inert content', async () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox);
-      expect((await squad(sandbox, ['set', 'worker', 'state=busy'])).status).toBe(
-        0
-      );
+      expect((await squad(sandbox, ['set', 'worker', 'state=busy'])).status).toBe(0);
       const before = unrelatedState(sandbox);
       const cli = (words: string[]) => squad(sandbox, ['checklist', ...words]);
       const list = (filters: string[] = []) => cli(['ls', '--room', f.roomId, ...filters]);
