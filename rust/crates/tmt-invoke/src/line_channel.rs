@@ -15,6 +15,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+const LIFELINE_GRACE: Duration = Duration::from_secs(2);
+
+enum ExchangeMode {
+    Ordinary,
+    Lifeline,
+    DrainOnStop(Option<Instant>),
+}
+
 pub struct LineChannelOptions<'a> {
     pub program: &'a Path,
     pub args: &'a [OsString],
@@ -103,7 +111,7 @@ impl LineChannel {
         deadline: Instant,
         stopped: impl Fn() -> bool,
     ) -> Result<Vec<u8>, InvokeError> {
-        self.exchange_inner(payload, deadline, stopped, false, || {})
+        self.exchange_inner(payload, deadline, stopped, ExchangeMode::Ordinary, || {})
     }
 
     /// A lifeline request gives its child time to clean up after the pipe closes.
@@ -114,7 +122,31 @@ impl LineChannel {
         stopped: impl Fn() -> bool,
         before_cleanup: impl FnOnce(),
     ) -> Result<Vec<u8>, InvokeError> {
-        self.exchange_inner(payload, deadline, stopped, true, before_cleanup)
+        self.exchange_inner(
+            payload,
+            deadline,
+            stopped,
+            ExchangeMode::Lifeline,
+            before_cleanup,
+        )
+    }
+
+    /// After Stop on a submitted request, close input and retain the response
+    /// only if the child publishes one complete frame and exits cleanly within
+    /// the lifeline grace. The channel is closed after a drain.
+    pub fn exchange_lifeline_drain(
+        &mut self,
+        payload: &[u8],
+        deadline: Instant,
+        stopped: impl Fn() -> bool,
+    ) -> Result<Vec<u8>, InvokeError> {
+        self.exchange_inner(
+            payload,
+            deadline,
+            stopped,
+            ExchangeMode::DrainOnStop(None),
+            || {},
+        )
     }
 
     fn exchange_inner(
@@ -122,7 +154,7 @@ impl LineChannel {
         payload: &[u8],
         deadline: Instant,
         stopped: impl Fn() -> bool,
-        lifeline: bool,
+        mut mode: ExchangeMode,
         before_cleanup: impl FnOnce(),
     ) -> Result<Vec<u8>, InvokeError> {
         process::budget(deadline, stopped())?;
@@ -144,16 +176,32 @@ impl LineChannel {
                 "channel is closed",
             )));
         }
-        let result = self.communicate(Some(payload), deadline, &stopped);
+        let result = self.communicate(Some(payload), deadline, &stopped, &mut mode);
+        if let ExchangeMode::DrainOnStop(Some(drain_deadline)) = mode
+            && let Ok(frame) = result
+        {
+            before_cleanup();
+            let output = self.close_inner(drain_deadline, || false)?;
+            if output.status.success() && output.stdout.is_empty() {
+                return Ok(frame);
+            }
+            return Err(io_failure(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "lifeline child did not finish with one response and a clean exit",
+            )));
+        }
         if let Err(mut error) = result {
             before_cleanup();
             self.stdin.take();
             self.stdout.take();
             self.stderr.take();
             let mut child = self.child.take().expect("exchange owns a child");
-            if lifeline {
+            if matches!(
+                mode,
+                ExchangeMode::Lifeline | ExchangeMode::DrainOnStop(None)
+            ) {
                 let _ = child.terminate_owned();
-                if matches!(child.job.wait_timeout(Duration::from_secs(2)), Ok(Some(_))) {
+                if matches!(child.job.wait_timeout(LIFELINE_GRACE), Ok(Some(_))) {
                     child.finished = true;
                     error.cleanup = crate::Cleanup::Confirmed;
                     return Err(error);
@@ -171,6 +219,7 @@ impl LineChannel {
         payload: Option<&[u8]>,
         deadline: Instant,
         stopped: &impl Fn() -> bool,
+        mode: &mut ExchangeMode,
     ) -> Result<Vec<u8>, InvokeError> {
         let streaming = payload.is_none();
         let mut input = payload.unwrap_or_default().to_vec();
@@ -199,7 +248,19 @@ impl LineChannel {
             }
         }
         loop {
-            let left = process::budget(deadline, stopped())?.min(process::PULSE);
+            let stop = stopped();
+            if let ExchangeMode::DrainOnStop(drain @ None) = mode
+                && stop
+                && written == input.len()
+            {
+                *drain = Some(Instant::now() + LIFELINE_GRACE);
+                self.stdin.take();
+            }
+            let left = match mode {
+                ExchangeMode::DrainOnStop(Some(until)) => process::budget(*until, false),
+                _ => process::budget(deadline, stop),
+            }?
+            .min(process::PULSE);
             let (readable, error_ready, writable) = {
                 let stdout = self.stdout.as_ref().expect("open output");
                 let mut fds = vec![PollFd::new(stdout.as_fd(), PollFlags::POLLIN)];
@@ -321,7 +382,7 @@ impl LineChannel {
         if self.child.is_none() {
             return Err(io_failure(io::ErrorKind::BrokenPipe.into()));
         }
-        self.communicate(None, deadline, &stopped)
+        self.communicate(None, deadline, &stopped, &mut ExchangeMode::Ordinary)
     }
 
     /// Signal only this channel's owned group, then drain/reap within the caller's

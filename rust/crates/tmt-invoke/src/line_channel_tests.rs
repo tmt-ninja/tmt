@@ -186,6 +186,31 @@ fn lifeline_cancellation_gives_child_a_graceful_cleanup() {
 }
 
 #[test]
+fn a_lifeline_drain_without_a_response_escalates_after_its_grace() {
+    let (fixture, mut channel) = open(
+        "trap '' INT TERM; IFS= read -r line; printf '%s' \"$line\" > seen; echo ready > ready; exec sleep 60",
+        64,
+    );
+    let stop = AtomicBool::new(false);
+    let error = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            ready(&fixture.0.join("ready"));
+            stop.store(true, Ordering::Release);
+        });
+        channel
+            .exchange_lifeline_drain(b"effect", Instant::now() + START_BUDGET, || {
+                stop.load(Ordering::Acquire)
+            })
+            .unwrap_err()
+    });
+    assert_eq!(error.kind, FailureKind::Deadline);
+    assert!(matches!(error.cleanup, Cleanup::Confirmed));
+    assert!(channel.pid().is_none());
+    assert_eq!(fs::read(fixture.0.join("seen")).unwrap(), b"effect");
+    gone(&fixture.0.join("pid"));
+}
+
+#[test]
 fn a_response_deadline_after_readiness_ends_the_owned_child() {
     let (fixture, mut channel) = open(
         "IFS= read -r line; printf 'ready\\n'; IFS= read -r line; printf '%s' \"$line\" > seen; cat > /dev/null",
