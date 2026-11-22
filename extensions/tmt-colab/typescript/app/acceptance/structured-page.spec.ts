@@ -1946,7 +1946,7 @@ test('typing at a block or cell byte limit keeps the last allowed key after relo
     const almostFull = (bytes: number) =>
       '界'.repeat(Math.floor((bytes - 1) / 3)) + 'a'.repeat((bytes - 1) % 3);
     const longId = crypto.randomUUID();
-    const longText = almostFull(65536);
+    const longText = almostFull(40960);
     const blockText = almostFull(32626),
       cellText = almostFull(4096);
     cli(
@@ -1978,7 +1978,7 @@ test('typing at a block or cell byte limit keeps the last allowed key after relo
       [
         page.locator(`[data-block-id="${paragraph}"]`),
         blockText,
-        'This block is too long to edit here. Split it into smaller blocks.',
+        'This edit is too large to save. Try removing a large selection, or use the block menu to delete the block or change its type. To edit its text from the CLI, use tmt colab block text.',
       ],
       [
         page.locator(`[data-cell-row="${row}"]`),
@@ -2019,12 +2019,42 @@ test('typing at a block or cell byte limit keeps the last allowed key after relo
     await field.press(textEnd);
     await field.pressSequentially('Z');
     await expect(
-      page.getByText('This block is too long to edit here. Split it into smaller blocks.', {
-        exact: true,
-      }),
+      page.getByText(
+        'This edit is too large to save. Try removing a large selection, or use the block menu to delete the block or change its type. To edit its text from the CLI, use tmt colab block text.',
+        {
+          exact: true,
+        },
+      ),
     ).toBeVisible();
     await expect(field).toHaveText(longText);
+    await field.press('Backspace');
+    await expect(field).toHaveText(longText);
+    await field.press('ArrowLeft');
+    await field.press('Enter');
+    await expect(field).toBeFocused();
+    await expect(field).toHaveText(longText);
+    await field.press('Escape');
+    await page.keyboard.press('Shift+F10');
+    await page.getByRole('menuitem', { name: 'Turn into' }).click();
+    await page.getByRole('menuitem', { name: 'Heading 2' }).click();
+    await expect(long.getByRole('heading')).toHaveText(longText);
     await page.reload();
     await expect(long).toHaveText(longText);
+    await long.click();
+    await field.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
+    await field.press('Backspace');
+    await expect
+      .poll(() => JSON.parse(cli(['block', 'get', pageId, longId, '--json'])).block.text.s)
+      .toBe('');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Shift+F10');
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
+    await expect
+      .poll(() =>
+        JSON.parse(cli(['block', 'ls', pageId, '--json'])).blocks.some(
+          (block: { id: string }) => block.id === longId,
+        ),
+      )
+      .toBe(false);
   });
 });

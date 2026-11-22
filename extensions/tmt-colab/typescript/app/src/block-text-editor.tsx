@@ -405,6 +405,23 @@ function Editor({
         // The caret from the DOM: Lexical takes a selection change on the next `selectionchange`,
         // so at a keydown its own selection can still be an earlier one.
         const { at, from, to } = domRange(event.currentTarget, now);
+        if (
+          (event.key === 'Backspace' || event.key === 'Delete') &&
+          !event.altKey &&
+          !event.metaKey &&
+          !event.ctrlKey
+        ) {
+          const start = from === to && event.key === 'Backspace' ? Math.max(0, from - 1) : from;
+          const end = from === to && event.key === 'Delete' ? to + 1 : to;
+          const next = now.slice(0, utf16Offset(now, start)) + now.slice(utf16Offset(now, end));
+          if (next !== now && textFits?.(next) === false) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!refused.current) onFull?.();
+            refused.current = true;
+            return;
+          }
+        }
         if (onKey(event, now, at, { from, to })) {
           event.preventDefault();
           event.stopPropagation();

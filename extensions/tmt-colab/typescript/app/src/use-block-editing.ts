@@ -1029,6 +1029,11 @@ export function useBlockEditing(
         text,
         base: current.base,
       });
+      if (fits && !fits(ops)) {
+        noticeRef.current(strings.blockEdit.blockFull);
+        if (current.pending) timer.current = setTimeout(flush, TEXT_FLUSH_MS);
+        return;
+      }
       const tail = [...text].slice(at).join('');
       history.current.record(before, ops);
       arriving.current = newId;
@@ -1048,7 +1053,7 @@ export function useBlockEditing(
         }
       }
     },
-    [open, out, flush],
+    [open, out, flush, fits],
   );
 
   /** Backspace at the start: the text joins the end of the text block before it, focused at the
