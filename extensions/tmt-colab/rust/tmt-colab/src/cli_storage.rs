@@ -229,7 +229,7 @@ pub fn page(root: &Path, args: &ArgMatches) -> Result<()> {
             &crate::cli_management::fresh_id()?,
             &mut decoder,
             |preview, discard| {
-                let mut err = std::io::stderr().lock();
+                let mut err = tmt_cli_style::stream::stderr();
                 writeln!(
                     err,
                     "Stored page: {} compressed bytes now, {} in the preview candidate.",
