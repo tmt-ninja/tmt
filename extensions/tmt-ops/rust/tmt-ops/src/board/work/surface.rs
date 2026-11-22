@@ -587,7 +587,21 @@ fn paint_dashboard_band(
                 },
             );
         } else {
-            let line = format!("{project:<8} {}", total.join(" "));
+            let badges = total.into_iter().skip(1).collect::<Vec<_>>().join(" ");
+            let badge_w = unicode_width::UnicodeWidthStr::width(badges.as_str());
+            let numbers_col = 9_usize;
+            let bar_w = usize::from(left_w)
+                .saturating_sub(8 + 1 + 2 + numbers_col + 1 + badge_w)
+                .min(24);
+            let line = if badges.is_empty() {
+                format!("{project:<8} {}{}", " ".repeat(bar_w + 2), "—")
+            } else {
+                format!(
+                    "{project:<8} {}{:<numbers_col$} {badges}",
+                    " ".repeat(bar_w + 2),
+                    "—",
+                )
+            };
             strip::paint_left(
                 frame.buffer_mut(),
                 Rect::new(area.x, y, left_w, 1),
