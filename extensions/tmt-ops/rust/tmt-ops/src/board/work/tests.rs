@@ -1017,14 +1017,14 @@ fn colab_work_short_inspector_keeps_the_keyboard_section_visible() {
         key(&mut app, KeyCode::Down);
     }
     let middle = draw(&app);
-    assert!(middle.contains("▸ · 13. Chapter 13"), "{middle}");
+    assert!(middle.contains("▸ ·  13. Chapter 13"), "{middle}");
     assert!(
         middle.contains("more ↑") && middle.contains("more ↓"),
         "{middle}"
     );
     key(&mut app, KeyCode::End);
     let last = draw(&app);
-    assert!(last.contains("▸ · 24. Chapter 24"), "{last}");
+    assert!(last.contains("▸ ·  24. Chapter 24"), "{last}");
     assert!(
         last.contains("more ↑") && !last.contains("more ↓"),
         "{last}"
