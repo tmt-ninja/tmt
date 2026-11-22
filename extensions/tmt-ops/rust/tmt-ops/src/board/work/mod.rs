@@ -13,7 +13,7 @@ use std::{
 
 use ratatui::layout::Rect;
 
-pub(super) use model::{Item, List, Status};
+pub(super) use model::{Item, List, Progress, Status};
 pub(super) use order::{Job as OrderJob, Move as OrderMove, Reply as OrderReply, run as run_order};
 pub(super) use surface::render;
 
@@ -25,6 +25,7 @@ pub(in crate::board) struct State {
     pub list: Option<List>,
     pub notice: Option<String>,
     pub stale: bool,
+    pub last_read_at: Option<i64>,
     pending: bool,
     next_read: Option<Instant>,
     explicit_refresh: bool,
@@ -33,6 +34,9 @@ pub(in crate::board) struct State {
     pub project: Option<String>,
     pub recent: bool,
     pub period: usize,
+    pub detail_collapsed: bool,
+    pub inspector_focused: bool,
+    pub inspector_cursor: usize,
     pub expanded: std::collections::BTreeSet<Option<String>>,
     pub hits: RefCell<Vec<(Rect, surface::Hit)>>,
     order_pending: bool,
@@ -129,6 +133,7 @@ impl State {
                 self.list = Some(list);
                 self.stale = false;
                 self.notice = None;
+                self.last_read_at = Some(crate::status::now_ms() as i64);
             }
             Err(error) => {
                 self.stale = self.list.is_some();
