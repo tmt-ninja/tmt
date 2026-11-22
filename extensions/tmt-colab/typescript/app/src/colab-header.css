@@ -292,6 +292,35 @@ body:not(:has(.tmt-ui-shell)) {
 .colab-topbar-identity {
   display: contents;
 }
+/* A passing state in the title's place, on a phone only (#6795). Same slot, same line height: the
+   bar's controls do not move when it comes or goes. */
+.colab-topbar-phone-title {
+  display: none;
+}
+@media (max-width: 479px) {
+  .tmt-ui-topbar-title:has(.colab-topbar-phone-title) .tmt-ui-topbar-title-current {
+    display: none;
+  }
+  /* In the face of the bar's status words, so it fits the narrowest phone's title slot. */
+  .colab-topbar-phone-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font: 400 12px/1.2 var(--tmt-ui-font-body);
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .colab-topbar-phone-title > [data-mark] {
+    color: var(--tmt-ui-color-waiting);
+  }
+}
+/* The narrowest phones keep the word whole and drop the mark. */
+@media (max-width: 374px) {
+  .colab-topbar-phone-title > [data-mark] {
+    display: none;
+  }
+}
 .colab-topbar-label {
   display: flex;
   align-items: center;

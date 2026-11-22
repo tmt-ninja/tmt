@@ -512,6 +512,11 @@ a.work-row-title:hover {
   overflow-wrap: anywhere;
   cursor: text;
 }
+.page-title-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .page-title-rename:hover {
   background: var(--tmt-ui-surface-hover);
 }

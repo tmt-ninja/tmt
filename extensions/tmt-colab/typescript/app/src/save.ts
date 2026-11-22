@@ -180,6 +180,20 @@ export class SaveNotApplied extends Error {
     super('Save did not reach the page');
   }
 }
+/** Not sent: the page is reconnecting, and only typed text waits for it (#6795). Retry sends the
+ * change again once the page is live. */
+export class SaveHeld extends Error {
+  constructor() {
+    super('The page is reconnecting');
+  }
+}
+/** Not sent: the page stopped taking edits (ended or archived) while the text waited for it. The
+ * text stays in the device store (#6795). */
+export class SaveKept extends Error {
+  constructor() {
+    super('The page cannot take edits now');
+  }
+}
 /** The reply was lost and one status check could not settle it. Never resent automatically. */
 export class SaveOutcomeUnknown extends Error {
   constructor(readonly operationId: string) {

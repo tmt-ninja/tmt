@@ -7,6 +7,7 @@ import { recordBlocksResults } from './harness/blocks-results.js';
 import { freePort, openChat, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { until } from './harness/process.js';
+import { text } from '../src/strings.js';
 import { commentsClose } from '../test/comments-region.js';
 import { backToPageList, showAllPages } from '../test/home-list.js';
 
@@ -512,13 +513,17 @@ test('a reload after a landed join offers no stale draft, and still offers one n
     expect(texts()).toEqual(['First half Second half']);
 
     // A draft newer than the page is still offered: typed while the serve is down, kept over a
-    // reload there, and offered once the page is back.
+    // reload there, and offered once the page is back. The edit starts after the page says it is
+    // reconnecting, as a person would meet it (#6795); before, it opened only when the click beat
+    // the page to the dropped connection.
     await page.evaluate(() => {
       window.addEventListener('colab:block-draft-durable', () => {
         (window as Window & { durable?: boolean }).durable = true;
       });
     });
     await restartColab(world, door, async () => {
+      // At phone width the bar says it in the title's place.
+      await expect(page.locator('.colab-topbar-phone-title')).toBeVisible({ timeout: 30_000 });
       await block.click();
       await block.locator('[contenteditable="true"]').press(textEnd);
       await page.keyboard.type(' later');
@@ -530,6 +535,196 @@ test('a reload after a landed join offers no stale draft, and still offers one n
     expect(await offered()).toEqual({ count: 1 });
     await notice.getByRole('button', { name: 'Keep and continue' }).click();
     await expect.poll(texts, { timeout: 30_000 }).toEqual(['First half Second half later']);
+  });
+});
+
+test('a page of blocks keeps typing while Colab is stopped, says so, and sends it once on reconnect (#6795)', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'structured-held');
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const created = JSON.parse(
+      run(world, colab, [
+        'page',
+        'create',
+        '--title',
+        'Offline typing',
+        '--structured',
+        '--json',
+        '--no-open',
+      ]),
+    ) as { pageId: string; path: string };
+    const insert = (text: string) =>
+      (
+        JSON.parse(
+          run(world, colab, [
+            'block',
+            'insert',
+            created.pageId,
+            '--type',
+            'paragraph',
+            '--text',
+            text,
+            '--json',
+          ]),
+        ) as { blockIds: string[] }
+      ).blockIds[0]!;
+    const kept = insert('First half Second half');
+    const gone = insert('Other block');
+    const texts = () =>
+      (
+        JSON.parse(run(world, colab, ['block', 'ls', created.pageId, '--json'])) as {
+          blocks: { depth: number; deleted?: boolean; text?: { s: string } }[];
+        }
+      ).blocks
+        .filter((block) => block.depth === 0 && block.text && !block.deleted)
+        .map((block) => block.text!.s);
+    const page = await browser.context.newPage();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(new URL(created.path, `${door.address}/`).href);
+    const first = page.locator(`[data-block-id="${kept}"]`);
+    const second = page.locator(`[data-block-id="${gone}"]`);
+    await expect(first).toHaveText('First half Second half', { timeout: 30_000 });
+    const status = page.locator('.page-attention[data-attention="reconnecting"]');
+    const label = page.locator('.page-connection .status-label');
+    await expect(label).toHaveText('Live', { timeout: 30_000 });
+    await expect(status).toHaveCount(0);
+    await page.evaluate(() => {
+      window.addEventListener('colab:block-draft-durable', () => {
+        const w = window as Window & { durable?: number };
+        w.durable = (w.durable ?? 0) + 1;
+      });
+    });
+    const durable = (count: number) =>
+      page.waitForFunction(
+        (count) => ((window as Window & { durable?: number }).durable ?? 0) >= count,
+        count,
+      );
+    await restartColab(world, door, async () => {
+      // The person is told, once to assistive technology, and keeps typing.
+      await expect(status).toHaveText('◐Reconnecting… what you type is kept', { timeout: 30_000 });
+      await expect(page.locator('.connection-announcement')).toHaveText(
+        'Reconnecting… what you type is kept',
+      );
+      await first.click();
+      await first.locator('[contenteditable="true"]').press(textEnd);
+      await page.keyboard.type(' later');
+      await durable(1);
+      await second.click();
+      await second.locator('[contenteditable="true"]').press(textEnd);
+      await page.keyboard.type(' too');
+      await durable(2);
+      expect(texts()).toEqual(['First half Second half', 'Other block']);
+      // Meanwhile the page changes elsewhere: a word of the first block, and the second is deleted.
+      run(world, colab, [
+        'block',
+        'text',
+        created.pageId,
+        kept,
+        '--find',
+        'First',
+        '--replace',
+        'Primo',
+      ]);
+      run(world, colab, ['block', 'delete', created.pageId, gone]);
+    });
+    await expect(label).toHaveText('Live', { timeout: 60_000 });
+    await expect(status).toHaveCount(0);
+    // The first block's typing lands once, merged with the change made meanwhile.
+    await expect.poll(texts, { timeout: 30_000 }).toEqual(['Primo half Second half later']);
+    // The second block's typing has no block to land in: the page offers it back in its place, as
+    // for any block deleted while it was being edited, never dropping it.
+    const offer = page
+      .getByRole('status')
+      .filter({ hasText: 'This block was deleted while you were editing it.' });
+    await expect(offer).toBeVisible({ timeout: 30_000 });
+    await expect(second).toContainText('Other block too');
+    await offer.getByRole('button', { name: 'Keep as a new block' }).click();
+    await expect
+      .poll(texts, { timeout: 30_000 })
+      .toEqual(['Primo half Second half later', 'Other block too']);
+  });
+});
+
+test('typing kept while Colab is stopped survives the page being archived meanwhile, and is offered once it is restored (#6795)', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'structured-held-archived');
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const created = JSON.parse(
+      run(world, colab, [
+        'page',
+        'create',
+        '--title',
+        'Archived meanwhile',
+        '--structured',
+        '--json',
+        '--no-open',
+      ]),
+    ) as { pageId: string; path: string };
+    const id = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          created.pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'Before',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+    const texts = () =>
+      (
+        JSON.parse(run(world, colab, ['block', 'ls', created.pageId, '--json'])) as {
+          blocks: { depth: number; text?: { s: string } }[];
+        }
+      ).blocks
+        .filter((block) => block.depth === 0 && block.text)
+        .map((block) => block.text!.s);
+    const page = await browser.context.newPage();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(new URL(created.path, `${door.address}/`).href);
+    const block = page.locator(`[data-block-id="${id}"]`);
+    await expect(block).toHaveText('Before', { timeout: 30_000 });
+    await expect(page.locator('.page-connection .status-label')).toHaveText('Live', {
+      timeout: 30_000,
+    });
+    await page.evaluate(() => {
+      window.addEventListener('colab:block-draft-durable', () => {
+        (window as Window & { durable?: boolean }).durable = true;
+      });
+    });
+    await restartColab(world, door, async () => {
+      await expect(page.locator('.page-attention[data-attention="reconnecting"]')).toBeVisible({
+        timeout: 30_000,
+      });
+      await block.click();
+      await block.locator('[contenteditable="true"]').press(textEnd);
+      await page.keyboard.type(' after');
+      await page.waitForFunction(() => (window as Window & { durable?: boolean }).durable);
+      run(world, colab, ['archive', created.pageId]);
+    });
+    // Back, but archived: the text cannot land, and the page says it is kept, not lost.
+    await expect(page.locator('.page-attention[data-attention="archived"]')).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(
+      page.getByText(`${text.archiveAnnouncement} ${text.archivedDraftsKept}`),
+    ).toBeVisible({ timeout: 30_000 });
+    expect(texts()).toEqual(['Before']);
+    // Restored: the page offers the kept text, and Keep lands it once.
+    run(world, colab, ['unarchive', created.pageId]);
+    const offer = page.getByRole('status').filter({ hasText: text.blockEdit.restored });
+    await expect(offer).toBeVisible({ timeout: 60_000 });
+    await offer.getByRole('button', { name: text.blockEdit.keepRestored }).click();
+    await expect.poll(texts, { timeout: 30_000 }).toEqual(['Before after']);
   });
 });
 
@@ -1107,6 +1302,28 @@ test('a person writes, rearranges and edits a table while an agent edits the sam
     ]);
     // A batch of the person's that the page could not get through (#6220) shows its notice.
     await expect(page.getByRole('status').filter({ hasText: 'not saved' })).toHaveCount(0);
+
+    // A long cell typed at full speed, then Esc and a reload at once: the page holds it all, and
+    // nothing typed on the way is offered back, neither part of this cell nor the keys the Enter
+    // above moved to the new block (#6795).
+    const long = ` ${'abcdefgh'.repeat(18)}`;
+    // The row's first column is its header cell: Owner is the second data cell.
+    await work.locator('tbody tr').first().locator('td').nth(1).click();
+    await editor.press(textEnd);
+    await page.keyboard.type(long);
+    await editor.press('Escape');
+    await page.addInitScript(() => {
+      window.addEventListener('colab:block-drafts-offered', () => {
+        (window as Window & { offered?: boolean }).offered = true;
+      });
+    });
+    await page.reload();
+    await expect(work.locator('tbody tr').first()).toContainText(long.trim(), { timeout: 30_000 });
+    await page.waitForFunction(() => (window as Window & { offered?: boolean }).offered);
+    await expect(page.getByText(text.blockEdit.restored)).toHaveCount(0);
+    await expect
+      .poll(() => Object.values(table().rows[0]!).some((cell) => cell.trim() === long.trim()))
+      .toBe(true);
   });
 });
 

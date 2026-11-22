@@ -528,6 +528,25 @@ it('drops a landed block draft at once while a newer one for the block is still 
   expect(await store.load('page')).toEqual([]);
 });
 
+it('a draft saved early in a run of typing that landed whole is held by the page (#6795)', async () => {
+  const { heldByPage } = await import('../src/block-drafts.js');
+  const draft = (base: string, value: string) => ({ base, value });
+  // The first key of a cell's typing was saved; the reload cut off the later saves, and the whole
+  // run landed: the page holds it.
+  expect(heldByPage(draft('', ' '), ' abcdefgh')).toBe(true);
+  expect(heldByPage(draft('ab', 'aXb'), 'aXYZb')).toBe(true);
+  expect(heldByPage(draft('Plan', 'Plan'), 'Plan')).toBe(true);
+  // Anything the page does not hold is still offered: typing newer than the page, typing over a
+  // change made elsewhere, the keys a split moved, and a deletion.
+  expect(heldByPage(draft('Ship', 'Ship it'), 'Ship')).toBe(false);
+  expect(heldByPage(draft('First half', 'First half later'), 'Primo half')).toBe(false);
+  expect(heldByPage(draft('Second step. Now.', 'Second step. Now.T'), 'Second step. Now.')).toBe(
+    false,
+  );
+  expect(heldByPage(draft('Ship it', 'Ship'), 'Ship it now')).toBe(false);
+  expect(heldByPage(draft('ab', 'aXb'), 'abX')).toBe(false);
+});
+
 it('a reload never offers text this tab saw land, though the store still holds an older copy (#6749)', async () => {
   const values = new Map<string, string>();
   vi.stubGlobal('sessionStorage', {

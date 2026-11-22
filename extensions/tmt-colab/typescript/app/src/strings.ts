@@ -149,6 +149,8 @@ export const text = {
     unknown:
       'Your last change may not have been saved. Reload the page to check before you make it again.',
     failed: 'Your last change was not saved.',
+    held: 'The page is reconnecting, so that change was not made. What you type is kept; try it again once the page is back.',
+    kept: 'This page cannot take edits now. What you typed is kept on this device.',
     saving: 'Saving your change…',
     pasteTooLarge: (blocks: number) =>
       `That paste would make more than ${blocks} blocks, so it went in as plain text.`,
@@ -224,6 +226,9 @@ export const text = {
   archiveReadOnlyHint: 'Archived pages can be read, not changed.',
   archivePosting: 'Archived page: read only. Nothing can be posted.',
   archiveAnnouncement: 'This page was archived. It is now read only.',
+  /** Typing kept on this device when the page was archived (#6795). */
+  archivedDraftsKept:
+    'What you typed on this page is kept on this device and offered when the page is restored.',
   unsentDraft: 'Unsent draft',
   copyDraft: 'Copy',
   copyDraftFailed: 'Could not copy. Select the draft and copy it manually.',
@@ -608,6 +613,10 @@ export const text = {
   agentWorking: 'working',
   recoveryRequired: 'Reconnect to resume live updates.',
   reconnecting: 'Reconnecting…',
+  /** A page of blocks while it reconnects (#6795): typing goes on and is kept. */
+  reconnectingKept: 'Reconnecting… what you type is kept',
+  blockDraftsKept:
+    'What you typed on this page is kept on this device and offered when the page opens again.',
   notConnected: 'not connected',
   sendOnHold: 'Send is on hold until the connection is back.',
   pairCommand,

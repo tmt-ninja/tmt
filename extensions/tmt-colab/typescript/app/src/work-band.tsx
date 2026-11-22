@@ -126,7 +126,9 @@ function TitleRow({
     return (
       <h1>
         {number}
-        {title}
+        {/* One box as the rename button is, so the heading keeps its lines when the page stops
+            taking edits for a moment (#6795). */}
+        <span className="page-title-text">{title}</span>
       </h1>
     );
   if (!editing)

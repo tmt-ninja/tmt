@@ -1,6 +1,7 @@
 import { useBlocker, useRouterState } from '@tanstack/react-router';
 import {
   BlockDraftSession,
+  heldByPage,
   restorable,
   type BlockDraftStore,
   type BlockDraft,
@@ -18,17 +19,21 @@ import type { ParentPageViewSource } from './parent-page-view.js';
 import type { QuestionPage } from './structured-question.js';
 import type { MountMockup, StructuredPageProps } from './structured-page.js';
 import { StructuredPage } from './structured-page.js';
-import { resendStale } from './save.js';
+import { resendStale, SaveHeld, SaveKept } from './save.js';
 import type { PageBinding } from './transport.js';
-import { useBlockEditing } from './use-block-editing.js';
+import { heldText, useBlockEditing } from './use-block-editing.js';
 import { useAgentDirectory } from './agent-directory.js';
 import type { MentionPages } from './mention-pages.js';
+
+/** The live page's block write (`PageBinding.blocks`). */
+type BlockWrite = NonNullable<PageBinding['blocks']>;
 
 /**
  * A structured page (`pageType` `blocks`, #6005) over its live binding: the fold projection's
  * `blocks` root draws through `StructuredPage`, and typing goes out as block batches
  * (`binding.blocks`), which resolve once the page shows the commit. A binding without block
- * writes draws the page read-only.
+ * writes draws the page read-only, unless the page is only reconnecting (`held`, #6795): then text
+ * is typed and kept as drafts, and goes out once the page is live again.
  */
 export function LiveStructuredPage({
   pageId,
@@ -37,6 +42,7 @@ export function LiveStructuredPage({
   todoNumbers,
   seq,
   binding,
+  held = false,
   onLink,
   workSource,
   pageViewSource,
@@ -61,6 +67,10 @@ export function LiveStructuredPage({
   /** The view's local order (`PageView.seq`). */
   seq?: number;
   binding?: PageBinding;
+  /** The connection dropped and is being restored (#6795): the page stays editable, typed text
+   * waits for it as drafts, and other changes are refused with a notice. Never set when archived
+   * or ended. */
+  held?: boolean;
   /** A link in a block was activated: the page's trusted open path (`usePageLinks`) takes it. */
   onLink?(href: string, newTab: boolean): void;
   /** The page's gated owner-data sources (`router`: owner-only content). */
@@ -107,20 +117,34 @@ export function LiveStructuredPage({
     ],
     [creator, directory],
   );
-  const write = useMemo(() => binding?.blocks?.bind(binding), [binding]);
+  const write: BlockWrite | undefined = useMemo(() => binding?.blocks?.bind(binding), [binding]);
   const pageFiles = write ? binding?.files : undefined;
+  const editable = !!write || held;
+  // One draft session across a reconnect: what was typed while held stays its own draft until the
+  // live page admits it.
   const recovery = useMemo(
-    () => (write && pageId && blockDrafts ? new BlockDraftSession(blockDrafts, pageId) : undefined),
-    [write, pageId, blockDrafts],
+    () =>
+      editable && pageId && blockDrafts ? new BlockDraftSession(blockDrafts, pageId) : undefined,
+    [editable, pageId, blockDrafts],
   );
+  // Typed text sent while the page reconnects waits for the next live write, in this tab's order.
+  const live = useRef(write);
+  // Ended or archived instead of back: the waiting text fails, and stays in the device store.
+  const waiting = useRef<{ resume(write: BlockWrite): void; fail(): void }[]>([]);
+  useEffect(() => {
+    live.current = write;
+    if (write) for (const waiter of waiting.current.splice(0)) waiter.resume(write);
+    else if (!held) for (const waiter of waiting.current.splice(0)) waiter.fail();
+  }, [write, held]);
   const [restored, setRestored] = useState<BlockDraft[]>([]);
   const [clearFailed, setClearFailed] = useState<ReadonlySet<string>>(new Set());
-  useEffect(() => {
-    let active = true;
-    if (recovery)
+  /** Offers the page's stored drafts, as a reload does. */
+  const offer = useCallback(
+    (active: () => boolean = () => true) => {
+      if (!recovery) return;
       void recovery.store.load(recovery.page).then(
         (entries) => {
-          if (!active) return;
+          if (!active()) return;
           const offered = restorable(recovery.page, entries);
           setRestored(offered);
           // What a reload offers, for a check that nothing landed comes back (#6749).
@@ -130,21 +154,44 @@ export function LiveStructuredPage({
         },
         () => {},
       );
+    },
+    [recovery],
+  );
+  useEffect(() => {
+    let active = true;
+    offer(() => active);
     return () => {
       active = false;
     };
-  }, [recovery]);
+  }, [offer]);
   const send = useCallback(
     async (ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
-      if (!write) throw new Error('Page editing unavailable');
+      if (!write && !held) throw new Error('Page editing unavailable');
       // A batch the page moved under is sent again as a new one (#6220); a batch that adds files
       // keeps its own recovery.
-      if (!stored?.length) return (await resendStale(() => write(ops))).seq;
+      if (!stored?.length) {
+        // Only typed text waits for the page; anything else is refused while it reconnects.
+        if (!live.current && !heldText(ops)) throw new SaveHeld();
+        const waited = !live.current;
+        const now =
+          live.current ??
+          (await new Promise<BlockWrite>((resume, reject) =>
+            waiting.current.push({ resume, fail: () => reject(new SaveKept()) }),
+          ));
+        try {
+          return (await resendStale(() => now(ops))).seq;
+        } catch (error) {
+          // Text kept while reconnecting that the page cannot take now (its block went meanwhile)
+          // is offered back from the device store, never dropped.
+          if (waited) offer();
+          throw error;
+        }
+      }
       // The files join the page's list in the same batch as the blocks that show them (#6202).
       if (!pageFiles?.addToBlocks) throw new Error('Files are not available on this page.');
       return (await pageFiles.addToBlocks(stored, ops)).seq;
     },
-    [write, pageFiles],
+    [write, held, pageFiles, offer],
   );
   const listed = useRef(0);
   listed.current = imageSource?.descriptors.length ?? 0;
@@ -221,9 +268,10 @@ export function LiveStructuredPage({
     mentionPages,
     recovery,
     binding?.blocksFit?.bind(binding),
+    !write && held,
   );
   useBlocker({
-    disabled: !write,
+    disabled: !editable,
     enableBeforeUnload: () => recovery?.unsafe() ?? false,
     shouldBlockFn: async () => {
       flush();
@@ -271,7 +319,7 @@ export function LiveStructuredPage({
   };
   const busy = useRef(new Set<string>());
   const keep = async (draft: BlockDraft) => {
-    if (!write || busy.current.has(draft.target)) return;
+    if (!editable || busy.current.has(draft.target)) return;
     busy.current.add(draft.target);
     try {
       if (present(draft) !== draft.value) {
@@ -304,8 +352,10 @@ export function LiveStructuredPage({
         }
       }
       await dismiss(draft);
-    } catch {
-      setRecoveryError(strings.blockEdit.notApplied);
+    } catch (error) {
+      setRecoveryError(
+        error instanceof SaveHeld ? strings.blockEdit.held : strings.blockEdit.notApplied,
+      );
     } finally {
       busy.current.delete(draft.target);
     }
@@ -314,8 +364,8 @@ export function LiveStructuredPage({
   useEffect(() => {
     for (const draft of restored) {
       const block = records.find((b) => b.id === draft.id && !b.deleted);
-      if (block && (draft.cell ? block.cells?.[draft.cell.column] : block.text) === draft.value)
-        void dismiss(draft);
+      const shown = draft.cell ? block?.cells?.[draft.cell.column] : block?.text;
+      if (block && heldByPage(draft, shown ?? '')) void dismiss(draft);
     }
   }, [records, restored, dismiss]);
   useEffect(() => {
@@ -331,7 +381,10 @@ export function LiveStructuredPage({
       anchorBlock={anchor.startsWith('block-') ? anchor.slice(6) : anchor}
       tree={tree}
       recoveryError={recoveryError}
-      restored={restored.filter((d) => clearFailed.has(d.target) || present(d) !== d.value)}
+      restored={restored.filter((d) => {
+        const shown = present(d);
+        return clearFailed.has(d.target) || shown === undefined || !heldByPage(d, shown);
+      })}
       onRestore={keep}
       onForget={dismiss}
       drafts={drafts}
@@ -397,7 +450,7 @@ export function LiveStructuredPage({
       mention={mention}
       onPickMention={pickMention}
       onHoverMention={hoverMention}
-      readonly={!write}
+      readonly={!editable}
     />
   );
 }

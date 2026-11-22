@@ -323,6 +323,8 @@ declare global {
     draftSaves: string[];
     /** Makes each reload-store save wait until released, as a slow seal does (#6749). */
     holdDraftSaves(hold: boolean): void;
+    /** The connection drops (`true`) and comes back (`false`), as the live page's `held` (#6795). */
+    reconnect(hold: boolean): void;
     releaseDraftSave(): void;
     /** The serve's marks on a block's text now. */
     serveMarks(id: string): readonly Mark[] | undefined;
@@ -857,9 +859,20 @@ export function mount(
         resolve(publish(next));
       });
     });
+  // While the connection is down typed text waits for it, as the live page's send does (#6795).
+  let reconnecting = false;
+  const reconnected: (() => void)[] = [];
+  const heldListeners = new Set<(held: boolean) => void>();
+  window.reconnect = (hold) => {
+    reconnecting = hold;
+    for (const listener of heldListeners) listener(hold);
+    if (!hold) for (const resume of reconnected.splice(0)) resume();
+  };
   // As the page's own sender: a batch the serve refused as stale is sent again as a new one.
-  const sendStale = (ops: BlockOp[], stored?: readonly StoredAttachment[]) =>
-    stored?.length ? send(ops, stored) : resendStale(() => send(ops));
+  const sendStale = async (ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
+    if (reconnecting) await new Promise<void>((resume) => reconnected.push(resume));
+    return stored?.length ? send(ops, stored) : resendStale(() => send(ops));
+  };
   // The reload store, in memory: what a reload would restore (#6769). Like the device store, it
   // changes its record in one queue; `holdDraftSaves` makes each save slow, as sealing can be, and
   // `releaseDraftSave` lets the oldest held one finish (#6749).
@@ -904,6 +917,11 @@ export function mount(
   );
   function Page() {
     const [view, setView] = useState({ records: blocks, seq });
+    const [held, setHeld] = useState(false);
+    useEffect(() => {
+      heldListeners.add(setHeld);
+      return () => void heldListeners.delete(setHeld);
+    }, []);
     const [pageThreads, setPageThreads] = useState(threads);
     const [listed, setListed] = useState(descriptors);
     useEffect(() => {
@@ -976,6 +994,8 @@ export function mount(
       ['tmt-gui-lead', 'gui-2'],
       content === 'spec' ? pages : undefined,
       drafts,
+      undefined,
+      held,
     );
     return (
       <section ref={subscribe}>

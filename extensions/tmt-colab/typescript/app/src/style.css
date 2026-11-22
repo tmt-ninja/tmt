@@ -103,17 +103,25 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   padding-bottom: 4px;
 }
 /* The phone sheet sits on the viewport's bottom edge, above the bottom safe area, over the
-   design system's scrim, so the page under it reads as inactive. */
+   design system's scrim, so the page under it reads as inactive. Three layers inside the lifted
+   block: the scrim (1), the block's own content (2) and the sheet (3). The block shows over the
+   scrim, so the person sees the filter text or which block the actions are for, and never over
+   the sheet: a block low on the page, a code box or an image, does not cover a row (#6795). */
 .tmt-block-insert[data-sheet] {
   position: fixed;
   inset: 0;
+  z-index: 3;
   display: flex;
   align-items: flex-end;
   padding: 0 0 env(safe-area-inset-bottom);
-  background: var(--tmt-ui-surface-scrim);
 }
-/* The block the slash was typed in stays above the scrim, so the person sees the filter text: it
-   lifts over the page, and its own content over the sheet's scrim. */
+.tmt-block:has(> .tmt-block-insert[data-sheet])::before {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: var(--tmt-ui-surface-scrim);
+  content: '';
+}
 .tmt-block:has(> .tmt-block-insert[data-sheet]) {
   z-index: 21;
 }
@@ -125,9 +133,6 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
    menu opens (#6742). */
 .tmt-block:has(> .tmt-block-insert[data-sheet]) > .tmt-block-handle {
   z-index: 2;
-}
-.tmt-block-insert[data-sheet] {
-  z-index: 1;
 }
 /* The focused empty block's placeholder, over its editor in the design system's placeholder
    colour; the block at rest shows none. */
@@ -329,7 +334,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   font-size: 12px;
   white-space: nowrap;
 }
-.page-attention[data-attention='remote'] > [aria-hidden] {
+.page-attention[data-attention='remote'] > [aria-hidden],
+.page-attention[data-attention='reconnecting'] > [aria-hidden] {
   color: var(--tmt-ui-color-waiting);
 }
 @media (max-width: 479px) {
@@ -337,6 +343,16 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
      page's details (#6675); More → Share… still names the page's sharing. */
   .tmt-ui-topbar:has(.page-bar-status) .page-attention[data-attention='shared'] {
     display: none;
+  }
+  /* The bar's title slot says Reconnecting… on a phone (#6795): the attention beside it stays only
+     for assistive technology, out of the status row so it takes none of the title slot's room. */
+  .page-attention[data-attention='reconnecting'] {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .page-attention-word {
     position: absolute;
