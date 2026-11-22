@@ -222,10 +222,16 @@ fn new_companion_is_judged_by_candidate_and_old_reader_never_reopens_new_invento
 
 #[test]
 fn unsupported_or_malformed_probe_never_calls_install_or_changes_current() {
-    for bytes in [
-        b"old installer".as_slice(),
-        br#"{"protocol":1}"#,
-        br#"{"protocol":3,"extra":true}"#,
+    for (bytes, expected_reason) in [
+        (b"old installer".as_slice(), "probe: invalid JSON:"),
+        (
+            br#"{"protocol":1}"#.as_slice(),
+            "probe: JSON mismatch: field \"protocol\": expected 3, got 1",
+        ),
+        (
+            br#"{"protocol":3,"extra":true}"#.as_slice(),
+            "probe: JSON mismatch: unexpected field \"extra\"",
+        ),
     ] {
         let (_directory, layout, old) = published_layout();
         let current = inspect(&layout.prefix.join("bin/tmt")).unwrap();
@@ -251,14 +257,169 @@ fn unsupported_or_malformed_probe_never_calls_install_or_changes_current() {
         )
         .unwrap_err();
         assert!(error.get_ref().unwrap().is::<Unsupported>());
-        assert_eq!(
-            error.to_string(),
-            "This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh"
+        let message = error.to_string();
+        assert!(
+            message.starts_with(
+                "This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/tmt-ninja/tmt/releases/latest/download/install.sh | sh"
+            ),
+            "unexpected prefix: {message}"
+        );
+        assert!(
+            message.contains(expected_reason),
+            "expected {expected_reason:?} in {message:?}"
         );
         assert_eq!(*calls.borrow(), 1);
         assert_eq!(layout.current().unwrap().unwrap().id, old.id);
         assert_clean(&runner);
     }
+}
+
+#[test]
+fn probe_timeout_uses_30s_bound_and_reports_elapsed_and_limit() {
+    let (_directory, layout, old) = published_layout();
+    let current = inspect(&layout.prefix.join("bin/tmt")).unwrap();
+    let runner = Runner {
+        stages: RefCell::new(Vec::new()),
+        run: |request: CommandRequest<'_>| {
+            let remaining = request.deadline.saturating_duration_since(Instant::now());
+            assert!(
+                remaining > Duration::from_secs(20) && remaining <= Duration::from_secs(30),
+                "expected ~30s probe deadline, got {remaining:?}"
+            );
+            Err(CommandError::new(CommandFailure::Timeout))
+        },
+    };
+    let error = upgrade(
+        &current,
+        &downloaded(false),
+        Channel::Stable,
+        PinAction::Preserve,
+        || Ok(()),
+        &runner,
+    )
+    .unwrap_err();
+    assert!(error.get_ref().unwrap().is::<Unsupported>());
+    let message = error.to_string();
+    assert!(
+        message.contains("probe: timed out after ") && message.contains("(limit 30000ms)"),
+        "unexpected timeout message: {message}"
+    );
+    assert_eq!(layout.current().unwrap().unwrap().id, old.id);
+    assert_clean(&runner);
+}
+
+#[test]
+fn probe_nonzero_exit_reports_status_and_bounded_sanitized_stderr() {
+    let (_directory, layout, old) = published_layout();
+    let current = inspect(&layout.prefix.join("bin/tmt")).unwrap();
+    let runner = Runner {
+        stages: RefCell::new(Vec::new()),
+        run: |_: CommandRequest<'_>| {
+            let mut raw = b"bad\x1b[31m\nflag ".to_vec();
+            raw.extend(std::iter::repeat_n(b'x', 400));
+            let mut err = CommandError::new(CommandFailure::Exit {
+                code: Some(2),
+                signal: None,
+            });
+            err.output = Some(CommandOutput {
+                stdout: Vec::new(),
+                stderr: raw,
+            });
+            Err(err)
+        },
+    };
+    let error = upgrade(
+        &current,
+        &downloaded(false),
+        Channel::Stable,
+        PinAction::Preserve,
+        || Ok(()),
+        &runner,
+    )
+    .unwrap_err();
+    assert!(error.get_ref().unwrap().is::<Unsupported>());
+    let message = error.to_string();
+    assert!(
+        message.contains("probe: exited with code 2, stderr: bad"),
+        "unexpected exit message: {message}"
+    );
+    assert!(!message.chars().any(char::is_control));
+    let excerpt = message
+        .split("stderr: ")
+        .nth(1)
+        .unwrap()
+        .trim_end_matches(')');
+    assert!(excerpt.len() <= 256, "excerpt too long: {}", excerpt.len());
+    assert_eq!(layout.current().unwrap().unwrap().id, old.id);
+    assert_clean(&runner);
+}
+
+#[test]
+fn probe_command_spawn_error_reports_kind() {
+    let (_directory, layout, old) = published_layout();
+    let current = inspect(&layout.prefix.join("bin/tmt")).unwrap();
+    let runner = Runner {
+        stages: RefCell::new(Vec::new()),
+        run: |_: CommandRequest<'_>| Err(CommandError::new(CommandFailure::Spawn)),
+    };
+    let error = upgrade(
+        &current,
+        &downloaded(false),
+        Channel::Stable,
+        PinAction::Preserve,
+        || Ok(()),
+        &runner,
+    )
+    .unwrap_err();
+    assert!(error.get_ref().unwrap().is::<Unsupported>());
+    let message = error.to_string();
+    assert!(
+        message.contains("probe: command failed (Spawn)"),
+        "unexpected spawn message: {message}"
+    );
+    assert_eq!(layout.current().unwrap().unwrap().id, old.id);
+    assert_clean(&runner);
+}
+
+#[test]
+fn probe_unexpected_stderr_on_zero_exit_reports_bounded_sanitized_excerpt() {
+    let (_directory, layout, old) = published_layout();
+    let current = inspect(&layout.prefix.join("bin/tmt")).unwrap();
+    let runner = Runner {
+        stages: RefCell::new(Vec::new()),
+        run: |_: CommandRequest<'_>| {
+            let mut raw = b"warn\t\nline ".to_vec();
+            raw.extend(std::iter::repeat_n(b'y', 400));
+            Ok(CommandOutput {
+                stdout: serde_json::to_vec(&probe_version(MOVED_VERSION)).unwrap(),
+                stderr: raw,
+            })
+        },
+    };
+    let error = upgrade(
+        &current,
+        &downloaded(false),
+        Channel::Stable,
+        PinAction::Preserve,
+        || Ok(()),
+        &runner,
+    )
+    .unwrap_err();
+    assert!(error.get_ref().unwrap().is::<Unsupported>());
+    let message = error.to_string();
+    assert!(
+        message.contains("probe: unexpected stderr: warn"),
+        "unexpected stderr message: {message}"
+    );
+    assert!(!message.chars().any(char::is_control));
+    let excerpt = message
+        .split("unexpected stderr: ")
+        .nth(1)
+        .unwrap()
+        .trim_end_matches(')');
+    assert!(excerpt.len() <= 256, "excerpt too long: {}", excerpt.len());
+    assert_eq!(layout.current().unwrap().unwrap().id, old.id);
+    assert_clean(&runner);
 }
 
 #[test]
