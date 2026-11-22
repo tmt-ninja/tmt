@@ -1,7 +1,7 @@
 /** Two local pages and a hold on opening them, to watch what shows while a page is entered again. */
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
-import { blockDraftStore } from '../src/block-drafts.js';
+import { blockDraftStore, ownerBlockDraftStore } from '../src/block-drafts.js';
 import type { Sealed } from '../src/local-seal.js';
 import { createAppRouter } from '../src/router.js';
 import { deleteRecord, record } from '../src/storage.js';
@@ -28,7 +28,10 @@ const ID = {
 };
 let root: Root | undefined;
 
-export async function mount(draft?: { mode: 'readable' | 'unreadable' | 'empty'; value: string }) {
+export async function mount(draft?: {
+  mode: 'readable' | 'unreadable' | 'empty' | 'missing-key-recovery';
+  value: string;
+}) {
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('reentry-fixture');
   if (!host) {
@@ -56,6 +59,8 @@ export async function mount(draft?: { mode: 'readable' | 'unreadable' | 'empty';
   }));
   const base = localTransport('Studio pages', snapshots);
   const drafts = draft && blockDraftStore('fixture', 'fixture-device');
+  const recovering = draft?.mode === 'missing-key-recovery';
+  const owner = { root: 'fixture-owner-root', session: {} };
   if (draft && drafts && draft.mode !== 'empty') {
     if (
       !(await drafts.save(ID.alpha, {
@@ -67,7 +72,7 @@ export async function mount(draft?: { mode: 'readable' | 'unreadable' | 'empty';
       }))
     )
       throw new Error('Could not seed the block draft');
-    if (draft.mode === 'unreadable') await deleteRecord('draft-key:fixture-device');
+    if (draft.mode === 'unreadable' || recovering) await deleteRecord('draft-key:fixture-device');
   }
   window.fixtureDraftKeyExists = async () => !!(await record('draft-key:fixture-device'));
   window.fixtureSealedDraft = () => record(`block-drafts:fixture:fixture-device:${ID.alpha}`);
@@ -106,6 +111,12 @@ export async function mount(draft?: { mode: 'readable' | 'unreadable' | 'empty';
           },
         },
         binding: {
+          ...(recovering && {
+            blockDrafts: ownerBlockDraftStore('fixture', 'replacement-device', () => owner),
+            blocks: async () => {
+              throw new Error('Kept drafts must wait for explicit recovery');
+            },
+          }),
           subscribe(_publish, failed) {
             window.endDraftPage = (code) => failed(new Error(code));
             return () => delete window.endDraftPage;

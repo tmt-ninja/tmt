@@ -84,6 +84,39 @@ test('an ended page that can reopen keeps its existing draft sentence', async ({
   await expect(app(page).getByRole('button', { name: copyLabel })).toHaveCount(0);
 });
 
+test('a missing old draft key shows the recovery notice and preserves the sealed draft', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(async (value) => {
+    const path = '/test/page-reentry-browser.tsx';
+    await (await import(/* @vite-ignore */ path)).mount({ mode: 'missing-key-recovery', value });
+  }, draftValue);
+  const sealed = await page.evaluate(() => window.fixtureSealedDraft?.());
+  expect(sealed?.ciphertext).toBeTruthy();
+  await app(page).getByRole('link', { name: 'Alpha plan' }).click();
+  const notice = app(page)
+    .getByRole('status')
+    .getByText('Some draft text from an earlier pairing could not be recovered.', { exact: true });
+  await expect(notice).toBeVisible();
+  await expect(app(page).getByText('Text already on the page.', { exact: true })).toBeVisible();
+  await expect(app(page)).not.toContainText('Retry this draft exactly.');
+  await expect(app(page).getByRole('button', { name: 'Keep and continue' })).toHaveCount(0);
+  expect(await page.evaluate(() => window.fixtureSealedDraft?.())).toEqual(sealed);
+  expect(await page.evaluate(() => window.fixtureDraftKeyExists?.())).toBe(false);
+  if (process.env.COLAB_CAPTURE_DIR)
+    for (const theme of ['light', 'dark'] as const)
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await expect(notice).toBeVisible();
+        await page.screenshot({
+          path: capturePath(`6796-missing-key-${width}-${theme}.png`),
+          animations: 'disabled',
+        });
+      }
+});
+
 for (const theme of ['light', 'dark'] as const)
   for (const width of [1440, 390])
     test(`captures: an ended pairing with kept block text at ${width} ${theme}`, async ({
