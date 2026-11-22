@@ -28,6 +28,13 @@ fn owner_list(now: u64) -> Value {
                 "link": "https://example.test/page",
                 "summary": {
                     "status": "blocked", "blockedSinceMs": now - 91_020_000,
+                    "sectionProgress": {"done": 2, "inProgress": 1, "todo": 1, "unknown": 0, "total": 4},
+                    "sections": [
+                        {"id": "h1", "title": "Handshake protocol", "level": 2, "done": 1, "total": 1, "state": "done"},
+                        {"id": "h2", "title": "Session auth token", "level": 2, "done": 1, "total": 1, "state": "done"},
+                        {"id": "h3", "title": "Reconnect prompt", "level": 2, "done": 0, "total": 1, "state": "needs-you"},
+                        {"id": "h4", "title": "Exponential backoff", "level": 2, "done": 0, "total": 1, "state": "unchecked"}
+                    ],
                     "fields": {
                         "owner": {"id": MEMBER, "name": "worker-before-rename"},
                         "next": "Different next step",
@@ -47,12 +54,13 @@ fn owner_list(now: u64) -> Value {
                 "pageId": OTHER, "workNumber": "W-91", "title": "Check the setup example",
                 "lastUpdateAtMs": now - 301_000,
                 "summary": {"status": "waiting-ci",
+                    "sectionProgress": {"done": 3, "inProgress": 0, "todo": 0, "unknown": 0, "total": 3},
                     "fields": {"owner": {"id": OTHER, "name": "worker"}}}
             },
             {
                 "pageId": UNCHECKED, "workNumber": "CORE-88", "title": "Review the event contract",
                 "projects": ["Core"], "lastUpdateAtMs": now - 2_401_000,
-                "summary": {"status": "unchecked", "todosOmitted": true}
+                "summary": {"status": "unchecked", "todosOmitted": true, "sectionsOmitted": true}
             },
             {
                 "pageId": DONE, "workNumber": "COLAB-110", "title": "Document page names",
@@ -197,7 +205,11 @@ fn colab_work_renders_now_and_next_in_the_owner_order() {
     assert!(row("▸ · CORE-88") < row("◇ COLAB-143"));
     assert!(row("── No preference") > row("◇ COLAB-143"));
     assert!(row("── No preference") < row("· W-91"));
-    assert_eq!(row("m move · No link · check Colab serve and pairing"), 34);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("More sections in Colab · o open"))
+    );
 }
 
 fn ordered_list(now: u64) -> Value {
@@ -721,17 +733,19 @@ fn colab_work_captures_align_headings_and_show_bound_chips() {
             .unwrap();
         let selected_meta = lines
             .iter()
-            .find(|line| line.contains("worker") && line.contains("—"))
+            .find(|line| line.contains("worker") && line.contains("2/4"))
             .unwrap();
         assert!(selected.contains("Large design reads"));
         assert!(!selected_meta.contains("before"));
         assert!(lines.iter().any(|line| line.contains("Detail · COLAB-119")));
+        assert!(lines.iter().any(|line| line.contains("2/4 verified")));
+        assert!(lines.iter().any(|line| line.contains("← waiting")));
         assert!(lines.iter().any(|line| line.contains("Projects")));
         assert!(lines.iter().any(|line| line.contains("Squad Pulse")));
         let stale = render(&mut terminal, "work-stale");
         assert!(stale.iter().all(|line| !line.contains("⏎ open page")));
         assert!(stale.iter().any(|line| line.contains("Stale ·")));
-        assert!(lines[34].contains("⏎ open page"));
+        assert!(lines.iter().any(|line| line.contains("o / ⏎  Open Colab")));
         assert!(lines[35].contains("⏎ open page") && lines[35].contains("/ search"));
         let agents = render(&mut terminal, "agents-work");
         assert!(

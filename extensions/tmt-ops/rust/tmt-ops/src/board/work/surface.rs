@@ -406,7 +406,7 @@ fn age_label(at: Option<i64>, now: i64) -> String {
     )
 }
 
-fn mini_bar(progress: Option<Progress>, width: usize) -> (String, String) {
+fn mini_bar(progress: Option<Progress>, width: usize) -> String {
     match progress {
         Some(progress) if progress.total > 0 => {
             let filled = ((progress.done.min(progress.total) * width as u64 + progress.total / 2)
@@ -416,9 +416,9 @@ fn mini_bar(progress: Option<Progress>, width: usize) -> (String, String) {
                 "▓".repeat(filled.min(width)),
                 "░".repeat(width.saturating_sub(filled))
             );
-            (bar, format!("{}/{}", progress.done, progress.total))
+            format!("{bar} {}/{}", progress.done, progress.total)
         }
-        _ => ("░".repeat(width), "—".into()),
+        _ => "—".into(),
     }
 }
 
@@ -471,20 +471,34 @@ fn paint_dashboard_band(
         if !query.is_empty() {
             details.push(format!("query:{query}"));
         }
-        paint_ds::<Gauge>(
-            frame,
-            app,
-            Rect::new(area.x, area.y, area.width, 1),
-            &GaugeProps {
-                label: label.into(),
-                label_width: 9,
-                numerator,
-                denominator,
-                total: Some(details.join(" · ")),
-                filled_role: Token(Role::Working),
-                rest_role: Token(Role::Dim),
-            },
-        );
+        if denominator > 0 {
+            paint_ds::<Gauge>(
+                frame,
+                app,
+                Rect::new(area.x, area.y, area.width, 1),
+                &GaugeProps {
+                    label: label.into(),
+                    label_width: 9,
+                    numerator,
+                    denominator,
+                    total: Some(details.join(" · ")),
+                    filled_role: Token(Role::Working),
+                    rest_role: Token(Role::Dim),
+                },
+            );
+        } else {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(area.x, area.y, area.width, 1),
+                Line::styled(
+                    fit(
+                        &format!("{label:<9} {}", details.join(" · ")),
+                        usize::from(area.width),
+                    ),
+                    app.look().role(Role::Muted),
+                ),
+            );
+        }
         return 1;
     }
     if area.width < 96 || area.height < 16 {
@@ -529,9 +543,9 @@ fn paint_dashboard_band(
     for (idx, project) in projects.iter().enumerate() {
         let y = area.y + 1 + idx as u16;
         let progress = list.project_progress(project);
-        let (numerator, denominator, ratio) = match progress {
-            Some(p) => (p.done, p.total, format!("{}/{}", p.done, p.total)),
-            None => (0, 0, "—".into()),
+        let ratio = match progress {
+            Some(p) => format!("{}/{}", p.done, p.total),
+            None => "—".into(),
         };
         let mut needs = 0_usize;
         let mut working = 0_usize;
@@ -556,20 +570,30 @@ fn paint_dashboard_band(
         if blocked > 0 {
             total.push(format!("✗{blocked}"));
         }
-        paint_ds::<Gauge>(
-            frame,
-            app,
-            Rect::new(area.x, y, left_w, 1),
-            &GaugeProps {
-                label: (*project).into(),
-                label_width: 8,
-                numerator,
-                denominator,
-                total: Some(total.join(" ")),
-                filled_role: Token(Role::Working),
-                rest_role: Token(Role::Dim),
-            },
-        );
+        if let Some(p) = progress {
+            total[0] = format!("{}/{}", p.done, p.total);
+            paint_ds::<Gauge>(
+                frame,
+                app,
+                Rect::new(area.x, y, left_w, 1),
+                &GaugeProps {
+                    label: (*project).into(),
+                    label_width: 8,
+                    numerator: p.done,
+                    denominator: p.total,
+                    total: Some(total.join(" ")),
+                    filled_role: Token(Role::Working),
+                    rest_role: Token(Role::Dim),
+                },
+            );
+        } else {
+            let line = format!("{project:<8} {}", total.join(" "));
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(area.x, y, left_w, 1),
+                Line::styled(fit(&line, usize::from(left_w)), look.role(Role::Muted)),
+            );
+        }
     }
 
     // Right column: Velocity Sparkline + status counts + Active + Stuck.
@@ -582,10 +606,11 @@ fn paint_dashboard_band(
         Line::styled(label, look.role(Role::Muted)),
     );
     if right_w > label_w {
+        let spark_w = (right_w - label_w).min(40);
         paint_ds::<Sparkline>(
             frame,
             app,
-            Rect::new(right_x + label_w, area.y + 1, right_w - label_w, 1),
+            Rect::new(right_x + label_w, area.y + 1, spark_w, 1),
             &SparklineProps {
                 points,
                 scale,
@@ -707,24 +732,28 @@ fn paint_inspector(
     }
 
     if y < area.bottom() {
-        let (numerator, denominator, total_label) = match item.progress {
-            Some(p) => (p.done, p.total, format!("{}/{} verified", p.done, p.total)),
-            None => (0, 0, "—".into()),
-        };
-        paint_ds::<Gauge>(
-            frame,
-            app,
-            Rect::new(area.x, y, area.width, 1),
-            &GaugeProps {
-                label: " Chapters".into(),
-                label_width: 10,
-                numerator,
-                denominator,
-                total: Some(total_label),
-                filled_role: Token(Role::Working),
-                rest_role: Token(Role::Dim),
-            },
-        );
+        if let Some(p) = item.progress {
+            paint_ds::<Gauge>(
+                frame,
+                app,
+                Rect::new(area.x, y, area.width, 1),
+                &GaugeProps {
+                    label: " Chapters".into(),
+                    label_width: 10,
+                    numerator: p.done,
+                    denominator: p.total,
+                    total: Some(format!("{}/{} verified", p.done, p.total)),
+                    filled_role: Token(Role::Working),
+                    rest_role: Token(Role::Dim),
+                },
+            );
+        } else {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(area.x, y, area.width, 1),
+                Line::styled(" Chapters  —", look.role(Role::Muted)),
+            );
+        }
         y += 1;
     }
 
@@ -732,7 +761,7 @@ fn paint_inspector(
         let msg = if item.sections_omitted || item.progress.is_some() {
             "   More sections in Colab · o open"
         } else {
-            "   No chapters in snapshot · —"
+            "   No sections"
         };
         inspector_line(
             frame,
@@ -762,13 +791,17 @@ fn paint_inspector(
             let active = state.inspector_focused && state.inspector_cursor == idx;
             let cursor = if active { " ▸ " } else { "   " };
             let mark = section.state.mark();
-            let ratio = if section.total > 0 {
-                format!("{}/{}", section.done, section.total)
+            let waiting_note = if matches!(section.state, Status::NeedsYou | Status::Working) {
+                "  ← waiting"
             } else {
-                "—".into()
+                ""
             };
             let line_rect = Rect::new(area.x, y, area.width, 1);
-            let text = format!("{cursor}{mark}  {}  {ratio}", section.title);
+            let text = format!(
+                "{cursor}{mark}  {}. {}{waiting_note}",
+                idx + 1,
+                section.title
+            );
             let style = look.selected(active, look.role(role(section.state)));
             strip::paint_left(
                 frame.buffer_mut(),
@@ -930,7 +963,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let collapsed_bar = u16::from(
         state.detail_collapsed && selected_item.is_some() && area.height.saturating_sub(top) >= 5,
     );
-    let reserved = u16::from(selected_item.is_some() && area.height.saturating_sub(top) >= 4);
+    let reserved =
+        u16::from(!split && selected_item.is_some() && area.height.saturating_sub(top) >= 4);
     let body_h = area.height.saturating_sub(top + reserved + collapsed_bar);
     let list_w = if split {
         (area.width / 2).saturating_sub(1)
@@ -965,7 +999,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
         let content_top = list_area.y + 1;
         let content_bottom = list_area.bottom();
-        let row_height = |row: &Row<'_>| if row.item.is_some() { 2_u16 } else { 1_u16 };
+        let row_height = |row: &Row<'_>| if row.item.is_some() { 3_u16 } else { 1_u16 };
         let avail_h = content_bottom.saturating_sub(content_top);
         let mut offset = 0_usize;
         if let Some(sel) = selected {
@@ -983,7 +1017,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         let mut clipped_below = 0_u64;
         for (index, row) in rows.iter().enumerate().skip(offset) {
             let h = row_height(row);
-            if y + h > content_bottom {
+            if y + h.min(2) > content_bottom {
                 clipped_below = rows[index..]
                     .iter()
                     .filter(|r| r.selection.is_some())
@@ -999,12 +1033,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     .owner_name(roster)
                     .map(crate::board::notes::single_line)
                     .unwrap_or_else(|| "—".into());
-                let (bar, ratio) = mini_bar(item.progress, 6);
+                let progress_label = mini_bar(item.progress, 6);
                 let age = age_label(item.last, now);
                 let line1_rect = Rect::new(list_area.x, y, list_area.width, 1);
                 let line2_rect = Rect::new(list_area.x, y + 1, list_area.width, 1);
                 let lw = usize::from(list_area.width);
-                let right_meta = format!("{owner}  {bar} {ratio}  {age}");
+                let right_meta = format!("{owner}  {progress_label}  {age}");
                 let left_title = format!("{prefix}{mark} {number:<8} {}", item.title);
                 let line1_text = if !split && lw > right_meta.len() + 20 {
                     format!(
@@ -1033,7 +1067,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     fit(&format!("            {reason}"), lw)
                 } else {
                     fit(
-                        &format!("            {owner:<12} {bar} {ratio:<5} {age}"),
+                        &format!("            {owner:<12} {progress_label:<11} {age}"),
                         lw,
                     )
                 };
@@ -1048,7 +1082,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                         Hit::Row(key.clone()),
                     ));
                 }
-                y += 2;
+                y += 3;
             } else {
                 let line_rect = Rect::new(list_area.x, y, list_area.width, 1);
                 strip::paint_left(
