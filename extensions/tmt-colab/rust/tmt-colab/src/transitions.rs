@@ -18,7 +18,8 @@ use crate::{
 pub use links::{LinkAction, LinkRequest, LinkSpec};
 pub use membership::{DeviceRevoke, MemberAction, MemberRequest};
 pub use request::{
-    Applied, HistoryMode, OwnerAction, OwnerRequest, Publication, RequestScope, ShareMode,
+    Applied, DeleteActor, HistoryMode, OwnerAction, OwnerRequest, Publication, RequestScope,
+    ShareMode,
 };
 use std::{collections::BTreeMap, path::PathBuf};
 use tmt_colab_model::values;

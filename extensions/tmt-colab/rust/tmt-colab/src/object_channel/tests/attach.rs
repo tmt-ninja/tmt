@@ -388,7 +388,10 @@ fn an_archived_or_deleted_page_admits_nothing_and_not_even_a_discard() {
         world.state.apply(if action == 0 {
             OwnerAction::Archive { page: PAGE }
         } else {
-            OwnerAction::Delete { page: PAGE }
+            OwnerAction::Delete {
+                page: PAGE,
+                by: crate::transitions::DeleteActor::Cli(None),
+            }
         });
         let owner = world.admission(Some(begin.clone()));
         assert_eq!(

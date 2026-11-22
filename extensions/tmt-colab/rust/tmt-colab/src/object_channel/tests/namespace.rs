@@ -93,7 +93,10 @@ fn version_one() -> (ObjectChannel, Bus) {
 fn version_one_refuses_both_calls_before_request_correlation_and_keeps_the_exact_hint() {
     let mut state = Fixture::new();
     let source = source(&state);
-    state.apply(OwnerAction::Delete { page: PAGE });
+    state.apply(OwnerAction::Delete {
+        page: PAGE,
+        by: crate::transitions::DeleteActor::Cli(None),
+    });
     let (channel, remote) = version_one();
     let owner = owner(channel);
     assert_eq!(
@@ -235,7 +238,10 @@ fn an_absent_channel_delete_is_freed_by_the_next_bounded_sweep_and_repeat_is_ide
         owner.remove_page_namespace(PAGE, &source, limit()),
         Storage::Pending
     );
-    state.apply(OwnerAction::Delete { page: PAGE });
+    state.apply(OwnerAction::Delete {
+        page: PAGE,
+        by: crate::transitions::DeleteActor::Cli(None),
+    });
     assert_eq!(
         owner.remove_page_namespace(PAGE, &source, limit()),
         Storage::Pending
@@ -274,7 +280,10 @@ fn removal_never_crosses_before_commit_or_for_another_page_and_unknown_is_not_su
         owner.remove_page_namespace(OTHER, &source, limit()),
         Storage::Pending
     );
-    state.apply(OwnerAction::Delete { page: PAGE });
+    state.apply(OwnerAction::Delete {
+        page: PAGE,
+        by: crate::transitions::DeleteActor::Cli(None),
+    });
     let backend = thread::spawn(move || {
         let request = receive(&remote);
         assert_eq!(
@@ -457,7 +466,10 @@ fn only_current_history_writable_private_or_link_pages_are_eligible() {
     );
     let mut deleted = Fixture::new();
     current_history(&mut deleted);
-    deleted.apply(OwnerAction::Delete { page: PAGE });
+    deleted.apply(OwnerAction::Delete {
+        page: PAGE,
+        by: crate::transitions::DeleteActor::Cli(None),
+    });
     assert!(
         !removal_eligible(&self::source(&deleted)().unwrap(), PAGE).unwrap(),
         "deleted"

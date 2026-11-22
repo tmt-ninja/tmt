@@ -41,6 +41,13 @@ pub struct RequestScope {
     pub initiating_page: String,
     pub affected_pages: Vec<String>,
 }
+/// Who asked for a page delete, recorded beside it (#6739): a browser's verified sender device, or
+/// a local command and the TMT caller it ran as, when it had one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeleteActor<'a> {
+    Device(&'a str),
+    Cli(Option<&'a str>),
+}
 pub enum OwnerAction<'a> {
     CreateShell {
         page: &'a str,
@@ -101,6 +108,7 @@ pub enum OwnerAction<'a> {
     },
     Delete {
         page: &'a str,
+        by: DeleteActor<'a>,
     },
 }
 #[derive(Debug)]
@@ -319,6 +327,7 @@ impl Engine {
                 now,
             )?,
             action => {
+                let mut deleted_by = None;
                 let (page, action) = match action {
                     OwnerAction::Share {
                         page,
@@ -329,7 +338,10 @@ impl Engine {
                     OwnerAction::Retention { page, days } => (page, PageAction::Retention(days)),
                     OwnerAction::Archive { page } => (page, PageAction::Archive),
                     OwnerAction::Unarchive { page } => (page, PageAction::Unarchive),
-                    OwnerAction::Delete { page } => (page, PageAction::Delete),
+                    OwnerAction::Delete { page, by } => {
+                        deleted_by = Some(by);
+                        (page, PageAction::Delete)
+                    }
                     _ => unreachable!(),
                 };
                 self.page_change(
@@ -340,6 +352,7 @@ impl Engine {
                         expected_revision: context.expected,
                         page,
                         action,
+                        deleted_by,
                     },
                     now,
                     context,

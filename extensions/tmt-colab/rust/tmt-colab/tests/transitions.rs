@@ -2802,7 +2802,7 @@ fn policy(
         | OwnerAction::History { page, .. }
         | OwnerAction::Retention { page, .. }
         | OwnerAction::Archive { page }
-        | OwnerAction::Delete { page } => *page,
+        | OwnerAction::Delete { page, .. } => *page,
         _ => panic!("page action required"),
     };
     f.engine.apply(
@@ -3295,9 +3295,17 @@ fn sharing_and_deletion_failures_roll_back_every_effect_and_allow_exact_retry() 
     let before = f.counts();
     f.db().execute_batch("CREATE TRIGGER delete_failure BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
     assert_eq!(
-        policy(&mut f, 138, rev, OwnerAction::Delete { page: PAGE })
-            .unwrap_err()
-            .code,
+        policy(
+            &mut f,
+            138,
+            rev,
+            OwnerAction::Delete {
+                page: PAGE,
+                by: tmt_colab::transitions::DeleteActor::Cli(None)
+            }
+        )
+        .unwrap_err()
+        .code,
         Code::Unavailable
     );
     assert_eq!(f.counts(), before);
@@ -3323,7 +3331,16 @@ fn sharing_and_deletion_failures_roll_back_every_effect_and_allow_exact_retry() 
         "failed deletion also rolls back publication metadata cleanup"
     );
     f.db().execute_batch("DROP TRIGGER delete_failure").unwrap();
-    let deleted = policy(&mut f, 138, rev, OwnerAction::Delete { page: PAGE }).unwrap();
+    let deleted = policy(
+        &mut f,
+        138,
+        rev,
+        OwnerAction::Delete {
+            page: PAGE,
+            by: tmt_colab::transitions::DeleteActor::Cli(None),
+        },
+    )
+    .unwrap();
     for table in [
         "cloud_publications",
         "receipts",
@@ -3347,7 +3364,16 @@ fn sharing_and_deletion_failures_roll_back_every_effect_and_allow_exact_retry() 
     let counts = f.counts();
     let reopened = Store::open(&f.layout).unwrap();
     std::mem::replace(&mut f.store, reopened).close().unwrap();
-    let replay = policy(&mut f, 138, rev, OwnerAction::Delete { page: PAGE }).unwrap();
+    let replay = policy(
+        &mut f,
+        138,
+        rev,
+        OwnerAction::Delete {
+            page: PAGE,
+            by: tmt_colab::transitions::DeleteActor::Cli(None),
+        },
+    )
+    .unwrap();
     assert!(replay.replayed);
     assert_eq!(replay.head, deleted.head);
     assert_eq!(replay.outcome, deleted.outcome);
@@ -3445,7 +3471,16 @@ fn retention_and_archive_are_signed_replayable_policies_without_rotation() {
     .unwrap();
     let now = revision(&f);
     seed_title(&f);
-    policy(&mut f, 147, now, OwnerAction::Delete { page: PAGE }).unwrap();
+    policy(
+        &mut f,
+        147,
+        now,
+        OwnerAction::Delete {
+            page: PAGE,
+            by: tmt_colab::transitions::DeleteActor::Cli(None),
+        },
+    )
+    .unwrap();
     assert_eq!(titles(&f), 0);
 }
 

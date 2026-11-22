@@ -227,7 +227,24 @@ const MIGRATIONS: &[&str] = &[
     CREATE TABLE answer_forms(page TEXT NOT NULL, writer TEXT NOT NULL, message TEXT NOT NULL,
         form TEXT, PRIMARY KEY(page,writer,message), FOREIGN KEY(page) REFERENCES pages(page) ON DELETE CASCADE) WITHOUT ROWID;
     "#,
+    // Schema 29: who deleted a page and when (#6739), written in the delete's own transaction.
+    // Owner-local like pins: never a statement, never synced or exported; the row stays with the
+    // page's tombstone. No title: a delete promises the page's removal.
+    r#"
+    CREATE TABLE page_deletions(page TEXT PRIMARY KEY, revision INTEGER NOT NULL,
+        at_ms INTEGER NOT NULL CHECK(typeof(at_ms)='integer' AND at_ms>=0 AND at_ms<=9007199254740991),
+        actor_kind TEXT NOT NULL CHECK(actor_kind IN ('device','cli')), actor TEXT,
+        FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
+    "#,
 ];
+/// Whether schema step `version` creates `table`.
+#[cfg(test)]
+pub(crate) fn step_creates(version: u32, table: &str) -> bool {
+    version >= 1
+        && MIGRATIONS
+            .get(version as usize - 1)
+            .is_some_and(|sql| sql.contains(&format!("CREATE TABLE {table}(")))
+}
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// The schema whose step rewrites stored object envelopes as binary v2 (#5876).
 const OBJECTS_V2: usize = 22;

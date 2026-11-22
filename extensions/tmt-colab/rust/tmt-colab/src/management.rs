@@ -55,6 +55,9 @@ struct Local {
     operation_id: String,
     operation: String,
     payload: String,
+    /// The TMT caller a local command ran as, recorded beside a page delete (#6739).
+    #[serde(default)]
+    actor: Option<String>,
 }
 
 /// A fully parsed selection. Only the service's live authorization plus the
@@ -65,6 +68,12 @@ struct Command {
     expected_revision: u64,
     transport_digest: [u8; 32],
     action: Action,
+    /// Who sent it: a browser's verified sender device, or a local command and its caller.
+    sender: Sender,
+}
+enum Sender {
+    Device(String),
+    Local(Option<String>),
 }
 enum Action {
     Create(Create),
@@ -627,6 +636,7 @@ impl Command {
             .unwrap_or(0),
             transport_digest: digest,
             action: selected,
+            sender: Sender::Device(sender.to_owned()),
         })
     }
     fn local(body: &[u8], space: &str) -> Result<Self> {
@@ -638,6 +648,13 @@ impl Command {
             values::space_id(&value.space)?;
             values::generated_id(&value.page)?;
             values::generated_id(&value.operation_id)?;
+            if value
+                .actor
+                .as_deref()
+                .is_some_and(|name| !crate::decoder::valid_publisher_agent(name))
+            {
+                return Err(tmt_colab_model::Invalid);
+            }
             let creating = value.operation == "page.create";
             let revision = if matches!(
                 value.operation.as_str(),
@@ -690,6 +707,7 @@ impl Command {
                     expected_revision: revision,
                     transport_digest: digest,
                     action: selected,
+                    sender: Sender::Local(value.actor),
                 },
             ))
         })()
@@ -777,7 +795,7 @@ fn apply(
     now: u64,
 ) -> Result<Applied> {
     use crate::transitions::{
-        HistoryMode, LinkAction, MemberAction, OwnerAction, OwnerRequest, Publication,
+        DeleteActor, HistoryMode, LinkAction, MemberAction, OwnerAction, OwnerRequest, Publication,
         RequestScope, ShareMode,
     };
     if let Action::New(new) = &command.action {
@@ -916,6 +934,10 @@ fn apply(
         },
         Action::Delete => OwnerAction::Delete {
             page: &command.page,
+            by: match &command.sender {
+                Sender::Device(id) => DeleteActor::Device(id),
+                Sender::Local(name) => DeleteActor::Cli(name.as_deref()),
+            },
         },
         Action::Share(mode) => OwnerAction::Share {
             page: &command.page,
@@ -1250,6 +1272,33 @@ mod tests {
     fn local(operation: &str, payload: Value) -> Vec<u8> {
         serde_json::to_vec(&json!({"space":SPACE,"page":page_of(operation),"operationId":OP,"expectedRevision":revision(operation),
             "operation":operation,"payload":values::encode_binary(&serde_json::to_vec(&payload).unwrap())})).unwrap()
+    }
+    /// The CLI sends a delete's `actor` only after `require_current_schema`: that is safe only while
+    /// the build that accepts `actor` is the one that migrates the store to record deletes. Moving
+    /// the actor to a build without that schema step fails here (#6739).
+    #[test]
+    fn a_delete_names_its_caller_only_in_a_build_whose_store_records_deletes() {
+        // The schema at which a local delete may name its caller: a serve from before it refuses a
+        // local body with `actor`, and only a serve that accepts one migrates a store to it.
+        const DELETE_ACTOR_SCHEMA: u32 = 29;
+        assert!(crate::store::schema_step_creates(
+            DELETE_ACTOR_SCHEMA,
+            "page_deletions"
+        ));
+        const { assert!(crate::store::SCHEMA_VERSION >= DELETE_ACTOR_SCHEMA) };
+    }
+    #[test]
+    fn a_local_delete_names_its_caller_and_a_body_without_one_is_still_accepted() {
+        let plain = local("page.delete", json!({"pageId":PAGE}));
+        let command = Command::local(&plain, SPACE).unwrap();
+        assert!(matches!(command.sender, Sender::Local(None)));
+        let mut named: Value = serde_json::from_slice(&plain).unwrap();
+        named["actor"] = json!("gui-4");
+        let command = Command::local(&serde_json::to_vec(&named).unwrap(), SPACE).unwrap();
+        assert!(matches!(command.sender, Sender::Local(Some(ref name)) if name == "gui-4"));
+        // A name a page could not carry as its publisher agent is refused, never stored.
+        named["actor"] = json!("bad\nname");
+        assert!(Command::local(&serde_json::to_vec(&named).unwrap(), SPACE).is_err());
     }
     #[test]
     fn exact_signed_bytes_bind_sender_time_and_payload_without_reserialization() {

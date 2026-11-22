@@ -284,7 +284,10 @@ fn a_confirmed_row_belongs_to_its_epoch_and_goes_with_the_page() {
             .unwrap()
     };
     assert_eq!(rows(&f), 1);
-    f.apply(OwnerAction::Delete { page: PAGE });
+    f.apply(OwnerAction::Delete {
+        page: PAGE,
+        by: tmt_colab::transitions::DeleteActor::Cli(None),
+    });
     assert_eq!(rows(&f), 0);
 }
 #[test]
@@ -520,7 +523,10 @@ fn restore_refuses_active_and_deleted_pages_without_recording_activity_or_an_ope
     for deleted in [false, true] {
         if deleted {
             f.apply(OwnerAction::Archive { page: PAGE });
-            f.apply(OwnerAction::Delete { page: PAGE });
+            f.apply(OwnerAction::Delete {
+                page: PAGE,
+                by: tmt_colab::transitions::DeleteActor::Cli(None),
+            });
         }
         let head = f
             .store

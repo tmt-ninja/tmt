@@ -561,7 +561,10 @@ fn verified_own_answers_change_registry_state_without_content_or_ask_publication
     pilot.stop();
     rusqlite::Connection::open(&db)
         .unwrap()
-        .execute_batch("DROP TABLE answer_forms; PRAGMA user_version=27;")
+        // A real schema-27 store has neither table: later steps must replay too (#6739).
+        .execute_batch(
+            "DROP TABLE page_deletions; DROP TABLE answer_forms; PRAGMA user_version=27;",
+        )
         .unwrap();
     pilot.start();
     let deadline = Instant::now() + Duration::from_secs(15);

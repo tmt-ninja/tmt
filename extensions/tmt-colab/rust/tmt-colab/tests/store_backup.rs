@@ -37,7 +37,7 @@ impl Drop for Fixture {
 }
 
 /// A store left at the schema before the current one, as an older Colab saved it: the current
-/// step adds the grandfathered answer table, so removing it recreates that store.
+/// step adds the page deletion record (#6739), so removing it recreates that store.
 fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     let store = layout.directory.join("space.db");
     Store::open(layout).unwrap().close().unwrap();
@@ -45,7 +45,7 @@ fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE answer_forms; PRAGMA user_version={previous}"
+            "DROP TABLE page_deletions; PRAGMA user_version={previous}"
         ))
         .unwrap();
     (store, previous)
@@ -62,11 +62,11 @@ fn names(layout: &Layout) -> Vec<String> {
 }
 
 #[test]
-fn schema_28_commit_failure_rolls_back_table_and_version_before_reopen() {
+fn schema_29_commit_failure_rolls_back_table_and_version_before_reopen() {
     let fixture = Fixture::new();
     let layout = fixture.layout();
     let (store, previous) = previous_schema(&layout);
-    assert_eq!(previous, 27);
+    assert_eq!(previous, 28);
     let reader = Connection::open(&store).unwrap();
     // With a rollback journal a reader permits BEGIN IMMEDIATE and schema writes,
     // but prevents the writer from acquiring the exclusive lock needed to commit.
@@ -82,13 +82,13 @@ fn schema_28_commit_failure_rolls_back_table_and_version_before_reopen() {
     let has_table = || {
         Connection::open(&store)
             .unwrap()
-            .table_exists(None, "answer_forms")
+            .table_exists(None, "page_deletions")
             .unwrap()
     };
-    assert_eq!(version(&store), 27);
+    assert_eq!(version(&store), 28);
     assert!(!has_table());
     Store::open(&layout).unwrap().close().unwrap();
-    assert_eq!(version(&store), 28);
+    assert_eq!(version(&store), 29);
     assert!(has_table());
 }
 
@@ -267,7 +267,7 @@ fn a_second_upgrade_from_the_same_schema_replaces_the_copy() {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE answer_forms; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
+            "DROP TABLE page_deletions; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
         ))
         .unwrap();
     let second = fs::read(&store).unwrap();
