@@ -8804,7 +8804,7 @@ function writeSeatOrder(value) {
 	} catch {}
 }
 /** A flat sheet with a sentence-case title and an optional right-hand slot in its head. */
-function card(id, title, body, options = {}) {
+function card$1(id, title, body, options = {}) {
 	const node = el$1("section", options.className ? `${browserUiClasses.card} digest-card ${options.className}` : `${browserUiClasses.card} digest-card`);
 	node.id = id;
 	node.setAttribute("aria-labelledby", `${id}-title`);
@@ -9069,11 +9069,11 @@ function allowanceRow(report, state) {
 /** Cost never decides membership or order: tokens are the primary evidence. */
 function providerUsageCard(doc) {
 	const records = providerRecords(doc);
-	if (!records) return card("digest-provider-usage", "Provider usage", [el$1("p", "usage-note", "Provider usage is unavailable in this report.")]);
+	if (!records) return card$1("digest-provider-usage", "Provider usage", [el$1("p", "usage-note", "Provider usage is unavailable in this report.")]);
 	const rest = doc.usage.providerUnattributed;
 	const restTokens = rest && Number.isSafeInteger(rest.input + rest.output) && rest.input + rest.output > 0 ? rest.input + rest.output : 0;
 	const remainder = restTokens ? ` Driver unattributed: ${compactCount(restTokens)} tokens.` : "";
-	if (!records.length) return card("digest-provider-usage", "Provider usage", [el$1("p", "usage-note", `No attributed provider usage was recorded in this range.${remainder}`)]);
+	if (!records.length) return card$1("digest-provider-usage", "Provider usage", [el$1("p", "usage-note", `No attributed provider usage was recorded in this range.${remainder}`)]);
 	const reasons = {
 		driver_model_attribution_unknown: "Driver and model shares cannot be matched.",
 		model_attribution_unknown: "Some input has no recorded model.",
@@ -9127,7 +9127,7 @@ function providerUsageCard(doc) {
 	const version = doc.pricing?.version;
 	const note = el$1("p", "usage-note", `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${typeof version === "string" && /^\d{4}-\d{2}-\d{2}$/.test(version) ? version : "unavailable"}. Incomplete records are lower bounds.`);
 	note.append(remainder);
-	return card("digest-provider-usage", "Provider usage", [scroll, note]);
+	return card$1("digest-provider-usage", "Provider usage", [scroll, note]);
 }
 function tokensCard(doc, state) {
 	const data = tokenSeries(doc);
@@ -9197,7 +9197,7 @@ function tokensCard(doc, state) {
 	});
 	const controls = el$1("div", "digest-chart-controls");
 	controls.append(control, style);
-	return card("digest-tokens", "Token usage", [body], {
+	return card$1("digest-tokens", "Token usage", [body], {
 		actions: controls,
 		subtitle: "A shared view, seat by seat."
 	});
@@ -9271,7 +9271,7 @@ function legendTable(doc, state) {
 /** This one caller owns its count heatmap; report aggregation remains in exchange(). */
 function exchangeCard(doc, state) {
 	const flow = exchange(doc);
-	if (!flow) return card("digest-exchange", "Messages between seats", [el$1("p", "usage-note", "Message traffic is not available in this read.")]);
+	if (!flow) return card$1("digest-exchange", "Messages between seats", [el$1("p", "usage-note", "Message traffic is not available in this read.")]);
 	const totals = new Map(rankRows(doc).map((seat) => [seat.id, seat.tokens]));
 	const seats = [...flow.participants].sort((a, b) => (state.order === "usage" ? (totals.get(b.id) ?? 0) - (totals.get(a.id) ?? 0) : 0) || a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
 	const maximum = Math.max(0, ...seats.flatMap((from) => seats.map((to) => from.id === to.id ? 0 : flow.value(from.id, to.id) ?? 0)));
@@ -9338,7 +9338,7 @@ function exchangeCard(doc, state) {
 		scroll.removeEventListener("scroll", sync);
 	});
 	viewport.append(scroll, edge);
-	return card("digest-exchange", "Messages between seats", [el$1("p", "digest-subtitle", `Talk and reply messages · ${doc.since}`), viewport]);
+	return card$1("digest-exchange", "Messages between seats", [el$1("p", "digest-subtitle", `Talk and reply messages · ${doc.since}`), viewport]);
 }
 function messageName(text) {
 	const label = el$1("span", "digest-message-name", text);
@@ -9355,7 +9355,7 @@ function savingsCard(report) {
 	if (!savings.document) {
 		const why = el$1("p", "usage-note");
 		notAvailable(why, savings.unavailable ?? "What Digest saved is not available.");
-		return card(id, title, [why], { subtitle });
+		return card$1(id, title, [why], { subtitle });
 	}
 	const view = savingsView(savings.document);
 	const body = [];
@@ -9404,7 +9404,7 @@ function savingsCard(report) {
 		body.push(scroll);
 	}
 	body.push(el$1("p", "usage-note", `Measured counts only messages that arrived while their member was idle; the upper bound counts every held message as its own wake-up. Unknown is never counted as zero.${view.pricing ? ` ${view.pricing}` : ""}`));
-	return card(id, title, body, { subtitle });
+	return card$1(id, title, body, { subtitle });
 }
 /** The sources the usage read does not carry yet, one line each, with the method below. */
 function coverageCard() {
@@ -9440,7 +9440,7 @@ function coverageCard() {
 	const command = el$1("div", "digest-method-command");
 	command.append(el$1("span", void 0, "Current data on your machine:"), el$1("code", void 0, "tmt digest usage report"));
 	method.append(command);
-	return card("digest-missing", "Data coverage", [list, method]);
+	return card$1("digest-missing", "Data coverage", [list, method]);
 }
 /** What a report shows, without the read's own clock: a refresh that changed nothing repaints nothing. */
 function fingerprint(report) {
@@ -16066,7 +16066,7 @@ function colabLoad(answer) {
 	if (!colab) return void 0;
 	return moduleLoad(colab.rail.path, colab.entry, location.href, COLAB_ENTRY);
 }
-function message(slot, title, text, link) {
+function message(slot, title, text, link, status) {
 	const main = document.createElement("section");
 	main.className = "tmt-page";
 	const heading = document.createElement("h2");
@@ -16074,6 +16074,13 @@ function message(slot, title, text, link) {
 	const body = document.createElement("p");
 	body.textContent = text;
 	main.append(heading, body);
+	if (status) {
+		const line = document.createElement("p");
+		line.className = "usage-note";
+		line.setAttribute("role", "status");
+		line.textContent = status;
+		main.append(line);
+	}
 	if (link) {
 		const open = document.createElement("p");
 		const anchor = document.createElement("a");
@@ -16085,31 +16092,238 @@ function message(slot, title, text, link) {
 	slot.main.replaceChildren(main);
 	setRouteTitle(slot, title);
 }
+/** The first wait before a card tries its module again, and the longest (#6810). */
+var RETRY_FIRST_MS = 2e3;
+var RETRY_CAP_MS = 3e4;
+/**
+* Try `attempt` again while the page is visible until it returns true or `signal` aborts: one
+* attempt at a time, first after `RETRY_FIRST_MS`, the wait doubling to `RETRY_CAP_MS`. A hidden
+* page tries nothing; showing it again tries at once. No attempt limit: the cap keeps the cost
+* at one small read a half minute per tab.
+*/
+function retryWhileVisible(attempt, signal) {
+	let wait = RETRY_FIRST_MS;
+	let timer;
+	let running = false;
+	const schedule = () => {
+		clearTimeout(timer);
+		if (!signal.aborted) timer = setTimeout(run, wait);
+	};
+	const run = async () => {
+		clearTimeout(timer);
+		if (running || signal.aborted || document.visibilityState !== "visible") return;
+		running = true;
+		let done = false;
+		try {
+			done = await attempt();
+		} catch {
+			done = false;
+		} finally {
+			running = false;
+		}
+		if (done || signal.aborted) return;
+		wait = Math.min(wait * 2, RETRY_CAP_MS);
+		schedule();
+	};
+	document.addEventListener("visibilitychange", () => document.visibilityState === "visible" ? void run() : clearTimeout(timer), { signal });
+	signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+	schedule();
+}
+/** Entries whose import failed in this document. Chromium keeps a failed module import for its
+* URL, so the same document never loads one again; only a new document can (#6810). */
+var failedEntries = /* @__PURE__ */ new Set();
+/** Entries this document loaded: a module that ran here may hold what a reload would drop. */
+var loadedEntries = /* @__PURE__ */ new Set();
+/** The entry this tab reloaded for once it answered again: a failure right after it is final. */
+var RELOADED_KEY = "tmt-module-reloaded";
+function reloadedFor(entry) {
+	try {
+		return sessionStorage.getItem(RELOADED_KEY) === entry;
+	} catch {
+		return false;
+	}
+}
+function markReload(entry) {
+	try {
+		if (entry) sessionStorage.setItem(RELOADED_KEY, entry);
+		else sessionStorage.removeItem(RELOADED_KEY);
+		return true;
+	} catch {
+		return false;
+	}
+}
+/** Whether the entry answers now, read past every cache. */
+async function answers(entry) {
+	try {
+		return (await fetch(entry, { cache: "no-store" })).ok;
+	} catch {
+		return false;
+	}
+}
+/** The answer read now, never a remembered one: a door that restarted is reopened first. */
+async function describedNow(select) {
+	let answer = await started?.redescribe();
+	if (!answer && await reopened()) answer = await started?.redescribe();
+	return {
+		answer,
+		load: select(answer)
+	};
+}
+/** The card for a route that cannot load its module, and whether it waits for the module. */
+function card(title, answer, load) {
+	const link = load?.link ? {
+		href: load.link,
+		label: `Open ${title}`
+	} : void 0;
+	if (load?.entry) return {
+		retry: true,
+		text: title === "Colab" ? "Colab could not start here. It may have stopped on your machine." : `${title} could not start here. Its extension may have stopped on your machine.`,
+		status: `${title} is not answering yet. Trying again…`,
+		link
+	};
+	if (load) return {
+		retry: false,
+		text: `${title} could not be opened here.`,
+		link,
+		status: void 0
+	};
+	if (answer) return {
+		retry: true,
+		text: title === "Colab" ? "Colab is not running on your machine. Run tmt colab serve there." : `${title} is not available from its extension. Start or update it on your machine.`,
+		status: `Waiting for ${title} to start. Trying again…`,
+		link: void 0
+	};
+	return {
+		retry: false,
+		text: `Pair this browser with Remote to open ${title}. On the machine that runs Remote, run tmt remote pair.`,
+		link: {
+			href: "/remote/",
+			label: "Pair this browser"
+		},
+		status: void 0
+	};
+}
+/**
+* #6810: a card that waits for its module. While the page is visible it reads the answer again,
+* then imports the entry, and the module mounts in the card's place. An entry that already failed
+* in this document is only fetched: when it answers, the document reloads once and loads it anew.
+* A card that needs a person (pairing, a module not loadable here) stops.
+*/
+function waitingCard(title, select, shown) {
+	return { mount(slot) {
+		const stop = new AbortController();
+		let inner;
+		let released = false;
+		const mounted = { release() {
+			released = true;
+			stop.abort();
+			inner?.release();
+		} };
+		let painted = "";
+		const paint = (view) => {
+			if (painted === view.text) return;
+			painted = view.text;
+			message(slot, title, view.text, view.link, view.status);
+		};
+		paint(shown);
+		retryWhileVisible(async () => {
+			const { answer, load } = await describedNow(select);
+			if (stop.signal.aborted) return true;
+			const view = card(title, answer, load);
+			if (!view.retry) {
+				paint(view);
+				return true;
+			}
+			const entry = load.entry;
+			if (failedEntries.has(entry)) {
+				if (!await answers(entry)) {
+					markReload(void 0);
+					return false;
+				}
+				if (stop.signal.aborted) return true;
+				if (reloadedFor(entry)) {
+					markReload(void 0);
+					paint({
+						retry: false,
+						text: `${title} could not start here, even after this page reloaded once.`,
+						link: view.link,
+						status: void 0
+					});
+					return true;
+				}
+				if (loadedEntries.size || !markReload(entry)) {
+					paint({
+						retry: false,
+						text: `${title} is answering again. Reload this page to open it.`,
+						link: view.link,
+						status: void 0
+					});
+					return true;
+				}
+				location.reload();
+				return true;
+			}
+			let module;
+			try {
+				module = await import(
+					/* @vite-ignore */
+					entry
+);
+				loadedEntries.add(entry);
+			} catch {
+				failedEntries.add(entry);
+				if (!stop.signal.aborted) paint(view);
+				return false;
+			}
+			if (stop.signal.aborted) return true;
+			stop.abort();
+			let given;
+			try {
+				given = await module.mount(slot);
+			} catch {
+				painted = "";
+				paint({
+					retry: false,
+					text: `${title} could not start here.`,
+					link: view.link,
+					status: void 0
+				});
+				return true;
+			}
+			inner = typeof given === "function" ? { release: given } : given ?? void 0;
+			if (released) {
+				inner?.release();
+				return true;
+			}
+			if (inner?.location) mounted.location = () => inner.location();
+			if (inner?.suspend) {
+				mounted.suspend = () => inner.suspend();
+				mounted.resume = (next) => inner.resume?.(next);
+			}
+			return true;
+		}, stop.signal);
+		return mounted;
+	} };
+}
 /** The same owner-session/reopen lifetime loads Colab and its described Design module. */
 function colabRouteLoad(title, select) {
 	return async (_remembered, settled) => {
 		let answer = await settled();
 		if (!answer && await reopened()) answer = await started?.redescribe();
 		const load = select(answer);
-		const entry = load?.entry;
-		if (!entry) return { mount: (slot) => load ? message(slot, title, `${title} could not be opened here.`, load.link ? {
-			href: load.link,
-			label: `Open ${title}`
-		} : void 0) : answer ? message(slot, title, title === "Colab" ? "Colab is not running on your machine. Run tmt colab serve there, then reload." : `${title} is not available from its extension. Start or update it on your machine, then reload.`) : message(slot, title, `Pair this browser with Remote to open ${title}. On the machine that runs Remote, run tmt remote pair.`, {
-			href: "/remote/",
-			label: "Pair this browser"
-		}) };
-		try {
-			return await import(
+		if (load?.entry) try {
+			const module = await import(
 				/* @vite-ignore */
-				entry
+				load.entry
 );
+			loadedEntries.add(load.entry);
+			markReload(void 0);
+			return module;
 		} catch {
-			return { mount: (slot) => message(slot, title, title === "Colab" ? "Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page." : `${title} could not start here. Its extension may have stopped on your machine. Reload to try again.`, load.link ? {
-				href: load.link,
-				label: `Open ${title}`
-			} : void 0) };
+			failedEntries.add(load.entry);
 		}
+		const shown = card(title, answer, load);
+		return shown.retry ? waitingCard(title, select, shown) : { mount: (slot) => message(slot, title, shown.text, shown.link) };
 	};
 }
 var routes = [
