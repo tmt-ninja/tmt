@@ -10223,7 +10223,13 @@ function orchestrationView(connect, now = () => Date.now()) {
 			}
 			return [item];
 		}).flat());
-		if (!view.plans.length) legend.replaceChildren(el("li", void 0, "Base only: no plans yet. `tmt orch plan add --help`"));
+		if (!view.plans.length) {
+			const item = el("li");
+			const help = el("span");
+			notAvailable(help, "Base only: no plans yet. `tmt orch plan add --help`");
+			item.append(help);
+			legend.replaceChildren(item);
+		}
 	}
 	function cellText(row, column) {
 		if (row.identityId === column.identityId) return {
@@ -12399,6 +12405,7 @@ function sessionChannel(shell) {
 }
 /** How many cut posts one opened channel reads in full. */
 var FULL_POSTS = 10;
+var MENTION_GUIDANCE = "Mention a member with @name.";
 /** The members a post @mentions, or the lead when it mentions none. */
 function recipients(message, channel) {
 	const named = channel.members.filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(message));
@@ -12645,7 +12652,7 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 				const target = channel.room;
 				const to = recipients(message, channel);
 				if (!to.length) {
-					sendNote.textContent = `${name} has no lead to take a message. Mention a member with @name.`;
+					sendNote.textContent = MENTION_GUIDANCE;
 					sendNote.hidden = false;
 					return;
 				}
@@ -12709,7 +12716,8 @@ function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => 
 			for (const item of page.items) items.set(item.requestId, item);
 			if (before || olderCursor === void 0) olderCursor = page.nextBefore;
 			emptyTitle.textContent = "No channel messages yet";
-			emptyText.textContent = `Post to the lead, or @mention members. Their replies show under your post.`;
+			const guidance = channel?.lead ? "Post to the lead, or @mention members." : MENTION_GUIDANCE;
+			emptyText.textContent = `${guidance} Their replies show under your post.`;
 			draw();
 			now.listed(mark);
 			await readReplies(ticket);

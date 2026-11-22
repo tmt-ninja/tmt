@@ -62,6 +62,7 @@ export interface ChannelRoom {
 
 /** How many cut posts one opened channel reads in full. */
 const FULL_POSTS = 10;
+const MENTION_GUIDANCE = 'Mention a member with @name.';
 /** The members a post @mentions, or the lead when it mentions none. */
 export function recipients(message: string, channel: ChannelRoom): { id: string; name: string }[] {
   const named = channel.members.filter((member) =>
@@ -404,7 +405,7 @@ export function channelStream(
         const target = channel.room;
         const to = recipients(message, channel);
         if (!to.length) {
-          sendNote.textContent = `${name} has no lead to take a message. Mention a member with @name.`;
+          sendNote.textContent = MENTION_GUIDANCE;
           sendNote.hidden = false;
           return;
         }
@@ -484,7 +485,8 @@ export function channelStream(
       for (const item of page.items) items.set(item.requestId, item);
       if (before || olderCursor === undefined) olderCursor = page.nextBefore;
       emptyTitle.textContent = 'No channel messages yet';
-      emptyText.textContent = `Post to the lead, or @mention members. Their replies show under your post.`;
+      const guidance = channel?.lead ? 'Post to the lead, or @mention members.' : MENTION_GUIDANCE;
+      emptyText.textContent = `${guidance} Their replies show under your post.`;
       draw();
       void now.listed(mark);
       await readReplies(ticket);

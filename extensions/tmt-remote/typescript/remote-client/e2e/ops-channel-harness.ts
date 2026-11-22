@@ -54,6 +54,7 @@ declare global {
     channelRelease(): void;
     orchCalls: { kind: 'read' | 'write'; input: Record<string, unknown> }[];
     orchRefuseApply?: string;
+    orchEmpty?: boolean;
     /** Provider forms (#6445): what Core lists, its cursor, and how answers and checks end. */
     formsList: ProviderForm[];
     formsCursor: number;
@@ -428,10 +429,11 @@ window.orchCalls = [];
 const orchestration = {
   async read(input: Record<string, unknown>) {
     window.orchCalls.push({ kind: 'read', input: structuredClone(input) });
+    const plans = window.orchEmpty ? [] : orchPlans;
     if (input.view === 'plans')
       return {
         configurationRevision: 3,
-        plans: orchPlans.map((plan) => ({ ...plan, plansViewOnly: 'retained' })),
+        plans: plans.map((plan) => ({ ...plan, plansViewOnly: 'retained' })),
       };
     if (input.view === 'overview') {
       const days = typeof input.rangeDays === 'number' ? input.rangeDays : 1;
@@ -439,7 +441,7 @@ const orchestration = {
       const start = DAY0;
       const end = start + days * DAY;
       const selected = typeof input.plan === 'string' ? input.plan : null;
-      const shown = orchPlans.filter((plan) => !selected || plan.id === selected);
+      const shown = plans.filter((plan) => !selected || plan.id === selected);
       const edges = [
         ...new Set([
           start,
@@ -465,7 +467,7 @@ const orchestration = {
         timeZone: 'Asia/Tokyo',
         range: { startMs: start, endMs: end },
         selectedPlanId: selected,
-        plans: orchPlans,
+        plans,
         members: matching(input.memberQuery).map((m) => ({
           identityId: m.identityId,
           name: m.name,

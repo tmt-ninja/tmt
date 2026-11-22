@@ -5,6 +5,7 @@
 import { browserUiClasses as c } from '@tmt/browser-ui/static';
 import { createIcon } from '@tmt/browser-ui/glyph';
 import { el, sentence } from './ops-parts.js';
+import { notAvailable } from './not-available.js';
 import {
   OrchestrationRefused,
   applyInput,
@@ -487,10 +488,13 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
         })
         .flat(),
     );
-    if (!view.plans.length)
-      legend.replaceChildren(
-        el('li', undefined, 'Base only: no plans yet. `tmt orch plan add --help`'),
-      );
+    if (!view.plans.length) {
+      const item = el('li');
+      const help = el('span');
+      notAvailable(help, 'Base only: no plans yet. `tmt orch plan add --help`');
+      item.append(help);
+      legend.replaceChildren(item);
+    }
   }
 
   function cellText(
