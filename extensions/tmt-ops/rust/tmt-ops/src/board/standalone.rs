@@ -114,6 +114,7 @@ pub(super) struct Controller {
     scroll: usize,
     scroll_position: std::cell::Cell<usize>,
     scroll_end: std::cell::Cell<usize>,
+    live_viewport: std::cell::Cell<(u16, u16)>,
     follow_output: bool,
     live: String,
     run_id: u64,
@@ -208,6 +209,7 @@ impl Controller {
         self.scroll = 0;
         self.scroll_position.set(0);
         self.scroll_end.set(0);
+        self.live_viewport.set((0, 0));
         self.follow_output = false;
         self.live.clear();
         self.notice = None;
@@ -262,13 +264,24 @@ impl Controller {
     }
 
     fn scroll_output(&mut self, step: isize) {
-        let end = self.scroll_end.get();
-        self.scroll = self
-            .scroll_position
-            .get()
-            .saturating_add_signed(step)
-            .min(end);
-        self.follow_output = self.running() && step > 0 && self.scroll == end;
+        let running = self.running();
+        let end = if running {
+            let (width, height) = self.live_viewport.get();
+            // Progress can arrive before the next paint. Use the fresh tail
+            // with the viewport's last painted geometry.
+            wrapped_output(self.live.lines(), width)
+                .count()
+                .saturating_sub(height as usize)
+        } else {
+            self.scroll_end.get()
+        };
+        let start = if running && !self.follow_output {
+            self.scroll
+        } else {
+            self.scroll_position.get()
+        };
+        self.scroll = start.min(end).saturating_add_signed(step).min(end);
+        self.follow_output = running && step > 0 && self.scroll == end;
     }
 
     fn choose(&mut self, index: usize) -> Effect {
@@ -566,9 +579,10 @@ impl Controller {
                 content.y += 1;
                 content.height -= 1;
             }
-            wrapped_output(self.live.lines(), content.width)
+            self.live_viewport.set((content.width, content.height));
+            wrapped_output(self.live.lines(), content.width).collect()
         } else if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) {
-            wrapped_output(rows.iter().map(String::as_str), content.width)
+            wrapped_output(rows.iter().map(String::as_str), content.width).collect()
         } else {
             rows
         };
@@ -684,10 +698,11 @@ impl Controller {
     }
 }
 
-fn wrapped_output<'a>(lines: impl Iterator<Item = &'a str>, width: u16) -> Vec<String> {
-    lines
-        .flat_map(|line| tmt_tui::text::lines(line, width, tmt_tui::style::TextFlow::Wrap))
-        .collect()
+fn wrapped_output<'a>(
+    lines: impl Iterator<Item = &'a str>,
+    width: u16,
+) -> impl Iterator<Item = String> {
+    lines.flat_map(move |line| tmt_tui::text::lines(line, width, tmt_tui::style::TextFlow::Wrap))
 }
 
 fn command_title(command: &str) -> String {

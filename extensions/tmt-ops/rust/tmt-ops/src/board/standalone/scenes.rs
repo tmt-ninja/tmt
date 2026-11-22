@@ -212,11 +212,23 @@ fn running_output_follows_the_tail_until_scrolled_then_yields_to_the_final_resul
     let tail = paint(&mut app);
     assert!(tail.contains("live row 25"));
     assert!(!tail.contains("stale row"));
+    press(&mut app, KeyCode::PageUp);
+    assert!(!paint(&mut app).contains("live row 25"));
+    // Output is delivered before the next paint, while the held viewport still
+    // has its old end. One page forward must stop at row 25.
+    app.standalone.progress(id, "live row 26\n", false);
+    press(&mut app, KeyCode::PageDown);
+    let advanced = paint(&mut app);
+    assert!(advanced.contains("live row 25"));
+    assert!(!advanced.contains("live row 26"));
+    press(&mut app, KeyCode::Down);
+    app.standalone.progress(id, "live row 27\n", false);
+    assert!(paint(&mut app).contains("live row 27"));
     app.standalone_completed(Completed::Run(id, Ok(result())));
     let finished = paint(&mut app);
     assert!(finished.contains("Keep in list") && finished.contains("Run again"));
     assert!(finished.contains("test result: ok. 12 passed; 0 failed"));
-    assert!(!finished.contains("live row 25"));
+    assert!(!finished.contains("live row 27"));
 }
 
 #[test]

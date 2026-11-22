@@ -32,10 +32,6 @@ impl Output {
         match progress {
             StandaloneProgress::Legacy => pending.legacy = true,
             StandaloneProgress::Text { stderr, text } => {
-                let text = crate::board::notes::sanitize(text);
-                if text.is_empty() {
-                    return false;
-                }
                 if pending.stream != Some(stderr) {
                     if pending.stream.is_some() && !pending.at_line_start {
                         pending.text.push('\n');
