@@ -183,7 +183,7 @@ fn done_buckets(
     (cells.into_iter().map(Some).collect(), scale)
 }
 
-fn saved_views<'a>(app: &'a App) -> &'a [WorkView] {
+fn saved_views(app: &App) -> &[WorkView] {
     app.workspace_snapshot()
         .map_or(&[], |snapshot| snapshot.preferences.work_views.as_slice())
 }
@@ -208,16 +208,24 @@ fn matches_view(item: &Item, filter: Option<&str>) -> bool {
     }
 }
 
-fn rows<'a>(
-    list: &'a List,
-    state: &super::State,
+struct RowInputs<'a> {
     now: i64,
-    zone: &jiff::tz::TimeZone,
+    zone: &'a jiff::tz::TimeZone,
     width: usize,
-    roster: Option<&crate::board::workspace::OpsRoster>,
-    query: &str,
-    view_filter: Option<&str>,
-) -> Vec<Row<'a>> {
+    roster: Option<&'a crate::board::workspace::OpsRoster>,
+    query: &'a str,
+    view_filter: Option<&'a str>,
+}
+
+fn rows<'a>(list: &'a List, state: &super::State, inputs: RowInputs<'_>) -> Vec<Row<'a>> {
+    let RowInputs {
+        now,
+        zone,
+        width,
+        roster,
+        query,
+        view_filter,
+    } = inputs;
     let filter = state.project.as_deref();
     let trimmed = query.trim();
     let mut rows = Vec::new();
@@ -1125,12 +1133,14 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let rows = rows(
         list,
         state,
-        now,
-        zone,
-        width,
-        roster,
-        app.search.as_str(),
-        view_filter,
+        RowInputs {
+            now,
+            zone,
+            width,
+            roster,
+            query: app.search.as_str(),
+            view_filter,
+        },
     );
     let selected_row = state.selected.as_ref().and_then(|key| {
         rows.iter()
@@ -1506,12 +1516,14 @@ impl App {
         let rows = rows(
             list,
             state,
-            crate::status::now_ms() as i64,
-            zone,
-            0,
-            roster,
-            &query,
-            view_filter,
+            RowInputs {
+                now: crate::status::now_ms() as i64,
+                zone,
+                width: 0,
+                roster,
+                query: &query,
+                view_filter,
+            },
         );
         let items: Vec<_> = rows.iter().filter(|row| row.selection.is_some()).collect();
         let index = state
