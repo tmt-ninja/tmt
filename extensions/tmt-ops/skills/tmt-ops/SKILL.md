@@ -1006,7 +1006,7 @@ opens a note to its observed squad lead with the member named, even when a reque
 is pending. Both actions follow the selection while the conversation is focused.
 A missing lead or Common pool membership shows a notice instead of opening a
 composer to another recipient. Authored bindings retain precedence.
-Press `!` outside editors and typing terminals to open Run command. Tab chooses
+Press `!` or `！` outside editors and typing terminals to open Run command. Tab chooses
 the directory and Up recalls this board session's commands. Esc hides a running
 command and Ctrl-C requests Stop. Keep in list retains the result under Local or
 the confirmed member. On a kept row, Enter opens output, `r` confirms a rerun,

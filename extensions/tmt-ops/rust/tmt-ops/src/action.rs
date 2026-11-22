@@ -454,6 +454,7 @@ pub fn binding_events() -> Vec<String> {
     let mut events = std::collections::BTreeSet::new();
     events.extend(NAMED.iter().map(|name| (*name).to_owned()));
     events.extend((b'!'..=b'~').map(|byte| char::from(byte).to_string()));
+    events.insert("！".into());
     events.extend((1..=12).map(|n| format!("f{n}")));
     events.extend((b'a'..=b'z').map(|byte| format!("ctrl-{}", char::from(byte))));
     events.extend((b'!'..=b'~').map(|byte| format!("alt-{}", char::from(byte))));
@@ -467,7 +468,7 @@ pub fn binding_events() -> Vec<String> {
 /// Key and mouse events a binding may name. Ctrl-C always quits.
 pub fn valid_event(event: &str) -> bool {
     let mut chars = event.chars();
-    let single = matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_graphic());
+    let single = matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_graphic() || c == '！');
     let function = event
         .strip_prefix('f')
         .and_then(|n| n.parse::<u8>().ok())

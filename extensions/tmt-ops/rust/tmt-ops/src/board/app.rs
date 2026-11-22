@@ -1106,6 +1106,7 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
     let name = match key.code {
         KeyCode::Char(' ') => "space".into(),
+        KeyCode::Char('！') if !modified => "！".into(),
         KeyCode::Char(character) if character.is_ascii_graphic() => {
             if modified {
                 character.to_ascii_lowercase().to_string()
@@ -7665,6 +7666,57 @@ mod token_window_tests {
 #[cfg(test)]
 mod standalone_command_tests {
     use super::*;
+
+    #[test]
+    fn run_command_accepts_both_keys_without_stealing_editor_text() {
+        use crate::board::shell::{OpsInputOwner, OpsTab, RightTab};
+        let press = |app: &mut App, code| app.key(KeyEvent::new(code, KeyModifiers::NONE));
+        for (tab, focus, owner) in [
+            (OpsTab::Agents, 0, OpsInputOwner::List),
+            (OpsTab::Work, 0, OpsInputOwner::List),
+            (OpsTab::Agents, 1, OpsInputOwner::Reader),
+        ] {
+            let mut app = super::workspace::tests::board();
+            app.standalone.launch_directory = Some("/work".into());
+            app.shell.tab = tab;
+            app.right_tab = RightTab::Talk;
+            app.focus = focus;
+            assert_eq!(app.workspace_input_owner(), owner);
+            let ascii = press(&mut app, KeyCode::Char('!'));
+            assert_eq!(
+                app.overlay(),
+                Some(Overlay::Standalone),
+                "{tab:?}/{owner:?}"
+            );
+            press(&mut app, KeyCode::Esc);
+            assert_eq!(app.overlay(), None);
+            assert_eq!(
+                press(&mut app, KeyCode::Char('！')),
+                ascii,
+                "{tab:?}/{owner:?}"
+            );
+            assert_eq!(
+                app.overlay(),
+                Some(Overlay::Standalone),
+                "{tab:?}/{owner:?}"
+            );
+        }
+
+        let mut talk = super::workspace::tests::board();
+        press(&mut talk, KeyCode::Enter);
+        for ch in "literal ！".chars() {
+            press(&mut talk, KeyCode::Char(ch));
+        }
+        assert_ne!(talk.overlay(), Some(Overlay::Standalone));
+        assert_eq!(talk.input.as_ref().unwrap().text.as_str(), "literal ！");
+
+        let mut search = super::workspace::tests::board();
+        press(&mut search, KeyCode::Char('/'));
+        press(&mut search, KeyCode::Char('！'));
+        assert!(search.searching);
+        assert_eq!(search.search.as_str(), "！");
+        assert_ne!(search.overlay(), Some(Overlay::Standalone));
+    }
 
     #[test]
     fn run_command_shows_result_before_keep_is_available() {
