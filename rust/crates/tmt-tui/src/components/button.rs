@@ -5,7 +5,7 @@ use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 use tmt_cli_style::{
     Depth, Role, Theme,
     grid::Align,
-    theme::screen::{self, ChipKind, ChipState},
+    theme::screen::{self, ChipKind, ChipState, Fill},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,7 +50,7 @@ impl<'a> Button<'a> {
         self
     }
 
-    /// A destructive action, such as Delete: its label takes the `blocked` role.
+    /// A destructive action, such as Delete, takes the `blocked` role.
     pub fn destructive(mut self, destructive: bool) -> Self {
         self.destructive = destructive;
         self
@@ -97,10 +97,21 @@ impl ButtonRow<'_> {
             return style;
         }
         let chip = screen::chip(self.theme, ChipKind::Secondary, state, self.depth);
-        match screen::style(self.theme, Role::Blocked, self.depth).fg {
-            Some(red) if button.destructive && state != ChipState::Disabled => chip.fg(red),
-            _ => chip,
+        if button.destructive
+            && state != ChipState::Disabled
+            && let Some(ink) = screen::style(self.theme, Role::Blocked, self.depth).fg
+        {
+            if state == ChipState::Hot {
+                // The error fill resolves a contrasting label without relying
+                // on error-colored text over the neutral selection surface.
+                let fill = screen::fill(self.theme, Role::Blocked, self.depth, Fill::Solid);
+                if fill.fg.is_some() {
+                    return fill;
+                }
+            }
+            return chip.fg(ink);
         }
+        chip
     }
 
     /// Fit a priority-ordered prefix of whole buttons; a clipped one is `None`.
