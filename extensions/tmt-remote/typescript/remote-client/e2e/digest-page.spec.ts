@@ -365,7 +365,7 @@ test('the sample report paints every card once, in the reference order, with the
   page,
 }) => {
   const errors = await open(page);
-  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(5);
+  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(6);
   // The sample has partial seats, so the coverage banner leads, ahead of every card (#6751 F).
   await expect(page.locator('#digest-sections > :first-child')).toHaveId('digest-coverage');
   await expect(page.locator('#digest-coverage h2')).toHaveText(
@@ -377,6 +377,7 @@ test('the sample report paints every card once, in the reference order, with the
     'Provider usage',
     'Token usage',
     'Messages between seats',
+    'What Digest saved',
     'Data coverage',
   ]);
   await expect(page.locator('#usage-badge')).toHaveText('Sample data');
@@ -619,6 +620,12 @@ for (const [label, query] of [
   ['sample', ''],
   ['24-seats', '?seats=24'],
   ['24-seats-one-provider', '?seats=24&one-provider'],
+  ['savings-partial', '?savings=partial'],
+  ['savings-unavailable', '?savings=unavailable'],
+  ['savings-long-30d', '?savings=long'],
+  ['savings-mixed', '?savings=mixed'],
+  ['savings-unpriced', '?savings=unpriced'],
+  ['savings-older', '?savings=older'],
 ] as const)
   for (const scheme of ['light', 'dark'] as const)
     for (const width of [1440, 390])
@@ -627,10 +634,17 @@ for (const [label, query] of [
         test.skip(!dir, 'captures only when DIGEST_CAPTURE_DIR is set');
         await page.emulateMedia({ colorScheme: scheme });
         const errors = await openShell(page, { width, height: 900 }, query);
+        if (label.endsWith('-30d')) {
+          await page.locator('#usage-ranges [data-range="30d"]').click();
+          await expect(page.locator('#digest-savings')).toContainText('release-train');
+        }
         await page.waitForTimeout(300);
         await page.screenshot({
           path: path.join(dir!, `digest-${label}-${scheme}-${width}.png`),
           fullPage: true,
+        });
+        await page.locator('#digest-savings').screenshot({
+          path: path.join(dir!, `digest-${label}-savings-${scheme}-${width}.png`),
         });
         expect(errors).toEqual([]);
       });
@@ -638,7 +652,7 @@ for (const [label, query] of [
 for (const width of [320, 390, 768, 1440]) {
   test(`one scroll at ${width}px: nothing makes the page scroll sideways`, async ({ page }) => {
     await open(page, '', { width, height: 900 });
-    await expect(page.locator('#digest-sections .digest-card')).toHaveCount(5);
+    await expect(page.locator('#digest-sections .digest-card')).toHaveCount(6);
     await page.waitForTimeout(200);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -923,6 +937,90 @@ test('unavailable seats make the reported total a lower bound and missing allowa
   await expect(page.locator('.digest-provider')).toHaveCount(0);
   await expect(page.locator('.digest-provider-group')).toHaveCount(0);
   await expect(page.locator('#digest-allowance')).not.toContainText('No weekly window');
+});
+
+test('what Digest saved follows the range and shows the figures the report gave (#6751 D)', async ({
+  page,
+}) => {
+  const errors = await open(page);
+  const card = page.locator('#digest-savings');
+  await expect(card.locator('.tmt-ui-status-tile-label')).toHaveText([
+    'Wake-ups saved (measured)',
+    'Upper bound',
+    'Messages delivered',
+    'Avoided cost (estimate)',
+  ]);
+  const delivered = card.locator('.tmt-ui-status-tile-value').nth(2);
+  // The sample's five members over a day: 78 messages in 31 deliveries.
+  await expect(delivered).toHaveText('78 in 31');
+  await expect(card.locator('tbody tr')).toHaveCount(5);
+  await expect(card.locator('tbody th').first()).toContainText('core-1');
+  await expect(card.locator('.tmt-ui-status-tile-value, td', { hasText: 'Unknown' })).toHaveCount(
+    0,
+  );
+  await expect(card).toContainText('price table 2026-11-15 (built-in)');
+  // The page's range switch is the card's: a week reads the week's report.
+  await page.locator('#usage-ranges [data-range="7d"]').click();
+  await expect(delivered).toHaveText('546 in 206');
+  expect(errors).toEqual([]);
+});
+
+test('what Digest saved states partial coverage and shows an unknown figure as Unknown, never 0', async ({
+  page,
+}) => {
+  await open(page, '?savings=partial');
+  const card = page.locator('#digest-savings');
+  await expect(card.locator('.digest-savings-coverage')).toHaveText(
+    '1 member covers only part of this range; 1 member has no coverage record. Figures are lower bounds.',
+  );
+  const values = card.locator('.tmt-ui-status-tile-value');
+  await expect(values.first()).toHaveText('Unknown');
+  const unmeasured = card.locator('tbody tr', { hasText: 'feat-1' }).locator('td');
+  await expect(unmeasured.nth(2)).toHaveText('Unknown');
+  await expect(unmeasured.nth(4)).toHaveText('Unknown');
+  await expect(card.locator('tbody tr', { hasText: 'ux-1' }).locator('td').last()).toHaveText(
+    'Partial',
+  );
+  await expect(card.locator('tbody tr', { hasText: 'remote-1' }).locator('td').last()).toHaveText(
+    'No record',
+  );
+});
+
+test('the avoided cost covers only priced members and says which models had no price', async ({
+  page,
+}) => {
+  await open(page, '?savings=mixed');
+  const cost = page.locator('#digest-savings .tmt-ui-status-tile').last();
+  // tmt-lead's and remote-1's own estimates, never the report's total over all five members.
+  await expect(cost.locator('.tmt-ui-status-tile-value')).toHaveText('$0.1505');
+  await expect(cost.locator('.digest-cost-note')).toHaveText(
+    'Covers 2 of 5 members; no price for claude-fable-5-2, gpt-6.2-astra, gpt-6.2-sol.',
+  );
+  await open(page, '?savings=unpriced');
+  await expect(cost.locator('.tmt-ui-status-tile-value')).toHaveText('Unknown');
+  await expect(cost.locator('.digest-cost-note')).toHaveText(
+    'Cost unknown: no price for claude-fable-5-2, gpt-6-luna, gpt-6.2-astra, gpt-6.2-sol.',
+  );
+  // An older Digest's total stretched a median over unpriced members: never shown.
+  await open(page, '?savings=older');
+  await expect(cost.locator('.tmt-ui-status-tile-value')).toHaveText('Unknown');
+  await expect(cost.locator('.digest-cost-note')).toHaveText(
+    'Cost unknown: Digest on your machine does not say which members it covers. Upgrade TMT to see it.',
+  );
+});
+
+test('an unreadable savings read says why in its own card and leaves the usage report', async ({
+  page,
+}) => {
+  await open(page, '?savings=unavailable');
+  const card = page.locator('#digest-savings');
+  await expect(card.locator('.usage-note')).toHaveText(
+    'Your machine could not read what Digest saved. Run tmt digest decisions --report in a terminal to see it.',
+  );
+  await expect(card.locator('.usage-note code')).toHaveText('tmt digest decisions --report');
+  await expect(card.locator('table, .tmt-ui-status-tile')).toHaveCount(0);
+  await expect(page.locator('#digest-tokens')).toBeVisible();
+  await expect(page.locator('#usage-note')).not.toContainText('Digest saved');
 });
 
 test('range keyboard focus follows the selection immediately and late reports cannot move it back', async ({

@@ -63,8 +63,9 @@ pub fn execute(since: Since, mode: Mode) -> Result<Value, Error> {
             })
         })
         .transpose()?;
-    // Prices are fetched while Core answers; a failed fetch falls back to the cache or built-in.
-    let lookup = crate::pricing::Lookup::start(&root, now);
+    // A report is a read: a valid cached table, else the built-in one. It never fetches or
+    // writes the cache; Status is the only refresher (#6752).
+    let prices = crate::pricing::Resolved::read_only(&root);
     let wake_turns = wake_turns(&core, from, now);
     let (settlements, decisions, coverage) = match &mut store {
         Some(store) => (
@@ -84,7 +85,7 @@ pub fn execute(since: Since, mode: Mode) -> Result<Value, Error> {
         names: &names,
         recompute,
         wake_turns: wake_turns.as_deref(),
-        prices: lookup.finish().table(),
+        prices: &prices,
     }))
 }
 

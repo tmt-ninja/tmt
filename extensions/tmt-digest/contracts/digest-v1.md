@@ -271,12 +271,23 @@ turns that could be priced: each model's input tokens at its listed rate in the
 file and are not priced). A model without a price row is `no_price` and a share no model
 claims is `unattributed`; neither is ever given a cost, and `medianUsdMicros` is null with
 that `reason` when nothing could be priced (`no_measured_turn` with no measured turn).
-`avoidedCost` is the one figure labelled `estimate: true`: `measuredSaved` times that
-median, or null with its reason. When Core cannot answer `digest.wakeTurns`, `wakeUps` is
-null and `avoidedCost.reason` is `wake_turns_unavailable`; nothing is shown as zero. The
-document's `wakeMethod` states each rule, the price table's version and basis, and the
-limits: 5-second bucket edges, no reasoning tokens, unknown phases and no measured turns
-before the feature.
+`avoidedCost` is the one figure labelled `estimate: true`. A member's is `measuredSaved`
+times that median only when every measured wake-up had a price; otherwise it is null with
+its reason and `unpricedModels`, the models without a price row, so a median of some turns
+is never stretched over the rest. The total's is not a median over everyone: `usdMicros` is
+the sum of those members' own costs, `covered` lists each of them (`id`, `name`,
+`measuredSaved`, `usdMicros`), and `unpriced` lists every other member with a non-zero
+`measuredSaved` (`id`, `name`, `measuredSaved`, `models`, `reason`) and no cost. With
+members to list but none priced, `usdMicros` is null (`no_price` when any lacks a price);
+with no member's saving known it is null with `no_known_arrivals`. When Core cannot answer
+`digest.wakeTurns`, `wakeUps` is null and `avoidedCost.reason` is `wake_turns_unavailable`;
+nothing is shown as zero. The
+report is a read: it prices from a valid [cached](#pricing-file) table, else the built-in
+one, and never fetches or writes the cache; `tmt digest status` is the only refresher. The
+document's `wakeMethod` states each rule; the price table in use as `pricing` (`version`,
+`asOf`, `basis`, `origin` `cached` or `built-in`, and `fetchedAtMs` for a cached table, else
+null); and the limits: 5-second bucket edges, no reasoning tokens, unknown phases and no
+measured turns before the feature.
 `messages` and `deliveries` count only delivered checklists whose membership is
 complete, so each message's arrival is known; the rest are counted in `excluded`
 (`notDelivered`, `incomplete`, `clock` for a message that arrived after its settle time),

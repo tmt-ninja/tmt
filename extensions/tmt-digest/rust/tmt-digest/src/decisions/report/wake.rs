@@ -3,7 +3,10 @@
 //! would have cost delivered one by one. Core measures tokens; only this report prices them,
 //! from its own price table, and a model without a price row stays unpriced, never guessed.
 
-use crate::{core::Error, pricing::Table};
+use crate::{
+    core::Error,
+    pricing::{Resolved, Table},
+};
 use serde_json::{Value, json};
 
 /// One ended turn that carried at least one handed-over request.
@@ -178,20 +181,36 @@ pub fn figures(turns: Option<&[&WakeTurn]>, arrivals: &Arrivals, prices: &Table)
     };
     let (mut measured, mut partial, mut costs) = (vec![], vec![], vec![]);
     let mut reason = "no_measured_turn";
+    let mut unpriced = std::collections::BTreeSet::new();
     for turn in turns {
         match (turn.measured, turn.tokens) {
             (true, Some(tokens)) => {
                 measured.push(tokens);
                 match cost(turn, prices) {
                     Ok(micros) => costs.push(micros),
-                    Err(why) if reason != "no_price" => reason = why,
-                    Err(_) => {}
+                    Err(why) => {
+                        if reason != "no_price" {
+                            reason = why;
+                        }
+                        unpriced.extend(
+                            turn.by_model
+                                .iter()
+                                .flatten()
+                                .filter(|(model, input)| {
+                                    prices.quote(model, turn.ended_at_ms, *input).is_none()
+                                })
+                                .map(|(model, _)| model.clone()),
+                        );
+                    }
                 }
             }
             (_, Some(tokens)) => partial.push(tokens),
             _ => {}
         }
     }
+    // Priced only when every measured wake-up had a price: a median of some turns is never
+    // stretched over turns whose model has none (#6794).
+    let every_turn_priced = !measured.is_empty() && costs.len() == measured.len();
     costs.sort_unstable();
     let median_cost = (!costs.is_empty()).then(|| median(&costs));
     value["wakeUps"] = json!({
@@ -204,28 +223,79 @@ pub fn figures(turns: Option<&[&WakeTurn]>, arrivals: &Arrivals, prices: &Table)
             "reason": if median_cost.is_some() { Value::Null } else { reason.into() },
         },
     });
-    value["avoidedCost"] = match (measured_saved, median_cost) {
+    value["avoidedCost"] = match (measured_saved, median_cost.filter(|_| every_turn_priced)) {
         (Some(saved), Some(cost)) => json!({
             "usdMicros": saved.saturating_mul(i64::try_from(cost).unwrap_or(i64::MAX)),
             "estimate": true,
         }),
         (None, _) => json!({"usdMicros": null, "reason": "no_known_arrivals", "estimate": true}),
-        (_, None) => json!({"usdMicros": null, "reason": reason, "estimate": true}),
+        (_, None) => json!({"usdMicros": null, "reason": reason, "estimate": true,
+            "unpricedModels": unpriced}),
     };
     value
 }
 
+/// The report's avoided cost: the sum over the members whose own cost is known, never a median
+/// stretched over members whose wake-ups had no price (#6794). Every member with a measured
+/// saving other than zero is listed as `covered`, or as `unpriced` with its saved wake-ups, the
+/// models that had no price and why, and no cost.
+pub fn total_cost(members: &[Value], turns_available: bool) -> Value {
+    if !turns_available {
+        return json!({"usdMicros": null, "reason": "wake_turns_unavailable", "estimate": true,
+            "covered": [], "unpriced": []});
+    }
+    let (mut covered, mut unpriced, mut sum, mut known) = (vec![], vec![], 0i64, false);
+    for member in members {
+        let Some(saved) = member["measuredSaved"].as_i64() else {
+            continue;
+        };
+        known = true;
+        if saved == 0 {
+            continue;
+        }
+        let cost = &member["avoidedCost"];
+        match cost["usdMicros"].as_i64() {
+            Some(micros) => {
+                sum = sum.saturating_add(micros);
+                covered.push(json!({"id": member["id"], "name": member["name"],
+                    "measuredSaved": saved, "usdMicros": micros}));
+            }
+            None => unpriced.push(json!({"id": member["id"], "name": member["name"],
+                "measuredSaved": saved,
+                "models": cost.get("unpricedModels").cloned().unwrap_or_else(|| json!([])),
+                "reason": cost["reason"]})),
+        }
+    }
+    let usd = if !known {
+        json!({"usdMicros": null, "reason": "no_known_arrivals"})
+    } else if covered.is_empty() && !unpriced.is_empty() {
+        let no_price = unpriced.iter().any(|row| row["reason"] == "no_price");
+        json!({"usdMicros": null,
+            "reason": if no_price { json!("no_price") } else { unpriced[0]["reason"].clone() }})
+    } else {
+        json!({"usdMicros": sum})
+    };
+    let mut value = json!({"estimate": true, "covered": covered, "unpriced": unpriced});
+    for (key, field) in usd.as_object().into_iter().flatten() {
+        value[key] = field.clone();
+    }
+    value
+}
+
 /// How every wake-up figure is made, stated once in the report.
-pub fn method(prices: &Table) -> Value {
+/// The rules, and the price table in use: its version, date, basis and where it came from (`cached`
+/// or `built-in`; a report never fetches), with the time a cached table was fetched.
+pub fn method(prices: &Resolved) -> Value {
     let pricing = prices.document();
     json!({
         "measuredTurn": "Core's sum of the member's own 5-second usage buckets over the first turn after a hand-over; measured only when both turn boundaries carried a usage read and continuous complete reads cover the span between them, otherwise counted as partial",
         "tokens": "input plus output tokens; reasoning tokens are not in the usage record and are not counted",
         "cost": "API-equivalent: each model's input tokens at its listed rate; a model without a price row stays unpriced (no_price), and a share no model claims stays unpriced (unattributed)",
-        "pricing": {"version": pricing["version"], "asOf": pricing["asOf"], "basis": pricing["basis"]},
+        "pricing": {"version": pricing["version"], "asOf": pricing["asOf"], "basis": pricing["basis"],
+            "origin": pricing["origin"], "fetchedAtMs": pricing["fetchedAtMs"]},
         "measuredSaved": "held messages that arrived while their member was idle, less the deliveries of those checklists; counted only for checklists whose every message has a known arrival phase; messages that arrived while it was working or waiting would have joined that turn",
         "turnsSaved": "upper bound: every held message counted as its own wake-up",
-        "avoidedCost": "estimate: measuredSaved times the member's median measured cost per wake-up",
+        "avoidedCost": "estimate: measuredSaved times the member's median measured cost per wake-up, only when every measured wake-up had a price; the total is the sum over those members, with the members it covers and those without a price listed",
         "limits": [
             "A 5-second bucket cannot be split: the start bucket's earlier tokens are taken out, so a turn shorter than its reads may read as partial.",
             "Members whose driver reports no activity have unknown arrival phases and no measuredSaved.",

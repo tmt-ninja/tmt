@@ -1,9 +1,10 @@
 {
-  "description": "Synthetic vectors for the owner browser reads (remote-channel-v1.md, Owner browser reads). Each case lists what the fixed public commands print and the exact document the door answers, without observedAtMs (a positive integer in every answer). Secrets in the inputs (pane address, cwd, room IDs, unlisted fields, schedule message beyond its first line) must appear nowhere in the answer.",
+  "description": "Synthetic vectors for the owner browser reads (remote-channel-v1.md, Owner browser reads). Each case lists what the fixed public commands print and the exact document the door answers, without observedAtMs (a positive integer in every answer). `notRoutes` are paths after `<prefix>/x/-/` that are no read: each answers the generic 404. Secrets in the inputs (pane address, cwd, room IDs, unlisted fields, schedule message beyond its first line) must appear nowhere in the answer.",
   "routes": {
     "ops": "<prefix>/x/-/ops",
     "limits": "<prefix>/x/-/limits",
-    "digest": "<prefix>/x/-/digest/{24h|7d|30d}"
+    "digest": "<prefix>/x/-/digest/{24h|7d|30d}",
+    "savings": "<prefix>/x/-/digest/savings/{24h|7d|30d}"
   },
   "reasons": ["not_installed", "core_unavailable", "timeout", "read_failed", "too_large", "not_sampled"],
   "forbiddenInAnswers": [
@@ -14,6 +15,19 @@
     "UNLISTED-SECRET",
     "SECOND-LINE-SECRET",
     "YOU-SECRET"
+  ],
+  "notRoutes": [
+    "digest",
+    "digest/",
+    "digest/1h",
+    "digest/7d/x",
+    "digest/savings",
+    "digest/savings/",
+    "digest/savings/1h",
+    "digest/savings/24H",
+    "digest/savings/7d/",
+    "digest/savings/7d/x",
+    "digest/7d/savings"
   ],
   "cases": [
     {
@@ -351,6 +365,338 @@
         "digest usage report --since 24h --json": { "exit": 0, "stdout": { "version": 2, "since": "24h" } }
       },
       "expect": { "version": 1, "state": "unavailable", "reason": "read_failed" }
+    },
+    {
+      "name": "savings: the delivery report passes through unchanged under report",
+      "target": "digest/savings/7d",
+      "commands": {
+        "digest decisions --report --since 7d --json": {
+          "exit": 0,
+          "stdout": {
+            "version": 1,
+            "since": "7d",
+            "fromMs": 1795000000000,
+            "throughMs": 1795604800000,
+            "baseline": "each message delivered on its own; turnsSaved is an upper bound, because a busy agent may combine queued messages anyway",
+            "delayBasis": "settled minus arrival",
+            "members": [
+              {
+                "id": "00000000-0000-4000-8000-000000000001",
+                "name": "worker",
+                "messages": 6,
+                "baseline": {
+                  "deliveries": 6
+                },
+                "actual": {
+                  "deliveries": 3,
+                  "delayMs": {
+                    "median": 15000,
+                    "p90": 40000,
+                    "max": 40000
+                  },
+                  "byRule": {
+                    "interval_deadline": 3
+                  }
+                },
+                "measuredSaved": 1,
+                "measuredSavedBasis": {
+                  "deliveries": 2,
+                  "idleArrivals": 3
+                },
+                "arrivals": {
+                  "idle": 3,
+                  "working": 2,
+                  "waiting": 0,
+                  "unknown": 1
+                },
+                "turnsSaved": 3,
+                "wakeUps": null,
+                "avoidedCost": {
+                  "usdMicros": null,
+                  "estimate": true,
+                  "reason": "wake_turns_unavailable"
+                },
+                "excluded": {
+                  "notDelivered": 0,
+                  "incomplete": 0,
+                  "clock": 0
+                },
+                "coverage": {
+                  "startsAtMs": 1795000000000,
+                  "collectedThroughMs": 1795604800000,
+                  "complete": true,
+                  "gap": null
+                }
+              }
+            ],
+            "total": {
+              "messages": 6,
+              "baseline": {
+                "deliveries": 6
+              },
+              "actual": {
+                "deliveries": 3
+              },
+              "measuredSaved": 1,
+              "turnsSaved": 3,
+              "wakeUps": null,
+              "avoidedCost": {
+                "usdMicros": null,
+                "estimate": true,
+                "reason": "wake_turns_unavailable",
+                "covered": [],
+                "unpriced": []
+              },
+              "excluded": {
+                "notDelivered": 0,
+                "incomplete": 0,
+                "clock": 0
+              }
+            },
+            "wakeMethod": {
+              "pricing": {
+                "version": "2026-11-15",
+                "asOf": "2026-11-15",
+                "basis": "standard-base-input",
+                "origin": "built-in",
+                "fetchedAtMs": null
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "ok",
+        "since": "7d",
+        "report": {
+          "version": 1,
+          "since": "7d",
+          "fromMs": 1795000000000,
+          "throughMs": 1795604800000,
+          "baseline": "each message delivered on its own; turnsSaved is an upper bound, because a busy agent may combine queued messages anyway",
+          "delayBasis": "settled minus arrival",
+          "members": [
+            {
+              "id": "00000000-0000-4000-8000-000000000001",
+              "name": "worker",
+              "messages": 6,
+              "baseline": {
+                "deliveries": 6
+              },
+              "actual": {
+                "deliveries": 3,
+                "delayMs": {
+                  "median": 15000,
+                  "p90": 40000,
+                  "max": 40000
+                },
+                "byRule": {
+                  "interval_deadline": 3
+                }
+              },
+              "measuredSaved": 1,
+              "measuredSavedBasis": {
+                "deliveries": 2,
+                "idleArrivals": 3
+              },
+              "arrivals": {
+                "idle": 3,
+                "working": 2,
+                "waiting": 0,
+                "unknown": 1
+              },
+              "turnsSaved": 3,
+              "wakeUps": null,
+              "avoidedCost": {
+                "usdMicros": null,
+                "estimate": true,
+                "reason": "wake_turns_unavailable"
+              },
+              "excluded": {
+                "notDelivered": 0,
+                "incomplete": 0,
+                "clock": 0
+              },
+              "coverage": {
+                "startsAtMs": 1795000000000,
+                "collectedThroughMs": 1795604800000,
+                "complete": true,
+                "gap": null
+              }
+            }
+          ],
+          "total": {
+            "messages": 6,
+            "baseline": {
+              "deliveries": 6
+            },
+            "actual": {
+              "deliveries": 3
+            },
+            "measuredSaved": 1,
+            "turnsSaved": 3,
+            "wakeUps": null,
+            "avoidedCost": {
+              "usdMicros": null,
+              "estimate": true,
+              "reason": "wake_turns_unavailable",
+              "covered": [],
+              "unpriced": []
+            },
+            "excluded": {
+              "notDelivered": 0,
+              "incomplete": 0,
+              "clock": 0
+            }
+          },
+          "wakeMethod": {
+            "pricing": {
+              "version": "2026-11-15",
+              "asOf": "2026-11-15",
+              "basis": "standard-base-input",
+              "origin": "built-in",
+              "fetchedAtMs": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "savings: the Digest extension is absent",
+      "target": "digest/savings/24h",
+      "commands": {
+        "digest decisions --report --since 24h --json": {
+          "exit": 1,
+          "stdout": {
+            "error": {
+              "code": "USAGE_ERROR",
+              "message": "unrecognized subcommand 'decisions'"
+            }
+          }
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "unavailable",
+        "reason": "not_installed"
+      }
+    },
+    {
+      "name": "savings: the report command fails with its own error",
+      "target": "digest/savings/30d",
+      "commands": {
+        "digest decisions --report --since 30d --json": {
+          "exit": 1,
+          "stdout": {
+            "version": 1,
+            "error": {
+              "code": "DIGEST_HISTORY_IO",
+              "message": "x"
+            }
+          }
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "unavailable",
+        "reason": "read_failed"
+      }
+    },
+    {
+      "name": "savings: output that is not JSON",
+      "target": "digest/savings/24h",
+      "commands": {
+        "digest decisions --report --since 24h --json": {
+          "exit": 0,
+          "stdout": "not json"
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "unavailable",
+        "reason": "read_failed"
+      }
+    },
+    {
+      "name": "savings: a report for another range is not accepted",
+      "target": "digest/savings/30d",
+      "commands": {
+        "digest decisions --report --since 30d --json": {
+          "exit": 0,
+          "stdout": {
+            "version": 1,
+            "since": "7d",
+            "members": [],
+            "total": {}
+          }
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "unavailable",
+        "reason": "read_failed"
+      }
+    },
+    {
+      "name": "savings: an unknown report version is not accepted",
+      "target": "digest/savings/7d",
+      "commands": {
+        "digest decisions --report --since 7d --json": {
+          "exit": 0,
+          "stdout": {
+            "version": 2,
+            "since": "7d",
+            "members": [],
+            "total": {}
+          }
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "unavailable",
+        "reason": "read_failed"
+      }
+    },
+    {
+      "name": "savings: members that are not a list are not accepted",
+      "target": "digest/savings/7d",
+      "commands": {
+        "digest decisions --report --since 7d --json": {
+          "exit": 0,
+          "stdout": {
+            "version": 1,
+            "since": "7d",
+            "members": {},
+            "total": {}
+          }
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "unavailable",
+        "reason": "read_failed"
+      }
+    },
+    {
+      "name": "savings: a total that is not an object is not accepted",
+      "target": "digest/savings/7d",
+      "commands": {
+        "digest decisions --report --since 7d --json": {
+          "exit": 0,
+          "stdout": {
+            "version": 1,
+            "since": "7d",
+            "members": [],
+            "total": []
+          }
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "unavailable",
+        "reason": "read_failed"
+      }
     }
   ],
   "bounds": {

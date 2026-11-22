@@ -78,7 +78,7 @@ fn run_with_wake(
         names: &BTreeMap::from([(A.to_owned(), "worker".to_owned())]),
         recompute,
         wake_turns,
-        prices: crate::pricing::built_in(),
+        prices: &crate::pricing::Resolved::built_in(),
     })
 }
 
@@ -189,11 +189,20 @@ fn every_report_carries_the_baseline_and_the_turns_saved_beside_the_actual_delay
         wake["costPerWake"],
         json!({"medianUsdMicros": 4_000, "priced": 1, "reason": null})
     );
+    // One of the two measured wake-ups had no price: the priced one's median is not stretched
+    // over it, so the member has no cost and names the model (#6794).
     assert_eq!(
         member["avoidedCost"],
-        json!({"usdMicros": 4_000, "estimate": true})
+        json!({"usdMicros": null, "reason": "no_price", "estimate": true,
+               "unpricedModels": ["hydrogen-1"]})
     );
     assert_eq!(document["total"]["measuredSaved"], 1);
+    assert_eq!(
+        document["total"]["avoidedCost"],
+        json!({"usdMicros": null, "reason": "no_price", "estimate": true, "covered": [],
+               "unpriced": [{"id": A, "name": "worker", "measuredSaved": 1,
+                             "models": ["hydrogen-1"], "reason": "no_price"}]})
+    );
     assert!(
         document["wakeMethod"]["avoidedCost"]
             .as_str()
@@ -219,6 +228,61 @@ fn every_report_carries_the_baseline_and_the_turns_saved_beside_the_actual_delay
     // Without an alternative nothing is recomputed or labelled as an estimate.
     assert!(member.get("recomputed").is_none());
     assert!(document.get("recompute").is_none());
+}
+
+#[test]
+fn the_total_cost_sums_only_priced_members_and_lists_the_unpriced_with_their_saved_wake_ups() {
+    // Each member: one delivery took three messages that arrived while it was idle, so it saved
+    // two wake-ups.
+    let idle = |id: &str, sequence: u64| {
+        let mut item = checklist(
+            sequence,
+            50_000,
+            60_000,
+            &[20_000, 30_000, 40_000],
+            "delivered",
+            true,
+        );
+        for message in &mut item.items {
+            message.phase_at_arrival = Some("idle".into());
+        }
+        (id.to_owned(), item)
+    };
+    let settlements = [idle(A, 1), idle(B, 2)];
+    let on = |id: &str, model: &str| WakeTurn {
+        identity_id: id.into(),
+        ..turn(true, Some((1_000, 200)), Some(vec![(model, 1_000)]))
+    };
+    // A's model has a price (USD 4 per million input tokens), B's has none.
+    let turns = [on(A, "claude-opus-5-5"), on(B, "gpt-6.2-sol")];
+    let document = run_with_wake(&settlements, &[], None, Some(&turns));
+    assert_eq!(document["total"]["measuredSaved"], 4);
+    // A's own 2 x 4,000, never 4 saved x the 4,000 median across both members.
+    assert_eq!(
+        document["total"]["avoidedCost"],
+        json!({"usdMicros": 8_000, "estimate": true,
+               "covered": [{"id": A, "name": "worker", "measuredSaved": 2, "usdMicros": 8_000}],
+               "unpriced": [{"id": B, "name": null, "measuredSaved": 2,
+                             "models": ["gpt-6.2-sol"], "reason": "no_price"}]})
+    );
+    // No member priced: no cost at all, and both are listed.
+    let none = [on(A, "gpt-6.2-sol"), on(B, "gpt-6.2-sol")];
+    let cost = &run_with_wake(&settlements, &[], None, Some(&none))["total"]["avoidedCost"];
+    assert_eq!(cost["usdMicros"], Value::Null);
+    assert_eq!(cost["reason"], "no_price");
+    assert_eq!(cost["unpriced"].as_array().unwrap().len(), 2);
+    // Every member priced: the sum of their own costs, with nothing unpriced.
+    let all = [on(A, "claude-opus-5-5"), on(B, "claude-opus-5-5")];
+    let cost = &run_with_wake(&settlements, &[], None, Some(&all))["total"]["avoidedCost"];
+    assert_eq!(cost["usdMicros"], 16_000);
+    assert_eq!(cost["unpriced"], json!([]));
+    // Without Core's turns there is no cost and nothing is listed.
+    let cost = &run(&settlements, &[], None)["total"]["avoidedCost"];
+    assert_eq!(cost["reason"], "wake_turns_unavailable");
+    assert_eq!(
+        (cost["covered"].clone(), cost["unpriced"].clone()),
+        (json!([]), json!([]))
+    );
 }
 
 #[test]
@@ -410,7 +474,7 @@ fn coverage_says_where_the_evidence_begins_and_whether_it_has_a_gap() {
             names: &BTreeMap::new(),
             recompute: None,
             wake_turns: None,
-            prices: crate::pricing::built_in(),
+            prices: &crate::pricing::Resolved::built_in(),
         })["members"][0]["coverage"]
             .clone()
     };

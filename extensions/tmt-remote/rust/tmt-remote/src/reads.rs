@@ -1,4 +1,5 @@
-//! Owner browser reads of the Ops board, the sampled limit history and Digest usage. Each read runs one fixed public
+//! Owner browser reads of the Ops board, the sampled limit history, Digest usage and what Digest
+//! saved. Each read runs one fixed public
 //! command through the supplied `tmt` executable and answers `{version,state,...}`; the
 //! contract is "Owner browser reads" in `remote-channel-v1.md`. Nothing here grants anything:
 //! the route admission is the composed shell's, and no read is a generic command endpoint.
@@ -18,7 +19,8 @@ mod ops;
 #[cfg(test)]
 mod tests;
 
-/// The reports `tmt digest usage report` offers; the browser derives shorter windows itself.
+/// The ranges `tmt digest usage report` and `tmt digest decisions --report` offer; the browser
+/// derives shorter windows itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Range {
     Day,
@@ -48,26 +50,32 @@ pub(crate) enum Target {
     Ops,
     Limits,
     Digest(Range),
+    /// What the delivered digests saved: `digest decisions --report` (#6752).
+    Savings(Range),
 }
 impl Target {
-    /// `rest` is the path after `<prefix>/x/-/`: `ops`, or `digest/24h`, `digest/7d`,
-    /// `digest/30d`. The range is a path segment because the edge refuses every query string
-    /// outside its two fixed forms; any other path is not a read route.
+    /// `rest` is the path after `<prefix>/x/-/`: `ops`, `limits`, `digest/<range>` or
+    /// `digest/savings/<range>`, with `<range>` `24h`, `7d` or `30d`. The range is a path segment
+    /// because the edge refuses every query string outside its two fixed forms; any other path is
+    /// not a read route.
     pub(crate) fn route(rest: &str) -> Option<Self> {
         match rest {
             "ops" => Some(Self::Ops),
             "limits" => Some(Self::Limits),
-            _ => rest
-                .strip_prefix("digest/")
-                .and_then(Range::parse)
-                .map(Self::Digest),
+            _ => match rest.strip_prefix("digest/savings/") {
+                Some(range) => Range::parse(range).map(Self::Savings),
+                None => rest
+                    .strip_prefix("digest/")
+                    .and_then(Range::parse)
+                    .map(Self::Digest),
+            },
         }
     }
     fn cap(self) -> usize {
         match self {
             Self::Ops => limits::READ_OPS_BYTES,
             Self::Limits => limits::READ_LIMITS_BYTES,
-            Self::Digest(_) => limits::READ_DIGEST_BYTES,
+            Self::Digest(_) | Self::Savings(_) => limits::READ_DIGEST_BYTES,
         }
     }
 }
@@ -370,6 +378,32 @@ impl Reads {
                     deadline,
                 )?;
                 if report["version"] != 1 || report["since"] != range.text() {
+                    return Err(Reason::ReadFailed);
+                }
+                let Value::Object(payload) = json!({"since": range.text(), "report": report})
+                else {
+                    unreachable!("object literal")
+                };
+                Ok(payload)
+            }
+            Target::Savings(range) => {
+                // Never --recompute: the browser reads what was measured, not an estimate.
+                let report = self.json(
+                    &[
+                        "digest",
+                        "decisions",
+                        "--report",
+                        "--since",
+                        range.text(),
+                        "--json",
+                    ],
+                    deadline,
+                )?;
+                if report["version"] != 1
+                    || report["since"] != range.text()
+                    || !report["members"].is_array()
+                    || !report["total"].is_object()
+                {
                     return Err(Reason::ReadFailed);
                 }
                 let Value::Object(payload) = json!({"since": range.text(), "report": report})

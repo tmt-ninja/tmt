@@ -121,6 +121,10 @@ fn routes_accept_exactly_the_named_reads_and_no_query_or_other_path() {
             Target::route(&format!("digest/{segment}")),
             Some(Target::Digest(range))
         );
+        assert_eq!(
+            Target::route(&format!("digest/savings/{segment}")),
+            Some(Target::Savings(range))
+        );
     }
     for unrouted in [
         "",
@@ -142,6 +146,15 @@ fn routes_accept_exactly_the_named_reads_and_no_query_or_other_path() {
         "digest//7d",
         "digest?since=7d",
         "digest/7d?x=1",
+        "digest/savings",
+        "digest/savings/",
+        "digest/savings/1h",
+        "digest/savings/7d/",
+        "digest/savings/7d/x",
+        "digest/savings//7d",
+        "digest/savings?since=7d",
+        "digest/savings/7d?x=1",
+        "digest/7d/savings",
         "ops?x=1",
     ] {
         assert_eq!(Target::route(unrouted), None, "{unrouted}");
@@ -535,6 +548,80 @@ fn digest_forwards_the_usage_document_unchanged_under_report() {
     assert_eq!(fake.calls(), [DIGEST]);
 }
 
+const SAVINGS: &str = "digest decisions --report --since 24h --json";
+
+/// The smallest report the savings read accepts.
+fn savings_report(since: &str) -> Value {
+    json!({"version": 1, "since": since, "members": [], "total": {}})
+}
+
+#[test]
+fn savings_forwards_the_delivery_report_unchanged_under_report() {
+    let fake = Fake::new();
+    let report = json!({"version": 1, "since": "24h", "fromMs": 1, "throughMs": 2,
+        "members": [{"id": "00000000-0000-4000-8000-000000000001", "name": "worker", "messages": 3,
+            "measuredSaved": null, "turnsSaved": 2, "avoidedCost": {"usdMicros": null,
+            "reason": "no_price", "estimate": true}}],
+        "total": {"messages": 3, "turnsSaved": 2}, "wakeMethod": {"pricing": {"origin": "built-in"}}});
+    fake.answer(SAVINGS, &report.to_string());
+    let document = body(&fake.reads(), Target::Savings(Range::Day));
+    assert_eq!(document["state"], "ok");
+    assert_eq!(document["since"], "24h");
+    assert_eq!(document["report"], report);
+    // One fixed argv: never --recompute or --flush-count.
+    assert_eq!(fake.calls(), [SAVINGS]);
+}
+
+#[test]
+fn savings_refuses_a_report_for_another_range_version_or_shape() {
+    for (since, report) in [
+        (
+            "7d",
+            json!({"version": 1, "since": "24h", "members": [], "total": {}}),
+        ),
+        (
+            "7d",
+            json!({"version": 2, "since": "7d", "members": [], "total": {}}),
+        ),
+        (
+            "7d",
+            json!({"version": 1, "since": "7d", "members": {}, "total": {}}),
+        ),
+        ("7d", json!({"version": 1, "since": "7d", "total": {}})),
+        (
+            "7d",
+            json!({"version": 1, "since": "7d", "members": [], "total": []}),
+        ),
+        ("7d", json!({"version": 1, "since": "7d", "members": []})),
+    ] {
+        let fake = Fake::new();
+        fake.answer(
+            &format!("digest decisions --report --since {since} --json"),
+            &report.to_string(),
+        );
+        let document = body(&fake.reads(), Target::Savings(Range::Week));
+        assert_eq!(document["state"], "unavailable", "{report}");
+        assert_eq!(document["reason"], "read_failed", "{report}");
+        assert!(document.get("report").is_none());
+    }
+}
+
+#[test]
+fn usage_and_savings_of_one_range_never_share_an_answer() {
+    let fake = Fake::new();
+    fake.answer(DIGEST, &json!({"version": 1, "since": "24h"}).to_string());
+    fake.answer(
+        SAVINGS,
+        &json!({"version": 1, "since": "24h", "members": [], "total": {}}).to_string(),
+    );
+    let reads = fake.reads();
+    let usage = body(&reads, Target::Digest(Range::Day));
+    let savings = body(&reads, Target::Savings(Range::Day));
+    assert!(usage["report"].get("members").is_none());
+    assert_eq!(savings["report"]["members"], json!([]));
+    assert_eq!(fake.calls(), [DIGEST, SAVINGS]);
+}
+
 #[test]
 fn digest_reads_the_requested_range_and_rejects_a_document_for_another() {
     let fake = Fake::new();
@@ -599,25 +686,29 @@ fn a_slow_read_is_cut_at_the_deadline_and_a_missing_executable_is_core_unavailab
     let fake = Fake::new();
     fake.answer(DIGEST, &json!({"version": 1, "since": "24h"}).to_string());
     fake.set(DIGEST, "sleep", "30");
+    fake.answer(SAVINGS, &savings_report("24h").to_string());
+    fake.set(SAVINGS, "sleep", "30");
     let reads = fake.reads().with_wait(Duration::from_millis(600));
-    let began = Instant::now();
-    assert_eq!(
-        body(&reads, Target::Digest(Range::Day))["reason"],
-        "timeout"
-    );
-    assert!(
-        began.elapsed() < Duration::from_secs(5),
-        "{:?}",
-        began.elapsed()
-    );
+    for target in [Target::Digest(Range::Day), Target::Savings(Range::Day)] {
+        let began = Instant::now();
+        assert_eq!(body(&reads, target)["reason"], "timeout", "{target:?}");
+        assert!(
+            began.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            began.elapsed()
+        );
+    }
     let missing = Reads::new(
         PathBuf::from("/tmp/tmt-4325-does-not-exist"),
         Arc::new(AtomicBool::new(false)),
     );
-    assert_eq!(
-        body(&missing, Target::Digest(Range::Day))["reason"],
-        "core_unavailable"
-    );
+    for target in [Target::Digest(Range::Day), Target::Savings(Range::Day)] {
+        assert_eq!(
+            body(&missing, target)["reason"],
+            "core_unavailable",
+            "{target:?}"
+        );
+    }
 }
 
 #[test]
@@ -635,6 +726,14 @@ fn an_oversized_output_is_too_large_not_truncated() {
     fake.answer("digest usage report --since 7d --json", &huge.to_string());
     let document = body(&fake.reads(), Target::Digest(Range::Week));
     assert_eq!(document["reason"], "too_large");
+    // The savings read shares the Digest cap: a well-formed report over it is too large too.
+    let mut report = savings_report("24h");
+    report["pad"] = json!("x".repeat(limits::READ_DIGEST_BYTES + 1));
+    fake.answer(SAVINGS, &report.to_string());
+    let document = body(&fake.reads(), Target::Savings(Range::Day));
+    assert_eq!(document["state"], "unavailable");
+    assert_eq!(document["reason"], "too_large");
+    assert!(document.get("report").is_none());
 }
 
 #[test]
@@ -736,6 +835,27 @@ fn the_shared_vectors_are_what_the_door_answers_and_leak_nothing() {
         assert!(answer["observedAtMs"].as_u64().unwrap() > 0, "{name}");
         answer.as_object_mut().unwrap().remove("observedAtMs");
         assert_eq!(answer, case["expect"], "{name}");
+    }
+}
+
+#[test]
+fn the_vector_paths_that_are_no_read_are_no_route() {
+    let vectors = vectors();
+    let paths = vectors["notRoutes"].as_array().unwrap();
+    assert!(!paths.is_empty());
+    for path in paths {
+        let path = path.as_str().unwrap();
+        assert_eq!(Target::route(path), None, "{path}");
+    }
+    // Every named route is a read, so a renamed route cannot pass by leaving the vectors behind.
+    for (name, template) in vectors["routes"].as_object().unwrap() {
+        let rest = template
+            .as_str()
+            .unwrap()
+            .strip_prefix("<prefix>/x/-/")
+            .unwrap();
+        let rest = rest.replace("{24h|7d|30d}", "24h");
+        assert!(Target::route(&rest).is_some(), "{name}: {rest}");
     }
 }
 
