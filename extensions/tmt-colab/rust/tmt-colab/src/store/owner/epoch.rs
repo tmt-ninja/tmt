@@ -1,5 +1,6 @@
 //! Transaction-local reads, cut capture/pinning and immutable baseline storage.
 use super::*;
+use crate::store::{Envelope, Namespace};
 use std::collections::HashMap;
 use tmt_colab_model::{object, stream_cut};
 
@@ -534,6 +535,104 @@ impl OwnerTransaction<'_> {
         self.read_cuts(page, epoch)
     }
     /// Whether an equivocating stream froze the epoch: it takes no more writes.
+    pub(crate) fn write_generation(&self) -> Result<crate::store::WriteGeneration> {
+        Ok((
+            self.tx
+                .query_row("PRAGMA data_version", [], |row| row.get(0))?,
+            self.tx.total_changes(),
+        ))
+    }
+
+    pub(crate) fn history_discard_size(
+        &self,
+        scope: crate::store::StreamScope<'_>,
+        through: u64,
+    ) -> Result<crate::page::compact::HistoryDiscard> {
+        let count = |table| -> Result<(u64, u64)> {
+            let (rows, bytes): (i64, i64) = self.tx.query_row(
+                &format!(
+                    "SELECT count(*),COALESCE(sum(length(payload)),0) FROM {table}
+                     WHERE page=?1 AND epoch=?2 AND stream=?3 AND seq<=?4
+                       AND namespace='content' AND payload IS NOT NULL"
+                ),
+                params![
+                    scope.page,
+                    scope.epoch.to_string(),
+                    scope.stream,
+                    sequence(through)
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            Ok((rows.try_into()?, bytes.try_into()?))
+        };
+        let (checkpoints, checkpoint_bytes) = count("checkpoints")?;
+        let (updates, update_bytes) = count("receipts")?;
+        Ok(crate::page::compact::HistoryDiscard {
+            checkpoints,
+            checkpoint_bytes,
+            updates,
+            update_bytes,
+        })
+    }
+
+    /// Install a fresh, complete cut and discard just the covered content. The caller
+    /// verifies the captured owner head, projection and policy before reaching this write.
+    pub(crate) fn stage_history_recovery(
+        &mut self,
+        anchor: &Envelope<'_>,
+        checkpoints: &[Envelope<'_>],
+    ) -> Result<()> {
+        let scope = anchor.scope;
+        let seq = sequence(anchor.seq);
+        let epoch = scope.epoch.to_string();
+        if anchor.namespace != Namespace::Content
+            || checkpoints.first().map(|value| value.namespace) != Some(Namespace::Content)
+            || checkpoints.len() > 2
+            || checkpoints.get(1).is_some_and(|value| value.namespace != Namespace::Own)
+            || checkpoints.iter().any(|value| {
+                value.scope.page != scope.page || value.scope.epoch != scope.epoch
+                    || value.scope.stream != scope.stream || value.seq != anchor.seq
+                    || value.previous != anchor.hash
+            })
+            || self.tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM checkpoints WHERE page=? AND namespace='content' AND pinned=1 AND payload IS NOT NULL)",
+                [scope.page], |row| row.get(0),
+            )?
+        {
+            return Err(OwnerFault::Invalid.into());
+        }
+        if super::super::append_in(self.tx, anchor, None, super::super::Equivocation::Refuse)?
+            != Some(super::super::Accepted::New)
+        {
+            return Err(OwnerFault::Invalid.into());
+        }
+        for checkpoint in checkpoints {
+            if super::super::checkpoint_in(self.tx, checkpoint, None)?
+                != super::super::Accepted::New
+            {
+                return Err(OwnerFault::Invalid.into());
+            }
+        }
+        let incomplete: bool = self.tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM receipts r WHERE r.page=?1 AND r.epoch=?2 AND r.stream=?3 AND r.seq<=?4
+               AND NOT EXISTS(SELECT 1 FROM checkpoints c WHERE c.page=r.page AND c.epoch=r.epoch AND c.stream=r.stream
+                 AND c.namespace=r.namespace AND c.seq=?4 AND c.payload IS NOT NULL))",
+            params![scope.page, epoch, scope.stream, seq], |row| row.get(0),
+        )?;
+        if incomplete {
+            return Err(OwnerFault::Invalid.into());
+        }
+        self.tx.execute(
+            "UPDATE receipts SET payload=NULL WHERE page=?1 AND epoch=?2 AND stream=?3 AND seq<?4 AND namespace='content'",
+            params![scope.page, epoch, scope.stream, seq],
+        )?;
+        self.tx.execute(
+            "UPDATE checkpoints SET payload=NULL WHERE page=?1 AND epoch=?2 AND stream=?3 AND seq<?4 AND namespace='content' AND pinned=0",
+            params![scope.page, epoch, scope.stream, seq],
+        )?;
+        super::super::capacity(self.tx, scope.page, 0, false)?;
+        Ok(())
+    }
     pub(crate) fn frozen(&self, page: &str, epoch: u64) -> Result<bool> {
         Ok(self.tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM streams WHERE page=? AND epoch=? AND frozen=1)",

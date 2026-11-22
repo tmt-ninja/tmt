@@ -472,6 +472,156 @@ fn prepare_history_recovery(
     Ok((result, Some((snap, index, merged, generation))))
 }
 
+/// Sealed local content payloads replaced by a confirmed recovery.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryDiscard {
+    pub checkpoints: u64,
+    pub checkpoint_bytes: u64,
+    pub updates: u64,
+    pub update_bytes: u64,
+}
+
+/// Owner-only implementation. The caller holds the local writer lifecycle lock or
+/// runs inside serve. `announce` reports the exact staged loss before any write.
+pub fn discard_history(
+    store: &mut Store,
+    key: &Keyring,
+    page: &str,
+    operation_id: &str,
+    decoder: &mut Decoder,
+    announce: impl FnOnce(&HistoryPreview, &HistoryDiscard) -> Result<()>,
+) -> Result<HistoryDiscard> {
+    let (preview, candidate) = prepare_history_recovery(store, key, page, decoder, None)?;
+    let (snapshot, index, merged, generation) = candidate.ok_or_else(|| {
+        std::io::Error::other(
+            preview
+                .blocked
+                .as_deref()
+                .unwrap_or("History recovery is unavailable."),
+        )
+    })?;
+    if preview
+        .after_gzip_bytes
+        .is_none_or(|after| after >= preview.before_gzip_bytes)
+    {
+        return Err(
+            std::io::Error::other("This recovery would not reduce stored page usage.").into(),
+        );
+    }
+
+    let cut = &snapshot.cuts[index];
+    let scope = StreamScope {
+        page,
+        epoch: cut.epoch,
+        stream: &cut.stream,
+    };
+    let next = cut.tail_seq.checked_add(1).ok_or(Fault::Capacity)?;
+    let discard = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        tx.history_discard_size(scope, cut.tail_seq)
+    })?;
+    let payload = serde_json::to_vec(&serde_json::json!({"pageId":page,"mode":"current"}))?;
+    let decision = key.sign_statement(Some(&snapshot.authority.head), "page.history", &payload)?;
+    let revision = snapshot
+        .authority
+        .head
+        .revision
+        .checked_add(1)
+        .ok_or(Fault::Capacity)?;
+    let mut context = object::Context {
+        space: key.space_id.clone(),
+        page: page.into(),
+        epoch: cut.epoch.to_string(),
+        kind: "update".into(),
+        namespace: "content".into(),
+        author_device: cut.stream.clone(),
+        membership_revision: revision.to_string(),
+        stream_seq: next.to_string(),
+        prev_hash: cut.tail_hash,
+    };
+    // An empty update-v1 advances the signed stream with no document or activity change.
+    let anchor = key.seal_content(&context, &snapshot.secret, &[0, 0])?;
+    let anchor_hash = anchor.hash()?;
+    let anchor_bytes = anchor.to_bytes()?;
+    context.kind = "checkpoint".into();
+    context.prev_hash = anchor_hash;
+    let content = key.seal_content(&context, &snapshot.secret, &merged)?;
+    let content_bytes = content.to_bytes()?;
+    let mut checkpoints = vec![Envelope {
+        scope,
+        namespace: Namespace::Content,
+        seq: next,
+        hash: content.hash()?,
+        previous: anchor_hash,
+        bytes: &content_bytes,
+    }];
+    let own_bytes;
+    if let Some(own_index) = snapshot
+        .cuts
+        .iter()
+        .position(|own| own.stream == cut.stream && own.namespace == "own" && own.tail_seq > 0)
+    {
+        let current = snapshot.materialize(key, page, decoder)?;
+        let own = current.local_own_update.as_ref().ok_or(Fault::Invalid)?;
+        let candidate = snapshot.materialize_with_replacements(
+            key,
+            page,
+            decoder,
+            &BTreeMap::from([(index, merged), (own_index, own.clone())]),
+        )?;
+        if candidate.source != current.source
+            || candidate.meta != current.meta
+            || candidate.own != current.own
+        {
+            return Err(Fault::Invalid.into());
+        }
+        context.namespace = "own".into();
+        let checkpoint = key.seal_content(&context, &snapshot.secret, own)?;
+        own_bytes = checkpoint.to_bytes()?;
+        checkpoints.push(Envelope {
+            scope,
+            namespace: Namespace::Own,
+            seq: next,
+            hash: checkpoint.hash()?,
+            previous: anchor_hash,
+            bytes: &own_bytes,
+        });
+    }
+    store.owner_transaction(
+        &key.space_id,
+        &key.owner_public(),
+        crate::store::owner::Mutation {
+            operation_id,
+            digest: decision.hash()?,
+            expected_revision: snapshot.authority.head.revision,
+        },
+        |tx| {
+            if tx.write_generation()? != generation
+                || tx.head() != Some(&snapshot.authority.head)
+                || tx.cuts(page, scope.epoch)? != snapshot.cuts
+                || tx.history_discard_size(scope, cut.tail_seq)? != discard
+            {
+                return Err(Fault::StaleBase.into());
+            }
+            announce(&preview, &discard)?;
+            tx.append_statement(&decision)?;
+            tx.stage_history_recovery(
+                &Envelope {
+                    scope,
+                    namespace: Namespace::Content,
+                    seq: next,
+                    hash: anchor_hash,
+                    previous: cut.tail_hash,
+                    bytes: &anchor_bytes,
+                },
+                &checkpoints,
+            )?;
+            Ok(serde_json::to_vec(&discard)?)
+        },
+    )?;
+    Ok(discard)
+}
+
 /// What a requested compaction did, for the person who asked: whose stream was combined into
 /// which range, the page's usage before and after, and the source hash that did not change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

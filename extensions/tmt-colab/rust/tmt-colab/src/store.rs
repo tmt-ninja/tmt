@@ -600,7 +600,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let result = append_in(&tx, envelope, self.clock.as_ref(), equivocation);
+        let result = append_in(&tx, envelope, Some(self.clock.as_ref()), equivocation);
         if result.is_ok() {
             tx.commit()?;
         }
@@ -1339,7 +1339,7 @@ fn checkpoint_in(
 fn append_in(
     tx: &Connection,
     envelope: &Envelope<'_>,
-    clock: &Clock,
+    clock: Option<&Clock>,
     equivocation: Equivocation,
 ) -> StoreResult<Option<Accepted>> {
     validate(envelope)?;
@@ -1386,7 +1386,9 @@ fn append_in(
     if previous != envelope.previous {
         return Err(Fault::Conflict);
     }
-    capacity(tx, s.page, envelope.bytes.len(), true)?;
+    if clock.is_some() {
+        capacity(tx, s.page, envelope.bytes.len(), true)?;
+    }
     tx.execute(
         "INSERT INTO receipts VALUES (?,?,?,?,?,?,?,?)",
         params![
@@ -1402,6 +1404,11 @@ fn append_in(
     )?;
     // Every new update counts, whichever namespace it is in: the store only sees sealed bytes,
     // so it cannot tell a comment or reply from an Ask record in the `own` stream.
+    let Some(clock) = clock else {
+        // The recovery transaction checks capacity after staging and pruning.
+        // Its projection-neutral receipt does not record an edit.
+        return Ok(Some(Accepted::New));
+    };
     let now = touch_activity(tx, s.page, clock)?;
     if envelope.namespace == Namespace::Content {
         tx.execute("UPDATE pages SET last_update_at_ms=CASE WHEN last_update_at_ms IS NULL OR last_update_at_ms<?1 THEN ?1 ELSE last_update_at_ms END WHERE page=?2",

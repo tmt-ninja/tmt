@@ -13543,6 +13543,60 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
     let after = pilot.call(&["page", "read", page, "--json"]);
     assert_eq!(before["source"], after["source"]);
     assert_eq!(before["revision"], after["revision"]);
+
+    // Start from a compacted page and fail after the signed decision and anchor were staged.
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let key = tmt_colab::keyring::Keyring::read(&layout).unwrap();
+    let mut store = tmt_colab::store::Store::write_existing(&layout).unwrap();
+    let mut decoder =
+        tmt_colab::decoder::Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
+    let oracle = rusqlite::Connection::open(&db).unwrap();
+    oracle.execute_batch(
+        "CREATE TRIGGER refuse_recovery BEFORE INSERT ON checkpoints BEGIN SELECT RAISE(ABORT,'recovery fixture'); END;"
+    ).unwrap();
+    let recover = |store: &mut tmt_colab::store::Store,
+                   decoder: &mut tmt_colab::decoder::Decoder| {
+        tmt_colab::page::compact::discard_history(
+            store,
+            &key,
+            page,
+            "30000000-0000-4000-8000-000000000001",
+            decoder,
+            |_, loss| {
+                assert!(loss.checkpoints > 0);
+                Ok(())
+            },
+        )
+    };
+    assert!(recover(&mut store, &mut decoder).is_err());
+    store.close().unwrap();
+    assert_eq!(
+        pilot.call(&["page", "read", page, "--json"])["revision"],
+        before["revision"]
+    );
+    assert_eq!(pilot.call(&["threads", page, "--json"]), discussion);
+
+    oracle
+        .execute_batch("DROP TRIGGER refuse_recovery")
+        .unwrap();
+    let mut store = tmt_colab::store::Store::write_existing(&layout).unwrap();
+    recover(&mut store, &mut decoder).unwrap();
+    store.close().unwrap();
+    let recovered = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(recovered["source"], before["source"]);
+    let recovered_discussion = pilot.call(&["threads", page, "--json"]);
+    assert_eq!(recovered_discussion["threads"], discussion["threads"]);
+    assert_eq!(recovered_discussion["asks"], discussion["asks"]);
+    assert_ne!(
+        recovered_discussion["membershipHead"],
+        discussion["membershipHead"]
+    );
+    assert!(
+        recovered["usage"]["percent"].as_u64().unwrap()
+            <= before["usage"]["percent"].as_u64().unwrap()
+    );
 }
 
 #[test]
