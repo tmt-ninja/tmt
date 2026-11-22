@@ -575,7 +575,9 @@ mod tests {
         let mut app = app();
         let mut preview = ready(&mut app);
         preview.state = Some(" blocked ".into());
-        app.status_draft.as_mut().unwrap().loaded(Ok(preview));
+        let draft = app.status_draft.as_mut().unwrap();
+        draft.loaded(Ok(preview));
+        draft.focus = 1;
         for width in [160, 100, 80] {
             let text = lines(&app, width)
                 .into_iter()

@@ -3,7 +3,6 @@
 use crate::look::Look;
 use ratatui::{
     Frame,
-    buffer::Buffer,
     layout::Rect,
     text::{Line, Span},
 };
@@ -29,9 +28,6 @@ impl Value<'_> {
             Self::Unreported(_) => Role::Dim,
             Self::InRole(_, role) => *role,
         }
-    }
-    fn observed(&self) -> bool {
-        !matches!(self, Self::Unreported(_))
     }
 }
 pub(in crate::board) struct Row<'a> {
@@ -155,37 +151,6 @@ pub(in crate::board) fn paint(frame: &mut Frame, app: &super::app::App, area: Re
     for (field, source, displayed) in fields {
         super::member_links::paint_plain_hits(frame, app, field, &source, &displayed, false);
     }
-}
-
-/// The same formatted line supplies the observed value's selectable geometry.
-pub(in crate::board) fn paint_value(
-    buffer: &mut Buffer,
-    area: Rect,
-    row: &Row<'_>,
-    look: Look,
-) -> Option<Rect> {
-    let painted = line(row, usize::from(area.width), look);
-    let value = if area.height > 0 && row.value.observed() {
-        painted.spans.get(3).map(|span| {
-            Rect::new(
-                area.x + painted.spans.iter().take(3).map(Span::width).sum::<usize>() as u16,
-                area.y,
-                span.width() as u16,
-                1,
-            )
-        })
-    } else {
-        None
-    };
-    strip::paint_left(
-        buffer,
-        Rect {
-            height: area.height.min(1),
-            ..area
-        },
-        painted,
-    );
-    value.filter(|area| !area.is_empty())
 }
 
 #[cfg(test)]

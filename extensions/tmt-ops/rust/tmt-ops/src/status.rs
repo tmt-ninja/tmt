@@ -40,7 +40,7 @@ fn member_value(member: &Member) -> Value {
         row["colors"] = json!(member.colors);
     }
     for section in ["fields", "colors"] {
-        if let Some(fields) = row[section].as_object_mut() {
+        if let Some(fields) = row.get_mut(section).and_then(Value::as_object_mut) {
             fields.retain(|name, _| !crate::squad::retired_field(name));
         }
     }
@@ -62,7 +62,7 @@ pub(crate) fn projected_row(member: &Member, rows: &Rows) -> Value {
                 .any(|cell| cell.field.as_deref() == Some(key))
     };
     for section in ["fields", "colors"] {
-        if let Some(fields) = row[section].as_object_mut() {
+        if let Some(fields) = row.get_mut(section).and_then(Value::as_object_mut) {
             fields.retain(|name, _| shown(name));
         }
     }
@@ -970,11 +970,11 @@ sort = ["state"]
             &Rows::preset(),
             members(),
         );
-        assert_eq!(names(&crew), ["bob", "zed", "amy", "kai"]);
+        assert_eq!(names(&crew), ["zed", "bob", "amy", "kai"]);
         assert_eq!(crew["squad"]["lead"]["name"], "sol");
         assert_eq!(crew["sections"].as_array().unwrap().len(), 1);
         assert_eq!(crew["sections"][0]["title"], Value::Null);
-        let bob = &crew["sections"][0]["rows"][0];
+        let bob = &crew["sections"][0]["rows"][1];
         assert!(!bob.as_object().unwrap().contains_key("pending"));
         assert!(!bob["fields"].as_object().unwrap().contains_key("pending"));
         assert!(!bob.as_object().unwrap().contains_key("note"));
@@ -997,8 +997,8 @@ sort = ["state"]
              LEAD\n\
              \x20 ○  sol  -\n\n\
              MEMBERS 4\n\
-             \x20 ○  bob  blocked\n\
              \x20 ○  zed  working\n\
+             \x20 ○  bob  blocked\n\
              \x20 ○  amy  review\n\
              \x20 ○  kai  custom\n"
         );
@@ -1072,7 +1072,7 @@ sort = ["state"]
         assert!(!off.contains("idle"), "{off}");
         let since = now_ms() - 32 * 60_000;
         crew["squad"]["idleAlert"] = json!({"enabled": true, "afterMs": 1_800_000});
-        crew["sections"][0]["rows"][1]["idleAlert"] = json!({"state": "over", "sinceMs": since});
+        crew["sections"][0]["rows"][0]["idleAlert"] = json!({"state": "over", "sinceMs": since});
         crew["sections"][0]["rows"][2]["idleAlert"] =
             json!({"state": "excepted", "reason": "hold", "sinceMs": since});
         let on = text(&crew, Terminal::PLAIN);
@@ -1131,7 +1131,7 @@ sort = ["state"]
             listed,
             [
                 (json!("Needs me"), vec![]),
-                (Value::Null, vec!["bob", "zed", "amy", "kai"]),
+                (Value::Null, vec!["zed", "bob", "amy", "kai"]),
             ]
         );
         let retired_only = super::document(

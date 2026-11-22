@@ -2101,13 +2101,14 @@ o = "run touch ${marker}"
       expect(status.body.sections).toHaveLength(1);
       expect(status.body.sections[0].title).toBeNull();
       const rows = status.body.sections[0].rows;
-      expect(rows.map((row: { name: string }) => row.name)).toEqual(['auth-fix', 'docs-sweep']);
-      expect(rows[0]).toMatchObject({
+      expect(rows.map((row: { name: string }) => row.name)).toEqual(['docs-sweep', 'auth-fix']);
+      const [working, blocked] = rows;
+      expect(blocked).toMatchObject({
         state: 'blocked',
         presence: 'offline',
         fields: { state: 'blocked' },
       });
-      expect(rows[1]).toMatchObject({ state: 'working' });
+      expect(working).toMatchObject({ state: 'working' });
       expect(rows[0]).not.toHaveProperty('note');
       expect(rows[1]).not.toHaveProperty('note');
       // The lead skill documents this row shape; it must not drift silently.
@@ -2140,8 +2141,8 @@ o = "run touch ${marker}"
         remainingMs: 0,
         heldCount: 0,
       });
-      expect(rows[0].colors).toEqual({ state: 'blocked' });
-      expect(rows[1].colors).toEqual({ state: 'working' });
+      expect(blocked.colors).toEqual({ state: 'blocked' });
+      expect(working.colors).toEqual({ state: 'working' });
       const nested = skill.slice(skill.indexOf('- Every row'), skill.indexOf('- A row with'));
       const ageFields = [...nested.matchAll(/`([a-z][A-Za-z]*)`/g)]
         .map((match) => match[1])
