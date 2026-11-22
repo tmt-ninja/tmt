@@ -1,5 +1,4 @@
-//! A driver's display token, from its descriptor's hue: magenta is review,
-//! cyan is link.
+//! A driver's address display token, from its descriptor hue.
 
 use tmt_cli_style::{Role, Token};
 use tmt_core::driver::descriptor::{DriverDescriptor, Hue};
@@ -17,6 +16,8 @@ pub fn token_in(drivers: &[&DriverDescriptor], driver: &str) -> Token {
             .and_then(|driver| match driver.hue {
                 Hue::Magenta => Some(Role::Review),
                 Hue::Cyan => Some(Role::Link),
+                Hue::Amber => Some(Role::Waiting),
+                Hue::Green => Some(Role::Working),
                 Hue::Neutral => None,
             }),
     )

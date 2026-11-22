@@ -152,6 +152,7 @@ fn fixture(selected_name: &str, look: Look) -> App {
                 Agent {
                     parameters: json!({}),
                     runtime: Some("codex".into()),
+                    provider_hue: Some(tmt_cli_style::Role::Working),
                     model: Some("gpt-6.1-sol".into()),
                     name: (*name).into(),
                     canonical: (*name).into(),

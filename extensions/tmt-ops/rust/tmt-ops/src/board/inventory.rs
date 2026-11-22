@@ -17,6 +17,7 @@ pub(super) struct Agent {
     /// Unmodified documented Core observation fields; never request/capture bodies.
     pub parameters: serde_json::Value,
     pub runtime: Option<String>,
+    pub provider_hue: Option<tmt_cli_style::Role>,
     pub model: Option<String>,
     pub context: Option<ContextUsage>,
     /// Core's `driverSupport` is `basic`: the driver reports no activity, model or
@@ -24,6 +25,18 @@ pub(super) struct Agent {
     pub basic: bool,
     pub name: String,
     pub canonical: String,
+}
+
+fn provider_hue(row: &serde_json::Value) -> Option<tmt_cli_style::Role> {
+    use tmt_cli_style::Role;
+    match row["hue"].as_str()? {
+        "magenta" => Some(Role::Review),
+        "cyan" => Some(Role::Link),
+        "amber" => Some(Role::Waiting),
+        "green" => Some(Role::Working),
+        "neutral" => Some(Role::Muted),
+        _ => None,
+    }
 }
 
 impl Agent {
@@ -108,6 +121,7 @@ impl Inventory {
                         name: name.into(),
                         canonical: row["canonicalName"].as_str().unwrap_or("").into(),
                         runtime: text(&row["runningDriver"]),
+                        provider_hue: provider_hue(row),
                         model: super::rate::resume_model(&row["resume"]).map(str::to_owned),
                         context: ContextUsage::from_row(row),
                         basic: row["driverSupport"] == "basic",
@@ -141,6 +155,26 @@ impl Inventory {
 mod tests {
     use super::Inventory;
     use serde_json::json;
+
+    #[test]
+    fn provider_hue_accepts_public_roles_and_ignores_unrecognized_values() {
+        use tmt_cli_style::Role;
+
+        for (hue, expected) in [
+            (json!("amber"), Some(Role::Waiting)),
+            (json!("green"), Some(Role::Working)),
+            (json!("magenta"), Some(Role::Review)),
+            (json!("cyan"), Some(Role::Link)),
+            (json!("neutral"), Some(Role::Muted)),
+            (json!("#ff0044"), None),
+            (json!(null), None),
+        ] {
+            let inventory = Inventory::from_listed(&Ok(json!({
+                "identities": [{"id":"agent-id", "name":"worker", "hue":hue}]
+            })));
+            assert_eq!(inventory.agents["agent-id"].provider_hue, expected);
+        }
+    }
 
     #[test]
     fn agent_model_is_the_last_completed_turn_then_the_starting_hook_then_unknown() {

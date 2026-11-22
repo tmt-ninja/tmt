@@ -145,12 +145,14 @@ pub(super) fn render_header(
                 .map_or_else(|| id.to_owned(), |provider| provider.label())
         },
     );
-    let provider_role = match runtime {
-        Some("claude") => Role::Waiting,
-        Some("codex") => Role::Working,
-        Some("gemini") => Role::Accent,
-        _ => Role::Muted,
-    };
+    let provider_role =
+        observed
+            .and_then(|agent| agent.provider_hue)
+            .unwrap_or(if runtime.is_some() {
+                Role::Waiting
+            } else {
+                Role::Muted
+            });
     use tmt_cli_style::theme::screen::{Fill, fill};
     let provider_style =
         fill(&look.theme, provider_role, look.depth, Fill::Solid).add_modifier(Modifier::BOLD);
