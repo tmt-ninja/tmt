@@ -27,6 +27,8 @@ import { RefusalError } from '../src/operations.js';
 declare global {
   interface Window {
     dmEnabled?: boolean;
+    /** Set before load: the device id this browser reads for itself (#6757). */
+    ownDeviceId?: string;
     /** Set before load: the sample squad has its channel room, so the channel has a message box. */
     channelRoom?: boolean;
     fixtureCommandMenu(text: string): void;
@@ -108,7 +110,8 @@ async function formOutcome(operationId: string, formId: string): Promise<FormAns
 }
 window.sendNowCalls = [];
 window.sendNowAnswer = null;
-window.channelHold = false;
+// An init script may hold the first board read (#6757).
+window.channelHold ??= false;
 window.channelBoard = {
   defaultIdleAlertMs: null,
   squads: [
@@ -666,7 +669,8 @@ opsPage(
   },
   room,
   // This browser is "This laptop": messages from another device name it.
-  async () => 'This laptop',
+  // This browser's device: its name for the talk lines and its id for the kept unsent words.
+  async () => ({ name: 'This laptop', id: window.ownDeviceId ?? 'device-laptop' }),
   async () => ({
     async cursor() {
       window.formsCursors++;

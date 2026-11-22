@@ -12,7 +12,7 @@ import { opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
 import { whileVisible } from './owner-reads.js';
 import { channelView } from './ops-channel.js';
 import { knowOwnDevice } from './talk-stream.js';
-import { onDrafts, hasDraft } from './ops-composer-slot.js';
+import { draftsFor, onDrafts, hasDraft } from './ops-composer-slot.js';
 import { management } from './management.js';
 import type { ChannelPort } from './channel-stream.js';
 import {
@@ -47,11 +47,13 @@ export function opsPage(
   },
   historyTalk?: ConversationTalk,
   channelPort?: ChannelPort,
-  // This browser's device name from Remote's device list: messages name only other devices.
-  ownDevice: () => Promise<string | null> = async () => {
+  // This browser's device from Remote's device list: messages name only other devices, and the
+  // kept unsent words belong to it (#6757). `null` is no session; undefined, not in the list.
+  ownDevice: () => Promise<{ name: string; id: string } | null | undefined> = async () => {
     if (!shell.session) return null;
     const page = await management(await shell.session()).devices({ cursor: null, limit: 100 });
-    return page.devices.find((device) => device.thisBrowser)?.name ?? null;
+    const own = page.devices.find((device) => device.thisBrowser);
+    return own && { name: own.name, id: own.clientId };
   },
   formsConnect: () => Promise<RemoteForms> = async () => {
     if (!shell.session) throw new FormsNotAllowed('No signed browser session.');
@@ -61,9 +63,13 @@ export function opsPage(
   const main = document.getElementById('ops-section');
   const note = document.getElementById('ops-note');
   if (!main || !note) return;
-  // Unknown (a refused or failed read) leaves every device in the tooltip only.
+  // Unknown (a refused or failed read) leaves every device in the tooltip only, and keeps any words
+  // from before a reload held, unshown, for a later page that reads its device.
   void ownDevice().then(
-    (name) => knowOwnDevice(name),
+    (own) => {
+      knowOwnDevice(own?.name ?? null);
+      if (own !== undefined) draftsFor(own && own.id);
+    },
     () => knowOwnDevice(null),
   );
   let board: OpsBoard | undefined;
@@ -112,6 +118,10 @@ export function opsPage(
     historyTalk,
   );
   const paintMenu = () => {
+    // Until the first board read lands, the rail keeps the shape it remembered (#6750): an
+    // Orchestration-only menu would replace it, and the squad rows would then push every row below
+    // them down (#6757). A failed read is a board too, so the menu always arrives.
+    if (!board) return;
     const section = current();
     shell.setMenu(
       opsMenu(

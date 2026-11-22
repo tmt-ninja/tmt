@@ -8,14 +8,15 @@ import {
   underModuleMount,
   type ShellAnswer,
   type ShellControls,
+  LAYOUT_UNIT,
   type ShellMenu,
+  type ShellMenuGeometry,
   type ShellModule,
   type ShellTools,
   type ShellCommonControls,
   type ShellTopBar,
 } from './shell.js';
 import { createBusyMark } from './static.js';
-import { shellIconNodes, type ShellIcon } from './shell-icons.js';
 
 /**
  * The one TMT web app (#3937, spec c5ccd17a): one document, one `mountShell` instance and one
@@ -128,30 +129,20 @@ export interface ShellHost {
   dispose(): void;
 }
 
-/** The shape of the menu each route set last in this browser, so the rail draws the same rows in
- * its first frame, in a new tab too, and never moves when the module's menu arrives (#6750). Only
- * the shape is kept (groups, which parts exist, each row's glyph name from the fixed icon set),
- * never a label: a row may be a sealed page title. It is local storage of this door's origin (one
- * owner), and a session change drops it. */
-const MENU_KEY = 'tmt-shell-menu-v1';
+/** The drawn geometry of the menu each route set last in this browser, so the rail draws the same
+ * rows in its first frame, in a new tab too, and never moves when the module's menu arrives
+ * (#6750). The host measures the menu once drawn (`ShellControls.menuGeometry`) and keeps only
+ * heights and depths, never a label (a row may be a sealed page title), a glyph or a kind of row,
+ * so the placeholder matches every row kind by construction (#6757). It is local storage of this
+ * door's origin (one owner), and a session change drops it; the first v2 write removes v1's
+ * glyph-and-flag shapes. A changed font size or zoom costs one shift, then the next measure holds. */
+const MENU_KEY = 'tmt-shell-menu-v2';
+const OLD_MENU_KEYS = ['tmt-shell-menu-v1'];
 const MENU_ROUTES = 16;
 const MENU_GROUPS = 16;
 const MENU_ROWS = 64;
-interface MenuShape {
-  groups: {
-    label: boolean;
-    action: boolean;
-    add: boolean;
-    alert: boolean;
-    icon: ShellIcon | null;
-    rows: (ShellIcon | null)[];
-  }[];
-  settings: ShellIcon | null | false;
-}
-const glyph = (value: unknown): ShellIcon | undefined =>
-  typeof value === 'string' && Object.hasOwn(shellIconNodes, value)
-    ? (value as ShellIcon)
-    : undefined;
+/** The tallest part kept: 1000px. */
+const MENU_HEIGHT = 1000 * LAYOUT_UNIT;
 const plain = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 function menuShapes(): Record<string, unknown> {
@@ -162,90 +153,79 @@ function menuShapes(): Record<string, unknown> {
     return {};
   }
 }
-function keepMenuShape(route: string, menu: ShellMenu | undefined) {
+/** Keeps `geometry` for `route`: null drops it (the module set no menu), undefined keeps what was
+ * measured before (nothing drawn to measure, like a closed phone drawer). Writes only a change. */
+function keepMenuShape(route: string, geometry: ShellMenuGeometry | null | undefined) {
+  if (geometry === undefined) return;
   const shapes = menuShapes();
+  const before = JSON.stringify(shapes[route] ?? null);
   delete shapes[route];
-  if (menu && !menu.placeholder)
+  if (geometry)
     shapes[route] = {
-      groups: menu.groups.slice(0, MENU_GROUPS).map((group) => ({
-        label: Boolean(group.label),
-        action: Boolean(group.action),
-        add: Boolean(group.add),
-        alert: Boolean(group.alert),
-        icon: group.fallbackIcon ?? null,
-        rows: group.items
-          .flatMap((item) => [item, ...(item.expanded ? (item.children ?? []) : [])])
-          .slice(0, MENU_ROWS)
-          .map((item) => item.icon ?? null),
-      })),
-      settings: menu.settings ? (menu.settings.icon ?? null) : false,
+      groups: geometry.groups
+        .slice(0, MENU_GROUPS)
+        .map((group) => ({ head: group.head, rows: group.rows.slice(0, MENU_ROWS) })),
+      settings: geometry.settings,
     };
+  if (JSON.stringify(shapes[route] ?? null) === before) return;
   const kept = Object.entries(shapes).slice(-MENU_ROUTES);
   try {
     localStorage.setItem(MENU_KEY, JSON.stringify(Object.fromEntries(kept)));
+    for (const old of OLD_MENU_KEYS) localStorage.removeItem(old);
   } catch {
     // Without storage the menu arrives with its module, as before.
   }
 }
 function forgetMenuShapes() {
   try {
-    localStorage.removeItem(MENU_KEY);
+    for (const key of [MENU_KEY, ...OLD_MENU_KEYS]) localStorage.removeItem(key);
   } catch {
     // Nothing was kept.
   }
 }
-const flag = (value: unknown) => typeof value === 'boolean';
-const mark = (value: unknown) => value === null || glyph(value) !== undefined;
-/** A stored shape exactly as `keepMenuShape` writes it, within its caps; anything else, from an
+const height = (value: unknown) =>
+  Number.isInteger(value) && (value as number) >= 0 && (value as number) <= MENU_HEIGHT;
+const exactly = (value: Record<string, unknown>, ...keys: string[]) =>
+  Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+/** A stored geometry exactly as `keepMenuShape` writes it, within its caps; anything else, from an
  * older build or a damaged store, is no shape at all, so it costs one shift and never breaks a
  * route. */
-function menuShape(value: unknown): MenuShape | undefined {
-  if (!plain(value) || !Array.isArray(value.groups) || value.groups.length > MENU_GROUPS)
+function menuShape(value: unknown): ShellMenuGeometry | undefined {
+  if (
+    !plain(value) ||
+    !exactly(value, 'groups', 'settings') ||
+    !Array.isArray(value.groups) ||
+    value.groups.length > MENU_GROUPS ||
+    (value.settings !== null && !height(value.settings))
+  )
     return undefined;
-  if (value.settings !== false && !mark(value.settings)) return undefined;
-  for (const group of value.groups as unknown[])
+  for (const group of value.groups as unknown[]) {
     if (
       !plain(group) ||
-      !flag(group.label) ||
-      !flag(group.action) ||
-      !flag(group.add) ||
-      !flag(group.alert) ||
-      !mark(group.icon) ||
+      !exactly(group, 'head', 'rows') ||
+      (group.head !== null && !height(group.head)) ||
       !Array.isArray(group.rows) ||
-      group.rows.length > MENU_ROWS ||
-      !group.rows.every(mark)
+      group.rows.length > MENU_ROWS
     )
       return undefined;
-  return value as unknown as MenuShape;
+    for (const [index, row] of (group.rows as unknown[]).entries())
+      if (
+        !plain(row) ||
+        !exactly(row, 'height', 'depth') ||
+        !height(row.height) ||
+        (row.depth !== 0 && row.depth !== 1) ||
+        // A child follows the row it belongs to.
+        (index === 0 && row.depth === 1)
+      )
+        return undefined;
+  }
+  return value as unknown as ShellMenuGeometry;
 }
-/** Blank rows in the shape `stored` keeps for `route`; a malformed entry draws nothing. */
+/** Blank rows of the geometry `stored` keeps for `route`; a malformed entry draws nothing. */
 export function rememberedMenu(stored: unknown, route: string): ShellMenu | undefined {
   const shape =
     plain(stored) && Object.hasOwn(stored, route) ? menuShape(stored[route]) : undefined;
-  if (!shape) return undefined;
-  const blank = '\u00a0';
-  const inert = { label: blank, onActivate() {} };
-  let row = 0;
-  const entry = (icon: ShellIcon | null) => ({
-    id: `placeholder:${row++}`,
-    label: blank,
-    href: '',
-    current: false,
-    ...(icon ? { icon } : {}),
-  });
-  return {
-    title: '',
-    placeholder: true,
-    groups: shape.groups.map((group) => ({
-      ...(group.label ? { label: blank } : {}),
-      ...(group.action ? { action: inert } : {}),
-      ...(group.add ? { add: inert } : {}),
-      ...(group.alert ? { alert: { message: blank, retry: inert } } : {}),
-      ...(group.icon ? { fallbackIcon: group.icon } : {}),
-      items: group.rows.map(entry),
-    })),
-    ...(shape.settings === false ? {} : { settings: entry(shape.settings) }),
-  };
+  return shape && { title: '', groups: [], placeholder: shape };
 }
 const placeholderMenu = (route: string) => rememberedMenu(menuShapes(), route);
 
@@ -380,6 +360,8 @@ export function startShellHost(
     }
   >();
   let menu: ShellMenu | undefined;
+  /** The frame after which the menu just set is measured. */
+  let measuring = 0;
   let select: ((id: string, href: string) => boolean) | undefined;
   let asked = false;
   let settled = false;
@@ -468,8 +450,17 @@ export function startShellHost(
       if (current?.generation !== mine) return;
       menu = next;
       select = handler;
-      keepMenuShape(route.id, next);
       paint();
+      if (!next) return keepMenuShape(route.id, null);
+      // Measured as drawn, so the placeholder is this menu's own geometry (#6757): after the frame
+      // that paints it, when its layout is already done, never inside a module's repaint.
+      cancelAnimationFrame(measuring);
+      measuring = requestAnimationFrame(() =>
+        setTimeout(() => {
+          if (current?.generation === mine && menu === next)
+            keepMenuShape(route.id, controls.menuGeometry());
+        }),
+      );
     },
     setTitle(title) {
       if (current?.generation === mine) document.title = `${title} · TMT`;

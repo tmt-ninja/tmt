@@ -283,35 +283,61 @@ it('selects one visible row: a current child while its parent is open, else the 
   expect(visibleCurrent(undefined)).toBeUndefined();
 });
 
-it('draws a remembered menu shape only when every part of it is well formed (#6750)', () => {
+it('draws a remembered menu geometry only when every part of it is well formed (#6750, #6757)', () => {
+  const row = (height: number, depth: 0 | 1 = 0) => ({ height, depth });
   const shape = {
     groups: [
-      { label: false, action: false, add: false, alert: false, icon: null, rows: ['list', null] },
-      { label: true, action: true, add: false, alert: false, icon: 'bookmark', rows: [] },
+      { head: null, rows: [row(2176), row(2304), row(2240, 1), row(1984, 1)] },
+      { head: 1792, rows: [] },
     ],
-    settings: 'settings',
+    settings: 2304,
   };
   const menu = rememberedMenu({ colab: shape }, 'colab')!;
-  expect(menu.placeholder).toBe(true);
-  expect(menu.groups.map((group) => group.items.map((item) => item.icon ?? null))).toEqual([
-    ['list', null],
-    [],
-  ]);
-  expect(menu.groups[1]!.fallbackIcon).toBe('bookmark');
-  expect(menu.settings?.icon).toBe('settings');
-  expect(JSON.stringify(menu)).not.toMatch(/[A-Za-z]{4,}\s[A-Za-z]/);
+  // Blank: the geometry alone, no rows of the module's own.
+  expect(menu).toEqual({ title: '', groups: [], placeholder: shape });
   for (const stored of [
     null,
     [],
     'colab',
     { colab: null },
-    { colab: { groups: [null], settings: false } },
-    { colab: { groups: ['x'], settings: false } },
-    { colab: { groups: [{ ...shape.groups[0], rows: 'list' }], settings: false } },
-    { colab: { groups: [{ ...shape.groups[0], rows: ['not-an-icon'] }], settings: false } },
-    { colab: { groups: [{ ...shape.groups[0], label: 'Shortcuts' }], settings: false } },
-    { colab: { groups: [], settings: 'Colab settings' } },
-    { colab: { groups: Array.from({ length: 17 }, () => shape.groups[1]), settings: false } },
+    { colab: { groups: [null], settings: null } },
+    { colab: { groups: ['x'], settings: null } },
+    { colab: { groups: [{ head: null, rows: 'list' }], settings: null } },
+    // v1's glyph-and-flag shapes are no geometry.
+    {
+      colab: {
+        groups: [{ label: false, action: false, add: false, alert: false, icon: null, rows: [] }],
+        settings: false,
+      },
+    },
+    { colab: { groups: [{ head: null, rows: ['list'] }], settings: null } },
+    { colab: { groups: [{ head: null, rows: [{ icon: 'list', child: false }] }], settings: null } },
+    // A height that is not a whole layout unit, negative, past 1000px or text; a depth past 1; a
+    // child first; another key; a missing part.
+    { colab: { groups: [{ head: null, rows: [row(21.5)] }], settings: null } },
+    { colab: { groups: [{ head: null, rows: [row(-64)] }], settings: null } },
+    { colab: { groups: [{ head: null, rows: [row(64_001)] }], settings: null } },
+    { colab: { groups: [{ head: null, rows: [{ height: '34px', depth: 0 }] }], settings: null } },
+    { colab: { groups: [{ head: null, rows: [{ height: 64, depth: 2 }] }], settings: null } },
+    { colab: { groups: [{ head: null, rows: [row(64, 1)] }], settings: null } },
+    {
+      colab: {
+        groups: [{ head: null, rows: [{ height: 64, depth: 0, label: 'Sealed title' }] }],
+        settings: null,
+      },
+    },
+    { colab: { groups: [{ head: null }], settings: null } },
+    { colab: { groups: [{ head: 'Shortcuts', rows: [] }], settings: null } },
+    { colab: { groups: [], settings: false } },
+    { colab: { groups: [] } },
+    { colab: { ...shape, title: 'Colab' } },
+    { colab: { groups: Array.from({ length: 17 }, () => shape.groups[1]), settings: null } },
+    {
+      colab: {
+        groups: [{ head: null, rows: Array.from({ length: 65 }, () => row(64)) }],
+        settings: null,
+      },
+    },
     { other: shape },
   ])
     expect(rememberedMenu(stored, 'colab')).toBeUndefined();

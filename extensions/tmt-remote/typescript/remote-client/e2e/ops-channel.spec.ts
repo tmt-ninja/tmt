@@ -379,6 +379,34 @@ test('null and truncated timer reads stay unknown, and a stopped route fences la
   expect(await page.evaluate(() => window.channelReads)).toBe(reads);
 });
 
+test('the rail waits for the first board read, so the squad rows never push Orchestration down', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.channelHold = true;
+  });
+  await serveOpsHarness(page, built!, origin, 1440, 'light');
+  await page.goto(`${origin}/ops/#channel/sample`);
+  await expect.poll(() => page.evaluate(() => window.channelReads)).toBe(1);
+  // While the first read is out, the module draws no menu of its own over the remembered shape
+  // (#6750), so nothing it draws can move when the squads arrive (#6757).
+  const rail = page.locator('.tmt-ui-rail');
+  const orchestration = rail.getByRole('link', { name: 'Orchestration' });
+  await page.clock.runFor(1000);
+  await expect(orchestration).toHaveCount(0);
+  await page.evaluate(() => {
+    window.channelHold = false;
+    window.channelRelease();
+  });
+  // The menu arrives once, whole: the squad, its members, then Orchestration below them.
+  await expect(orchestration).toBeVisible();
+  const [squad, below] = await Promise.all([
+    rail.getByRole('link', { name: /^sample-2/ }).boundingBox(),
+    orchestration.boundingBox(),
+  ]);
+  expect(below!.y).toBeGreaterThan(squad!.y);
+});
+
 async function openHistory(page: Page, width = 1440, theme = 'light') {
   await page.addInitScript(() => {
     window.dmEnabled = true;
@@ -913,7 +941,7 @@ test('channel posts to the lead or each mention with the board room, and shows r
   ).toBe(true);
   await expect(box).toHaveText('');
   // Sent words are no draft: nothing is kept to come back after a reload (#6757).
-  expect(await page.evaluate(() => sessionStorage.getItem('tmt-ops-drafts-v1'))).toBeNull();
+  expect(await page.evaluate(() => sessionStorage.getItem('tmt-ops-drafts-v2'))).toBeNull();
   // A post Core holds for two members: Send now asks for each one's request once, and a refusal
   // shows Core's sentence.
   await page.evaluate(() => {
@@ -1120,4 +1148,13 @@ test('a phone DM leads back to its channel, the rail marks drafts quietly and ke
   await expect(channelBox).toHaveText('Not sent yet');
   await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
   await expect(rail.getByRole('link', { name: /^sample-1/ })).not.toContainText('Draft');
+  // A reload under another pairing shows none of them: the words belong to the device that typed
+  // them (#6757).
+  await page.addInitScript(() => {
+    window.ownDeviceId = 'device-other';
+  });
+  await page.reload();
+  await expect(page.locator('.ops-channel-name')).toHaveText('#sample');
+  await expect(channelBox).toHaveText('');
+  expect(await page.evaluate(() => sessionStorage.getItem('tmt-ops-drafts-v2'))).toBeNull();
 });
