@@ -379,9 +379,11 @@ for (const departure of ['reload', 'navigate'] as const) {
           page.getByRole('status').filter({ hasText: 'Your last change was not applied.' }),
         ).toBeVisible();
         await expect(deleted).toBeVisible();
-        await page.evaluate(() =>
-          (window as Window & { restoreDraftPut: () => void }).restoreDraftPut(),
-        );
+        await page.evaluate(() => {
+          const restore = (window as Window & { restoreDraftPut?: () => void }).restoreDraftPut;
+          if (!restore) throw new Error('Missing draft storage restore hook');
+          restore();
+        });
         await deleted.getByRole('button', { name: 'Discard', exact: true }).click();
         await expect(deleted).toHaveCount(0);
       }
