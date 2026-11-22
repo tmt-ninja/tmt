@@ -598,8 +598,8 @@ on TOK the mark takes the blank cell before the word. A click changes only the s
 order, never the selection or a message.
 In Agents, `n` opens New member on any row. `N` creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
 member row, `m` manages a squad or arranges an agent in the tree, and `x` opens Close and
-delete for the selected agent. The Agents footer is one line of the keys the selected
-row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  r rename  m move  x close  / search  ? help  q quit`.
+delete for the selected agent. The Agents footer shows keys for the selected row.
+On a member row: `↑↓←→ move  ⏎ chat  n new  r rename  m move  x close  / search  ? help  q quit`.
 The selected member's name row shows its effective jump key, for example `z open`, when
 available and there is room after the name. Authored bindings win; unavailable hints are
 hidden. Talk, Measure and Checklist remain available through their keys and right-pane tabs.
@@ -1110,10 +1110,9 @@ Public `tmt ops sq ls --tab all --json` retains its aggregate document.
 Select a squad to inspect its lead-first MEMBER / STATE / TASK / NEXT ACTION roster,
 supplied usage facts and timers. Agents uses a 47% list in Side layout; Auto stacks
 below 120 columns and uses a single focused pane when the usable budgets do not fit.
-The table reserves one range/total/more row. Add a member, set or
-clear its lead, rename it, pin it or open Timers through the named controls or
-Manage. `N` creates from a name, optional lead and explicit members. `m` moves an
-agent to another squad in place; `tmt ops squad add` joins a second squad.
+The table reserves one range/total/more row. Use named controls or Manage to add members,
+set or clear the lead, rename, pin or open Timers. `N` creates from a name, optional lead and explicit members.
+`m` arranges an agent in the tree; Actions → Move to squad changes its squad, and `tmt ops squad add` joins a second squad.
 
 Membership reviews show what changes. Rename uses the UUID and expected-name
 check; `c` copies the reviewed command.
