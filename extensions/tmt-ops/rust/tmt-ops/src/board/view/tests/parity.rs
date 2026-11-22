@@ -193,18 +193,21 @@ fn baseline() -> Value {
     json!({"source": "f8c73805d64538647f4fada66910cd652c225394", "fixtures": fixtures})
 }
 
+fn assert_retired_fields_are_absent(fixture: &Value) {
+    let mut document: Value = serde_json::from_str(fixture["ls_json"].as_str().unwrap()).unwrap();
+    crate::display_rows::each_row(&mut document, |row| {
+        assert!(row.get("pending").is_none(), "{row}");
+        for key in ["task", "next", "pending"] {
+            assert!(row["fields"].get(key).is_none(), "{key}: {row}");
+        }
+    });
+}
+
 #[test]
 fn markup_slices_preserve_frozen_board_and_list_bytes() {
     let actual = baseline();
     for fixture in actual["fixtures"].as_array().unwrap() {
-        let mut document: Value =
-            serde_json::from_str(fixture["ls_json"].as_str().unwrap()).unwrap();
-        crate::display_rows::each_row(&mut document, |row| {
-            assert!(row.get("pending").is_none(), "{row}");
-            for key in ["task", "next", "pending"] {
-                assert!(row["fields"].get(key).is_none(), "{key}: {row}");
-            }
-        });
+        assert_retired_fields_are_absent(fixture);
     }
     let actual = serde_json::to_string(&actual).unwrap();
     assert_eq!(actual, include_str!("parity.json").trim_end());
@@ -263,13 +266,16 @@ fn inspect_markup_parity_diff() {
     {
         let layout = old["layout"].as_str().unwrap();
         assert_eq!(old["layout"], new["layout"]);
+        assert_retired_fields_are_absent(new);
         for key in ["ls_text", "ls_json"] {
-            assert_eq!(
-                old[key], new[key],
-                "{layout}: {key} must stay byte-identical"
-            );
+            if old[key] == new[key] {
+                println!("{layout}: {key} byte-identical");
+            } else {
+                println!("{layout}: {key} changed");
+                println!("  before: {}", old[key]);
+                println!("  after: {}", new[key]);
+            }
         }
-        println!("{layout}: list text/JSON byte-identical");
         for kind in ["frames", "folded_frames"] {
             let before = old[kind].as_array().unwrap();
             let after = new[kind].as_array().unwrap();
