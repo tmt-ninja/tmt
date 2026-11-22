@@ -144,7 +144,16 @@ fn baseline() -> Value {
         if let Some(hidden) = projected.get("hidden_columns") {
             view.document["hidden_columns"] = hidden.clone();
         }
-        let document = view.document.clone();
+        let mut document = view.document.clone();
+        // The shared legacy input predates field retirement. Model the current
+        // projection without changing the source fixture used by other tests.
+        crate::display_rows::each_row(&mut document, |row| {
+            let row = row.as_object_mut().expect("parity row");
+            row.remove("pending");
+            if let Some(fields) = row.get_mut("fields").and_then(Value::as_object_mut) {
+                fields.retain(|key, _| !crate::squad::retired_field(key));
+            }
+        });
         // Factory layouts still define these public CLI bytes. They do not
         // instantiate another interactive shell or an implicit notebook pane.
         let mut app = workspace_board(&config, &document);
@@ -186,7 +195,18 @@ fn baseline() -> Value {
 
 #[test]
 fn markup_slices_preserve_frozen_board_and_list_bytes() {
-    let actual = serde_json::to_string(&baseline()).unwrap();
+    let actual = baseline();
+    for fixture in actual["fixtures"].as_array().unwrap() {
+        let mut document: Value =
+            serde_json::from_str(fixture["ls_json"].as_str().unwrap()).unwrap();
+        crate::display_rows::each_row(&mut document, |row| {
+            assert!(row.get("pending").is_none(), "{row}");
+            for key in ["task", "next", "pending"] {
+                assert!(row["fields"].get(key).is_none(), "{key}: {row}");
+            }
+        });
+    }
+    let actual = serde_json::to_string(&actual).unwrap();
     assert_eq!(actual, include_str!("parity.json").trim_end());
 }
 

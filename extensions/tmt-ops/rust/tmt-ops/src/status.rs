@@ -880,7 +880,13 @@ sort = ["state"]
             member("kai", &[("state", "custom")]),
             member(
                 "bob",
-                &[("state", "blocked"), ("pending", "approve the plan")],
+                &[
+                    ("state", "blocked"),
+                    ("task", "review the patch"),
+                    ("next", "send the result"),
+                    ("pending", "approve the plan"),
+                    ("now", "reviewing"),
+                ],
             ),
         ]
     }
@@ -976,7 +982,7 @@ sort = ["state"]
         assert_eq!(crew["sections"][0]["title"], Value::Null);
         let bob = &crew["sections"][0]["rows"][1];
         assert!(!bob.as_object().unwrap().contains_key("pending"));
-        assert!(!bob["fields"].as_object().unwrap().contains_key("pending"));
+        assert_eq!(bob["fields"], json!({"state": "blocked"}));
         assert!(!bob.as_object().unwrap().contains_key("note"));
 
         let minimal = document(
