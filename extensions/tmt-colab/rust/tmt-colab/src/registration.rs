@@ -2391,28 +2391,21 @@ fn forward_owner_wraps(
     recipient_key: &[u8; 32],
 ) -> Result<()> {
     let head = tx.head().ok_or(Code::Unavailable)?.clone();
-    let pages = tx.pages()?;
-    if pages.len() > crate::limits::PAGES {
-        return Err(Code::Capacity.into());
-    }
     let mut added = 0;
-    for page in pages {
-        let policy = tx.page_policy_at(&page, head.revision)?;
-        if policy.deleted {
-            continue;
+    for (page, policy) in tx.owner_wrap_pages()? {
+        if added == crate::limits::OWNER_WRAPS {
+            break;
         }
         let epochs = tx.recent_secrets(&page, policy.epoch)?;
-        for (epoch, mut secret) in epochs {
+        for (epoch, mut secret) in epochs.into_iter().rev() {
             let result = (|| -> Result<()> {
-                if (policy.history_current && epoch != policy.epoch)
+                if added == crate::limits::OWNER_WRAPS
+                    || (policy.history_current && epoch != policy.epoch)
                     || tx.device_wrap_exists(&page, epoch, device, recipient_key)?
                 {
                     return Ok(());
                 }
                 added += 1;
-                if added > crate::limits::OWNER_WRAPS {
-                    return Err(Code::Capacity.into());
-                }
                 tx.put_wrap(&key.seal_wrap(
                     &tmt_colab_model::wrap::Header {
                         space: key.space_id.clone(),
