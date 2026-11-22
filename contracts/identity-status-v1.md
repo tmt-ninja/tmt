@@ -71,6 +71,11 @@ The registered harness comes from those remembered coordinates. Otherwise the
 key is absent, never null: this includes Ended or Unknown runtime evidence,
 undisclosed or mismatched sessions, and historical, offline or unknown rows.
 
+Rows with a registered `runningDriver` also include its descriptor `hue`, one of
+`"amber"`, `"green"`, `"magenta"`, `"cyan"` or `"neutral"`. Consumers map this
+role through their theme and handle an absent hue from older producers. The field
+is absent whenever `runningDriver` is absent. It carries presentation data only.
+
 This projection reuses the command's existing observations; it adds no probe,
 subprocess, PID, session ID or address disclosure. It does not depend on optional
 activity telemetry in `session.activity` and grants no dispatch authority.

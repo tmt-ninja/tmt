@@ -588,38 +588,33 @@ mod header {
     }
 
     #[test]
-    fn the_state_outranks_the_checklist_chip_on_a_narrow_talk_row() {
+    fn the_checklist_tab_keeps_its_label_at_narrow_widths_and_full_count_when_it_fits() {
         let mut app = board();
         let key = select_member(&mut app);
         answer(&mut app, &key, Ok(Counts { links: 0, todo: 12 }));
-        let (mut whole, mut counted_out, mut dropped) = (false, false, false);
-        for width in (80..=200).step_by(2) {
+        for width in [80, 100, 160] {
             let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
             terminal
                 .draw(|frame| crate::board::view::render(frame, &app))
                 .unwrap();
             let buffer = terminal.backend().buffer();
-            let row = (0..40)
-                .map(|y| {
-                    (0..width)
-                        .map(|x| buffer[(x, y)].symbol())
-                        .collect::<String>()
-                })
-                .find(|line| line.contains("Talk") && line.contains("Measure"))
-                .expect("the Talk/Measure row");
-            assert!(row.contains("working"), "{width}: the state is cut\n{row}");
-            // The chip gives up its count before itself.
-            let chip = row.contains("Checklist 12");
-            let bare = row.contains("Checklist ──");
-            assert!(chip || bare || !row.contains("Checklist"), "{width}: {row}");
-            whole |= chip;
-            counted_out |= bare;
-            dropped |= !row.contains("Checklist");
+            let rows: Vec<String> = (0..40)
+                .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+                .collect();
+            let tabs = rows
+                .iter()
+                .position(|row| row.contains("Talk") && row.contains("Measure"))
+                .unwrap();
+            assert!(rows[tabs].contains("Checklist"), "{width}: {}", rows[tabs]);
+            if width == 160 {
+                assert!(rows[tabs].contains("Checklist 12"), "{}", rows[tabs]);
+            }
+            assert!(
+                rows[tabs + 1].contains("working"),
+                "{width}: {}",
+                rows[tabs + 1]
+            );
         }
-        assert!(
-            whole && counted_out && dropped,
-            "wide rows keep the chip, narrower ones its word, the narrowest none"
-        );
     }
 
     #[test]
@@ -700,9 +695,14 @@ mod header {
         assert!(header.contains("○ 5 todo"), "{header}");
         let member = text
             .lines()
-            .find(|line| line.contains("worker") && line.contains("working"))
+            .find(|line| line.contains("└ worker") && line.contains("working"))
             .unwrap();
         assert!(member.contains("· 5 todo"), "{member}");
+        assert!(
+            text.lines()
+                .any(|line| line.contains("Measure") && line.contains("Checklist 5")),
+            "{text}"
+        );
         assert!(!text.contains("need you"), "{text}");
     }
 

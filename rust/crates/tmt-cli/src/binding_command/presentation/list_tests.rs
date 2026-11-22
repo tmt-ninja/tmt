@@ -522,10 +522,9 @@ fn running_document(mut row: ListedRow, runtime: RuntimeState) -> Value {
         detected: None,
     });
     let mut existing = projected.clone();
-    existing["identities"][0]
-        .as_object_mut()
-        .unwrap()
-        .remove("runningDriver");
+    let row = existing["identities"][0].as_object_mut().unwrap();
+    row.remove("runningDriver");
+    row.remove("hue");
     assert_eq!(existing, baseline, "existing list fields must not change");
     projected["identities"][0].clone()
 }
@@ -582,6 +581,7 @@ fn a_live_row_pairs_running_driver_with_its_stored_context_use() {
     );
     let value = running_document(codex, RuntimeState::Running);
     assert_eq!(value["runningDriver"], "codex");
+    assert_eq!(value["hue"], "green");
     assert_eq!(
         value["resume"]["usage"],
         json!({"tokens":146_577,"windowTokens":258_400,"observedAtMs":1_000})
@@ -593,6 +593,7 @@ fn a_live_row_pairs_running_driver_with_its_stored_context_use() {
     );
     let value = running_document(claude, RuntimeState::Running);
     assert_eq!(value["runningDriver"], "claude");
+    assert_eq!(value["hue"], "amber");
     assert_eq!(
         value["resume"]["usage"],
         json!({"tokens":195_664,"observedAtMs":2_000})
@@ -606,6 +607,7 @@ fn a_live_row_pairs_running_driver_with_its_stored_context_use() {
     );
     let value = running_document(ended, RuntimeState::Ended);
     assert!(value.get("runningDriver").is_none());
+    assert!(value.get("hue").is_none());
     // A driver that stored nothing has no figure to show, not a zero.
     let value = running_document(
         running_row_with_usage("claude", CLAUDE, None),

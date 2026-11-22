@@ -34,8 +34,8 @@ export const patternDocs: PatternDoc[] = [
       sample: { state: 'agents' },
       parts: [
         { name: 'Workspace tab', row: 2, text: 'Agents' },
-        { name: 'List scope', row: 8, text: 'Squads' },
-        { name: 'Selected identity', row: 12, text: 'worker' },
+        { name: 'List scope', row: 10, text: 'Squads' },
+        { name: 'Selected identity', row: 14, text: 'worker' },
         { name: 'Effective key help', row: 36, text: '? help' },
       ],
     },
@@ -193,8 +193,8 @@ export const patternDocs: PatternDoc[] = [
       'A narrow terminal cannot show every metric, and a reduced palette cannot depend on subtle fills to explain focus or state.',
     anatomy: {
       label: 'Recorded 60-column collection',
-      sample: { state: 'agents', width: 60, height: 36, crop: [7, 15] },
-      parts: [{ name: 'Selected identity', row: 12, text: 'worker' }],
+      sample: { state: 'agents', width: 60, height: 36, crop: [9, 15] },
+      parts: [{ name: 'Selected identity', row: 14, text: 'worker' }],
     },
     rules: [
       'Use terminal column steps, not browser pixels, to decide which secondary columns and hints fit. Keep identity and the focused target legible.',

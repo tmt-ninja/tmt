@@ -358,17 +358,16 @@ fn label_chips_use_palette_roles_and_reverse_without_color() {
             .draw(|frame| crate::board::view::render(frame, &app))
             .unwrap();
         let buffer = terminal.backend().buffer();
-        let row = buffer
-            .content
-            .chunks(160)
-            .find(|row| {
-                row.iter()
-                    .map(|cell| cell.symbol())
-                    .collect::<String>()
-                    .contains("agent-00000")
-                    && row.iter().any(|cell| cell.symbol() == "P")
-            })
-            .unwrap();
+        // The member header also shows this label as text. Inspect the actual
+        // roster-row hit so the chip's palette assertion cannot read that copy.
+        let hit = app
+            .hits
+            .borrow()
+            .iter()
+            .find_map(|hit| (hit.row() == Some(index)).then_some(*hit))
+            .expect("the selected member has a painted list row");
+        let start = usize::from(hit.y) * usize::from(buffer.area.width) + usize::from(hit.x);
+        let row = &buffer.content[start..start + usize::from(hit.width)];
         let glyph = row.iter().position(|cell| cell.symbol() == "P").unwrap();
         if depth == Depth::None {
             assert!(row[glyph].modifier.contains(Modifier::REVERSED));
@@ -455,7 +454,7 @@ fn selected_member_identity_line_names_its_label() {
     assert!(
         screen
             .lines()
-            .any(|line| line.contains("squad-00") && line.contains("review")),
+            .any(|line| line.contains("SQUAD-00 / MEMBER") && line.contains("· review")),
         "{screen}"
     );
 }
@@ -722,7 +721,7 @@ fn escape_returns_one_level_and_never_quits_the_board() {
             Effect::None
         );
         let screen = paint(&app, width, height).join("\n");
-        assert!(screen.contains("━━ worker "), "{screen}");
+        assert!(screen.contains("worker   PRODUCT / MEMBER"), "{screen}");
         assert!(screen.contains("Esc back"), "{screen}");
         assert!(
             !screen.contains("press j:"),

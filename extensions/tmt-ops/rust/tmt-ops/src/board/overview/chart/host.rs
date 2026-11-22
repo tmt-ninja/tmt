@@ -25,6 +25,7 @@ mod controls;
 mod dropdown;
 mod render;
 pub(in crate::board) use render::{overview_demand, render_controls, render_panel};
+pub(in crate::board) const MAX_REMEMBERED_ROWS: u16 = 128;
 #[cfg(test)]
 pub(in crate::board) mod tests;
 
@@ -66,10 +67,21 @@ pub(in crate::board) struct State {
     visible: bool,
     hover: Option<usize>,
     observed: Option<Rc<Series>>,
+    remembered_rows: Vec<String>,
+    reserved_rows: u16,
     // The scene key includes all display values, coverage and solved dimensions.
     scene: Option<(crate::board::spark_row::Data, u16, u64, Scene)>,
 }
 impl State {
+    pub(in crate::board) fn remembered_rows(&self) -> &[String] {
+        &self.remembered_rows
+    }
+
+    pub(in crate::board) fn restore_rows(&mut self, rows: Vec<String>) {
+        self.reserved_rows = rows.len() as u16;
+        self.remembered_rows = rows;
+    }
+
     pub(in crate::board) fn chart_controls(&self) -> (u32, Each) {
         (self.selection.range_minutes, self.each)
     }

@@ -1,57 +1,7 @@
-//! Selected member and squad identities over already acquired display values.
+//! The selected squad identity over already acquired display values.
 use crate::look::Look;
 use ratatui::text::{Line, Span};
 use tmt_cli_style::Role;
-
-pub(in crate::board) struct Member<'a> {
-    pub squad: &'a str,
-    pub lead: bool,
-    pub runtime: Option<&'a str>,
-    pub model: Option<&'a str>,
-    pub host: Option<&'a str>,
-    pub label: Option<&'a str>,
-}
-
-/// Cell range of the observed host, before clipping to the painted line.
-pub(in crate::board) fn member_host_range(data: &Member<'_>) -> Option<(usize, usize)> {
-    use unicode_width::UnicodeWidthStr;
-    let host = crate::board::notes::single_line(data.host?);
-    if host.is_empty() {
-        return None;
-    }
-    let prefix = format!(
-        " {} · ",
-        [
-            data.squad,
-            if data.lead { "lead" } else { "member" },
-            data.runtime.unwrap_or("—"),
-            data.model.unwrap_or("—"),
-        ]
-        .map(crate::board::notes::single_line)
-        .join(" · ")
-    );
-    Some((prefix.width(), host.width()))
-}
-
-pub(in crate::board) fn member(data: &Member<'_>, look: Look) -> Line<'static> {
-    let mut text = format!(
-        " {}",
-        [
-            data.squad,
-            if data.lead { "lead" } else { "member" },
-            data.runtime.unwrap_or("—"),
-            data.model.unwrap_or("—"),
-            data.host.unwrap_or("—"),
-        ]
-        .map(crate::board::notes::single_line)
-        .join(" · ")
-    );
-    if let Some(label) = data.label {
-        text.push_str(" · ");
-        text.push_str(&crate::board::notes::single_line(label));
-    }
-    Line::styled(text, look.role(Role::Muted))
-}
 
 pub(in crate::board) fn squad(
     lead: Option<&str>,
@@ -78,28 +28,11 @@ pub(in crate::board) fn squad(
 mod tests {
     use super::*;
     #[test]
-    fn missing_identity_values_stay_unknown_and_text_is_inert() {
+    fn missing_squad_lead_stays_unknown_and_room_text_is_inert() {
         let look = Look::default();
-        let line = member(
-            &Member {
-                squad: "room\nname",
-                lead: false,
-                runtime: None,
-                model: None,
-                host: Some("host\u{1b}[31m target"),
-                label: None,
-            },
-            look,
-        );
         assert_eq!(
-            line.to_string(),
-            " room name · member · — · — · host target"
-        );
-        assert_eq!(line.style, look.role(Role::Muted));
-        assert!(
-            squad(None, Line::raw("? unreported"), "pool", look)
-                .to_string()
-                .contains("lead — · ? unreported · room pool")
+            squad(None, Line::raw("? unreported"), "room\nname", look).to_string(),
+            " lead — · ? unreported · room room name"
         );
     }
 }

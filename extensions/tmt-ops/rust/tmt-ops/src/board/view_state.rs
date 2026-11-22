@@ -92,7 +92,12 @@ pub(super) struct Controls {
     digest_window: crate::config::DigestWindow,
     chart: (u32, super::overview::chart::model::Each),
     order: Order,
+    usage_rows: Vec<String>,
 }
+pub(super) fn usage_row_name(name: &str) -> String {
+    super::notes::single_line(name).chars().take(24).collect()
+}
+
 impl Controls {
     pub(super) fn capture(app: &App) -> Self {
         Self {
@@ -102,6 +107,7 @@ impl Controls {
             digest_window: app.digest_window,
             chart: app.usage_chart.borrow().chart_controls(),
             order: app.workspace_order(),
+            usage_rows: app.usage_chart.borrow().remembered_rows().to_vec(),
         }
     }
     pub(super) fn apply(&self, app: &mut App) {
@@ -115,6 +121,9 @@ impl Controls {
         app.usage_chart
             .borrow_mut()
             .restore_chart_controls(self.chart.0, self.chart.1);
+        app.usage_chart
+            .borrow_mut()
+            .restore_rows(self.usage_rows.clone());
         app.workspace.order = Some(self.order);
         app.overview_rows.borrow_mut().clear();
     }
@@ -125,7 +134,7 @@ impl Controls {
             "digestWindow": self.digest_window.label(),
             "chart": {"rangeMinutes": self.chart.0, "eachMinutes": match self.chart.1 { super::overview::chart::model::Each::Auto => None, super::overview::chart::model::Each::Fixed(n) => Some(n) }},
             "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
-            "reversed": self.order.reversed })
+            "reversed": self.order.reversed, "usageRows": self.usage_rows })
     }
     pub(super) fn decode(value: &Value) -> Option<Self> {
         use crate::config::OpsSort;
@@ -148,6 +157,15 @@ impl Controls {
                 .and_then(Value::as_str)
                 .and_then(crate::config::DigestWindow::parse)
                 .unwrap_or_default(),
+            usage_rows: value["usageRows"]
+                .as_array()
+                .filter(|rows| {
+                    rows.len() <= usize::from(super::overview::chart::host::MAX_REMEMBERED_ROWS)
+                })
+                .into_iter()
+                .flatten()
+                .map(|name| usage_row_name(name.as_str().unwrap_or("—")))
+                .collect(),
             order: Order {
                 agents: match value["sort"].as_str()? {
                     "name" => OpsSort::Name,

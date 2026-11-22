@@ -11,17 +11,17 @@ use ratatui::crossterm::{
         EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags,
         PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
-    execute,
+    execute, queue,
     terminal::{
-        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-        supports_keyboard_enhancement,
+        BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
+        disable_raw_mode, enable_raw_mode, supports_keyboard_enhancement,
     },
 };
 use ratatui::{
     Frame, Terminal,
     backend::ClearType,
     buffer::{Cell, CellDiffOption},
-    layout::Size,
+    layout::{Position, Size},
     style::Modifier,
 };
 use std::{
@@ -171,6 +171,7 @@ impl Screen for Crossterm<'_> {
         };
         let screen = execute!(
             io::stdout(),
+            EndSynchronizedUpdate,
             DisableBracketedPaste,
             DisableFocusChange,
             DisableMouseCapture,
@@ -188,22 +189,16 @@ impl Screen for Crossterm<'_> {
     }
 }
 
-/// ratatui's crossterm backend, except that a frame which writes cells first
-/// hides a visible caret. Without it the caret hops over every changed row
-/// (and back to the input) once per frame, which flickers while the history
-/// scrolls; `Terminal` shows it again where it belongs once the diff is
-/// written, and a frame with no changes touches nothing.
+/// Presents each changed frame as one synchronized terminal update.
 pub struct Backend<W: io::Write> {
     inner: ratatui::backend::CrosstermBackend<Shared<W>>,
-    /// The same output, for the OSC 8 bytes between the backend's own writes.
+    /// The same output, for synchronized updates and OSC 8 around backend writes.
     out: Shared<W>,
-    /// What `Terminal` last asked for: the caret is shown for the input.
-    caret: bool,
-    /// The caret was hidden for this frame's cells and is shown again once it
-    /// has been placed, so it never appears at the last written cell.
-    resume: bool,
+    caret_visible: Option<bool>,
+    caret_position: Option<Position>,
+    synchronized: bool,
     /// The web links this frame paints, wrapped in OSC 8 when the terminal
-    /// supports them; off, every byte is the plain backend's.
+    /// supports them; off, no OSC 8 bytes are written.
     links: super::hyperlinks::Links,
     /// Pin Ratatui's autoresize check to the dimensions sampled for this draw.
     frame_size: Option<Size>,
@@ -241,12 +236,42 @@ impl<W: io::Write> Backend<W> {
         Self {
             inner: ratatui::backend::CrosstermBackend::new(out.clone()),
             out,
-            caret: false,
-            resume: false,
+            caret_visible: None,
+            caret_position: None,
+            synchronized: false,
             links,
             frame_size: None,
             resizing: false,
         }
+    }
+
+    fn begin_update(&mut self) -> io::Result<()> {
+        if !self.synchronized {
+            queue!(&mut self.out, BeginSynchronizedUpdate)?;
+            self.synchronized = true;
+        }
+        Ok(())
+    }
+
+    fn end_update(&mut self) -> io::Result<()> {
+        if std::mem::take(&mut self.synchronized) {
+            queue!(&mut self.out, EndSynchronizedUpdate)?;
+        }
+        Ok(())
+    }
+
+    fn set_caret_visibility(&mut self, visible: bool) -> io::Result<()> {
+        if self.caret_visible == Some(visible) {
+            return Ok(());
+        }
+        self.begin_update()?;
+        if visible {
+            ratatui::backend::Backend::show_cursor(&mut self.inner)?;
+        } else {
+            ratatui::backend::Backend::hide_cursor(&mut self.inner)?;
+        }
+        self.caret_visible = Some(visible);
+        Ok(())
     }
 }
 
@@ -258,10 +283,12 @@ impl<W: io::Write> ratatui::backend::Backend for Backend<W> {
         I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
     {
         let mut content = content.peekable();
-        if self.caret && content.peek().is_some() {
-            self.inner.hide_cursor()?;
-            self.resume = true;
+        if content.peek().is_none() {
+            return Ok(());
         }
+        self.begin_update()?;
+        // Printing cells moves the terminal cursor even when the caret target is unchanged.
+        self.caret_position = None;
         if !self.links.enabled() {
             return self.inner.draw(content);
         }
@@ -283,18 +310,11 @@ impl<W: io::Write> ratatui::backend::Backend for Backend<W> {
     }
 
     fn hide_cursor(&mut self) -> io::Result<()> {
-        self.caret = false;
-        self.resume = false;
-        self.inner.hide_cursor()
+        self.set_caret_visibility(false)
     }
 
     fn show_cursor(&mut self) -> io::Result<()> {
-        self.caret = true;
-        if self.resume {
-            // `Terminal` places the caret right after this call; show it there.
-            return Ok(());
-        }
-        self.inner.show_cursor()
+        self.set_caret_visibility(true)
     }
 
     fn get_cursor_position(&mut self) -> io::Result<ratatui::layout::Position> {
@@ -305,9 +325,11 @@ impl<W: io::Write> ratatui::backend::Backend for Backend<W> {
         &mut self,
         position: P,
     ) -> io::Result<()> {
-        self.inner.set_cursor_position(position)?;
-        if std::mem::take(&mut self.resume) {
-            self.inner.show_cursor()?;
+        let position = position.into();
+        if self.caret_position != Some(position) {
+            self.begin_update()?;
+            self.inner.set_cursor_position(position)?;
+            self.caret_position = Some(position);
         }
         Ok(())
     }
@@ -335,9 +357,7 @@ impl<W: io::Write> ratatui::backend::Backend for Backend<W> {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        if std::mem::take(&mut self.resume) {
-            self.inner.show_cursor()?;
-        }
+        self.end_update()?;
         ratatui::backend::Backend::flush(&mut self.inner)
     }
 }
@@ -359,7 +379,10 @@ fn present_at<W: io::Write>(
     paint: impl FnOnce(&mut Frame<'_>),
 ) -> io::Result<()> {
     if display_invalidated || terminal.current_buffer_mut().area.as_size() != size {
-        terminal.backend_mut().resizing = true;
+        let backend = terminal.backend_mut();
+        backend.caret_visible = None;
+        backend.caret_position = None;
+        backend.resizing = true;
         let resized = terminal.resize(size.into());
         terminal.backend_mut().resizing = false;
         resized?;
@@ -376,7 +399,12 @@ fn present_at<W: io::Write>(
 
     terminal.backend_mut().frame_size = Some(size);
     let drawn = terminal.draw(paint).map(|_| ());
-    terminal.backend_mut().frame_size = None;
+    let backend = terminal.backend_mut();
+    backend.frame_size = None;
+    if drawn.is_err() {
+        // A write can fail before Ratatui reaches the backend's flush.
+        let _ = ratatui::backend::Backend::flush(backend);
+    }
     drawn
 }
 
@@ -634,11 +662,7 @@ mod tests {
 
             sink.0.borrow_mut().clear();
             present_at(&mut terminal, size, false, paint).unwrap();
-            // The final cursor placement is the only move in an unchanged frame.
-            let bytes = sink.0.borrow();
-            assert!(bytes.ends_with(b"\x1b[1;3H"));
-            assert_eq!(bytes.iter().filter(|&&byte| byte == b'H').count(), 1);
-            drop(bytes);
+            assert!(sink.0.borrow().is_empty(), "the next draw is unchanged");
 
             // Clear handling is normal again on every later draw.
             sink.0.borrow_mut().clear();
@@ -822,7 +846,7 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_that_writes_cells_hides_the_caret_and_one_that_does_not_leaves_it() {
+    fn idle_composer_frames_keep_cursor_visibility_and_place_it_once_per_update() {
         let sink = Sink::default();
         let mut terminal = ratatui::Terminal::with_options(
             Backend::new(sink.clone()),
@@ -831,33 +855,23 @@ mod tests {
             },
         )
         .unwrap();
-        frame(&mut terminal, &sink, "first", true);
-        // The caret is shown for the input; a changed cell hides it first and the
-        // frame ends by placing and showing it again where it was.
-        let scrolled = frame(&mut terminal, &sink, "second", true);
-        let hide = scrolled.find("\x1b[?25l").expect("hidden before writing");
-        let cell = scrolled.find('s').expect("the changed cells are written");
-        let show = scrolled.rfind("\x1b[?25h").expect("shown again");
-        assert!(hide < cell && cell < show, "{scrolled:?}");
-        assert!(
-            scrolled.ends_with("\x1b[3;3H\x1b[?25h"),
-            "the caret is placed, then shown: {scrolled:?}"
-        );
-        assert_eq!(scrolled.matches("\x1b[?25h").count(), 1);
-        assert!(
-            !scrolled.contains("input"),
-            "the input row is not rewritten"
-        );
-        // Nothing changed: nothing to hide.
-        let steady = frame(&mut terminal, &sink, "second", true);
-        assert!(!steady.contains("\x1b[?25l"), "{steady:?}");
-        // Without a caret there is nothing to hide or show around the cells.
-        frame(&mut terminal, &sink, "third", false);
-        let quiet = frame(&mut terminal, &sink, "fourth", false);
-        assert!(
-            !quiet.contains("\x1b[?25h") && quiet.matches("\x1b[?25l").count() <= 1,
-            "{quiet:?}"
-        );
+        let first = frame(&mut terminal, &sink, "⠋", true);
+        assert_eq!(first.matches("\x1b[?25h").count(), 1);
+        for glyph in ["⠙", "⠹", "⠸"] {
+            let update = frame(&mut terminal, &sink, glyph, true);
+            assert!(update.starts_with("\x1b[?2026h"), "{update:?}");
+            assert!(update.ends_with("\x1b[3;3H\x1b[?2026l"), "{update:?}");
+            assert_eq!(update.matches("\x1b[3;3H").count(), 1);
+            assert_eq!(update.matches("\x1b[?2026h").count(), 1);
+            assert_eq!(update.matches("\x1b[?2026l").count(), 1);
+            assert!(update.contains(glyph), "{update:?}");
+            assert!(!update.contains("\x1b[?25"), "{update:?}");
+            assert!(!update.contains("input"), "{update:?}");
+            assert_eq!(frame(&mut terminal, &sink, glyph, true), "");
+        }
+        let unfocused = frame(&mut terminal, &sink, "⠸", false);
+        assert_eq!(unfocused, "\x1b[?2026h\x1b[?25l\x1b[?2026l");
+        assert_eq!(frame(&mut terminal, &sink, "⠸", false), "");
     }
 
     #[test]

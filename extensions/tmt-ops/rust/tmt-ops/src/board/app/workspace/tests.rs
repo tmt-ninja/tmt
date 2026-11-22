@@ -1361,7 +1361,7 @@ fn clicking_the_visible_member_host_jumps_to_that_member() {
     let (y, line) = screen
         .iter()
         .enumerate()
-        .find(|(_, line)| line.contains("product · member") && line.contains("tmux"))
+        .find(|(_, line)| line.contains("tmux") && line.contains("—  ·"))
         .expect("member metadata");
     let x = unicode_width::UnicodeWidthStr::width(&line[..line.find("tmux").unwrap()]);
     let click = ratatui::crossterm::event::MouseEvent {
@@ -3561,7 +3561,7 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                                 lines.iter().any(|line| line.contains(if selected_squad {
                                     "── Board "
                                 } else {
-                                    "Conversation"
+                                    "Measure"
                                 })),
                                 "{width}x{height}: {lines:?}"
                             );
@@ -4643,7 +4643,7 @@ fn search_follows_first_match_and_clearing_keeps_the_current_selection() {
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains(&format!("── {name} "))),
+                .any(|line| line.contains(name) && line.contains(" / MEMBER")),
             "the previous conversation remains painted"
         );
     } else {
@@ -5834,7 +5834,8 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
         ] {
             let screen = paint(&app, width, 36).join("\n");
             assert!(screen.contains(words), "{depth:?} {width}: {screen}");
-            assert!(!screen.contains("● working"), "{depth:?} {width}: {screen}");
+            let member = painted_member_row(&app, width, 36);
+            assert!(!member.contains("working"), "{depth:?} {width}: {member}");
         }
         let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
         terminal

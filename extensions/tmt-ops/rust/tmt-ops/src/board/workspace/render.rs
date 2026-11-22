@@ -242,6 +242,28 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             squad_detail(frame, app, detail, now, now_ms);
         }
     }
+    if app.shell.tab == OpsTab::Agents
+        && let (Some(list), Some(detail)) = (placement.list, placement.conversation)
+        && list.y < detail.y
+        && !detail.is_empty()
+    {
+        // The member tab strip has no title rule. Leave an actual separator
+        // stroke at its right edge so the stacked split retains a drag target.
+        let buffer = frame.buffer_mut();
+        let start = (detail.x..detail.right())
+            .rev()
+            .take(8)
+            .take_while(|&x| buffer[(x, detail.y)].symbol() == " ")
+            .last();
+        if let Some(x) = start {
+            let width = detail.right() - x;
+            tmt_tui::components::strip::paint_left(
+                buffer,
+                Rect::new(x, detail.y, width, 1),
+                Line::styled("─".repeat(usize::from(width)), app.look().role(Role::Dim)),
+            );
+        }
+    }
     if app.shell.tab == OpsTab::Agents {
         crate::board::pane_chrome::mark_focused_rule(
             frame.buffer_mut(),

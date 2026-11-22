@@ -10,7 +10,21 @@
 pub enum Hue {
     Magenta,
     Cyan,
+    Amber,
+    Green,
     Neutral,
+}
+
+impl Hue {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Magenta => "magenta",
+            Self::Cyan => "cyan",
+            Self::Amber => "amber",
+            Self::Green => "green",
+            Self::Neutral => "neutral",
+        }
+    }
 }
 
 /// How a driver's session lifecycle hooks are delivered.
@@ -91,7 +105,7 @@ pub static CLAUDE: DriverDescriptor = DriverDescriptor {
     name: "claude",
     executables: &["claude"],
     hooks: Some(HookFormat::SessionHooksJson),
-    hue: Hue::Magenta,
+    hue: Hue::Amber,
     support: Support::Full,
     folds_queued_text: true,
 };
@@ -100,7 +114,7 @@ pub static CODEX: DriverDescriptor = DriverDescriptor {
     name: "codex",
     executables: &["codex"],
     hooks: Some(HookFormat::SessionHooksJson),
-    hue: Hue::Cyan,
+    hue: Hue::Green,
     support: Support::Full,
     folds_queued_text: false,
 };
