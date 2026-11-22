@@ -314,6 +314,23 @@ pub fn preview(
     decoder: &mut Decoder,
     source: Option<&str>,
 ) -> Result<HistoryPreview> {
+    prepare_history_recovery(store, key, page, decoder, source).map(|(preview, _)| preview)
+}
+
+type RecoveryCandidate = (
+    crate::fold::Snapshot,
+    usize,
+    Vec<u8>,
+    crate::store::WriteGeneration,
+);
+
+fn prepare_history_recovery(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+    source: Option<&str>,
+) -> Result<(HistoryPreview, Option<RecoveryCandidate>)> {
     let generation = store.write_generation()?;
     let snap = snapshot(store, key, page, false)?;
     let (current, _, before) = snap.measure_preview(key, page, decoder, &BTreeMap::new())?;
@@ -364,7 +381,7 @@ pub fn preview(
             .map(|cut| format!("Content from writer {} must be preserved.", cut.stream))
     };
     if result.blocked.is_some() {
-        return Ok(result);
+        return Ok((result, None));
     }
     let mut updates = Vec::new();
     let mut index = None;
@@ -376,28 +393,28 @@ pub fn preview(
     }
     let Some(index) = index else {
         result.blocked = Some("No local content writer to rebuild.".into());
-        return Ok(result);
+        return Ok((result, None));
     };
     let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let rebuilt = decoder.rebuild_for_preview(&refs, None)?;
     if !rebuilt.projection.is_null() {
         result.blocked =
             Some("This writer's updates depend on content outside its own stream.".into());
-        return Ok(result);
+        return Ok((result, None));
     }
     let merged = rebuilt.merged;
     if merged.len() > object::MAX_PLAINTEXT {
         result.blocked = Some("The rebuilt writer exceeds the single checkpoint limit.".into());
-        return Ok(result);
+        return Ok((result, None));
     }
-    let (candidate, input, after) =
-        snap.measure_preview(key, page, decoder, &BTreeMap::from([(index, merged)]))?;
+    let mut replacement = BTreeMap::from([(index, merged)]);
+    let (candidate, input, after) = snap.measure_preview(key, page, decoder, &replacement)?;
     if current.source != candidate.source
         || current.meta != candidate.meta
         || current.own != candidate.own
     {
         result.blocked = Some("Rebuilding changes the current page or its discussion.".into());
-        return Ok(result);
+        return Ok((result, None));
     }
     let headroom = current.usage.gzip_limit.saturating_sub(after);
     result.after_gzip_bytes = Some(after);
@@ -451,7 +468,8 @@ pub fn preview(
     if store.write_generation()? != generation {
         return Err(Fault::StaleBase.into());
     }
-    Ok(result)
+    let merged = replacement.remove(&index).ok_or(Fault::Invalid)?;
+    Ok((result, Some((snap, index, merged, generation))))
 }
 
 /// What a requested compaction did, for the person who asked: whose stream was combined into
