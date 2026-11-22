@@ -2605,6 +2605,7 @@ dependencies = [
  "nix",
  "rcgen",
  "rusqlite",
+ "rustix",
  "rustls",
  "semver",
  "serde",
