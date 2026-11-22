@@ -188,6 +188,9 @@ impl App {
     /// The terminal stream the board keeps open, when it is one of these terminals: the one
     /// full screen, else the live one selected in the list.
     pub(in crate::board) fn wanted_terminal_stream(&self) -> Option<(String, Address)> {
+        if let Some((_, address)) = self.standalone.framed_shell(self.terminal.framed()) {
+            return Some((address.pane.clone(), address.clone()));
+        }
         let id = match self.terminal.framed() {
             Some(key) if is_terminal_key(key) => key.to_owned(),
             Some(_) => return None,

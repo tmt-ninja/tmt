@@ -332,12 +332,15 @@ impl Worker {
                     loaded
                 },
                 |job, generation| {
-                    if let Deferred::Checklist(task) = job {
+                    if let Deferred::Independent(task) = job {
                         let event = match task {
-                            ChecklistWork::Room(task) => super::BoardEvent::Checklist(
+                            IndependentWork::Standalone(task) => super::BoardEvent::Standalone(
+                                super::standalone::complete_read(&checklist_reader, task),
+                            ),
+                            IndependentWork::Room(task) => super::BoardEvent::Checklist(
                                 checklist.complete(&checklist_reader, task),
                             ),
-                            ChecklistWork::Conversation(task) => super::BoardEvent::NotesRead(
+                            IndependentWork::Conversation(task) => super::BoardEvent::NotesRead(
                                 super::conversation_checklist::complete(&checklist_reader, task),
                             ),
                         };
@@ -360,7 +363,7 @@ impl Worker {
                     }
                     let event = match job {
                         Deferred::ReadColab => unreachable!("handled above"),
-                        Deferred::Checklist(_) => unreachable!("handled above"),
+                        Deferred::Independent(_) => unreachable!("handled above"),
                         Deferred::Enrich(job) => {
                             let (squad, enrichment) =
                                 job.complete(&reader, &mut known.borrow_mut());
@@ -477,10 +480,15 @@ impl Worker {
             self.generation.number.load(Ordering::Acquire),
         ));
     }
+    pub fn standalone_read(&self, task: super::standalone::Task) {
+        let _ = self
+            .requests
+            .send(Work::Independent(IndependentWork::Standalone(task)));
+    }
     pub fn checklist(&self, task: super::checklist::load::Task) {
         let _ = self
             .requests
-            .send(Work::Checklist(ChecklistWork::Room(task)));
+            .send(Work::Independent(IndependentWork::Room(task)));
     }
     pub fn conversation_checklist(&self, task: super::conversation_checklist::Task) {
         debug_assert!(
@@ -489,7 +497,7 @@ impl Worker {
         );
         let _ = self
             .requests
-            .send(Work::Checklist(ChecklistWork::Conversation(task)));
+            .send(Work::Independent(IndependentWork::Conversation(task)));
     }
     pub fn selected(&self, revision: u64, read: Option<SelectedRead>) {
         // Replace the selected lane without interrupting base/background reads.
@@ -522,8 +530,9 @@ impl Drop for Worker {
     }
 }
 
-/// Checklist work has its own shutdown fence, independent of view generations.
-enum ChecklistWork {
+/// Work with its own shutdown fence, independent of view generations.
+enum IndependentWork {
+    Standalone(super::standalone::Task),
     Room(super::checklist::load::Task),
     Conversation(super::conversation_checklist::Task),
 }
@@ -531,7 +540,7 @@ enum ChecklistWork {
 enum Work {
     ReadColab(u64),
     History { job: HistoryJob, generation: u64 },
-    Checklist(ChecklistWork),
+    Independent(IndependentWork),
     Reload(Reload),
 }
 
@@ -795,7 +804,7 @@ fn capture_footer(reader: &Core, name: &str) -> Option<String> {
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
     ReadColab,
-    Checklist(ChecklistWork),
+    Independent(IndependentWork),
     Enrich(EnrichJob),
     History(HistoryJob),
     HomeLeads(super::home_leads::Fetch),
@@ -1039,7 +1048,7 @@ fn serve(
             Err(RecvTimeoutError::Disconnected) => break,
         };
         let mut wanted = None;
-        let mut checklist = Vec::new();
+        let mut independent = Vec::new();
         let mut colab_work = None;
         let mut requested_history: Option<(HistoryJob, u64)> = None;
         for work in std::iter::once(received).chain(pending.try_iter()) {
@@ -1057,13 +1066,13 @@ fn serve(
                     requested_history = Some((job, generation));
                 }
                 Work::ReadColab(generation) => colab_work = Some(generation),
-                Work::Checklist(task) => checklist.push(task),
+                Work::Independent(task) => independent.push(task),
                 Work::Reload(reload) => wanted = Some(reload),
             }
         }
-        for task in checklist {
+        for task in independent {
             if !deferred(
-                Deferred::Checklist(task),
+                Deferred::Independent(task),
                 generation.load(Ordering::Acquire),
             ) {
                 return;
@@ -1730,7 +1739,7 @@ mod tests {
         let (sender, pending) = mpsc::channel();
         for serial in 1..=3 {
             sender
-                .send(Work::Checklist(ChecklistWork::Room(
+                .send(Work::Independent(IndependentWork::Room(
                     super::super::checklist::load::Task {
                         key: super::super::checklist::load::Key {
                             controller: 9,
@@ -1752,7 +1761,7 @@ mod tests {
             |_, _| Stamp::cursor(0),
             |_, _, _, _| panic!("no reload"),
             |job, _| {
-                let Deferred::Checklist(ChecklistWork::Room(task)) = job else {
+                let Deferred::Independent(IndependentWork::Room(task)) = job else {
                     panic!("only checklist work was queued")
                 };
                 completed.push(task.key.serial);

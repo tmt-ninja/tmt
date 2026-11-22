@@ -553,6 +553,67 @@ these guards, Core still enforces its 120-second deadline and reaps the group.
 An uncertain call is never retried automatically.
 This is a local API operation; it grants no Remote scope or operation.
 
+### Standalone command results
+
+The capability-advertised `terminal.command.*` and `terminal.saved.*` operations run an
+explicit local command and optionally retain its result. They grant no Remote scope,
+create no member, binding, provider session or restore candidate, and never edit room
+membership. A kept result owns its own terminal UUID.
+
+| Operation                  | Input                                          | Result                                                                                                                              |
+| -------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `terminal.command.target`  | `identityId`                                   | Fresh, local `cwd`, `bindingId` and `paneIncarnation`. See [Standalone command results](#standalone-command-results).               |
+| `terminal.command.run`     | `target, command where applicable`             | Session-owned bounded result and `runId`. See [Standalone command results](#standalone-command-results).                            |
+| `terminal.command.keep`    | `runId`                                        | Keep that session’s result, returning saved metadata. See [Standalone command results](#standalone-command-results).                |
+| `terminal.saved.list`      | `{}`                                           | Up to 64 results, metadata only. See [Standalone command results](#standalone-command-results).                                     |
+| `terminal.saved.get`       | `terminalId`                                   | Saved metadata and the two output streams. See [Standalone command results](#standalone-command-results).                           |
+| `terminal.saved.move`      | `terminalId, expectedRevision, placement`      | Revision-guarded saved metadata. See [Standalone command results](#standalone-command-results).                                     |
+| `terminal.saved.openShell` | `terminalId, expectedRevision`                 | Exact saved shell `shellId`, `socket`, `cwd` and current `revision`. See [Standalone command results](#standalone-command-results). |
+| `terminal.saved.remove`    | `terminalId, expectedRevision, optional force` | `{removed: true}` after proof the saved shell is closed. See [Standalone command results](#standalone-command-results).             |
+
+- `terminal.command.target {identityId}` observes the exact bound local member. The
+  result is `{cwd, bindingId, paneIncarnation}`. Unknown or remote targets refuse.
+  `terminal.command.run` takes `target` and, for Local or member targets, the exact
+  user-confirmed single-line `command`. A local target is `{kind:"local", cwd}` with an
+  absolute, existing cwd. A member target is
+  `{kind:"member", identityId, roomId?, cwd, bindingId, paneIncarnation}`.
+  Core re-observes all member launch evidence before spawn and refuses drift. A rerun target
+  `{kind:"saved", terminalId, expectedRevision}` uses the saved command and cwd with no
+  replacement command field. No target failure falls back to another directory.
+- Run takes one dedicated framed session with stdin as its lifeline. It shares the
+  [shell command](#shell-command) admission, execution and bounds. Successful cleanup on
+  Stop or lifeline loss cancels the run without a keepable result. A confirmed timeout or
+  truncated capture can return partial output with its bound flag and a null exit and
+  signal. An unconfirmed result cannot be kept or automatically retried. The final response
+  contains `runId`, command, cwd, start and end milliseconds, stdout, stderr, exit code,
+  signal, timeout and truncation. A command attempt can use its session once.
+- `terminal.command.keep {runId}` on the same session writes Core's own staged result.
+  Repeating Keep for that run returns the same receipt without another write or launch.
+  Closing the session releases an unkept result. A rerun replaces the prior output only at
+  its expected revision. Core retains up to 64 rows per data root with up to 64 KiB of
+  combined raw output per row, enforced within the write. List returns metadata ordered
+  by newest completion and terminal ID. Get returns just the named row's output with its
+  metadata. Output text uses the same lossy UTF-8 projection as `shell.run`.
+- List and Get report placement against current room and identity records. Move takes `placement` of
+  `{kind:"local"}`, `{kind:"room", roomId}` or `{kind:"member", identityId, roomId?}`,
+  with the row UUID and expected revision. Core checks current references before writing.
+  On first Keep, a still-present confirmed member appearance may be the display parent.
+  A retained live member keeps its display reference after a membership change. The board
+  uses the first visible appearance when the recorded appearance no longer exists. A
+  retired member falls back to its surviving room, or to Local if there is no room. A
+  retired room projects to Local even if its former member remains live. Fallback neither
+  writes the stored placement nor changes the command, directory or shell.
+- `terminal.saved.openShell` opens or attaches to one independent login shell in the saved
+  directory. Its reserved socket and verified supervisor incarnation are separate from the
+  output. Use the returned revision for subsequent requests because reserving and
+  confirming a shell can advance it. An uncertain start retains its exact reservation
+  until Core verifies an attachment or proves that the supervisor is absent.
+  A confirmed ended shell permits a fresh explicit open. `terminal.saved.remove` requires
+  proof that an attached shell has closed. If its foreground program is busy, Core refuses
+  unless the caller explicitly confirms with `force:true` at the same revision. Unknown
+  cleanup retains the saved row. A close may finish before a concurrent revision change
+  refuses the delete. Refresh then inspect the retained row.
+
 ### Terminals under a member
 
 A member on any host (built-in, tmux or Herdr) may own up to 8 extra terminals, each a

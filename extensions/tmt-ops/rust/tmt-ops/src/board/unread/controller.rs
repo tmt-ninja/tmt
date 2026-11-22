@@ -101,9 +101,11 @@ impl App {
             return Count::default();
         }
         match target {
-            OpsTarget::DigestAll | OpsTarget::Hidden | OpsTarget::Terminal { .. } => {
-                Count::default()
-            }
+            OpsTarget::DigestAll
+            | OpsTarget::Hidden
+            | OpsTarget::Terminal { .. }
+            | OpsTarget::LocalTerminals
+            | OpsTarget::SavedTerminal(_) => Count::default(),
             OpsTarget::Member { identity_id, .. } => self.unread_count(identity_id),
             OpsTarget::Squad(room) => self
                 .workspace_snapshot()

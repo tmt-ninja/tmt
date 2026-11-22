@@ -92,14 +92,15 @@ pub struct Launch {
     pub terminal: Option<TerminalOf>,
 }
 
-/// Whose extra terminal a supervisor serves. It has no binding and no kept terminal: it
-/// ends when its shell ends, when Core closes it, or when its member is gone.
+/// Which member or saved result owns this extra shell. It has no binding and
+/// ends with the shell or an explicit close. Only member shells follow a member.
 pub struct TerminalOf {
-    /// The identity UUID the terminal was opened for.
+    /// The member or saved-result UUID the terminal was opened for.
     pub owner: String,
     /// When it was opened, in Unix milliseconds.
     pub created_ms: u64,
-    /// Exact member process incarnation recorded at open.
+    /// Exact member process incarnation recorded at open. Saved shells have no
+    /// member process, so their fields are zero and empty.
     pub member_pid: u64,
     pub member_start: String,
     /// Whether the owner's member supervisor still runs (its PID and start time), asked

@@ -7,6 +7,7 @@
 //! (`pty::terminal`) on any host: login shells the member owns, never panes or Talk targets.
 //! `terminal.run` confirms one command submission through that terminal owner.
 use super::{Fault, Request, invalid};
+use crate::storage::saved_terminal::{SavedShell, SavedTerminalError, SavedTerminalRecord};
 use crate::{
     config::ConfigPaths,
     delivery,
@@ -627,6 +628,163 @@ fn kind_name(kind: RelaunchKind) -> &'static str {
         RelaunchKind::New => "new",
         RelaunchKind::Shell => "shell",
     }
+}
+
+fn checked_saved(storage: &Storage, id: &str, expected: u64) -> Result<SavedTerminalRecord, Fault> {
+    let saved = storage
+        .saved_terminal(id)
+        .map_err(super::shell::saved_fault)?;
+    if saved.revision != expected {
+        return Err(super::shell::saved_fault(SavedTerminalError::Stale));
+    }
+    Ok(saved)
+}
+
+fn saved_incarnation(
+    shell: &SavedShell,
+) -> Result<Option<tmt_core::endpoint::ProcessIncarnation>, Fault> {
+    match shell {
+        SavedShell::Verified { pid, start, .. } => {
+            tmt_core::endpoint::ProcessIncarnation::new(*pid, start)
+                .map(Some)
+                .map_err(|_| {
+                    Fault::new(
+                        "TERMINAL_SAVED_SHELL_UNCONFIRMED",
+                        "The saved shell incarnation is invalid. The result was kept.",
+                    )
+                })
+        }
+        SavedShell::Reserved { .. } => Ok(None),
+    }
+}
+
+fn saved_shell_fault(error: TerminalError) -> Fault {
+    if matches!(error, TerminalError::Busy) {
+        Fault::new(
+            "TERMINAL_SAVED_SHELL_BUSY",
+            "A program is running in the saved shell. Confirm to stop it and remove the result.",
+        )
+    } else {
+        Fault::new(
+            "TERMINAL_SAVED_SHELL_UNCONFIRMED",
+            "The saved shell's state could not be confirmed. The result was kept.",
+        )
+    }
+}
+
+fn saved_attachment(
+    terminal: &SavedTerminalRecord,
+    shell: &terminal::SavedShellView,
+) -> Result<Vec<u8>, Fault> {
+    serde_json::to_vec(&json!({
+        "terminalId": terminal.terminal_id, "revision": terminal.revision,
+        "shellId": shell.terminal.id, "socket": shell.terminal.socket,
+        "cwd": terminal.summary.cwd,
+    }))
+    .map_err(|_| Fault::unavailable())
+}
+
+pub(super) fn open_saved_shell(
+    paths: &ConfigPaths,
+    storage: &mut Storage,
+    id: &str,
+    expected: u64,
+) -> Result<Vec<u8>, Fault> {
+    let _operation = terminal::saved_shell_operation(paths).map_err(saved_shell_fault)?;
+    let mut saved = checked_saved(storage, id, expected)?;
+    if let Some(shell) = &saved.shell {
+        let incarnation = saved_incarnation(shell)?;
+        if let Some(view) = terminal::saved_shell(paths, id, shell.id(), incarnation.as_ref())
+            .map_err(saved_shell_fault)?
+        {
+            if incarnation.is_none() {
+                saved = storage
+                    .finish_saved_shell(
+                        id,
+                        shell,
+                        Some((view.process.pid(), view.process.start_identity())),
+                    )
+                    .map_err(super::shell::saved_fault)?;
+            }
+            return saved_attachment(&saved, &view);
+        }
+
+        // Exact previous incarnation is gone and the socket is absent.
+        saved = storage
+            .finish_saved_shell(id, shell, None)
+            .map_err(super::shell::saved_fault)?;
+    }
+    let cwd = Path::new(&saved.summary.cwd);
+    let failed = || {
+        Fault::new(
+            "TERMINAL_SAVED_SHELL_NOT_STARTED",
+            "The persistent shell could not start in its saved directory.",
+        )
+    };
+    if !cwd.is_dir() {
+        return Err(failed());
+    }
+    let executable = crate::core_executable::selected().map_err(|_| failed())?;
+    let program = relaunch_program(id, RelaunchKind::Shell)?;
+    let shell_id = terminal::new_saved_shell_id();
+    let reserved = storage
+        .reserve_saved_shell(id, saved.revision, &shell_id)
+        .map_err(super::shell::saved_fault)?;
+    let reservation = reserved.shell.as_ref().expect("reserved exact shell");
+    let view = match terminal::start_saved_shell(
+        executable.as_os_str(),
+        paths,
+        id,
+        &shell_id,
+        cwd,
+        &program,
+    ) {
+        Ok(view) => view,
+        Err(TerminalError::NotStarted(_)) => {
+            storage
+                .finish_saved_shell(id, reservation, None)
+                .map_err(super::shell::saved_fault)?;
+            return Err(failed());
+        }
+        Err(error) => return Err(saved_shell_fault(error)),
+    };
+    let saved = storage
+        .finish_saved_shell(
+            id,
+            reservation,
+            Some((view.process.pid(), view.process.start_identity())),
+        )
+        .map_err(super::shell::saved_fault)?;
+    saved_attachment(&saved, &view)
+}
+
+pub(super) fn remove_saved(
+    paths: &ConfigPaths,
+    storage: &mut Storage,
+    id: &str,
+    expected: u64,
+    force: bool,
+) -> Result<(), Fault> {
+    let saved = checked_saved(storage, id, expected)?;
+    let operation = saved
+        .shell
+        .as_ref()
+        .map(|_| terminal::saved_shell_operation(paths))
+        .transpose()
+        .map_err(saved_shell_fault)?;
+    let saved = if operation.is_some() {
+        checked_saved(storage, id, expected)?
+    } else {
+        saved
+    };
+    if let Some(shell) = &saved.shell {
+        let incarnation = saved_incarnation(shell)?;
+        terminal::close_saved_shell(paths, id, shell.id(), incarnation.as_ref(), force)
+            .map_err(saved_shell_fault)?;
+    }
+    storage
+        .remove_saved_terminal(id, expected, saved.shell.as_ref())
+        .map_err(super::shell::saved_fault)
 }
 
 /// The program a relaunch runs: the executable, then `pty::relaunch_arguments`, or the

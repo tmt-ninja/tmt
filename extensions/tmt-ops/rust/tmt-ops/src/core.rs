@@ -363,22 +363,7 @@ impl Core {
     ) -> Result<Value, SquadError> {
         runner::assert_commands_allowed("shell API request");
         let deadline = Instant::now() + Duration::from_secs(130);
-        let args = ["api".into(), "--session".into()];
-        let mut spawns = shell_spawn_guard();
-        let mut channel = tmt_invoke::LineChannel::start(
-            tmt_invoke::LineChannelOptions {
-                program: &self.executable,
-                args: &args,
-                deadline,
-                max_frame_bytes: OUTPUT_LIMIT,
-                launch: Default::default(),
-            },
-            || stopped.load(std::sync::atomic::Ordering::Acquire),
-        )
-        .map_err(|e| invocation_error(runner::run_error(e.kind)))?;
-        let pid = channel.pid().expect("started channel owns child");
-        spawns.insert(pid);
-        drop(spawns);
+        let (mut channel, pid) = self.start_shell_channel(deadline, stopped)?;
         let unregister = || {
             shell_spawn_guard().remove(&pid);
         };
@@ -406,6 +391,42 @@ impl Core {
         } else {
             Ok(document)
         }
+    }
+
+    pub(crate) fn standalone_session(
+        &self,
+        stopped: &std::sync::atomic::AtomicBool,
+    ) -> Result<StandaloneSession, SquadError> {
+        runner::assert_commands_allowed("standalone command API session");
+        let (channel, pid) = self.start_shell_channel(Instant::now() + TIMEOUT, stopped)?;
+        Ok(StandaloneSession {
+            channel: Some(channel),
+            pid,
+        })
+    }
+
+    fn start_shell_channel(
+        &self,
+        deadline: Instant,
+        stopped: &std::sync::atomic::AtomicBool,
+    ) -> Result<(tmt_invoke::LineChannel, u32), SquadError> {
+        let args = ["api".into(), "--session".into()];
+        let mut spawns = shell_spawn_guard();
+        let channel = tmt_invoke::LineChannel::start(
+            tmt_invoke::LineChannelOptions {
+                program: &self.executable,
+                args: &args,
+                deadline,
+                max_frame_bytes: OUTPUT_LIMIT,
+                launch: Default::default(),
+            },
+            || stopped.load(std::sync::atomic::Ordering::Acquire),
+        )
+        .map_err(|e| invocation_error(runner::run_error(e.kind)))?;
+        let pid = channel.pid().expect("started channel owns child");
+        spawns.insert(pid);
+        drop(spawns);
+        Ok((channel, pid))
     }
 
     /// One versioned `tmt api` request.
@@ -738,6 +759,67 @@ fn reject_self(selected: &Path) -> Result<(), SquadError> {
         ));
     }
     Ok(())
+}
+
+/// Keeps Core's staged result and stdin lifeline together.
+pub(crate) struct StandaloneSession {
+    channel: Option<tmt_invoke::LineChannel>,
+    pid: u32,
+}
+
+impl StandaloneSession {
+    pub(crate) fn run(
+        &mut self,
+        input: Value,
+        stopped: &std::sync::atomic::AtomicBool,
+    ) -> Result<Value, SquadError> {
+        let request =
+            json!({"version": 1, "operation": "terminal.command.run", "input": input}).to_string();
+        let frame = self
+            .channel
+            .as_mut()
+            .expect("open session")
+            .exchange_lifeline(
+                request.as_bytes(),
+                Instant::now() + Duration::from_secs(130),
+                || stopped.load(std::sync::atomic::Ordering::Acquire),
+                || {},
+            );
+        Self::decode(frame)
+    }
+
+    pub(crate) fn keep(&mut self, run_id: &str) -> Result<Value, SquadError> {
+        let request =
+            json!({"version": 1, "operation": "terminal.command.keep", "input": {"runId": run_id}})
+                .to_string();
+        let frame = self.channel.as_mut().expect("open session").exchange(
+            request.as_bytes(),
+            Instant::now() + TIMEOUT,
+            || false,
+        );
+        Self::decode(frame)
+    }
+
+    fn decode(frame: Result<Vec<u8>, tmt_invoke::InvokeError>) -> Result<Value, SquadError> {
+        let bytes = frame
+            .map_err(|_| unavailable("Command outcome unconfirmed. Check before retrying."))?;
+        let document: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| unavailable("Command outcome unconfirmed. Check before retrying."))?;
+        if document.get("error").is_some() {
+            resource_error(&document)
+        } else {
+            Ok(document)
+        }
+    }
+}
+
+impl Drop for StandaloneSession {
+    fn drop(&mut self) {
+        if let Some(channel) = self.channel.take() {
+            let _ = channel.close(Instant::now() + TIMEOUT, || false);
+        }
+        shell_spawn_guard().remove(&self.pid);
+    }
 }
 
 fn executable(path: &Path) -> bool {

@@ -191,6 +191,10 @@ pub(super) fn row_json(target: &RowTarget) -> Value {
         RowTarget::Workspace(crate::board::workspace::OpsTarget::Squad(id)) => {
             json!({"kind":"workspace-squad","id":id})
         }
+        RowTarget::Workspace(
+            crate::board::workspace::OpsTarget::LocalTerminals
+            | crate::board::workspace::OpsTarget::SavedTerminal(_),
+        ) => Value::Null,
         RowTarget::Workspace(crate::board::workspace::OpsTarget::Pool) => {
             json!({"kind":"workspace-pool"})
         }

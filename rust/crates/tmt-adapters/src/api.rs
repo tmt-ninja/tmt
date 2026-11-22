@@ -76,6 +76,14 @@ const OPS: &[&str] = &[
     "terminal.run",
     "terminal.list",
     "terminal.close",
+    "terminal.command.target",
+    "terminal.command.run",
+    "terminal.command.keep",
+    "terminal.saved.list",
+    "terminal.saved.get",
+    "terminal.saved.move",
+    "terminal.saved.remove",
+    "terminal.saved.openShell",
     "shell.run",
     "forms.list",
     "forms.answer",
@@ -309,6 +317,7 @@ pub enum Request {
         terminal_id: String,
         force: bool,
     },
+    SavedTerminal(Box<shell::SavedTerminalRequest>),
     ShellRun {
         identity_id: String,
         command: String,
@@ -541,6 +550,14 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "terminal.run" => terminal::decode_run(input)?,
         "terminal.list" => terminal::decode_list(input)?,
         "terminal.close" => terminal::decode_close(input)?,
+        "terminal.command.target"
+        | "terminal.command.run"
+        | "terminal.command.keep"
+        | "terminal.saved.list"
+        | "terminal.saved.get"
+        | "terminal.saved.move"
+        | "terminal.saved.remove"
+        | "terminal.saved.openShell" => shell::decode_saved(&wire.operation, input)?,
         "shell.run" => shell::decode(input)?,
         "forms.list" => forms::decode_list(input)?,
         "forms.answer" => forms::decode_answer(input)?,
@@ -605,12 +622,14 @@ pub const SESSION_STALE: &str = "API_SESSION_STALE";
 pub struct Session {
     paths: ConfigPaths,
     storage: Option<Storage>,
+    saved_command: shell::SavedCommandSession,
 }
 impl Session {
     pub fn new(paths: ConfigPaths) -> Self {
         Self {
             paths,
             storage: None,
+            saved_command: Default::default(),
         }
     }
     pub fn paths(&self) -> &ConfigPaths {
@@ -782,6 +801,9 @@ impl Session {
                 terminal_id,
                 command,
             } => terminal::run(paths, storage, &identity_id, &terminal_id, &command),
+            Request::SavedTerminal(request) => {
+                shell::execute_saved(paths, storage, *request, &mut self.saved_command, lifeline)
+            }
             Request::ShellRun {
                 identity_id,
                 command,

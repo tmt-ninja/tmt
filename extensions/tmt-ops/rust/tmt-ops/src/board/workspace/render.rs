@@ -554,6 +554,43 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 });
                 continue;
             }
+            if matches!(
+                row.target,
+                OpsTarget::LocalTerminals | OpsTarget::SavedTerminal(_)
+            ) {
+                if row.target == OpsTarget::LocalTerminals {
+                    crate::board::tree_row::paint_line(
+                        frame.buffer_mut(),
+                        stripe,
+                        !app.standalone.local_folded,
+                        vec![(row.title.clone(), look.role(Role::Text))],
+                        selected,
+                        look,
+                    );
+                } else {
+                    crate::board::tree_row::paint_terminal(
+                        frame.buffer_mut(),
+                        stripe,
+                        &slots,
+                        &crate::board::tree_row::TerminalRow {
+                            source: row,
+                            ended: false,
+                            status: row.state.as_deref(),
+                            last: !continues(&rows, index + 1, row.depth),
+                            trunk: false,
+                            selected,
+                        },
+                        look,
+                    );
+                }
+                app.hits.borrow_mut().push(Hit {
+                    x: stripe.x,
+                    y,
+                    width: stripe.width,
+                    target: HitTarget::Row(index),
+                });
+                continue;
+            }
             if let OpsTarget::Terminal {
                 identity_id,
                 terminal_id,
@@ -571,6 +608,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         &crate::board::tree_row::TerminalRow {
                             source: row,
                             ended: terminal.ended,
+                            status: None,
                             last: !continues(&rows, index + 1, row.depth),
                             trunk: continues(&rows, index + 1, row.depth.saturating_sub(1)),
                             selected,
@@ -600,7 +638,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 OpsTarget::Pool
                 | OpsTarget::DigestAll
                 | OpsTarget::Hidden
-                | OpsTarget::Terminal { .. } => None,
+                | OpsTarget::Terminal { .. }
+                | OpsTarget::LocalTerminals
+                | OpsTarget::SavedTerminal(_) => None,
             };
             let timers = scope.and_then(|scope| app.cron.counts.count(scope));
             // A plain program is not an agent: it has no tokens (#5769).
@@ -983,7 +1023,8 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                     folds: matches!(&row.target, OpsTarget::Member { identity_id, .. }
                         if expanded || !app.terminals.rows(identity_id).is_empty()
                             || app.workspace.member_folded(&row.target)
-                                && app.workspace.member_has_children(&row.target, &snapshot.roster)),
+                                && (app.workspace.member_has_children(&row.target, &snapshot.roster)
+                                    || app.has_saved_children(&row.target, &rows))),
                     state,
                     state_primary_width,
                     state_attention,
@@ -1156,7 +1197,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                     OpsTarget::Pool
                     | OpsTarget::DigestAll
                     | OpsTarget::Hidden
-                    | OpsTarget::Terminal { .. } => (None, None),
+                    | OpsTarget::Terminal { .. }
+                    | OpsTarget::LocalTerminals
+                    | OpsTarget::SavedTerminal(_) => (None, None),
                 };
                 app.cron_scope_hits
                     .borrow_mut()

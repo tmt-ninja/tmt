@@ -77,6 +77,7 @@ fn finish_does_not_join_an_in_flight_shell_worker() {
         jobs: None,
         thread: None,
         shell_core: fixture.core.clone(),
+        standalone: Default::default(),
         shell_events: events,
         shell_threads: std::cell::RefCell::new(vec![worker]),
         shell_stop: Default::default(),

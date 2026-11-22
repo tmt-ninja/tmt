@@ -481,7 +481,7 @@ impl App {
                             OpsTarget::Member { identity_id, .. } if unread.contains(identity_id.as_str()))));
                     }
                 }
-                self.with_terminal_rows(rows)
+                self.with_saved_rows(self.with_terminal_rows(rows))
             })
             .unwrap_or_default()
             .into()
@@ -586,6 +586,8 @@ impl App {
             OpsTarget::Pool
             | OpsTarget::DigestAll
             | OpsTarget::Hidden
+            | OpsTarget::LocalTerminals
+            | OpsTarget::SavedTerminal(_)
             | OpsTarget::Terminal { .. } => None,
         }
     }
@@ -1286,6 +1288,7 @@ impl App {
             MarkRead => return self.mark_read_selected(),
             MemberBack => return self.close_member_frame(),
             IdleAlert => return self.open_idle_alert(None),
+            RunCommand => return self.open_standalone(),
             NewMember => return self.open_new_member(),
             Rename => return self.open_member_rename(),
             SwitchTool => return self.open_switch_tool(),
@@ -1325,6 +1328,7 @@ impl App {
                     if action == Inspect {
                         self.show_conversation_of(&target);
                     } else if !self.terminals.rows(identity_id).is_empty()
+                        || self.has_saved_children(&target, &self.workspace_rows())
                         || self.workspace_snapshot().is_some_and(|snapshot| {
                             self.workspace
                                 .member_has_children(&target, &snapshot.roster)
@@ -1415,6 +1419,7 @@ impl App {
         let editing = match overlay {
             Some(Overlay::ProviderAnswer) => self.provider_answer.owns_typing(),
             Some(Overlay::NewMember | Overlay::SwitchTool | Overlay::IdleAlert) => true,
+            Some(Overlay::Standalone) => self.standalone.editing(),
             Some(Overlay::Workspace) => self.input.is_some(),
             Some(Overlay::Settings) => self
                 .settings
