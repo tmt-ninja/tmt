@@ -2,7 +2,7 @@
 //! membership changes share the lifted-row UI and commit through separate owners.
 use super::{
     OpsTarget, OpsTreeRow, OpsWorkspace,
-    placement::{Group, Save, Shift},
+    placement::{MemberOrder, Save, Shift},
 };
 use crate::board::app::{App, Effect, Request};
 use crate::membership::workspace::Operation;
@@ -29,8 +29,8 @@ pub(in crate::board) struct Moving {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Order {
-    initial: Group,
-    draft: Group,
+    initial: MemberOrder,
+    draft: MemberOrder,
 }
 
 /// Where the list paints a lifted membership: the source row becomes a placeholder, and the
@@ -80,7 +80,7 @@ impl Moving {
                 .map_or_else(|| room.clone(), |row| row.title.clone()),
         }
     }
-    pub(in crate::board) fn order(&self) -> Option<(Option<&str>, &Group)> {
+    pub(in crate::board) fn order(&self) -> Option<(Option<&str>, &MemberOrder)> {
         self.order
             .as_ref()
             .map(|order| (self.source.as_deref(), &order.draft))

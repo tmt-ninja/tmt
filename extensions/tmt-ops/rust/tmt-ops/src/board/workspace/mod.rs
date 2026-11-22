@@ -441,7 +441,7 @@ impl OpsWorkspace {
         &self,
         roster: &OpsRoster,
         preferences: &OpsPreferences,
-        draft: Option<(Option<&str>, &placement::Group)>,
+        draft: Option<(Option<&str>, &placement::MemberOrder)>,
     ) -> Vec<OpsTreeRow> {
         self.project_rows(roster, preferences, &self.query, false, draft)
     }
@@ -578,7 +578,7 @@ impl OpsWorkspace {
         rows: impl Iterator<Item = OpsTreeRow>,
         query: &str,
         expand: bool,
-        draft: Option<&placement::Group>,
+        draft: Option<&placement::MemberOrder>,
     ) -> Vec<OpsTreeRow> {
         let matches =
             |row: &OpsTreeRow| crate::board::search_field::matches_query(&row.title, query);
@@ -640,7 +640,7 @@ impl OpsWorkspace {
         preferences: &OpsPreferences,
         query: &str,
         expand: bool,
-        draft: Option<(Option<&str>, &placement::Group)>,
+        draft: Option<(Option<&str>, &placement::MemberOrder)>,
     ) -> Vec<OpsTreeRow> {
         let query = query.to_lowercase();
         let matches = |name: &str| crate::board::search_field::matches_query(name, &query);

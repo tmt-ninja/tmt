@@ -15,7 +15,7 @@ const LIMIT: u64 = 4 * 1024 * 1024;
 const RETRY: &str = "Reopen the board before moving members again.";
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
-pub(in crate::board) struct Group(Vec<Entry>);
+pub(in crate::board) struct MemberOrder(Vec<Entry>);
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct Entry {
@@ -30,7 +30,7 @@ pub(super) enum Shift {
     Outdent,
 }
 
-impl Group {
+impl MemberOrder {
     /// Admit only roster members. Broken parent links and cyclic components render
     /// as roots. An iterative walk keeps even very deep placement off the call stack.
     pub(super) fn walk<'a>(
@@ -196,18 +196,18 @@ impl Group {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct Placements(BTreeMap<String, Group>);
+pub(crate) struct Placements(BTreeMap<String, MemberOrder>);
 
 impl Placements {
     fn key(room: Option<&str>) -> &str {
         room.unwrap_or("")
     }
 
-    pub(in crate::board) fn group(&self, room: Option<&str>) -> Option<&Group> {
+    pub(in crate::board) fn group(&self, room: Option<&str>) -> Option<&MemberOrder> {
         self.0.get(Self::key(room))
     }
 
-    pub(super) fn replace(&mut self, room: Option<&str>, group: Group) {
+    pub(super) fn replace(&mut self, room: Option<&str>, group: MemberOrder) {
         self.0.insert(Self::key(room).into(), group);
     }
 
@@ -245,7 +245,7 @@ impl Placements {
                     parent,
                 });
             }
-            placements.insert(room.clone(), Group(entries));
+            placements.insert(room.clone(), MemberOrder(entries));
         }
         Ok(Self(placements))
     }
