@@ -1510,6 +1510,47 @@ test('a work bundle and page views draw owner data only while the page is owner-
   await expect(pages).toContainText('區塊資料模型');
 });
 
+for (const theme of ['light', 'dark'] as const)
+  test(`a page that stops taking edits draws what it holds and says where this tab's typing is, in view far down at 390 ${theme} (#6820)`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.emulateMedia({ colorScheme: theme });
+    await servePageRuntime(page);
+    const host = await mountFixture(page, 'spec');
+    const kept = page.getByText(text.blockEdit.kept);
+    // Nothing of this tab on its way: the page says nothing.
+    await page.evaluate(() => window.stopEdits(true));
+    await expect(host.locator('[data-block-id="order"]')).toBeVisible();
+    await expect(kept).toHaveCount(0);
+    await page.evaluate(() => window.stopEdits(false));
+    // A block far down the page, typed in while the serve holds the commit.
+    const block = host.locator('[data-block-id="order"]');
+    await block.scrollIntoViewIfNeeded();
+    await page.evaluate(() => window.holdServe(true));
+    await block.getByText('#5980').click();
+    await block.locator('[contenteditable="true"]').press(textEnd);
+    await page.keyboard.type(' 保留');
+    await expect.poll(() => page.evaluate(() => window.heldCommits())).toBeGreaterThan(0);
+    // The page stops taking edits: the text on its way leaves the drawn page, and the line says
+    // where it is, in view wherever the person has scrolled.
+    await page.evaluate(() => window.stopEdits(true));
+    await expect(block).not.toContainText('保留');
+    await expect(kept).toBeInViewport();
+    if (theme === 'dark')
+      expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).not.toBe(
+        'rgb(255, 255, 255)',
+      );
+    await page.screenshot({ path: capturePath(`structured-kept-toast-390-${theme}.png`) });
+    // It takes edits again: the text lands and the line goes.
+    await page.evaluate(() => {
+      window.stopEdits(false);
+      window.holdServe(false);
+    });
+    await expect(block).toContainText('保留');
+    await expect(kept).toHaveCount(0);
+  });
+
 test('a mockup renders only in an opaque sandboxed frame, never in the page', async ({ page }) => {
   await servePageRuntime(page);
   const host = await mountFixture(page, 'spec');

@@ -50,8 +50,12 @@ export function usePageWorkflow(
   }, [archiveOverride, view.archived]);
   useEffect(() => {
     if (archived && !wasArchived.current) setArchiveAnnouncement(text.archiveAnnouncement);
+    // Restored: the archived sentence is no longer true (#6820). A restore from this tab says so in
+    // its own notice; one from elsewhere (the CLI, another device) says it here.
+    else if (!archived && wasArchived.current)
+      setArchiveAnnouncement(archiveOverride === false ? '' : text.restoreAnnouncement);
     wasArchived.current = archived;
-  }, [archived]);
+  }, [archived, archiveOverride]);
   useEffect(() => {
     setChoosingParent(false);
     setMoveFailure(undefined);

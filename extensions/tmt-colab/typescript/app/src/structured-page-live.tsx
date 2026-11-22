@@ -120,13 +120,14 @@ export function LiveStructuredPage({
   const write: BlockWrite | undefined = useMemo(() => binding?.blocks?.bind(binding), [binding]);
   const pageFiles = write ? binding?.files : undefined;
   const editable = !!write || held;
-  // One draft session across a reconnect: what was typed while held stays its own draft until the
-  // live page admits it.
-  const recovery = useMemo(
-    () =>
-      editable && pageId && blockDrafts ? new BlockDraftSession(blockDrafts, pageId) : undefined,
-    [editable, pageId, blockDrafts],
+  // One draft session per page, across a reconnect and an archive (#6795, #6820): what was typed
+  // stays one draft until the page admits it or the person chooses, so a restore never offers the
+  // same text twice. It is used only while the page takes edits.
+  const session = useMemo(
+    () => (pageId && blockDrafts ? new BlockDraftSession(blockDrafts, pageId) : undefined),
+    [pageId, blockDrafts],
   );
+  const recovery = editable ? session : undefined;
   // Typed text sent while the page reconnects waits for the next live write, in this tab's order.
   const live = useRef(write);
   // Ended or archived instead of back: the waiting text fails, and stays in the device store.
@@ -138,22 +139,30 @@ export function LiveStructuredPage({
   }, [write, held]);
   const [restored, setRestored] = useState<BlockDraft[]>([]);
   const [clearFailed, setClearFailed] = useState<ReadonlySet<string>>(new Set());
-  /** Offers the page's stored drafts, as a reload does. */
+  /** Waits for this tab's typing and batches on their way to land or fail (set once the editing
+   * hook below exists). */
+  const settled = useRef<() => Promise<void>>(async () => {});
+  /** Offers the page's stored drafts, as a reload does, once this tab's own sends have settled:
+   * a draft such a send lands is never offered and withdrawn a moment later (#6820). */
   const offer = useCallback(
     (active: () => boolean = () => true) => {
       if (!recovery) return;
-      void recovery.store.load(recovery.page).then(
-        (entries) => {
-          if (!active()) return;
-          const offered = restorable(recovery.page, entries);
-          setRestored(offered);
-          // What a reload offers, for a check that nothing landed comes back (#6749).
-          window.dispatchEvent(
-            new CustomEvent('colab:block-drafts-offered', { detail: { count: offered.length } }),
-          );
-        },
-        () => {},
-      );
+      void settled
+        .current()
+        .catch(() => {})
+        .then(() => (active() ? recovery.store.load(recovery.page) : []))
+        .then(
+          (entries) => {
+            if (!active()) return;
+            const offered = restorable(recovery.page, entries);
+            setRestored(offered);
+            // What a reload offers, for a check that nothing landed comes back (#6749).
+            window.dispatchEvent(
+              new CustomEvent('colab:block-drafts-offered', { detail: { count: offered.length } }),
+            );
+          },
+          () => {},
+        );
     },
     [recovery],
   );
@@ -269,7 +278,9 @@ export function LiveStructuredPage({
     recovery,
     binding?.blocksFit?.bind(binding),
     !write && held,
+    !editable,
   );
+  settled.current = settle;
   useBlocker({
     disabled: !editable,
     enableBeforeUnload: () => recovery?.unsafe() ?? false,
@@ -382,6 +393,8 @@ export function LiveStructuredPage({
       tree={tree}
       recoveryError={recoveryError}
       restored={restored.filter((d) => {
+        // The editor already offers it in its deleted block's place, or it has landed since.
+        if (drafts.has(d.id) || (pageId && !restorable(pageId, [d]).length)) return false;
         const shown = present(d);
         return clearFailed.has(d.target) || shown === undefined || !heldByPage(d, shown);
       })}
