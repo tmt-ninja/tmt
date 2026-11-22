@@ -1720,6 +1720,11 @@ o = "run touch ${marker}"
         expect(observe(sandbox)).toEqual(legacy);
       }
 
+      const config = path.join(sandbox.globalDir, 'ops.toml');
+      writeFileSync(
+        config,
+        `${readOpsConfig(config)}\n[squad.product.rows]\ncolumns = [{name="member"}, {name="state"}, {name="lead"}]\n`
+      );
       expect(
         (await squad(sandbox, ['set', 'Sol', 'role=reviews every merge', 'lead=ordinary data']))
           .status
@@ -1983,8 +1988,9 @@ o = "run touch ${marker}"
       expect(row).not.toHaveProperty('pending');
       expect(row.fields).toEqual({ state: 'working' });
       expect(listed.body.squad.attention).toEqual({ state: 'normal', waiting: 0, blocked: 0 });
+      sandbox.env.NO_COLOR = '1';
       const text = await runCli(sandbox, ['ops', 'sq', 'ls', '--squad', 'product']);
-      expect(text.stdout).toContain('worker  working');
+      expect(text.stdout.split('\n')).toContain('  ○  worker        working');
       expect(text.stdout).not.toMatch(/old (task|next|pending)|current progress/);
       expect(observe(sandbox)).toEqual(before);
 
@@ -5878,6 +5884,7 @@ describe('large board responsiveness', () => {
             tmux(['send-keys', '-t', pane, 'Right', 'Enter']);
             await until(`mention actions at ${width} columns`, (menu) => {
               expect(menu).toContain('Message');
+              expect(menu).toContain('Copy');
               expect(menu).toContain('Show in Agents');
               // This identity has no host binding: unavailable actions are hidden.
               expect(menu).not.toContain('Jump to host');
@@ -5888,9 +5895,12 @@ describe('large board responsiveness', () => {
               text: screen(),
               ansi: tmux(['capture-pane', '-p', '-e', '-t', pane]),
             });
-            // Message is first; keep testing explicit Show in Agents navigation
-            // without sending the retained draft.
-            tmux(['send-keys', '-t', pane, 'Down', 'Enter']);
+            // Navigate past Copy to Show in Agents without sending the retained draft.
+            tmux(['send-keys', '-t', pane, 'Down', 'Down']);
+            await until(`Show in Agents selected at ${width} columns`, (menu) => {
+              expect(menu).toMatch(/›[ \t]+Show in Agents/);
+            });
+            tmux(['send-keys', '-t', pane, 'Enter']);
             await vi.waitFor(() => expect(screen()).not.toContain('Show in Agents'), {
               timeout: 10_000,
               interval: 25,
