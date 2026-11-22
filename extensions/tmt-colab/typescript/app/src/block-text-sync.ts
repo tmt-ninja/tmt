@@ -97,6 +97,10 @@ export class BlockTextSync {
   flush(): BlockOp | undefined {
     if (this.#inflight || this.#local === this.#base) return undefined;
     this.#inflight = { set: this.#local, base: this.#base };
+    return this.operation(this.#local, this.#base);
+  }
+
+  operation(value: string, base = this.#inflight?.set ?? this.#base): BlockOp {
     return this.cell
       ? {
           op: 'table',
@@ -104,11 +108,11 @@ export class BlockTextSync {
           action: 'set-cell',
           row: this.id,
           column: this.cell.column,
-          text: this.#local,
-          base: this.#base,
+          text: value,
+          base,
           overlap: 'both',
         }
-      : { op: 'text', id: this.id, set: this.#local, base: this.#base, overlap: 'both' };
+      : { op: 'text', id: this.id, set: value, base, overlap: 'both' };
   }
 
   /** The page's text for the block is now `remote`, from a view of order `seq` (`PageView.seq`;

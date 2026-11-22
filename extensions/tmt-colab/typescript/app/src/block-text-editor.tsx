@@ -5,6 +5,9 @@ import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { PlainTextExtension } from '@lexical/plain-text';
 import {
+  $addUpdateTag,
+  $hasUpdateTag,
+  RootNode,
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
@@ -20,7 +23,8 @@ import {
 import { textMerge } from '@tmt/colab-client';
 import { linkHref } from '@tmt/browser-ui/blocks';
 import { caretThrough } from './block-text-sync.js';
-import type { Mark } from './blocks.js';
+import { BLOCK_TEXT_BYTES, type Mark } from './blocks.js';
+import { byteLength } from './closed.js';
 
 /** The editor's update tag for text the page sent, so the change is not reported back as typing. */
 const PAGE_TAG = 'tmt-block-page-text';
@@ -203,6 +207,9 @@ export interface BlockTextEditorProps {
    * when the editor opens on `text`. */
   from?: string;
   /** The person typed: the editor's text and caret now. */
+  textFits?(value: string): boolean;
+  maxBytes?: number;
+  onFull?(): void;
   onTyped(text: string, caret: number): void;
   /** Keys the block handles (Enter, Backspace at the start, Escape, the format keys); return true
    * to take one. `range` is the selection as scalar offsets, empty for a caret. */
@@ -238,6 +245,9 @@ function Editor({
   version,
   from,
   onTyped,
+  textFits,
+  maxBytes = BLOCK_TEXT_BYTES,
+  onFull,
   onKey,
   onPasteUrl,
   onPasteStructure,
@@ -245,6 +255,7 @@ function Editor({
   placeholder,
 }: BlockTextEditorProps) {
   const [editor] = useLexicalComposerContext();
+  const refused = useRef(false);
   const typed = useRef(onTyped);
   typed.current = onTyped;
   /** The text the last redraw from the page set. */
@@ -253,19 +264,53 @@ function Editor({
    * after `from` are late only if it showed `from` (a new instance starts empty, which is not
    * typing). */
   const shownTexts = useRef<{ editor?: LexicalEditor; texts: Set<string> }>({ texts: new Set() });
+  const admission = useRef({ marks, maxBytes, onFull, textFits });
+  admission.current = { marks, maxBytes, onFull, textFits };
+  // Validate the pending tree before Lexical commits it. A native input can have
+  // already changed the DOM; replacing the paragraph gives reconciliation fresh
+  // nodes for both the displayed text and its selection.
   useEffect(
     () =>
-      editor.registerUpdateListener(({ tags, dirtyElements, dirtyLeaves, editorState }) => {
-        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
-        editorState.read(() => {
-          const now = $text();
-          if (shownTexts.current.editor === editor) shownTexts.current.texts.add(now);
-          // Lexical can commit a keystroke in the same update as a redraw from the page: the tag
-          // alone would hide that typing, so only the exact text the page set is not reported.
-          if (tags.has(PAGE_TAG) && now === pageText.current) return;
-          typed.current(now, $caret());
-        });
+      editor.registerNodeTransform(RootNode, () => {
+        const { marks, maxBytes, onFull, textFits } = admission.current;
+        if ($hasUpdateTag('tmt-block-refused-input')) return;
+        const value = $text();
+        if ($hasUpdateTag(PAGE_TAG) && value === pageText.current) return;
+        const previous = editor.getEditorState();
+        const before = previous.read($text);
+        if (value === before || (byteLength(value) <= maxBytes && textFits?.(value) !== false))
+          return;
+        const { anchor, focus } = previous.read($selected);
+        $addUpdateTag('tmt-block-refused-input');
+        $replace(before, marks, anchor, focus);
+        if (!refused.current) onFull?.();
+        refused.current = true;
       }),
+    [editor],
+  );
+  useEffect(
+    () =>
+      editor.registerUpdateListener(
+        ({ tags, dirtyElements, dirtyLeaves, editorState, prevEditorState }) => {
+          if (
+            tags.has('tmt-block-refused-input') ||
+            (dirtyElements.size === 0 && dirtyLeaves.size === 0)
+          )
+            return;
+          const value = editorState.read($text);
+          if (tags.has(PAGE_TAG) && value === pageText.current) return;
+          if (value === prevEditorState.read($text)) return;
+          refused.current = false;
+          editorState.read(() => {
+            const now = $text();
+            if (shownTexts.current.editor === editor) shownTexts.current.texts.add(now);
+            // Lexical can commit a keystroke in the same update as a redraw from the page: the tag
+            // alone would hide that typing, so only the exact text the page set is not reported.
+            if (tags.has(PAGE_TAG) && now === pageText.current) return;
+            typed.current(now, $caret());
+          });
+        },
+      ),
     [editor],
   );
   useEffect(() => {
@@ -311,6 +356,25 @@ function Editor({
       { tag: [PAGE_TAG, HISTORY_MERGE_TAG] },
     );
   }, [editor, marks, text]);
+  useEffect(() => {
+    const root = editor.getRootElement();
+    if (!root) return;
+    const beforeInput = (event: InputEvent) => {
+      if (!event.cancelable || !event.inputType.startsWith('insert') || !event.data) return;
+      const value = root.textContent ?? '';
+
+      const { from, to } = domRange(root, value);
+      const next =
+        value.slice(0, utf16Offset(value, from)) + event.data + value.slice(utf16Offset(value, to));
+      if (byteLength(next) <= maxBytes && textFits?.(next) !== false) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!refused.current) onFull?.();
+      refused.current = true;
+    };
+    root.addEventListener('beforeinput', beforeInput, true);
+    return () => root.removeEventListener('beforeinput', beforeInput, true);
+  }, [editor, maxBytes, onFull, textFits]);
   useEffect(() => editor.focus(), [editor]);
   return (
     <ContentEditable

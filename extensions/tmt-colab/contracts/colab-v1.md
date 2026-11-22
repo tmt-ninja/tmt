@@ -3290,6 +3290,9 @@ refusals (`an image source …`, `a file link …`).
 | A batch                                             | 256 ops and 1 MiB                               |
 
 An op that would pass a bound is refused as `COLAB_CAPACITY`.
+The browser accepts a text edit only when its UTF-8 JSON sync frame fits in 64 KiB, including the
+base text, replacement, identifiers and any mark operations. A valid block created by the CLI can
+therefore be readable in the browser even when a keystroke would exceed the frame limit.
 
 #### One batch entry
 

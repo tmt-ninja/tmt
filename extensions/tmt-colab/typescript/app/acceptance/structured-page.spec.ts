@@ -2175,3 +2175,159 @@ test('past a combine every batch lands at once', async () => {
     }
   });
 });
+
+test('typing at a block or cell byte limit keeps the last allowed key after reload', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'limited-author');
+    world.linkExtensions();
+    const cli = (args: string[], input?: string) => run(world, world.binaries.colab, args, input);
+    const { pageId, path } = JSON.parse(
+      cli(['page', 'create', '--title', 'Full fields', '--no-open', '--json']),
+    );
+    const paragraph = crypto.randomUUID(),
+      table = crypto.randomUUID(),
+      row = crypto.randomUUID();
+    const almostFull = (bytes: number) =>
+      '界'.repeat(Math.floor((bytes - 1) / 3)) + 'a'.repeat((bytes - 1) % 3);
+    const longId = crypto.randomUUID();
+    const longText = almostFull(40950) + ' last word';
+    const blockText = almostFull(32626),
+      cellText = almostFull(4096);
+    cli(
+      ['block', 'batch', pageId, '--file', '-', '--json'],
+      JSON.stringify([
+        { op: 'insert', type: 'paragraph', parent: 'root', id: paragraph, text: blockText },
+        {
+          op: 'insert',
+          type: 'paragraph',
+          parent: 'root',
+          id: longId,
+          after: paragraph,
+          text: longText,
+        },
+        {
+          op: 'insert',
+          type: 'table',
+          parent: 'root',
+          id: table,
+          after: paragraph,
+          props: { columns: [{ id: 'task', name: 'Task' }] },
+        },
+        { op: 'table', action: 'add-row', id: table, row, cells: { task: cellText } },
+      ]),
+    );
+    const page = await browser.context.newPage();
+    await page.goto(new URL(path, door.address).href);
+    for (const [target, initial, notice] of [
+      [
+        page.locator(`[data-block-id="${paragraph}"]`),
+        blockText,
+        'This edit is too large to save. Try removing a large selection, or use the block menu to delete the block or change its type. To edit its text from the CLI, use tmt colab block text.',
+      ],
+      [
+        page.locator(`[data-cell-row="${row}"]`),
+        cellText,
+        'This cell is full. Move part of the text to another cell.',
+      ],
+    ] as const) {
+      await target.click();
+      const editor = page.locator('[contenteditable="true"]');
+      await editor.press(textEnd);
+      await editor.pressSequentially('XY');
+      await expect(page.getByText(notice, { exact: true })).toBeVisible();
+      await expect(editor).toHaveText(initial + 'X');
+      await expect
+        .poll(() => editor.evaluate((el) => el.ownerDocument.getSelection()?.anchorOffset))
+        .toBe(initial.length + 1);
+      await expect
+        .poll(
+          () => {
+            const blocks = JSON.parse(cli(['block', 'ls', pageId, '--json'])).blocks as {
+              id: string;
+              text?: { s: string };
+              cells?: Record<string, { s: string }>;
+            }[];
+            return initial === blockText
+              ? blocks.find((b) => b.id === paragraph)?.text?.s
+              : blocks.find((b) => b.id === row)?.cells?.task?.s;
+          },
+          { timeout: 30000 },
+        )
+        .toBe(initial + 'X');
+      await page.reload();
+      await expect(target).toHaveText(initial + 'X');
+    }
+    const long = page.locator(`[data-block-id="${longId}"]`);
+    await long.click();
+    const field = long.locator('[contenteditable="true"]');
+    await field.press(textEnd);
+    await field.pressSequentially('Z');
+    await expect(
+      page.getByText(
+        'This edit is too large to save. Try removing a large selection, or use the block menu to delete the block or change its type. To edit its text from the CLI, use tmt colab block text.',
+        {
+          exact: true,
+        },
+      ),
+    ).toBeVisible();
+    await expect(field).toHaveText(longText);
+    // The notice is keyed by its occurrence. The same node must remain through this burst.
+    const notice = await page.getByText(/This edit is too large to save/).elementHandle();
+    await field.press('Backspace');
+    await expect(field).toHaveText(longText);
+    await field.press(process.platform === 'darwin' ? 'Alt+Backspace' : 'Control+Backspace');
+    await expect(field).toHaveText(longText);
+    await field.press(textEnd);
+    await field.press('Shift+ArrowLeft');
+    await expect.poll(() => field.evaluate(() => getSelection()?.toString())).toBe('d');
+    // Invoke the browser's Cut editing command (the same command as the menu).
+    const cut = await field.evaluate((el) => {
+      let selected: string | undefined;
+      el.addEventListener(
+        'cut',
+        () => {
+          selected = el.ownerDocument.getSelection()?.toString();
+        },
+        { capture: true, once: true },
+      );
+      el.ownerDocument.execCommand('cut');
+      return selected;
+    });
+    expect(cut).toBe('d');
+    await expect(field).toHaveText(longText);
+    expect(await notice!.evaluate((el) => el.isConnected)).toBe(true);
+    await page.reload();
+    await expect(long).toHaveText(longText);
+    expect(JSON.parse(cli(['block', 'get', pageId, longId, '--json'])).block.text.s).toBe(longText);
+    await long.click();
+    await field.press(textEnd);
+    await field.press('ArrowLeft');
+    await field.press('Enter');
+    await expect(field).toBeFocused();
+    await expect(field).toHaveText(longText);
+    await field.press('Escape');
+    await page.keyboard.press('Shift+F10');
+    await page.getByRole('menuitem', { name: 'Turn into' }).click();
+    await page.getByRole('menuitem', { name: 'Heading 2' }).click();
+    await expect(long.getByRole('heading')).toHaveText(longText);
+    await page.reload();
+    await expect(long).toHaveText(longText);
+    await long.click();
+    await field.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
+    await field.press('Backspace');
+    await expect
+      .poll(() => JSON.parse(cli(['block', 'get', pageId, longId, '--json'])).block.text.s)
+      .toBe('');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Shift+F10');
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
+    await expect
+      .poll(() =>
+        JSON.parse(cli(['block', 'ls', pageId, '--json'])).blocks.some(
+          (block: { id: string }) => block.id === longId,
+        ),
+      )
+      .toBe(false);
+  });
+});

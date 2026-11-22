@@ -47,7 +47,14 @@ import { indentBlock, pasteBlocks, retypeBlock, type TurnInto } from './block-op
 import { PASTE_BLOCKS, pasted, type PastedBlock } from './block-paste.js';
 import type { TextRange } from './block-text-editor.js';
 import { applyOps } from './block-apply.js';
-import { BLOCK_TEXT_BYTES, RETYPE_TYPES, richType, validMarkValue } from './blocks.js';
+import { textMerge } from '@tmt/colab-client';
+import {
+  BLOCK_CELL_BYTES,
+  BLOCK_TEXT_BYTES,
+  RETYPE_TYPES,
+  richType,
+  validMarkValue,
+} from './blocks.js';
 import { byteLength } from './closed.js';
 import { BlockTree } from './block-tree.js';
 import { attachment } from '@tmt/colab-client';
@@ -331,6 +338,7 @@ export function useBlockEditing(
   /** Other pages an @ can name, under the page list's authority (#6208); absent without it. */
   pages?: MentionPages,
   recovery?: BlockDraftSession,
+  fits?: (ops: readonly BlockOp[]) => boolean,
 ) {
   /** This tab's batches on their way: the page draws them at once and drops each when the page's
    * view shows it (`shownAt`: the view order of its commit), or when it was refused (#6249). A
@@ -1021,6 +1029,11 @@ export function useBlockEditing(
         text,
         base: current.base,
       });
+      if (fits && !fits(ops)) {
+        noticeRef.current(strings.blockEdit.blockFull);
+        if (current.pending) timer.current = setTimeout(flush, TEXT_FLUSH_MS);
+        return;
+      }
       const tail = [...text].slice(at).join('');
       history.current.record(before, ops);
       arriving.current = newId;
@@ -1040,7 +1053,7 @@ export function useBlockEditing(
         }
       }
     },
-    [open, out, flush],
+    [open, out, flush, fits],
   );
 
   /** Backspace at the start: the text joins the end of the text block before it, focused at the
@@ -1057,6 +1070,11 @@ export function useBlockEditing(
       const before = treeRef.current;
       const previous = joinTarget(before, current.id);
       if (!previous) return;
+      if (byteLength(previous.text! + current.text) > BLOCK_TEXT_BYTES) {
+        noticeRef.current(strings.blockEdit.blockFull);
+        if (current.pending) timer.current = setTimeout(flush, TEXT_FLUSH_MS);
+        return;
+      }
       const ops = joinBlock(before, current.id, current.text);
       history.current.record(before, ops);
       if (closed) {
@@ -1071,7 +1089,7 @@ export function useBlockEditing(
       open(into, [...previous.text!].length);
       await out(into, ops);
     },
-    [open, out],
+    [flush, open, out],
   );
 
   /** A format key or a pasted link on `range` of the focused block: the mark goes on, or off when
@@ -1605,6 +1623,31 @@ export function useBlockEditing(
     (direction: 'undo' | 'redo') => {
       const ops = direction === 'undo' ? history.current.undo() : history.current.redo();
       if (!ops) return;
+      if (fits && !fits(ops)) {
+        if (direction === 'undo') history.current.redo();
+        else history.current.undo();
+        noticeRef.current(strings.blockEdit.blockFull);
+        return;
+      }
+      for (const op of ops) {
+        const cell = op.op === 'table' && op.action === 'set-cell';
+        if (!cell && !(op.op === 'text' && 'set' in op)) continue;
+        const was = cell
+          ? (treeRef.current.get(op.row)?.cells?.[op.column] ?? '')
+          : (treeRef.current.get(op.id)?.text ?? '');
+        const merged = textMerge.merge(
+          op.base ?? was,
+          was,
+          'set' in op ? op.set : op.text,
+          op.overlap,
+        ).text;
+        if (byteLength(merged) > (cell ? BLOCK_CELL_BYTES : BLOCK_TEXT_BYTES)) {
+          if (direction === 'undo') history.current.redo();
+          else history.current.undo();
+          noticeRef.current(cell ? strings.blockEdit.cellFull : strings.blockEdit.blockFull);
+          return;
+        }
+      }
       clearTimeout(toastTimer.current);
       setToast(undefined);
       const restored = ops.filter((op) => op.op === 'restore').map((op) => op.id);
@@ -1612,7 +1655,7 @@ export function useBlockEditing(
         setSelection({ anchor: restored[0]!, focus: restored[restored.length - 1]! });
       void out(undefined, ops);
     },
-    [out],
+    [out, fits],
   );
   replayRef.current = replay;
   const undo = useCallback(() => replay('undo'), [replay]);
@@ -1962,6 +2005,18 @@ export function useBlockEditing(
     columnAction,
     pasteUrl,
     pasteStructure,
+    textFits: (value: string) => {
+      const current = sync.current;
+      if (!current || !fits) return true;
+      const op = current.operation(value);
+      if (op.op !== 'text' || !('set' in op)) return fits([op]);
+      const from = [treeRef.current.get(op.id), pageRef.current.get(op.id)].find(
+        (block) => block?.text === op.base,
+      );
+      return fits([op, ...typedMarks(op.id, op.base, value, from?.marks)]);
+    },
+    onFull: (cell = false) =>
+      notice(cell ? strings.blockEdit.cellFull : strings.blockEdit.blockFull),
     check,
     authoring,
     author: setAuthoring,

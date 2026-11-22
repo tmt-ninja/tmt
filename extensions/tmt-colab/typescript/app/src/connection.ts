@@ -89,6 +89,24 @@ function sameValue(a: JsonValue | undefined, b: JsonValue): boolean {
 const CHUNK_BYTES = 32 * 1024;
 /** The most one sync frame may hold, either way; the serve's `WS_FRAME_BYTES`. */
 const FRAME_BYTES = 64 * 1024;
+type FrameScope = { space: string; page: string; epoch: string };
+function encodeFrame(scope: FrameScope, type: string, fields: Record<string, unknown>) {
+  return JSON.stringify({
+    version: 1,
+    type,
+    space: scope.space,
+    page: scope.page,
+    epoch: scope.epoch,
+    ...fields,
+  });
+}
+export function blockFrameFits(scope: FrameScope, ops: readonly BlockOp[]) {
+  // All operation IDs sent by LivePage are UUIDs with the same encoded length.
+  return (
+    text(encodeFrame(scope, 'blocks', { operationId: '00000000-0000-4000-8000-000000000000', ops }))
+      .length <= FRAME_BYTES
+  );
+}
 /** What the frame envelope (version, type, space, page, epoch) takes, with room to spare. */
 const ENVELOPE_BYTES = 1024;
 /** The whole reply budget for one save: upload window, native preparation and commit. */
@@ -336,15 +354,7 @@ export class Connection {
   }
   send(type: string, fields: Record<string, unknown>) {
     requireValue(!this.#stopped && this.#socket.readyState === WebSocket.OPEN);
-    const a = this.admission,
-      raw = JSON.stringify({
-        version: 1,
-        type,
-        space: a.space,
-        page: a.page,
-        epoch: a.epoch,
-        ...fields,
-      });
+    const raw = encodeFrame(this.admission, type, fields);
     requireValue(text(raw).length <= FRAME_BYTES && this.#socket.bufferedAmount <= 1024 * 1024);
     this.#socket.send(raw);
   }
