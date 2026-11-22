@@ -1860,7 +1860,7 @@ macro_rules! oracle_groups {
         $group!(7, 24, checklist_chip_frames($styles));
         $group!(7, 80, add_note_frames($styles));
         $group!(7, 48, checklist_overlay_frames($styles));
-        $group!(7, 24, checklist_reference_frames($styles));
+        $group!(7, 32, checklist_reference_frames($styles));
         $group!(7, 40, one_turn_frames($styles));
         $group!(7, 24, versions_frames($styles));
         $group!(6, 696, new_member_frames($styles));
