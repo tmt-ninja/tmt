@@ -603,35 +603,6 @@ impl<R: CommandRunner> Tmux<R> {
         })
     }
 
-    /// A command target needs the pane shell's live start as well as the tmux
-    /// marker and cwd. Share one deadline between the two observations.
-    pub(crate) fn probe_with_pane_start(
-        &self,
-        server: &ServerEvidence,
-        pane_id: &str,
-    ) -> Result<EndpointProbe, TmuxError> {
-        let deadline = Instant::now() + OPERATION_TIMEOUT;
-        let mut probe = self.probe(
-            &server.socket_path,
-            server.server_pid,
-            OperationOptions {
-                deadline: Some(deadline),
-                pane_ids: Some(&[pane_id.to_owned()]),
-            },
-        )?;
-        if let EndpointProbe::Live(snapshot) = &mut probe
-            && let Some(pane) = snapshot.panes.iter_mut().find(|pane| pane.id == pane_id)
-        {
-            let starts =
-                crate::process::runtime::observe_starts(&self.runner, &[pane.pane_pid], deadline)
-                    .map_err(|error| TmuxError::command(TmuxFailure::Evidence, error))?;
-            pane.pane_incarnation = starts
-                .get(&pane.pane_pid)
-                .map(|start| start.start_identity().to_owned());
-        }
-        Ok(probe)
-    }
-
     pub fn probe(
         &self,
         socket: &str,

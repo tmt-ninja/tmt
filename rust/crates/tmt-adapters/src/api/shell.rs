@@ -3,7 +3,7 @@ use super::{Fault, Request, invalid};
 use crate::{
     delivery,
     host::{Host, OperationOptions},
-    process::{CommandFailure, UnixCommandRunner},
+    process::{CommandFailure, UnixCommandRunner, runtime::observe_starts},
     storage::{
         Storage,
         saved_terminal::{
@@ -14,7 +14,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{path::Path, time::Duration};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 use tmt_core::{
     binding::{BindingEntry, BindingEvidence, evaluate_binding},
     endpoint::EndpointProbe,
@@ -22,6 +25,7 @@ use tmt_core::{
 };
 
 const SHELL_OUTPUT_LIMIT: usize = 65_536;
+const MEMBER_TARGET_OBSERVATION: Duration = Duration::from_secs(1);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -63,7 +67,7 @@ fn verified_cwd(entry: &BindingEntry, probe: &EndpointProbe) -> Result<String, F
 fn observe_member(
     storage: &mut Storage,
     identity_id: &str,
-    require_pane_start: bool,
+    tmux_deadline: Option<Instant>,
 ) -> Result<(BindingEntry, EndpointProbe), Fault> {
     let entry = delivery::current(storage, identity_id)
         .map_err(|_| no_directory())?
@@ -72,21 +76,15 @@ fn observe_member(
     if binding.server.host != HostKind::Tmux && binding.server.host != HostKind::pty() {
         return Err(no_directory());
     }
-    let probe = if require_pane_start && binding.server.host == HostKind::Tmux {
-        crate::tmux::Tmux::default()
-            .probe_with_pane_start(&binding.server, &binding.pane_id)
-            .map_err(|_| no_directory())?
-    } else {
-        Host::for_server(&binding.server)
-            .probe(
-                &binding.server,
-                OperationOptions {
-                    deadline: None,
-                    pane_ids: Some(std::slice::from_ref(&binding.pane_id)),
-                },
-            )
-            .map_err(|_| no_directory())?
-    };
+    let probe = Host::for_server(&binding.server)
+        .probe(
+            &binding.server,
+            OperationOptions {
+                deadline: tmux_deadline.filter(|_| binding.server.host == HostKind::Tmux),
+                pane_ids: Some(std::slice::from_ref(&binding.pane_id)),
+            },
+        )
+        .map_err(|_| no_directory())?;
     Ok((entry, probe))
 }
 
@@ -117,7 +115,7 @@ pub(super) fn run(
     command: &str,
     lifeline: Option<std::os::fd::BorrowedFd<'_>>,
 ) -> Result<Vec<u8>, Fault> {
-    let (entry, probe) = observe_member(storage, identity_id, false)?;
+    let (entry, probe) = observe_member(storage, identity_id, None)?;
     let cwd = verified_cwd(&entry, &probe)?;
     let result = run_captured(command, Path::new(&cwd), lifeline)?;
     if result.cancelled {
@@ -365,10 +363,31 @@ struct ObservedTarget {
 }
 
 fn member_target(storage: &mut Storage, identity: &str) -> Result<ObservedTarget, Fault> {
-    let (entry, probe) = observe_member(storage, identity, true)?;
+    let deadline = Instant::now() + MEMBER_TARGET_OBSERVATION;
+    let (entry, probe) = observe_member(storage, identity, Some(deadline))?;
     let binding = entry.binding.as_ref().ok_or_else(no_directory)?;
     let BindingEvidence::Active(pane) = evaluate_binding(&entry, &probe) else {
         return Err(no_directory());
+    };
+    let pane_incarnation = if binding.server.host == HostKind::Tmux {
+        // The ordinary Host probe supplies tmux's marker and cwd. Join that
+        // evidence to the live pane process under the same deadline.
+        let starts = observe_starts(&UnixCommandRunner, &[pane.pane_pid], deadline)
+            .map_err(|_| no_directory())?;
+        let start = starts
+            .get(&pane.pane_pid)
+            .ok_or_else(no_directory)?
+            .start_identity();
+        if binding
+            .pane_incarnation
+            .as_deref()
+            .is_some_and(|recorded| recorded != start)
+        {
+            return Err(no_directory());
+        }
+        start.to_owned()
+    } else {
+        pane.pane_incarnation.ok_or_else(no_directory)?
     };
     Ok(ObservedTarget {
         cwd: pane
@@ -376,7 +395,7 @@ fn member_target(storage: &mut Storage, identity: &str) -> Result<ObservedTarget
             .filter(|cwd| valid_cwd(cwd))
             .ok_or_else(no_directory)?,
         binding_id: binding.id.clone(),
-        pane_incarnation: pane.pane_incarnation.ok_or_else(no_directory)?,
+        pane_incarnation,
     })
 }
 
