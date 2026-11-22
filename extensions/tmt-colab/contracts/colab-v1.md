@@ -7203,8 +7203,9 @@ characters escaped and nothing truncated.
 
 Already admitted, unexpired, unrevoked owner devices receive wraps through the
 existing recipient planner. Later owner-device registration supplies missing
-forward wraps for existing non-archived pages inside the same authenticated device
-transaction, without a new log operation. Current history supplies only the current
+forward wraps for existing non-deleted pages, including read-only archived pages, inside the same authenticated device
+transaction, without a new log operation. A wrap for another verified device of the same owner
+enrolls no sharing recipient and grants no write access to an archived page. Current history supplies only the current
 key; shared history supplies at most 64 retained epochs. Registration creates at
 most 512 missing wraps per transaction and rejects capacity atomically. Exact
 registration retries reuse existing device/epoch wraps without growth or fresh

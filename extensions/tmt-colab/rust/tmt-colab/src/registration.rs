@@ -2398,7 +2398,7 @@ fn forward_owner_wraps(
     let mut added = 0;
     for page in pages {
         let policy = tx.page_policy_at(&page, head.revision)?;
-        if !policy.writable() {
+        if policy.deleted {
             continue;
         }
         let epochs = tx.recent_secrets(&page, policy.epoch)?;

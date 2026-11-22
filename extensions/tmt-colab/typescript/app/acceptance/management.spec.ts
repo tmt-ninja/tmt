@@ -350,6 +350,41 @@ test('a lost management reply permits only an explicit byte-identical retry of t
   });
 });
 
+test('a newly paired owner opens an archived block page on its first visit', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    world.linkExtensions();
+    const cli = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const { pageId, path } = cli([
+      'page',
+      'create',
+      '--title',
+      'Archived release plan',
+      '--structured',
+      '--no-open',
+    ]);
+    cli(['block', 'insert', pageId, '--type', 'paragraph', '--text', 'Keep the release notes.']);
+    cli(['archive', pageId]);
+    const owner = await pairBrowser(world, 'archived-first');
+    const page = await owner.context.newPage();
+    await page.goto(new URL(path, door.address).href);
+    await expect(page.locator('.workspace h1')).toContainText('Archived release plan');
+    await expect(page.getByText('Keep the release notes.', { exact: true })).toBeVisible();
+    await expect(page.locator('.status')).toContainText('Archived · Read only');
+    await expect(page.getByRole('button', { name: 'Selection mode', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Restore page', exact: true }).click();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Restore page', exact: true })
+      .click();
+    await expect(page.getByRole('button', { name: 'Restore page', exact: true })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByText('Keep the release notes.', { exact: true })).toBeVisible();
+    await expect(page.locator('.status')).not.toContainText('Archived');
+  });
+});
+
 test('archive commit reopens paired tabs read-only while retaining unsent Chat drafts', async () => {
   const info = test.info();
   await withWorld(async (world) => {
