@@ -126,6 +126,12 @@ impl TalkWork {
         (self.toggle_hit, self.open_hit)
     }
 
+    fn select_target(&mut self, target: Option<(OpsTarget, String)>) {
+        self.target = target;
+        self.section = None;
+        self.clear_hits();
+    }
+
     fn selected_section(&self, item: &super::work::Item) -> Option<usize> {
         let id = self.section.as_deref()?;
         item.sections.iter().position(|section| section.id == id)
@@ -263,7 +269,7 @@ fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
     use unicode_width::UnicodeWidthStr;
 
     let Some((member, item, count)) = talk_work_item(app) else {
-        *app.talk_work.borrow_mut() = TalkWork::default();
+        app.talk_work.borrow_mut().select_target(None);
         return;
     };
     if *y >= area.bottom() {
@@ -271,10 +277,7 @@ fn paint_talk_work(frame: &mut Frame, app: &App, area: Rect, y: &mut u16) {
     }
     let mut work = app.talk_work.borrow_mut();
     if !work.matches(member, item) {
-        *work = TalkWork {
-            target: Some((member.clone(), item.key.clone())),
-            ..TalkWork::default()
-        };
+        work.select_target(Some((member.clone(), item.key.clone())));
     }
 
     let room = area.bottom() - *y;

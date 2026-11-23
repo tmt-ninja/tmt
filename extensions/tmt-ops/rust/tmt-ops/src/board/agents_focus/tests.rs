@@ -578,3 +578,83 @@ fn talk_work_expands_in_place_and_opens_only_the_fresh_bound_section() {
     assert_eq!(app.workspace.selected, recipient);
     assert_eq!(app.input_band.get(), Some(input));
 }
+
+#[test]
+fn talk_work_keeps_drawer_preference_and_resets_the_selected_section_on_member_switch() {
+    use crate::board::app::workspace::tests::CODEX_MEMBER;
+
+    let mut app = talk_with_work();
+    let first = app.workspace.selected.clone().unwrap();
+    let second = OpsTarget::Member {
+        room_id: Some(ROOM.into()),
+        identity_id: CODEX_MEMBER.into(),
+    };
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut member = snapshot.roster.members[MEMBER].clone();
+    member.id = CODEX_MEMBER.into();
+    member.name = "second".into();
+    snapshot.roster.members.insert(member.id.clone(), member);
+    snapshot.roster.squads[0].members.push(CODEX_MEMBER.into());
+    snapshot.rows.insert(
+        second.clone(),
+        json!({"id": CODEX_MEMBER, "name": "second"}),
+    );
+    let second_page = "88888888-8888-4888-8888-888888888888";
+    let second_work = super::super::work::List::decode(&json!({
+        "spaceId": "private-fixture",
+        "pages": [{
+            "pageId": second_page,
+            "title": "Second item",
+            "workNumber": "WEB-32",
+            "link": "https://example.test/colab",
+            "summary": {
+                "status": "needs-you",
+                "fields": {"owner": {"id": CODEX_MEMBER, "name": "second"}},
+                "sections": [
+                    {"id": "decision", "title": "Second decision", "level": 2,
+                        "done": 0, "total": 1, "state": "needs-you"},
+                    {"id": "navigation", "title": "Second navigation", "level": 2,
+                        "done": 0, "total": 1, "state": "unchecked"}
+                ]
+            }
+        }]
+    }))
+    .unwrap();
+    app.work
+        .list
+        .as_mut()
+        .unwrap()
+        .items
+        .extend(second_work.items);
+
+    let press = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    draw(&mut app, 160, 42);
+    assert_eq!(app.key(press(KeyCode::Char('d'))), Effect::None);
+    draw(&mut app, 160, 42);
+    assert_eq!(app.key(press(KeyCode::End)), Effect::None);
+
+    app.workspace.selected = Some(second);
+    app.workspace_reconcile();
+    let expanded = screen(&draw(&mut app, 160, 42));
+    assert!(expanded.contains("d Collapse"), "{expanded}");
+    assert!(expanded.contains("Second decision"), "{expanded}");
+    assert_eq!(
+        app.key(press(KeyCode::Enter)),
+        Effect::OpenWorkPage(crate::board::work::OpenTarget {
+            page: second_page.into(),
+            block: Some("decision".into()),
+        })
+    );
+
+    assert_eq!(app.key(press(KeyCode::Char('d'))), Effect::None);
+    app.workspace.selected = Some(first);
+    app.workspace_reconcile();
+    let collapsed = screen(&draw(&mut app, 160, 42));
+    assert!(collapsed.contains("d Expand"), "{collapsed}");
+    assert!(!collapsed.contains("WORK DETAILS"), "{collapsed}");
+    assert!(matches!(
+        app.key(press(KeyCode::Char('w'))),
+        Effect::Recovery(_)
+    ));
+    assert!(app.recovery_shown());
+}
