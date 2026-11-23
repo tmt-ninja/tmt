@@ -122,7 +122,7 @@ function RecoveryNotice({
 }: {
   draft: RecoveryDraft;
   missing: boolean;
-  props: Pick<StructuredPageProps, 'onRestore' | 'onForget'>;
+  props: Pick<StructuredPageProps, 'onRestore' | 'onForget' | 'recoveryHeld'>;
 }) {
   return (
     <div className="deleted-draft-notice">
@@ -140,6 +140,7 @@ function RecoveryNotice({
               variant="primary"
               presentation="compact"
               label={missing ? strings.blockDelete.keep : strings.blockEdit.keepRestored}
+              disabled={props.recoveryHeld}
               onActivate={() => props.onRestore?.(draft)}
             />
             <BrowserAction
@@ -147,6 +148,7 @@ function RecoveryNotice({
               variant="text"
               presentation="compact"
               label={strings.blockDelete.discard}
+              disabled={props.recoveryHeld}
               onActivate={() => props.onForget?.(draft)}
             />
           </>
@@ -160,6 +162,9 @@ export interface StructuredPageProps {
   onRestore?(draft: RecoveryDraft): void;
   onForget?(draft: RecoveryDraft): void;
   recoveryError?: string;
+  recoveryHeld?: boolean;
+  recoveryProblems?: readonly (keyof typeof strings.blockDraftRecoveryProblems)[];
+  onDismissRecoveryProblems?(): void;
   tree: BlockTree;
   drafts?: ReadonlyMap<string, { editing: NonNullable<StructuredPageProps['editing']> }>;
   onDraftChange?(id: string, text: string, caret: number): void;
@@ -393,6 +398,29 @@ export function StructuredPage(props: StructuredPageProps) {
   const narrow = useNarrow();
   return (
     <>
+      {!!props.recoveryProblems?.length && (
+        <aside className="deleted-draft-notice">
+          <BrowserNotice
+            tone="waiting"
+            variant="tinted"
+            announcement="status"
+            mark={<TriangleAlert size="1em" />}
+            stateLabel={strings.blockDraftsRecoveryUnavailable}
+            body={props.recoveryProblems.map((reason) => (
+              <p key={reason}>{strings.blockDraftRecoveryProblems[reason]}</p>
+            ))}
+            actions={
+              <BrowserAction
+                type="button"
+                variant="text"
+                presentation="compact"
+                label={strings.dismissDraftRecoveryNotice}
+                onActivate={() => props.onDismissRecoveryProblems?.()}
+              />
+            }
+          />
+        </aside>
+      )}
       <BlockDocument
         ref={root}
         // The page takes the gutter away at phone width: the design system then draws the handle

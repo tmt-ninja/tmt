@@ -140,6 +140,37 @@ test('a replacement owner pairing offers the old device’s kept typing without 
     ).toHaveCount(0);
     await reader.close();
     await expect(notice).toHaveCount(1);
+    const mutations = await notice.evaluateHandle((shown) => {
+      const evidence = { withdrawn: false, offers: 1 };
+      new MutationObserver((records) => {
+        for (const record of records)
+          for (const removed of record.removedNodes)
+            if (removed === shown || removed.contains(shown)) evidence.withdrawn = true;
+      }).observe(document.body, { childList: true, subtree: true });
+      window.addEventListener('colab:block-drafts-offered', (event) => {
+        if ((event as CustomEvent<{ count: number }>).detail.count > 0) evidence.offers++;
+      });
+      return evidence;
+    });
+    const keep = notice.getByRole('button', { name: text.blockEdit.keepRestored });
+    const discard = notice.getByRole('button', { name: text.blockDelete.discard });
+    for (let reconnect = 0; reconnect < 2; reconnect++) {
+      await restartColab(world, door, async () => {
+        await expect(
+          reopened.locator('.page-attention[data-attention="reconnecting"]'),
+        ).toBeVisible({ timeout: 30_000 });
+        await expect(notice).toBeVisible();
+        await expect(keep).toBeDisabled();
+        await expect(discard).toBeDisabled();
+      });
+      await expect(reopened.locator('.page-connection .status-label')).toHaveText('Live', {
+        timeout: 30_000,
+      });
+      await expect(keep).toBeEnabled();
+      await expect(discard).toBeEnabled();
+    }
+    expect(await mutations.jsonValue()).toEqual({ withdrawn: false, offers: 1 });
+    await mutations.dispose();
     await notice.getByRole('button', { name: 'Keep and continue' }).click();
     await expect.poll(savedText, { timeout: 30_000 }).toBe('Before kept through pairing');
     await reopened.reload();

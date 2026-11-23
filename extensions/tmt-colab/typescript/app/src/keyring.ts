@@ -81,12 +81,14 @@ export const titleKey = (deviceId: string) => localKey('title', deviceId);
 export const draftKey = (deviceId: string) => localKey('draft', deviceId);
 
 /** Recovery reads use the existing key. A missing key cannot open a kept draft. */
-export async function readDraftKey(deviceId: string, check?: () => void): Promise<CryptoKey> {
-  const name = `draft-key:${deviceId}`;
-  return checkedLocalKey(
-    check ? await readAdmittedRecord<CryptoKey>(name, check) : await record<CryptoKey>(name),
-    'draft',
-  );
+export async function readDraftKey(deviceId: string): Promise<CryptoKey> {
+  return checkedLocalKey(await record<CryptoKey>(`draft-key:${deviceId}`), 'draft');
+}
+
+export async function legacyBlockDraftKey(device: string, check: () => void) {
+  const key = await readAdmittedRecord<CryptoKey>(`draft-key:${device}`, check);
+  check();
+  return key === undefined ? undefined : checkedLocalKey(key, 'draft');
 }
 
 /** Resolve the local block-draft key only for the current verified owner. */

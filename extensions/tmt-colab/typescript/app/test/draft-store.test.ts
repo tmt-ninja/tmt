@@ -125,11 +125,14 @@ it('resumes a bounded migration across later page opens and preserves records wi
   const lost = stored.get('block-drafts:space:lost:page');
   const admitted = { root: 'root', session: {} };
   const recovery = ownerBlockDraftStore('space', 'new', () => admitted);
-  expect(await recovery.recover!('page')).toEqual({
+  const initial = await recovery.recover!('page');
+  expect(initial).toEqual({
     drafts: drafts.slice(0, 7),
-    unavailable: true,
+    issues: [{ id: expect.any(String), reason: 'key' }],
   });
-  expect(await recovery.recover!('page')).toEqual({ drafts, unavailable: false });
+  await recovery.markRecoveryIssuesSeen!('page', initial.issues);
+  expect(await recovery.recover!('page')).toEqual({ drafts, issues: [] });
+  expect(await recovery.recover!('page')).toEqual({ drafts, issues: [] });
   expect(stored.get('block-drafts:space:lost:page')).toEqual(lost);
   expect(stored.has('block-drafts:space:old:another-page')).toBe(true);
 });
@@ -140,12 +143,15 @@ it('closes owner recovery on lost admission and keeps other spaces and owners se
   const recovery = ownerBlockDraftStore('space', 'device', () => session);
   expect(await recovery.save('page', block())).toBe(true);
   expect(await recovery.load('page')).toEqual([block()]);
+  expect(recovery.recoveryOwner?.()).toBe(admitted.root);
   const sealedBytes = () => Buffer.from(JSON.stringify(stored.get(ownerRecord)), 'utf8');
   const before = sealedBytes();
   const keyRecord = stored.get(ownerKey);
   const beforeDenied = storageAccesses.length;
   session = undefined;
-  expect(await recovery.recover!('page')).toEqual({ drafts: [], unavailable: false });
+  expect(recovery.recoveryOwner?.()).toBe(admitted.root);
+  expect(recovery.canOpenOwnerDrafts?.()).toBe(false);
+  expect(await recovery.recover!('page')).toEqual({ drafts: [], issues: [] });
   expect(await recovery.clear('page', block())).toBe(true);
   expect(storageAccesses.slice(beforeDenied)).toEqual([
     'block-drafts:space:device:page',
@@ -160,6 +166,31 @@ it('closes owner recovery on lost admission and keeps other spaces and owners se
   expect(sealedBytes()).toEqual(before);
   session = { root: 'root', session: {} };
   expect(await recovery.load('page')).toEqual([block()]);
+});
+
+it.each([
+  { reason: 'count', count: 32, body: 'typing' },
+  { reason: 'bytes', count: 24, body: 'x'.repeat(65_000) },
+])('reports the $reason limit and retains the legacy record', async ({ reason, count, body }) => {
+  const legacy = blockDraftStore('space', 'old');
+  const prior = block('Older text');
+  expect(await legacy.save('page', { ...prior, base: body, value: body })).toBe(true);
+  const kept = structuredClone(stored.get(legacyRecord));
+  const owner = { root: 'root', session: {} };
+  const store = ownerBlockDraftStore('space', 'new', () => owner);
+  const drafts = Array.from({ length: count }, (_, i) => ({
+    ...block(body, `owner-${i}`),
+    base: body,
+  }));
+  for (const draft of drafts) expect(await store.save('page', draft)).toBe(true);
+  expect(await store.recover!('page')).toEqual({
+    drafts,
+    issues: [{ id: expect.any(String), reason }],
+  });
+  expect(stored.get(legacyRecord)).toEqual(kept);
+  expect(await store.clear('page', drafts[0]!)).toBe(true);
+  expect((await store.recover!('page')).drafts).toHaveLength(count);
+  expect(stored.has(legacyRecord)).toBe(false);
 });
 
 it('admits a newer device draft after reconnect without reoffering the earlier owner draft', async () => {

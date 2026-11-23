@@ -3,7 +3,7 @@ import { tableColumns } from './block-model.js';
 import { blockTree } from './block-projection.js';
 import { BLOCK_TEXT_BYTES, type BlockEntry } from './blocks.js';
 import type { TableCell } from './block-text-sync.js';
-import { draftKey, ownerBlockDraftKey, readDraftKey } from './keyring.js';
+import { draftKey, legacyBlockDraftKey, ownerBlockDraftKey, readDraftKey } from './keyring.js';
 import { open, seal, type Sealed } from './local-seal.js';
 import { readAdmittedRecord, record, recordKeys, writeAdmittedRecord } from './storage.js';
 
@@ -137,9 +137,19 @@ export function blockDraftStore(space: string, device: string) {
   return { load, ...draftOperations(change) };
 }
 export type BlockDraftStore = ReturnType<typeof blockDraftStore> & {
-  recover?(page: string): Promise<{ drafts: BlockDraft[]; unavailable: boolean }>;
-  recoverySession?(): object | undefined;
+  recover?(page: string): Promise<{ drafts: BlockDraft[]; issues: DraftRecoveryIssue[] }>;
+  markRecoveryIssuesSeen?(page: string, issues: readonly DraftRecoveryIssue[]): Promise<void>;
+  /** The page binding's last verified owner, for an offer already drawn during a reconnect. */
+  recoveryOwner?(): string | undefined;
+  canOpenOwnerDrafts?(): boolean;
+  /** The last admitted observation in this page binding. This never reads storage. */
+  knownOwnerDrafts?(page: string): boolean;
 };
+
+export interface DraftRecoveryIssue {
+  id: string;
+  reason: 'key' | 'unreadable' | 'count' | 'bytes';
+}
 
 export interface BlockDraftAdmission {
   root: string;
@@ -148,6 +158,7 @@ export interface BlockDraftAdmission {
 
 const MIGRATION_BATCH = 8;
 const MIGRATION_SCAN = 256;
+const MAX_SEEN_ISSUES = 128;
 
 /** A Live binding supplies current owner admission at each use. Typing during a disconnect
  * still uses the device store, and those drafts join the owner record upon readmission. */
@@ -157,9 +168,14 @@ export function ownerBlockDraftStore(
   admission: () => BlockDraftAdmission | undefined,
 ): BlockDraftStore {
   const local = blockDraftStore(space, device);
+  let presentationOwner: string | undefined;
+  const observed = new Map<string, { root: string; kept: boolean }>();
 
   function access(owner: BlockDraftAdmission) {
     const { root, session } = owner;
+    presentationOwner = root;
+    const remember = (page: string, drafts: readonly BlockDraft[]) =>
+      observed.set(page, { root, kept: restorable(page, drafts).length > 0 });
     const check = () => {
       const current = admission();
       if (current?.root !== root || current.session !== session)
@@ -171,56 +187,99 @@ export function ownerBlockDraftStore(
     const unlock = async (page: string) => {
       const existingKey = await key(false);
       const retained = await readAdmittedRecord<Sealed>(name(page), check);
-      if (retained === undefined) return { drafts: [], existingKey };
+      if (retained === undefined) {
+        check();
+        remember(page, []);
+        return { drafts: [], existingKey };
+      }
       if (!existingKey) throw new Error('Owner block draft key unavailable');
       const drafts = await readDrafts(existingKey, scope(page), retained, true);
       check();
+      remember(page, drafts);
       return { drafts, existingKey };
     };
     const change = (page: string, from: string, edit?: DraftEdit) =>
       navigator.locks.request(name(page), () =>
-        navigator.locks.request(legacyName(space, from, page), async () => {
-          const own = await unlock(page);
-          const oldName = legacyName(space, from, page);
-          const old = await readAdmittedRecord<Sealed>(oldName, check);
-          let legacy: BlockDraft[] = [];
-          if (old !== undefined) {
-            try {
-              const oldKey = await readDraftKey(from, check);
-              check();
-              legacy = await readDrafts(oldKey, legacyScope(space, from, page), old, true);
-              check();
-            } catch {
-              check();
-              if (!edit) return false;
+        navigator.locks.request(
+          legacyName(space, from, page),
+          async (): Promise<boolean | DraftRecoveryIssue> => {
+            const own = await unlock(page);
+            const oldName = legacyName(space, from, page);
+            const old = await readAdmittedRecord<Sealed>(oldName, check);
+            const issue = (reason: DraftRecoveryIssue['reason']): DraftRecoveryIssue => ({
+              id: JSON.stringify([
+                from,
+                typeof old?.nonce === 'string' ? old.nonce.slice(0, 24) : '',
+                reason,
+              ]),
+              reason,
+            });
+            let legacy: BlockDraft[] = [];
+            if (old !== undefined) {
+              try {
+                const oldKey = await legacyBlockDraftKey(from, check);
+                if (oldKey)
+                  legacy = await readDrafts(oldKey, legacyScope(space, from, page), old, true);
+                else if (!edit) return issue('key');
+                check();
+              } catch {
+                check();
+                if (!edit) return issue('unreadable');
+              }
             }
-          }
-          const targets = new Set(legacy.map((draft) => draft.target));
-          const combined = [...own.drafts.filter((draft) => !targets.has(draft.target)), ...legacy];
-          const next = edit?.(combined);
-          if (next === false) return false;
-          if (next === undefined && !legacy.length) return true;
-          const bytes = draftBytes(next ?? combined);
-          if (!bytes) return false;
-          const writeKey = own.existingKey ?? (await key(true));
-          if (!writeKey) return false;
-          const sealed = await seal(writeKey, scope(page), bytes);
-          await writeAdmittedRecord(name(page), sealed, check, legacy.length ? oldName : undefined);
-          return true;
-        }),
+            const targets = new Set(legacy.map((draft) => draft.target));
+            const combined = [
+              ...own.drafts.filter((draft) => !targets.has(draft.target)),
+              ...legacy,
+            ];
+            const next = edit?.(combined);
+            if (next === false) return false;
+            if (next === undefined && !legacy.length) return true;
+            const updated = next ?? combined;
+            if (updated.length > MAX_DRAFTS) return edit ? false : issue('count');
+            const bytes = draftBytes(updated);
+            if (!bytes) return edit ? false : issue('bytes');
+            const writeKey = own.existingKey ?? (await key(true));
+            if (!writeKey) return false;
+            const sealed = await seal(writeKey, scope(page), bytes);
+            await writeAdmittedRecord(
+              name(page),
+              sealed,
+              check,
+              legacy.length ? oldName : undefined,
+            );
+            remember(page, updated);
+            return true;
+          },
+        ),
       );
     return { check, unlock, change };
   }
 
+  const seenName = (owner: BlockDraftAdmission, page: string) =>
+    `owner-block-draft-seen:${space}:${owner.root}:${page}`;
+  const seenIssues = async (name: string, check: () => void) => {
+    const value = await readAdmittedRecord<unknown>(name, check);
+    if (!Array.isArray(value)) return [];
+    return value
+      .slice(-MAX_SEEN_ISSUES)
+      .filter((entry): entry is string => typeof entry === 'string');
+  };
+
   const recover = async (page: string) => {
     const owner = admission();
-    if (!owner) return { drafts: await local.load(page), unavailable: false };
+    if (!owner) return { drafts: await local.load(page), issues: [] };
     const { check, unlock, change } = access(owner);
     const cursor = `owner-block-draft-migration:${space}:${owner.root}:${page}`;
     const prefix = legacyPrefix(space);
-    const unavailable = await navigator.locks.request(cursor, async () => {
+    const issues = await navigator.locks.request(cursor, async () => {
+      const found: DraftRecoveryIssue[] = [];
+      const migrate = async (from: string) => {
+        const result = await change(page, from);
+        if (typeof result === 'object') found.push(result);
+      };
       // This also checks the owner key before looking for any legacy records.
-      let missing = !(await change(page, device));
+      await migrate(device);
       const saved = await readAdmittedRecord<string>(cursor, check);
       const after = typeof saved === 'string' && saved.startsWith(prefix) ? saved : undefined;
       const names = await recordKeys(prefix, after, MIGRATION_SCAN, check);
@@ -231,30 +290,55 @@ export function ownerBlockDraftStore(
         if (typeof name !== 'string') continue;
         const [from, otherPage, extra] = name.slice(prefix.length).split(':');
         if (!from || from === device || otherPage !== page || extra !== undefined) continue;
-        if (!(await change(page, from))) missing = true;
+        await migrate(from);
         if (++migrated === MIGRATION_BATCH) {
           next = name;
           break;
         }
       }
       if (next !== (saved ?? null)) await writeAdmittedRecord(cursor, next, check);
-      return missing;
+      const seen = new Set(await seenIssues(seenName(owner, page), check));
+      return found.filter(({ id }) => !seen.has(id));
     });
-    return { drafts: (await unlock(page)).drafts, unavailable };
+    return { drafts: (await unlock(page)).drafts, issues };
   };
 
   const ops = draftOperations(async (page, edit) => {
     const owner = admission();
     if (!owner) return false;
     try {
-      return await access(owner).change(page, device, edit);
+      return (await access(owner).change(page, device, edit)) === true;
     } catch {
       return false;
     }
   });
   return {
     recover,
-    recoverySession: () => admission()?.session,
+    async markRecoveryIssuesSeen(page, issues) {
+      const owner = admission();
+      if (!owner || !issues.length) return;
+      const { check } = access(owner);
+      const name = seenName(owner, page);
+      await navigator.locks.request(name, async () => {
+        await ownerBlockDraftKey(space, owner.root, check, false);
+        const ids = new Set(await seenIssues(name, check));
+        for (const issue of issues) {
+          ids.delete(issue.id);
+          ids.add(issue.id);
+        }
+        await writeAdmittedRecord(name, [...ids].slice(-MAX_SEEN_ISSUES), check);
+      });
+    },
+    recoveryOwner: () => {
+      const owner = admission();
+      if (owner) presentationOwner = owner.root;
+      return presentationOwner;
+    },
+    canOpenOwnerDrafts: () => admission() !== undefined,
+    knownOwnerDrafts: (page) => {
+      const known = observed.get(page);
+      return !!known?.kept && known.root === presentationOwner;
+    },
     load: async (page) => (await recover(page)).drafts,
     save: (page, draft) => (admission() ? ops.save(page, draft) : local.save(page, draft)),
     clear: (page, draft) => (admission() ? ops.clear(page, draft) : local.clear(page, draft)),

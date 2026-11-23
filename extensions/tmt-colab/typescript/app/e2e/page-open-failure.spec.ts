@@ -20,7 +20,9 @@ async function mount(page: Page) {
 const draftValue = 'Retry this draft exactly.\n\nTrailing space: ';
 const copyLabel = 'Copy draft text';
 const pairingDisclosure =
-  'Colab can recover your drafts after you pair again as this space’s owner.';
+  'Pairing this browser again will not bring back what you typed on this page.';
+const ownerDraftKept =
+  'What you typed here is kept for this owner in this browser and comes back when you pair it again.';
 const draftKept =
   'What you typed on this page is kept on this device and offered when the page opens again.';
 
@@ -56,6 +58,7 @@ test('a pairing end offers the kept block text on Copy only', async ({ page, con
   await endDraftPage(page, 'readable');
   const card = endedCard(page);
   await expect(card.getByText(pairingDisclosure, { exact: false })).toBeVisible();
+  await expect(card.getByText(ownerDraftKept, { exact: true })).toHaveCount(0);
   await expect(app(page)).not.toContainText(draftValue.trim());
   await expect(app(page)).not.toContainText(draftKept);
   const sealed = await page.evaluate(() => window.fixtureSealedDraft?.());
@@ -84,6 +87,40 @@ test('an ended page that can reopen keeps its existing draft sentence', async ({
   await expect(app(page).getByRole('button', { name: copyLabel })).toHaveCount(0);
 });
 
+for (const deviceDraft of [false, true])
+  test(`an ended owner page keeps its owner draft${deviceDraft ? ' and copies only device text' : ''}`, async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const ownerText = 'Owner typing stays in this browser.';
+    await page.goto('/');
+    await page.evaluate(async (value) => {
+      const path = '/test/page-reentry-browser.tsx';
+      await (await import(/* @vite-ignore */ path)).mount({ mode: 'owner-ended', value });
+    }, ownerText);
+    await app(page).getByRole('link', { name: 'Alpha plan' }).click();
+    await expect(app(page).getByText(ownerText, { exact: true })).toBeVisible();
+    if (deviceDraft)
+      expect(
+        await page.evaluate((value) => window.fixtureSaveDeviceDraft?.(value), draftValue),
+      ).toBe(true);
+    await page.evaluate(() => window.endDraftPage?.('REMOTE_DEVICE_REVOKED'));
+    const card = endedCard(page);
+    await expect(card.getByText(ownerDraftKept, { exact: true })).toBeVisible();
+    await expect(card.getByText(pairingDisclosure, { exact: false })).toHaveCount(0);
+    await expect(card.getByRole('button', { name: copyLabel, exact: true })).toHaveCount(0);
+    await expect(app(page).getByText(ownerText, { exact: true })).toHaveCount(0);
+    const copyDevice = card.getByRole('button', { name: 'Copy device draft text', exact: true });
+    if (!deviceDraft) {
+      await expect(copyDevice).toHaveCount(0);
+      return;
+    }
+    await copyDevice.click();
+    await expect(card.getByText('Draft text copied.', { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(draftValue);
+  });
+
 test('a missing old draft key shows the recovery notice and preserves the sealed draft', async ({
   page,
 }) => {
@@ -95,10 +132,17 @@ test('a missing old draft key shows the recovery notice and preserves the sealed
   const sealed = await page.evaluate(() => window.fixtureSealedDraft?.());
   expect(sealed?.ciphertext).toBeTruthy();
   await app(page).getByRole('link', { name: 'Alpha plan' }).click();
-  const notice = app(page)
-    .getByRole('status')
-    .getByText('Some draft text from an earlier pairing could not be recovered.', { exact: true });
+  const notice = app(page).locator('aside.deleted-draft-notice').getByRole('status');
   await expect(notice).toBeVisible();
+  await expect(notice).toContainText('Some draft text could not be recovered.');
+  await expect(notice).toContainText(
+    'The key for some saved draft text is missing. This browser cannot open that text.',
+  );
+  await expect(
+    app(page)
+      .locator('[data-slot="block-doc"]')
+      .getByText('Some draft text could not be recovered.'),
+  ).toHaveCount(0);
   await expect(app(page).getByText('Text already on the page.', { exact: true })).toBeVisible();
   await expect(app(page)).not.toContainText('Retry this draft exactly.');
   await expect(app(page).getByRole('button', { name: 'Keep and continue' })).toHaveCount(0);
@@ -115,6 +159,23 @@ test('a missing old draft key shows the recovery notice and preserves the sealed
           animations: 'disabled',
         });
       }
+  await expect.poll(() => page.evaluate(() => window.fixtureRecoveryIssueSeen?.())).toBe(true);
+  await notice.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(notice).toHaveCount(0);
+  await page.evaluate(() => {
+    window.addEventListener(
+      'colab:block-drafts-offered',
+      () => {
+        document.documentElement.dataset.fixtureRecheckedDrafts = 'true';
+      },
+      { once: true },
+    );
+    location.hash = '/';
+  });
+  await app(page).getByRole('link', { name: 'Alpha plan' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-fixture-rechecked-drafts', 'true');
+  await expect(notice).toHaveCount(0);
+  expect(await page.evaluate(() => window.fixtureSealedDraft?.())).toEqual(sealed);
 });
 
 for (const theme of ['light', 'dark'] as const)

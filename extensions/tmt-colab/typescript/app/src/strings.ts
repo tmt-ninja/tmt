@@ -620,9 +620,21 @@ export const text = {
   blockDraftsKept:
     'What you typed on this page is kept on this device and offered when the page opens again.',
   blockDraftsBeforePairing:
-    'Colab can recover your drafts after you pair again as this space’s owner. You can copy this draft text now to keep a separate copy.',
-  blockDraftsRecoveryUnavailable: 'Some draft text from an earlier pairing could not be recovered.',
+    'Pairing this browser again will not bring back what you typed on this page. Copy your draft text before pairing again.',
+  blockDraftsKeptForOwner:
+    'What you typed here is kept for this owner in this browser and comes back when you pair it again.',
+  blockDraftsRecoveryUnavailable: 'Some draft text could not be recovered.',
+  blockDraftRecoveryProblems: {
+    key: 'The key for some saved draft text is missing. This browser cannot open that text.',
+    unreadable: 'Some saved draft data is unreadable. This browser cannot open that text.',
+    count:
+      'These drafts would exceed this page’s 32-draft limit. Keep or discard a draft, then reopen the page to recover more.',
+    bytes:
+      'This page has reached its draft storage size limit. Keep or discard some draft text, then reopen the page to recover more.',
+  },
+  dismissDraftRecoveryNotice: 'Dismiss',
   copyBlockDrafts: 'Copy draft text',
+  copyDeviceBlockDrafts: 'Copy device draft text',
   blockDraftsCopied: 'Draft text copied.',
   blockDraftsCopyFailed: 'Could not copy the draft text.',
   notConnected: 'not connected',
