@@ -793,7 +793,8 @@ export const componentDocs: ComponentDoc[] = [
     {
       part: 'pane-border',
       name: 'Outline',
-      description: 'The border identifies a pane; multi-pane splitting is a layout pattern.',
+      description:
+        'Rounded (unfocused) or thick (focused) box borders with optional right-aligned notes identify a pane; multi-pane splitting is a layout pattern.',
     },
   ]),
   modulePage('text-field', 'Text field', widget('editor'), [
