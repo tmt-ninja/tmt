@@ -1,0 +1,11 @@
+{
+  "decision": "approved",
+  "method": "owner-instruction",
+  "approvedBy": "Ben Hsieh",
+  "instruction": "Ben on Colab page 15dce6c0, 2026-11-23: please publish the content.",
+  "pageId": "15dce6c0-9716-407e-98e7-39fc9257781d",
+  "pageRevision": "v1:113b43d03c96815d1432811ea9cec053b7d5f93cb2289a9f44d7a67abb96601e",
+  "sourceSha256": "d690aa1a07f9b935ac49eda1ee834fd04e611f0902dfea3ab9cd508c37842938",
+  "approvedAt": "2026-11-23T02:29:16.683Z",
+  "artifactSha256": "c45ef6c553924ba70eed3dc9ecd5a9152d78f9f3cda30d3a3d4b5adcc3d9fc20"
+}

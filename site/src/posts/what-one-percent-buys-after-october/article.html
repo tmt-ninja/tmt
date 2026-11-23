@@ -1,0 +1,267 @@
+<article id="blog-article">
+<style>
+#blog-article > .usage-chart, #blog-article > .usage-table, #blog-article > .usage-legend, #blog-article > .usage-key { max-width: 760px; margin: 36px auto; }
+#blog-article .usage-chart svg { display: block; max-width: 100%; height: auto; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+#blog-article .usage-chart .g { stroke: #2b2b2b; }
+#blog-article .usage-chart text { fill: #c9c5bd; text-anchor: middle; }
+#blog-article .usage-chart .ax { text-anchor: end; fill: #8a857c; }
+#blog-article .usage-chart .pl { fill: #8a857c; font-size: 10px; }
+#blog-article .usage-chart .ut { fill: #f1ede4; font-size: 11px; }
+#blog-article .usage-chart .sw { stroke: #e2452c; stroke-dasharray: 4 3; }
+#blog-article .usage-chart .ln-ultra { fill: none; stroke: #f1ede4; stroke-width: 2; }
+#blog-article .usage-chart .ln-p200 { fill: none; stroke: #e2452c; stroke-width: 2; }
+#blog-article .usage-chart .ln-p100 { fill: none; stroke: #f0a08f; stroke-width: 2; }
+#blog-article .usage-chart rect:hover, #blog-article .usage-chart circle:hover { opacity: .82; }
+#blog-article .usage-legend { margin-top: -24px; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: #8a857c; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+#blog-article .usage-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; border: 1px solid #2b2b2b; }
+#blog-article .usage-key { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: #2b2b2b; border: 1px solid #2b2b2b; }
+#blog-article .usage-key div { background: #0a0a0a; padding: 18px; }
+#blog-article .usage-key b { display: block; font-size: 28px; line-height: 1.1; font-weight: 700; color: #f1ede4; }
+#blog-article .usage-key span { display: block; margin-top: 8px; font-size: 13px; line-height: 1.5; color: #8a857c; }
+#blog-article .usage-key .hot b { color: #e2452c; }
+#blog-article .usage-table { overflow-x: auto; }
+#blog-article details.usage-table summary { cursor: pointer; color: #c9c5bd; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px 0; }
+#blog-article details.usage-table[open] summary { margin-bottom: 8px; }
+#blog-article .usage-table table { border-collapse: collapse; width: 100%; font-size: 13px; }
+#blog-article .usage-table caption { text-align: left; color: #8a857c; font-size: 12px; padding-bottom: 8px; }
+#blog-article .usage-table th, #blog-article .usage-table td { border-bottom: 1px solid #2b2b2b; padding: 6px 8px; text-align: right; white-space: nowrap; }
+#blog-article .usage-table th:first-child, #blog-article .usage-table td:first-child { text-align: left; }
+#blog-article strong.hl { color: #f1ede4; background: linear-gradient(transparent 62%, rgba(226,69,44,.45) 62%); }
+#blog-article .callout { max-width: 760px; margin: 36px auto; padding: 18px 22px; border: 1px solid #2b2b2b; border-left: 3px solid #e2452c; background: #121212; }
+#blog-article .callout p { margin: 0; }
+#blog-article .callout .k { display: block; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .1em; color: #e2452c; margin-bottom: 6px; }
+#blog-article ul.caveats { max-width: 760px; margin: 20px auto; padding: 0; list-style: none; }
+#blog-article ul.caveats li { padding: 10px 0; border-bottom: 1px solid #1f1f1f; }
+#blog-article ul.caveats b { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; color: #e2452c; margin-right: 10px; }
+</style>
+
+<p>Our <a href="https://tmt.ninja/blog/posts/what-one-percent-buys/">October post</a> stopped on 30 October, right after OpenAI doubled Codex Pro limits and Anthropic renamed Max 20x to Ultra. Here are the four weeks since—including our live switch from ChatGPT Pro 200 (20x) to Pro Lite (10x) and a first measurement of Google AI Pro.</p>
+
+<div class="usage-key">
+<div><b>$32 → $21</b><span>per 1% on <strong>Claude Ultra</strong> as Fable 5.2 entered the mix</span></div>
+<div class="hot"><b>$7.4–9.1</b><span>per 1% on <strong>Codex Pro 200</strong> in November (~$740–908 full week)</span></div>
+<div><b>$6.6</b><span>per 1% on <strong>Codex Pro Lite 10x</strong> (~$656 full week; 55% Astra 6.2)</span></div>
+<div><b>$1.4–2.6</b><span>per 1% on <strong>Google AI Pro</strong> (~$140–257 full week, 1 seat)</span></div>
+</div>
+
+<h2>Weekly tracker: API value per 100% window</h2>
+<p>This is our running series chart: each point scales that week's measured API-equivalent tokens to a full 100% window (<code>API $ ÷ % used × 100</code>). Weeks where we did not run or measure a plan are left blank.</p>
+
+<figure class="usage-chart">
+<svg viewBox="0 0 640 276" width="100%" role="img" aria-label="Weekly tracker of API-equivalent dollars per 100% window across 9 weeks from 09/27 to 11/18. Claude Max 5x: 1,700 in week 09/27. Claude Ultra: 3,030 (10/02), 2,610 (10/07), 2,750 (10/14), 2,890 (10/21), at most 3,720 (10/28), 3,230 (11/04), 2,400 (11/11), 2,050 (11/18). ChatGPT Pro 200: 970 (10/14), 990 (10/21), at most 1,065 (10/28), 740 (11/04), 908 (11/11). ChatGPT Pro 100 / Pro Lite: 950 (10/07), 656 (11/18). Google AI Pro: 140 to 257 (11/11).">
+<line class="g" x1="56" x2="628" y1="224" y2="224"></line><text class="ax" x="50" y="228">$0</text>
+<line class="g" x1="56" x2="628" y1="174" y2="174"></line><text class="ax" x="50" y="178">$1,000</text>
+<line class="g" x1="56" x2="628" y1="124" y2="124"></line><text class="ax" x="50" y="128">$2,000</text>
+<line class="g" x1="56" x2="628" y1="74" y2="74"></line><text class="ax" x="50" y="78">$3,000</text>
+<line class="g" x1="56" x2="628" y1="24" y2="24"></line><text class="ax" x="50" y="28">$4,000</text>
+
+<line class="sw" x1="376" x2="376" y1="18" y2="224"></line>
+<text class="pl" x="380" y="22" style="text-anchor:start;fill:#e2452c">10/29–30 plan changes</text>
+<line class="sw" x1="568" x2="568" y1="18" y2="224"></line>
+<text class="pl" x="564" y="34" style="text-anchor:end;fill:#e2452c">11/18 10x + 6.2</text>
+
+<polyline class="ln-ultra" points="148,72.5 212,93.5 276,86.5 340,79.5 404,38 468,62.5 532,104 596,121.5"></polyline>
+<polyline class="ln-p200" points="276,175.5 340,174.5 404,170.75 468,187 532,178.6"></polyline>
+
+<circle cx="84" cy="139" r="4.5" fill="#8a857c"><title>09/27 · Claude Max 5x: ~$1,700/wk (A $1,760, B $1,630)</title></circle>
+<text class="pl" x="84" y="129">$1.7k</text>
+
+<circle cx="148" cy="72.5" r="4.5" fill="#f1ede4"><title>10/02 · Claude Ultra (C, 97%): $3,030/wk</title></circle>
+<circle cx="212" cy="93.5" r="4.5" fill="#f1ede4"><title>10/07 · Claude Ultra (D, 95%): $2,610/wk</title></circle>
+<circle cx="276" cy="86.5" r="4.5" fill="#f1ede4"><title>10/14 · Claude Ultra (E, 93%): $2,750/wk</title></circle>
+<circle cx="340" cy="79.5" r="4.5" fill="#f1ede4"><title>10/21 · Claude Ultra (G, 96%): $2,890/wk</title></circle>
+<circle cx="404" cy="38" r="4.5" fill="#f1ede4"><title>10/28 · Claude Ultra (C1, ≥86%): ≤$3,720/wk (Opus 99%)</title></circle>
+<text class="ut" x="404" y="30">≤$3.7k</text>
+<circle cx="468" cy="62.5" r="4.5" fill="#f1ede4"><title>11/04 · Claude Ultra (C2, 52%): $3,230/wk (Opus 94%)</title></circle>
+<text class="ut" x="468" y="54">$3.2k</text>
+<circle cx="532" cy="104" r="4.5" fill="#f1ede4"><title>11/11 · Claude Ultra (C3, 94%): $2,400/wk (Fable 24%)</title></circle>
+<text class="ut" x="532" y="96">$2.4k</text>
+<circle cx="596" cy="121.5" r="4.5" fill="#f1ede4"><title>11/18 · Claude Ultra (C4, 59% partial): $2,050/wk (Fable 33%)</title></circle>
+<text class="ut" x="596" y="113">$2.0k*</text>
+
+<circle cx="212" cy="176.5" r="4.5" fill="#f0a08f"><title>10/07 · ChatGPT Pro 100 (win 5–8): $950/wk</title></circle>
+<text class="pl" x="212" y="167">$950</text>
+<circle cx="276" cy="175.5" r="4.5" fill="#e2452c"><title>10/14 · ChatGPT Pro 200 (win 9–15): $970/wk</title></circle>
+<circle cx="340" cy="174.5" r="4.5" fill="#e2452c"><title>10/21 · ChatGPT Pro 200 (win 16–17): $990/wk</title></circle>
+<circle cx="404" cy="170.75" r="4.5" fill="#e2452c"><title>10/28 · ChatGPT Pro 200 (100%+1,413cr): ≤$1,065/wk</title></circle>
+<circle cx="468" cy="187" r="4.5" fill="#e2452c"><title>11/04 · ChatGPT Pro 200 (W1, 49%): $740/wk (Terra 75%)</title></circle>
+<text class="pl" x="468" y="178">$740</text>
+<circle cx="532" cy="178.6" r="4.5" fill="#e2452c"><title>11/11 · ChatGPT Pro 200 (W2, 86%): $908/wk (Terra 48%)</title></circle>
+<text class="pl" x="532" y="170">$908</text>
+<circle cx="596" cy="191.2" r="4.5" fill="#f0a08f"><title>11/18 · ChatGPT Pro Lite 10x (W3, 98%): $656/wk (Astra 6.2 55%)</title></circle>
+<text class="ut" x="596" y="183">$656</text>
+
+<line x1="532" x2="532" y1="211.2" y2="217" stroke="#5b7fa6" stroke-width="3"></line>
+<circle cx="532" cy="214.1" r="4" fill="#5b7fa6"><title>11/11 · Google AI Pro (11/17, 47%): $140–257/wk est.</title></circle>
+<text class="pl" x="532" y="206" style="fill:#5b7fa6">$140–257</text>
+
+<text x="84" y="244">09/27</text>
+<text x="148" y="244">10/02</text>
+<text x="212" y="244">10/07</text>
+<text x="276" y="244">10/14</text>
+<text x="340" y="244">10/21</text>
+<text x="404" y="244">10/28</text>
+<text x="468" y="244">11/04</text>
+<text x="532" y="244">11/11</text>
+<text x="596" y="244">11/18*</text>
+<text class="pl" x="340" y="264">week starting (* 11/18 Claude is partial at 59% used)</text>
+</svg>
+<figcaption>Estimated API-equivalent dollars per full 100% weekly window, by plan. Blank weeks mean we did not run or measure that tier. Hover any dot for exact window numbers.</figcaption>
+</figure>
+<p class="usage-legend"><span><i style="background:#f1ede4"></i>Claude Ultra ($200)</span><span><i style="background:#8a857c"></i>Claude Max 5x ($100)</span><span><i style="background:#e2452c"></i>ChatGPT Pro 200 ($200)</span><span><i style="background:#f0a08f"></i>ChatGPT Pro 100 / Lite ($100)</span><span><i style="background:#5b7fa6"></i>Google AI Pro</span></p>
+
+<details class="usage-table"><summary>Show full 9-week tracker table</summary>
+<table>
+<caption>Weekly 100%-window API-equivalent USD by plan (blank = not run or unmeasured)</caption>
+<thead><tr><th>Week</th><th>Claude Max 5x</th><th>Claude Ultra</th><th>Pro 100 / Lite</th><th>Pro 200</th><th>Google AI Pro</th></tr></thead>
+<tbody>
+<tr><td>09/27</td><td>$1,700</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>10/02</td><td>—</td><td>$3,030</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>10/07</td><td>—</td><td>$2,610</td><td>$950</td><td>—</td><td>—</td></tr>
+<tr><td>10/14</td><td>—</td><td>$2,750</td><td>—</td><td>$970</td><td>—</td></tr>
+<tr><td>10/21</td><td>—</td><td>$2,890</td><td>—</td><td>$990</td><td>—</td></tr>
+<tr><td>10/28</td><td>—</td><td>≤$3,720</td><td>—</td><td>≤$1,065</td><td>—</td></tr>
+<tr><td>11/04</td><td>—</td><td>$3,230</td><td>—</td><td>$740</td><td>—</td></tr>
+<tr><td>11/11</td><td>—</td><td>$2,400</td><td>—</td><td>$908</td><td>$140–257</td></tr>
+<tr><td>11/18*</td><td>—</td><td>$2,050</td><td>$656</td><td>—</td><td>—</td></tr>
+</tbody>
+</table>
+</details>
+
+<h2>Claude Ultra in November: $32/1% on Opus, $21–24/1% once Fable enters</h2>
+<p>In October, Opus-heavy Ultra weeks gave $30–35 per 1% while Sonnet-heavy weeks gave $26–29. November's local transcripts show a sharper version of the same split after two leads began running <strong>Fable 5.2</strong> on 11 November:</p>
+
+<figure class="usage-chart">
+<svg viewBox="0 0 640 250" width="100%" role="img" aria-label="Claude Ultra November windows stacked by model: C1 10/28 to 11/04 total 3,200 dollars (Opus 3,178, Sonnet 22, at most 37 dollars per 1%); C2 11/04 to 11/11 total 1,679 dollars (Opus 1,572, Sonnet 107, 32.3 dollars per 1%); C3 11/11 to 11/18 total 2,259 dollars (Opus 1,714, Fable 538, Sonnet 8, 24.0 dollars per 1%); C4 11/18 to 11/22 partial total 1,209 dollars (Opus 805, Fable 404, 20.5 dollars per 1%).">
+<line class="g" x1="56" x2="628" y1="204" y2="204"></line><text class="ax" x="50" y="208">$0</text>
+<line class="g" x1="56" x2="628" y1="154" y2="154"></line><text class="ax" x="50" y="158">$1,000</text>
+<line class="g" x1="56" x2="628" y1="104" y2="104"></line><text class="ax" x="50" y="108">$2,000</text>
+<line class="g" x1="56" x2="628" y1="54" y2="54"></line><text class="ax" x="50" y="58">$3,000</text>
+<line class="g" x1="56" x2="628" y1="14" y2="14"></line><text class="ax" x="50" y="18">$3,800</text>
+
+<rect x="108" y="45.1" width="56" height="158.9" fill="#f1ede4"><title>C1 · 10/28–11/04 · Opus 5.5: $3,178</title></rect>
+<rect x="108" y="44.0" width="56" height="1.1" fill="#8a857c"><title>C1 · Sonnet 5.5: $22</title></rect>
+<text class="ut" x="136" y="36">≤$37 / 1%</text>
+<text x="136" y="224">C1 · 10/28</text>
+<text class="pl" x="136" y="240">≥86% used</text>
+
+<rect x="248" y="125.4" width="56" height="78.6" fill="#f1ede4"><title>C2 · 11/04–11/11 · Opus 5.5: $1,572</title></rect>
+<rect x="248" y="120.0" width="56" height="5.4" fill="#8a857c"><title>C2 · Sonnet 5.5: $107</title></rect>
+<text class="ut" x="276" y="112">$32.3 / 1%</text>
+<text x="276" y="224">C2 · 11/04</text>
+<text class="pl" x="276" y="240">52% used</text>
+
+<line class="sw" x1="346" x2="346" y1="14" y2="204"></line>
+<text class="pl" x="352" y="24" style="text-anchor:start;fill:#e2452c">Fable 5.2 from 11/11</text>
+
+<rect x="388" y="118.3" width="56" height="85.7" fill="#f1ede4"><title>C3 · 11/11–11/18 · Opus 5.5: $1,714</title></rect>
+<rect x="388" y="91.4" width="56" height="26.9" fill="#c9a24a"><title>C3 · Fable 5.2: $538</title></rect>
+<rect x="388" y="91.0" width="56" height="0.4" fill="#8a857c"><title>C3 · Sonnet 5.5: $8</title></rect>
+<text class="ut" x="416" y="83">$24.0 / 1%</text>
+<text x="416" y="224">C3 · 11/11</text>
+<text class="pl" x="416" y="240">94% used</text>
+
+<rect x="528" y="163.8" width="56" height="40.2" fill="#f1ede4"><title>C4 · 11/18–11/22 · Opus 5.5: $805</title></rect>
+<rect x="528" y="143.6" width="56" height="20.2" fill="#c9a24a"><title>C4 · Fable 5.2: $404</title></rect>
+<text class="ut" x="556" y="135">$20.5 / 1%</text>
+<text x="556" y="224">C4 · 11/18*</text>
+<text class="pl" x="556" y="240">59% (partial)</text>
+</svg>
+<figcaption>Claude Ultra, API-equivalent dollars per weekly window stacked by model; figure above each bar is dollars per 1%. Cache reads dominate every bar (e.g., 10.6B cache read vs 0.07M uncached input in C1).</figcaption>
+</figure>
+<p class="usage-legend"><span><i style="background:#f1ede4"></i>Opus 5.5</span><span><i style="background:#c9a24a"></i>Fable 5.2</span><span><i style="background:#8a857c"></i>Sonnet 5.5</span></p>
+
+<ul>
+<li><strong>Opus-only weeks held $32–37 per 1%</strong>—slightly above October's $26–35 range once Sonnet workers retired.</li>
+<li><strong>Local $/1% fell to $24 (C3) and $20.5 (C4)</strong> as Fable 5.2 grew to 24% and 33% of spend. That does not prove Ultra's allowance shrank: Fable 5.2 charges 2× Opus on input/output/cache-writes, yet keeps cache reads at <strong>$0.20/MTok</strong> (same as Opus). Because our agents are mostly cache reads (1.47B in C3, 1.40B in C4), any higher meter weight on Fable lowers measured API $/1%—and off-Mac claude.ai use counts on the meter but not in local transcripts.</li>
+<li><strong>Runway:</strong> with workers moved to Codex on 15 November, Ultra covered 6–7 leads + PM for a full 7-day week (C3 ended with 6% left).</li>
+</ul>
+
+<h2>Codex Pro 200 → Pro Lite (10x): why model mix changed the headline</h2>
+<p>Direct rollout-file audits across November's three Codex windows—including the 18 November downgrade from <strong>Pro 200 (20x)</strong> to <strong>Pro Lite (10x)</strong>—reveal two things raw quota % hides:</p>
+
+<figure class="usage-chart">
+<svg viewBox="0 0 640 250" width="100%" role="img" aria-label="Codex November windows stacked by model: Oct 28 Pro 200 total 1,065 dollars (Sol 6.1 769, Terra 6.1 265, Astra 6 17, Luna 14, at most 10.6 dollars per 1%); W1 Nov 04 Pro 200 total 363 dollars (Terra 6.1 270, Astra 6 50, Sol 6.1 42, 7.40 dollars per 1%); W2 Nov 11 Pro 200 total 781 dollars (Terra 6.1 376, Sol 6.1 208, Astra 6 196, 9.08 dollars per 1%); W3 Nov 18 Pro Lite 10x total 643 dollars (Astra 6.2 352, Sol 6.2 251, Astra 6 29, Terra 6.1 11, 6.56 dollars per 1%).">
+<line class="g" x1="56" x2="628" y1="204" y2="204"></line><text class="ax" x="50" y="208">$0</text>
+<line class="g" x1="56" x2="628" y1="156.5" y2="156.5"></line><text class="ax" x="50" y="160.5">$300</text>
+<line class="g" x1="56" x2="628" y1="109" y2="109"></line><text class="ax" x="50" y="113">$600</text>
+<line class="g" x1="56" x2="628" y1="61.5" y2="61.5"></line><text class="ax" x="50" y="65.5">$900</text>
+<line class="g" x1="56" x2="628" y1="14" y2="14"></line><text class="ax" x="50" y="18">$1,200</text>
+
+<rect x="108" y="82.4" width="56" height="121.6" fill="#e2452c"><title>Oct 28 · Sol 6.1: $769</title></rect>
+<rect x="108" y="40.4" width="56" height="42.0" fill="#f0a08f"><title>Oct 28 · Terra 6.1: $265</title></rect>
+<rect x="108" y="38.2" width="56" height="2.2" fill="#4a4741"><title>Oct 28 · Luna 6: $14</title></rect>
+<rect x="108" y="35.5" width="56" height="2.7" fill="#f1ede4"><title>Oct 28 · Astra 6: $17</title></rect>
+<text class="ut" x="136" y="28">≤$10.6 / 1%</text>
+<text x="136" y="224">10/28</text>
+<text class="pl" x="136" y="240">P200 · 100%+cr</text>
+
+<rect x="248" y="161.2" width="56" height="42.8" fill="#f0a08f"><title>W1 · 11/04–11/11 · Terra 6.1: $270</title></rect>
+<rect x="248" y="154.6" width="56" height="6.6" fill="#e2452c"><title>W1 · Sol 6.1: $42</title></rect>
+<rect x="248" y="146.6" width="56" height="8.0" fill="#f1ede4"><title>W1 · Astra 6: $50</title></rect>
+<text class="ut" x="276" y="138">$7.4 / 1%</text>
+<text x="276" y="224">W1 · 11/04</text>
+<text class="pl" x="276" y="240">P200 · 49%</text>
+
+<rect x="388" y="144.4" width="56" height="59.6" fill="#f0a08f"><title>W2 · 11/11–11/18 · Terra 6.1: $376</title></rect>
+<rect x="388" y="111.5" width="56" height="32.9" fill="#e2452c"><title>W2 · Sol 6.1: $208</title></rect>
+<rect x="388" y="80.4" width="56" height="31.1" fill="#f1ede4"><title>W2 · Astra 6: $196</title></rect>
+<text class="ut" x="416" y="72">$9.1 / 1%</text>
+<text x="416" y="224">W2 · 11/11</text>
+<text class="pl" x="416" y="240">P200 · 86%</text>
+
+<line class="sw" x1="486" x2="486" y1="14" y2="204"></line>
+<text class="pl" x="492" y="24" style="text-anchor:start;fill:#e2452c">11/18 Pro Lite + 6.2</text>
+
+<rect x="528" y="164.3" width="56" height="39.7" fill="#c7351e"><title>W3 · 11/18–11/22 · Sol 6.2: $251</title></rect>
+<rect x="528" y="108.5" width="56" height="55.8" fill="#5b7fa6"><title>W3 · Astra 6.2: $352 (55% of week)</title></rect>
+<rect x="528" y="103.9" width="56" height="4.6" fill="#f1ede4"><title>W3 · Astra 6: $29</title></rect>
+<rect x="528" y="102.2" width="56" height="1.7" fill="#f0a08f"><title>W3 · Terra 6.1: $11</title></rect>
+<text class="ut" x="556" y="94">$6.6 / 1%</text>
+<text x="556" y="224">W3 · 11/18</text>
+<text class="pl" x="556" y="240">P100 · 98%</text>
+</svg>
+<figcaption>Codex, API-equivalent dollars per weekly window stacked by model (auto-review excluded as free). W3 is priced at OpenAI's published Standard short-context rates for gpt-6.2-sol ($2/$0.10/$10) and gpt-6.2-astra ($8/$0.40/$40); Astra 6 uses its published $10/$1.00/$50.</figcaption>
+</figure>
+<p class="usage-legend"><span><i style="background:#e2452c"></i>Sol 6.1</span><span><i style="background:#f0a08f"></i>Terra 6.1</span><span><i style="background:#f1ede4"></i>Astra 6</span><span><i style="background:#c7351e"></i>Sol 6.2</span><span><i style="background:#5b7fa6"></i>Astra 6.2</span></p>
+
+<ul>
+<li><strong>Pro 200 did not double in API dollars after 29 October.</strong> W1 (75% Terra) landed at <strong>$7.40/1% ($740/wk)</strong> and W2 (48% Terra) at <strong>$9.08/1% ($908/wk)</strong>—consistent with our <a href="https://tmt.ninja/blog/posts/half-the-token-price/">earlier finding</a> that Terra moves the meter faster per API dollar than Sol.</li>
+<li><strong>Pro Lite (10x) held ~$656—72–89% of Pro 200's November value at half the price.</strong> When our downgrade took effect overnight on 18 November, the meter jumped 86% → 100% with no overnight work. Yet the first full 10x window (W3, 98% used) still carried <strong>$643</strong> of Standard-rate compute ($6.56/1%).</li>
+<li><strong>Why W3 emptied in ~2 active working days:</strong> <strong class="hl">one seat running <code>gpt-6.2-astra</code> (4× Sol's price) ate $352—55% of the entire week</strong>. Without Astra, 4–5 Sol workers would stretch Pro Lite roughly 4 active days; with Pro 200, the same team ran 5–7 days.</li>
+</ul>
+
+<details class="usage-table"><summary>Show November Codex &amp; Claude per-window totals</summary>
+<table>
+<caption>Direct local transcript / rollout totals (auto-review excluded)</caption>
+<thead><tr><th>Window</th><th>Plan</th><th>Used</th><th>Main models (API $)</th><th>Total $</th><th>$/1%</th><th>100% eq.</th></tr></thead>
+<tbody>
+<tr><td>C1 · 10/28–11/04</td><td>Ultra</td><td>≥86%</td><td>Opus $3,178 · Sonnet $22</td><td>$3,200</td><td>≤$37.2</td><td>≤$3,720</td></tr>
+<tr><td>C2 · 11/04–11/11</td><td>Ultra</td><td>52%</td><td>Opus $1,572 · Sonnet $107</td><td>$1,679</td><td>$32.3</td><td>$3,230</td></tr>
+<tr><td>C3 · 11/11–11/18</td><td>Ultra</td><td>94%</td><td>Opus $1,714 · Fable $538</td><td>$2,259</td><td>$24.0</td><td>$2,400</td></tr>
+<tr><td>C4 · 11/18–11/22*</td><td>Ultra</td><td>59%</td><td>Opus $805 · Fable $404</td><td>$1,209</td><td>$20.5</td><td>$2,050</td></tr>
+<tr><td>10/28–11/04</td><td>Pro 200</td><td>100%+cr</td><td>Sol 6.1 $769 · Terra $265</td><td>$1,065</td><td>≤$10.6</td><td>≤$1,065</td></tr>
+<tr><td>W1 · 11/04–11/11</td><td>Pro 200</td><td>49%</td><td>Terra $270 · Astra $50 · Sol $42</td><td>$363</td><td>$7.4</td><td>$740</td></tr>
+<tr><td>W2 · 11/11–11/18</td><td>Pro 200</td><td>86%</td><td>Terra $376 · Sol $208 · Astra $196</td><td>$781</td><td>$9.1</td><td>$908</td></tr>
+<tr><td>W3 · 11/18–11/22</td><td>Pro Lite</td><td>98%</td><td>Astra 6.2 $352 · Sol 6.2 $251</td><td>$643</td><td>$6.6</td><td>$656</td></tr>
+</tbody>
+</table>
+</details>
+
+<h2>Google AI Pro and practical team sizing</h2>
+<ul>
+<li><strong>Google AI Pro (1 seat, Gemini 4 Hydrogen):</strong> on 17 November, <code>core-agy</code> used 256M input (244M cached) and 0.98M output tokens across 47 quota points—<strong>$66–121</strong> by our PM's estimate (cached and output prices assumed), or <strong>$1.4–2.6 per 1% (~$140–257/week)</strong>. That covered ~2.5 busy days for one specialist worker.</li>
+<li><strong>What our team actually needs per week:</strong> 6–7 reviewing leads on <strong>Claude Ultra ($200)</strong> + 4–6 coding workers on <strong>ChatGPT Pro 200 ($200)</strong> clears a 7-day week cleanly. Cutting Codex to <strong>Pro Lite ($100)</strong> works only if we keep <code>gpt-6.2-astra</code> off routine seats; adding Google AI Pro buys ~2.5 extra days for one overflow worker.</li>
+<li><strong>Hygiene still beats plan tier:</strong> adding our wait guard on 3 November cut Codex sleep/poll calls from <strong>17–26% down to 3–9%</strong>, and bundling tickets cut <a href="https://tmt.ninja/blog/posts/small-prs-and-agent-reviewers/">reviews per finished ticket by a fifth</a>.</li>
+</ul>
+
+<div class="callout"><span class="k">TAKEAWAY</span><p>Comparing subscription tiers without splitting models misleads on both providers: <strong class="hl">measured local $/1% on Ultra fell by a third once Fable 5.2 entered</strong> (where cache reads stay $0.20), while <strong class="hl">one Astra 6.2 seat ate 55% of our Pro Lite week</strong>. Watch model mix first, plan tier second.</p></div>
+
+<h2>How we measured</h2>
+<ul class="caveats">
+<li><b>SOURCES</b>Local Claude Code transcripts (<code>~/.claude/projects</code>, deduped by message + request ID) and Codex rollout files (<code>~/.codex/sessions</code>, per-file token deltas attributed to <code>turn_context</code> model) on the one Mac the team runs on.</li>
+<li><b>PRICES</b>Public Standard short-context API list prices: Opus 5.5 $4/$5/$8/$0.20/$20, Sonnet 5.5 $2/$2.5/$4/$0.10/$10, Fable 5.2 $8/$10/$16/$0.20/$40 (input / 5m write / 1h write / read / output per MTok); Sol 6.1 &amp; 6.2 $2/$0.10/$10, Terra 6.1 $1/$0.05/$5, Astra 6 $10/$1.00/$50, Astra 6.2 $8/$0.40/$40. OpenAI's &gt;272k long-context multiplier is not applied, so W3 is a lower bound.</li>
+<li><b>EXCLUSIONS &amp; GAPS</b><code>codex-auto-review</code> does not count against our meter and is excluded. 6 November was an all-rest day (no rollout folder on disk). Off-Mac usage (e.g. claude.ai web) counts on the meter but not in local files, making Claude $/1% a lower bound. C1's 86% is a lower bound (last reading 29h before reset); C4 is a partial week (59%).</li>
+<li><b>GOOGLE AI PRO</b>Single-seat 17 November measurement (47 quota points); the $140–257/week spread reflects cached/output pricing assumptions, and the subscription price is pending owner confirmation.</li>
+</ul>
+</article>
