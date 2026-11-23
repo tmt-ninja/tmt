@@ -766,6 +766,7 @@ fn paint_inspector(
     frame: &mut Frame,
     app: &App,
     state: &super::State,
+    list: &List,
     item: &Item,
     area: Rect,
     roster: Option<&crate::board::workspace::OpsRoster>,
@@ -791,21 +792,93 @@ fn paint_inspector(
     let mut y = area.y;
 
     let needs_answer = item.needs_you > 0 || item.status == Status::NeedsYou;
-    let mut status_spans = vec![Span::styled(
-        format!(" {}", item.status.marked_label().to_uppercase()),
-        look.role(role(item.status)).add_modifier(Modifier::BOLD),
-    )];
+    let ask_todos: Vec<&Item> = if item.todo {
+        (item.status == Status::NeedsYou)
+            .then_some(item)
+            .into_iter()
+            .collect()
+    } else {
+        list.items
+            .iter()
+            .filter(|candidate| {
+                candidate.todo
+                    && candidate.page == item.page
+                    && candidate.status == Status::NeedsYou
+            })
+            .collect()
+    };
+    let ask_count = item.needs_you.max(ask_todos.len() as u64);
     if needs_answer {
-        status_spans.push(Span::styled("  answer in Colab", look.role(Role::Muted)));
-    }
-    inspector_line(frame, area, &mut y, Line::from(status_spans));
-    if let Some(next) = &item.next {
+        let count_label = if ask_count > 0 {
+            let noun = if ask_count == 1 {
+                "confirmation"
+            } else {
+                "confirmations"
+            };
+            format!("  ({ask_count} {noun})")
+        } else {
+            "  answer in Colab".into()
+        };
         inspector_line(
             frame,
             area,
             &mut y,
-            Line::styled(fit(&format!(" {next}"), width), look.role(Role::Text)),
+            Line::from(vec![
+                Span::styled(
+                    format!(" {}", Status::NeedsYou.marked_label().to_uppercase()),
+                    look.role(Role::Waiting).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(count_label, look.role(Role::Muted)),
+            ]),
         );
+        if let Some((idx, todo)) = ask_todos.iter().enumerate().next() {
+            let label = format!(" ▸ #{}  {}", idx + 1, todo.title);
+            inspector_line(
+                frame,
+                area,
+                &mut y,
+                Line::styled(fit(&label, width), look.role(Role::Text)),
+            );
+            if let Some(prompt) = todo.next.as_deref().or(item.next.as_deref()) {
+                inspector_line(
+                    frame,
+                    area,
+                    &mut y,
+                    Line::styled(
+                        fit(&format!("   \"{prompt}\""), width),
+                        look.role(Role::Muted),
+                    ),
+                );
+            }
+        } else if let Some(next) = &item.next {
+            inspector_line(
+                frame,
+                area,
+                &mut y,
+                Line::styled(
+                    fit(&format!("   \"{next}\""), width),
+                    look.role(Role::Muted),
+                ),
+            );
+        }
+    } else {
+        inspector_line(
+            frame,
+            area,
+            &mut y,
+            Line::from(vec![Span::styled(
+                format!(" {}", item.status.marked_label().to_uppercase()),
+                look.role(role(item.status)).add_modifier(Modifier::BOLD),
+            )]),
+        );
+        if let Some(next) = &item.next {
+            inspector_line(
+                frame,
+                area,
+                &mut y,
+                Line::styled(fit(&format!(" {next}"), width), look.role(Role::Text)),
+            );
+        }
     }
 
     if y < area.bottom() {
@@ -1379,6 +1452,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             frame,
             app,
             state,
+            list,
             item,
             Rect::new(right_x, area.y + top, right_w, body_h),
             roster,

@@ -1399,3 +1399,84 @@ fn colab_work_collapsed_saved_view_clears_inspector_focus_and_opens_page() {
     assert_eq!(app.work.inspector_cursor, 0);
     assert_ne!(app.work.selected.as_deref(), Some(PAGE));
 }
+
+#[test]
+fn colab_work_renders_boxed_panes_and_needs_you_preview() {
+    let now = 1_800_000_000_000_u64;
+    let mut document = owner_list(now);
+    document["pages"][0]["summary"]["status"] = json!("needs-you");
+    document["pages"][0]["summary"]["needsYou"] = json!(2);
+    document["pages"][0]["summary"]["fields"]["next"] =
+        json!("Approve rounded borders for Work panes?");
+    document["pages"][0]["summary"]["todos"] = json!([{
+        "id": "todo-ask-1",
+        "number": "COLAB-119.1",
+        "text": "Confirm border tokens",
+        "assignee": "Ada",
+        "checked": false,
+        "ask": "needs-you",
+    }]);
+
+    let mut app = board();
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    let key = |app: &mut App, code: KeyCode| {
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            code,
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ))
+    };
+    key(&mut app, KeyCode::Char('2'));
+
+    let width = 120_u16;
+    let height = 36_u16;
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let lines: Vec<String> = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(usize::from(width))
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect();
+    assert!(lines.iter().any(|l| l.contains("╭ Projects")));
+    assert!(lines.iter().any(|l| l.contains("╭ Squad Pulse")));
+    assert!(lines.iter().any(|l| l.contains("┏ Work")));
+    assert!(lines.iter().any(|l| l.contains("╭ Detail · COLAB-119")));
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("◆ NEEDS YOU") && l.contains("(2 confirmations)"))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("▸ #1  Confirm border tokens"))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("\"Approve rounded borders for Work panes?\""))
+    );
+
+    key(&mut app, KeyCode::Tab);
+    assert!(app.work.inspector_focused);
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let focused_lines: Vec<String> = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(usize::from(width))
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect();
+    assert!(focused_lines.iter().any(|l| l.contains("╭ Work")));
+    assert!(
+        focused_lines
+            .iter()
+            .any(|l| l.contains("┏ Detail · COLAB-119"))
+    );
+}
