@@ -334,6 +334,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "scoped keys",
                     "Reader uses its own effective bindings above; defaults scroll without jumping, and explicit compatible overrides win",
                 ),
+                (
+                    &super::agents_focus::TALK_WORK_TOGGLE.to_string(),
+                    "expand or collapse Work details with Talk reader focus",
+                ),
                 ("Esc", "return focus to the list"),
                 (
                     "pane focus",

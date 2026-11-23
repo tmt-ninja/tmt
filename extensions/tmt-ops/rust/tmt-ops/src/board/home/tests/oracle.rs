@@ -1567,7 +1567,7 @@ fn talk_work_frames(styles: &mut Styles) -> Vec<Value> {
             crate::board::view::prepare(&mut app, ratatui::layout::Rect::new(0, 0, width, 36));
             for state in ["talk-work-collapsed", "talk-work-expanded"] {
                 if state == "talk-work-expanded" {
-                    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+                    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
                 }
                 let mut frame = capture_frame(&app, state, look_name, width, 36, styles);
                 let (toggle, open) = app.talk_work.borrow().captured_hits();

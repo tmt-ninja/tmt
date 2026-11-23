@@ -95,7 +95,7 @@ fn share(reading: Option<super::rate::Reading>, total: Option<(u128, bool)>) -> 
         )
 }
 
-const TALK_WORK_TOGGLE: char = 'w';
+pub(super) const TALK_WORK_TOGGLE: char = 'd';
 
 #[derive(Clone, Copy)]
 enum WorkControl {

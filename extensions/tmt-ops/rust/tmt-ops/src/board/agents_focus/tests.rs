@@ -519,11 +519,13 @@ fn talk_work_expands_in_place_and_opens_only_the_fresh_bound_section() {
         .find(|row| row.contains("Work WEB-31"))
         .expect("work summary is pinned in Talk");
     assert!(summary.contains("◆ Needs you") && summary.contains("1/3"));
+    assert!(summary.contains("d Expand"));
     assert!(!collapsed.contains("Return target"));
     let input = app.input_band.get().unwrap();
     let press = |code| KeyEvent::new(code, KeyModifiers::NONE);
-    assert_eq!(app.key(press(KeyCode::Char('w'))), Effect::None);
+    assert_eq!(app.key(press(KeyCode::Char('d'))), Effect::None);
     let expanded = screen(&draw(&mut app, 160, 42));
+    assert!(expanded.contains("d Collapse"));
     let rows = expanded.lines().collect::<Vec<_>>();
     let heading = rows
         .iter()
