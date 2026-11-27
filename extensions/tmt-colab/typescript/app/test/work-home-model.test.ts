@@ -5,6 +5,7 @@ import type { BlockEntry } from '../src/blocks.js';
 import type { PageSummary } from '../src/transport.js';
 import {
   activityOwners,
+  byTodoAttention,
   doneChart,
   overview,
   projectSections,
@@ -39,8 +40,8 @@ function page(
   } as PageSummary;
 }
 
-it('counts pages and assigned numbered to-dos, never an unassigned or plain checklist line', () => {
-  const items = workItems([
+it('keeps page counts separate and lists only open numbered to-dos that are assigned or awaiting the owner', () => {
+  const pages = [
     page('working', {
       summary: {
         todos: [
@@ -55,6 +56,23 @@ it('counts pages and assigned numbered to-dos, never an unassigned or plain chec
             assignee: 'gui-3',
           },
           { id: 'd', text: 'Someday', checked: false, number: 'C-4' },
+          { id: 'h', text: 'Old Ask', checked: true, number: 'C-8', ask: 'needs-you' },
+          {
+            id: 'i',
+            text: 'Released PR',
+            checked: false,
+            number: 'C-9',
+            assignee: 'gui-3',
+            pullStatus: 'done',
+          },
+          {
+            id: 'j',
+            text: 'Checked with CI still pending',
+            checked: true,
+            number: 'C-10',
+            assignee: 'gui-3',
+            pullStatus: 'waiting-ci',
+          },
           // To-dos an Ask made read the Ask's state.
           { id: 'e', text: 'Asked', checked: false, number: 'C-5', assignee: 'gui-4', ask: 'sent' },
           {
@@ -62,8 +80,8 @@ it('counts pages and assigned numbered to-dos, never an unassigned or plain chec
             text: 'Replied',
             checked: false,
             number: 'C-6',
-            assignee: 'gui-4',
             ask: 'needs-you',
+            pullStatus: 'blocked',
           },
           {
             id: 'g',
@@ -78,17 +96,25 @@ it('counts pages and assigned numbered to-dos, never an unassigned or plain chec
     }),
     page('done', { archived: true }),
     { id: 'x', title: 'No summary', sharing: 'private' } as PageSummary,
-  ]);
-  expect(items.map((item) => [item.key.split(':')[1] ?? 'page', item.status])).toEqual([
-    ['page', 'working'],
+  ];
+  const pageItems = workItems(pages);
+  expect(overview(pageItems).open).toBe(1);
+  expect(doneChart(pageItems, 'week', now).total).toBe(0);
+  expect(projectSections(pageItems, [], now)[0].open).toHaveLength(1);
+  expect(recentlyDone(pageItems, 10)).toEqual([]);
+  const items = workItems(pages, 'todos');
+  expect(items.map((item) => [item.key.split(':')[1], item.status])).toEqual([
     ['a', 'discussing'],
-    ['c', 'done'],
     ['e', 'working'],
     ['f', 'needs-you'],
     ['g', 'working'],
   ]);
   expect(items.find((item) => item.key.endsWith(':g'))?.next).toBe('Answered');
-  expect(items.find((item) => item.key.endsWith(':e'))?.next).toBe('Page 1');
+  expect([...items].sort(byTodoAttention)[0]).toMatchObject({
+    blockId: 'f',
+    pageTitle: pages[0].title,
+  });
+  expect(workItems(pages, 'order').find((item) => item.blockId === 'd')).toBeDefined();
 });
 
 it('carries the counted sections of a page as its one number, bar and stuck section (#6619)', () => {
@@ -139,7 +165,7 @@ it('carries the counted sections of a page as its one number, bar and stuck sect
   expect(workItems([page('working')])[0].sections).toBeUndefined();
 });
 
-it('counts the overview in five statuses and only shows discussing or unchecked work it has', () => {
+it('counts open pages and groups CI and release waits', () => {
   const items = workItems([
     page('working', { summary: { fields: { owner: { id: 'g2', name: 'gui-2' } } } }),
     page('waiting-ci'),
@@ -151,8 +177,6 @@ it('counts the overview in five statuses and only shows discussing or unchecked 
   const seen = overview(items);
   expect(seen.open).toBe(5);
   expect(seen.counts).toMatchObject({ working: 1, waiting: 2, blocked: 2, discussing: 0 });
-  expect(seen.moving).toEqual([{ id: 'g2', name: 'gui-2' }]);
-  expect(seen.stuckLongest?.blockedSinceMs).toBe(now - 2 * DAY);
   expect(activityOwners(items)).toEqual(['g2']);
 });
 

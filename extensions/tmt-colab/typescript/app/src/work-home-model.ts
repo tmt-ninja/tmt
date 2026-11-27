@@ -1,13 +1,11 @@
-import type { SectionSummary } from './bootstrap.js';
+import type { PageWorkRow, SectionSummary } from './bootstrap.js';
 import type { ListStatus, TodoAsk } from './bootstrap.js';
 import { text } from './strings.js';
 import { projectNameError } from './projects.js';
 import type { PageSummary } from './transport.js';
 
 /**
- * Work home's model (#6474): the owner list's pages and numbered to-dos as work items, counted and
- * grouped as the spec's Work page draws them. Pure: the page supplies the list, the clock and the
- * chosen project and period; everything here is display data from the owner list.
+ * Work Home derives its views and counts from the owner list. The caller supplies scope and time.
  */
 export interface WorkItem {
   /** `page` or `page:block` for a to-do. */
@@ -15,6 +13,7 @@ export interface WorkItem {
   pageId: string;
   /** The to-do's block, for a to-do item. */
   blockId?: string;
+  pageTitle?: string;
   number?: string;
   title: string;
   status: ListStatus;
@@ -25,12 +24,13 @@ export interface WorkItem {
   /** The item's last admitted activity (its page's). */
   lastMs?: number;
   doneAtMs?: number;
-  blockedSinceMs?: number;
   /** The release a retained fact proved for the page's PR. */
   release?: string;
   projects: readonly string[];
   /** The page's counted sections (#6619); a page with any shows them as its one number. */
   sections?: readonly SectionSummary[];
+  work?: PageWorkRow;
+  needsYou?: number;
 }
 
 export type Period = 'today' | 'week' | 'month';
@@ -45,8 +45,6 @@ export const OVERVIEW = [
   'unchecked',
 ] as const;
 export type OverviewStatus = (typeof OVERVIEW)[number];
-/** Shown only when non-zero: the spec's overview counts five statuses (#6574 review). */
-export const HIDDEN_WHEN_ZERO: ReadonlySet<OverviewStatus> = new Set(['discussing', 'unchecked']);
 
 /**
  * Work home's view in its URL (#6612), so Back, Forward, a reload and a pasted link open the same
@@ -60,6 +58,7 @@ export interface WorkSearch {
   status?: OverviewStatus;
   day?: number;
   more?: string[];
+  order?: true;
 }
 const projectName = (name: unknown): name is string =>
   typeof name === 'string' && projectNameError(name) === undefined;
@@ -71,7 +70,9 @@ export function validateWorkSearch(search: Record<string, unknown>): WorkSearch 
     status: undefined,
     day: undefined,
     more: undefined,
+    order: undefined,
   };
+  if (search.order === true) out.order = true;
   if (projectName(search.project)) out.project = search.project;
   if (search.period === 'today' || search.period === 'month') out.period = search.period;
   out.status = OVERVIEW.find((status) => status === search.status);
@@ -104,13 +105,12 @@ export function overviewStatus(status: ListStatus): OverviewStatus | undefined {
 }
 
 /**
- * Every work item the list holds: each active page with a fresh summary, and each assigned numbered
- * to-do. The order view (`includeUnassignedTodos`) also takes the unassigned ones, to rank and
- * assign them (contract "Work home's work items", #6688).
+ * Page and to-do views use separate inputs. Project order also includes unassigned to-dos
+ * so they can be ranked or assigned (#6688).
  */
 export function workItems(
   pages: readonly PageSummary[],
-  includeUnassignedTodos = false,
+  view: 'pages' | 'todos' | 'order' = 'pages',
 ): WorkItem[] {
   const items: WorkItem[] = [];
   for (const page of pages) {
@@ -120,38 +120,49 @@ export function workItems(
     const status: ListStatus = summary.status ?? 'unchecked';
     const projects = page.projects ?? [];
     const lastMs = page.lastUpdateAtMs ?? undefined;
-    items.push({
-      key: page.id,
-      pageId: page.id,
-      ...(page.workNumber ? { number: page.workNumber } : {}),
-      title: page.title,
-      status,
-      high: fields?.priority === 'high',
-      ...(status === 'blocked' && fields?.blocked
-        ? { next: fields.blocked }
-        : fields?.next
-          ? { next: fields.next }
-          : {}),
-      ...(fields?.owner ? { owner: { id: fields.owner.id, name: fields.owner.name } } : {}),
-      ...(lastMs === undefined ? {} : { lastMs }),
-      ...(summary.doneAtMs === undefined ? {} : { doneAtMs: summary.doneAtMs }),
-      ...(summary.blockedSinceMs === undefined ? {} : { blockedSinceMs: summary.blockedSinceMs }),
-      ...(summary.release ? { release: summary.release } : {}),
-      projects,
-      ...(summary.sections?.length ? { sections: summary.sections } : {}),
-    });
-    // An assigned, numbered to-do is a small task of its own; any other to-do is the page's content
-    // (#6578 review: unassigned to-dos would flood the open work).
+    if (view !== 'todos')
+      items.push({
+        key: page.id,
+        pageId: page.id,
+        ...(page.workNumber ? { number: page.workNumber } : {}),
+        title: page.title,
+        status,
+        high: fields?.priority === 'high',
+        ...(status === 'blocked' && fields?.blocked
+          ? { next: fields.blocked }
+          : fields?.next
+            ? { next: fields.next }
+            : {}),
+        ...(fields?.owner ? { owner: { id: fields.owner.id, name: fields.owner.name } } : {}),
+        ...(lastMs === undefined ? {} : { lastMs }),
+        ...(summary.doneAtMs === undefined ? {} : { doneAtMs: summary.doneAtMs }),
+        ...(summary.release ? { release: summary.release } : {}),
+        projects,
+        ...(summary.sections?.length ? { sections: summary.sections } : {}),
+        ...(summary.work ? { work: summary.work } : {}),
+        ...(summary.needsYou ? { needsYou: summary.needsYou } : {}),
+      });
+    if (view === 'pages') continue;
     for (const todo of summary.todos ?? []) {
-      if (!todo.number || (!includeUnassignedTodos && !todo.assignee)) continue;
+      const needsYou = !todo.checked && todo.ask === 'needs-you';
+      if (!todo.number) continue;
+      if (
+        view === 'todos' &&
+        (todo.checked || todo.pullStatus === 'done' || (!todo.assignee && !needsYou))
+      )
+        continue;
       items.push({
         key: `${page.id}:${todo.id}`,
         pageId: page.id,
         blockId: todo.id,
+        pageTitle: page.title,
         number: todo.number,
         title: todo.text || page.title,
         // Done when checked; otherwise the state of the Ask it came from, else in discussion.
-        status: todo.pullStatus ?? (todo.checked ? 'done' : todoStatus(todo.ask)),
+        status:
+          view === 'todos' && needsYou
+            ? 'needs-you'
+            : (todo.pullStatus ?? (todo.checked ? 'done' : todoStatus(todo.ask))),
         high: false,
         next: !todo.checked && todo.ask === 'answered' ? text.workHome.answered : page.title,
         ...(todo.assignee ? { owner: { name: todo.assignee } } : {}),
@@ -193,13 +204,13 @@ export function byAttention(a: WorkItem, b: WorkItem): number {
   );
 }
 
+export function byTodoAttention(a: WorkItem, b: WorkItem): number {
+  return Number(b.status === 'needs-you') - Number(a.status === 'needs-you') || byAttention(a, b);
+}
+
 export interface Overview {
   open: number;
   counts: Record<OverviewStatus, number>;
-  /** Owners of items in progress, by name, each once. */
-  moving: { id?: string; name: string }[];
-  stuckLongest?: WorkItem;
-  quietest?: WorkItem;
 }
 export function overview(items: readonly WorkItem[]): Overview {
   const counts = Object.fromEntries(OVERVIEW.map((status) => [status, 0])) as Record<
@@ -208,26 +219,7 @@ export function overview(items: readonly WorkItem[]): Overview {
   >;
   const open = items.filter((item) => item.status !== 'done');
   for (const item of open) counts[overviewStatus(item.status)!] += 1;
-  const moving = new Map<string, { id?: string; name: string }>();
-  for (const item of open)
-    if (item.status === 'working' && item.owner) moving.set(item.owner.name, item.owner);
-  const oldest = (list: WorkItem[], at: (item: WorkItem) => number | undefined) =>
-    list
-      .filter((item) => at(item) !== undefined)
-      .sort((a, b) => at(a)! - at(b)! || a.key.localeCompare(b.key))[0];
-  return {
-    open: open.length,
-    counts,
-    moving: [...moving.values()].sort((a, b) => a.name.localeCompare(b.name)),
-    stuckLongest: oldest(
-      open.filter((item) => item.status === 'blocked'),
-      (item) => item.blockedSinceMs ?? item.lastMs,
-    ),
-    quietest: oldest(
-      open.filter((item) => item.status === 'possibly-stalled'),
-      (item) => item.lastMs,
-    ),
-  };
+  return { open: open.length, counts };
 }
 
 export interface DoneCell {
@@ -284,7 +276,6 @@ export interface ProjectSection {
   prefix?: string;
   open: WorkItem[];
   counts: Partial<Record<OverviewStatus, number>>;
-  owners: { id?: string; name: string }[];
 }
 /**
  * One section per project, in the owner's project order: its open items by attention. A project
@@ -312,8 +303,6 @@ export function projectSections(
       const status = overviewStatus(item.status)!;
       counts[status] = (counts[status] ?? 0) + 1;
     }
-    const owners = new Map<string, { id?: string; name: string }>();
-    for (const item of open) if (item.owner) owners.set(item.owner.name, item.owner);
     const prefixes = new Set(open.map((item) => item.number?.split('-')[0]));
     const prefix = prefixes.size === 1 ? [...prefixes][0] : undefined;
     return {
@@ -321,7 +310,6 @@ export function projectSections(
       ...(prefix && prefix !== 'W' ? { prefix } : {}),
       open,
       counts,
-      owners: [...owners.values()],
     };
   };
   return [...names.map(section), section(undefined)].filter(

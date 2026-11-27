@@ -1,15 +1,9 @@
 import { openPrStatus } from './open-pr-status.js';
-import {
-  WorkRow as WorkRowPart,
-  WorkRatio,
-  WorkCountContent,
-  WorkDoneCellContent,
-} from '@tmt/browser-ui/work-display';
+import { WorkRow as WorkRowPart, WorkDoneCellContent } from '@tmt/browser-ui/work-display';
 import '@tmt/browser-ui/work.css';
 import './work-home.css';
-import { BrowserAvatar, BrowserSegments } from '@tmt/browser-ui/react';
-import { WorkOrderView, rankedNext } from './work-order-view.js';
-import { WorkNextLine } from '@tmt/browser-ui/work-order';
+import { BrowserAvatar } from '@tmt/browser-ui/react';
+import { WorkOrderView } from './work-order-view.js';
 import { Popover, PopoverContent, PopoverTrigger, UiTheme } from '@tmt/browser-ui/ui';
 import { getTheme, subscribeTheme } from './theme.js';
 import { getRouteApi, Link, useLocation, useRouter } from '@tanstack/react-router';
@@ -23,24 +17,16 @@ import type { PageTransport } from './transport.js';
 import type { WorkFactView } from './reading-details.js';
 import { StatusDetailsBody } from './work-band-live.js';
 import type { SectionSummary } from './bootstrap.js';
-import {
-  sectionMark,
-  sectionTotals,
-  sectionWord,
-  segmentState,
-  stuckSection,
-} from './section-view.js';
+import { sectionMark, sectionTotals, sectionWord, stuckSection } from './section-view.js';
 import {
   byAttention,
   doneChart,
-  HIDDEN_WHEN_ZERO,
+  byTodoAttention,
   inProject,
-  OVERVIEW,
   overview,
   overviewStatus,
   projectSections,
   recentlyDone,
-  type OverviewStatus,
   type Period,
   type WorkItem,
   type WorkSearch,
@@ -54,7 +40,13 @@ const rootRoute = getRouteApi('__root__');
 const workRoute = getRouteApi('/work/');
 const t = text.workHome;
 const PROJECT_KEY = 'tmt-colab-work-project';
+const VIEW_KEY = 'tmt-colab-work-home-view';
 const SHOWN = 5;
+const pageCountLabels = {
+  working: t.inProgressPages,
+  'needs-you': t.needsYouPages,
+  blocked: t.blockedPages,
+};
 
 /** A short age, as the spec's rows write it: `3 min`, `2 h`, `1 day`. */
 function age(at: number | undefined, now: number): string {
@@ -94,26 +86,22 @@ function storeProject(project: string | undefined) {
   }
 }
 
-/** The part's state for an overview status: waiting for CI and for release share one tone. */
-const partState = (status: OverviewStatus) => (status === 'waiting' ? 'waiting-ci' : status);
+type HomeView = 'pages' | 'todos';
 
-function Dot({ status }: { status: string }) {
-  return <span className="tmt-ui-work-dot" data-state={status} aria-hidden="true" />;
+function storedView(): HomeView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'todos' ? 'todos' : 'pages';
+  } catch {
+    return 'pages';
+  }
 }
 
-function Ratio({ counts }: { counts: Partial<Record<OverviewStatus, number>> }) {
-  const parts = OVERVIEW.filter((status) => (counts[status] ?? 0) > 0);
-  if (!parts.length) return null;
-  return (
-    <WorkRatio
-      counts={parts.map((status) => ({
-        state: partState(status),
-        label: t.status[status],
-        count: counts[status]!,
-      }))}
-      label={t.ratio(parts.map((status) => counts[status] + ' ' + t.status[status]).join(', '))}
-    />
-  );
+function storeView(view: HomeView) {
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // The active view still works when browser storage is unavailable.
+  }
 }
 
 /** The list status as the page's computed state: "not checked yet" reads as unknown there. */
@@ -153,7 +141,11 @@ function RowStatus({ item, transport }: { item: WorkItem; transport: PageTranspo
             title={state === 'waiting-ci' ? openPrStatus(view?.pulls).label : undefined}
             aria-label={t.statusDetails(item.number ?? item.title)}
           >
-            <Dot status={view?.state ?? item.status} />
+            <span
+              className="tmt-ui-work-dot"
+              data-state={view?.state ?? item.status}
+              aria-hidden="true"
+            />
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="work-status-details">
@@ -211,16 +203,24 @@ function OwnerCell({ owner }: { owner: NonNullable<WorkItem['owner']> }) {
   );
 }
 
-/** A page's sections as one bar and one number (#6619): a segment per section, done over counted. */
-function RowSections({ sections }: { sections: readonly SectionSummary[] }) {
-  const { done, total } = sectionTotals(sections);
+/** Use counted sections when available and direct sub-pages otherwise. */
+function PageProgress({ item }: { item: WorkItem }) {
+  const progress = item.sections ? sectionTotals(item.sections) : item.work;
+  const label = progress
+    ? item.sections
+      ? text.sections.summaryLabel(progress.done, progress.total)
+      : t.subpageProgress(progress.done, progress.total)
+    : t.progressUnavailable;
   return (
     <span className="work-home-sections">
-      <BrowserSegments
-        label={text.sections.summaryLabel(done, total)}
-        states={sections.map((section) => segmentState(section.state))}
-      />
-      <span aria-hidden="true">{text.sections.count(done, total)}</span>
+      <span className="work-home-progress" role="img" aria-label={label} title={label}>
+        <span
+          style={{ width: progress?.total ? `${(100 * progress.done) / progress.total}%` : 0 }}
+        />
+      </span>
+      <span aria-hidden="true">
+        {progress ? text.sections.count(progress.done, progress.total) : '—'}
+      </span>
     </span>
   );
 }
@@ -257,46 +257,88 @@ function WorkRow({
   item,
   now,
   transport,
+  pageRow = false,
 }: {
   item: WorkItem;
   now: number;
   transport: PageTransport;
+  pageRow?: boolean;
 }) {
   // The title's link covers the row (work-home.css), so the status and owner controls sit beside
   // it rather than inside a link.
   return (
     <WorkRowPart
       words={t.highPriorityBadge}
-      className="work-home-row"
+      className={pageRow ? 'work-home-row work-home-page-row' : 'work-home-row'}
       state={item.status}
       number={item.number}
       statusControl={<RowStatus item={item} transport={transport} />}
       priority={item.high ? 'high' : 'normal'}
       title={
-        <Link
-          className="work-home-row-link"
-          to="/pages/$pageId"
-          params={{ pageId: item.pageId }}
-          {...(item.blockId ? { hash: `block-${item.blockId}` } : {})}
-        >
-          {item.title}
-        </Link>
+        <>
+          <Link
+            className="work-home-row-link"
+            to="/pages/$pageId"
+            params={{ pageId: item.pageId }}
+            {...(item.blockId ? { search: { anchor: item.blockId } } : {})}
+          >
+            {item.title}
+          </Link>
+          {pageRow && item.number && (
+            <span aria-hidden="true" className="work-home-inline-number">
+              {item.number}
+            </span>
+          )}
+        </>
       }
-      next={
-        item.status === 'waiting-ci'
-          ? [openPrStatus().label, item.next].filter(Boolean).join(' · ')
-          : item.status === 'blocked' && item.next
-            ? 'Blocked: ' + item.next
-            : item.next
-      }
-      sections={item.sections ? <RowSections sections={item.sections} /> : undefined}
+      next={rowSummary(item)}
+      sections={pageRow || item.sections ? <PageProgress item={item} /> : undefined}
       ownerControl={item.owner ? <OwnerCell owner={item.owner} /> : undefined}
       time={age(item.lastMs, now)}
     />
   );
 }
 
-/** Work home (#6474): what is open now, what got done, each project's work, and what finished. */
+function rowSummary(item: WorkItem): string | undefined {
+  if (item.status === 'waiting-ci')
+    return [openPrStatus().label, item.next].filter(Boolean).join(' · ');
+  if (item.status === 'blocked' && item.next) return `Blocked: ${item.next}`;
+  if (item.status === 'needs-you') {
+    const section = item.sections && stuckSection(item.sections);
+    if (section?.state === 'needs-you') return `${t.status['needs-you']}: ${section.title}`;
+    if (item.needsYou) return t.waitingOnYou(item.needsYou);
+    return item.next ? `${t.status['needs-you']}: ${item.next}` : t.status['needs-you'];
+  }
+  return item.next;
+}
+
+function TodoRow({ item, now }: { item: WorkItem; now: number }) {
+  const status = overviewStatus(item.status);
+  const waiting = status === 'needs-you';
+  return (
+    <li>
+      <Link
+        className="work-home-todo"
+        to="/pages/$pageId"
+        params={{ pageId: item.pageId }}
+        search={{ anchor: item.blockId }}
+      >
+        <span className="work-home-todo-mark" aria-hidden="true" />
+        <span className="work-home-todo-number">{item.number}</span>
+        <span className="work-home-todo-title">
+          <span>{item.title}</span>
+          <small>{item.pageTitle}</small>
+        </span>
+        <span className="work-home-todo-status" data-waiting={waiting || undefined}>
+          {waiting ? t.status['needs-you'] : (item.owner?.name ?? (status && t.status[status]))}
+        </span>
+        <span className="work-home-todo-time">{age(item.lastMs, now)}</span>
+      </Link>
+    </li>
+  );
+}
+
+/** The page and to-do views share project scope. Project order has its own URL entry. */
 export function WorkHome() {
   const space = workRoute.useLoaderData();
   const { transport } = rootRoute.useRouteContext();
@@ -332,6 +374,7 @@ export function WorkHome() {
   const only = search.status;
   const expanded = new Set(search.more);
   const [newPage, setNewPage] = useState(false);
+  const [view, setView] = useState(storedView);
   useSpaceTitle(t.title, 'Colab');
   const all = useMemo(() => workItems(pages), [pages]);
   const reread = useMemo(() => () => void router.invalidate(), [router]);
@@ -345,21 +388,44 @@ export function WorkHome() {
   // A remembered project that no page names any more falls back to every project.
   const scope = project !== undefined && projectNames.includes(project) ? project : undefined;
   const items = all.filter((item) => inProject(item, scope));
+  const todoItems = useMemo(
+    () => (view === 'todos' ? workItems(pages, 'todos') : []),
+    [pages, view],
+  );
+  const todos = todoItems.filter((item) => inProject(item, scope)).sort(byTodoAttention);
+  const todoCounts = overview(todos);
+  const todosOmitted =
+    view === 'todos' &&
+    pages.some(
+      (page) =>
+        !page.archived &&
+        page.summary?.todosOmitted &&
+        (scope === undefined || page.projects?.includes(scope)),
+    );
+  const canOpenOrder =
+    !!scope && (!!space.projectOrders || !!space.projectOrdersOmitted?.includes(scope));
+  const editingOrder = search.order && canOpenOrder ? scope : undefined;
   const orderItems = useMemo(
     () =>
-      scope && space.projectOrders
-        ? workItems(pages, true)
-            .filter((item) => inProject(item, scope) && item.status !== 'done')
+      editingOrder
+        ? workItems(pages, 'order')
+            .filter((item) => inProject(item, editingOrder) && item.status !== 'done')
             .sort(byAttention)
         : [],
-    [pages, scope, space.projectOrders],
+    [pages, editingOrder],
   );
-  const now7 = overview(items);
+  const pageCounts = overview(items);
   const week = doneChart(items, 'week', now);
   const chart = doneChart(items, period, now);
-  const sections = projectSections(items, scope === undefined ? projectNames : [scope], now).filter(
-    (section) => scope === undefined || section.name === scope,
-  );
+  const sections = projectSections(items, scope === undefined ? projectNames : [scope], now)
+    .filter((section) => scope === undefined || section.name === scope)
+    .map((section) => ({
+      section,
+      rows: section.open.filter(
+        (item) => only === undefined || overviewStatus(item.status) === only,
+      ),
+    }))
+    .filter(({ rows }) => rows.length > 0);
   // A day from another period or an older reading names no cell: the whole recent list.
   const cell =
     search.day === undefined ? -1 : chart.cells.findIndex((entry) => entry.from === search.day);
@@ -367,7 +433,9 @@ export function WorkHome() {
   const recent = recentlyDone(items, 10, chosen);
   const doneToday = doneChart(items, 'today', now).total;
   const openIn = (name: string | undefined) =>
-    all.filter((item) => item.status !== 'done' && inProject(item, name)).length;
+    (view === 'pages' ? all : todoItems).filter(
+      (item) => item.status !== 'done' && inProject(item, name),
+    ).length;
   const cellLabel = (index: number) =>
     period === 'today'
       ? `${new Date(chart.cells[index].from).getHours()}:00`
@@ -378,18 +446,307 @@ export function WorkHome() {
           : dateLabel(chart.cells[index].from);
   const busiest = Math.max(1, ...chart.cells.map((entry) => entry.count));
 
-  if (!all.length)
-    return (
-      <section className="work-home tmt-ui-page" data-work-home>
-        <AppHeader workView="home" remote={{ deviceName: transport.backendName }} />
-        <div className="work-home-empty">
-          <p>{t.empty}</p>
-          {transport.management ? (
-            <button type="button" className="tmt-ui-action" onClick={() => setNewPage(true)}>
-              {t.newPage}
-            </button>
-          ) : null}
+  return (
+    <section className="work-home tmt-ui-page" data-work-home>
+      <AppHeader workView="home" remote={{ deviceName: transport.backendName }} />
+      <div className="work-home-body">
+        <div className="work-home-head">
+          <h1 className="work-home-title">{t.title}</h1>
+          <div className="work-home-projects" role="group" aria-label={t.projectFilter}>
+            {[
+              undefined,
+              ...projectNames.filter(
+                (name) =>
+                  name === scope ||
+                  (view === 'pages'
+                    ? openIn(name) > 0
+                    : todoItems.some((item) => inProject(item, name))),
+              ),
+            ].map((name) => (
+              <button
+                key={name ?? ''}
+                type="button"
+                className="work-home-project"
+                aria-pressed={scope === name}
+                onClick={() => {
+                  storeProject(name);
+                  go({ project: name, day: undefined, more: undefined, order: undefined });
+                }}
+              >
+                {name ?? t.all}
+                <span>{openIn(name)}</span>
+              </button>
+            ))}
+            {canOpenOrder && (
+              <button
+                type="button"
+                className="work-home-project"
+                onClick={() => go({ order: editingOrder ? undefined : true })}
+              >
+                {editingOrder ? t.backToHome : t.projectOrder}
+              </button>
+            )}
+          </div>
         </div>
+
+        {editingOrder ? (
+          <WorkOrderView
+            key={editingOrder}
+            project={editingOrder}
+            refresh={reread}
+            rows={orderItems}
+            listed={space.projectOrders?.[editingOrder]}
+            omitted={space.projectOrdersOmitted?.includes(editingOrder) ?? false}
+            transport={transport}
+            renderRow={(item) => <WorkRow item={item} now={now} transport={transport} />}
+          />
+        ) : (
+          <>
+            {view === 'pages' && all.length > 0 && (
+              <ul className="work-home-overview" aria-label={t.now}>
+                {(['working', 'needs-you', 'blocked'] as const).map((status) => (
+                  <li key={status} data-state={status}>
+                    <button
+                      type="button"
+                      className="tmt-ui-work-count"
+                      aria-label={`${pageCounts.counts[status]} ${t.status[status]}`}
+                      aria-pressed={only === status}
+                      onClick={() => go({ status: only === status ? undefined : status })}
+                    >
+                      <span className="tmt-ui-work-count-number">{pageCounts.counts[status]}</span>
+                      <span>{pageCountLabels[status]}</span>
+                    </button>
+                  </li>
+                ))}
+                <li>
+                  <span className="tmt-ui-work-count-number">{week.total}</span>
+                  <span>{t.donePages}</span>
+                </li>
+              </ul>
+            )}
+            <div className="work-home-view-bar">
+              <div className="work-home-view" role="group" aria-label={t.view}>
+                {(['pages', 'todos'] as const).map((choice) => (
+                  <button
+                    key={choice}
+                    type="button"
+                    aria-pressed={view === choice}
+                    onClick={() => {
+                      setView(choice);
+                      storeView(choice);
+                    }}
+                  >
+                    {choice === 'pages' ? t.pagesOnly : t.todosOnly}
+                  </button>
+                ))}
+              </div>
+              <span>
+                {view === 'pages'
+                  ? t.byAttention
+                  : t.todoCounts(todoCounts.open, todoCounts.counts['needs-you'])}
+              </span>
+            </div>
+            {view === 'todos' ? (
+              <div>
+                {todos.length ? (
+                  <ul className="work-home-todos">
+                    {todos.map((item) => (
+                      <TodoRow key={item.key} item={item} now={now} />
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="work-home-none">{t.noTodos}</p>
+                )}
+                <p className="work-home-none">{t.todoEligibility}</p>
+                {todosOmitted && <p className="work-home-none">{t.todosOmitted}</p>}
+              </div>
+            ) : !all.length ? (
+              <div className="work-home-empty">
+                <p>{t.empty}</p>
+                {transport.management && (
+                  <button type="button" className="tmt-ui-action" onClick={() => setNewPage(true)}>
+                    {t.newPage}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                {only && (
+                  <button
+                    type="button"
+                    className="work-home-clear"
+                    onClick={() => go({ status: undefined })}
+                  >
+                    {t.showAll}
+                  </button>
+                )}
+                {!sections.length && <p className="work-home-none">{t.noPages}</p>}
+                {sections.map(({ section, rows }) => {
+                  const key = section.name ?? '';
+                  const open = expanded.has(key);
+                  const shown = open ? rows : rows.slice(0, SHOWN);
+                  return (
+                    <section
+                      key={key}
+                      className="work-home-page-group"
+                      aria-label={section.name ?? t.noProject}
+                    >
+                      <div className="work-home-section-head">
+                        <h3>
+                          {section.name ?? t.noProject}
+                          {section.prefix ? <span>{section.prefix}</span> : null}
+                        </h3>
+                        <span className="work-home-section-counts">
+                          {t.projectCount(section.open.length, section.counts['needs-you'] ?? 0)}
+                        </span>
+                      </div>
+                      <div className="work-home-rows">
+                        {shown.map((item) => (
+                          <WorkRow
+                            key={item.key}
+                            item={item}
+                            now={now}
+                            transport={transport}
+                            pageRow
+                          />
+                        ))}
+                      </div>
+                      {rows.length > SHOWN ? (
+                        <button
+                          type="button"
+                          className="work-home-more"
+                          aria-expanded={open}
+                          onClick={() => {
+                            const next = new Set(expanded);
+                            if (open) next.delete(key);
+                            else next.add(key);
+                            go({ more: next.size ? [...next] : undefined });
+                          }}
+                        >
+                          {open ? t.showFewer : t.showMore(rows.length - SHOWN)}
+                        </button>
+                      ) : null}
+                      {section.name &&
+                        (space.projectOrders?.[section.name] ||
+                          space.projectOrdersOmitted?.includes(section.name)) &&
+                        !scope && (
+                          <button
+                            type="button"
+                            className="work-home-more"
+                            onClick={() => {
+                              storeProject(section.name);
+                              go({
+                                project: section.name,
+                                order: true,
+                                day: undefined,
+                                more: undefined,
+                              });
+                            }}
+                          >
+                            {t.projectOrder}
+                          </button>
+                        )}
+                    </section>
+                  );
+                })}
+
+                <div className="work-home-completion">
+                  <section className="work-home-card" aria-labelledby="work-home-done">
+                    <div className="work-home-card-head">
+                      <h2 id="work-home-done">{t.done}</h2>
+                      <span className="work-home-periods" role="group" aria-label={t.period}>
+                        {(['today', 'week', 'month'] as const).map((choice) => (
+                          <button
+                            key={choice}
+                            type="button"
+                            aria-pressed={period === choice}
+                            onClick={() =>
+                              go({ period: choice === 'week' ? undefined : choice, day: undefined })
+                            }
+                          >
+                            {t.periods[choice]}
+                          </button>
+                        ))}
+                      </span>
+                    </div>
+                    <p className="work-home-total">
+                      <span>{chart.total}</span> {t.doneTotal(chart.previous, period)}
+                    </p>
+                    <ul className="tmt-ui-work-done" aria-label={t.done} data-period={period}>
+                      {chart.cells.map((entry, index) => (
+                        <li key={entry.from}>
+                          <button
+                            type="button"
+                            className="tmt-ui-work-done-cell"
+                            aria-label={t.doneCell(cellLabel(index), entry.count)}
+                            aria-pressed={cell === index}
+                            data-current={entry.current ? '' : undefined}
+                            onClick={() => go({ day: cell === index ? undefined : entry.from })}
+                          >
+                            <WorkDoneCellContent
+                              count={entry.count}
+                              max={busiest}
+                              label={
+                                period === 'week' || entry.current || index % 6 === 0
+                                  ? cellLabel(index)
+                                  : ''
+                              }
+                            />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                </div>
+                <h2 className="work-home-heading">
+                  {chosen ? t.recentIn(cellLabel(cell)) : t.recent}{' '}
+                  {!chosen ? <span>{t.recentCount(doneToday)}</span> : null}
+                  {chosen ? (
+                    <button
+                      type="button"
+                      className="work-home-clear"
+                      onClick={() => go({ day: undefined })}
+                    >
+                      {t.clearDay}
+                    </button>
+                  ) : null}
+                </h2>
+                {recent.length ? (
+                  <ul className="work-home-recent">
+                    {recent.map((item) => (
+                      <li key={item.key}>
+                        <Link to="/pages/$pageId" params={{ pageId: item.pageId }}>
+                          <span className="work-home-recent-mark" aria-hidden="true">
+                            ✓
+                          </span>
+                          <span className="work-home-recent-number">{item.number ?? ''}</span>
+                          <span className="work-home-recent-title">{item.title}</span>
+                          {item.owner ? (
+                            <span className="work-home-recent-owner">
+                              <BrowserAvatar
+                                name={item.owner.name}
+                                kind="agent"
+                                size="s"
+                                decorative
+                              />
+                              <span>{item.owner.name}</span>
+                            </span>
+                          ) : null}
+                          <span className="work-home-recent-release">{item.release ?? ''}</span>
+                          <span className="work-home-recent-time">
+                            {doneLabel(item.doneAtMs!, now)}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="work-home-none">{t.nothingDone}</p>
+                )}
+              </>
+            )}
+          </>
+        )}
         <NewPageDialog
           open={newPage}
           onClose={() => setNewPage(false)}
@@ -401,303 +758,6 @@ export function WorkHome() {
           }}
           focusFallback={() => null}
         />
-      </section>
-    );
-
-  return (
-    <section className="work-home tmt-ui-page" data-work-home>
-      <AppHeader workView="home" remote={{ deviceName: transport.backendName }} />
-      <div className="work-home-body">
-        <div className="work-home-head">
-          <div>
-            <h1 className="work-home-title">{t.title}</h1>
-            <p className="work-home-summary">
-              {t.summary(now7.open, now7.moving.length, week.total)}
-            </p>
-          </div>
-          <div className="work-home-projects" role="group" aria-label={t.projectFilter}>
-            {[undefined, ...projectNames.filter((name) => openIn(name) > 0)].map((name) => (
-              <button
-                key={name ?? ''}
-                type="button"
-                className="work-home-project"
-                aria-pressed={scope === name}
-                onClick={() => {
-                  storeProject(name);
-                  go({ project: name, day: undefined, more: undefined });
-                }}
-              >
-                {name ?? t.all}
-                <span>{openIn(name)}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="work-home-cards">
-          <section className="work-home-card" aria-labelledby="work-home-now">
-            <div className="work-home-card-head">
-              <h2 id="work-home-now">{t.now}</h2>
-              <span>{t.open(now7.open)}</span>
-            </div>
-            <ul className="tmt-ui-work-overview" aria-label={t.now}>
-              {OVERVIEW.filter(
-                (status) => now7.counts[status] > 0 || !HIDDEN_WHEN_ZERO.has(status),
-              ).map((status) => (
-                <li key={status}>
-                  <button
-                    type="button"
-                    className="tmt-ui-work-count"
-                    aria-pressed={only === status}
-                    aria-label={`${now7.counts[status]} ${t.status[status]}`}
-                    data-zero={now7.counts[status] === 0 ? '' : undefined}
-                    onClick={() => go({ status: only === status ? undefined : status })}
-                  >
-                    <WorkCountContent
-                      count={now7.counts[status]}
-                      state={partState(status)}
-                      label={t.status[status]}
-                    />
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <Ratio counts={now7.counts} />
-            {now7.moving.length ? (
-              <div className="work-home-moving">
-                <span>{t.moving}</span>
-                <span className="work-home-avatars">
-                  {now7.moving.map((owner) => (
-                    <BrowserAvatar key={owner.name} name={owner.name} kind="agent" size="s" />
-                  ))}
-                </span>
-              </div>
-            ) : null}
-            {now7.stuckLongest || now7.quietest ? (
-              <div className="work-home-notes">
-                {now7.stuckLongest ? (
-                  <p>
-                    <Dot status="blocked" />
-                    <span>{t.stuckLongest}</span>
-                    <span>
-                      {[now7.stuckLongest.number, now7.stuckLongest.title]
-                        .filter(Boolean)
-                        .join(' ')}{' '}
-                      · {age(now7.stuckLongest.blockedSinceMs ?? now7.stuckLongest.lastMs, now)}
-                    </span>
-                  </p>
-                ) : null}
-                {now7.quietest ? (
-                  <p>
-                    <Dot status="possibly-stalled" />
-                    <span>{t.quietest}</span>
-                    <span>
-                      {[now7.quietest.number, now7.quietest.title].filter(Boolean).join(' ')} ·{' '}
-                      {age(now7.quietest.lastMs, now)}
-                    </span>
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
-
-          <section className="work-home-card" aria-labelledby="work-home-done">
-            <div className="work-home-card-head">
-              <h2 id="work-home-done">{t.done}</h2>
-              <span className="work-home-periods" role="group" aria-label={t.period}>
-                {(['today', 'week', 'month'] as const).map((choice) => (
-                  <button
-                    key={choice}
-                    type="button"
-                    aria-pressed={period === choice}
-                    onClick={() =>
-                      go({ period: choice === 'week' ? undefined : choice, day: undefined })
-                    }
-                  >
-                    {t.periods[choice]}
-                  </button>
-                ))}
-              </span>
-            </div>
-            <p className="work-home-total">
-              <span>{chart.total}</span> {t.doneTotal(chart.previous, period)}
-            </p>
-            <ul className="tmt-ui-work-done" aria-label={t.done} data-period={period}>
-              {chart.cells.map((entry, index) => (
-                <li key={entry.from}>
-                  <button
-                    type="button"
-                    className="tmt-ui-work-done-cell"
-                    aria-label={t.doneCell(cellLabel(index), entry.count)}
-                    aria-pressed={cell === index}
-                    data-current={entry.current ? '' : undefined}
-                    onClick={() => go({ day: cell === index ? undefined : entry.from })}
-                  >
-                    <WorkDoneCellContent
-                      count={entry.count}
-                      max={busiest}
-                      label={
-                        period === 'week' || entry.current || index % 6 === 0
-                          ? cellLabel(index)
-                          : ''
-                      }
-                    />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
-
-        <h2 className="work-home-heading">
-          {scope && space.projectOrders ? null : (
-            <>
-              {t.projects} <span>{sections.filter((section) => section.name).length}</span>
-            </>
-          )}
-          {only ? (
-            <button
-              type="button"
-              className="work-home-clear"
-              onClick={() => go({ status: undefined })}
-            >
-              {t.showAll}
-            </button>
-          ) : null}
-        </h2>
-        {sections.map((section) => {
-          const key = section.name ?? '';
-          const rows = section.open.filter(
-            (item) => only === undefined || overviewStatus(item.status) === only,
-          );
-          if (scope && (space.projectOrders || space.projectOrdersOmitted?.includes(scope))) {
-            return (
-              <WorkOrderView
-                key={scope}
-                project={scope}
-                refresh={reread}
-                rows={orderItems.filter(
-                  (item) => only === undefined || overviewStatus(item.status) === only,
-                )}
-                listed={space.projectOrders?.[scope]}
-                omitted={space.projectOrdersOmitted?.includes(scope) ?? false}
-                transport={transport}
-                renderRow={(item) => <WorkRow item={item} now={now} transport={transport} />}
-              />
-            );
-          }
-          const open = expanded.has(key);
-          const shown = open ? rows : rows.slice(0, SHOWN);
-          return (
-            <section
-              key={key}
-              className="work-home-card work-home-project-section"
-              aria-label={section.name ?? t.noProject}
-            >
-              <div className="work-home-section-head">
-                <h3>
-                  {section.name ?? t.noProject}
-                  {section.prefix ? <span>{section.prefix}</span> : null}
-                </h3>
-                <span className="work-home-section-counts">
-                  {OVERVIEW.filter((status) => section.counts[status]).map((status) => (
-                    <span key={status}>
-                      <Dot status={partState(status)} />
-                      {section.counts[status]} {t.status[status]}
-                    </span>
-                  ))}
-                  <span className="work-home-avatars" aria-hidden="true">
-                    {section.owners.map((owner) => (
-                      <BrowserAvatar
-                        key={owner.name}
-                        name={owner.name}
-                        kind="agent"
-                        size="s"
-                        decorative
-                      />
-                    ))}
-                  </span>
-                </span>
-              </div>
-              <Ratio counts={section.counts} />
-              <div className="work-home-rows">
-                {shown.map((item) => (
-                  <WorkRow key={item.key} item={item} now={now} transport={transport} />
-                ))}
-              </div>
-              {rows.length > SHOWN ? (
-                <button
-                  type="button"
-                  className="work-home-more"
-                  aria-expanded={open}
-                  onClick={() => {
-                    const next = new Set(expanded);
-                    if (open) next.delete(key);
-                    else next.add(key);
-                    go({ more: next.size ? [...next] : undefined });
-                  }}
-                >
-                  {open ? t.showFewer : t.showMore(rows.length - SHOWN)}
-                </button>
-              ) : null}
-              {section.name && space.projectOrders?.[section.name] && (
-                <WorkNextLine
-                  titles={rankedNext(section.open, space.projectOrders[section.name])
-                    .slice(0, 3)
-                    .map((row) => row.title)}
-                />
-              )}
-              {section.name && space.projectOrdersOmitted?.includes(section.name) && (
-                <button
-                  type="button"
-                  className="work-home-more"
-                  onClick={() => go({ project: section.name })}
-                >
-                  View Next in {section.name}
-                </button>
-              )}
-            </section>
-          );
-        })}
-
-        <h2 className="work-home-heading">
-          {chosen ? t.recentIn(cellLabel(cell)) : t.recent}{' '}
-          {!chosen ? <span>{t.recentCount(doneToday)}</span> : null}
-          {chosen ? (
-            <button
-              type="button"
-              className="work-home-clear"
-              onClick={() => go({ day: undefined })}
-            >
-              {t.clearDay}
-            </button>
-          ) : null}
-        </h2>
-        {recent.length ? (
-          <ul className="work-home-recent">
-            {recent.map((item) => (
-              <li key={item.key}>
-                <Link to="/pages/$pageId" params={{ pageId: item.pageId }}>
-                  <span className="work-home-recent-mark" aria-hidden="true">
-                    ✓
-                  </span>
-                  <span className="work-home-recent-number">{item.number ?? ''}</span>
-                  <span className="work-home-recent-title">{item.title}</span>
-                  {item.owner ? (
-                    <span className="work-home-recent-owner">
-                      <BrowserAvatar name={item.owner.name} kind="agent" size="s" decorative />
-                      <span>{item.owner.name}</span>
-                    </span>
-                  ) : null}
-                  <span className="work-home-recent-release">{item.release ?? ''}</span>
-                  <span className="work-home-recent-time">{doneLabel(item.doneAtMs!, now)}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="work-home-none">{t.nothingDone}</p>
-        )}
       </div>
     </section>
   );
