@@ -39,7 +39,7 @@ $ tmt resume --forget reviewer  # drop the remembered conversation
 
 tmt 只記住 driver 透過 agent hook 回報的資訊。`/clear` 或新的 session 會取代記錄，identity 切換到另一個 agent 程式時也會丟棄舊記錄。移除 identity 同樣會刪除。若對話已不存在，tmt 會明說，不會背著你開始新對話。確定要重新開始時，使用 `tmt run reviewer`。窗格由你選擇：tmt 不會恢復 tmux 版面。`tmt run --resume <name>` 仍可作為別名使用。
 
-啟用實驗性通道設定時，精確恢復會沿用上次獲准啟動時的通道選擇。`--channel` 或 `--no-channel` 可變更恢復會話所用的選擇。關閉該設定會使用貼上，但不會清除記住的選擇。Codex 的通道會連上記住的確切 thread，不會另開新 thread。
+啟用實驗性通道設定時，精確恢復會沿用上次獲准啟動時的通道選擇。`--channel` 或 `--no-channel` 可變更恢復的 session 所用的選擇。關閉該設定會使用貼上，但不會清除記住的選擇。Codex 的通道會連上記住的確切 thread，不會另開新 thread。
 
 若在 agent 確認 session 前恢復失敗，tmt 會標記為 stale，等你決定才再試：`tmt resume --retry reviewer` 再試一次，`--forget` 則丟棄記錄。Ctrl-C 不會將 session 標成 stale。
 
