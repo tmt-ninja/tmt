@@ -2652,15 +2652,17 @@ child.stdout.pipe(process.stdout);
               }
             }
           }
-          return { underlined, reversed };
+          const plainCapture = selectedCapture.replace(sgr, '');
+          const readerReady = plainCapture.includes('←→ mentions · Enter actions');
+          return { underlined, reversed, readerReady };
         };
         fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
         await fixture
           .waitFor(
-            () =>
-              readLinkStyle().underlined &&
-              selectedCapture.includes('←→ mentions') &&
-              selectedCapture.includes('Enter actions'),
+            () => {
+              const { underlined, readerReady } = readLinkStyle();
+              return underlined && readerReady;
+            },
             10_000,
             'the reader paints the transcript URL as actionable'
           )
