@@ -116,11 +116,18 @@ impl MenuSurface {
         let room_picker_footer = if anchored && matches!(presentation, Presentation::Actions) {
             // A list of lines of one address: Enter copies it, Esc goes back to the popover.
             Some(
-                if entries
-                    .iter()
-                    .all(|entry| matches!(&entry.choice, Choice::LinkCopy(_) | Choice::FileCopy(_)))
-                {
+                if entries.iter().all(|entry| {
+                    matches!(
+                        &entry.choice,
+                        Choice::LinkCopy(_) | Choice::FileCopy(_) | Choice::CommandCopy(_)
+                    )
+                }) {
                     "Enter copies · Esc back"
+                } else if entries
+                    .iter()
+                    .any(|entry| matches!(&entry.choice, Choice::CommandShow { .. }))
+                {
+                    "⏎ opens Run · Esc closes"
                 } else {
                     FOOTER
                 }

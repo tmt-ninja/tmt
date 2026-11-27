@@ -19,6 +19,7 @@ use tmt_tui::components::{
     Button, Dialog, DialogHits, DialogInput, DialogKind, DialogState, Editor, FieldKind, Placement,
     strip,
 };
+use unicode_width::UnicodeWidthStr;
 pub(super) use worker::Worker;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -550,7 +551,7 @@ impl Controller {
                                 .is_some_and(|request| request["command"].is_string()),
                     ),
                 ],
-                "Esc close",
+                "",
                 &[][..],
             ),
             Some(Page::Remove { .. }) => (
@@ -621,28 +622,40 @@ impl Controller {
             state,
             Overlay::Standalone,
         );
-        if form {
-            // The form uses the otherwise empty position row immediately above its buttons.
+        let finished = matches!(self.page, Some(Page::Finished { .. }));
+        if form || finished {
+            // The position row above the buttons carries content on these pages.
             hits.content.height += area.position.height;
         }
-        if matches!(self.page, Some(Page::Finished { .. })) && !area.position.is_empty() {
-            let hint = if self
+        if finished {
+            let hints = if self
                 .request
                 .as_ref()
                 .is_some_and(|request| request["command"].is_string())
             {
-                "↑↓ scroll · e edit"
+                "↑↓ scroll · k keep · r run again · e edit · Esc close"
             } else {
-                "↑↓ scroll"
+                "↑↓ scroll · k keep · r run again · Esc close"
             };
-            strip::paint_left(
-                frame.buffer_mut(),
-                area.position,
-                Line::styled(
-                    super::view::fit(hint, area.position.width as usize),
-                    look.role(tmt_cli_style::Role::Dim),
-                ),
-            );
+            let button_end = hits
+                .buttons
+                .iter()
+                .flatten()
+                .map(|rect| rect.right())
+                .max()
+                .unwrap_or(area.footer.x);
+            let available = area
+                .footer
+                .right()
+                .saturating_sub(button_end)
+                .saturating_sub(2);
+            if let Some(hint) = result_hints_that_fit(hints, available) {
+                strip::paint_right(
+                    frame.buffer_mut(),
+                    area.footer,
+                    Line::styled(hint, look.role(tmt_cli_style::Role::Dim)),
+                );
+            }
         }
         let mut content = hits.content;
         let role = look.role(tmt_cli_style::Role::Text);
@@ -782,6 +795,13 @@ impl Controller {
             None => Vec::new(),
         }
     }
+}
+
+fn result_hints_that_fit(mut hints: &str, width: u16) -> Option<&str> {
+    while hints.width() > usize::from(width) {
+        hints = hints.split_once(" · ")?.1;
+    }
+    Some(hints)
 }
 
 fn wrapped_output<'a>(

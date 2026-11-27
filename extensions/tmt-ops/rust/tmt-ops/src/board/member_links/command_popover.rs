@@ -118,6 +118,7 @@ pub(super) fn capture_case(
     use crate::board::{
         app::workspace::tests::{MEMBER, board},
         inventory::Inventory,
+        member_terminals::{Completed, List, Listed},
     };
     use ratatui::{Terminal, backend::TestBackend};
     let mut app = board();
@@ -136,6 +137,30 @@ pub(super) fn capture_case(
     if !open {
         return app;
     }
+    app.terminals.finished(
+        Completed::Listed(vec![(
+            MEMBER.into(),
+            List::Terminals(vec![
+                Listed {
+                    id: format!("term_{}", "1".repeat(32)),
+                    socket: "/tmp/oracle-inert-terminal.sock".into(),
+                    busy: false,
+                    created_ms: 1,
+                    shell: Some("sh".into()),
+                    program: None,
+                },
+                Listed {
+                    id: format!("term_{}", "2".repeat(32)),
+                    socket: "/tmp/oracle-inert-busy.sock".into(),
+                    busy: true,
+                    created_ms: 2,
+                    shell: Some("sh".into()),
+                    program: Some("build".into()),
+                },
+            ]),
+        )]),
+        0,
+    );
     let draw = |app: &App| {
         Terminal::new(TestBackend::new(width, height))
             .unwrap()
@@ -226,6 +251,7 @@ mod tests {
             .map(|entry| entry.label.as_str())
             .collect();
         assert_eq!(labels, ["Run…"]);
+        assert!(draw(&app, 120, 40).contains("⏎ opens Run"));
 
         assert!(matches!(
             press(&mut app, KeyCode::Enter),

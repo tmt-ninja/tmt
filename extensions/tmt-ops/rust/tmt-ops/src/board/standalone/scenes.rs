@@ -401,7 +401,7 @@ fn run_window_result_reports_exit_and_duration_with_enter_to_keep_and_escape_to_
 
     let finished = || capture("run-command-result", crate::look::Look::default());
     let mut app = finished();
-    let mut screen = Terminal::new(TestBackend::new(100, 36)).unwrap();
+    let mut screen = Terminal::new(TestBackend::new(160, 36)).unwrap();
     screen
         .draw(|frame| app.standalone.render(frame, &app, frame.area()))
         .unwrap();
@@ -418,7 +418,7 @@ fn run_window_result_reports_exit_and_duration_with_enter_to_keep_and_escape_to_
         "Run again",
         "Close",
         "Edit",
-        "↑↓ scroll",
+        "↑↓ scroll · k keep · r run again · e edit · Esc close",
     ] {
         assert!(text.contains(expected), "missing {expected:?}");
     }
@@ -434,6 +434,34 @@ fn run_window_result_reports_exit_and_duration_with_enter_to_keep_and_escape_to_
     );
     assert!(!app.standalone.shown());
     assert!(app.standalone.page.is_none());
+}
+
+#[test]
+fn run_result_hints_shorten_from_the_left_and_share_the_button_row() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut app = capture("run-command-result", crate::look::Look::default());
+    let Some(Page::Finished { result, .. }) = app.standalone.page.as_mut() else {
+        panic!("finished command");
+    };
+    result["stdout"] = (0..20)
+        .map(|number| format!("output row {number:02}\n"))
+        .collect::<String>()
+        .into();
+    let mut screen = Terminal::new(TestBackend::new(100, 36)).unwrap();
+    screen
+        .draw(|frame| app.standalone.render(frame, &app, frame.area()))
+        .unwrap();
+    let buffer = screen.backend().buffer();
+    let row = |y| {
+        (0..100)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect::<String>()
+    };
+    let footer = (1..36).find(|y| row(*y).contains("Keep in list")).unwrap();
+    assert!(row(footer).contains("e edit · Esc close"));
+    assert!(!row(footer).contains("↑↓ scroll"));
+    assert!(row(footer - 1).contains("output row"));
 }
 
 #[test]
