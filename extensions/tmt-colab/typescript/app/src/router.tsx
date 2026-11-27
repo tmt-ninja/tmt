@@ -1882,7 +1882,8 @@ function OpenPage({
   const [barLabels, setBarLabels] = useState<readonly string[]>([]);
   // The shell's side menu, collapsed: the bar leads with the way back and the outline becomes a
   // strip, only for the route's own page, not one hosted in a panel or Design (#6833).
-  const railCollapsed = useRailCollapsed() && !embedded;
+  const mountedShell = useContext(ShellHostSlot)?.main.closest('.tmt-ui-shell');
+  const railCollapsed = useRailCollapsed(mountedShell ?? undefined) && !embedded;
   const [addingSubpage, setAddingSubpage] = useState(false);
   // A phone viewer's sub-pages, opened from the page menu (#6652).
   const [viewerSheet, setViewerSheet] = useState(false);

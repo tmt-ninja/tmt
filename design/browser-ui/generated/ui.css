@@ -699,16 +699,8 @@
   .tmt\:origin-bottom-right {
     transform-origin: 100% 100%;
   }
-  .tmt\:-translate-x-1\/2 {
-    --tmt-foundation-tw-translate-x: calc(calc(1 / 2 * 100%) * -1);
-    translate: var(--tmt-foundation-tw-translate-x) var(--tmt-foundation-tw-translate-y);
-  }
   .tmt\:-translate-x-full {
     --tmt-foundation-tw-translate-x: -100%;
-    translate: var(--tmt-foundation-tw-translate-x) var(--tmt-foundation-tw-translate-y);
-  }
-  .tmt\:-translate-y-1\/2 {
-    --tmt-foundation-tw-translate-y: calc(calc(1 / 2 * 100%) * -1);
     translate: var(--tmt-foundation-tw-translate-x) var(--tmt-foundation-tw-translate-y);
   }
   .tmt\:-translate-y-full {
@@ -718,6 +710,9 @@
   .tmt\:-translate-y-px {
     --tmt-foundation-tw-translate-y: -1px;
     translate: var(--tmt-foundation-tw-translate-x) var(--tmt-foundation-tw-translate-y);
+  }
+  .tmt\:\[translate\:var\(--tmt-dialog-translate\,-50\%_-50\%\)\] {
+    translate: var(--tmt-dialog-translate, -50% -50%);
   }
   .tmt\:animate-pulse-calm {
     animation: tmt-foundation-pulse var(--tmt-foundation-motion-pulse)

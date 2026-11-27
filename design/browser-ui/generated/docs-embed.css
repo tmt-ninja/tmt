@@ -2125,8 +2125,7 @@ a.tmt-block-mention:focus-visible {
     height: 100cqh;
     max-width: none;
     max-height: none;
-    transform: none;
-    translate: none;
+    --tmt-dialog-translate: none;
   }
 }
 @media (max-width: 760px) {
@@ -2139,8 +2138,7 @@ a.tmt-block-mention:focus-visible {
     height: 100%;
     max-width: none;
     max-height: none;
-    transform: none;
-    translate: none;
+    --tmt-dialog-translate: none;
   }
 }
 
