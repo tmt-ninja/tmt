@@ -2430,7 +2430,10 @@ The result is `fromMs`, `throughMs`, `more` and `turns`: ended turns whose
 `startedAtMs`, `endedAtMs`, `requestIds` (the handed-over requests the turn carried),
 `measured`, `tokens` (`inputTokens`, `outputTokens`, `cachedInputTokens`, or null when
 no sum was kept) and `byModel` (`modelId`, `inputTokens`, `outputTokens`,
-`cachedInputTokens` rows, or null when the split is unknown). `more` means the next
+`cachedInputTokens` rows, plus an optional `cacheWriteTokens`; or null when the split is
+unknown). `cacheWriteTokens` is a subset of the row's input, present only when every bucket
+of the turn reported it for that model and the start bucket's share comes out without going
+negative; otherwise it is absent, never 0. `more` means the next
 page starts at the last `endedAtMs`; a turn ending at that instant can appear twice.
 
 `tokens` is the sum of the identity's 5-second usage buckets over the turn, less what

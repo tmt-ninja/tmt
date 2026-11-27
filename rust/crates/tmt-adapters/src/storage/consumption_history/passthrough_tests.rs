@@ -688,15 +688,16 @@ fn the_first_turn_after_a_hand_over_is_recorded_at_its_start_and_closed_at_its_e
 
     // A turn whose start and end each carried a read counts only its own tokens: what the
     // start read already left in its bucket is not the turn's.
-    let read = |input, output, sequence, by_model: Option<u64>| {
+    // The model share may report its cache writes (a subset of its input), as Claude does.
+    let read = |input, output, sequence, by_model: Option<(u64, Option<u64>)>| {
         let mut consumption = super::tests::latest(input, output, sequence, now()).consumption;
-        consumption.delta_by_model = by_model.map(|input| {
+        consumption.delta_by_model = by_model.map(|(input, cache_write_tokens)| {
             vec![ModelUsage {
                 model_id: "fixture-model".into(),
                 input_tokens: input,
                 output_tokens: 80,
                 cached_input_tokens: 0,
-                cache_write_tokens: None,
+                cache_write_tokens,
             }]
         });
         Some(consumption)
@@ -738,7 +739,7 @@ fn the_first_turn_after_a_hand_over_is_recorded_at_its_start_and_closed_at_its_e
         Some(end),
         None,
         true,
-        read(1_600, 180, 3, Some(600)),
+        read(1_600, 180, 3, Some((600, Some(250)))),
     );
     let turns = turns(&storage);
     let measured = turns.last().unwrap();
@@ -750,6 +751,8 @@ fn the_first_turn_after_a_hand_over_is_recorded_at_its_start_and_closed_at_its_e
     );
     assert_eq!(measured["byModel"][0]["modelId"], "fixture-model");
     assert_eq!(measured["byModel"][0]["inputTokens"], 600);
+    // The reported cache writes reach Digest, so a Claude wake-up is priced exactly (#6860).
+    assert_eq!(measured["byModel"][0]["cacheWriteTokens"], 250);
     storage.close().unwrap();
 }
 
