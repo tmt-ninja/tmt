@@ -628,8 +628,13 @@ describe('per-tag release run (native-release.yml)', () => {
     const plan = job(run, 'plan');
     expect(plan).toContain("if: github.ref == 'refs/heads/main'");
     expect(plan).toContain('typescript/scripts/plan-release-builds.mjs');
+    expect(plan).toContain(
+      'plan-release-builds.mjs --github --product "$PRODUCT" --tag "$RELEASE_TAG"'
+    );
     expect(plan).toContain('--product "$PRODUCT"');
     expect(plan).toContain('--retry "$RETRY"');
+    expect(plan).toContain("if: failure() && steps.plan.outputs.draft_missing == 'true'");
+    expect(plan).toContain('release-draft-assets.mjs record-plan-failure --tag "$RELEASE_TAG"');
     const bundleJob = job(run, 'bundle');
     expect(bundleJob).toContain('needs: plan');
     expect(bundleJob).not.toMatch(/max-parallel: 1/);
@@ -654,6 +659,7 @@ describe('per-tag release run (native-release.yml)', () => {
     expect(plan).not.toMatch(/node[^\n]*\s-e\s/);
     const shell = plan
       .slice(plan.indexOf('        run: |\n') + '        run: |\n'.length)
+      .split('\n      - ', 1)[0]!
       .split('\n')
       .map((line) => line.replace(/^ {10}/, ''))
       .join('\n');

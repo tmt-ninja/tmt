@@ -286,6 +286,12 @@ node typescript/scripts/release-retention.mjs plan --draft-visibility trusted [-
 `tag=<tag>`. Its pipeline concurrency group includes that tag. A tagless `prepare`
 run builds the selected main commit without a draft and publishes nothing.
 
+If the allocated tag is absent from the release list, planning reads it again up
+to five times at three-second intervals. A persistent miss fails the run and
+records the failure marker after an exact read confirms an unbundled draft.
+The failed allocation still reserves its version and no longer covers its
+commits in later cuts.
+
 The draft's `release-publication.json` marks a complete bundle: archives, the final
 manifest and CLI installers are uploaded first, their digests compared with local
 bytes, then `tmt-release-record.json` uploaded and read back before the marker is

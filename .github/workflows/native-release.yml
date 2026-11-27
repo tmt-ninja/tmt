@@ -97,9 +97,21 @@ jobs:
               echo 'Publication requires an exact allocated tag, retry, hold or rerun.' >&2
               exit 1
             fi
-            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | node typescript/scripts/plan-release-builds.mjs \
-              --product "$PRODUCT" --tag "$RELEASE_TAG" --retry "$RETRY" --hold "$HOLD" --rerun "$RERUN"
+            if [ -n "$RELEASE_TAG" ] && [ -z "$RETRY$HOLD$RERUN" ]; then
+              node typescript/scripts/plan-release-builds.mjs --github --product "$PRODUCT" --tag "$RELEASE_TAG"
+            else
+              gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | node typescript/scripts/plan-release-builds.mjs \
+                --product "$PRODUCT" --tag "$RELEASE_TAG" --retry "$RETRY" --hold "$HOLD" --rerun "$RERUN"
+            fi
           fi
+      - name: Park the draft missing from the catalogue
+        if: failure() && steps.plan.outputs.draft_missing == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          node typescript/scripts/release-draft-assets.mjs record-plan-failure --tag "$RELEASE_TAG" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
   bundle:
     name: Release ${{ matrix.tag || 'main commit' }}

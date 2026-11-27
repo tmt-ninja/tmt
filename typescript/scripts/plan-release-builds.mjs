@@ -3,6 +3,7 @@
 // its exact allocated tag; owner retry, hold and rerun each select one existing draft.
 //   gh api --paginate --slurp repos/OWNER/REPO/releases \
 //     | node plan-release-builds.mjs --product cli [--tag TAG | --retry TAG | --hold TAG | --rerun TAG] [--components FILE]
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { readStdinUtf8 } from './read-stdin.mjs';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,8 @@ export const HOLD_ASSET = 'publication-held.json';
 const COMMIT = /^[0-9a-f]{40}$/;
 /** The component map of this repository, which decides what is released. */
 const COMPONENTS = fileURLToPath(new URL('../../.github/components.json', import.meta.url));
+const RELISTS = 5;
+const RELIST_DELAY_MS = 3000;
 
 const oldestFirst = (left, right) =>
   Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.tag.localeCompare(right.tag);
@@ -203,7 +206,18 @@ export function releasesFrom(parsed) {
   return parsed.flat();
 }
 
-function main(argv, stdin) {
+/** Re-read only when the requested tag is absent; known state and read errors go to the caller. */
+function readAllocatedDraftList({ list, tag, sleep }) {
+  const hasTag = (rows) => rows.some(({ tag_name }) => tag_name === tag);
+  let releases = list();
+  for (let read = 0; read < RELISTS && !hasTag(releases); read += 1) {
+    sleep(RELIST_DELAY_MS);
+    releases = list();
+  }
+  return { releases, missing: !hasTag(releases) };
+}
+
+function main(argv) {
   const { values } = parseArgs({
     args: argv,
     options: {
@@ -213,6 +227,7 @@ function main(argv, stdin) {
       hold: { type: 'string', default: '' },
       rerun: { type: 'string', default: '' },
       components: { type: 'string', default: COMPONENTS },
+      github: { type: 'boolean' },
     },
   });
   if (!values.product) {
@@ -220,8 +235,53 @@ function main(argv, stdin) {
       'Usage: plan-release-builds.mjs --product <product> [--tag <tag> | --retry <tag> | --hold <tag> | --rerun <tag>]'
     );
   }
-  const releases = releasesFrom(JSON.parse(stdin));
   const map = parseComponentMap(readFileSync(values.components, 'utf8'));
+  const released = isProductReleased(map, values.product);
+  let releases;
+  if (values.github) {
+    if (!values.tag || values.retry || values.hold || values.rerun || !released)
+      throw new Error('--github requires one allocated tag of a released product.');
+    if (productOfTag(values.tag) !== values.product)
+      throw new Error(
+        `Cannot build ${values.tag}: it is not a draft release of the ${values.product} product.`
+      );
+    const repository = process.env.GITHUB_REPOSITORY;
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? ''))
+      throw new Error('Allocated draft discovery needs a repository.');
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    const discovery = readAllocatedDraftList({
+      tag: values.tag,
+      sleep: (ms) => Atomics.wait(pause, 0, 0, ms),
+      list: () => {
+        const result = spawnSync(
+          'gh',
+          ['api', '--paginate', '--slurp', `repos/${repository}/releases`],
+          { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 25_000, killSignal: 'SIGKILL' }
+        );
+        if (result.error) throw result.error;
+        if (result.status !== 0)
+          throw new Error(
+            `Allocated draft catalogue read failed: ${result.stderr.split('\n', 1)[0]}`
+          );
+        const pages = JSON.parse(result.stdout);
+        if (
+          !Array.isArray(pages) ||
+          pages.length === 0 ||
+          pages.some((page) => !Array.isArray(page))
+        )
+          throw new Error('Invalid allocated draft catalogue.');
+        const rows = releasesFrom(pages);
+        if (rows.some((row) => typeof row?.tag_name !== 'string' || typeof row.draft !== 'boolean'))
+          throw new Error('Invalid allocated draft catalogue record.');
+        return rows;
+      },
+    });
+    if (discovery.missing && process.env.GITHUB_OUTPUT)
+      appendFileSync(process.env.GITHUB_OUTPUT, 'draft_missing=true\n');
+    releases = discovery.releases;
+  } else {
+    releases = releasesFrom(JSON.parse(readStdinUtf8()));
+  }
   const plan = planReleaseBuilds({
     releases,
     product: values.product,
@@ -229,7 +289,7 @@ function main(argv, stdin) {
     retry: values.retry,
     hold: values.hold,
     rerun: values.rerun,
-    released: isProductReleased(map, values.product),
+    released,
   });
   const summary = renderPlanSummary({
     product: values.product,
@@ -253,7 +313,7 @@ function main(argv, stdin) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
-    main(process.argv.slice(2), readStdinUtf8());
+    main(process.argv.slice(2));
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;
