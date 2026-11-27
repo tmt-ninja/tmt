@@ -1058,6 +1058,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                 | crate::board::app::Compose::Status
                 | crate::board::app::Compose::Workspace
         ) && app.input_band.get().is_none()
+            && app.overlay() != Some(crate::board::app::Overlay::WorkTalk)
     }) {
         let footer = hint_area;
         let hint = input
@@ -1105,6 +1106,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     let mut footer_line = if let Some(input) = app.input.as_ref().filter(|input| {
         !matches!(input.compose, crate::board::app::Compose::AskLead { .. })
             && app.input_band.get().is_none()
+            && app.overlay() != Some(crate::board::app::Overlay::WorkTalk)
     }) {
         let mut spans = vec![Span::raw(format!("{} › {}▏", input.prompt, input.text))];
         if let Some(hint) = input

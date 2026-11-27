@@ -693,6 +693,20 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
                 .apply(Instant::now(), Err("Colab owner list unavailable.".into()));
         }
         if matches!(scene, "work-talk-open" | "work-talk-draft") {
+            app.view.as_mut().unwrap().replies = vec![
+                json!({
+                    "recipientId": MEMBER,
+                    "requestId": "req_11111111-1111-4111-8111-111111111111",
+                    "prompt": "Did the handshake protocol land?",
+                    "response": "Yes, PR #6853 merged; checking reconnect backoff next."
+                }),
+                json!({
+                    "recipientId": MEMBER,
+                    "requestId": "req_22222222-2222-4222-8222-222222222222",
+                    "prompt": "Any blockers on the retry loop?",
+                    "response": "Waiting on final bounds confirmation."
+                }),
+            ];
             key(&mut app, KeyCode::Char('t'));
             if scene == "work-talk-draft" {
                 for ch in "Check the protocol decision.".chars() {
@@ -1563,11 +1577,10 @@ fn work_talk_dialog_sends_only_to_bound_member_and_preserves_work_state() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(rendered.contains("Talk · worker"), "{rendered}");
-    assert!(
-        rendered.contains("from COLAB-119 · Esc back to Work"),
-        "{rendered}"
-    );
+    assert!(rendered.contains("from COLAB-119"), "{rendered}");
+    assert!(!rendered.contains("from COLAB-119 · Esc"), "{rendered}");
     assert!(!rendered.contains("▸ Work"), "{rendered}");
+    assert!(!rendered.contains("→ worker"), "{rendered}");
 
     // Type a draft and test Esc preserves draft + Work state.
     for ch in "hello draft".chars() {

@@ -2080,16 +2080,16 @@ impl App {
         let look = self.look();
         let modal = Modal {
             title: String::new(),
-            placement: Placement::Body,
+            placement: Placement::Center,
         };
         let demand = [
-            body.width.saturating_sub(6).clamp(20, 104),
-            body.height.saturating_sub(4).clamp(10, 28),
+            (body.width * 4 / 5).max(40).min(body.width),
+            (body.height * 4 / 5).max(12).min(body.height),
         ];
-        let areas = modal.areas(body, demand, true, false);
+        let areas = modal.areas(body, demand, false, false);
         modal.paint_flat(areas, frame.buffer_mut(), &look.theme, look.depth);
         let note = Line::styled(
-            format!(" from {} · Esc back to Work ", dialog.item_label),
+            format!(" from {} ", dialog.item_label),
             look.role(Role::Dim),
         );
         let outline = Outline {
@@ -2121,20 +2121,18 @@ impl App {
         if inner.height < 3 || inner.is_empty() {
             return;
         }
-        let footer_y = inner.bottom() - 1;
-        let content = Rect::new(inner.x, inner.y, inner.width, inner.height - 1);
         let input_rows = if self.composer_projection().is_some() {
             self.composer_rows(
-                content.width,
+                inner.width,
                 crate::board::input_field::padded(frame.area().height),
             )
-            .min(content.height.saturating_sub(1))
+            .min(inner.height.saturating_sub(1))
         } else {
             0
         };
-        let gap = u16::from(input_rows > 0 && content.height > input_rows + 1);
-        let transcript_h = content.height.saturating_sub(input_rows + gap);
-        let transcript_area = Rect::new(content.x, content.y, content.width, transcript_h);
+        let gap = u16::from(input_rows > 0 && inner.height > input_rows + 1);
+        let transcript_h = inner.height.saturating_sub(input_rows + gap);
+        let transcript_area = Rect::new(inner.x, inner.y, inner.width, transcript_h);
         if !transcript_area.is_empty() {
             let surface = crate::board::conversation::exchange::Surface {
                 target: crate::board::app::RowTarget::Workspace(dialog.target.clone()),
@@ -2144,26 +2142,31 @@ impl App {
         }
         if input_rows > 0 {
             let composer_band = Rect::new(
-                content.x,
-                content.bottom() - input_rows,
-                content.width,
+                inner.x,
+                inner.bottom() - input_rows,
+                inner.width,
                 input_rows,
             );
             self.input_band.set(Some(composer_band));
-            crate::board::view::waiting::inline_prompt(frame, self, content);
+            crate::board::view::waiting::inline_prompt(frame, self, inner);
         } else {
             self.input_band.set(None);
         }
+        let full_hint = "⏎ send · Alt+⏎ new line · @ mention · Tab full Talk · Esc back to Work";
+        let no_at_hint = "⏎ send · Alt+⏎ new line · Tab full Talk · Esc back to Work";
+        let compact_hint = "⏎ send · Tab full Talk · Esc back to Work";
+        let w = usize::from(inner.width);
+        let hint_text = if body.width >= 120 && full_hint.len() <= w {
+            full_hint
+        } else if body.width >= 120 && no_at_hint.len() <= w {
+            no_at_hint
+        } else {
+            compact_hint
+        };
         strip::paint_left(
             frame.buffer_mut(),
-            Rect::new(inner.x, footer_y, inner.width, 1),
-            Line::styled(
-                fit(
-                    "⏎ Send   Tab Open full Talk   Esc Back to Work",
-                    usize::from(inner.width),
-                ),
-                look.role(Role::Muted),
-            ),
+            Rect::new(inner.x, inner.bottom() - 1, inner.width, 1),
+            Line::styled(fit(hint_text, w), look.role(Role::Muted)),
         );
     }
 
