@@ -8,11 +8,15 @@
 #include <string.h>
 #include <unistd.h>
 
-/* Linux-only E2E interposer, loaded into the owned native launcher. SQLite's
- * WAL close upgrades SHARED to EXCLUSIVE with F_WRLCK over SHARED_FIRST/size
- * (1073741826/510). Gate only after spawn: earlier storage transactions must
- * finish normally. Two FIFOs expose before-acquire and held-lock boundaries
- * without sleeping or changing SQLite's actual lock operation. */
+/* Linux-only E2E interposer, loaded into the owned native launcher. Core's
+ * storage close runs a TRUNCATE checkpoint, which first takes the WAL
+ * checkpointer lock: F_WRLCK on the database's -shm at byte 121 (SQLite's
+ * UNIX_SHM_BASE 120 + WAL_CKPT_LOCK 1), length 1, before it reads the log, so
+ * it is taken even when there is nothing to copy. Close no longer upgrades the
+ * database file itself to EXCLUSIVE (#6313). Gate only after spawn: earlier
+ * storage transactions must finish normally. Two FIFOs expose before-acquire
+ * and held-lock boundaries without sleeping or changing SQLite's actual lock
+ * operation. */
 static int used;
 
 static int has_child(void) {
@@ -110,10 +114,16 @@ static int invoke(const char *symbol, int fd, int command, va_list args) {
     char descriptor[64], actual[4096];
     snprintf(descriptor, sizeof descriptor, "/proc/self/fd/%d", fd);
     ssize_t length = readlink(descriptor, actual, sizeof actual - 1);
-    if (length >= 0) {
+    char shm[4096];
+    int named = snprintf(shm, sizeof shm, "%s-shm", database);
+    if (length >= 0 && named > 0 && (size_t)named < sizeof shm) {
       actual[length] = 0;
-      if (!strcmp(actual, database) && lock->l_type == F_WRLCK &&
-          lock->l_start == 1073741826 && lock->l_len == 510 && has_child()) {
+      if (!strcmp(actual, shm) && lock->l_type == F_WRLCK &&
+          /* Fixture fact, read from the bundled sqlite3.c of the pinned
+           * libsqlite3-sys 0.38.2 (rust/Cargo.lock): UNIX_SHM_BASE is
+           * (22 + SQLITE_SHM_NLOCK 8) * 4 = 120 and WAL_CKPT_LOCK is 1.
+           * Recheck both when that crate or its SQLite is bumped. */
+          lock->l_start == 121 && lock->l_len == 1 && has_child()) {
         used = 1;
         marker("TMT_CLOSE_BEFORE");
         gate("TMT_CLOSE_ACQUIRE");

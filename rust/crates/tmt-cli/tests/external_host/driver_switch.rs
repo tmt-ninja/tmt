@@ -153,6 +153,7 @@ pub(super) fn wait_with_launch_diagnostics<T: std::fmt::Debug>(
 ) {
     use std::io::Read;
     let mut missing = None;
+    let stall = super::runner_stall::start();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         wait_until(what, || {
             missing = missing_evidence();
@@ -172,13 +173,14 @@ pub(super) fn wait_with_launch_diagnostics<T: std::fmt::Debug>(
         };
         let producer = launch_observation(fixture, owner_pid);
         eprintln!(
-            "launch admission: {context}, owner={owner_pid}, last missing={missing:?}\nlaunch observation (status, step, reason, detail): {producer:?}\nhook status: {:?}\nhook stderr: {:?}\nlaunch stderr: {:?}\nfake driver calls: {:?}\nfake driver inventory: {:?}\nfake driver server reply: {:?}",
+            "launch admission: {context}, owner={owner_pid}, last missing={missing:?}\nlaunch observation (status, step, reason, detail): {producer:?}\nhook status: {:?}\nhook stderr: {:?}\nlaunch stderr: {:?}\nfake driver calls: {:?}\nfake driver inventory: {:?}\nfake driver server reply: {:?}{}",
             bounded("switch.hook.status"),
             bounded("switch.hook.err"),
             bounded("launched.err"),
             bounded("driver/calls"),
             bounded("driver/inventory"),
             bounded("driver/server"),
+            stall.report(),
         );
         std::panic::resume_unwind(panic);
     }
