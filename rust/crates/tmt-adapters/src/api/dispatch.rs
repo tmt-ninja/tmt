@@ -77,7 +77,7 @@ pub(super) fn create_dispatch(
     if new_delivery && input.keep_reply {
         let person = super::user::configured_person(
             storage,
-            settings,
+            &settings,
             crate::user::login_name().as_deref(),
         )?;
         if person.is_none() || person.as_deref() != input.originator.identity_id() {

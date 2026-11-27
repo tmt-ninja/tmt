@@ -119,7 +119,9 @@ impl Storage {
                 params![
                     person,
                     member,
-                    before.map(|cursor| cursor.at_ms),
+                    before
+                        .map(|cursor| super::checked_now(cursor.at_ms, "Kept reply cursor"))
+                        .transpose()?,
                     before.map(|cursor| cursor.key.as_str()),
                     limit + 1,
                 ],
@@ -128,7 +130,7 @@ impl Storage {
                         "key": row.get::<_, String>(0)?,
                         "memberId": row.get::<_, String>(1)?,
                         "source": row.get::<_, String>(2)?,
-                        "atMs": row.get::<_, u64>(3)?,
+                        "atMs": super::rows::u64_at(row, 3)?,
                         "excerpt": row.get::<_, String>(4)?,
                     }))
                 },
@@ -160,7 +162,7 @@ impl Storage {
                         "key": key,
                         "memberId": row.get::<_, String>(0)?,
                         "source": row.get::<_, String>(1)?,
-                        "atMs": row.get::<_, u64>(2)?,
+                        "atMs": super::rows::u64_at(row, 2)?,
                         "text": row.get::<_, String>(3)?,
                         "truncated": row.get::<_, bool>(4)?,
                     }))
@@ -180,8 +182,8 @@ impl Storage {
                 db.query_row(
                     "UPDATE recent_responses SET kept_owner_identity_id=NULL
                      WHERE sequence=?1 AND kept_owner_identity_id=?2 RETURNING sequence",
-                    params![sequence, person],
-                    |row| row.get::<_, Option<u64>>(0),
+                    params![super::checked_now(sequence, "Kept response key")?, person],
+                    |row| row.get::<_, Option<i64>>(0),
                 )
                 .optional()
             } else {
@@ -194,7 +196,7 @@ impl Storage {
                                    WHERE f.request_id=request_attempts.request_id))
                      RETURNING kept_capture_sequence",
                     params![key, person],
-                    |row| row.get::<_, Option<u64>>(0),
+                    |row| row.get::<_, Option<i64>>(0),
                 )
                 .optional()
             }
@@ -265,7 +267,7 @@ pub(in crate::storage) fn pin_terminal(
     if let Some(owner) = owner {
         db.execute(
             "UPDATE recent_responses SET kept_owner_identity_id=?1 WHERE sequence=?2",
-            params![owner, sequence],
+            params![owner, super::checked_now(sequence, "Kept response key")?],
         )
         .map_err(|error| classify(error, "Keep the admitted terminal final"))?;
         finish_terminal(db, batch)?;

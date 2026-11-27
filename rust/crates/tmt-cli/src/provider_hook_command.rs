@@ -1891,7 +1891,7 @@ fn observe_bound_lifecycle_event_with(
             let locator = fallback_locator();
             commit_observation_on_storage(
                 &mut storage,
-                paths,
+                &paths,
                 refreshed,
                 None,
                 None,

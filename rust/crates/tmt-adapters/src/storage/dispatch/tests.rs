@@ -681,7 +681,7 @@ fn marked_dispatch_reserves_under_the_person_cap_and_unmark_does_not_replay() {
 
     let reopened = Storage::open(&fixture.storage.path).unwrap();
     fixture.storage = reopened;
-    let expired = NOW + 3 * 86_400_000;
+    let expired = NOW + tmt_core::retention::RESPONSE_ACCEPTANCE_WINDOW_MS + 1;
     RequestService::new(&mut fixture.storage, || expired)
         .cleanup()
         .unwrap();

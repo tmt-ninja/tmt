@@ -1321,11 +1321,19 @@ fn a_final_whose_request_has_expired_no_longer_names_it() {
     storage.close().unwrap();
 }
 
-#[test]
-fn keeps_only_the_final_of_the_admitted_marked_terminal_batch() {
+fn kept_fixture() -> (
+    (
+        crate::test_support::TestDirectory,
+        crate::storage::template_fixture::TemplateLease,
+    ),
+    std::path::PathBuf,
+    Storage,
+    String,
+    String,
+) {
     use tmt_core::identity::{Lifetime, create_or_resolve};
 
-    let (_directory, path, agent) = fixture();
+    let (directory, path, agent) = fixture();
     let mut storage = Storage::open(&path).unwrap();
     let person = create_or_resolve(&mut storage, "Person", Lifetime::Saved)
         .unwrap()
@@ -1339,7 +1347,21 @@ fn keeps_only_the_final_of_the_admitted_marked_terminal_batch() {
             [&person],
         )
         .unwrap();
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE bindings SET runtime_state='running', runtime_pid=12,
+          runtime_start_identity='s', observed_provider_session_id=?2 WHERE identity_id=?1",
+            params![agent, SESSION],
+        )
+        .unwrap();
+    (directory, path, storage, agent, person)
+}
 
+#[test]
+fn keeps_only_the_final_of_the_admitted_marked_terminal_batch() {
+    let (_directory, path, mut storage, agent, person) = kept_fixture();
     let marked = TurnBoundary::Started {
         turn: Some("kept"),
         prompt: "/keep Explain X",
@@ -1459,21 +1481,9 @@ fn keeps_only_the_final_of_the_admitted_marked_terminal_batch() {
 
 #[test]
 fn marked_passthrough_links_the_existing_batch_and_capture_without_double_pinning() {
-    use tmt_core::identity::{Lifetime, create_or_resolve};
-
-    let (_directory, path, agent) = fixture();
-    let mut storage = Storage::open(&path).unwrap();
-    let person = create_or_resolve(&mut storage, "Person", Lifetime::Saved)
-        .unwrap()
-        .identity
-        .id;
+    let (_directory, path, mut storage, agent, person) = kept_fixture();
     typed(&storage, &agent, "marked", "/keep Exact", 100);
     let db = storage.connection().unwrap();
-    db.execute(
-        "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?,'user','true')",
-        [&person],
-    )
-    .unwrap();
     db.execute(
         "UPDATE request_attempts SET originator_kind='explicit',originator_identity_id=?1,keep_reply=1 WHERE request_id='marked'",
         [&person],

@@ -198,21 +198,31 @@ fn the_rebuild_keeps_every_row_dependent_row_index_and_trigger() {
     let mut expected = before.dependents.keys().cloned().collect::<Vec<_>>();
     expected.push("request_thread_root".to_owned());
     expected.push("request_receipt_deadline_advances_change_cursor".to_owned());
+    expected.push("request_attempts_kept".to_owned());
+    expected.push("request_attempts_kept_capture".to_owned());
     expected.sort();
     assert_eq!(
         after.dependents.keys().cloned().collect::<Vec<_>>(),
         expected
     );
-    // Schema 93 watches the thread root and stamps room changes after the cursor advance.
-    let without_93 = |sql: &str| match sql.split_once("WHERE id = 1;") {
-        Some((head, _)) => format!("{head}WHERE id = 1; END").replace(
-            "   OR OLD.thread_root_request_id IS NOT NEW.thread_root_request_id\n",
-            "",
-        ),
+    // Newer schemas watch additional fields and stamp room changes after the cursor advance.
+    let without_later_fields = |sql: &str| match sql.split_once("WHERE id = 1;") {
+        Some((head, _)) => {
+            let mut sql = format!("{head}WHERE id = 1; END");
+            for field in [
+                "thread_root_request_id",
+                "keep_reply",
+                "keep_removed",
+                "kept_capture_sequence",
+            ] {
+                sql = sql.replace(&format!("   OR OLD.{field} IS NOT NEW.{field}\n"), "");
+            }
+            sql
+        }
         None => sql.to_owned(),
     };
     for (name, sql) in &before.dependents {
-        let rebuilt = &without_93(&after.dependents[name]);
+        let rebuilt = &without_later_fields(&after.dependents[name]);
         if name == "request_attempts_advances_change_cursor_on_update" {
             let added = "   OR OLD.remote_ref IS NOT NEW.remote_ref\n   OR OLD.remote_target_id IS NOT NEW.remote_target_id\n   OR OLD.remote_target_name IS NOT NEW.remote_target_name\n   OR OLD.remote_sender_name IS NOT NEW.remote_sender_name\n";
             assert_eq!(&rebuilt.replace(added, ""), sql, "{name}");
