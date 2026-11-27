@@ -9,6 +9,56 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 // #1627 slice B: the CLI combines its own tail into a checkpoint, so a page takes far more than
 // 200 changes, the browser still opens and edits it, and the exact source survives everywhere.
 const MIB = 1024 * 1024;
+/** Waits at most 3 s for one CDP cleanup step; true when it finished. A crashed renderer can leave
+ * a step pending forever, which held a case to its 900 s deadline (#6693). */
+async function settled(step: Promise<unknown>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      step.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), 3_000);
+      }),
+    ]);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+/** The probe's median on a CI runner of normal speed (#6693): see `slowdown`. */
+const REFERENCE_MS = 22;
+/**
+ * How much slower this runner's app window is than CI's normal one, from a fixed parse timed in
+ * the window itself, between 1 and 3. A task the browser reports as long (over 50 ms) counts only
+ * above 50 ms times this: on a slow runner, tasks of about 30 ms crossed 50 ms with no new work
+ * (#6693). The cap keeps a pathologically slow runner from hiding a real regression.
+ */
+async function slowdown(page: Page) {
+  const frameMs = await page.evaluate(() => {
+    let html = '';
+    for (let i = 0; html.length < 256 * 1024; i++)
+      html += `<p id="q${i}">Line ${i}: ${'lorem ipsum dolor sit amet '.repeat(3)}</p>\n`;
+    // One parse takes about 1.4 ms on CI, too close to the timer's resolution: a round of 16 is
+    // about the size of the tasks it calibrates.
+    const rounds: number[] = [];
+    for (let round = 0; round < 7; round++) {
+      const begin = performance.now();
+      for (let parse = 0; parse < 16; parse++) new DOMParser().parseFromString(html, 'text/html');
+      rounds.push(performance.now() - begin);
+    }
+    return rounds.sort((a, b) => a - b)[3]!;
+  });
+  const ratio = frameMs / REFERENCE_MS;
+  const factor = Math.min(3, Math.max(1, ratio));
+  return {
+    frameMs: Math.round(frameMs * 10) / 10,
+    referenceMs: REFERENCE_MS,
+    factor: Math.round(factor * 100) / 100,
+    capped: ratio > 3,
+    limitMs: Math.round(50 * factor),
+  };
+}
 // Project synthetic traces before they leave the private runner: never retain URLs, source,
 // arbitrary arguments or unknown script names in the public acceptance artifact.
 async function traceLargeWrites(page: Page, name: string) {
@@ -147,31 +197,18 @@ async function traceLargeWrites(page: Page, name: string) {
     transferMode: 'ReportEvents',
   });
   return async () => {
-    let incomplete = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const complete = new Promise<void>((resolve) =>
       client.once('Tracing.tracingComplete', () => resolve()),
     );
-    try {
-      await Promise.race([
-        client.send('Tracing.end').then(() => complete),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Trace cleanup timed out')), 3_000);
-        }),
-      ]);
-      incomplete = false;
-    } catch {
-      // An interrupted page can close its session before Chrome returns the remaining events.
-    } finally {
-      clearTimeout(timer);
-      const out = path.join(process.env.RUNNER_TEMP!, 'colab-acceptance-results');
-      fs.mkdirSync(out, { recursive: true });
-      fs.writeFileSync(
-        path.join(out, `large-page-${name}-trace.json`),
-        JSON.stringify({ events, truncated, incomplete }),
-      );
-      await client.detach().catch(() => {});
-    }
+    // An interrupted page can close its session before Chrome returns the remaining events.
+    const incomplete = !(await settled(client.send('Tracing.end').then(() => complete)));
+    const out = path.join(process.env.RUNNER_TEMP!, 'colab-acceptance-results');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(
+      path.join(out, `large-page-${name}-trace.json`),
+      JSON.stringify({ events, truncated, incomplete }),
+    );
+    await settled(client.detach());
   };
 }
 const text = (n: number) => {
@@ -307,6 +344,20 @@ for (const [kind, top] of [
       const openStarted = Date.now();
       const page = await openPage(door, browser, created);
       const openMs = Date.now() - openStarted;
+      const writes: {
+        patchMs: number;
+        readyMs: number;
+        heapMB: number;
+        begin: number;
+        end: number;
+      }[] = [];
+      // A renderer that dies fails the case at once with its cause, not with an empty frame.
+      const crashed = new Promise<never>((_, reject) =>
+        page.once('crash', () =>
+          reject(new Error(`The page's renderer crashed after write ${writes.length} (of 10)`)),
+        ),
+      );
+      crashed.catch(() => {});
       const frame = page.frameLocator('iframe');
       const firstPaintStarted = Date.now();
       await expect(frame.locator('#n')).toHaveText('0', { timeout: 120_000 });
@@ -315,6 +366,12 @@ for (const [kind, top] of [
       const prepareStarted = Date.now();
       await expect(frame.locator('html[data-colab-prepared]')).toHaveCount(1, { timeout: 60_000 });
       const prepareMs = Date.now() - prepareStarted;
+      // Timed before the long-task observer starts, so the probe is never one of its tasks.
+      const calibration = await slowdown(page);
+      if (calibration.capped)
+        console.log(
+          `colab-large-slow the runner is over 3x slower: ${JSON.stringify(calibration)}`,
+        );
       const finishTrace = await traceLargeWrites(page, kind ? 'open' : 'regular');
       const clock = await page.evaluate(() => {
         const long: { duration: number; start: number; owner: string }[] = [];
@@ -336,7 +393,7 @@ for (const [kind, top] of [
         return { origin: performance.timeOrigin, mark: performance.now() };
       });
       const started = Date.now();
-      const writes: { patchMs: number; readyMs: number; begin: number; end: number }[] = [];
+      const probe = await page.context().newCDPSession(page);
       try {
         for (let i = 1; i <= 10; i++) {
           const held = source;
@@ -351,13 +408,21 @@ for (const [kind, top] of [
           );
           const patchMs = Date.now() - patchStarted;
           const readyStarted = Date.now();
-          await expect(frame.locator('#n')).toHaveText(String(i), { timeout: 60_000 });
+          await Promise.race([
+            expect(frame.locator('#n')).toHaveText(String(i), { timeout: 60_000 }),
+            crashed,
+          ]);
           const readyMs = Date.now() - readyStarted;
-          const write = { patchMs, readyMs, begin, end: Date.now() - started };
+          // The page's JS heap after each write, so a renderer that dies later shows whether its
+          // memory was climbing (#6693).
+          const { usedSize } = await probe.send('Runtime.getHeapUsage');
+          const heapMB = Math.round(usedSize / MIB);
+          const write = { patchMs, readyMs, heapMB, begin, end: Date.now() - started };
           writes.push(write);
         }
       } finally {
         await finishTrace();
+        await settled(probe.detach());
       }
       await page.waitForTimeout(Math.max(0, 30_000 - (Date.now() - started)));
       const long = await page.evaluate(
@@ -377,11 +442,14 @@ for (const [kind, top] of [
         traceMarkMs: clock.mark,
         startedEpochMs: started,
         setup: { createMs, openMs, firstPaintMs, prepareMs },
+        calibration,
         writes,
       });
       test.info().annotations.push({ type: 'colab-large-busy', description: busy });
       // The run log keeps the durations, so a slower runner's failure says how far it was.
       console.log(`colab-large-busy ${busy}`);
-      expect(long.length).toBeLessThanOrEqual(2);
+      expect(long.filter((task) => task.duration > calibration.limitMs).length).toBeLessThanOrEqual(
+        2,
+      );
     });
   });
