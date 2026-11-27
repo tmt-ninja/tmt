@@ -98,14 +98,8 @@ local [MCP](contracts/mcp-v1.md) and [lifecycle hooks](contracts/extension-api.m
 The [extension surface reference](.agents/skills/tmt-core-runtime/references/extension-surface.md)
 owns their module rules and the Core command surface.
 
-Ordinary commands migrated under #485 return a `tmt-cli-style::Render` report;
-`CliOutput` chooses its human or JSON presentation and stream. Core's
-`tmt-command-output::Failure` retains error details and status while adapting
-to that shared, dependency-light owner. Live streams and interactive commands
-retain their own timing and protocols. Consent questions and declines use stderr,
-with stdin and stderr terminals required for an interactive prompt. Core's exhaustive
-`OutputBoundary` inventory classifies every invocation, including exact-byte and
-interactive protocols that keep their own contracts.
+Core owns typed command output and stream selection across human, JSON and
+specialized protocols, as defined in the [command output boundary](.agents/skills/tmt-core-runtime/references/extension-surface.md#command-output-boundary).
 
 Files under `contracts/` are Core contracts owned by tmt-lead, except the channel
 contracts #606 assigns to a squad (`remote-channel-v1.md`: tmt-remote);

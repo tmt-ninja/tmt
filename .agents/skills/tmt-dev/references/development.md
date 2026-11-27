@@ -293,34 +293,18 @@ Tracker rules:
 scripts/ci-wake.sh <pr> --identity <self> [--until checks|merged] [--interval <s>] [--cap <s>]
 ```
 
-Codex tool calls use `scripts/ci-wake.sh <pr> --identity <self> --foreground` in a
-provider-native retained background task (a persistent execution session). The
-waiter stays in that task until it sends the wake; keep its session identifier.
-Do not wrap it in `nohup` or `&`: a fast-completing Codex exec call can kill its
-detached children before startup. The script refuses that unsafe default when
-`CODEX_TOOL_CALL_ID` identifies the tool context. `agy` seats also use
-`--foreground` via `run_command` with `WaitMsBeforeAsync` (for example `500`) so
-`agy` promotes the waiter to a provider-native background task instead of tearing
-down detached children when a fast tool call returns; `ANTIGRAVITY_AGENT` refuses
-the detached default the same way. Ordinary and Claude shells keep the detached
-default.
+Follow the [wait rule](../../../../AGENTS.md#delivery-lifecycle). In Codex and
+`agy`, start `sh <repo-worktree>/scripts/ci-wake.sh <pr> --identity <self> --foreground`
+as its own provider-native retained background task (in `agy`, use `run_command`
+with `WaitMsBeforeAsync`, for example `500`). Keep the session identifier and
+end the turn. Run the tracked script from a repository worktree. Never use
+a copy, `nohup` or `&`. The [waiter header](../../../../scripts/ci-wake.sh) owns
+provider launch details, failure confirmation, bounds, logs and exit codes.
 
-The [wait rule](../../../../AGENTS.md#delivery-lifecycle) has one owner; the script's
-header documents its final states, bounds, log and exit codes. While work is
-pending, checks mode wakes after the same failure is seen in two consecutive
-polls and reports the pending check count. Once all work finishes, the waiter
-reports the result immediately. Logs record launch,
-waiter startup and exit status/phase, including caught HUP, INT and TERM signals.
-
-For Codex seats, the [wait guard](../../../../scripts/hooks/codex-wait-guard.mjs)
-denies waits and polls by default. Start the tracked
-`sh <repo-worktree>/scripts/ci-wake.sh <pr> --identity <self> --foreground`
-from a worktree of this repository, never a copy, in a provider-native retained
-background task, then end the turn. Never disable or bypass the guard, or wait,
-sleep or poll from the main session. Use `host-health.sh --gate` once only for
-host capacity. Edit files with `apply_patch` and run each check as its own
-command: a shell or script body that holds wait words is judged. The guard's
-header owns implementation and provider details.
+The Codex [wait guard](../../../../scripts/hooks/codex-wait-guard.mjs) denies
+waits and polls by default. Never disable or bypass it, or wait, sleep or poll
+from the main session. Use `host-health.sh --gate` once only for host capacity.
+Edit files with `apply_patch` and run each check as its own command.
 
 ## Review and evidence
 

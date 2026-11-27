@@ -65,8 +65,9 @@ From the repository root; use `CARGO_BUILD_JOBS=2` on shared machines.
   drives the shipped SDK bundle's append guard (`assets/remote-v1.js`, selected with the suite) against real appends.
   CI runs it in Selected Rules suites (`unit-rules`, ci-scope `remote_firestore`, no Docker),
   which the Unit tests collector depends on. Locally use the
-  tiny `tests/emulator/Dockerfile` in the booked Docker slot only (reservation file RELEASED, 30 GiB free, one
-  tag per worktree, remove the image and container after every run; see DEVELOPMENT's disk section):
+  tiny `tests/emulator/Dockerfile` only in the booked Docker slot (reservation file RELEASED).
+  Follow the [disk procedure](../tmt-dev/references/development.md#keep-local-development-from-filling-the-disk),
+  use one tag per worktree, and remove the image and container after each run:
   `docker run --rm --init --network none -v "$PWD/extensions/tmt-remote/rust/tmt-remote/tests:/t:ro" -v "$PWD/extensions/tmt-remote/rust/tmt-remote/assets:/assets:ro" <tag> firebase emulators:exec --only firestore --project demo-tmt-remote --config /t/emulator/firebase.json --non-interactive 'node --test /t/emulator/suite.mjs'`.
 - Native operation tests use signed requests, private real storage and
   deterministic public-process fixtures; they are not real-core acceptance. The
