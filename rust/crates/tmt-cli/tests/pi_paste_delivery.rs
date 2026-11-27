@@ -873,6 +873,11 @@ fn enrolled_pi_delivers_original_request_and_fences_a_replaced_session() {
 (async()=>{
   const fs = require('node:fs'), path = require('node:path');
   if(process.argv.includes('--version')) { console.log('1.6.1'); return; }
+  // Pi's cli/setup.js publishes this title before loading extensions.
+  // Linux comm, used to attribute the hook caller, otherwise reflects Node's main thread.
+  process.title = 'pi';
+  process.env.PI_CODING_AGENT = 'true';
+  process.env.AI_AGENT = 'pi';
   const root=process.env.TMT_TEST_ROOT;
   const callbacks=new Map();
   let session='ace3e386-fa75-4420-a4fd-e377545441c7';
