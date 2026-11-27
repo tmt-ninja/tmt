@@ -1,7 +1,9 @@
 import { RemoteHeaderChip, RemoteMoreMenu, useRemoteHeaderAvailable } from './remote-header.js';
 import {
   useContext,
+  useEffect,
   useLayoutEffect,
+  useState,
   useSyncExternalStore,
   type ReactNode,
   type Ref,
@@ -24,6 +26,57 @@ import { setStoredTheme, THEMES } from '@tmt/browser-ui/theme';
 import { Sun } from 'lucide-react';
 
 const captionId = 'colab-header-caption';
+
+export function CopyWorkNumber({ number }: { number: string }) {
+  const [feedback, setFeedback] = useState<{
+    number: string;
+    message: string;
+    x: number;
+    y: number;
+  }>();
+  useEffect(() => {
+    if (!feedback) return;
+    const timeout = window.setTimeout(() => setFeedback(undefined), 1000);
+    return () => window.clearTimeout(timeout);
+  }, [feedback]);
+  return (
+    <span className="colab-work-number-copy">
+      <button
+        type="button"
+        className="colab-work-number"
+        aria-description={text.copyWorkNumber}
+        title={text.copyWorkNumber}
+        onClick={async (event) => {
+          if (!event.isTrusted) return;
+          const { left: x, bottom: y } = event.currentTarget.getBoundingClientRect();
+          let message: string = text.workNumberCopied;
+          try {
+            await navigator.clipboard.writeText(number);
+          } catch {
+            message = text.workNumberCopyFailed;
+          }
+          setFeedback({ number, message, x, y });
+        }}
+      >
+        {number}
+      </button>
+      <span role="status" className="tmt-ui-visually-hidden">
+        {feedback?.number === number && feedback.message}
+      </span>
+      {feedback?.number === number &&
+        createPortal(
+          <span
+            aria-hidden="true"
+            className="colab-work-number-feedback"
+            style={{ left: feedback.x, top: feedback.y }}
+          >
+            {feedback.message}
+          </span>,
+          document.body,
+        )}
+    </span>
+  );
+}
 
 /** Moves focus to the route's heading after an in-app navigation: in the shared bar's title slot,
  * else in the module's own header. */
@@ -167,7 +220,7 @@ export function ColabHeader({
               {lead ?? (crumb !== undefined && <CrumbGroup>{crumb}</CrumbGroup>)}
             </>
           )}
-          {workNumber && <span className="colab-work-number">{workNumber}</span>}
+          {workNumber && <CopyWorkNumber number={workNumber} />}
         </>
       }
       headingSuffix={headingSuffix}
@@ -242,7 +295,7 @@ export function ColabHeader({
               <span className="tmt-ui-topbar-title-current" title={title}>
                 {workNumber && (
                   <>
-                    <span className="colab-work-number">{workNumber}</span>{' '}
+                    <CopyWorkNumber number={workNumber} />{' '}
                   </>
                 )}
                 {title}

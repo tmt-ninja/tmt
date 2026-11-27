@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { capturePath } from './captures.js';
 
 // Work home (#6474) over the owner list: open work by status, a count that filters the project
 // rows, and what got done with its owner and release.
@@ -261,3 +262,91 @@ test('Notify stops after the first verified talk refusal', async ({ page }) => {
     await page.evaluate(() => JSON.parse(sessionStorage.getItem('fixture-notifications')!)),
   ).toHaveLength(1);
 });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`Work tabs move between Home and the existing List at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      // Only the fixture owns browser history while it switches between real path routes.
+      await page.route('**/src/main.tsx', (route) =>
+        route.fulfill({
+          contentType: 'text/javascript',
+          body: "document.body.classList.remove('guidance');",
+        }),
+      );
+      await page.goto('/');
+      await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
+      const openWork = (url?: string) =>
+        page.evaluate(async (url) => {
+          const path = '/test/page-list-browser.tsx';
+          const fixture = await import(path);
+          await fixture.mountPageList(
+            'work-home',
+            url ?? location.pathname + location.search,
+            undefined,
+            true,
+            undefined,
+            true,
+          );
+        }, url);
+      await openWork('/colab/all?stage=all&q=Mockup');
+      const branch = page.locator('#list-fixture');
+      const tabs = branch.getByRole('tablist', { name: 'Work', exact: true });
+      await expect(tabs).toHaveCSS('display', 'flex');
+      const home = tabs.getByRole('tab', { name: 'Home', exact: true });
+      const list = tabs.getByRole('tab', { name: 'List', exact: true });
+      await expect(page).toHaveURL(/\/colab\/work\/list\?/);
+      await expect(list).toHaveAttribute('aria-selected', 'true');
+      await expect(branch.locator('[data-page-list]')).toBeVisible();
+      const rail = branch.locator('nav.tmt-ui-rail');
+      await expect(rail.locator('[data-id="home"]')).toHaveAttribute('aria-current', 'page');
+      await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
+      await expect(rail.locator('[data-id="all"][aria-current="page"]')).toHaveCount(0);
+      const bar = branch.locator('.tmt-ui-topbar:visible');
+      await expect(bar.locator('.tmt-ui-topbar-title-current')).toHaveText('List');
+      await expect(bar.locator('.colab-work-view-prefix')).toHaveText('Work');
+      const search = branch.locator('.page-list-search-box');
+      await expect(search).toBeVisible();
+      expect((await tabs.boundingBox())!.x).toBeCloseTo((await search.boundingBox())!.x, 0);
+      expect((await tabs.boundingBox())!.y).toBeGreaterThan(
+        (await bar.boundingBox())!.y + (await bar.boundingBox())!.height,
+      );
+      const title = branch.getByText('Mockup toolbar has no spacing', { exact: true });
+      await expect(title).toBeVisible();
+      const bookmark = page.url();
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: await capturePath(`work-list-${width}-${theme}.png`) });
+      await list.focus();
+      await page.keyboard.press('ArrowLeft');
+      await expect(home).toHaveAttribute('aria-selected', 'true');
+      await expect(home).toBeFocused();
+      await expect(page).toHaveURL(/\/colab\/work(?:\?|$)/);
+      const heading = branch.locator('[data-work-home] .work-home-title');
+      await expect(heading).toBeVisible();
+      await expect(bar.locator('.tmt-ui-topbar-title-current')).toHaveText('Home');
+      expect((await tabs.boundingBox())!.x).toBeCloseTo((await heading.boundingBox())!.x, 0);
+      if (process.env.COLAB_CAPTURE_DIR) {
+        await page.screenshot({
+          path: await capturePath(`work-home-focus-${width}-${theme}.png`),
+        });
+        await home.evaluate((button) => button.blur());
+        await page.screenshot({ path: await capturePath(`work-home-${width}-${theme}.png`) });
+      }
+      await page.goBack();
+      await expect(page).toHaveURL(bookmark);
+      await expect(list).toHaveAttribute('aria-selected', 'true');
+      await expect(title).toBeVisible();
+      await page.goForward();
+      await expect(home).toHaveAttribute('aria-selected', 'true');
+      await list.click();
+      await expect(list).toHaveAttribute('aria-selected', 'true');
+      await expect(branch.locator('[data-page-list]')).toBeVisible();
+      await page.goto(bookmark);
+      await openWork();
+      await expect(list).toHaveAttribute('aria-selected', 'true');
+      await expect(title).toBeVisible();
+      await expect(page).toHaveURL(bookmark);
+    });

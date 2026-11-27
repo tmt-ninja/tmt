@@ -277,7 +277,10 @@ export function appRail(
   // In the app a claimed Home is current on its in-app route (#6474).
   if (home) {
     const here = place.href.split(/[?#]/)[0];
-    const atHome = rail.main.find((item) => item.id === 'home')!.href === here;
+    const homeHref = rail.main.find((item) => item.id === 'home')!.href;
+    const atHome =
+      here === homeHref ||
+      (homeHref === `${place.origin}/colab/work` && here === `${homeHref}/list`);
     if (atHome) for (const item of rail.main) item.current = item.id === 'home';
   }
   return rail;

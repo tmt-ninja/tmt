@@ -563,7 +563,7 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   // The list now shows the shortcut, so its row is the one selected and the bar names it.
   await expect(selected(page)).toHaveCount(1);
   await expect(railShortcuts(page)).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('#list-fixture .tmt-ui-topbar-title-current')).toHaveText('Mine');
+  await expect(page.locator('#list-fixture .colab-work-list-scope')).toHaveText('Mine');
   // A page opened from that list keeps the shortcut selected.
   await page
     .locator('#list-fixture .page-list-table [data-page-id] .tmt-ui-list-title > a')
@@ -577,7 +577,7 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   await expect(page).not.toHaveURL(/shortcut=/);
   await expect(selected(page)).toHaveCount(1);
   await expect(selected(page)).toHaveAttribute('data-id', 'all');
-  await expect(page.locator('#list-fixture .tmt-ui-topbar-title-current')).toHaveText('All pages');
+  await expect(page.locator('#list-fixture .tmt-ui-topbar-title-current')).toHaveText('List');
   // The shortcut row opens the list with it.
   await railShortcuts(page).click();
   await expect(page).toHaveURL(/shortcut=/);

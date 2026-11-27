@@ -1,3 +1,37 @@
+.colab-work-tabs > .tmt-ui-tabs > .tmt-ui-tabs-header {
+  box-sizing: border-box;
+  padding: var(--tmt-ui-ref-space-5) var(--tmt-ui-ref-space-5) 0;
+}
+.colab-work-tabs[data-work-view='home'] > .tmt-ui-tabs > .tmt-ui-tabs-header {
+  max-width: min(calc(100% - 2 * var(--tmt-ui-page-padding-inline)), 1120px);
+  margin-inline: auto;
+  padding-inline: 40px;
+}
+.colab-work-tabs > .tmt-ui-tabs > .tmt-ui-tab-panel {
+  padding-block-start: 0;
+}
+
+/* List already scrolls within the viewport. The Work tabs share that height. */
+.colab-work-tabs[data-work-view='list'] > .tmt-ui-tabs {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: calc(
+    100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) -
+      var(--colab-footer-height, 0px)
+  );
+}
+.colab-work-tabs[data-work-view='list'] .home[data-page-list] {
+  height: 100%;
+}
+@media (max-width: 760px) {
+  .colab-work-tabs > .tmt-ui-tabs > .tmt-ui-tabs-header {
+    padding: var(--tmt-ui-ref-space-4) var(--tmt-ui-ref-space-4) 0;
+  }
+  .colab-work-tabs[data-work-view='home'] > .tmt-ui-tabs > .tmt-ui-tabs-header {
+    padding-inline: 16px;
+  }
+}
+
 /* Work home (#6474): the page's layout around the browser-ui Work home parts, as the spec's Work
    mockup lays it out. The parts own their own look. */
 .work-home-body {

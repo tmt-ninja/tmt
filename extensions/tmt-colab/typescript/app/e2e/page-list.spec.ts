@@ -518,11 +518,9 @@ test('the list keeps its filter in the address and restores it on reload', async
   ).toBeVisible();
 });
 
-test('the home is the concept17 list with no Today view, and an old /all link keeps its search', async ({
-  page,
-}) => {
+test('Work List keeps the page list and applies an old /all link’s search', async ({ page }) => {
   await mount(page);
-  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('All pages');
+  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('List');
   await expect(app(page).getByRole('navigation', { name: 'Home views' })).toHaveCount(0);
   await expect(
     app(page).getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
@@ -2103,7 +2101,7 @@ for (const width of [1440, 390, 320])
       ['Latin', 'W'.repeat(32)],
       ['CJK', '漢'.repeat(32)],
     ] as const)
-      test(`a ${kind} project name ellipsizes in the bar's title and New page stays in view at ${width}px ${theme}`, async ({
+      test(`a ${kind} project name fits in Work List chrome and New page stays in view at ${width}px ${theme}`, async ({
         page,
       }) => {
         await page.setViewportSize({ width, height: 900 });
@@ -2117,8 +2115,10 @@ for (const width of [1440, 390, 320])
         await entry.scrollIntoViewIfNeeded();
         await entry.click();
         const heading = app(page).locator('.tmt-ui-topbar-title-current');
-        await expect(heading).toHaveText(name);
-        await expect(heading).toHaveAttribute('title', name);
+        await expect(heading).toHaveText('List');
+        const scope = app(page).locator('.colab-work-list-scope');
+        await expect(scope).toHaveText(name);
+        await expect(scope).toHaveAttribute('title', name);
         const create = app(page)
           .locator('.page-list-create')
           .getByRole('button', { name: 'New page' });

@@ -18,6 +18,9 @@ describe('isListPath', () => {
   it('is the bare list and the list with a search, nothing else', () => {
     expect(isListPath('/')).toBe(true);
     expect(isListPath('/?stage=all')).toBe(true);
+    expect(isListPath('/work/list')).toBe(true);
+    expect(isListPath('/work/list?stage=all')).toBe(true);
+    expect(isListPath('/work')).toBe(false);
     expect(isListPath('/pages/10000000-0000-4000-8000-000000000001')).toBe(false);
     expect(isListPath('/all')).toBe(false);
     expect(isListPath('/all?stage=all')).toBe(false);

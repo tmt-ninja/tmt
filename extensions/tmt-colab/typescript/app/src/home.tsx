@@ -113,7 +113,7 @@ import { AppHeader } from './app-header.js';
 
 const t = text.pageList;
 const rootRoute = getRouteApi('__root__');
-const homeRoute = getRouteApi('/');
+const homeRoute = getRouteApi('/work/list');
 export { validateHomeSearch, type HomeSearch } from './page-list-filter.js';
 import { pageListFilter, type HomeSearch } from './page-list-filter.js';
 
@@ -245,8 +245,9 @@ export function Home() {
   // reported its sub-pages yet is in none of them.
   const staged = filter.stage ? shown.filter((p) => pageStage(p) === filter.stage) : shown;
   // The projects are the base: filters, counts and the needs-you chip see only the pages in them.
-  // One project names the list (title, crumb, empty text) as a scope did.
+  // One project identifies the list scope, the page breadcrumb and empty copy.
   const scope = filter.projects.length === 1 ? filter.projects[0] : undefined;
+  const listScope = currentShortcut?.name ?? scope;
   const scoped = inProjects(staged, filter.projects);
   const projectKey = filter.projects.join('\n');
   // The tabs count what the scope holds: an archived page counts only under Archived, and a page
@@ -1214,8 +1215,15 @@ export function Home() {
       ref={section}
     >
       <AppHeader
-        title={currentShortcut?.name ?? scope ?? text.pageList.allPages}
+        workView="list"
         remote={{ deviceName: transport.backendName }}
+        headingSuffix={
+          listScope && (
+            <span className="colab-work-list-scope" title={listScope}>
+              {listScope}
+            </span>
+          )
+        }
       />
       {!port && <UiTheme theme={theme}>{listActions}</UiTheme>}
       {shortcutDialog && shortcuts.store && (

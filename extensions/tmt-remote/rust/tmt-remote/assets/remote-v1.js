@@ -7004,7 +7004,8 @@ function appRail(answer, routes, place, route) {
 	else if (home) item.href = appHref(routes, home);
 	if (home) {
 		const here = place.href.split(/[?#]/)[0];
-		if (rail.main.find((item) => item.id === "home").href === here) for (const item of rail.main) item.current = item.id === "home";
+		const homeHref = rail.main.find((item) => item.id === "home").href;
+		if (here === homeHref || homeHref === `${place.origin}/colab/work` && here === `${homeHref}/list`) for (const item of rail.main) item.current = item.id === "home";
 	}
 	return rail;
 }

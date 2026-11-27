@@ -43,6 +43,7 @@ import {
   BrowserIconAction,
   BrowserNotice,
   BrowserNotifications,
+  BrowserTabs,
   BusyMark,
   HostedShell,
 } from '@tmt/browser-ui/react';
@@ -125,7 +126,7 @@ import { AnnotationInput } from './annotation-input.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
-import { isListPath, keepListSearch, storedListSearch } from './list-history.js';
+import { isListPath, keepListSearch, storedListSearch, WORK_LIST_PATH } from './list-history.js';
 import { ColabShell, ShellHostSlot } from './colab-shell.js';
 import {
   embeddedPageEnvironment,
@@ -1115,13 +1116,10 @@ const root = createRootRouteWithContext<AppContext>()({
     const router = useRouter();
     const pathname = useRouterState({ select: (state) => state.location.pathname });
     const opening = pathname.startsWith('/pages/');
+    const onList = pathname === WORK_LIST_PATH;
     const retryRoute = useCallback(() => void router.invalidate(), [router]);
-    const recovery = useMountRecovery(
-      pathname === '/' || opening ? error : undefined,
-      pathname,
-      retryRoute,
-    );
-    const listFailure = pathname === '/' && error instanceof HomeReadFailure;
+    const recovery = useMountRecovery(onList || opening ? error : undefined, pathname, retryRoute);
+    const listFailure = onList && error instanceof HomeReadFailure;
     const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
     const failure =
       error instanceof Error && (opening || error.message === text.reconnectFailed)
@@ -1233,6 +1231,9 @@ async function loadSpaceHome({ context }: { context: AppContext }) {
   return home;
 }
 function HomePending() {
+  const workView = useRouterState({
+    select: ({ location }) => (location.pathname === WORK_LIST_PATH ? 'list' : 'home'),
+  });
   const opening = useContext(OpeningFrame);
   useLayoutEffect(() => {
     opening(true);
@@ -1241,7 +1242,7 @@ function HomePending() {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   return (
     <section className="home tmt-ui-page" data-page-list>
-      <AppHeader title={text.pageList.allPages} />
+      <AppHeader workView={workView} remote={{}} />
       <ColdPageList theme={theme}>
         <PageListLoading />
       </ColdPageList>
@@ -1249,22 +1250,42 @@ function HomePending() {
   );
 }
 
-const home = createRoute({
-  getParentRoute: () => root,
-  path: '/',
-  validateSearch: validateHomeSearch,
-  loader: async (options) => {
-    return loadSpaceHome(options);
-  },
-  component: Home,
-  pendingComponent: HomePending,
-  pendingMs: 150,
-  pendingMinMs: 300,
-});
-// Work home (#6474): the same owner list read as the page list, drawn as the spec's Work page.
+const workTabs = [
+  { id: 'home', tabId: 'work-tab-home', panelId: 'work-panel-home', label: text.workHome.homeTab },
+  { id: 'list', tabId: 'work-tab-list', panelId: 'work-panel-list', label: text.workHome.listTab },
+] as const;
+
+function WorkTabs() {
+  const router = useRouter();
+  const selected = useRouterState({
+    select: ({ resolvedLocation, location }) =>
+      (resolvedLocation ?? location).pathname === WORK_LIST_PATH ? 'list' : 'home',
+  });
+  return (
+    <div className="colab-work-tabs" data-work-view={selected}>
+      <BrowserTabs
+        label={text.workHome.title}
+        tabs={workTabs}
+        selected={selected}
+        onSelect={(id) => {
+          if (id !== selected)
+            void router.navigate({ to: id === 'list' ? WORK_LIST_PATH : '/work' });
+        }}
+      >
+        {(tab) => tab.id === selected && <Outlet />}
+      </BrowserTabs>
+    </div>
+  );
+}
+
 const work = createRoute({
   getParentRoute: () => root,
   path: '/work',
+  component: WorkTabs,
+});
+const workOverview = createRoute({
+  getParentRoute: () => work,
+  path: '/',
   validateSearch: validateWorkSearch,
   // Ages and periods are measured from when this list was read, so a render stays pure.
   loader: async (options) => ({ ...(await loadSpaceHome(options)), readAt: Date.now() }),
@@ -1273,15 +1294,27 @@ const work = createRoute({
   pendingMs: 150,
   pendingMinMs: 300,
 });
-// The list was `/all` before it became the home; an old link or history entry still lands on it.
-const allPages = createRoute({
-  getParentRoute: () => root,
-  path: '/all',
+const workList = createRoute({
+  getParentRoute: () => work,
+  path: 'list',
   validateSearch: validateHomeSearch,
-  beforeLoad: ({ search }) => {
-    throw redirect({ to: '/', search, replace: true });
-  },
+  loader: loadSpaceHome,
+  component: Home,
+  pendingComponent: HomePending,
+  pendingMs: 150,
+  pendingMinMs: 300,
 });
+const oldList = (path: '/' | '/all') =>
+  createRoute({
+    getParentRoute: () => root,
+    path,
+    validateSearch: validateHomeSearch,
+    beforeLoad: ({ search }) => {
+      throw redirect({ to: WORK_LIST_PATH, search, replace: true });
+    },
+  });
+const home = oldList('/');
+const allPages = oldList('/all');
 /**
  * Timings of opening a page, for whoever profiles it: local performance entries only, no report.
  * The frame appears after `pendingMs` and stays `pendingMinMs`; a fast open never shows it.
@@ -1502,9 +1535,7 @@ function Shell() {
       opening ? state.location.pathname : (state.resolvedLocation ?? state.location).pathname,
   });
   const isPage = pathname.startsWith('/pages/');
-  const isHome = pathname === '/';
-  // Work home (#6474) names itself, as the list does.
-  const isWork = pathname === '/work';
+  const isWork = pathname === '/work' || pathname === WORK_LIST_PATH;
   // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
   const hostSlot = useContext(ShellHostSlot);
   const ownShell = hostSlot === null;
@@ -1518,7 +1549,7 @@ function Shell() {
         space={space}
         pageId={isPage ? pathname.slice('/pages/'.length) : undefined}
         routeKey={pathname}
-        allowed={ownShell || isPage || isHome || isWork}
+        allowed={ownShell || isPage || isWork}
         shortcut={!sharedSearch}
         navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
         pageHref={(pageId) =>
@@ -1529,7 +1560,7 @@ function Shell() {
       >
         <ColabShell transport={transport} space={space}>
           {/* The list names its own scope; a page draws its own header. */}
-          {!isPage && !isHome && !isWork && (
+          {!isPage && !isWork && (
             <AppHeader
               title={
                 pathname.startsWith('/short/')
@@ -4581,7 +4612,11 @@ export function shellLocation() {
   for (const key of ['read', 'anchor', 'open'])
     if (fragment.has(key)) keys.set(key, fragment.get(key)!);
   const search = keys.size ? `?${keys}` : '';
-  if (/^\/(?:all|settings|templates|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))
+  if (
+    /^\/(?:all|work(?:\/list)?|settings|templates|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(
+      path,
+    )
+  )
     history.replaceState(history.state, '', `/colab${path}${search}${keep}`);
 }
 export function createAppRouter(
@@ -4608,13 +4643,15 @@ export function createAppRouter(
                 const target = entryOpenTarget();
                 const matches = knownPages.filter((row) => row.pageId.startsWith(prefix));
                 path = !prefix
-                  ? '/'
+                  ? new URLSearchParams(location.search).get('work') === 'home'
+                    ? '/work'
+                    : WORK_LIST_PATH
                   : matches.length === 1 && !matches[0].deleted
                     ? `/pages/${matches[0].pageId}`
                     : `/short/${prefix}`;
                 // A thread names a place inside the page; a reading or shell anchor is a page hint.
-                if (target && !('thread' in target) && path !== '/') hint = target;
-                if (hint && !('read' in hint) && path === '/') hint = undefined;
+                if (target && !('thread' in target) && !isListPath(path) && path !== '/work')
+                  hint = target;
               } catch {
                 path = '/blocked';
               }
@@ -4622,11 +4659,11 @@ export function createAppRouter(
               path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
               hint = ownerPageHint(new URL(location.href), space);
             }
-            if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
+            if (!/^\/(?:all|work(?:\/list)?|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
               path = '/blocked';
             const search = hint
               ? hintSearch(hint)
-              : path === '/'
+              : isListPath(path)
                 ? storedListSearch(window.history.state)
                 : '';
             return {
@@ -4642,8 +4679,9 @@ export function createAppRouter(
           },
           createHref: (routerPath) => {
             // The list's search is never part of the address (see `keepListSearch`).
-            const path = isListPath(routerPath) ? '/' : routerPath;
+            const path = isListPath(routerPath) ? WORK_LIST_PATH : routerPath;
             if (!publicEntry()) return ownerReadingHref(path, location.pathname, space);
+            if (path === '/work' || path.startsWith('/work?')) return '/colab/?work=home';
             const { route, hint } = splitPageHint(path);
             const id = route.replace(/^\/(?:pages|short)\//, '');
             if (route === '/' || !validPagePrefix(id)) return '/colab/';
@@ -4670,7 +4708,7 @@ export function createAppRouter(
   const router = createRouter({
     routeTree: root.addChildren([
       home,
-      work,
+      work.addChildren([workOverview, workList]),
       allPages,
       page,
       shortPage,

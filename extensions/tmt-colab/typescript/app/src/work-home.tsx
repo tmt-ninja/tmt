@@ -51,7 +51,7 @@ import {
 type WorkEntry = { workView?: true };
 
 const rootRoute = getRouteApi('__root__');
-const workRoute = getRouteApi('/work');
+const workRoute = getRouteApi('/work/');
 const t = text.workHome;
 const PROJECT_KEY = 'tmt-colab-work-project';
 const SHOWN = 5;
@@ -381,7 +381,7 @@ export function WorkHome() {
   if (!all.length)
     return (
       <section className="work-home tmt-ui-page" data-work-home>
-        <AppHeader title={t.title} remote={{ deviceName: transport.backendName }} />
+        <AppHeader workView="home" remote={{ deviceName: transport.backendName }} />
         <div className="work-home-empty">
           <p>{t.empty}</p>
           {transport.management ? (
@@ -406,7 +406,7 @@ export function WorkHome() {
 
   return (
     <section className="work-home tmt-ui-page" data-work-home>
-      <AppHeader title={t.title} remote={{ deviceName: transport.backendName }} />
+      <AppHeader workView="home" remote={{ deviceName: transport.backendName }} />
       <div className="work-home-body">
         <div className="work-home-head">
           <div>

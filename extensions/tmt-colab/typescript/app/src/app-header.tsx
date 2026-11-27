@@ -16,6 +16,7 @@ export function AppHeader({
   remote,
   headerRef,
   headingSuffix,
+  workView,
   page = false,
 }: {
   linked?: boolean;
@@ -24,15 +25,23 @@ export function AppHeader({
   remote?: { deviceName?: string };
   headerRef?: Ref<HTMLElement>;
   headingSuffix?: ReactNode;
+  workView?: 'home' | 'list';
   /** The title names a page (a shell page), not a Colab section. */
   page?: boolean;
 }) {
   const sharedBar = useContext(SharedTopBar);
   return (
     <ColabHeader
-      title={title}
+      title={
+        workView === undefined ? title : text.workHome[workView === 'home' ? 'homeTab' : 'listTab']
+      }
       titleVisible={titleVisible}
-      page={page}
+      page={page || workView !== undefined}
+      crumb={
+        workView === undefined ? undefined : (
+          <span className="colab-work-view-prefix">{text.workHome.title}</span>
+        )
+      }
       headerRef={headerRef}
       remote={remote}
       headingSuffix={headingSuffix}
