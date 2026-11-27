@@ -191,7 +191,13 @@ import { FilesSurface } from './files-panel.js';
 import { MetadataDialogs } from './metadata-dialogs.js';
 import { verifiedQuestionStates } from './question-registry.js';
 import { CreatorDefaultProvider, creatorTarget } from './creator-default.js';
-import { CHAT_DRAFT, SavedDrafts, savedDrafts, unconfirmedDrafts } from './saved-drafts.js';
+import {
+  CHAT_DRAFT,
+  interruptedCommentTarget,
+  SavedDrafts,
+  savedDrafts,
+  unconfirmedDrafts,
+} from './saved-drafts.js';
 import { PendingMessageContext, pendingMessageStore } from './draft-store.js';
 import type { ComposerRecovery } from './components/message-composer-edit.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
@@ -2275,6 +2281,7 @@ function OpenPage({
   // Chat's composer holds a send that failed before it was recorded (#5870).
   const [chatUnsent, setChatUnsent] = useState(false);
   const [chatRecovery, setChatRecovery] = useState<ComposerRecovery>();
+  const [commentRecoveryRevision, setCommentRecoveryRevision] = useState(0);
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -2985,6 +2992,27 @@ function OpenPage({
   // A block anchor whose block the page deleted (#6725); HTML anchors are never gone.
   const anchorGone = (anchor: ThreadAnchor) =>
     view.pageType === 'blocks' && 'block' in anchor && !!view.blocks?.[anchor.block]?.deleted;
+  function commentRecovery(key: string) {
+    const target = interruptedCommentTarget(key);
+    const edit = drafts.current.get(key);
+    if (!target || !edit || archived || discussionPending || discussionBlocked) return;
+    if ('writer' in target) {
+      const thread = view.threads?.find(
+        (candidate) => candidate.ref.writer === target.writer && candidate.threadId === target.id,
+      );
+      if (!thread || thread.deleted || isChatThread(thread)) return;
+      const targetKey = threadKey(thread);
+      const previous = drafts.current.get(targetKey);
+      if (previous?.value.trim() && previous.value !== edit.value) return;
+      return { edit, targetKey, thread };
+    }
+    if (anchorGone(target)) return;
+    const targetKey = JSON.stringify(target);
+    const previous = drafts.current.get(targetKey);
+    if (previous && previous.value !== edit.value) return;
+    return { edit, targetKey };
+  }
+
   const blockAnchors = (() => {
     const found = new Map<string, { id: string; ordinal: number; open: boolean }[]>();
     if (view.pageType !== 'blocks' || !view.blocks) return found;
@@ -4150,6 +4178,18 @@ function OpenPage({
                   ]
             }
             discard={discardDraft}
+            canRestore={(key) => !!commentRecovery(key)}
+            restore={(key) => {
+              const recovery = commentRecovery(key);
+              if (!recovery) return;
+              keepDraft(recovery.targetKey, recovery.edit);
+              discardDraft(key);
+              if (recovery.thread) {
+                if (activeThread === recovery.targetKey)
+                  setCommentRecoveryRevision((revision) => revision + 1);
+                else openThread(recovery.thread.ref, { revealInPage: false });
+              }
+            }}
           />
           {draftsUnsaved && (
             <p role="status" className="annotation-hint saved-drafts-notice">
@@ -4166,7 +4206,7 @@ function OpenPage({
                   creationRecipient={creatorTarget(view)}
                   hideHeader
                   numbers={numbers}
-                  key={`discussion:${snapshot.id}:${draftsReady}`}
+                  key={`discussion:${snapshot.id}:${draftsReady}:${commentRecoveryRevision}`}
                   threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
                   resolved={resolved}
                   anchorsChecked={anchorsChecked}
@@ -4407,7 +4447,7 @@ function OpenPage({
                         onBusy={(busy) => annotationSending(item.key, busy)}
                         onRecorded={() => annotationRecorded(item.key)}
                         cancel={() => closeAnnotation(true)}
-                        committed={(ref) => continueAnnotation(item.key, ref)}
+                        committed={(ref, nextDraft) => continueAnnotation(item.key, ref, nextDraft)}
                       />
                     </>
                   }

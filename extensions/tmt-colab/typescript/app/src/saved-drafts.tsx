@@ -3,7 +3,14 @@ import { BrowserAction } from '@tmt/browser-ui/react';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { persistable } from './draft-store.js';
 import { text } from './strings.js';
-import { validateSelector, type ThreadView } from './thread-records.js';
+import {
+  anchorContext,
+  validateAnchor,
+  validateRef,
+  type DiscussionRef,
+  type ThreadAnchor,
+  type ThreadView,
+} from './thread-records.js';
 import { useState } from 'react';
 
 /** The reserved draft key of the page Chat composer. */
@@ -15,6 +22,22 @@ export interface SavedDraft {
   quote?: string;
   text: string;
   unconfirmed?: boolean;
+}
+
+/** Older recovery keys carry only a random ID and still offer Copy. */
+export function interruptedCommentTarget(key: string): DiscussionRef | ThreadAnchor | undefined {
+  if (!key.startsWith('unconfirmed:comment:')) return;
+  const start = key.indexOf(':', 'unconfirmed:comment:'.length);
+  if (start < 0) return;
+  try {
+    const target: unknown = JSON.parse(key.slice(start + 1));
+    if (target && typeof target === 'object' && Object.hasOwn(target, 'writer'))
+      validateRef(target);
+    else validateAnchor(target);
+    return target;
+  } catch {
+    return;
+  }
 }
 
 export function unconfirmedDrafts(
@@ -46,8 +69,8 @@ export function savedDrafts(
     if (key.startsWith('{')) {
       try {
         const selector: unknown = JSON.parse(key);
-        validateSelector(selector);
-        result.push({ key, quote: selector.exact, text: edit.value });
+        validateAnchor(selector);
+        result.push({ key, quote: anchorContext(selector) || undefined, text: edit.value });
       } catch {
         // A key that is not a selector is not listed as one.
       }
@@ -61,12 +84,14 @@ export function SavedDrafts({
   discard,
   archived = false,
   restore,
+  canRestore,
   restoreDisabled = false,
 }: {
   drafts: readonly SavedDraft[];
   discard(key: string): void;
   archived?: boolean;
   restore?(key: string): void;
+  canRestore?(key: string): boolean;
   restoreDisabled?: boolean;
 }) {
   const [copyFailed, setCopyFailed] = useState<string>();
@@ -81,60 +106,67 @@ export function SavedDrafts({
     <section className="saved-drafts" data-testid="saved-drafts" aria-label={heading}>
       <h3>{heading}</h3>
       <ul>
-        {drafts.map((draft) => (
-          <li key={draft.key} data-testid="saved-draft">
-            {draft.quote !== undefined && <blockquote>{draft.quote}</blockquote>}
-            {archived && !draft.unconfirmed ? (
-              <ArchivedDraft value={draft.text} />
-            ) : (
-              <>
-                <p className="saved-draft-text">{draft.text}</p>
-                <p className="annotation-hint">
-                  {draft.unconfirmed
-                    ? text.messageInterrupted
-                    : draft.quote !== undefined
-                      ? text.savedDraftQuote
-                      : text.savedDraftThreadGone}
-                </p>
-                {draft.unconfirmed && (
-                  <>
-                    <BrowserAction
-                      type="button"
-                      label={restore ? text.messageInterruptedRestore : text.messageInterruptedCopy}
-                      variant="text"
-                      disabled={!!restore && restoreDisabled}
-                      onActivate={(event) => {
-                        if (!event.isTrusted) return;
-                        if (restore) restore(draft.key);
-                        else {
-                          setCopyFailed(undefined);
-                          void (async () => {
-                            try {
-                              await navigator.clipboard.writeText(draft.text);
-                            } catch {
-                              setCopyFailed(draft.key);
-                            }
-                          })();
+        {drafts.map((draft) => {
+          const restoreDraft = restore && (canRestore?.(draft.key) ?? true);
+          return (
+            <li key={draft.key} data-testid="saved-draft">
+              {draft.quote !== undefined && <blockquote>{draft.quote}</blockquote>}
+              {archived && !draft.unconfirmed ? (
+                <ArchivedDraft value={draft.text} />
+              ) : (
+                <>
+                  <p className="saved-draft-text">{draft.text}</p>
+                  <p className="annotation-hint">
+                    {draft.unconfirmed
+                      ? text.messageInterrupted
+                      : draft.quote !== undefined
+                        ? text.savedDraftQuote
+                        : text.savedDraftThreadGone}
+                  </p>
+                  {draft.unconfirmed && (
+                    <>
+                      <BrowserAction
+                        type="button"
+                        label={
+                          restoreDraft
+                            ? text.messageInterruptedRestore
+                            : text.messageInterruptedCopy
                         }
-                      }}
-                    />
-                    {copyFailed === draft.key && <p role="alert">{text.copyDraftFailed}</p>}
-                  </>
-                )}
-                <BrowserAction
-                  type="button"
-                  label={
-                    draft.unconfirmed ? text.messageInterruptedDismiss : text.savedDraftDiscard
-                  }
-                  variant="text"
-                  onActivate={(event) => {
-                    if (event.isTrusted) discard(draft.key);
-                  }}
-                />
-              </>
-            )}
-          </li>
-        ))}
+                        variant="text"
+                        disabled={!!restoreDraft && restoreDisabled}
+                        onActivate={(event) => {
+                          if (!event.isTrusted) return;
+                          if (restoreDraft) restore(draft.key);
+                          else {
+                            setCopyFailed(undefined);
+                            void (async () => {
+                              try {
+                                await navigator.clipboard.writeText(draft.text);
+                              } catch {
+                                setCopyFailed(draft.key);
+                              }
+                            })();
+                          }
+                        }}
+                      />
+                      {copyFailed === draft.key && <p role="alert">{text.copyDraftFailed}</p>}
+                    </>
+                  )}
+                  <BrowserAction
+                    type="button"
+                    label={
+                      draft.unconfirmed ? text.messageInterruptedDismiss : text.savedDraftDiscard
+                    }
+                    variant="text"
+                    onActivate={(event) => {
+                      if (event.isTrusted) discard(draft.key);
+                    }}
+                  />
+                </>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

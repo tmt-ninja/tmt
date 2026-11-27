@@ -50,22 +50,49 @@ async function composer(page: Page, options: object) {
   return page.getByRole('combobox', { name: 'Message', exact: true });
 }
 
-test('an owner send proceeds when recovery storage refuses', async ({ page }) => {
+test('a refused recovery write leaves the owner message in the composer', async ({ page }) => {
   const input = await composer(page, { agents: ['Solo'], pending: 'refuse' });
   await input.fill('Keep this message.');
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).pendingCalls).toBe(1);
-  await expect.poll(async () => (await run(page, 'proof')).createChats).toBe(1);
+  await expect(page.getByRole('status')).toContainText('Drafts are not saved on this device.');
+  await expect(input).toHaveText('Keep this message.');
+  expect((await run(page, 'proof')).createChats).toBe(0);
 });
 
-test('an owner send does not wait for slow recovery storage', async ({ page }) => {
+test('an owner message remains editable while recovery storage settles', async ({ page }) => {
   const input = await composer(page, { agents: ['Solo'], pending: 'hold' });
   await input.fill('Wait for storage.');
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).pendingCalls).toBe(1);
-  await expect.poll(async () => (await run(page, 'proof')).createChats).toBe(1);
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  await expect(send).toBeEnabled();
+  await expect(input).toHaveText('Wait for storage.');
+  expect((await run(page, 'proof')).createChats).toBe(0);
+  await send.click();
+  expect((await run(page, 'proof')).pendingCalls).toBe(1);
   await run(page, 'releaseRecovery');
-  expect((await run(page, 'proof')).createChats).toBe(1);
+  await expect.poll(async () => (await run(page, 'proof')).createChats).toBe(1);
+});
+
+test('the browser warns before leaving while a send waits for retention', async ({ page }) => {
+  const input = await composer(page, { agents: ['Solo'], pending: 'hold' });
+  await input.fill('Keep the unsaved text in the composer.');
+  await input.press('Enter');
+  await expect.poll(async () => (await run(page, 'proof')).pendingCalls).toBe(1);
+  const warning = page.waitForEvent('dialog');
+  await page.close({ runBeforeUnload: true });
+  const dialog = await warning;
+  expect(dialog.type()).toBe('beforeunload');
+  await dialog.dismiss();
+  await expect(input).toHaveText('Keep the unsaved text in the composer.');
+  expect((await run(page, 'proof')).createChats).toBe(0);
+  await run(page, 'releaseRecovery');
+  await expect.poll(async () => (await run(page, 'proof')).createChats).toBe(1);
+  const warnsAfterRetention = await page.evaluate(
+    () => !window.dispatchEvent(new Event('beforeunload', { cancelable: true })),
+  );
+  expect(warnsAfterRetention).toBe(false);
 });
 
 test('unknown creator and prior display labels never infer a recipient', async ({ page }) => {

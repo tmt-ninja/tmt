@@ -4507,6 +4507,15 @@ returns a batch Ask for every question thread holding one of its comments; its r
 notification and captured earlier conversation belong to the canonical thread alone. `Change
 answer` is a new comment and an ordinary single-comment Ask; the batch is untouched.
 
+On a paired page, Chat and comment Send retain the captured text and its destination in the
+existing encrypted device draft store before showing an echo that replaces the draft or starting
+publication. If retention fails, the composer keeps the text and says drafts are not saved.
+During that wait, leaving the page can still discard unsaved text, so the browser warns. Once
+publication starts, a reload can show the text as unconfirmed with the existing possible-delivery
+warning. A verified discussion record clears that recovery entry. Restoring text to Chat, a
+comment quote, or a live thread is an explicit local action and never republishes it. The signed
+writer and exact-envelope recovery rules are unchanged.
+
 The Comments overlay opens one annotation or page-level thread directly.
 Its Open / Needs you / Resolved / All filter and Previous / Next arrows use the authenticated
 thread projection, existing creation-order numbers and attention metadata; opening

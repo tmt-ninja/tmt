@@ -4,20 +4,25 @@ import { draftKey } from './keyring.js';
 import { open, seal, type Sealed } from './local-seal.js';
 import { MESSAGE_RECIPIENT_LIMIT } from './message-recipient.js';
 import { record } from './storage.js';
-import { COMMENT_BYTES } from './thread-records.js';
+import { COMMENT_BYTES, type DiscussionRef, type ThreadAnchor } from './thread-records.js';
 import { createContext } from 'react';
 
 /** Recovery text is device-local and never authorizes another publication. */
 export interface PendingMessageStore {
-  retain(kind: 'chat' | 'comment', edit: ComposerEdit): Promise<string | undefined>;
+  retain(
+    kind: 'chat' | 'comment',
+    edit: ComposerEdit,
+    destination?: DiscussionRef | ThreadAnchor,
+  ): Promise<string | undefined>;
   clear(key: string): Promise<void>;
 }
 export const PendingMessageContext = createContext<PendingMessageStore | undefined>(undefined);
 
 export function pendingMessageStore(store: DraftStore, page: string): PendingMessageStore {
   return {
-    async retain(kind, edit) {
-      const key = `unconfirmed:${kind}:${crypto.randomUUID()}`;
+    async retain(kind, edit, destination) {
+      const target = kind === 'comment' && destination ? `:${JSON.stringify(destination)}` : '';
+      const key = `unconfirmed:${kind}:${crypto.randomUUID()}${target}`;
       return (await store.apply(page, new Map([[key, edit]]))) ? key : undefined;
     },
     async clear(key) {
@@ -128,8 +133,8 @@ function bounded(drafts: Map<string, ComposerEdit>): Map<string, ComposerEdit> {
     drafts.size > DRAFTS_PER_PAGE ||
     (drafts.size > 1 && encodeRecord(drafts).length > RECORD_BYTES)
   ) {
-    // Never silently evict an interrupted send. Refuse another recovery write instead if all
-    // entries are unconfirmed; sending itself remains available.
+    // Never silently evict an interrupted send. Refuse another recovery write if all entries
+    // are unconfirmed.
     const oldest = [...drafts.keys()].find((key) => !key.startsWith('unconfirmed:'));
     if (oldest === undefined) throw new Error('Unconfirmed messages fill draft storage');
     drafts.delete(oldest);

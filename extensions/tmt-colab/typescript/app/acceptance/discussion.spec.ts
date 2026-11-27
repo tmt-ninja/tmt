@@ -1324,14 +1324,51 @@ test('interrupted Chat send remains visible after reload', async () => {
     const created = createPage(world, 'Reload chat', '<h1>Reload chat</h1>');
     const page = await openPage(door, author, created);
     await openChat(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
     const panel = page.getByTestId('chat-panel');
+    await page.evaluate(() => {
+      const request = navigator.locks.request.bind(navigator.locks);
+      const gate = document.documentElement;
+      const ready = new Promise<void>((resolve) =>
+        window.addEventListener('release-draft-write', () => resolve(), { once: true }),
+      );
+      navigator.locks.request = (async (...args: unknown[]) => {
+        if (typeof args[0] !== 'string' || !args[0].startsWith('colab-drafts:'))
+          return Reflect.apply(request, navigator.locks, args);
+        const first = gate.dataset.draftWriteHeld === undefined;
+        gate.dataset.draftWriteHeld = 'true';
+        await ready;
+        const started = performance.now();
+        const result = await Reflect.apply(request, navigator.locks, args);
+        if (first) gate.dataset.draftRetainMs = (performance.now() - started).toFixed(2);
+        return result;
+      }) as typeof navigator.locks.request;
+    });
     const input = await inputFor(panel);
     const body = 'A pending chat that must remain recoverable';
     await input.fill(body);
     armed = true;
-    await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    const send = panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
+    await send.click();
+    await expect(page.locator('html')).toHaveAttribute('data-draft-write-held', 'true');
+    await expect(input, 'the draft stays in the composer while retention is held').toContainText(
+      body,
+    );
+    await expect(send).toBeEnabled();
+    const leaveWarns = () =>
+      page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true })));
+    expect(await leaveWarns()).toBe(true);
+    expect(held).toBe(0);
+    const newer = 'A newer draft typed while retention waits';
+    await input.fill(newer);
+    await page.evaluate(() => window.dispatchEvent(new Event('release-draft-write')));
     await expect.poll(() => held, { timeout: 15_000 }).toBeGreaterThan(0);
-    await expect(panel).toContainText(body);
+    const retainMs = Number(await page.locator('html').getAttribute('data-draft-retain-ms'));
+    expect(retainMs).toBeGreaterThan(0);
+    console.log(`Interrupted Chat retention at 1440px: ${retainMs} ms`);
+    expect(await leaveWarns()).toBe(false);
+    await expect(panel.getByText(body, { exact: true })).toBeVisible();
+    await expect.poll(() => composerText(input)).toBe(newer);
     await page.reload();
     await openChat(page);
     await expect(page.getByTestId('chat-panel')).toContainText(body, { timeout: 15_000 });
@@ -1370,14 +1407,6 @@ test('interrupted anchored comment remains visible after reload', async () => {
     });
     const created = createPage(world, 'Reload comment', '<p id="quote">Quoted passage.</p>');
     const page = await openPage(door, author, created);
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'clipboard', {
-        configurable: true,
-        value: {
-          writeText: async (value: string) => sessionStorage.setItem('test-copied-text', value),
-        },
-      });
-    });
     const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
     await mode.click();
     await expect(mode).toHaveAttribute('aria-pressed', 'true');
@@ -1394,13 +1423,70 @@ test('interrupted anchored comment remains visible after reload', async () => {
     await expect(page.locator('body')).toContainText(body, { timeout: 15_000 });
     await expect(page.locator('.page-unsent[role="alert"]')).toContainText(text.messageInterrupted);
     await (await pageAction(page, 'Comments')).click();
-    await page.getByRole('button', { name: text.messageInterruptedCopy, exact: true }).click();
-    await expect
-      .poll(() => page.evaluate(() => sessionStorage.getItem('test-copied-text')))
-      .toBe(body);
-    await expect(
-      page.getByRole('button', { name: text.messageInterruptedRestore, exact: true }),
-    ).toHaveCount(0);
+    await page.getByRole('button', { name: text.messageInterruptedRestore, exact: true }).click();
+    await expect(page.getByRole('button', { name: text.messageInterruptedRestore })).toHaveCount(0);
+    const heldBeforeRestore = held;
+    await (await pageAction(page, 'Comments')).click();
+    await mode.click();
+    await page.frameLocator('iframe').locator('#quote').click();
+    const restored = await inputFor(dialog);
+    await expect.poll(() => composerText(restored)).toBe(body);
+    expect(held).toBe(heldBeforeRestore);
+  });
+});
+
+test('an interrupted reply returns to its original thread without sending', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'reload-reply');
+    let armed = false;
+    let held = 0;
+    await author.context.routeWebSocket(/\/sync/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        const type = (JSON.parse(String(message)) as { type: string }).type;
+        if (armed && type === 'append') {
+          held++;
+          return;
+        }
+        server.send(message);
+      });
+      server.onMessage((message) => ws.send(message));
+    });
+    const created = createPage(world, 'Reload comment', '<p id="quote">Quoted passage.</p>');
+    const page = await openPage(door, author, created);
+    const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+    await mode.click();
+    await expect(mode).toHaveAttribute('aria-pressed', 'true');
+    await page.frameLocator('iframe').locator('#quote').click();
+    const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
+    const input = await inputFor(dialog);
+    const first = 'The existing comment on this quote';
+    await input.fill(first);
+    await dialog.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect(dialog.getByTestId('comment-entry').filter({ hasText: first })).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await (await pageAction(page, 'Comments')).click();
+    const panel = page.getByTestId('comments-panel');
+    const body = 'An interrupted reply for this thread only';
+    const reply = await inputFor(panel);
+    await reply.fill(body);
+    armed = true;
+    await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+    await expect.poll(() => held, { timeout: 15_000 }).toBeGreaterThan(0);
+    await page.reload();
+    const recovery = page.getByRole('region', { name: text.unconfirmedMessages });
+    await expect(recovery).toContainText(text.messageInterrupted);
+    await expect(panel.getByTestId('comment-entry').filter({ hasText: first })).toHaveCount(1);
+    const heldBeforeRestore = held;
+    await recovery
+      .getByRole('button', { name: text.messageInterruptedRestore, exact: true })
+      .click();
+    await expect.poll(async () => composerText(await inputFor(panel))).toBe(body);
+    await expect(panel.getByRole('button', { name: text.messageInterruptedRestore })).toHaveCount(
+      0,
+    );
+    expect(held).toBe(heldBeforeRestore);
   });
 });
 
