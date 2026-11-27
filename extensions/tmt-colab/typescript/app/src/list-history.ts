@@ -3,15 +3,20 @@ import type { RouterHistory } from '@tanstack/react-router';
 /** The state key under which a history entry keeps the list's own search. */
 const KEY = 'tmtColabList';
 const MAX_SEARCH = 2048;
+export const WORK_LIST_PATH = '/work/list';
 
 /** Whether a router path is the page list, with or without its search. */
 export function isListPath(path: string): boolean {
-  return path === '/' || path.startsWith('/?');
+  const route = path.split('?', 1)[0];
+  return route === WORK_LIST_PATH || route === '/';
 }
 
 /** The search part of a list path (`?stage=all`), or nothing for a bare list. */
 function listSearch(path: string): string | undefined {
-  return path.startsWith('/?') && path.length > 2 ? path.slice(1) : undefined;
+  const question = path.indexOf('?');
+  return isListPath(path) && question >= 0 && question < path.length - 1
+    ? path.slice(question)
+    : undefined;
 }
 
 /** The search a history entry kept for the list; the list's own validation still reads it, so a

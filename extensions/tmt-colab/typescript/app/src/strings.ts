@@ -232,6 +232,9 @@ export const text = {
   archivedDraftsKept:
     'What you typed on this page is kept on this device until the page is restored.',
   unsentDraft: 'Unsent draft',
+  copyWorkNumber: 'Copy work number',
+  workNumberCopied: 'Copied',
+  workNumberCopyFailed: 'Could not copy',
   copyDraft: 'Copy',
   copyDraftFailed: 'Could not copy. Select the draft and copy it manually.',
 
@@ -1198,6 +1201,8 @@ export const text = {
     },
   },
   workHome: {
+    homeTab: 'Home',
+    listTab: 'List',
     highPriorityBadge: 'High',
     /** An open to-do whose Ask was answered and handled: its next step reads this. */
     answered: 'Answered',

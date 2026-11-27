@@ -165,6 +165,36 @@ body:not(:has(.tmt-ui-shell)) {
   font: var(--tmt-ui-command-size) / 1.5 var(--tmt-ui-font-mono);
   white-space: nowrap;
 }
+button.colab-work-number {
+  padding: 0;
+  border: 0;
+  border-radius: var(--tmt-ui-radius);
+  background: transparent;
+  cursor: pointer;
+}
+button.colab-work-number:hover {
+  color: var(--tmt-ui-color-text);
+  text-decoration: underline;
+}
+button.colab-work-number:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.colab-work-number-copy {
+  white-space: nowrap;
+}
+.colab-work-number-feedback {
+  position: fixed;
+  z-index: var(--tmt-foundation-z-layer, 60);
+  pointer-events: none;
+  margin-block-start: var(--tmt-ui-space-xs);
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-command-size) / 1.5 var(--tmt-ui-font-body);
+}
 .colab-title-divider {
   flex: none;
   color: var(--c-muted);
@@ -337,4 +367,19 @@ body:not(:has(.tmt-ui-shell)) {
 .tmt-ui-topbar-title-prefix .colab-scope-crumb {
   color: inherit;
   font: inherit;
+}
+
+.colab-work-list-scope {
+  display: block;
+  max-inline-size: min(22ch, 20vw);
+  overflow: hidden;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .tmt-ui-topbar-title-prefix:has(.colab-work-view-prefix) {
+    display: inline;
+  }
 }

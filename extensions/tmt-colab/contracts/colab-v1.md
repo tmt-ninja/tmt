@@ -6647,7 +6647,11 @@ successful comparison is retained per PR, merge and candidate tag; a positive re
 retained and never polled again for that filter. The reader requests only the checks rollup state.
 No GitHub output is added to page HTML, and share readers receive none of these observations.
 
-The shell Work home (`/colab/work`) records its view in the query string. `project`
+Work has Home (`/colab/work`) and List (`/colab/work/list`). The sidebar All pages entry
+opens List. The bare `/colab/` route also renders List at that address. The explicit
+`/colab/all` alias redirects to List with its validated search intact. The Colab submenu
+is available on List, including saved shortcuts and Manage shortcuts. The shell Work
+home records its view in the query string. `project`
 selects a project, `period` selects today or month (omitting it selects week), and
 `status` selects an overview count. `day` identifies a chart cell by its start in Unix
 milliseconds. `more` lists expanded project sections, with an empty name for unassigned

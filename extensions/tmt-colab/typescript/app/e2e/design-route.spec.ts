@@ -655,6 +655,9 @@ for (const width of [1440, 390])
       await page.locator('.tmt-ui-rail').getByRole('link', { name: 'Colab', exact: true }).click();
       await expect(page.locator('.design-workspace')).toHaveCount(0);
       await expect(page).toHaveURL(/\/colab\/$/);
+      await expect(
+        page.getByRole('tablist', { name: 'Work' }).getByRole('tab', { name: 'List', exact: true }),
+      ).toHaveAttribute('aria-selected', 'true');
       expect(
         await chromePaint(page),
         'scoped docs CSS leaves Colab common controls unchanged',

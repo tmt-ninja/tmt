@@ -195,7 +195,7 @@ test('an owner link to the old list lands on the home and keeps no stale route',
   page,
 }) => {
   await open(page, `/colab/#space=${space}&path=%2Fall`);
-  await expect.poll(() => here(page)).toBe('/colab/');
+  await expect.poll(() => here(page)).toBe('/colab/work/list');
 });
 
 test('an open key on a link survives to the page route', async ({ page }) => {

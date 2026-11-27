@@ -518,11 +518,9 @@ test('the list keeps its filter in the address and restores it on reload', async
   ).toBeVisible();
 });
 
-test('the home is the concept17 list with no Today view, and an old /all link keeps its search', async ({
-  page,
-}) => {
+test('Work List keeps the page list and applies an old /all link’s search', async ({ page }) => {
   await mount(page);
-  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('All pages');
+  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('List');
   await expect(app(page).getByRole('navigation', { name: 'Home views' })).toHaveCount(0);
   await expect(
     app(page).getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
@@ -530,12 +528,12 @@ test('the home is the concept17 list with no Today view, and an old /all link ke
   await mount(page, 'few', `/all?project=${encodeURIComponent(JSON.stringify(['design']))}`);
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
   const hash = new URL(page.url()).hash;
-  expect(hash).toMatch(/^#\/\?/);
+  expect(hash).toMatch(/^#\/work\/list\?/);
   expect(hash).toContain('project');
-  // Search it cannot read is dropped and the address is the plain home.
+  // Invalid search is dropped and the address is the plain Work List.
   await mount(page, 'few', '/all?project=design&q=123');
   await expect(titles(page)).toHaveCount(4);
-  expect(new URL(page.url()).hash).toBe('#/');
+  expect(new URL(page.url()).hash).toBe('#/work/list');
 });
 
 test('the Needs you tab keeps the pages waiting on the viewer, combines with a project and survives reload', async ({
@@ -1063,7 +1061,7 @@ test('a reader gets search, filters and the scope, but no project writes or arch
       page.getByRole('menuitem', { name: `${action} — Read-only access` }),
     ).toHaveAttribute('aria-disabled', 'true');
   await page.keyboard.press('Escape');
-  await expect(app(page).getByRole('tab')).toHaveCount(0);
+  await expect(app(page).getByRole('tablist', { name: 'Page views' })).toHaveCount(0);
   await expect(app(page).getByRole('button', { name: /^Projects for/ })).toHaveCount(0);
   await filterProject(page, 'ops');
   await expect(titles(page)).toHaveText(['Delta ops']);
@@ -2103,7 +2101,7 @@ for (const width of [1440, 390, 320])
       ['Latin', 'W'.repeat(32)],
       ['CJK', '漢'.repeat(32)],
     ] as const)
-      test(`a ${kind} project name ellipsizes in the bar's title and New page stays in view at ${width}px ${theme}`, async ({
+      test(`a ${kind} project name fits in Work List chrome and New page stays in view at ${width}px ${theme}`, async ({
         page,
       }) => {
         await page.setViewportSize({ width, height: 900 });
@@ -2117,8 +2115,10 @@ for (const width of [1440, 390, 320])
         await entry.scrollIntoViewIfNeeded();
         await entry.click();
         const heading = app(page).locator('.tmt-ui-topbar-title-current');
-        await expect(heading).toHaveText(name);
-        await expect(heading).toHaveAttribute('title', name);
+        await expect(heading).toHaveText('List');
+        const scope = app(page).locator('.colab-work-list-scope');
+        await expect(scope).toHaveText(name);
+        await expect(scope).toHaveAttribute('title', name);
         const create = app(page)
           .locator('.page-list-create')
           .getByRole('button', { name: 'New page' });

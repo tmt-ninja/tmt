@@ -30,6 +30,7 @@ import { useShellRemoteStatus } from './remote-header.js';
 import { SharedTopBar } from './shared-top-bar.js';
 import { onRememberedPages, rememberedPages } from './quick-switcher-source.js';
 import { text } from './strings.js';
+import { WORK_LIST_PATH, isListPath } from './list-history.js';
 import type { PageSummary, PageTransport } from './transport.js';
 import { useShortcuts } from './use-shortcuts.js';
 import { onTemplateCount, templateCount } from './templates.js';
@@ -94,7 +95,7 @@ export function ColabShell({
   );
   const openShortcuts = (kind: ShortcutMenuRequest['kind'], shortcut?: string) => {
     setRequest({ kind, id: Date.now(), shortcut });
-    if (router.state.location.pathname !== '/') void router.navigate({ to: '/' });
+    if (!isListPath(router.state.location.pathname)) void router.navigate({ to: WORK_LIST_PATH });
   };
   // The menu reads nothing itself: it shows the list the routes already read (the space home, a
   // link-opened page's chip read, the quick switcher), so it never adds a list request.
@@ -108,8 +109,9 @@ export function ColabShell({
     });
   }, [hostSlot]);
 
-  const listSearch =
-    location.pathname === '/' ? (location.search as { shortcut?: string }) : undefined;
+  const listSearch = isListPath(location.pathname)
+    ? (location.search as { shortcut?: string })
+    : undefined;
   // A page selects the shortcut its list was showing; a link-opened page selects All pages.
   const lastShortcut = useRef<string | undefined>(undefined);
   if (listSearch) lastShortcut.current = listSearch.shortcut;
@@ -139,7 +141,7 @@ export function ColabShell({
     const rows = shortcutRows(
       shortcuts.items,
       settings || dashboard || templatesRoute || workRoute ? undefined : shortcutId,
-      (item) => href('/', { ...item.search, shortcut: item.id }),
+      (item) => href(WORK_LIST_PATH, { ...item.search, shortcut: item.id }),
       listed,
     );
     const [all] = scopeRows(shown, NO_PROJECTS);
@@ -152,7 +154,7 @@ export function ColabShell({
               id: 'all',
               icon: 'list',
               label: text.pageList.allPages,
-              href: href('/'),
+              href: href(WORK_LIST_PATH),
               total: all!.count,
               count: all!.waiting ? shellCount(all!.waiting) : undefined,
               current:
@@ -258,7 +260,7 @@ export function ColabShell({
       : undefined;
     if (id === 'colab' || id === 'all' || shortcut) {
       void router.navigate({
-        to: '/',
+        to: WORK_LIST_PATH,
         search: shortcut ? { ...shortcut.search, shortcut: shortcut.id } : {},
       });
       return true;

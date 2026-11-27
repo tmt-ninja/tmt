@@ -303,3 +303,54 @@ for (const width of [1440, 390])
         path: capturePath(`top-bar-filled-subpages-menu-${width}-${theme}.png`),
       });
     });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`work number copies from the bar and page title at ${width} ${theme}`, async ({
+      page,
+      context,
+    }) => {
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      const bar = await mount(page, 'work-fields');
+      const title = page.locator('.page-mobile-title:visible h1');
+      const topNumber = bar.getByRole('button', { name: 'COLAB-128', exact: true });
+      const pageNumber = title.getByRole('button', { name: 'COLAB-128', exact: true });
+      const feedback = page.locator('.colab-work-number-feedback');
+      // The structured stage gives the title its desktop inset before any Copy action.
+      await expect(page.locator('#work-page-fixture .structured-page-stage')).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const before = await title.boundingBox();
+      const pointerTarget = width === 390 ? pageNumber : topNumber;
+      await pointerTarget.click();
+      const pointerScope = width === 390 ? title : bar;
+      await expect(pointerScope.getByRole('status').filter({ hasText: /^Copied$/ })).toHaveText(
+        'Copied',
+      );
+      await expect(feedback).toHaveText('Copied');
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('COLAB-128');
+      expect(await title.boundingBox()).toEqual(before);
+      await expect(feedback).toHaveCount(0, { timeout: 2000 });
+
+      await page.evaluate(() => navigator.clipboard.writeText('reset'));
+      if (width === 390) await page.keyboard.press('Shift+Tab');
+      for (let step = 0; step < 30; step++) {
+        await page.keyboard.press('Tab');
+        if (await pageNumber.evaluate((button) => button === document.activeElement)) break;
+      }
+      await expect(pageNumber).toBeFocused();
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({
+          path: await capturePath(`work-number-focus-${width}-${theme}.png`),
+        });
+      await page.keyboard.press('Enter');
+      await expect(title.getByRole('status')).toHaveText('Copied');
+      await expect(feedback).toHaveText('Copied');
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('COLAB-128');
+      expect(await title.boundingBox()).toEqual(before);
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({
+          path: await capturePath(`work-number-copied-${width}-${theme}.png`),
+        });
+    });

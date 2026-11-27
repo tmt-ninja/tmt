@@ -1,6 +1,10 @@
 /** The page list with project writes recorded in the window: deterministic data, no real transport. */
 import { createRoot, type Root } from 'react-dom/client';
+import '@tmt/browser-ui/static.css';
+import '../src/style.css';
 import { RouterProvider } from '@tanstack/react-router';
+import { startShellHost, type ShellHost } from '@tmt/browser-ui/shell-host';
+import { ShellHostSlot } from '../src/colab-shell.js';
 import { hostInShell } from '../src/entry.js';
 import { createAppRouter } from '../src/router.js';
 import type { PageWorkRow } from '../src/bootstrap.js';
@@ -95,6 +99,7 @@ export function fixtureTemplates(): TemplateEntry[] {
 }
 export const pageListSpace = 'a0000000-0000-4000-8000-000000000001';
 let root: Root | undefined;
+let shell: ShellHost | undefined;
 const id = (n: number) => `c${String(n).padStart(7, '0')}-1111-4111-8111-000000000001`;
 function page(n: number, title: string, projects: string[], changes: Partial<PageSummary> = {}) {
   return {
@@ -365,6 +370,7 @@ export async function mountPageList(
   pinned?: 'automatic' | readonly string[],
   withSpace = true,
   failure?: 'network' | 'admission' | 'session',
+  hosted = false,
 ) {
   // Keep the boot app connected for its own cleanup, but its hidden shell must not affect :has()
   // when this fixture renders a standalone root error.
@@ -382,7 +388,10 @@ export async function mountPageList(
     document.body.append(host);
   }
   root?.unmount();
-  root = createRoot(host);
+  root = undefined;
+  shell?.dispose();
+  shell = undefined;
+  host.classList.toggle('tmt-ui-shell', hosted);
   window.__projectRequests = [];
   window.__activityReads = 0;
   window.__projectManage = [];
@@ -931,7 +940,50 @@ export async function mountPageList(
       };
     },
   });
-  root.render(
-    <RouterProvider router={router} context={{ space: withSpace ? pageListSpace : undefined }} />,
+  const content = (
+    <RouterProvider router={router} context={{ space: withSpace ? pageListSpace : undefined }} />
   );
+  if (!hosted) {
+    root = createRoot(host);
+    root.render(content);
+    return;
+  }
+
+  const mount = `${location.origin}/r/abcdefghijklmnop/x/colab/`;
+  sessionStorage.setItem(
+    'tmt-shell-answer-v1',
+    JSON.stringify({
+      version: 1,
+      modules: [
+        {
+          extension: 'colab',
+          rail: { label: 'Colab', icon: 'file-text', path: mount, order: 100 },
+          menu: [],
+          settings: [],
+          homePage: `${mount}work`,
+        },
+      ],
+    }),
+  );
+  host.innerHTML =
+    '<div class="tmt-ui-shell-content"><div class="tmt-ui-shell-bar"></div><div class="tmt-ui-shell-main"></div></div>';
+  shell = startShellHost(host, [
+    {
+      id: 'colab',
+      paths: ['/colab', '/colab/'],
+      rail: 'colab',
+      quiet: true,
+      load: async () => ({
+        mount(slot) {
+          const app = createRoot(slot.main);
+          app.render(<ShellHostSlot value={slot}>{content}</ShellHostSlot>);
+          return () => app.unmount();
+        },
+      }),
+    },
+  ]);
+  shell.setCommonControls({
+    openSearch: () => {},
+    remote: { kind: 'unconfirmed', href: '/remote/' },
+  });
 }

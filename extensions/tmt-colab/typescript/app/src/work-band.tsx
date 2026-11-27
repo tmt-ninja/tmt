@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { text } from './strings.js';
+import { CopyWorkNumber } from './colab-header.js';
 import type { PageState } from './bootstrap.js';
 import type { SubpageCounts, SubpageRow } from './work-tree.js';
 import type { PageActivity } from './bootstrap.js';
@@ -119,7 +120,7 @@ function TitleRow({
   }, [editing]);
   const number = workNumber && (
     <>
-      <span className="colab-work-number">{workNumber}</span>{' '}
+      <CopyWorkNumber number={workNumber} />{' '}
     </>
   );
   if (!rename)
