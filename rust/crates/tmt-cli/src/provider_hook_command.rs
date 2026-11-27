@@ -1337,9 +1337,10 @@ fn caller_failure_detail(error: CallerProbeFailure, deadline: Instant) -> Digest
         match error {
             CallerProbeFailure::Config => DigestStop::LaunchCallerConfig,
             CallerProbeFailure::Host => DigestStop::LaunchCallerHost,
-            CallerProbeFailure::Pane => DigestStop::LaunchCallerPane,
-            CallerProbeFailure::PaneMissing => DigestStop::LaunchCallerPaneMissing,
-            CallerProbeFailure::Snapshot => DigestStop::LaunchCallerSnapshot,
+            CallerProbeFailure::Pane | CallerProbeFailure::PaneMissing => {
+                DigestStop::LaunchCallerPane
+            }
+            CallerProbeFailure::Snapshot => DigestStop::LaunchCallerProbe,
             CallerProbeFailure::Storage(StorageErrorCode::Busy) => {
                 DigestStop::LaunchCallerStorageBusy
             }
@@ -2979,12 +2980,9 @@ mod digest_launch_tests {
             (CallerProbeFailure::Pane, DigestStop::LaunchCallerPane),
             (
                 CallerProbeFailure::PaneMissing,
-                DigestStop::LaunchCallerPaneMissing,
+                DigestStop::LaunchCallerPane,
             ),
-            (
-                CallerProbeFailure::Snapshot,
-                DigestStop::LaunchCallerSnapshot,
-            ),
+            (CallerProbeFailure::Snapshot, DigestStop::LaunchCallerProbe),
             (
                 CallerProbeFailure::Storage(StorageErrorCode::Busy),
                 DigestStop::LaunchCallerStorageBusy,

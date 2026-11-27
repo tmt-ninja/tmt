@@ -255,10 +255,6 @@ pub enum SessionLearningDigestStop {
     LaunchCallerHost,
     /// The caller pane observation failed.
     LaunchCallerPane,
-    /// The caller pane was missing from the host snapshot.
-    LaunchCallerPaneMissing,
-    /// The caller host snapshot call failed.
-    LaunchCallerSnapshot,
     /// The caller storage observation failed.
     LaunchCallerStorage,
     /// The caller storage observation returned Busy.
@@ -285,7 +281,7 @@ pub enum SessionLearningDigestStop {
     LaunchContinuationReadBusy,
 }
 impl SessionLearningDigestStop {
-    pub const ALL: [Self; 57] = [
+    pub const ALL: [Self; 55] = [
         Self::WorkerSpawn,
         Self::WorkerTimeout,
         Self::WorkerError,
@@ -329,8 +325,6 @@ impl SessionLearningDigestStop {
         Self::LaunchCallerConfig,
         Self::LaunchCallerHost,
         Self::LaunchCallerPane,
-        Self::LaunchCallerPaneMissing,
-        Self::LaunchCallerSnapshot,
         Self::LaunchCallerStorage,
         Self::LaunchCallerStorageBusy,
         Self::LaunchCallerProcess,
@@ -391,8 +385,6 @@ impl SessionLearningDigestStop {
             Self::LaunchCallerConfig => "launch:caller:config",
             Self::LaunchCallerHost => "launch:caller:host",
             Self::LaunchCallerPane => "launch:caller:pane",
-            Self::LaunchCallerPaneMissing => "launch:caller:pane_missing",
-            Self::LaunchCallerSnapshot => "launch:caller:snapshot",
             Self::LaunchCallerStorage => "launch:caller:storage",
             Self::LaunchCallerStorageBusy => "launch:caller:storage_busy",
             Self::LaunchCallerProcess => "launch:caller:process",
