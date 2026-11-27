@@ -22,7 +22,6 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
 import { COMPONENT_SHARDS } from '../../scripts/colab-acceptance-shards.mjs';
-import { colabAppLockfilesDiffer } from '../../scripts/colab-app-lockfile.mjs';
 import { UNIT_CONSUMER_NAMES } from '../../scripts/unit-test-consumers.mjs';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { QUALIFIER_README, qualifierCommands } from '../../scripts/remote-squads-qualifier.mjs';
@@ -35,6 +34,7 @@ import {
   mainFullGatePasses,
   notifyMainFullFailure,
   ciGatePasses,
+  colabAppLockfilesDiffer,
   e2eGatePasses,
   processGatePasses,
   explainCiSelection,

@@ -118,6 +118,7 @@ export function selectColabApp(
   map?: ComponentMap,
   lockfileAffectsApp?: () => boolean
 ): boolean;
+export function colabAppLockfilesDiffer(...texts: string[]): boolean;
 export function selectColabHosted(paths: readonly string[]): boolean;
 export function selectColabChrome(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectBrowserUi(paths: readonly string[]): boolean;
