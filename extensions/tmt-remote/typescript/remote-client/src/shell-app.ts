@@ -634,7 +634,7 @@ let publishSearch: (() => void) | undefined;
 let heldBy: (() => string) | undefined;
 
 /** The session is about to change: modules the shell keeps suspended hold the old one, so release
- * them first; and no unsent Ops words stay for the next session to see (#6757). */
+ * them first. */
 function sessionChanging(): void {
   started?.sessionChanging();
 }

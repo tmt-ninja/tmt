@@ -10,118 +10,6 @@ var __exportAll = (all, no_symbols) => {
 	return target;
 };
 //#endregion
-//#region src/remote-state.ts
-/** A display observation only; pairing and sending permissions never imply a role. */
-function remoteRole(role) {
-	return role === "owner" ? "Admin" : role === "user" ? "Member" : "Role unknown";
-}
-/** Foreign references stay unchecked. Unknown input does not become an offline verdict. */
-function remoteState(state, current = true) {
-	if (!current) return {
-		text: "Not checked",
-		word: "not checked",
-		mark: "◌",
-		tone: "muted",
-		action: ""
-	};
-	const known = {
-		Connected: [
-			"Connected",
-			"connected",
-			"●",
-			""
-		],
-		Checking: [
-			"Checking…",
-			"connecting",
-			"◌",
-			""
-		],
-		"Access ended": [
-			"Access ended",
-			"access ended",
-			"✗",
-			"Pair again"
-		],
-		"Different machine": [
-			"Different machine",
-			"different machine",
-			"?",
-			"Pair again"
-		],
-		"Not paired": [
-			"Not paired",
-			"not paired",
-			"?",
-			"Pair again"
-		],
-		"Pairing unreadable": [
-			"Pairing unreadable",
-			"pairing unreadable",
-			"?",
-			"Pair again"
-		],
-		Offline: [
-			"Offline",
-			"offline",
-			"✗",
-			"Retry"
-		],
-		Unconfirmed: [
-			"Connection unconfirmed",
-			"unconfirmed",
-			"?",
-			"Retry"
-		],
-		"Not accepted": [
-			"Not accepted",
-			"not accepted",
-			"?",
-			"Retry"
-		],
-		"Can't reach Remote": [
-			"Connection unconfirmed",
-			"unconfirmed",
-			"?",
-			"Retry"
-		]
-	};
-	const value = Object.hasOwn(known, state) ? known[state] : void 0;
-	if (!value) return {
-		text: "Status unknown",
-		word: "unknown",
-		mark: "?",
-		tone: "muted",
-		action: ""
-	};
-	const [text, word, mark, action] = value;
-	return {
-		text,
-		word,
-		mark,
-		action,
-		tone: "neutral"
-	};
-}
-/** The native page's door root, shared by the registry projection and current-row check. */
-function currentDoor(pageUrl) {
-	const root = new URL("./", pageUrl);
-	if (root.pathname === "/remote/") root.pathname = "/";
-	return root.href;
-}
-/** Both page owners and the menu identify the current Local row by the same door root. */
-function currentRemote(entry, address, pageUrl) {
-	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === currentDoor(pageUrl));
-}
-/** Guidance never treats transport uncertainty or unreadable storage as permission to re-pair. */
-function pairingGuidance(state, authorityEnded) {
-	return {
-		pair: state === "missing" || state === "different" || state === "refused" && authorityEnded,
-		members: state === "refused" && authorityEnded,
-		status: state === "unconfirmed"
-	};
-}
-//#endregion
 //#region src/service-commands.ts
 /** Copy-only terminal references. Native grammar tests admit the same product catalog. */
 var serviceCommands = Object.freeze({
@@ -1165,6 +1053,1182 @@ function operations(session, options = {}) {
 	};
 }
 //#endregion
+//#region src/management-mutation.ts
+/** Both management facades share the existing verified signing lane and never retry effects. */
+async function managementMutation(call, operation, value, decode) {
+	const { operationId } = value;
+	try {
+		return await call(operation, operationId, value, decode, true);
+	} catch (error) {
+		if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
+		if (error instanceof RefusalError) return {
+			state: "refused",
+			operationId,
+			reason: error.code
+		};
+		throw error;
+	}
+}
+//#endregion
+//#region src/management-codec.ts
+function valid$5(condition) {
+	if (!condition) throw new Error("Invalid management response.");
+}
+function input(condition) {
+	if (!condition) throw new TypeError("Invalid management input.");
+}
+function object$2(value) {
+	valid$5(typeof value === "object" && value !== null && !Array.isArray(value));
+	return value;
+}
+function exact(value, keys) {
+	valid$5(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
+}
+var integer = (value) => Number.isSafeInteger(value) && value >= 0;
+/** The signed member service accepts nonblank names of at most 64 UTF-8 bytes. */
+function memberName(value) {
+	return typeof value === "string" && value.trim().length > 0 && new TextEncoder().encode(value).length <= 64 && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+}
+//#endregion
+//#region src/firestore.ts
+var deploy = "tmt remote deploy firestore";
+var firestoreReasons = {
+	project: {
+		"not-configured": ["No Firebase project is set up.", true],
+		"access-lost": ["tmt can no longer reach the Firebase project.", true],
+		"not-checked": ["The Firebase project has not been checked.", false]
+	},
+	"sign-in": {
+		"provider-disabled": ["Sign-in is not enabled for the project.", true],
+		"permission-missing": ["This account isn't allowed to turn on sign-in for the project.", false],
+		"not-checked": ["Sign-in has not been checked.", false]
+	},
+	rules: {
+		"not-deployed": ["Firestore rules are not deployed.", true],
+		"out-of-date": ["Firestore rules are out of date.", true],
+		partial: ["Firestore rules are only partly deployed.", true],
+		"not-checked": ["Firestore rules have not been checked.", false]
+	},
+	indexes: {
+		building: [
+			"Firestore indexes are still building.",
+			true,
+			"Wait a few minutes, then run tmt remote deploy firestore."
+		],
+		"not-ready": [
+			"Firestore indexes have not been verified as ready.",
+			true,
+			"Run tmt remote deploy firestore."
+		],
+		"not-checked": [
+			"Firestore index readiness has not been checked.",
+			true,
+			"Run tmt remote deploy firestore."
+		]
+	},
+	"plan-tier": {
+		"paid-plan-required": ["This needs a paid Firebase plan.", false],
+		"not-checked": ["The Firebase plan has not been checked.", false]
+	},
+	quota: {
+		"headroom-low": ["Today's free Firebase quota is almost used up.", false],
+		exhausted: ["Today's free Firebase quota is used up.", false],
+		"not-checked": ["The free Firebase quota has not been checked.", false]
+	},
+	support: { "not-implemented": ["This isn't available in this release yet.", false] }
+};
+var firestoreSpecs = [
+	["sharing", [
+		"project",
+		"sign-in",
+		"rules",
+		"indexes",
+		"plan-tier",
+		"quota"
+	]],
+	["operations", ["plan-tier", "support"]],
+	["attachments", [
+		"support",
+		"project",
+		"rules",
+		"quota"
+	]]
+];
+function requireValid(condition) {
+	if (!condition) throw new Error("Invalid Firestore readiness response.");
+}
+function object$1(value) {
+	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
+	return value;
+}
+function keys(row, expected) {
+	requireValid(Object.keys(row).length === expected.length && expected.every((key) => Object.hasOwn(row, key)));
+}
+function parseFirestoreLayers(value) {
+	requireValid(Array.isArray(value));
+	if (!value.length) return [];
+	requireValid(value.length === firestoreSpecs.length);
+	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
+		const row = object$1(value[index]);
+		keys(row, [
+			"layer",
+			"state",
+			"prerequisites"
+		]);
+		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
+		const states = [];
+		for (const [i, item] of items.entries()) {
+			const entry = object$1(row.prerequisites[i]);
+			requireValid(entry.item === item && [
+				"enabled",
+				"not-enabled",
+				"unknown"
+			].includes(entry.state));
+			states.push(entry.state);
+			if (entry.state === "enabled") {
+				keys(entry, ["item", "state"]);
+				continue;
+			}
+			const reason = typeof entry.reason === "string" && Object.hasOwn(firestoreReasons[item], entry.reason) ? firestoreReasons[item][entry.reason] : void 0;
+			requireValid(reason && entry.state === "unknown" === (entry.reason === "not-checked"));
+			requireValid(entry.reason !== "paid-plan-required" || layer === "operations");
+			keys(entry, reason[1] ? [
+				"item",
+				"state",
+				"reason",
+				"next"
+			] : [
+				"item",
+				"state",
+				"reason"
+			]);
+			requireValid(entry.next === (reason[1] ? deploy : void 0));
+		}
+		const aggregate = states.includes("not-enabled") ? "not-enabled" : states.includes("unknown") ? "unknown" : "enabled";
+		requireValid(row.state === aggregate);
+	}
+	return value;
+}
+//#endregion
+//#region src/budget.ts
+var budget_exports = /* @__PURE__ */ __exportAll({
+	ACTIVE_SECONDS_PER_DAY: () => ACTIVE_SECONDS_PER_DAY,
+	BUDGET_EXHAUSTED: () => BUDGET_EXHAUSTED,
+	BudgetModel: () => BudgetModel,
+	BudgetModelError: () => BudgetModelError,
+	MAX_MEMBERS: () => MAX_MEMBERS,
+	READS_PER_DAY: () => READS_PER_DAY,
+	READ_LOOKUPS: () => 2,
+	REFUSE_PERCENT: () => 90,
+	WARN_PERCENT: () => 70,
+	WRITES_PER_DAY: () => WRITES_PER_DAY,
+	WRITE_LOOKUPS: () => 4,
+	classifyProviderExhausted: () => classifyProviderExhausted,
+	decide: () => decide,
+	exhaustedIsCurrent: () => exhaustedIsCurrent,
+	newUsage: () => newUsage,
+	pacificDay: () => pacificDay,
+	parsePublishedLimits: () => parsePublishedLimits,
+	publishedLimitRows: () => publishedLimitRows,
+	recordedUsage: () => recordedUsage,
+	usageAt: () => usageAt
+});
+/**
+* Free-plan (Spark) Firestore budget guard, the browser twin of the Rust `firestore_budget`
+* module (#2180). Pure arithmetic: no I/O and no clock (callers pass `nowMs`). Quotas are
+* project-wide, every client sees only its own traffic and Rules cannot read quotas, so the
+* guard works from what a client really has: the member count from the signed membership, the
+* page's parameters, its own persisted counter for today and these constants. It does not read
+* Google's counter, and the counter a client keeps is per browser and device, so other
+* devices' appends are invisible to it: `decide` is a local estimate and the provider's own
+* `resource-exhausted` answer is the backstop. Both implementations are tested against the
+* same independent vectors, so a change to either one fails until both agree; the dated
+* numbers and the derivation are in the Remote reference guide's free-plan table.
+*/
+/** Spark (no-cost) Firestore document reads per day. */
+var READS_PER_DAY = 5e4;
+/** Spark (no-cost) Firestore document writes per day. */
+var WRITES_PER_DAY = 2e4;
+/** Planning assumption for the minimum flush interval: this many active seconds per day. */
+var ACTIVE_SECONDS_PER_DAY = 7200;
+/** Largest member count the model accepts. */
+var MAX_MEMBERS = 1e4;
+/** The error code of a refusal made before any effect. */
+var BUDGET_EXHAUSTED = "REMOTE_BUDGET_EXHAUSTED";
+/**
+* `out_of_range`: no members, no writers, more writers than members, or too many members.
+* `free_plan_cannot_host`: the modeled share is too small for the guard to allow even one
+* append. A page like that is refused when the model is built, never as a pause that would end
+* at the next reset and begin again.
+*/
+var BudgetModelError = class extends Error {
+	code;
+	constructor(code) {
+		super(code === "out_of_range" ? "The page size is out of range." : "The free plan cannot host a page this size.");
+		this.code = code;
+		this.name = "BudgetModelError";
+	}
+};
+/** One shared page: `members` have it open (every one a listener), `writers` of them append. */
+var BudgetModel = class BudgetModel {
+	members;
+	writers;
+	constructor(members, writers) {
+		this.members = members;
+		this.writers = writers;
+	}
+	static create(members, writers) {
+		const whole = (value) => Number.isSafeInteger(value);
+		if (!(whole(members) && whole(writers) && members >= 1 && members <= 1e4 && writers >= 1 && writers <= members)) throw new BudgetModelError("out_of_range");
+		const model = new BudgetModel(members, writers);
+		if (model.refuseAt() === 0) throw new BudgetModelError("free_plan_cannot_host");
+		return model;
+	}
+	/** Reads one append costs the project, pessimistically: the writer's lookups, then each other listener's. */
+	readsPerAppend() {
+		return 4 + (this.members - 1) * 3;
+	}
+	/** Appends per day the free plan allows this page if it were the project's only traffic. */
+	dailyAppendLimit() {
+		return Math.min(Math.floor(READS_PER_DAY / this.readsPerAppend()), WRITES_PER_DAY);
+	}
+	/** One client's modeled share of the page's daily allowance. */
+	share() {
+		return Math.floor(this.dailyAppendLimit() / this.writers);
+	}
+	/** Appends after which the guard warns, and the count at which it refuses. */
+	warnAt() {
+		return Math.floor(this.share() * 70 / 100);
+	}
+	refuseAt() {
+		return Math.floor(this.share() * 90 / 100);
+	}
+	/** Shortest average interval between flushed updates, in milliseconds, that keeps the planning assumption. */
+	minFlushIntervalMs() {
+		const appends = Math.max(Math.floor(this.dailyAppendLimit() * 70 / 100), 1);
+		return Math.ceil(ACTIVE_SECONDS_PER_DAY * 1e3 / appends);
+	}
+	/** What the guard says about the next append, given how many this client sent today. */
+	assess(appendsToday) {
+		if (appendsToday >= this.refuseAt()) return "refuse";
+		if (appendsToday >= this.warnAt()) return "warn";
+		return "ok";
+	}
+};
+var DAY_MS = 864e5;
+var HOUR_MS = 36e5;
+var floorDiv = (value, divisor) => Math.floor(value / divisor);
+/** Days since 1970-01-01 of a proleptic Gregorian date. */
+function daysFromCivil(year, month, day) {
+	const y = month <= 2 ? year - 1 : year;
+	const era = floorDiv(y, 400);
+	const yoe = y - era * 400;
+	const doy = floorDiv(153 * ((month + 9) % 12) + 2, 5) + day - 1;
+	const doe = yoe * 365 + floorDiv(yoe, 4) - floorDiv(yoe, 100) + doy;
+	return era * 146097 + doe - 719468;
+}
+function civilYear(days) {
+	const z = days + 719468;
+	const era = floorDiv(z, 146097);
+	const doe = z - era * 146097;
+	const yoe = floorDiv(doe - floorDiv(doe, 1460) + floorDiv(doe, 36524) - floorDiv(doe, 146096), 365);
+	const mp = floorDiv(5 * (doe - (365 * yoe + floorDiv(yoe, 4) - floorDiv(yoe, 100))) + 2, 153);
+	const month = mp < 10 ? mp + 3 : mp - 9;
+	return yoe + era * 400 + (month <= 2 ? 1 : 0);
+}
+/** The n-th Sunday (1-based) of `month` in `year`, as a day number. */
+function nthSunday(year, month, n) {
+	const first = daysFromCivil(year, month, 1);
+	return first + (7 - ((first + 4) % 7 + 7) % 7) % 7 + (n - 1) * 7;
+}
+/** United States rule since 2007: daylight time from 02:00 local on the second Sunday of March to 02:00 local on the first Sunday of November. */
+function isDstLocal(localMs) {
+	const year = civilYear(floorDiv(localMs, DAY_MS));
+	const start = nthSunday(year, 3, 2) * DAY_MS + 2 * HOUR_MS;
+	const end = nthSunday(year, 11, 1) * DAY_MS + 2 * HOUR_MS;
+	return localMs >= start && localMs < end;
+}
+/** The Pacific UTC offset at a UTC instant: -8 h, or -7 h in daylight time. */
+function offsetMs(utcMs) {
+	const year = civilYear(floorDiv(utcMs - 8 * HOUR_MS, DAY_MS));
+	const start = nthSunday(year, 3, 2) * DAY_MS + 10 * HOUR_MS;
+	const end = nthSunday(year, 11, 1) * DAY_MS + 9 * HOUR_MS;
+	return utcMs >= start && utcMs < end ? -7 * HOUR_MS : -8 * HOUR_MS;
+}
+function pacificDay(nowMs) {
+	const day = floorDiv(nowMs + offsetMs(nowMs), DAY_MS);
+	const nextMidnightLocal = (day + 1) * DAY_MS;
+	return {
+		day,
+		resetAtMs: nextMidnightLocal - (isDstLocal(nextMidnightLocal) ? -7 * HOUR_MS : -8 * HOUR_MS)
+	};
+}
+function newUsage(nowMs) {
+	return {
+		day: pacificDay(nowMs).day,
+		appends: 0
+	};
+}
+/** The same usage if still the same Pacific day, else a fresh day. */
+function usageAt(usage, nowMs) {
+	return pacificDay(nowMs).day === usage.day ? usage : newUsage(nowMs);
+}
+/** Count one append sent. */
+function recordedUsage(usage, nowMs) {
+	const today = usageAt(usage, nowMs);
+	return {
+		...today,
+		appends: Math.min(today.appends + 1, Number.MAX_SAFE_INTEGER)
+	};
+}
+/** Judge the next append. Rolls the usage over to today first. */
+function decide(model, usage, nowMs) {
+	const today = usageAt(usage, nowMs);
+	const verdict = model.assess(today.appends);
+	if (verdict === "ok") return { decision: "allow" };
+	if (verdict === "warn") return { decision: "warn" };
+	const { resetAtMs } = pacificDay(nowMs);
+	return {
+		decision: "refuse",
+		resetAtMs,
+		retryAfterMs: Math.max(resetAtMs - nowMs, 0)
+	};
+}
+function classifyProviderExhausted(attempt, nowMs) {
+	const { day, resetAtMs } = pacificDay(nowMs);
+	const evidence = {
+		day,
+		resetAtMs
+	};
+	if (attempt.mutation) return {
+		outcome: { outcome: "unknown" },
+		evidence
+	};
+	return {
+		outcome: {
+			outcome: "refused",
+			resetAtMs,
+			retryAfterMs: Math.max(resetAtMs - nowMs, 0)
+		},
+		evidence
+	};
+}
+/** Still a statement about today's quota. */
+function exhaustedIsCurrent(evidence, nowMs) {
+	return nowMs < evidence.resetAtMs;
+}
+var publishedLimitRows = [
+	[
+		"readsPerDay",
+		"Document reads",
+		"day",
+		false
+	],
+	[
+		"writesPerDay",
+		"Document writes",
+		"day",
+		false
+	],
+	[
+		"deletesPerDay",
+		"Document deletes",
+		"day",
+		false
+	],
+	[
+		"storedBytes",
+		"Stored data",
+		"",
+		true
+	],
+	[
+		"egressBytesPerMonth",
+		"Data sent out",
+		"month",
+		true
+	],
+	[
+		"databases",
+		"Free databases per project",
+		"",
+		false
+	],
+	[
+		"compositeIndexes",
+		"Composite indexes",
+		"",
+		false
+	],
+	[
+		"singleFieldIndexConfigs",
+		"Single-field index configs",
+		"",
+		false
+	],
+	[
+		"documentBytes",
+		"Document size",
+		"",
+		true
+	],
+	[
+		"rulesLookupsPerRequest",
+		"Rules document lookups per request",
+		"",
+		false
+	]
+];
+function parsePublishedLimits(value) {
+	const object = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+	const keys = (v, expected) => Object.keys(v).length === expected.length && expected.every((key) => Object.hasOwn(v, key));
+	if (!object(value) || !keys(value, [
+		"plan",
+		"readOn",
+		"resetsAt",
+		"limits",
+		"guard"
+	]) || value.plan !== "no-cost" || value.resetsAt !== "pacific-midnight" || typeof value.readOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.readOn) || !object(value.limits) || !keys(value.limits, publishedLimitRows.map((row) => row[0])) || !Object.values(value.limits).every((n) => typeof n === "number" && Number.isSafeInteger(n) && n > 0) || !object(value.guard) || !keys(value.guard, ["warnPercent", "refusePercent"]) || !Number.isSafeInteger(value.guard.warnPercent) || !Number.isSafeInteger(value.guard.refusePercent) || !(value.guard.warnPercent > 0 && value.guard.warnPercent < value.guard.refusePercent && value.guard.refusePercent <= 100)) throw new Error("Invalid Firestore budget response.");
+	return value;
+}
+//#endregion
+//#region src/management.ts
+var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
+function settings(value) {
+	const row = object$2(value);
+	exact(row, [
+		"open",
+		"source",
+		"sessionsPerDevice",
+		"sessionsPerDeviceSource",
+		"warning"
+	]);
+	valid$5(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
+	valid$5(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
+	valid$5(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
+	valid$5(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
+	return row;
+}
+function device(value, activity = false) {
+	const row = object$2(value);
+	exact(row, [
+		"clientId",
+		"name",
+		"kind",
+		"issuedAtMs",
+		"expiresAtMs",
+		"revision",
+		"revoked",
+		"talkEnabled",
+		...activity ? [
+			"thisBrowser",
+			"liveSessionCount",
+			"lastActivityAtMs",
+			"lastUsedAtMs"
+		] : []
+	]);
+	valid$5(typeof row.clientId === "string" && UUID$2.test(row.clientId));
+	valid$5(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+	valid$5([
+		"browser",
+		"addon",
+		"cli"
+	].includes(row.kind) && integer(row.issuedAtMs));
+	valid$5(row.expiresAtMs === null || integer(row.expiresAtMs));
+	valid$5(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
+	if (activity) valid$5(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer(row.lastUsedAtMs)));
+	return row;
+}
+var refusalCodes = /* @__PURE__ */ new Set([
+	"REMOTE_INVITATION_BUSY",
+	"REMOTE_INVITATION_CAPACITY",
+	"REMOTE_INVITATION_UNAVAILABLE",
+	"REMOTE_INVITATION_INVALID",
+	"REMOTE_INVITATION_STOPPED",
+	"REMOTE_INVITATION_DECIDED",
+	"REMOTE_ALREADY_PAIRED",
+	"REMOTE_SCOPE_DENIED",
+	"REMOTE_INPUT_INVALID",
+	"REMOTE_RATE_LIMITED",
+	"REMOTE_INTENT_CONFLICT",
+	"REMOTE_CLOSED",
+	"REMOTE_SESSION_ENDED",
+	"REMOTE_SESSION_EVICTED",
+	"REMOTE_INPUT_TOO_LARGE",
+	"REMOTE_STATE_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_READ_ONLY",
+	"REMOTE_MANAGEMENT_UNAVAILABLE",
+	"REMOTE_DEVICE_REVOKED",
+	"REMOTE_DEVICE_NOT_FOUND",
+	"REMOTE_SETTINGS_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_CAPACITY",
+	"REMOTE_DEVICE_LIST_CHANGED",
+	"REMOTE_DEVICE_REMOVAL_LIMIT",
+	"REMOTE_MEMBER_OWNER_REQUIRED",
+	"REMOTE_MEMBER_CONFLICT"
+]);
+function parseManagementOutcome(value, operationId) {
+	const row = object$2(value);
+	valid$5(row.operationId === operationId);
+	if (row.state === "committed") {
+		exact(row, [
+			"operationId",
+			"state",
+			"result",
+			"sessionEnded"
+		]);
+		valid$5(typeof row.sessionEnded === "boolean");
+		const result = object$2(row.result);
+		valid$5(Object.keys(result).length === 1);
+		if (Object.hasOwn(result, "settings")) settings(result.settings);
+		else if (Object.hasOwn(result, "removed")) valid$5(integer(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
+		else device(result.device);
+	} else {
+		exact(row, [
+			"operationId",
+			"state",
+			"reason"
+		]);
+		if (row.state === "unknown") valid$5(row.reason === "effect_outcome_unconfirmed");
+		else valid$5(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
+	}
+	return row;
+}
+/** Constructing this helper opens nothing. Unknown mutations are never resent.
+* After Session loss, explicitly reopen once and read operation(originalId).
+* Failed fresh admission changes access status; it cannot establish mutation outcome.
+*/
+function management(session, options = {}) {
+	const call = verifiedSessionRequest(session, options);
+	const clientId = channelFor(session).paired.clientId;
+	async function mutate(operation, value) {
+		const { operationId } = value;
+		input(UUID$2.test(operationId));
+		return managementMutation(call, operation, value, (reply) => {
+			const parsed = parseManagementOutcome(reply, operationId);
+			if (parsed.state === "committed") {
+				if (operation === "remote.settings.set") valid$5("settings" in parsed.result);
+				else if (operation === "remote.devices.remove-others") valid$5("removed" in parsed.result && parsed.sessionEnded === false);
+				else {
+					valid$5("device" in parsed.result && parsed.result.device.clientId === value.clientId);
+					if (operation === "remote.devices.rename") valid$5(parsed.result.device.name === value.name);
+					if (operation === "remote.devices.revoke") valid$5(parsed.result.device.revoked);
+					if (operation === "remote.devices.talk") valid$5(parsed.result.device.talkEnabled === value.enabled);
+				}
+			}
+			return parsed;
+		});
+	}
+	return {
+		clientId,
+		previewRemoveOthers: () => call("remote.devices.remove-others.preview", crypto.randomUUID(), {}, (value) => {
+			const row = object$2(value);
+			exact(row, ["count", "fingerprint"]);
+			valid$5(integer(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
+			return row;
+		}),
+		removeOthers: (change) => {
+			input(typeof change.fingerprint === "string" && /^[0-9a-f]{64}$/.test(change.fingerprint));
+			return mutate("remote.devices.remove-others", { ...change });
+		},
+		settings: ((options) => call("remote.settings.show", crypto.randomUUID(), options ?? {}, (value) => {
+			const row = object$2(value);
+			exact(row, [
+				"settings",
+				"capabilities",
+				"readOnlyReason",
+				...options ? ["firestoreLayers", "firestoreBudget"] : []
+			]);
+			if (options) {
+				parseFirestoreLayers(row.firestoreLayers);
+				parsePublishedLimits(row.firestoreBudget);
+			}
+			settings(row.settings);
+			const capabilities = object$2(row.capabilities);
+			exact(capabilities, ["settingsWrite", "devicesWrite"]);
+			valid$5(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
+			valid$5(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
+			valid$5(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
+			return row;
+		})),
+		devices: (page) => {
+			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
+			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
+				const row = object$2(value);
+				exact(row, ["devices", "nextCursor"]);
+				valid$5(Array.isArray(row.devices) && row.devices.length <= page.limit);
+				const ids = /* @__PURE__ */ new Set();
+				for (const entry of row.devices) {
+					const item = device(entry, true);
+					valid$5(!item.revoked && !ids.has(item.clientId));
+					ids.add(item.clientId);
+				}
+				valid$5(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
+				return row;
+			});
+		},
+		set: (change) => {
+			input(change.setting === "open" && typeof change.value === "boolean" || change.setting === "sessions-per-device" && (change.value === null || decimal(change.value)));
+			return mutate("remote.settings.set", { ...change });
+		},
+		rename: (change) => {
+			input(UUID$2.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+			return mutate("remote.devices.rename", { ...change });
+		},
+		talk: (change) => {
+			input(UUID$2.test(change.clientId) && typeof change.enabled === "boolean");
+			return mutate("remote.devices.talk", { ...change });
+		},
+		revoke: (change) => {
+			input(UUID$2.test(change.clientId));
+			return mutate("remote.devices.revoke", { ...change });
+		},
+		operation: (operationId) => {
+			input(UUID$2.test(operationId));
+			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => parseManagementOutcome(value, operationId));
+		}
+	};
+}
+//#endregion
+//#region src/invitations.ts
+var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var id$1 = (value) => typeof value === "string" && UUID$1.test(value);
+var snapshot$1 = (value) => {
+	if (typeof value !== "string") return false;
+	try {
+		base64urlBytes(value, 32);
+		return true;
+	} catch {
+		return false;
+	}
+};
+function parsePendingInvitation(value) {
+	const row = object$2(value);
+	if (row.state === "none") exact(row, ["state"]);
+	else {
+		exact(row, [
+			"state",
+			"offerId",
+			"expiresAtMs",
+			"phase",
+			"localConfirmationKnown",
+			"cleanup",
+			"candidate"
+		]);
+		valid$5(row.state === "current" && id$1(row.offerId) && integer(row.expiresAtMs) && typeof row.localConfirmationKnown === "boolean");
+		valid$5([
+			"open",
+			"awaiting-owner",
+			"confirmed",
+			"refused",
+			"cancelled",
+			"expired",
+			"unconfirmed"
+		].includes(row.phase));
+		valid$5([
+			"not-requested",
+			"acknowledged",
+			"unconfirmed"
+		].includes(row.cleanup));
+		if (row.candidate !== null) {
+			const candidate = object$2(row.candidate);
+			exact(candidate, [
+				"clientId",
+				"name",
+				"words",
+				"snapshot"
+			]);
+			valid$5(row.phase === "awaiting-owner" && id$1(candidate.clientId) && snapshot$1(candidate.snapshot));
+			valid$5(typeof candidate.name === "string" && candidate.name.length > 0 && candidate.name.length <= 256 && Array.from(candidate.name).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
+			valid$5(Array.isArray(candidate.words) && candidate.words.length === 4 && candidate.words.every((word) => typeof word === "string" && /^[a-z]+$/.test(word) && word.length <= 64));
+		}
+	}
+	return row;
+}
+function parseInvitationOutcome(value, operationId) {
+	const row = object$2(value);
+	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
+	exact(row, [
+		"operationId",
+		"state",
+		"sessionEnded",
+		"result"
+	]);
+	valid$5(row.operationId === operationId && row.sessionEnded === false);
+	const result = object$2(row.result);
+	exact(result, ["invitation"]);
+	const invitation = object$2(result.invitation);
+	valid$5(id$1(invitation.offerId) && id$1(invitation.clientId));
+	if (invitation.state === "refused") exact(invitation, [
+		"offerId",
+		"clientId",
+		"state"
+	]);
+	else {
+		exact(invitation, [
+			"offerId",
+			"clientId",
+			"memberId",
+			"state",
+			"sendingEnabled"
+		]);
+		valid$5(invitation.state === "confirmed" && typeof invitation.memberId === "string" && invitation.memberId.length > 0 && invitation.memberId.length <= 128 && typeof invitation.sendingEnabled === "boolean");
+	}
+	return row;
+}
+function parseIssuedInvitationPage(value, remoteId) {
+	const page = object$2(value);
+	exact(page, [
+		"remoteId",
+		"invitations",
+		"nextCursor"
+	]);
+	valid$5(page.remoteId === remoteId && Array.isArray(page.invitations) && page.invitations.length <= 50);
+	valid$5(page.nextCursor === null || typeof page.nextCursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(page.nextCursor));
+	const ids = /* @__PURE__ */ new Set();
+	for (const value of page.invitations) {
+		const row = object$2(value);
+		exact(row, [
+			"offerId",
+			"issuedAtMs",
+			"expiresAtMs",
+			"state",
+			"localConfirmationKnown",
+			"cleanup"
+		]);
+		valid$5(id$1(row.offerId) && !ids.has(row.offerId));
+		ids.add(row.offerId);
+		valid$5(integer(row.issuedAtMs) && integer(row.expiresAtMs) && row.expiresAtMs > row.issuedAtMs && row.expiresAtMs - row.issuedAtMs <= 6e5);
+		valid$5([
+			"open",
+			"awaiting-owner",
+			"confirmed",
+			"refused",
+			"cancelled",
+			"expired",
+			"unconfirmed",
+			"interrupted"
+		].includes(row.state));
+		valid$5(typeof row.localConfirmationKnown === "boolean" && [
+			"not-requested",
+			"acknowledged",
+			"unconfirmed"
+		].includes(row.cleanup));
+	}
+	return page;
+}
+function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
+	const row = object$2(value);
+	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
+	const secret = Object.hasOwn(row, "secret");
+	exact(row, [
+		"operationId",
+		"state",
+		"sessionEnded",
+		"result",
+		...secret ? ["secret"] : []
+	]);
+	valid$5(row.operationId === operationId && row.sessionEnded === false);
+	const result = object$2(row.result);
+	exact(result, ["invitation"]);
+	const invite = object$2(result.invitation);
+	valid$5(id$1(invite.offerId));
+	if (creatingRemote !== void 0) valid$5(invite.state === "created");
+	if (invite.state === "created") {
+		exact(invite, [
+			"offerId",
+			"state",
+			"expiresAtMs"
+		]);
+		valid$5(invite.offerId !== operationId && integer(invite.expiresAtMs));
+	} else {
+		exact(invite, [
+			"offerId",
+			"state",
+			"code"
+		]);
+		valid$5(invite.state === "cancelled" && invite.code === "REMOTE_INVITATION_CANCELLED" || invite.state === "not-active" && invite.code === "REMOTE_INVITATION_NOT_ACTIVE");
+	}
+	if (secret) {
+		valid$5(creatingRemote !== void 0 && invite.state === "created");
+		const part = object$2(row.secret);
+		exact(part, ["code", "link"]);
+		valid$5(typeof part.code === "string" && (part.link === null || typeof part.link === "string"));
+		const details = invitationDetails(part.code);
+		valid$5(details.owner === creatingRemote && details.offer === invite.offerId && details.expiry === invite.expiresAtMs);
+		if (part.link !== null) valid$5(invitationFromInput(part.link).token === part.code);
+	}
+	return row;
+}
+function parseOriginal(value, id) {
+	const row = object$2(value);
+	if (row.state === "committed" && [
+		"created",
+		"cancelled",
+		"not-active"
+	].includes(object$2(object$2(row.result).invitation).state)) return parseInvitationIssueOutcome(value, id);
+	return parseInvitationOutcome(value, id);
+}
+/** A presenter over the current offer. No admission, provider call or retry is created here. */
+function invitations(session, options = {}) {
+	const call = verifiedSessionRequest(session, options);
+	const remoteId = channelFor(session)?.paired.machineId;
+	valid$5(typeof remoteId === "string");
+	return {
+		create: (value) => {
+			input(Object.keys(value).length === 1 && Object.hasOwn(value, "operationId") && id$1(value.operationId));
+			const frozen = { ...value };
+			return managementMutation(call, "remote.invites.create", frozen, (reply) => parseInvitationIssueOutcome(reply, frozen.operationId, remoteId));
+		},
+		list: (value) => {
+			input(Object.keys(value).length === 1 && Object.hasOwn(value, "cursor") && (value.cursor === null || typeof value.cursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value.cursor)));
+			return call("remote.invites.list", crypto.randomUUID(), { ...value }, (reply) => parseIssuedInvitationPage(reply, remoteId));
+		},
+		cancel: (value) => {
+			input(Object.keys(value).length === 2 && Object.hasOwn(value, "operationId") && Object.hasOwn(value, "offerId") && id$1(value.operationId) && id$1(value.offerId));
+			const frozen = { ...value };
+			return managementMutation(call, "remote.invites.cancel", frozen, (reply) => {
+				const outcome = parseInvitationIssueOutcome(reply, frozen.operationId);
+				if (outcome.state === "committed") valid$5(outcome.result.invitation.offerId === frozen.offerId && outcome.result.invitation.state !== "created");
+				return outcome;
+			});
+		},
+		pending: () => call("remote.invites.pending", crypto.randomUUID(), {}, parsePendingInvitation),
+		decide: (value) => {
+			input(Object.keys(value).every((key) => [
+				"operationId",
+				"offerId",
+				"snapshot",
+				"matched",
+				"sending"
+			].includes(key)));
+			const frozen = {
+				...value,
+				sending: value.sending ?? false
+			};
+			input(id$1(frozen.operationId) && id$1(frozen.offerId) && frozen.operationId !== frozen.offerId && snapshot$1(frozen.snapshot));
+			input(typeof frozen.matched === "boolean" && typeof frozen.sending === "boolean" && (frozen.matched || !frozen.sending));
+			return managementMutation(call, "remote.invites.confirm", frozen, (value) => {
+				const outcome = parseInvitationOutcome(value, frozen.operationId);
+				if (outcome.state === "committed") {
+					const invitation = outcome.result.invitation;
+					valid$5(invitation.offerId === frozen.offerId && invitation.state === (frozen.matched ? "confirmed" : "refused"));
+					if (invitation.state === "confirmed") valid$5(invitation.sendingEnabled === frozen.sending);
+				}
+				return outcome;
+			});
+		},
+		operation: (operationId) => {
+			input(id$1(operationId));
+			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => parseOriginal(value, operationId));
+		}
+	};
+}
+//#endregion
+//#region src/invitation-page.ts
+/** One retained presenter. Only explicit decisions write; navigation never repeats one. */
+function invitationPage(root, lifetime, clientForSession = invitations, heldElsewhere = () => false, changed = () => {}) {
+	const get = (id) => root.querySelector(`#${id}`);
+	const status = get("invitation-status");
+	const refresh = get("invitation-refresh");
+	const form = get("invitation-candidate");
+	const compared = get("invitation-compared");
+	const sending = get("invitation-sending");
+	const confirm = get("invitation-confirm");
+	const decline = get("invitation-decline");
+	const original = get("invitation-original");
+	const originalId = get("invitation-original-id");
+	const recover = get("invitation-recover");
+	let client;
+	let generation = 0;
+	let busy = false;
+	let current;
+	let unresolved;
+	const here = () => !lifetime?.aborted && root.isConnected && ["/remote/members", "/remote/invites"].includes(location.pathname.replace(/\/$/, ""));
+	const controls = (notify = true) => {
+		const held = heldElsewhere();
+		refresh.disabled = busy || !client || held;
+		confirm.disabled = busy || !current || !!unresolved || !compared.checked || held;
+		decline.disabled = busy || !current || !!unresolved || held;
+		compared.disabled = busy || !!unresolved || held;
+		sending.disabled = busy || !!unresolved || held;
+		recover.disabled = busy || !client || held;
+		if (notify) changed();
+	};
+	const clear = () => {
+		current = void 0;
+		form.hidden = true;
+		for (const id of [
+			"invitation-name",
+			"invitation-words",
+			"invitation-expires"
+		]) get(id).textContent = "";
+		compared.checked = false;
+		sending.checked = false;
+		controls();
+	};
+	const uncertain = () => {
+		status.textContent = "The decision outcome is unconfirmed. Check the original outcome before making another decision. If access ended, check the connection on Overview first.";
+		original.hidden = false;
+		originalId.textContent = unresolved.operationId;
+		controls();
+	};
+	const showOutcome = (outcome) => {
+		if (outcome.state === "unknown") {
+			uncertain();
+			return;
+		}
+		if (outcome.state === "refused") status.textContent = outcome.reason === "REMOTE_INVITATION_DECIDED" ? "This invitation was already decided. Choose Check invitation to read the current outcome." : "This decision was refused. Choose Check invitation before deciding again.";
+		else {
+			const result = outcome.result.invitation;
+			if (!unresolved || !("clientId" in result) || result.offerId !== unresolved.offerId || result.clientId !== unresolved.clientId || result.state !== (unresolved.matched ? "confirmed" : "refused") || result.state === "confirmed" && result.sendingEnabled !== unresolved.sending) throw new Error("Mismatched invitation outcome.");
+			status.textContent = result.state === "confirmed" ? `Confirmed; sending ${result.sendingEnabled ? "on" : "off"}. The terminal will show this decision.` : "Invitation declined. No member was created by this decision.";
+		}
+		unresolved = void 0;
+		original.hidden = true;
+		clear();
+	};
+	const check = async () => {
+		if (!here() || !client || busy || heldElsewhere()) return;
+		if (unresolved) {
+			uncertain();
+			return;
+		}
+		const turn = ++generation;
+		busy = true;
+		clear();
+		status.textContent = "Checking the current invitation…";
+		controls();
+		try {
+			const value = await client.pending();
+			if (!here() || generation !== turn) return;
+			if (value.state === "none") status.textContent = "No current invitation. Start tmt remote invite on this machine to invite someone.";
+			else if (value.phase === "awaiting-owner" && value.candidate) {
+				current = {
+					offerId: value.offerId,
+					candidate: value.candidate
+				};
+				get("invitation-name").textContent = value.candidate.name;
+				get("invitation-words").textContent = value.candidate.words.join(" ");
+				get("invitation-expires").textContent = `Expires ${new Date(value.expiresAtMs).toLocaleTimeString(void 0, {
+					hour: "numeric",
+					minute: "2-digit"
+				})}.`;
+				status.textContent = "Compare these four words with the person joining. The terminal and this browser show the same candidate; the first decision wins.";
+				form.hidden = false;
+			} else if (value.localConfirmationKnown) status.textContent = value.phase === "confirmed" ? "This invitation is confirmed and its receipt was delivered." : "Confirmed locally; delivery of the original receipt is unconfirmed. Check members before sending another invite.";
+			else status.textContent = {
+				open: "Waiting for someone to join. Check again after they enter the code.",
+				refused: "This invitation was refused.",
+				cancelled: "This invitation was cancelled.",
+				expired: "This invitation expired.",
+				unconfirmed: "The invitation outcome is unconfirmed. Check member status before sending another invite."
+			}[value.phase] ?? "No candidate is available for confirmation.";
+		} catch (error) {
+			if (!here() || generation !== turn) return;
+			status.textContent = error instanceof RefusalError ? "This browser cannot read the invitation. Use the owner browser set up on this machine or confirm in the terminal." : "The current invitation could not be verified. Check access on Overview and try again.";
+		} finally {
+			busy = false;
+			if (here()) controls();
+		}
+	};
+	const decide = async (matched) => {
+		if (!here() || busy || !client || !current || unresolved || heldElsewhere() || matched && !compared.checked) return;
+		const turn = ++generation;
+		unresolved = {
+			operationId: crypto.randomUUID(),
+			offerId: current.offerId,
+			snapshot: current.candidate.snapshot,
+			clientId: current.candidate.clientId,
+			matched,
+			sending: matched && sending.checked
+		};
+		originalId.textContent = unresolved.operationId;
+		const input = {
+			operationId: unresolved.operationId,
+			offerId: unresolved.offerId,
+			snapshot: unresolved.snapshot,
+			matched: unresolved.matched,
+			sending: unresolved.sending
+		};
+		busy = true;
+		controls();
+		status.textContent = "Sending your decision…";
+		try {
+			const outcome = await client.decide(input);
+			if (here() && generation === turn) showOutcome(outcome);
+		} catch {
+			if (here() && generation === turn) uncertain();
+		} finally {
+			busy = false;
+			if (here()) controls();
+		}
+	};
+	refresh.addEventListener("click", () => {
+		check();
+	}, { signal: lifetime });
+	compared.addEventListener("change", () => controls(), { signal: lifetime });
+	confirm.addEventListener("click", () => {
+		decide(true);
+	}, { signal: lifetime });
+	decline.addEventListener("click", () => {
+		decide(false);
+	}, { signal: lifetime });
+	recover.addEventListener("click", () => {
+		if (!here() || busy || !client || !unresolved || heldElsewhere()) return;
+		const turn = ++generation;
+		busy = true;
+		controls();
+		client.operation(unresolved.operationId).then((outcome) => {
+			if (here() && generation === turn) showOutcome(outcome);
+		}).catch(() => {
+			if (here() && generation === turn) uncertain();
+		}).finally(() => {
+			busy = false;
+			if (here()) controls();
+		});
+	}, { signal: lifetime });
+	window.addEventListener("popstate", () => {
+		generation++;
+		clear();
+		if (here()) {
+			if (unresolved) uncertain();
+			else check();
+		}
+	}, { signal: lifetime });
+	lifetime?.addEventListener("abort", () => {
+		generation++;
+		clear();
+		client = void 0;
+	}, { once: true });
+	controls();
+	return Object.assign((session) => {
+		generation++;
+		client = session ? clientForSession(session) : void 0;
+		clear();
+		if (here()) {
+			if (unresolved) uncertain();
+			else check();
+		}
+	}, {
+		heldBy: () => busy ? "An invitation request is in progress." : unresolved ? "An invitation decision is unconfirmed. Check its original outcome first." : "",
+		update: () => controls(false)
+	});
+}
+//#endregion
+//#region src/remote-state.ts
+/** A display observation only; pairing and sending permissions never imply a role. */
+function remoteRole(role) {
+	return role === "owner" ? "Admin" : role === "user" ? "Member" : "Role unknown";
+}
+/** Foreign references stay unchecked. Unknown input does not become an offline verdict. */
+function remoteState(state, current = true) {
+	if (!current) return {
+		text: "Not checked",
+		word: "not checked",
+		mark: "◌",
+		tone: "muted",
+		action: ""
+	};
+	const known = {
+		Connected: [
+			"Connected",
+			"connected",
+			"●",
+			""
+		],
+		Checking: [
+			"Checking…",
+			"connecting",
+			"◌",
+			""
+		],
+		"Access ended": [
+			"Access ended",
+			"access ended",
+			"✗",
+			"Pair again"
+		],
+		"Different machine": [
+			"Different machine",
+			"different machine",
+			"?",
+			"Pair again"
+		],
+		"Not paired": [
+			"Not paired",
+			"not paired",
+			"?",
+			"Pair again"
+		],
+		"Pairing unreadable": [
+			"Pairing unreadable",
+			"pairing unreadable",
+			"?",
+			"Pair again"
+		],
+		Offline: [
+			"Offline",
+			"offline",
+			"✗",
+			"Retry"
+		],
+		Unconfirmed: [
+			"Connection unconfirmed",
+			"unconfirmed",
+			"?",
+			"Retry"
+		],
+		"Not accepted": [
+			"Not accepted",
+			"not accepted",
+			"?",
+			"Retry"
+		],
+		"Can't reach Remote": [
+			"Connection unconfirmed",
+			"unconfirmed",
+			"?",
+			"Retry"
+		]
+	};
+	const value = Object.hasOwn(known, state) ? known[state] : void 0;
+	if (!value) return {
+		text: "Status unknown",
+		word: "unknown",
+		mark: "?",
+		tone: "muted",
+		action: ""
+	};
+	const [text, word, mark, action] = value;
+	return {
+		text,
+		word,
+		mark,
+		action,
+		tone: "neutral"
+	};
+}
+/** The native page's door root, shared by the registry projection and current-row check. */
+function currentDoor(pageUrl) {
+	const root = new URL("./", pageUrl);
+	if (root.pathname === "/remote/") root.pathname = "/";
+	return root.href;
+}
+/** Both page owners and the menu identify the current Local row by the same door root. */
+function currentRemote(entry, address, pageUrl) {
+	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === currentDoor(pageUrl));
+}
+/** Guidance never treats transport uncertainty or unreadable storage as permission to re-pair. */
+function pairingGuidance(state, authorityEnded) {
+	return {
+		pair: state === "missing" || state === "different" || state === "refused" && authorityEnded,
+		members: state === "refused" && authorityEnded,
+		status: state === "unconfirmed"
+	};
+}
+//#endregion
 //#region src/firebase-bootstrap.ts
 /** Hosted public configuration is a corruption-checked carrier, never an access grant. */
 var encoder$1 = new TextEncoder();
@@ -1176,7 +2240,7 @@ async function originLink(origin, fetcher) {
 	const controller = new AbortController();
 	let timer;
 	try {
-		valid$5(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?\.web\.app$/.test(origin));
+		valid$4(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?\.web\.app$/.test(origin));
 		const deadline = new Promise((_, reject) => {
 			timer = setTimeout(() => {
 				controller.abort();
@@ -1202,7 +2266,7 @@ async function originLink(origin, fetcher) {
 				...body,
 				checksum: await checksum(body)
 			});
-			valid$5(!controller.signal.aborted);
+			valid$4(!controller.signal.aborted);
 			return `${origin}/pair#${base64url(encoder$1.encode(descriptor))}`;
 		})()]);
 	} catch {
@@ -1212,25 +2276,25 @@ async function originLink(origin, fetcher) {
 		controller.abort();
 	}
 }
-function valid$5(condition) {
+function valid$4(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function object$2(value, keys) {
-	valid$5(typeof value === "object" && value !== null && !Array.isArray(value));
+function object(value, keys) {
+	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
 	const record = value;
-	valid$5(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
+	valid$4(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
 	return record;
 }
 function parsePublicWebConfig(value) {
-	const r = object$2(value, [
+	const r = object(value, [
 		"apiKey",
 		"appId",
 		"authDomain",
 		"projectId"
 	]);
-	valid$5(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
-	valid$5(r.authDomain === `${r.projectId}.firebaseapp.com`);
-	for (const key of ["apiKey", "appId"]) valid$5(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
+	valid$4(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
+	valid$4(r.authDomain === `${r.projectId}.firebaseapp.com`);
+	for (const key of ["apiKey", "appId"]) valid$4(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
 	return Object.freeze(r);
 }
 function canonical$1(value) {
@@ -1243,38 +2307,38 @@ async function checksum(value) {
 }
 async function verifyHostedLink(link, origin) {
 	try {
-		valid$5(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
+		valid$4(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
 		const url = new URL(link);
-		valid$5(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
+		valid$4(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
 		const fragment = url.hash.slice(1);
-		valid$5(/^[A-Za-z0-9_-]+$/.test(fragment));
+		valid$4(/^[A-Za-z0-9_-]+$/.test(fragment));
 		const bytes = Uint8Array.from(atob(fragment.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 		const text = decoder$1.decode(bytes);
 		const raw = JSON.parse(text);
 		const hasSite = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "hostingSite");
-		const r = object$2(raw, [
+		const r = object(raw, [
 			"version",
 			"kind",
 			"publicWebConfig",
 			"checksum",
 			...hasSite ? ["hostingSite"] : []
 		]);
-		valid$5(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
+		valid$4(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
 		const publicConfig = parsePublicWebConfig(r.publicWebConfig);
 		let site = publicConfig.projectId;
 		if (hasSite) {
 			const selected = r.hostingSite;
-			valid$5(typeof selected === "string" && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) && selected !== publicConfig.projectId);
+			valid$4(typeof selected === "string" && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) && selected !== publicConfig.projectId);
 			site = selected;
 		}
-		valid$5(origin === `https://${site}.web.app`);
-		valid$5(await checksum({
+		valid$4(origin === `https://${site}.web.app`);
+		valid$4(await checksum({
 			kind: r.kind,
 			publicWebConfig: publicConfig,
 			version: r.version,
 			...hasSite ? { hostingSite: site } : {}
 		}) === r.checksum && text === canonical$1(r));
-		valid$5(link === `${origin}/pair#${base64url(bytes)}`);
+		valid$4(link === `${origin}/pair#${base64url(bytes)}`);
 		return Object.freeze({
 			origin,
 			publicWebConfig: publicConfig,
@@ -1329,17 +2393,17 @@ async function readHostedConfig(origin, fetcher, signal) {
 //#region src/sealed-sync-mapping.ts
 /** Frozen resource field/query mapping. Names are release data, never a Colab-specific list. */
 var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
-function valid$4(condition) {
+function valid$3(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 function row$2(value, keys) {
-	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$3(typeof value === "object" && value !== null && !Array.isArray(value));
 	const r = value;
-	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
+	valid$3(Object.keys(r).sort().join(",") === keys.sort().join(","));
 	return r;
 }
 function parseSyncMapping(value) {
-	valid$4(typeof value === "object" && value !== null);
+	valid$3(typeof value === "object" && value !== null);
 	const r = row$2(value, [
 		"fields",
 		"spaceField",
@@ -1347,19 +2411,19 @@ function parseSyncMapping(value) {
 		"query",
 		...Object.hasOwn(value, "writeModes") ? ["writeModes"] : []
 	]);
-	if (r.writeModes !== void 0) valid$4(Array.isArray(r.writeModes) && r.writeModes.length > 0 && new Set(r.writeModes).size === r.writeModes.length && r.writeModes.every((m) => [
+	if (r.writeModes !== void 0) valid$3(Array.isArray(r.writeModes) && r.writeModes.length > 0 && new Set(r.writeModes).size === r.writeModes.length && r.writeModes.every((m) => [
 		"create",
 		"put",
 		"delete"
 	].includes(m)));
-	valid$4(Array.isArray(r.fields) && r.fields.length > 0 && r.fields.length <= 64 && r.fields.every((f) => typeof f === "string" && syncFieldName(f)));
+	valid$3(Array.isArray(r.fields) && r.fields.length > 0 && r.fields.length <= 64 && r.fields.every((f) => typeof f === "string" && syncFieldName(f)));
 	const fields = new Set(r.fields);
-	valid$4(fields.size === r.fields.length);
+	valid$3(fields.size === r.fields.length);
 	const declared = (v) => typeof v === "string" && fields.has(v);
-	valid$4(declared(r.spaceField) && (r.uidField === null || declared(r.uidField) && r.uidField !== r.spaceField));
+	valid$3(declared(r.spaceField) && (r.uidField === null || declared(r.uidField) && r.uidField !== r.spaceField));
 	let query = null;
 	if (r.query !== null) {
-		valid$4(typeof r.query === "object" && r.query !== null);
+		valid$3(typeof r.query === "object" && r.query !== null);
 		const q = row$2(r.query, [
 			"scopeFields",
 			"streamField",
@@ -1367,10 +2431,10 @@ function parseSyncMapping(value) {
 			"order",
 			...Object.hasOwn(r.query, "discovery") ? ["discovery"] : []
 		]);
-		valid$4(Array.isArray(q.scopeFields) && q.scopeFields.length > 0 && q.scopeFields.length <= 8 && q.scopeFields.every(declared));
+		valid$3(Array.isArray(q.scopeFields) && q.scopeFields.length > 0 && q.scopeFields.length <= 8 && q.scopeFields.every(declared));
 		const scope = new Set(q.scopeFields);
-		valid$4(scope.size === q.scopeFields.length);
-		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
+		valid$3(scope.size === q.scopeFields.length);
+		valid$3(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
 		let discovery;
 		if (q.discovery !== void 0) {
 			const d = row$2(q.discovery, [
@@ -1378,9 +2442,9 @@ function parseSyncMapping(value) {
 				"scopeFields",
 				"seqEquals"
 			]);
-			valid$4(typeof d.name === "string" && syncFieldName(d.name) && d.name !== "stream" && Array.isArray(d.scopeFields) && d.scopeFields.every(declared) && new Set(d.scopeFields).size === d.scopeFields.length);
-			valid$4([...scope].filter((n) => n !== q.streamField).sort().join(",") === [...d.scopeFields].sort().join(","));
-			valid$4(d.seqEquals === null || typeof d.seqEquals === "string" && Number.isSafeInteger(Number(d.seqEquals)) && Number(d.seqEquals) >= 0 && String(Number(d.seqEquals)) === d.seqEquals);
+			valid$3(typeof d.name === "string" && syncFieldName(d.name) && d.name !== "stream" && Array.isArray(d.scopeFields) && d.scopeFields.every(declared) && new Set(d.scopeFields).size === d.scopeFields.length);
+			valid$3([...scope].filter((n) => n !== q.streamField).sort().join(",") === [...d.scopeFields].sort().join(","));
+			valid$3(d.seqEquals === null || typeof d.seqEquals === "string" && Number.isSafeInteger(Number(d.seqEquals)) && Number(d.seqEquals) >= 0 && String(Number(d.seqEquals)) === d.seqEquals);
 			discovery = Object.freeze({
 				name: d.name,
 				scopeFields: Object.freeze([...d.scopeFields]),
@@ -1504,7 +2568,7 @@ async function verifyHostedDeclaration(input) {
 }
 //#endregion
 //#region src/sealed-sync-codec.ts
-function valid$3(condition) {
+function valid$2(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 function timestamp(s) {
@@ -1541,9 +2605,9 @@ function validateSyncFields(bytes) {
 	try {
 		const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 		const row = JSON.parse(text);
-		valid$3(typeof row === "object" && row !== null && !Array.isArray(row) && canonical(row) === text);
+		valid$2(typeof row === "object" && row !== null && !Array.isArray(row) && canonical(row) === text);
 		const fields = row;
-		valid$3(Object.keys(fields).length <= 64 && Object.entries(fields).every(([key, v]) => syncFieldName(key) && field$1(v)));
+		valid$2(Object.keys(fields).length <= 64 && Object.entries(fields).every(([key, v]) => syncFieldName(key) && field$1(v)));
 		return fields;
 	} catch {
 		throw new RefusalError("REMOTE_INPUT_INVALID");
@@ -1554,46 +2618,46 @@ function textIs(value, expected) {
 }
 async function validateSyncDocument(context, document, access) {
 	const resource = context.resources.find((r) => r.name === document.target.resource);
-	valid$3(resource !== void 0 && /^[A-Za-z0-9_+-]{1,256}$/.test(document.target.id) && document.bytes.length <= resource.maxObjectBytes);
+	valid$2(resource !== void 0 && /^[A-Za-z0-9_+-]{1,256}$/.test(document.target.id) && document.bytes.length <= resource.maxObjectBytes);
 	const mapping = resource.sync;
 	if (!mapping) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	const bytes = new Uint8Array(document.bytes);
 	const expectedDigest = document.digest;
 	const row = validateSyncFields(bytes);
-	valid$3(Object.keys(row).length === mapping.fields.length && mapping.fields.every((key) => Object.hasOwn(row, key)));
+	valid$2(Object.keys(row).length === mapping.fields.length && mapping.fields.every((key) => Object.hasOwn(row, key)));
 	if (mapping.query) {
 		const stream = row[mapping.query.streamField];
 		const sequence = row[mapping.query.seqField];
-		valid$3(typeof stream.stringValue === "string" && /^[A-Za-z0-9_+-]{1,128}$/.test(stream.stringValue) && typeof sequence.integerValue === "string" && Number(sequence.integerValue) > 0);
+		valid$2(typeof stream.stringValue === "string" && /^[A-Za-z0-9_+-]{1,128}$/.test(stream.stringValue) && typeof sequence.integerValue === "string" && Number(sequence.integerValue) > 0);
 	}
-	valid$3(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === expectedDigest);
+	valid$2(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === expectedDigest);
 	if (!textIs(row[mapping.spaceField], context.space) || access === "publish" && mapping.uidField !== null && !textIs(row[mapping.uidField], context.uid)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 function validateSyncQuery(context, query) {
 	const resource = context.resources.find((r) => r.name === query.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	const spec = mapping?.query;
 	if (!mapping || !spec) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
-	valid$3(Object.keys(query.scope).length === spec.scopeFields.length && spec.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])) && /^[A-Za-z0-9_+-]{1,128}$/.test(query.stream));
+	valid$2(Object.keys(query.scope).length === spec.scopeFields.length && spec.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])) && /^[A-Za-z0-9_+-]{1,128}$/.test(query.stream));
 	if (!textIs(query.scope[mapping.spaceField], context.space) || !textIs(query.scope[spec.streamField], query.stream)) throw new RefusalError("REMOTE_SCOPE_DENIED");
-	valid$3(!query.cursor || query.cursor.stream === query.stream && Number.isSafeInteger(query.cursor.seq) && query.cursor.seq >= 0);
+	valid$2(!query.cursor || query.cursor.stream === query.stream && Number.isSafeInteger(query.cursor.seq) && query.cursor.seq >= 0);
 }
 function validateSyncDiscovery(context, query) {
 	const resource = context.resources.find((r) => r.name === query.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	const discovery = mapping?.query?.discovery;
 	if (!mapping) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	if (!discovery) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
-	valid$3(query.shape === discovery.name && (query.continuation === void 0 || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) && Object.keys(query.scope).length === discovery.scopeFields.length && discovery.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])));
+	valid$2(query.shape === discovery.name && (query.continuation === void 0 || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) && Object.keys(query.scope).length === discovery.scopeFields.length && discovery.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])));
 	if (!textIs(query.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 async function validateSyncMutation(context, mutation) {
 	const target = mutation.mode === "delete" ? mutation.target : mutation.document.target;
-	valid$3(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
+	valid$2(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
 	const resource = context.resources.find((r) => r.name === target.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	if (!mapping || !(mapping.writeModes ?? ["create"]).includes(mutation.mode)) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
 	if (mutation.mode !== "delete") await validateSyncDocument(context, mutation.document, "publish");
@@ -1601,12 +2665,12 @@ async function validateSyncMutation(context, mutation) {
 /** Page-scope registration, not a stream query or mandatory discovery shape. */
 function validateSyncInterest(context, interest) {
 	const resource = context.resources.find((r) => r.name === interest.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	const query = mapping?.query;
 	if (!mapping || !query) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	const fields = query.scopeFields.filter((key) => key !== query.streamField);
-	valid$3(Object.keys(interest.scope).length === fields.length && fields.every((key) => Object.hasOwn(interest.scope, key) && field$1(interest.scope[key])));
+	valid$2(Object.keys(interest.scope).length === fields.length && fields.every((key) => Object.hasOwn(interest.scope, key) && field$1(interest.scope[key])));
 	if (!textIs(interest.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 //#endregion
@@ -1614,20 +2678,20 @@ function validateSyncInterest(context, interest) {
 /** Extension-scoped sealed-document ports and pure binding. No credential storage. */
 var identity = /^[A-Za-z0-9_+-]{1,128}$/;
 var documentId = /^[A-Za-z0-9_+-]{1,256}$/;
-function valid$2(condition) {
+function valid$1(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 /** Caller supplies bootstrap-verified public config. This pure binding does not attest an origin. */
 async function bindSyncContext(config, declaration, space, auth) {
 	config = parsePublicWebConfig(config);
 	await verifyHostedDeclaration(declaration);
-	valid$2(identity.test(space) && identity.test(auth.identity.uid));
+	valid$1(identity.test(space) && identity.test(auth.identity.uid));
 	if (config.projectId !== auth.identity.projectId) throw new RefusalError("REMOTE_SCOPE_DENIED");
 	const row = JSON.parse(declaration.bytes);
 	for (const [i, resource] of row.resources.entries()) {
 		const segments = resource.path.split("/").length;
-		valid$2(segments <= 7 && segments % 2 === 1);
-		valid$2(!row.resources.slice(0, i).some((other) => resource.path === other.path || resource.path.startsWith(`${other.path}/`) || other.path.startsWith(`${resource.path}/`)));
+		valid$1(segments <= 7 && segments % 2 === 1);
+		valid$1(!row.resources.slice(0, i).some((other) => resource.path === other.path || resource.path.startsWith(`${other.path}/`) || other.path.startsWith(`${resource.path}/`)));
 	}
 	const resources = row.resources.map((r) => Object.freeze({
 		name: r.name,
@@ -1649,26 +2713,26 @@ async function bindSyncContext(config, declaration, space, auth) {
 /** A document target cannot escape its declared collection or select an operations route. */
 function syncDocumentPath(context, target) {
 	const resource = context.resources.find((r) => r.name === target.resource);
-	valid$2(resource !== void 0 && documentId.test(target.id));
+	valid$1(resource !== void 0 && documentId.test(target.id));
 	return `x/${context.extension}/${resource.path}/${target.id}`;
 }
 /** Pure complete-or-absent validation; never returns a truncated object. */
 async function verifySealedObject(original, manifest, chunks, maxObjectBytes) {
-	valid$2(documentId.test(original) && manifest.original === original);
-	valid$2(Number.isSafeInteger(maxObjectBytes) && maxObjectBytes > 0 && maxObjectBytes <= 16779264);
-	valid$2(Number.isSafeInteger(manifest.chunkBytes) && manifest.chunkBytes > 0 && manifest.chunkBytes <= maxObjectBytes);
-	valid$2(Number.isSafeInteger(manifest.bytes) && manifest.bytes >= 0 && manifest.bytes <= maxObjectBytes);
-	valid$2(Number.isSafeInteger(manifest.count) && manifest.count >= 0 && manifest.count <= 513 && manifest.count === Math.ceil(manifest.bytes / manifest.chunkBytes));
-	valid$2(chunks.length === manifest.count && /^[a-f0-9]{64}$/.test(manifest.digest));
+	valid$1(documentId.test(original) && manifest.original === original);
+	valid$1(Number.isSafeInteger(maxObjectBytes) && maxObjectBytes > 0 && maxObjectBytes <= 16779264);
+	valid$1(Number.isSafeInteger(manifest.chunkBytes) && manifest.chunkBytes > 0 && manifest.chunkBytes <= maxObjectBytes);
+	valid$1(Number.isSafeInteger(manifest.bytes) && manifest.bytes >= 0 && manifest.bytes <= maxObjectBytes);
+	valid$1(Number.isSafeInteger(manifest.count) && manifest.count >= 0 && manifest.count <= 513 && manifest.count === Math.ceil(manifest.bytes / manifest.chunkBytes));
+	valid$1(chunks.length === manifest.count && /^[a-f0-9]{64}$/.test(manifest.digest));
 	const bytes = new Uint8Array(manifest.bytes);
 	let offset = 0;
 	for (let i = 0; i < chunks.length; i++) {
 		const chunk = chunks[i];
-		valid$2(chunk.byteLength === Math.min(manifest.chunkBytes, manifest.bytes - offset));
+		valid$1(chunk.byteLength === Math.min(manifest.chunkBytes, manifest.bytes - offset));
 		bytes.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
-	valid$2(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === manifest.digest);
+	valid$1(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === manifest.digest);
 }
 //#endregion
 //#region src/browser-store.ts
@@ -4880,33 +5944,33 @@ var empty = {
 	version: 1,
 	entries: []
 };
-function valid$1(condition, message = "The remote name or link is invalid") {
+function valid(condition, message = "The remote name or link is invalid") {
 	if (!condition) throw new RemoteRegistryError("REMOTE_SELECTOR_INVALID", message);
 }
 function fields(value, keys) {
-	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid(typeof value === "object" && value !== null && !Array.isArray(value));
 	const object = value;
-	valid$1(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
+	valid(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
 	return object;
 }
 function name(value) {
-	valid$1(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
+	valid(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
 }
 function target(entry) {
 	return new URL(entry.url).href;
 }
 async function reference(alias, address) {
 	name(alias);
-	valid$1(typeof address === "string" && address.length <= LIMIT);
+	valid(typeof address === "string" && address.length <= LIMIT);
 	let url;
 	try {
 		url = new URL(address);
 	} catch {
-		valid$1(false);
+		valid(false);
 	}
 	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") {
 		const { publicWebConfig: config } = await verifyHostedLink(address, url.origin).catch(() => {
-			valid$1(false);
+			valid(false);
 		});
 		return {
 			name: alias,
@@ -4915,7 +5979,7 @@ async function reference(alias, address) {
 			project: config.projectId
 		};
 	}
-	valid$1(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
+	valid(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
 	return {
 		name: alias,
 		kind: "local",
@@ -4925,8 +5989,8 @@ async function reference(alias, address) {
 }
 async function parseCatalog(value) {
 	const row = fields(value, ["version", "entries"]);
-	valid$1(row.version === 1 && Array.isArray(row.entries));
-	valid$1(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
+	valid(row.version === 1 && Array.isArray(row.entries));
+	valid(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
 	const entries = [];
 	for (const raw of row.entries) {
 		const r = fields(raw, [
@@ -4936,51 +6000,51 @@ async function parseCatalog(value) {
 			"project"
 		]);
 		const entry = await reference(r.name, r.url);
-		valid$1(entry.kind === r.kind && entry.project === r.project);
-		valid$1(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
+		valid(entry.kind === r.kind && entry.project === r.project);
+		valid(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
 		entries.push(Object.freeze(entry));
 	}
 	const catalog = {
 		version: 1,
 		entries: Object.freeze(entries)
 	};
-	valid$1(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
+	valid(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
 	return Object.freeze(catalog);
 }
 function json(catalog) {
 	return JSON.stringify(catalog);
 }
 function decode$1(value) {
-	valid$1(/^[A-Za-z0-9_-]+$/.test(value));
+	valid(/^[A-Za-z0-9_-]+$/.test(value));
 	try {
 		const bytes = Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
-		valid$1(base64url(bytes) === value);
+		valid(base64url(bytes) === value);
 		return JSON.parse(decoder.decode(bytes));
 	} catch {
-		valid$1(false);
+		valid(false);
 	}
 }
 function hint(value) {
 	const r = fields(value, ["spaceId", "pageId"]);
-	valid$1(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
-	valid$1(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
+	valid(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
+	valid(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
 	return {
 		spaceId: r.spaceId,
 		pageId: r.pageId
 	};
 }
 async function parseHandoff(fragment) {
-	valid$1(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
+	valid(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
 	const params = new URLSearchParams(fragment.slice(1));
 	const keys = [...params.keys()];
-	valid$1(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
+	valid(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
 	const raw = params.get("tmt-remotes");
-	valid$1(raw !== null);
+	valid(raw !== null);
 	const catalog = await parseCatalog(decode$1(raw));
-	valid$1(base64url(encoder.encode(json(catalog))) === raw);
+	valid(base64url(encoder.encode(json(catalog))) === raw);
 	const page = params.get("tmt-page");
 	const checkedHint = page === null ? void 0 : hint(decode$1(page));
-	if (checkedHint) valid$1(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
+	if (checkedHint) valid(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
 	return {
 		catalog,
 		...checkedHint ? { hint: checkedHint } : {}
@@ -4988,12 +6052,12 @@ async function parseHandoff(fragment) {
 }
 async function buildHandoff(destination, value, page) {
 	const checked = await reference(destination.name, destination.url);
-	valid$1(checked.kind === destination.kind && checked.project === destination.project);
+	valid(checked.kind === destination.kind && checked.project === destination.project);
 	if (checked.kind === "firestore") return checked.url;
 	const catalog = await parseCatalog(value);
 	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
 	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
-	valid$1(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
+	valid(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
 	return `${new URL("/remote/overview", checked.url).href}#${params}`;
 }
 async function planImport(incoming, current) {
@@ -5032,7 +6096,7 @@ async function planImport(incoming, current) {
 }
 async function mergeImport(plan, choices) {
 	const checked = await planImport(plan.incoming, plan.current);
-	valid$1(choices.length === checked.rows.length);
+	valid(choices.length === checked.rows.length);
 	const entries = [...checked.current.entries];
 	for (const [index, row] of checked.rows.entries()) {
 		const alias = choices[index];
@@ -5049,12 +6113,12 @@ async function mergeImport(plan, choices) {
 		entries
 	});
 }
-async function snapshot$1() {
+async function snapshot() {
 	try {
 		const raw = await readRegistry();
-		valid$1(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
+		valid(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
 		const catalog = raw === void 0 ? empty : await parseCatalog(JSON.parse(raw));
-		valid$1(raw === void 0 || raw === json(catalog));
+		valid(raw === void 0 || raw === json(catalog));
 		return {
 			raw,
 			catalog
@@ -5073,30 +6137,30 @@ async function commit(raw, catalog) {
 var remoteRegistry = {
 	parseHandoff,
 	async list() {
-		return (await snapshot$1()).catalog;
+		return (await snapshot()).catalog;
 	},
 	async planImport(incoming) {
-		return planImport(incoming, (await snapshot$1()).catalog);
+		return planImport(incoming, (await snapshot()).catalog);
 	},
 	async confirmImport(plan, choices) {
-		const next = await mergeImport(plan, choices), latest = await snapshot$1();
+		const next = await mergeImport(plan, choices), latest = await snapshot();
 		if (json(latest.catalog) !== json(plan.current)) throw new RemoteRegistryError("REMOTE_SELECTOR_CONFLICT", "The remotes changed. Check the list again.");
 		await commit(latest.raw, next);
 	},
 	async add(alias, url) {
-		const entry = await reference(alias, url), latest = await snapshot$1();
+		const entry = await reference(alias, url), latest = await snapshot();
 		const plan = await planImport({
 			version: 1,
 			entries: [entry]
 		}, latest.catalog);
-		valid$1(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
+		valid(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
 		await remoteRegistry.confirmImport(plan, [alias]);
 	},
 	async rename(previous, alias) {
 		name(alias);
-		const latest = await snapshot$1();
-		valid$1(latest.catalog.entries.some((entry) => entry.name === previous));
-		valid$1(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
+		const latest = await snapshot();
+		valid(latest.catalog.entries.some((entry) => entry.name === previous));
+		valid(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
 		const next = await parseCatalog({
 			version: 1,
 			entries: latest.catalog.entries.map((entry) => entry.name === previous ? {
@@ -5107,8 +6171,8 @@ var remoteRegistry = {
 		await commit(latest.raw, next);
 	},
 	async remove(alias) {
-		const latest = await snapshot$1();
-		valid$1(latest.catalog.entries.some((entry) => entry.name === alias));
+		const latest = await snapshot();
+		valid(latest.catalog.entries.some((entry) => entry.name === alias));
 		await commit(latest.raw, {
 			version: 1,
 			entries: latest.catalog.entries.filter((entry) => entry.name !== alias)
@@ -8448,648 +9512,10 @@ function extraModuleLoad(answer, family, here) {
 	};
 }
 //#endregion
-//#region src/management-mutation.ts
-/** Both management facades share the existing verified signing lane and never retry effects. */
-async function managementMutation(call, operation, value, decode) {
-	const { operationId } = value;
-	try {
-		return await call(operation, operationId, value, decode, true);
-	} catch (error) {
-		if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
-		if (error instanceof RefusalError) return {
-			state: "refused",
-			operationId,
-			reason: error.code
-		};
-		throw error;
-	}
-}
-//#endregion
-//#region src/management-codec.ts
-function valid(condition) {
-	if (!condition) throw new Error("Invalid management response.");
-}
-function input(condition) {
-	if (!condition) throw new TypeError("Invalid management input.");
-}
-function object$1(value) {
-	valid(typeof value === "object" && value !== null && !Array.isArray(value));
-	return value;
-}
-function exact(value, keys) {
-	valid(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
-}
-var integer = (value) => Number.isSafeInteger(value) && value >= 0;
-/** The signed member service accepts nonblank names of at most 64 UTF-8 bytes. */
-function memberName(value) {
-	return typeof value === "string" && value.trim().length > 0 && new TextEncoder().encode(value).length <= 64 && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
-}
-//#endregion
-//#region src/firestore.ts
-var deploy = "tmt remote deploy firestore";
-var firestoreReasons = {
-	project: {
-		"not-configured": ["No Firebase project is set up.", true],
-		"access-lost": ["tmt can no longer reach the Firebase project.", true],
-		"not-checked": ["The Firebase project has not been checked.", false]
-	},
-	"sign-in": {
-		"provider-disabled": ["Sign-in is not enabled for the project.", true],
-		"permission-missing": ["This account isn't allowed to turn on sign-in for the project.", false],
-		"not-checked": ["Sign-in has not been checked.", false]
-	},
-	rules: {
-		"not-deployed": ["Firestore rules are not deployed.", true],
-		"out-of-date": ["Firestore rules are out of date.", true],
-		partial: ["Firestore rules are only partly deployed.", true],
-		"not-checked": ["Firestore rules have not been checked.", false]
-	},
-	indexes: {
-		building: [
-			"Firestore indexes are still building.",
-			true,
-			"Wait a few minutes, then run tmt remote deploy firestore."
-		],
-		"not-ready": [
-			"Firestore indexes have not been verified as ready.",
-			true,
-			"Run tmt remote deploy firestore."
-		],
-		"not-checked": [
-			"Firestore index readiness has not been checked.",
-			true,
-			"Run tmt remote deploy firestore."
-		]
-	},
-	"plan-tier": {
-		"paid-plan-required": ["This needs a paid Firebase plan.", false],
-		"not-checked": ["The Firebase plan has not been checked.", false]
-	},
-	quota: {
-		"headroom-low": ["Today's free Firebase quota is almost used up.", false],
-		exhausted: ["Today's free Firebase quota is used up.", false],
-		"not-checked": ["The free Firebase quota has not been checked.", false]
-	},
-	support: { "not-implemented": ["This isn't available in this release yet.", false] }
-};
-var firestoreSpecs = [
-	["sharing", [
-		"project",
-		"sign-in",
-		"rules",
-		"indexes",
-		"plan-tier",
-		"quota"
-	]],
-	["operations", ["plan-tier", "support"]],
-	["attachments", [
-		"support",
-		"project",
-		"rules",
-		"quota"
-	]]
-];
-function requireValid(condition) {
-	if (!condition) throw new Error("Invalid Firestore readiness response.");
-}
-function object(value) {
-	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
-	return value;
-}
-function keys(row, expected) {
-	requireValid(Object.keys(row).length === expected.length && expected.every((key) => Object.hasOwn(row, key)));
-}
-function parseFirestoreLayers(value) {
-	requireValid(Array.isArray(value));
-	if (!value.length) return [];
-	requireValid(value.length === firestoreSpecs.length);
-	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
-		const row = object(value[index]);
-		keys(row, [
-			"layer",
-			"state",
-			"prerequisites"
-		]);
-		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
-		const states = [];
-		for (const [i, item] of items.entries()) {
-			const entry = object(row.prerequisites[i]);
-			requireValid(entry.item === item && [
-				"enabled",
-				"not-enabled",
-				"unknown"
-			].includes(entry.state));
-			states.push(entry.state);
-			if (entry.state === "enabled") {
-				keys(entry, ["item", "state"]);
-				continue;
-			}
-			const reason = typeof entry.reason === "string" && Object.hasOwn(firestoreReasons[item], entry.reason) ? firestoreReasons[item][entry.reason] : void 0;
-			requireValid(reason && entry.state === "unknown" === (entry.reason === "not-checked"));
-			requireValid(entry.reason !== "paid-plan-required" || layer === "operations");
-			keys(entry, reason[1] ? [
-				"item",
-				"state",
-				"reason",
-				"next"
-			] : [
-				"item",
-				"state",
-				"reason"
-			]);
-			requireValid(entry.next === (reason[1] ? deploy : void 0));
-		}
-		const aggregate = states.includes("not-enabled") ? "not-enabled" : states.includes("unknown") ? "unknown" : "enabled";
-		requireValid(row.state === aggregate);
-	}
-	return value;
-}
-//#endregion
-//#region src/budget.ts
-var budget_exports = /* @__PURE__ */ __exportAll({
-	ACTIVE_SECONDS_PER_DAY: () => ACTIVE_SECONDS_PER_DAY,
-	BUDGET_EXHAUSTED: () => BUDGET_EXHAUSTED,
-	BudgetModel: () => BudgetModel,
-	BudgetModelError: () => BudgetModelError,
-	MAX_MEMBERS: () => MAX_MEMBERS,
-	READS_PER_DAY: () => READS_PER_DAY,
-	READ_LOOKUPS: () => 2,
-	REFUSE_PERCENT: () => 90,
-	WARN_PERCENT: () => 70,
-	WRITES_PER_DAY: () => WRITES_PER_DAY,
-	WRITE_LOOKUPS: () => 4,
-	classifyProviderExhausted: () => classifyProviderExhausted,
-	decide: () => decide,
-	exhaustedIsCurrent: () => exhaustedIsCurrent,
-	newUsage: () => newUsage,
-	pacificDay: () => pacificDay,
-	parsePublishedLimits: () => parsePublishedLimits,
-	publishedLimitRows: () => publishedLimitRows,
-	recordedUsage: () => recordedUsage,
-	usageAt: () => usageAt
-});
-/**
-* Free-plan (Spark) Firestore budget guard, the browser twin of the Rust `firestore_budget`
-* module (#2180). Pure arithmetic: no I/O and no clock (callers pass `nowMs`). Quotas are
-* project-wide, every client sees only its own traffic and Rules cannot read quotas, so the
-* guard works from what a client really has: the member count from the signed membership, the
-* page's parameters, its own persisted counter for today and these constants. It does not read
-* Google's counter, and the counter a client keeps is per browser and device, so other
-* devices' appends are invisible to it: `decide` is a local estimate and the provider's own
-* `resource-exhausted` answer is the backstop. Both implementations are tested against the
-* same independent vectors, so a change to either one fails until both agree; the dated
-* numbers and the derivation are in the Remote reference guide's free-plan table.
-*/
-/** Spark (no-cost) Firestore document reads per day. */
-var READS_PER_DAY = 5e4;
-/** Spark (no-cost) Firestore document writes per day. */
-var WRITES_PER_DAY = 2e4;
-/** Planning assumption for the minimum flush interval: this many active seconds per day. */
-var ACTIVE_SECONDS_PER_DAY = 7200;
-/** Largest member count the model accepts. */
-var MAX_MEMBERS = 1e4;
-/** The error code of a refusal made before any effect. */
-var BUDGET_EXHAUSTED = "REMOTE_BUDGET_EXHAUSTED";
-/**
-* `out_of_range`: no members, no writers, more writers than members, or too many members.
-* `free_plan_cannot_host`: the modeled share is too small for the guard to allow even one
-* append. A page like that is refused when the model is built, never as a pause that would end
-* at the next reset and begin again.
-*/
-var BudgetModelError = class extends Error {
-	code;
-	constructor(code) {
-		super(code === "out_of_range" ? "The page size is out of range." : "The free plan cannot host a page this size.");
-		this.code = code;
-		this.name = "BudgetModelError";
-	}
-};
-/** One shared page: `members` have it open (every one a listener), `writers` of them append. */
-var BudgetModel = class BudgetModel {
-	members;
-	writers;
-	constructor(members, writers) {
-		this.members = members;
-		this.writers = writers;
-	}
-	static create(members, writers) {
-		const whole = (value) => Number.isSafeInteger(value);
-		if (!(whole(members) && whole(writers) && members >= 1 && members <= 1e4 && writers >= 1 && writers <= members)) throw new BudgetModelError("out_of_range");
-		const model = new BudgetModel(members, writers);
-		if (model.refuseAt() === 0) throw new BudgetModelError("free_plan_cannot_host");
-		return model;
-	}
-	/** Reads one append costs the project, pessimistically: the writer's lookups, then each other listener's. */
-	readsPerAppend() {
-		return 4 + (this.members - 1) * 3;
-	}
-	/** Appends per day the free plan allows this page if it were the project's only traffic. */
-	dailyAppendLimit() {
-		return Math.min(Math.floor(READS_PER_DAY / this.readsPerAppend()), WRITES_PER_DAY);
-	}
-	/** One client's modeled share of the page's daily allowance. */
-	share() {
-		return Math.floor(this.dailyAppendLimit() / this.writers);
-	}
-	/** Appends after which the guard warns, and the count at which it refuses. */
-	warnAt() {
-		return Math.floor(this.share() * 70 / 100);
-	}
-	refuseAt() {
-		return Math.floor(this.share() * 90 / 100);
-	}
-	/** Shortest average interval between flushed updates, in milliseconds, that keeps the planning assumption. */
-	minFlushIntervalMs() {
-		const appends = Math.max(Math.floor(this.dailyAppendLimit() * 70 / 100), 1);
-		return Math.ceil(ACTIVE_SECONDS_PER_DAY * 1e3 / appends);
-	}
-	/** What the guard says about the next append, given how many this client sent today. */
-	assess(appendsToday) {
-		if (appendsToday >= this.refuseAt()) return "refuse";
-		if (appendsToday >= this.warnAt()) return "warn";
-		return "ok";
-	}
-};
-var DAY_MS = 864e5;
-var HOUR_MS = 36e5;
-var floorDiv = (value, divisor) => Math.floor(value / divisor);
-/** Days since 1970-01-01 of a proleptic Gregorian date. */
-function daysFromCivil(year, month, day) {
-	const y = month <= 2 ? year - 1 : year;
-	const era = floorDiv(y, 400);
-	const yoe = y - era * 400;
-	const doy = floorDiv(153 * ((month + 9) % 12) + 2, 5) + day - 1;
-	const doe = yoe * 365 + floorDiv(yoe, 4) - floorDiv(yoe, 100) + doy;
-	return era * 146097 + doe - 719468;
-}
-function civilYear(days) {
-	const z = days + 719468;
-	const era = floorDiv(z, 146097);
-	const doe = z - era * 146097;
-	const yoe = floorDiv(doe - floorDiv(doe, 1460) + floorDiv(doe, 36524) - floorDiv(doe, 146096), 365);
-	const mp = floorDiv(5 * (doe - (365 * yoe + floorDiv(yoe, 4) - floorDiv(yoe, 100))) + 2, 153);
-	const month = mp < 10 ? mp + 3 : mp - 9;
-	return yoe + era * 400 + (month <= 2 ? 1 : 0);
-}
-/** The n-th Sunday (1-based) of `month` in `year`, as a day number. */
-function nthSunday(year, month, n) {
-	const first = daysFromCivil(year, month, 1);
-	return first + (7 - ((first + 4) % 7 + 7) % 7) % 7 + (n - 1) * 7;
-}
-/** United States rule since 2007: daylight time from 02:00 local on the second Sunday of March to 02:00 local on the first Sunday of November. */
-function isDstLocal(localMs) {
-	const year = civilYear(floorDiv(localMs, DAY_MS));
-	const start = nthSunday(year, 3, 2) * DAY_MS + 2 * HOUR_MS;
-	const end = nthSunday(year, 11, 1) * DAY_MS + 2 * HOUR_MS;
-	return localMs >= start && localMs < end;
-}
-/** The Pacific UTC offset at a UTC instant: -8 h, or -7 h in daylight time. */
-function offsetMs(utcMs) {
-	const year = civilYear(floorDiv(utcMs - 8 * HOUR_MS, DAY_MS));
-	const start = nthSunday(year, 3, 2) * DAY_MS + 10 * HOUR_MS;
-	const end = nthSunday(year, 11, 1) * DAY_MS + 9 * HOUR_MS;
-	return utcMs >= start && utcMs < end ? -7 * HOUR_MS : -8 * HOUR_MS;
-}
-function pacificDay(nowMs) {
-	const day = floorDiv(nowMs + offsetMs(nowMs), DAY_MS);
-	const nextMidnightLocal = (day + 1) * DAY_MS;
-	return {
-		day,
-		resetAtMs: nextMidnightLocal - (isDstLocal(nextMidnightLocal) ? -7 * HOUR_MS : -8 * HOUR_MS)
-	};
-}
-function newUsage(nowMs) {
-	return {
-		day: pacificDay(nowMs).day,
-		appends: 0
-	};
-}
-/** The same usage if still the same Pacific day, else a fresh day. */
-function usageAt(usage, nowMs) {
-	return pacificDay(nowMs).day === usage.day ? usage : newUsage(nowMs);
-}
-/** Count one append sent. */
-function recordedUsage(usage, nowMs) {
-	const today = usageAt(usage, nowMs);
-	return {
-		...today,
-		appends: Math.min(today.appends + 1, Number.MAX_SAFE_INTEGER)
-	};
-}
-/** Judge the next append. Rolls the usage over to today first. */
-function decide(model, usage, nowMs) {
-	const today = usageAt(usage, nowMs);
-	const verdict = model.assess(today.appends);
-	if (verdict === "ok") return { decision: "allow" };
-	if (verdict === "warn") return { decision: "warn" };
-	const { resetAtMs } = pacificDay(nowMs);
-	return {
-		decision: "refuse",
-		resetAtMs,
-		retryAfterMs: Math.max(resetAtMs - nowMs, 0)
-	};
-}
-function classifyProviderExhausted(attempt, nowMs) {
-	const { day, resetAtMs } = pacificDay(nowMs);
-	const evidence = {
-		day,
-		resetAtMs
-	};
-	if (attempt.mutation) return {
-		outcome: { outcome: "unknown" },
-		evidence
-	};
-	return {
-		outcome: {
-			outcome: "refused",
-			resetAtMs,
-			retryAfterMs: Math.max(resetAtMs - nowMs, 0)
-		},
-		evidence
-	};
-}
-/** Still a statement about today's quota. */
-function exhaustedIsCurrent(evidence, nowMs) {
-	return nowMs < evidence.resetAtMs;
-}
-var publishedLimitRows = [
-	[
-		"readsPerDay",
-		"Document reads",
-		"day",
-		false
-	],
-	[
-		"writesPerDay",
-		"Document writes",
-		"day",
-		false
-	],
-	[
-		"deletesPerDay",
-		"Document deletes",
-		"day",
-		false
-	],
-	[
-		"storedBytes",
-		"Stored data",
-		"",
-		true
-	],
-	[
-		"egressBytesPerMonth",
-		"Data sent out",
-		"month",
-		true
-	],
-	[
-		"databases",
-		"Free databases per project",
-		"",
-		false
-	],
-	[
-		"compositeIndexes",
-		"Composite indexes",
-		"",
-		false
-	],
-	[
-		"singleFieldIndexConfigs",
-		"Single-field index configs",
-		"",
-		false
-	],
-	[
-		"documentBytes",
-		"Document size",
-		"",
-		true
-	],
-	[
-		"rulesLookupsPerRequest",
-		"Rules document lookups per request",
-		"",
-		false
-	]
-];
-function parsePublishedLimits(value) {
-	const object = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-	const keys = (v, expected) => Object.keys(v).length === expected.length && expected.every((key) => Object.hasOwn(v, key));
-	if (!object(value) || !keys(value, [
-		"plan",
-		"readOn",
-		"resetsAt",
-		"limits",
-		"guard"
-	]) || value.plan !== "no-cost" || value.resetsAt !== "pacific-midnight" || typeof value.readOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.readOn) || !object(value.limits) || !keys(value.limits, publishedLimitRows.map((row) => row[0])) || !Object.values(value.limits).every((n) => typeof n === "number" && Number.isSafeInteger(n) && n > 0) || !object(value.guard) || !keys(value.guard, ["warnPercent", "refusePercent"]) || !Number.isSafeInteger(value.guard.warnPercent) || !Number.isSafeInteger(value.guard.refusePercent) || !(value.guard.warnPercent > 0 && value.guard.warnPercent < value.guard.refusePercent && value.guard.refusePercent <= 100)) throw new Error("Invalid Firestore budget response.");
-	return value;
-}
-//#endregion
-//#region src/management.ts
-var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
-function settings(value) {
-	const row = object$1(value);
-	exact(row, [
-		"open",
-		"source",
-		"sessionsPerDevice",
-		"sessionsPerDeviceSource",
-		"warning"
-	]);
-	valid(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
-	valid(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
-	valid(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
-	valid(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
-	return row;
-}
-function device(value, activity = false) {
-	const row = object$1(value);
-	exact(row, [
-		"clientId",
-		"name",
-		"kind",
-		"issuedAtMs",
-		"expiresAtMs",
-		"revision",
-		"revoked",
-		"talkEnabled",
-		...activity ? [
-			"thisBrowser",
-			"liveSessionCount",
-			"lastActivityAtMs",
-			"lastUsedAtMs"
-		] : []
-	]);
-	valid(typeof row.clientId === "string" && UUID$2.test(row.clientId));
-	valid(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
-	valid([
-		"browser",
-		"addon",
-		"cli"
-	].includes(row.kind) && integer(row.issuedAtMs));
-	valid(row.expiresAtMs === null || integer(row.expiresAtMs));
-	valid(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
-	if (activity) valid(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer(row.lastUsedAtMs)));
-	return row;
-}
-var refusalCodes = /* @__PURE__ */ new Set([
-	"REMOTE_INVITATION_BUSY",
-	"REMOTE_INVITATION_CAPACITY",
-	"REMOTE_INVITATION_UNAVAILABLE",
-	"REMOTE_INVITATION_INVALID",
-	"REMOTE_INVITATION_STOPPED",
-	"REMOTE_INVITATION_DECIDED",
-	"REMOTE_ALREADY_PAIRED",
-	"REMOTE_SCOPE_DENIED",
-	"REMOTE_INPUT_INVALID",
-	"REMOTE_RATE_LIMITED",
-	"REMOTE_INTENT_CONFLICT",
-	"REMOTE_CLOSED",
-	"REMOTE_SESSION_ENDED",
-	"REMOTE_SESSION_EVICTED",
-	"REMOTE_INPUT_TOO_LARGE",
-	"REMOTE_STATE_UNAVAILABLE",
-	"REMOTE_MANAGEMENT_READ_ONLY",
-	"REMOTE_MANAGEMENT_UNAVAILABLE",
-	"REMOTE_DEVICE_REVOKED",
-	"REMOTE_DEVICE_NOT_FOUND",
-	"REMOTE_SETTINGS_UNAVAILABLE",
-	"REMOTE_MANAGEMENT_CAPACITY",
-	"REMOTE_DEVICE_LIST_CHANGED",
-	"REMOTE_DEVICE_REMOVAL_LIMIT",
-	"REMOTE_MEMBER_OWNER_REQUIRED",
-	"REMOTE_MEMBER_CONFLICT"
-]);
-function parseManagementOutcome(value, operationId) {
-	const row = object$1(value);
-	valid(row.operationId === operationId);
-	if (row.state === "committed") {
-		exact(row, [
-			"operationId",
-			"state",
-			"result",
-			"sessionEnded"
-		]);
-		valid(typeof row.sessionEnded === "boolean");
-		const result = object$1(row.result);
-		valid(Object.keys(result).length === 1);
-		if (Object.hasOwn(result, "settings")) settings(result.settings);
-		else if (Object.hasOwn(result, "removed")) valid(integer(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
-		else device(result.device);
-	} else {
-		exact(row, [
-			"operationId",
-			"state",
-			"reason"
-		]);
-		if (row.state === "unknown") valid(row.reason === "effect_outcome_unconfirmed");
-		else valid(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
-	}
-	return row;
-}
-/** Constructing this helper opens nothing. Unknown mutations are never resent.
-* After Session loss, explicitly reopen once and read operation(originalId).
-* Failed fresh admission changes access status; it cannot establish mutation outcome.
-*/
-function management(session, options = {}) {
-	const call = verifiedSessionRequest(session, options);
-	const clientId = channelFor(session).paired.clientId;
-	async function mutate(operation, value) {
-		const { operationId } = value;
-		input(UUID$2.test(operationId));
-		return managementMutation(call, operation, value, (reply) => {
-			const parsed = parseManagementOutcome(reply, operationId);
-			if (parsed.state === "committed") {
-				if (operation === "remote.settings.set") valid("settings" in parsed.result);
-				else if (operation === "remote.devices.remove-others") valid("removed" in parsed.result && parsed.sessionEnded === false);
-				else {
-					valid("device" in parsed.result && parsed.result.device.clientId === value.clientId);
-					if (operation === "remote.devices.rename") valid(parsed.result.device.name === value.name);
-					if (operation === "remote.devices.revoke") valid(parsed.result.device.revoked);
-					if (operation === "remote.devices.talk") valid(parsed.result.device.talkEnabled === value.enabled);
-				}
-			}
-			return parsed;
-		});
-	}
-	return {
-		clientId,
-		previewRemoveOthers: () => call("remote.devices.remove-others.preview", crypto.randomUUID(), {}, (value) => {
-			const row = object$1(value);
-			exact(row, ["count", "fingerprint"]);
-			valid(integer(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
-			return row;
-		}),
-		removeOthers: (change) => {
-			input(typeof change.fingerprint === "string" && /^[0-9a-f]{64}$/.test(change.fingerprint));
-			return mutate("remote.devices.remove-others", { ...change });
-		},
-		settings: ((options) => call("remote.settings.show", crypto.randomUUID(), options ?? {}, (value) => {
-			const row = object$1(value);
-			exact(row, [
-				"settings",
-				"capabilities",
-				"readOnlyReason",
-				...options ? ["firestoreLayers", "firestoreBudget"] : []
-			]);
-			if (options) {
-				parseFirestoreLayers(row.firestoreLayers);
-				parsePublishedLimits(row.firestoreBudget);
-			}
-			settings(row.settings);
-			const capabilities = object$1(row.capabilities);
-			exact(capabilities, ["settingsWrite", "devicesWrite"]);
-			valid(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
-			valid(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
-			valid(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
-			return row;
-		})),
-		devices: (page) => {
-			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
-			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
-				const row = object$1(value);
-				exact(row, ["devices", "nextCursor"]);
-				valid(Array.isArray(row.devices) && row.devices.length <= page.limit);
-				const ids = /* @__PURE__ */ new Set();
-				for (const entry of row.devices) {
-					const item = device(entry, true);
-					valid(!item.revoked && !ids.has(item.clientId));
-					ids.add(item.clientId);
-				}
-				valid(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
-				return row;
-			});
-		},
-		set: (change) => {
-			input(change.setting === "open" && typeof change.value === "boolean" || change.setting === "sessions-per-device" && (change.value === null || decimal(change.value)));
-			return mutate("remote.settings.set", { ...change });
-		},
-		rename: (change) => {
-			input(UUID$2.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
-			return mutate("remote.devices.rename", { ...change });
-		},
-		talk: (change) => {
-			input(UUID$2.test(change.clientId) && typeof change.enabled === "boolean");
-			return mutate("remote.devices.talk", { ...change });
-		},
-		revoke: (change) => {
-			input(UUID$2.test(change.clientId));
-			return mutate("remote.devices.revoke", { ...change });
-		},
-		operation: (operationId) => {
-			input(UUID$2.test(operationId));
-			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => parseManagementOutcome(value, operationId));
-		}
-	};
-}
-//#endregion
 //#region src/members.ts
 var V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var cursor = (v) => v === null || typeof v === "string" && /^[A-Za-z0-9_-]{54}$/.test(v);
-var id$1 = (v) => typeof v === "string" && v.length > 0;
+var id = (v) => typeof v === "string" && v.length > 0;
 var revision = (v) => integer(v) && v > 0;
 var time = (v) => v === null || integer(v);
 function inputKeys(value, keys) {
@@ -9099,7 +9525,7 @@ function page(value) {
 	input(cursor(value.cursor) && integer(value.limit) && value.limit >= 1 && value.limit <= 50);
 }
 function person(value) {
-	const row = object$1(value);
+	const row = object$2(value);
 	exact(row, [
 		"remoteId",
 		"memberId",
@@ -9110,11 +9536,11 @@ function person(value) {
 		"createdAtMs",
 		"revokedAtMs"
 	]);
-	valid(typeof row.remoteId === "string" && V4.test(row.remoteId) && id$1(row.memberId) && ["owner", "user"].includes(row.role) && memberName(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer(row.createdAtMs) && time(row.revokedAtMs));
+	valid$5(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && memberName(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer(row.createdAtMs) && time(row.revokedAtMs));
 	return row;
 }
 function invitation(value) {
-	const row = object$1(value);
+	const row = object$2(value);
 	if (row.state === "unavailable" || row.state === "no-current-offer") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -9124,7 +9550,7 @@ function invitation(value) {
 			"localConfirmationKnown",
 			"cleanup"
 		]);
-		valid(row.state === "current" && time(row.expiresAtMs) && [
+		valid$5(row.state === "current" && time(row.expiresAtMs) && [
 			"open",
 			"awaiting-owner",
 			"confirmed",
@@ -9141,7 +9567,7 @@ function invitation(value) {
 	return row;
 }
 function routes$1(value) {
-	const row = object$1(value);
+	const row = object$2(value);
 	if (row.state === "unavailable" || row.state === "not-recorded") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -9149,12 +9575,12 @@ function routes$1(value) {
 			"publicationPending",
 			"removalPending"
 		]);
-		valid(row.state === "recorded" && typeof row.publicationPending === "boolean" && typeof row.removalPending === "boolean");
+		valid$5(row.state === "recorded" && typeof row.publicationPending === "boolean" && typeof row.removalPending === "boolean");
 	}
 	return row;
 }
 function machine(value, caller) {
-	const row = object$1(value);
+	const row = object$2(value);
 	exact(row, [
 		"clientId",
 		"name",
@@ -9171,19 +9597,19 @@ function machine(value, caller) {
 		"liveSessionCount",
 		"lastActivityAtMs"
 	]);
-	valid(id$1(row.clientId) && memberName(row.name) && [
+	valid$5(id(row.clientId) && memberName(row.name) && [
 		"browser",
 		"addon",
 		"cli"
 	].includes(row.kind) && revision(row.revision) && typeof row.revoked === "boolean" && time(row.expiresAtMs) && typeof row.sendingScope === "boolean" && ["direct", "hold"].includes(row.delivery) && ["all", "restricted"].includes(row.recipientAccess) && typeof row.grantLive === "boolean" && time(row.lastUsedAtMs) && row.thisBrowser === (row.clientId === caller) && time(row.liveSessionCount) && time(row.lastActivityAtMs));
-	valid(!row.revoked || !row.grantLive);
-	valid(row.liveSessionCount === null || row.liveSessionCount === 0 ? row.lastActivityAtMs === null : integer(row.lastActivityAtMs));
+	valid$5(!row.revoked || !row.grantLive);
+	valid$5(row.liveSessionCount === null || row.liveSessionCount === 0 ? row.lastActivityAtMs === null : integer(row.lastActivityAtMs));
 	return row;
 }
 function original(value, operationId) {
-	const row = object$1(value);
+	const row = object$2(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
-	const result = object$1(row.result);
+	const result = object$2(row.result);
 	if (!Object.hasOwn(result, "member") && !Object.hasOwn(result, "remote")) return parseManagementOutcome(value, operationId);
 	exact(row, [
 		"operationId",
@@ -9191,15 +9617,15 @@ function original(value, operationId) {
 		"result",
 		"sessionEnded"
 	]);
-	valid(row.operationId === operationId && typeof row.sessionEnded === "boolean");
+	valid$5(row.operationId === operationId && typeof row.sessionEnded === "boolean");
 	if (Object.hasOwn(result, "member")) {
 		exact(result, ["member"]);
 		person(result.member);
 	} else {
 		exact(result, ["remote"]);
-		const remote = object$1(result.remote);
+		const remote = object$2(result.remote);
 		exact(remote, ["remoteId", "displayName"]);
-		valid(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && memberName(remote.displayName) && row.sessionEnded === false);
+		valid$5(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && memberName(remote.displayName) && row.sessionEnded === false);
 	}
 	return row;
 }
@@ -9215,30 +9641,30 @@ function members(session, options = {}) {
 		return managementMutation(call, operation, frozen, (value) => {
 			const parsed = original(value, frozen.operationId);
 			if (parsed.state === "committed") {
-				if (kind === "remote") valid("remote" in parsed.result && parsed.result.remote.remoteId === frozen.remoteId && parsed.result.remote.displayName === frozen.name);
+				if (kind === "remote") valid$5("remote" in parsed.result && parsed.result.remote.remoteId === frozen.remoteId && parsed.result.remote.displayName === frozen.name);
 				else {
-					valid("member" in parsed.result && "memberId" in frozen && parsed.result.member.remoteId === frozen.remoteId && parsed.result.member.memberId === frozen.memberId && parsed.result.member.revision >= frozen.memberRevision);
-					if (operation === "remote.members.rename") valid(parsed.result.member.displayName === frozen.name && parsed.sessionEnded === false);
-					if (operation === "remote.members.sending") valid(parsed.result.member.sendingEnabled === frozen.enabled);
-					if (operation === "remote.members.revoke") valid(parsed.result.member.revokedAtMs !== null && !parsed.result.member.sendingEnabled);
+					valid$5("member" in parsed.result && "memberId" in frozen && parsed.result.member.remoteId === frozen.remoteId && parsed.result.member.memberId === frozen.memberId && parsed.result.member.revision >= frozen.memberRevision);
+					if (operation === "remote.members.rename") valid$5(parsed.result.member.displayName === frozen.name && parsed.sessionEnded === false);
+					if (operation === "remote.members.sending") valid$5(parsed.result.member.sendingEnabled === frozen.enabled);
+					if (operation === "remote.members.revoke") valid$5(parsed.result.member.revokedAtMs !== null && !parsed.result.member.sendingEnabled);
 				}
 			}
 			return parsed;
 		});
 	}
 	function target(change) {
-		input(id$1(change.memberId) && revision(change.memberRevision));
+		input(id(change.memberId) && revision(change.memberRevision));
 	}
 	return {
 		clientId,
 		summary: () => call("remote.members.summary", crypto.randomUUID(), {}, (value) => {
-			const row = object$1(value);
+			const row = object$2(value);
 			exact(row, [
 				"remoteId",
 				"memberCount",
 				"lastActiveAtMs"
 			]);
-			valid(row.remoteId === remoteId && time(row.memberCount) && time(row.lastActiveAtMs));
+			valid$5(row.remoteId === remoteId && time(row.memberCount) && time(row.lastActiveAtMs));
 			return row;
 		}),
 		list: (value) => {
@@ -9246,7 +9672,7 @@ function members(session, options = {}) {
 			page(value);
 			const frozen = { ...value };
 			return call("remote.members.list", crypto.randomUUID(), frozen, (value) => {
-				const row = object$1(value);
+				const row = object$2(value);
 				exact(row, [
 					"remoteId",
 					"administrator",
@@ -9256,18 +9682,18 @@ function members(session, options = {}) {
 					"invitation",
 					"routes"
 				]);
-				valid(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
+				valid$5(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.members) {
-					const observed = object$1(entry);
-					valid(Object.hasOwn(observed, "lastUsedAtMs") && time(observed.lastUsedAtMs));
+					const observed = object$2(entry);
+					valid$5(Object.hasOwn(observed, "lastUsedAtMs") && time(observed.lastUsedAtMs));
 					const { lastUsedAtMs: _lastUsedAtMs, ...base } = observed;
 					const member = person(base);
-					valid(member.remoteId === row.remoteId && !seen.has(member.memberId));
+					valid$5(member.remoteId === row.remoteId && !seen.has(member.memberId));
 					seen.add(member.memberId);
 				}
 				if (row.administrator) invitation(row.invitation);
-				else valid(row.members.length <= 1 && row.invitation === null);
+				else valid$5(row.members.length <= 1 && row.invitation === null);
 				routes$1(row.routes);
 				return row;
 			});
@@ -9279,21 +9705,21 @@ function members(session, options = {}) {
 				"limit"
 			]);
 			page(value);
-			input(id$1(value.memberId));
+			input(id(value.memberId));
 			const frozen = { ...value };
 			return call("remote.members.machines", crypto.randomUUID(), frozen, (value) => {
-				const row = object$1(value);
+				const row = object$2(value);
 				exact(row, [
 					"remoteId",
 					"memberId",
 					"machines",
 					"nextCursor"
 				]);
-				valid(row.remoteId === remoteId && row.memberId === frozen.memberId && Array.isArray(row.machines) && row.machines.length <= frozen.limit && cursor(row.nextCursor));
+				valid$5(row.remoteId === remoteId && row.memberId === frozen.memberId && Array.isArray(row.machines) && row.machines.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.machines) {
 					const item = machine(entry, clientId);
-					valid(!seen.has(item.clientId));
+					valid$5(!seen.has(item.clientId));
 					seen.add(item.clientId);
 				}
 				return row;
@@ -9347,8 +9773,8 @@ function members(session, options = {}) {
 			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => {
 				const parsed = original(value, operationId);
 				if (parsed.state === "committed") {
-					if ("member" in parsed.result) valid(parsed.result.member.remoteId === remoteId);
-					if ("remote" in parsed.result) valid(parsed.result.remote.remoteId === remoteId);
+					if ("member" in parsed.result) valid$5(parsed.result.member.remoteId === remoteId);
+					if ("remote" in parsed.result) valid$5(parsed.result.remote.remoteId === remoteId);
 				}
 				return parsed;
 			});
@@ -11320,7 +11746,7 @@ var observed = false;
 var publishSearch;
 var heldBy;
 /** The session is about to change: modules the shell keeps suspended hold the old one, so release
-* them first; and no unsent Ops words stay for the next session to see (#6757). */
+* them first. */
 function sessionChanging() {
 	started?.sessionChanging();
 }
@@ -12416,241 +12842,6 @@ async function boundedAdmission(attempt, signal, clock = runtime) {
 	throw new ReopenSessionError(ambiguous ? "unconfirmed" : last.reason, "budget-exhausted");
 }
 //#endregion
-//#region src/invitations.ts
-var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var id = (value) => typeof value === "string" && UUID$1.test(value);
-var snapshot = (value) => {
-	if (typeof value !== "string") return false;
-	try {
-		base64urlBytes(value, 32);
-		return true;
-	} catch {
-		return false;
-	}
-};
-function parsePendingInvitation(value) {
-	const row = object$1(value);
-	if (row.state === "none") exact(row, ["state"]);
-	else {
-		exact(row, [
-			"state",
-			"offerId",
-			"expiresAtMs",
-			"phase",
-			"localConfirmationKnown",
-			"cleanup",
-			"candidate"
-		]);
-		valid(row.state === "current" && id(row.offerId) && integer(row.expiresAtMs) && typeof row.localConfirmationKnown === "boolean");
-		valid([
-			"open",
-			"awaiting-owner",
-			"confirmed",
-			"refused",
-			"cancelled",
-			"expired",
-			"unconfirmed"
-		].includes(row.phase));
-		valid([
-			"not-requested",
-			"acknowledged",
-			"unconfirmed"
-		].includes(row.cleanup));
-		if (row.candidate !== null) {
-			const candidate = object$1(row.candidate);
-			exact(candidate, [
-				"clientId",
-				"name",
-				"words",
-				"snapshot"
-			]);
-			valid(row.phase === "awaiting-owner" && id(candidate.clientId) && snapshot(candidate.snapshot));
-			valid(typeof candidate.name === "string" && candidate.name.length > 0 && candidate.name.length <= 256 && Array.from(candidate.name).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
-			valid(Array.isArray(candidate.words) && candidate.words.length === 4 && candidate.words.every((word) => typeof word === "string" && /^[a-z]+$/.test(word) && word.length <= 64));
-		}
-	}
-	return row;
-}
-function parseInvitationOutcome(value, operationId) {
-	const row = object$1(value);
-	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
-	exact(row, [
-		"operationId",
-		"state",
-		"sessionEnded",
-		"result"
-	]);
-	valid(row.operationId === operationId && row.sessionEnded === false);
-	const result = object$1(row.result);
-	exact(result, ["invitation"]);
-	const invitation = object$1(result.invitation);
-	valid(id(invitation.offerId) && id(invitation.clientId));
-	if (invitation.state === "refused") exact(invitation, [
-		"offerId",
-		"clientId",
-		"state"
-	]);
-	else {
-		exact(invitation, [
-			"offerId",
-			"clientId",
-			"memberId",
-			"state",
-			"sendingEnabled"
-		]);
-		valid(invitation.state === "confirmed" && typeof invitation.memberId === "string" && invitation.memberId.length > 0 && invitation.memberId.length <= 128 && typeof invitation.sendingEnabled === "boolean");
-	}
-	return row;
-}
-function parseIssuedInvitationPage(value, remoteId) {
-	const page = object$1(value);
-	exact(page, [
-		"remoteId",
-		"invitations",
-		"nextCursor"
-	]);
-	valid(page.remoteId === remoteId && Array.isArray(page.invitations) && page.invitations.length <= 50);
-	valid(page.nextCursor === null || typeof page.nextCursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(page.nextCursor));
-	const ids = /* @__PURE__ */ new Set();
-	for (const value of page.invitations) {
-		const row = object$1(value);
-		exact(row, [
-			"offerId",
-			"issuedAtMs",
-			"expiresAtMs",
-			"state",
-			"localConfirmationKnown",
-			"cleanup"
-		]);
-		valid(id(row.offerId) && !ids.has(row.offerId));
-		ids.add(row.offerId);
-		valid(integer(row.issuedAtMs) && integer(row.expiresAtMs) && row.expiresAtMs > row.issuedAtMs && row.expiresAtMs - row.issuedAtMs <= 6e5);
-		valid([
-			"open",
-			"awaiting-owner",
-			"confirmed",
-			"refused",
-			"cancelled",
-			"expired",
-			"unconfirmed",
-			"interrupted"
-		].includes(row.state));
-		valid(typeof row.localConfirmationKnown === "boolean" && [
-			"not-requested",
-			"acknowledged",
-			"unconfirmed"
-		].includes(row.cleanup));
-	}
-	return page;
-}
-function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
-	const row = object$1(value);
-	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
-	const secret = Object.hasOwn(row, "secret");
-	exact(row, [
-		"operationId",
-		"state",
-		"sessionEnded",
-		"result",
-		...secret ? ["secret"] : []
-	]);
-	valid(row.operationId === operationId && row.sessionEnded === false);
-	const result = object$1(row.result);
-	exact(result, ["invitation"]);
-	const invite = object$1(result.invitation);
-	valid(id(invite.offerId));
-	if (creatingRemote !== void 0) valid(invite.state === "created");
-	if (invite.state === "created") {
-		exact(invite, [
-			"offerId",
-			"state",
-			"expiresAtMs"
-		]);
-		valid(invite.offerId !== operationId && integer(invite.expiresAtMs));
-	} else {
-		exact(invite, [
-			"offerId",
-			"state",
-			"code"
-		]);
-		valid(invite.state === "cancelled" && invite.code === "REMOTE_INVITATION_CANCELLED" || invite.state === "not-active" && invite.code === "REMOTE_INVITATION_NOT_ACTIVE");
-	}
-	if (secret) {
-		valid(creatingRemote !== void 0 && invite.state === "created");
-		const part = object$1(row.secret);
-		exact(part, ["code", "link"]);
-		valid(typeof part.code === "string" && (part.link === null || typeof part.link === "string"));
-		const details = invitationDetails(part.code);
-		valid(details.owner === creatingRemote && details.offer === invite.offerId && details.expiry === invite.expiresAtMs);
-		if (part.link !== null) valid(invitationFromInput(part.link).token === part.code);
-	}
-	return row;
-}
-function parseOriginal(value, id) {
-	const row = object$1(value);
-	if (row.state === "committed" && [
-		"created",
-		"cancelled",
-		"not-active"
-	].includes(object$1(object$1(row.result).invitation).state)) return parseInvitationIssueOutcome(value, id);
-	return parseInvitationOutcome(value, id);
-}
-/** A presenter over the current offer. No admission, provider call or retry is created here. */
-function invitations(session, options = {}) {
-	const call = verifiedSessionRequest(session, options);
-	const remoteId = channelFor(session)?.paired.machineId;
-	valid(typeof remoteId === "string");
-	return {
-		create: (value) => {
-			input(Object.keys(value).length === 1 && Object.hasOwn(value, "operationId") && id(value.operationId));
-			const frozen = { ...value };
-			return managementMutation(call, "remote.invites.create", frozen, (reply) => parseInvitationIssueOutcome(reply, frozen.operationId, remoteId));
-		},
-		list: (value) => {
-			input(Object.keys(value).length === 1 && Object.hasOwn(value, "cursor") && (value.cursor === null || typeof value.cursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value.cursor)));
-			return call("remote.invites.list", crypto.randomUUID(), { ...value }, (reply) => parseIssuedInvitationPage(reply, remoteId));
-		},
-		cancel: (value) => {
-			input(Object.keys(value).length === 2 && Object.hasOwn(value, "operationId") && Object.hasOwn(value, "offerId") && id(value.operationId) && id(value.offerId));
-			const frozen = { ...value };
-			return managementMutation(call, "remote.invites.cancel", frozen, (reply) => {
-				const outcome = parseInvitationIssueOutcome(reply, frozen.operationId);
-				if (outcome.state === "committed") valid(outcome.result.invitation.offerId === frozen.offerId && outcome.result.invitation.state !== "created");
-				return outcome;
-			});
-		},
-		pending: () => call("remote.invites.pending", crypto.randomUUID(), {}, parsePendingInvitation),
-		decide: (value) => {
-			input(Object.keys(value).every((key) => [
-				"operationId",
-				"offerId",
-				"snapshot",
-				"matched",
-				"sending"
-			].includes(key)));
-			const frozen = {
-				...value,
-				sending: value.sending ?? false
-			};
-			input(id(frozen.operationId) && id(frozen.offerId) && frozen.operationId !== frozen.offerId && snapshot(frozen.snapshot));
-			input(typeof frozen.matched === "boolean" && typeof frozen.sending === "boolean" && (frozen.matched || !frozen.sending));
-			return managementMutation(call, "remote.invites.confirm", frozen, (value) => {
-				const outcome = parseInvitationOutcome(value, frozen.operationId);
-				if (outcome.state === "committed") {
-					const invitation = outcome.result.invitation;
-					valid(invitation.offerId === frozen.offerId && invitation.state === (frozen.matched ? "confirmed" : "refused"));
-					if (invitation.state === "confirmed") valid(invitation.sendingEnabled === frozen.sending);
-				}
-				return outcome;
-			});
-		},
-		operation: (operationId) => {
-			input(id(operationId));
-			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => parseOriginal(value, operationId));
-		}
-	};
-}
-//#endregion
 //#region ../../rust/tmt-remote/assets/bip39-english.txt?raw
 var bip39_english_default = "abandon\nability\nable\nabout\nabove\nabsent\nabsorb\nabstract\nabsurd\nabuse\naccess\naccident\naccount\naccuse\nachieve\nacid\nacoustic\nacquire\nacross\nact\naction\nactor\nactress\nactual\nadapt\nadd\naddict\naddress\nadjust\nadmit\nadult\nadvance\nadvice\naerobic\naffair\nafford\nafraid\nagain\nage\nagent\nagree\nahead\naim\nair\nairport\naisle\nalarm\nalbum\nalcohol\nalert\nalien\nall\nalley\nallow\nalmost\nalone\nalpha\nalready\nalso\nalter\nalways\namateur\namazing\namong\namount\namused\nanalyst\nanchor\nancient\nanger\nangle\nangry\nanimal\nankle\nannounce\nannual\nanother\nanswer\nantenna\nantique\nanxiety\nany\napart\napology\nappear\napple\napprove\napril\narch\narctic\narea\narena\nargue\narm\narmed\narmor\narmy\naround\narrange\narrest\narrive\narrow\nart\nartefact\nartist\nartwork\nask\naspect\nassault\nasset\nassist\nassume\nasthma\nathlete\natom\nattack\nattend\nattitude\nattract\nauction\naudit\naugust\naunt\nauthor\nauto\nautumn\naverage\navocado\navoid\nawake\naware\naway\nawesome\nawful\nawkward\naxis\nbaby\nbachelor\nbacon\nbadge\nbag\nbalance\nbalcony\nball\nbamboo\nbanana\nbanner\nbar\nbarely\nbargain\nbarrel\nbase\nbasic\nbasket\nbattle\nbeach\nbean\nbeauty\nbecause\nbecome\nbeef\nbefore\nbegin\nbehave\nbehind\nbelieve\nbelow\nbelt\nbench\nbenefit\nbest\nbetray\nbetter\nbetween\nbeyond\nbicycle\nbid\nbike\nbind\nbiology\nbird\nbirth\nbitter\nblack\nblade\nblame\nblanket\nblast\nbleak\nbless\nblind\nblood\nblossom\nblouse\nblue\nblur\nblush\nboard\nboat\nbody\nboil\nbomb\nbone\nbonus\nbook\nboost\nborder\nboring\nborrow\nboss\nbottom\nbounce\nbox\nboy\nbracket\nbrain\nbrand\nbrass\nbrave\nbread\nbreeze\nbrick\nbridge\nbrief\nbright\nbring\nbrisk\nbroccoli\nbroken\nbronze\nbroom\nbrother\nbrown\nbrush\nbubble\nbuddy\nbudget\nbuffalo\nbuild\nbulb\nbulk\nbullet\nbundle\nbunker\nburden\nburger\nburst\nbus\nbusiness\nbusy\nbutter\nbuyer\nbuzz\ncabbage\ncabin\ncable\ncactus\ncage\ncake\ncall\ncalm\ncamera\ncamp\ncan\ncanal\ncancel\ncandy\ncannon\ncanoe\ncanvas\ncanyon\ncapable\ncapital\ncaptain\ncar\ncarbon\ncard\ncargo\ncarpet\ncarry\ncart\ncase\ncash\ncasino\ncastle\ncasual\ncat\ncatalog\ncatch\ncategory\ncattle\ncaught\ncause\ncaution\ncave\nceiling\ncelery\ncement\ncensus\ncentury\ncereal\ncertain\nchair\nchalk\nchampion\nchange\nchaos\nchapter\ncharge\nchase\nchat\ncheap\ncheck\ncheese\nchef\ncherry\nchest\nchicken\nchief\nchild\nchimney\nchoice\nchoose\nchronic\nchuckle\nchunk\nchurn\ncigar\ncinnamon\ncircle\ncitizen\ncity\ncivil\nclaim\nclap\nclarify\nclaw\nclay\nclean\nclerk\nclever\nclick\nclient\ncliff\nclimb\nclinic\nclip\nclock\nclog\nclose\ncloth\ncloud\nclown\nclub\nclump\ncluster\nclutch\ncoach\ncoast\ncoconut\ncode\ncoffee\ncoil\ncoin\ncollect\ncolor\ncolumn\ncombine\ncome\ncomfort\ncomic\ncommon\ncompany\nconcert\nconduct\nconfirm\ncongress\nconnect\nconsider\ncontrol\nconvince\ncook\ncool\ncopper\ncopy\ncoral\ncore\ncorn\ncorrect\ncost\ncotton\ncouch\ncountry\ncouple\ncourse\ncousin\ncover\ncoyote\ncrack\ncradle\ncraft\ncram\ncrane\ncrash\ncrater\ncrawl\ncrazy\ncream\ncredit\ncreek\ncrew\ncricket\ncrime\ncrisp\ncritic\ncrop\ncross\ncrouch\ncrowd\ncrucial\ncruel\ncruise\ncrumble\ncrunch\ncrush\ncry\ncrystal\ncube\nculture\ncup\ncupboard\ncurious\ncurrent\ncurtain\ncurve\ncushion\ncustom\ncute\ncycle\ndad\ndamage\ndamp\ndance\ndanger\ndaring\ndash\ndaughter\ndawn\nday\ndeal\ndebate\ndebris\ndecade\ndecember\ndecide\ndecline\ndecorate\ndecrease\ndeer\ndefense\ndefine\ndefy\ndegree\ndelay\ndeliver\ndemand\ndemise\ndenial\ndentist\ndeny\ndepart\ndepend\ndeposit\ndepth\ndeputy\nderive\ndescribe\ndesert\ndesign\ndesk\ndespair\ndestroy\ndetail\ndetect\ndevelop\ndevice\ndevote\ndiagram\ndial\ndiamond\ndiary\ndice\ndiesel\ndiet\ndiffer\ndigital\ndignity\ndilemma\ndinner\ndinosaur\ndirect\ndirt\ndisagree\ndiscover\ndisease\ndish\ndismiss\ndisorder\ndisplay\ndistance\ndivert\ndivide\ndivorce\ndizzy\ndoctor\ndocument\ndog\ndoll\ndolphin\ndomain\ndonate\ndonkey\ndonor\ndoor\ndose\ndouble\ndove\ndraft\ndragon\ndrama\ndrastic\ndraw\ndream\ndress\ndrift\ndrill\ndrink\ndrip\ndrive\ndrop\ndrum\ndry\nduck\ndumb\ndune\nduring\ndust\ndutch\nduty\ndwarf\ndynamic\neager\neagle\nearly\nearn\nearth\neasily\neast\neasy\necho\necology\neconomy\nedge\nedit\neducate\neffort\negg\neight\neither\nelbow\nelder\nelectric\nelegant\nelement\nelephant\nelevator\nelite\nelse\nembark\nembody\nembrace\nemerge\nemotion\nemploy\nempower\nempty\nenable\nenact\nend\nendless\nendorse\nenemy\nenergy\nenforce\nengage\nengine\nenhance\nenjoy\nenlist\nenough\nenrich\nenroll\nensure\nenter\nentire\nentry\nenvelope\nepisode\nequal\nequip\nera\nerase\nerode\nerosion\nerror\nerupt\nescape\nessay\nessence\nestate\neternal\nethics\nevidence\nevil\nevoke\nevolve\nexact\nexample\nexcess\nexchange\nexcite\nexclude\nexcuse\nexecute\nexercise\nexhaust\nexhibit\nexile\nexist\nexit\nexotic\nexpand\nexpect\nexpire\nexplain\nexpose\nexpress\nextend\nextra\neye\neyebrow\nfabric\nface\nfaculty\nfade\nfaint\nfaith\nfall\nfalse\nfame\nfamily\nfamous\nfan\nfancy\nfantasy\nfarm\nfashion\nfat\nfatal\nfather\nfatigue\nfault\nfavorite\nfeature\nfebruary\nfederal\nfee\nfeed\nfeel\nfemale\nfence\nfestival\nfetch\nfever\nfew\nfiber\nfiction\nfield\nfigure\nfile\nfilm\nfilter\nfinal\nfind\nfine\nfinger\nfinish\nfire\nfirm\nfirst\nfiscal\nfish\nfit\nfitness\nfix\nflag\nflame\nflash\nflat\nflavor\nflee\nflight\nflip\nfloat\nflock\nfloor\nflower\nfluid\nflush\nfly\nfoam\nfocus\nfog\nfoil\nfold\nfollow\nfood\nfoot\nforce\nforest\nforget\nfork\nfortune\nforum\nforward\nfossil\nfoster\nfound\nfox\nfragile\nframe\nfrequent\nfresh\nfriend\nfringe\nfrog\nfront\nfrost\nfrown\nfrozen\nfruit\nfuel\nfun\nfunny\nfurnace\nfury\nfuture\ngadget\ngain\ngalaxy\ngallery\ngame\ngap\ngarage\ngarbage\ngarden\ngarlic\ngarment\ngas\ngasp\ngate\ngather\ngauge\ngaze\ngeneral\ngenius\ngenre\ngentle\ngenuine\ngesture\nghost\ngiant\ngift\ngiggle\nginger\ngiraffe\ngirl\ngive\nglad\nglance\nglare\nglass\nglide\nglimpse\nglobe\ngloom\nglory\nglove\nglow\nglue\ngoat\ngoddess\ngold\ngood\ngoose\ngorilla\ngospel\ngossip\ngovern\ngown\ngrab\ngrace\ngrain\ngrant\ngrape\ngrass\ngravity\ngreat\ngreen\ngrid\ngrief\ngrit\ngrocery\ngroup\ngrow\ngrunt\nguard\nguess\nguide\nguilt\nguitar\ngun\ngym\nhabit\nhair\nhalf\nhammer\nhamster\nhand\nhappy\nharbor\nhard\nharsh\nharvest\nhat\nhave\nhawk\nhazard\nhead\nhealth\nheart\nheavy\nhedgehog\nheight\nhello\nhelmet\nhelp\nhen\nhero\nhidden\nhigh\nhill\nhint\nhip\nhire\nhistory\nhobby\nhockey\nhold\nhole\nholiday\nhollow\nhome\nhoney\nhood\nhope\nhorn\nhorror\nhorse\nhospital\nhost\nhotel\nhour\nhover\nhub\nhuge\nhuman\nhumble\nhumor\nhundred\nhungry\nhunt\nhurdle\nhurry\nhurt\nhusband\nhybrid\nice\nicon\nidea\nidentify\nidle\nignore\nill\nillegal\nillness\nimage\nimitate\nimmense\nimmune\nimpact\nimpose\nimprove\nimpulse\ninch\ninclude\nincome\nincrease\nindex\nindicate\nindoor\nindustry\ninfant\ninflict\ninform\ninhale\ninherit\ninitial\ninject\ninjury\ninmate\ninner\ninnocent\ninput\ninquiry\ninsane\ninsect\ninside\ninspire\ninstall\nintact\ninterest\ninto\ninvest\ninvite\ninvolve\niron\nisland\nisolate\nissue\nitem\nivory\njacket\njaguar\njar\njazz\njealous\njeans\njelly\njewel\njob\njoin\njoke\njourney\njoy\njudge\njuice\njump\njungle\njunior\njunk\njust\nkangaroo\nkeen\nkeep\nketchup\nkey\nkick\nkid\nkidney\nkind\nkingdom\nkiss\nkit\nkitchen\nkite\nkitten\nkiwi\nknee\nknife\nknock\nknow\nlab\nlabel\nlabor\nladder\nlady\nlake\nlamp\nlanguage\nlaptop\nlarge\nlater\nlatin\nlaugh\nlaundry\nlava\nlaw\nlawn\nlawsuit\nlayer\nlazy\nleader\nleaf\nlearn\nleave\nlecture\nleft\nleg\nlegal\nlegend\nleisure\nlemon\nlend\nlength\nlens\nleopard\nlesson\nletter\nlevel\nliar\nliberty\nlibrary\nlicense\nlife\nlift\nlight\nlike\nlimb\nlimit\nlink\nlion\nliquid\nlist\nlittle\nlive\nlizard\nload\nloan\nlobster\nlocal\nlock\nlogic\nlonely\nlong\nloop\nlottery\nloud\nlounge\nlove\nloyal\nlucky\nluggage\nlumber\nlunar\nlunch\nluxury\nlyrics\nmachine\nmad\nmagic\nmagnet\nmaid\nmail\nmain\nmajor\nmake\nmammal\nman\nmanage\nmandate\nmango\nmansion\nmanual\nmaple\nmarble\nmarch\nmargin\nmarine\nmarket\nmarriage\nmask\nmass\nmaster\nmatch\nmaterial\nmath\nmatrix\nmatter\nmaximum\nmaze\nmeadow\nmean\nmeasure\nmeat\nmechanic\nmedal\nmedia\nmelody\nmelt\nmember\nmemory\nmention\nmenu\nmercy\nmerge\nmerit\nmerry\nmesh\nmessage\nmetal\nmethod\nmiddle\nmidnight\nmilk\nmillion\nmimic\nmind\nminimum\nminor\nminute\nmiracle\nmirror\nmisery\nmiss\nmistake\nmix\nmixed\nmixture\nmobile\nmodel\nmodify\nmom\nmoment\nmonitor\nmonkey\nmonster\nmonth\nmoon\nmoral\nmore\nmorning\nmosquito\nmother\nmotion\nmotor\nmountain\nmouse\nmove\nmovie\nmuch\nmuffin\nmule\nmultiply\nmuscle\nmuseum\nmushroom\nmusic\nmust\nmutual\nmyself\nmystery\nmyth\nnaive\nname\nnapkin\nnarrow\nnasty\nnation\nnature\nnear\nneck\nneed\nnegative\nneglect\nneither\nnephew\nnerve\nnest\nnet\nnetwork\nneutral\nnever\nnews\nnext\nnice\nnight\nnoble\nnoise\nnominee\nnoodle\nnormal\nnorth\nnose\nnotable\nnote\nnothing\nnotice\nnovel\nnow\nnuclear\nnumber\nnurse\nnut\noak\nobey\nobject\noblige\nobscure\nobserve\nobtain\nobvious\noccur\nocean\noctober\nodor\noff\noffer\noffice\noften\noil\nokay\nold\nolive\nolympic\nomit\nonce\none\nonion\nonline\nonly\nopen\nopera\nopinion\noppose\noption\norange\norbit\norchard\norder\nordinary\norgan\norient\noriginal\norphan\nostrich\nother\noutdoor\nouter\noutput\noutside\noval\noven\nover\nown\nowner\noxygen\noyster\nozone\npact\npaddle\npage\npair\npalace\npalm\npanda\npanel\npanic\npanther\npaper\nparade\nparent\npark\nparrot\nparty\npass\npatch\npath\npatient\npatrol\npattern\npause\npave\npayment\npeace\npeanut\npear\npeasant\npelican\npen\npenalty\npencil\npeople\npepper\nperfect\npermit\nperson\npet\nphone\nphoto\nphrase\nphysical\npiano\npicnic\npicture\npiece\npig\npigeon\npill\npilot\npink\npioneer\npipe\npistol\npitch\npizza\nplace\nplanet\nplastic\nplate\nplay\nplease\npledge\npluck\nplug\nplunge\npoem\npoet\npoint\npolar\npole\npolice\npond\npony\npool\npopular\nportion\nposition\npossible\npost\npotato\npottery\npoverty\npowder\npower\npractice\npraise\npredict\nprefer\nprepare\npresent\npretty\nprevent\nprice\npride\nprimary\nprint\npriority\nprison\nprivate\nprize\nproblem\nprocess\nproduce\nprofit\nprogram\nproject\npromote\nproof\nproperty\nprosper\nprotect\nproud\nprovide\npublic\npudding\npull\npulp\npulse\npumpkin\npunch\npupil\npuppy\npurchase\npurity\npurpose\npurse\npush\nput\npuzzle\npyramid\nquality\nquantum\nquarter\nquestion\nquick\nquit\nquiz\nquote\nrabbit\nraccoon\nrace\nrack\nradar\nradio\nrail\nrain\nraise\nrally\nramp\nranch\nrandom\nrange\nrapid\nrare\nrate\nrather\nraven\nraw\nrazor\nready\nreal\nreason\nrebel\nrebuild\nrecall\nreceive\nrecipe\nrecord\nrecycle\nreduce\nreflect\nreform\nrefuse\nregion\nregret\nregular\nreject\nrelax\nrelease\nrelief\nrely\nremain\nremember\nremind\nremove\nrender\nrenew\nrent\nreopen\nrepair\nrepeat\nreplace\nreport\nrequire\nrescue\nresemble\nresist\nresource\nresponse\nresult\nretire\nretreat\nreturn\nreunion\nreveal\nreview\nreward\nrhythm\nrib\nribbon\nrice\nrich\nride\nridge\nrifle\nright\nrigid\nring\nriot\nripple\nrisk\nritual\nrival\nriver\nroad\nroast\nrobot\nrobust\nrocket\nromance\nroof\nrookie\nroom\nrose\nrotate\nrough\nround\nroute\nroyal\nrubber\nrude\nrug\nrule\nrun\nrunway\nrural\nsad\nsaddle\nsadness\nsafe\nsail\nsalad\nsalmon\nsalon\nsalt\nsalute\nsame\nsample\nsand\nsatisfy\nsatoshi\nsauce\nsausage\nsave\nsay\nscale\nscan\nscare\nscatter\nscene\nscheme\nschool\nscience\nscissors\nscorpion\nscout\nscrap\nscreen\nscript\nscrub\nsea\nsearch\nseason\nseat\nsecond\nsecret\nsection\nsecurity\nseed\nseek\nsegment\nselect\nsell\nseminar\nsenior\nsense\nsentence\nseries\nservice\nsession\nsettle\nsetup\nseven\nshadow\nshaft\nshallow\nshare\nshed\nshell\nsheriff\nshield\nshift\nshine\nship\nshiver\nshock\nshoe\nshoot\nshop\nshort\nshoulder\nshove\nshrimp\nshrug\nshuffle\nshy\nsibling\nsick\nside\nsiege\nsight\nsign\nsilent\nsilk\nsilly\nsilver\nsimilar\nsimple\nsince\nsing\nsiren\nsister\nsituate\nsix\nsize\nskate\nsketch\nski\nskill\nskin\nskirt\nskull\nslab\nslam\nsleep\nslender\nslice\nslide\nslight\nslim\nslogan\nslot\nslow\nslush\nsmall\nsmart\nsmile\nsmoke\nsmooth\nsnack\nsnake\nsnap\nsniff\nsnow\nsoap\nsoccer\nsocial\nsock\nsoda\nsoft\nsolar\nsoldier\nsolid\nsolution\nsolve\nsomeone\nsong\nsoon\nsorry\nsort\nsoul\nsound\nsoup\nsource\nsouth\nspace\nspare\nspatial\nspawn\nspeak\nspecial\nspeed\nspell\nspend\nsphere\nspice\nspider\nspike\nspin\nspirit\nsplit\nspoil\nsponsor\nspoon\nsport\nspot\nspray\nspread\nspring\nspy\nsquare\nsqueeze\nsquirrel\nstable\nstadium\nstaff\nstage\nstairs\nstamp\nstand\nstart\nstate\nstay\nsteak\nsteel\nstem\nstep\nstereo\nstick\nstill\nsting\nstock\nstomach\nstone\nstool\nstory\nstove\nstrategy\nstreet\nstrike\nstrong\nstruggle\nstudent\nstuff\nstumble\nstyle\nsubject\nsubmit\nsubway\nsuccess\nsuch\nsudden\nsuffer\nsugar\nsuggest\nsuit\nsummer\nsun\nsunny\nsunset\nsuper\nsupply\nsupreme\nsure\nsurface\nsurge\nsurprise\nsurround\nsurvey\nsuspect\nsustain\nswallow\nswamp\nswap\nswarm\nswear\nsweet\nswift\nswim\nswing\nswitch\nsword\nsymbol\nsymptom\nsyrup\nsystem\ntable\ntackle\ntag\ntail\ntalent\ntalk\ntank\ntape\ntarget\ntask\ntaste\ntattoo\ntaxi\nteach\nteam\ntell\nten\ntenant\ntennis\ntent\nterm\ntest\ntext\nthank\nthat\ntheme\nthen\ntheory\nthere\nthey\nthing\nthis\nthought\nthree\nthrive\nthrow\nthumb\nthunder\nticket\ntide\ntiger\ntilt\ntimber\ntime\ntiny\ntip\ntired\ntissue\ntitle\ntoast\ntobacco\ntoday\ntoddler\ntoe\ntogether\ntoilet\ntoken\ntomato\ntomorrow\ntone\ntongue\ntonight\ntool\ntooth\ntop\ntopic\ntopple\ntorch\ntornado\ntortoise\ntoss\ntotal\ntourist\ntoward\ntower\ntown\ntoy\ntrack\ntrade\ntraffic\ntragic\ntrain\ntransfer\ntrap\ntrash\ntravel\ntray\ntreat\ntree\ntrend\ntrial\ntribe\ntrick\ntrigger\ntrim\ntrip\ntrophy\ntrouble\ntruck\ntrue\ntruly\ntrumpet\ntrust\ntruth\ntry\ntube\ntuition\ntumble\ntuna\ntunnel\nturkey\nturn\nturtle\ntwelve\ntwenty\ntwice\ntwin\ntwist\ntwo\ntype\ntypical\nugly\numbrella\nunable\nunaware\nuncle\nuncover\nunder\nundo\nunfair\nunfold\nunhappy\nuniform\nunique\nunit\nuniverse\nunknown\nunlock\nuntil\nunusual\nunveil\nupdate\nupgrade\nuphold\nupon\nupper\nupset\nurban\nurge\nusage\nuse\nused\nuseful\nuseless\nusual\nutility\nvacant\nvacuum\nvague\nvalid\nvalley\nvalve\nvan\nvanish\nvapor\nvarious\nvast\nvault\nvehicle\nvelvet\nvendor\nventure\nvenue\nverb\nverify\nversion\nvery\nvessel\nveteran\nviable\nvibrant\nvicious\nvictory\nvideo\nview\nvillage\nvintage\nviolin\nvirtual\nvirus\nvisa\nvisit\nvisual\nvital\nvivid\nvocal\nvoice\nvoid\nvolcano\nvolume\nvote\nvoyage\nwage\nwagon\nwait\nwalk\nwall\nwalnut\nwant\nwarfare\nwarm\nwarrior\nwash\nwasp\nwaste\nwater\nwave\nway\nwealth\nweapon\nwear\nweasel\nweather\nweb\nwedding\nweekend\nweird\nwelcome\nwest\nwet\nwhale\nwhat\nwheat\nwheel\nwhen\nwhere\nwhip\nwhisper\nwide\nwidth\nwife\nwild\nwill\nwin\nwindow\nwine\nwing\nwink\nwinner\nwinter\nwire\nwisdom\nwise\nwish\nwitness\nwolf\nwoman\nwonder\nwood\nwool\nword\nwork\nworld\nworry\nworth\nwrap\nwreck\nwrestle\nwrist\nwrite\nwrong\nyard\nyear\nyellow\nyou\nyoung\nyouth\nzebra\nzero\nzone\nzoo\n";
 //#endregion
@@ -13691,4 +13882,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, invitationPage, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };

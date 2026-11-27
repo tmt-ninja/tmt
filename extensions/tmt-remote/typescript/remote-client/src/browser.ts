@@ -1,3 +1,4 @@
+export { invitationPage } from './invitation-page.js';
 import { pairingGuidance } from './remote-state.js';
 export { invitePage } from './invite-page.js';
 export {
