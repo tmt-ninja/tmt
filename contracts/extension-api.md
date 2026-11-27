@@ -1119,7 +1119,9 @@ ledger. Missing (or null) new fields mean unknown, never a measured zero:
   not listed whole, or a header is pending), `family-members` (more started sessions
   than are followed) and `family` (an earlier tick's incomplete family, not read
   since). A started session whose new whole lines are all provider records other
-  than usage is idle, not incomplete.
+  than usage is idle, not incomplete. Agy value: `no-token-source` (the provider
+  transcript and hook payloads expose no token counters, so totals of 0 are
+  uncovered rather than measured zero).
 - `consumption.cacheWriteTokens` is a cumulative cache-write counter in the
   same token units and epoch as input. Cache-write and cache-read are subsets
   of the existing input count; neither is added to input or total again.
