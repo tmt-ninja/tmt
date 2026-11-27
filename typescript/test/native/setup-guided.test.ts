@@ -136,9 +136,11 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
       );
       return Object.fromEntries(entries) as SetupArtifacts;
     };
-    plainArtifacts = await buildSet('plain', false);
-    skillArtifacts = await buildSet('skills', true);
-  });
+    [plainArtifacts, skillArtifacts] = await Promise.all([
+      buildSet('plain', false),
+      buildSet('skills', true),
+    ]);
+  }, 60_000);
 
   afterAll(() => {
     if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
