@@ -397,6 +397,7 @@ pub fn send(
 /// Reserve a receipt window only for an enrolled Pi binding. The driver
 /// requires this same deadline before it can submit a correlated request.
 pub struct ReceiptWindow {
+    harness: HarnessId,
     binding: BindingEntry,
     pub deadline_ms: u64,
 }
@@ -408,17 +409,24 @@ pub fn receipt_window(
     let Some(entry) = current(storage, identity)? else {
         return Ok(None);
     };
+    if entry.binding.is_none() {
+        return Ok(None);
+    }
     let Ok(paths) = crate::config::ConfigPaths::discover() else {
         return Ok(None);
     };
-    Ok(
-        crate::drivers::pi::needs_receipt_window(&paths.channel_directory(), &entry).then(|| {
-            ReceiptWindow {
-                binding: entry,
-                deadline_ms: crate::request_runtime::wall_time_ms() + 30_000,
-            }
-        }),
-    )
+    let directory = paths.channel_directory();
+    let registry = RuntimeRegistry::first_party();
+    Ok(registry.channels().find_map(|(harness, channel)| {
+        channel
+            .receipt_window(&directory, &entry)
+            .map(|duration| ReceiptWindow {
+                harness: harness.clone(),
+                binding: entry.clone(),
+                deadline_ms: crate::request_runtime::wall_time_ms()
+                    .saturating_add(duration.as_millis() as u64),
+            })
+    }))
 }
 
 pub fn send_request(
@@ -485,12 +493,12 @@ fn send_messages(
         Ok(harness) => harness,
         Err(fault) => return Ok(Delivery::ChannelUnavailable(fault.into()).into()),
     };
-    let requires_pi = if let Messages::Request {
+    let requires_channel = if let Messages::Request {
         window: Some(window),
         ..
     } = &messages
     {
-        if window.binding != entry || harness.as_ref().is_none_or(|h| h.as_str() != "pi") {
+        if window.binding != entry || harness.as_ref() != Some(&window.harness) {
             return Ok(Delivery::ChannelUnavailable(ChannelFault::Mismatch.into()).into());
         }
         true
@@ -509,7 +517,7 @@ fn send_messages(
             Some(id) => messages.registered(&mut registry, id, &entry, &storage),
         },
         || {
-            if requires_pi {
+            if requires_channel {
                 return ActionResult::Failed(SendFailure::Denied(Delivery::ChannelUnavailable(
                     ChannelFault::Inactive.into(),
                 )));
@@ -670,20 +678,7 @@ impl Messages<'_> {
             ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
         };
         let send = |registry: &mut RuntimeRegistry, text: &str| {
-            if harness.as_str() == "pi" {
-                // Correlate the whole advisory envelope on this connection. Its
-                // constituents retain their independent Core consumption state.
-                let connection_id = uuid::Uuid::new_v4().to_string();
-                return outcome(registry.send_request(
-                    harness,
-                    entry,
-                    text,
-                    &connection_id,
-                    false,
-                    Some(crate::request_runtime::wall_time_ms() + 30_000),
-                ));
-            }
-            outcome(registry.send(harness, entry, text))
+            outcome(registry.send_advisory(harness, entry, text))
         };
         let attempt = match self {
             Self::Passthrough(text) => return outcome(registry.send(harness, entry, text)),

@@ -480,6 +480,15 @@ pub trait ChannelEnrollment {
 }
 
 pub trait RuntimeChannel {
+    /// Receipt window required by this enrollment before dispatch.
+    fn receipt_window(
+        &self,
+        _root: &Path,
+        _entry: &tmt_core::binding::BindingEntry,
+    ) -> Option<std::time::Duration> {
+        None
+    }
+
     /// Whether Default launcher policy should attempt this driver's channel.
     /// The launcher owns policy; drivers advertise only this default.
     fn enabled_by_default(&self) -> bool {

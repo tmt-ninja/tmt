@@ -325,6 +325,22 @@ impl RuntimeRegistry {
         }
     }
 
+    pub fn send_advisory(
+        &mut self,
+        harness: &HarnessId,
+        target: &BindingEntry,
+        message: &str,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<RuntimeError>> {
+        match self
+            .registrations
+            .iter_mut()
+            .find(|entry| &entry.harness == harness)
+        {
+            Some(entry) => entry.driver.send_advisory(target, message),
+            None => ActionResult::Unsupported,
+        }
+    }
+
     pub fn send_request(
         &mut self,
         harness: &HarnessId,

@@ -5,7 +5,6 @@
 mod caller;
 mod caller_session;
 mod channel;
-pub(crate) use channel::needs_receipt_window;
 pub mod user_extension;
 
 use crate::process::CommandRunner;
@@ -537,6 +536,24 @@ impl tmt_core::driver::Driver for PiRuntime {
         tmt_core::driver::SendFailure<Self::Error>,
     > {
         channel::send(target, message, None)
+    }
+
+    fn send_advisory(
+        &mut self,
+        target: &Self::Target,
+        message: &str,
+    ) -> tmt_core::driver::ActionResult<
+        tmt_core::driver::DeliveryAcceptance,
+        tmt_core::driver::SendFailure<Self::Error>,
+    > {
+        let connection_id = uuid::Uuid::new_v4().to_string();
+        self.send_request(
+            target,
+            message,
+            &connection_id,
+            false,
+            Some(crate::request_runtime::wall_time_ms() + 30_000),
+        )
     }
 
     fn send_request(

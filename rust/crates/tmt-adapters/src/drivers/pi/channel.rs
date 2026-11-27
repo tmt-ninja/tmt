@@ -27,6 +27,10 @@ const HANDSHAKE: Duration = Duration::from_secs(2);
 const EXTENSION: &[u8] = include_bytes!("channel-extension.mjs");
 
 impl RuntimeChannel for PiChannel {
+    fn receipt_window(&self, root: &Path, entry: &BindingEntry) -> Option<Duration> {
+        needs_receipt_window(root, entry).then_some(Duration::from_secs(30))
+    }
+
     fn preflight(
         &self,
         command: &RuntimeCommand,
@@ -179,7 +183,7 @@ fn peer_pid(stream: &UnixStream) -> Option<u64> {
 
 /// A stale record for another independently verified launch is also ignored
 /// by send and by the pane guard. Preserve the new launch's ordinary paste.
-pub(crate) fn needs_receipt_window(root: &Path, entry: &BindingEntry) -> bool {
+fn needs_receipt_window(root: &Path, entry: &BindingEntry) -> bool {
     let Some(binding) = &entry.binding else {
         return false;
     };

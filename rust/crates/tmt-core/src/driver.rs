@@ -166,6 +166,15 @@ pub trait Driver {
         ActionResult::Unsupported
     }
 
+    /// Send a notice or an entire checklist as one envelope.
+    fn send_advisory(
+        &mut self,
+        target: &Self::Target,
+        message: &str,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<Self::Error>> {
+        self.send(target, message)
+    }
+
     /// Delivery of a correlated request. Other traffic continues through send.
     fn send_request(
         &mut self,
