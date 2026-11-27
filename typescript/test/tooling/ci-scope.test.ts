@@ -1837,6 +1837,8 @@ describe('component map', () => {
       'rust/crates/tmt-adapters/src/skill_installation/owned_tests.rs':
         'a fixture file name, not the repository README',
       'site/src/chapters/dev-extension.mdx': 'the handbook site links to the contract on GitHub',
+      'typescript/scripts/bundled-license-clarification.mjs':
+        'names the README.md of the npm package fastdom@1.0.12 as its licence source; never reads repository prose',
     };
     const layout = JSON.parse(
       readFileSync(path.join(repository, '.github/repository-layout.json'), 'utf8')

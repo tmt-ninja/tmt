@@ -4,6 +4,7 @@ import { build, defineConfig } from 'vite-plus';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import { designTokens } from '../../../../design/tokens/tokens-plugin.ts';
 import { tuiOracle } from '@tmt/browser-ui/docs-oracle';
@@ -38,6 +39,65 @@ function appDataChunk(name: string): string {
 }
 
 const runtimeChunks = runtimeBuildOptions(new URL('./', import.meta.url));
+/** Mermaid's on-demand modules a page draws with: the five kinds' own and the dagre layout. */
+const DRAWN =
+  /^(flowDiagram|sequenceDiagram|stateDiagram(-v2)?|ganttDiagram|classDiagram(-v2)?|dagre)-[A-Z0-9]+\.mjs$/;
+/**
+ * Mermaid's diagram and layout modules, and what they import, in one lazy chunk per build rather
+ * than one per module, so the app stays within its file cap (`APP_FILES`). A page that shows any
+ * diagram loads every kind's code with it. Vite's preload helper, which the first paint shares with
+ * them, keeps a chunk of its own, so the first paint never loads the diagram chunk.
+ */
+const diagramChunk = {
+  codeSplitting: {
+    groups: [
+      { name: 'preload-helper', test: /vite[\\/]preload-helper/, priority: 2 },
+      {
+        name: 'diagram-kinds',
+        test: /[\\/]mermaid[\\/]dist[\\/]chunks[\\/]mermaid\.core[\\/]/,
+        priority: 1,
+      },
+    ],
+  },
+};
+/**
+ * Colab draws five Mermaid kinds (flowchart, sequence, state, Gantt and class; diagram-source.ts),
+ * with Mermaid's default dagre layout (#6746). Everything else Mermaid loads on demand (the other
+ * diagram types, the swimlane and cose-bilkent layouts, the size capture and KaTeX) resolves to one
+ * stub instead, so that code, and the packages only it uses, are never bundled: the native binary
+ * embeds the app within its file and byte caps. The page refuses another diagram type before
+ * Mermaid is asked to draw it, a source cannot set a layout, and labels are drawn as SVG text
+ * (`htmlLabels` off), which never loads KaTeX: a `$$…$$` label shows as typed.
+ */
+function mermaidFiveKinds() {
+  const require = createRequire(import.meta.url);
+  const core = require.resolve('mermaid/dist/mermaid.core.mjs');
+  const chunks = path.join(path.dirname(core), 'chunks', 'mermaid.core');
+  const loaders = new Set<string>();
+  for (const file of [core, ...readdirSync(chunks).map((name) => path.join(chunks, name))])
+    for (const [, source] of readFileSync(file, 'utf8').matchAll(
+      /import\("\.\/(?:chunks\/mermaid\.core\/)?([^"/]+\.mjs)"\)/g,
+    ))
+      if (!DRAWN.test(source!)) loaders.add(source!);
+  if (loaders.size < 30)
+    throw new Error(`Expected Mermaid's on-demand modules, found ${loaders.size}`);
+  // Not a \0 id: the emitted chunk's name must start with a letter, as every app asset's does.
+  const stub = 'virtual:colab-mermaid-not-drawn';
+  return {
+    name: 'colab-mermaid-five-kinds',
+    enforce: 'pre' as const,
+    resolveId: (source: string, importer?: string) =>
+      importer?.includes(`${path.sep}mermaid${path.sep}dist${path.sep}`) &&
+      (loaders.has(path.basename(source)) || source === 'katex')
+        ? stub
+        : null,
+    load: (id: string) =>
+      id === stub
+        ? "throw new Error('Colab draws five diagram kinds with the default layout only');"
+        : null,
+  };
+}
+
 export default defineConfig(({ mode }) => ({
   lint: lintConfig,
   fmt: {
@@ -68,6 +128,7 @@ export default defineConfig(({ mode }) => ({
           }),
         ]
       : []),
+    mermaidFiveKinds(),
     react(),
     designTokens(),
     {
@@ -234,7 +295,7 @@ export default defineConfig(({ mode }) => ({
             // Its lazy routes (Design, #5866) split into chunks. They go under assets/ beside it:
             // the native app inventory admits no script at the build's root.
             rollupOptions: {
-              output: { chunkFileNames: 'assets/colab-module-[name]-[hash].js' },
+              output: { chunkFileNames: 'assets/colab-module-[name]-[hash].js', ...diagramChunk },
             },
           }
         : mode === 'runtime'
@@ -273,6 +334,7 @@ export default defineConfig(({ mode }) => ({
                 rollupOptions: { output: { codeSplitting: false } },
               }
             : {
+                rollupOptions: { output: diagramChunk },
                 license: {
                   fileName:
                     mode === 'production' || mode === 'hosted'

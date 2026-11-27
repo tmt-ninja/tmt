@@ -16,9 +16,9 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use tmt_colab_model::values;
 
-/// The fourteen block types a page can insert. A table's rows are blocks too (type `row`), but only
+/// The fifteen block types a page can insert. A table's rows are blocks too (type `row`), but only
 /// `table add-row` makes one.
-pub const TYPES: [&str; 14] = [
+pub const TYPES: [&str; 15] = [
     "paragraph",
     "heading",
     "list",
@@ -33,6 +33,7 @@ pub const TYPES: [&str; 14] = [
     "work-bundle",
     "page-view",
     "chart",
+    "diagram",
 ];
 pub const ROW: &str = "row";
 /// The parent of a block that sits on the page itself.
@@ -42,7 +43,7 @@ pub const ROOT: &str = "root";
 pub fn has_text(block_type: &str) -> bool {
     matches!(
         block_type,
-        "paragraph" | "heading" | "list" | "todo" | "callout" | "code" | "question"
+        "paragraph" | "heading" | "list" | "todo" | "callout" | "code" | "question" | "diagram"
     )
 }
 /// The types a block may change between, keeping its ID, its text and what points at it (#6742).
@@ -177,6 +178,8 @@ fn schema(block_type: &str) -> &'static [(&'static str, Prop)] {
             // Values are whole numbers; one is shown divided by 10^decimals (625 at 1 is 62.5).
             ("decimals", Prop::Int(0, 3)),
         ],
+        // A diagram's text is its Mermaid source (#6746); the page draws only what it admits.
+        "diagram" => &[("title", Prop::Text(128))],
         _ => &[],
     }
 }

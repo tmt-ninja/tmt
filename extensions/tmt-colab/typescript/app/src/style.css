@@ -2757,6 +2757,96 @@ p.question-history,
   border: var(--tmt-ui-notice-border-width) solid var(--tmt-ui-surface-rule);
 }
 
+/* A diagram block (#6746): the drawn flowchart at most its own width, the source a disclosure away,
+   numbered as an editor numbers it; a source the page does not draw shows why above the source. */
+.structured-diagram {
+  display: grid;
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+  margin: 0;
+}
+.structured-diagram-title {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-eyebrow-size);
+  font-weight: var(--tmt-ui-eyebrow-weight);
+  letter-spacing: var(--tmt-ui-eyebrow-tracking);
+  text-transform: uppercase;
+}
+.structured-diagram-drawing {
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+}
+.structured-diagram-drawing:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.structured-diagram-drawing svg {
+  display: block;
+  max-width: none;
+  height: auto;
+  margin-inline: auto;
+}
+/* A sequence's `rect` and `box` groupings take the design system's sheet, whatever colour the
+   source names (diagram-source.ts): the CSS property outranks Mermaid's fill attribute. Mermaid
+   draws a `rect` straight under the SVG, so no group is in the selector. */
+.structured-diagram-drawing rect.rect {
+  fill: var(--tmt-ui-surface-sheet);
+}
+.structured-diagram-hint {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.structured-diagram-drawing[data-pending] {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.structured-diagram-details > summary {
+  width: fit-content;
+  color: var(--tmt-ui-color-text-action);
+  font-size: var(--tmt-ui-caption-size);
+  cursor: pointer;
+}
+.structured-diagram-details[open] > summary {
+  margin-block-end: var(--tmt-ui-space-xs);
+}
+.structured-diagram-problem {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  border-inline-start: 3px solid var(--tmt-ui-color-blocked);
+  background: var(--tmt-ui-surface-blocked-soft);
+}
+.structured-diagram-message {
+  margin: 0;
+  font: var(--tmt-ui-caption-size) / 1.45 var(--tmt-ui-font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.structured-diagram-source {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--tmt-ui-surface-code);
+  font: 13px / 1.55 var(--tmt-ui-font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.structured-diagram-line {
+  display: block;
+  padding-inline-start: 4ch;
+  text-indent: -4ch;
+}
+.structured-diagram-number {
+  display: inline-block;
+  width: 3ch;
+  margin-inline-end: 1ch;
+  color: var(--tmt-ui-color-secondary);
+  text-align: end;
+  user-select: none;
+}
+
 /* Sections are progress (#6619): a counted heading sits between its mark and its count. A heading
    that wraps keeps both on its first line (#6731): the count shares that line's baseline, and the
    mark is centred on that line's box (the heading's size times its 1.3 line height). */

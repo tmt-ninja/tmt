@@ -81,6 +81,7 @@ import { BLOCK_CELL_BYTES } from './blocks.js';
 import { BlockTextEditor, type TextRange } from './block-text-editor.js';
 import type { BlockTree } from './block-tree.js';
 import { text as strings } from './strings.js';
+import { DiagramBlock } from './diagram-block.js';
 import { type Drag, useBlockDrag } from './use-block-drag.js';
 import {
   BLOCK_MENU_ACTIONS,
@@ -1770,6 +1771,17 @@ function Content({
     case 'chart':
       // Data only, checked by the page's schema before it reaches here (#6746).
       return <ChartBlock {...(block.props as unknown as ChartBlockProps)} />;
+    case 'diagram':
+      return (
+        <DiagramBlock
+          id={block.id}
+          title={typeof block.props.title === 'string' ? block.props.title : undefined}
+          source={block.text ?? ''}
+          editing={typing}
+        >
+          {text}
+        </DiagramBlock>
+      );
     case 'page-view': {
       const spec = pageViewSpec(block);
       // Authored rows draw as plain values; a live view is the parent's owner list, gated.

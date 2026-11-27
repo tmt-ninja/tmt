@@ -21,7 +21,7 @@ use tmt_colab::{
     store::Store,
 };
 
-const TYPES: [&str; 14] = [
+const TYPES: [&str; 15] = [
     "paragraph",
     "heading",
     "list",
@@ -36,6 +36,7 @@ const TYPES: [&str; 14] = [
     "work-bundle",
     "page-view",
     "chart",
+    "diagram",
 ];
 const MARKS: [&str; 6] = ["bold", "italic", "code", "link", "agent", "block"];
 const TABLE_ACTIONS: [&str; 7] = [
@@ -133,7 +134,7 @@ pub fn command() -> Command {
         placement(spec(
             "insert",
             "Add a block",
-            "Returns the new block's ID. A text block can change type later with block retype; other types cannot. A table's rows come from block table add-row. A chart's props are its data: each value is a whole number from 0 or null (no value), shown divided by 10 to the power of decimals (0 to 3), so 62.5 is stored as 625 with decimals 1.",
+            "Returns the new block's ID. A text block can change type later with block retype; other types cannot. A table's rows come from block table add-row. A chart's props are its data: each value is a whole number from 0 or null (no value), shown divided by 10 to the power of decimals (0 to 3), so 62.5 is stored as 625 with decimals 1. A diagram's text is its Mermaid source; the page draws flowcharts, sequence, state, Gantt and class diagrams.",
             &[
                 Example {
                     command: "tmt colab block insert 10000000-0000-4000-8000-000000000001 --type paragraph --text 'Hello' --json",
@@ -142,6 +143,10 @@ pub fn command() -> Command {
                 Example {
                     command: r#"tmt colab block insert 10000000-0000-4000-8000-000000000001 --type chart --props '{"kind":"bar","title":"Pass rate (%)","categories":["Mon","Tue"],"series":[{"name":"Pass","values":[625,980]}],"decimals":1}' --json"#,
                     note: "A bar chart of 62.5 and 98.0",
+                },
+                Example {
+                    command: r#"tmt colab block insert 10000000-0000-4000-8000-000000000001 --type diagram --props '{"title":"Release"}' --text $'flowchart LR\n  A[Build] --> B{Green?}\n  B -->|yes| C[Ship]' --json"#,
+                    note: "A flowchart; sequenceDiagram, stateDiagram-v2, gantt and classDiagram draw too",
                 },
             ],
         ))

@@ -282,6 +282,100 @@ const CHARTS_PAGE: BlockRecord[] = (() => {
   ];
 })();
 
+/** A page of diagram blocks (#6746): a flowchart with a decision as the mock draws it, a source
+ * Mermaid cannot read, a kind the page does not draw, a source with a directive, a hostile one
+ * whose labels, links and styles try to run, link and load, and one of each other kind drawn. */
+export const DELETE_FLOW = [
+  'flowchart LR',
+  '  A[按下刪除] --> B{資料庫版本對嗎？}',
+  '  B -->|是| C[寫進 owner log]',
+  '  B -->|否| D[提示重新啟動 Colab]',
+  '  C --> E[記下時間與誰]',
+  '  E --> F[從列表移除]',
+].join('\n');
+/** One source of each kind past the flowchart, as a page would hold it (#6746). */
+export const DIAGRAM_KINDS = {
+  sequence: [
+    'sequenceDiagram',
+    '  participant U as 使用者',
+    '  participant C as Colab',
+    '  U->>C: 按下刪除',
+    '  C-->>U: 要求確認',
+    '  rect rgb(255, 0, 0)',
+    '    U->>C: 確認',
+    '  end',
+    '  Note over C: 寫進 owner log',
+  ].join('\n'),
+  state: [
+    'stateDiagram-v2',
+    '  [*] --> 草稿',
+    '  草稿 --> 審查中: 送出',
+    '  審查中 --> 草稿: 退回',
+    '  審查中 --> 已發布: 通過',
+    '  已發布 --> [*]',
+  ].join('\n'),
+  gantt: [
+    'gantt',
+    '  dateFormat YYYY-MM-DD',
+    '  title 發布計畫',
+    '  section 開發',
+    '  設計 :a1, 2026-12-01, 3d',
+    '  實作 :a2, after a1, 5d',
+    '  section 驗收',
+    '  審查 :a3, after a2, 2d',
+  ].join('\n'),
+  class: [
+    'classDiagram',
+    '  class Block {',
+    '    +id string',
+    '    +type string',
+    '  }',
+    '  class Chart {',
+    '    +kind string',
+    '  }',
+    '  Block <|-- Chart : 延伸',
+    '  Block <|-- Diagram',
+  ].join('\n'),
+} as const;
+const DIAGRAMS_PAGE: BlockRecord[] = (() => {
+  let at = 0;
+  const diagram = (id: string, text: string, title?: string): BlockRecord => ({
+    id,
+    type: 'diagram',
+    parent: 'root',
+    pos: String.fromCharCode(66 + at++),
+    props: title ? { title } : {},
+    text,
+    deleted: false,
+  });
+  return [
+    diagram('flow', DELETE_FLOW, '刪除頁面時發生什麼'),
+    diagram('broken', DELETE_FLOW.replace('B -->|是|', 'B -->>|是|'), '刪除頁面時發生什麼'),
+    diagram('other', 'pie\n  "A": 1'),
+    diagram(
+      'directive',
+      '%%{init: {"themeCSS": "svg{background:url(https://example.com/d.png)}"}}%%\nflowchart LR\n  A --> B',
+    ),
+    diagram(
+      'hostile',
+      [
+        'flowchart LR',
+        `  A["<img src=x onerror=alert(1)>"] --> B["<a href='https://example.com/l'>link</a>"]`,
+        '  click A href "javascript:alert(2)"',
+        '  click B href "https://example.com/c"',
+        '  style A fill:url(https://example.com/s.png)',
+        '  classDef bad fill:url(https://example.com/k.png)',
+        '  B:::bad --> C["<script>alert(3)</script>"]',
+      ].join('\n'),
+      'Hostile',
+    ),
+    diagram('sequence', DIAGRAM_KINDS.sequence, '刪除的確認'),
+    diagram('state', DIAGRAM_KINDS.state, '頁面狀態'),
+    diagram('gantt', DIAGRAM_KINDS.gantt, '發布計畫'),
+    diagram('class', DIAGRAM_KINDS.class, '區塊類別'),
+  ];
+})();
+
 /** A page laid out as a night page is (#6257): a section card with its meta, the same run of blocks
  * at the root and in the card, a long paragraph, a table and consecutive questions. */
 const LAYOUT_PAGE: BlockRecord[] = (() => {
@@ -455,6 +549,7 @@ export function mount(
     | 'spec'
     | 'layout'
     | 'charts'
+    | 'diagrams'
     | 'empty'
     | 'empty-reader'
     | 'empty-failure' = 'plan',
@@ -482,9 +577,11 @@ export function mount(
         ? LAYOUT_PAGE
         : content === 'charts'
           ? CHARTS_PAGE
-          : content.startsWith('empty')
-            ? []
-            : start;
+          : content === 'diagrams'
+            ? DIAGRAMS_PAGE
+            : content.startsWith('empty')
+              ? []
+              : start;
   if (options.questionKind) {
     const kind = options.questionKind;
     blocks = blocks.map((b) =>

@@ -65,6 +65,7 @@ ok("every type with its smallest value", {
     bid(12): block("work-bundle", pos="g", props={"page": bid(500)}),
     bid(13): block("page-view", pos="h"),
     bid(14): block("chart", pos="i", props={"kind": "meter", "title": "t", "categories": ["a"], "series": [{"name": "Left", "values": [55]}]}),
+    bid(15): block("diagram", pos="j", text=rich("flowchart LR\n  A --> B")),
 })
 ok("props at their edges", {
     bid(1): block("heading", props={"level": 3, "progress": "done"}, text=rich("h")),
@@ -227,6 +228,18 @@ bad("a chart max of zero", chart(max=0))
 bad("a chart with four decimal places", chart(decimals=4))
 bad("a chart with decimals as text", chart(decimals="1"))
 bad("a chart with text", {bid(1): block("chart", props=CHART, text=rich("x"))})
+# A diagram's text is its Mermaid source (#6746): plain, any text the page may hold; the page draws
+# only the kinds it admits, so typing through a half-written source is never refused.
+ok("diagrams with a title at its edge, any source and none", {
+    bid(1): block("diagram", props={"title": "t" * 128}, text=rich("flowchart TD\n  A{Ok?} -->|yes| B")),
+    bid(2): block("diagram", pos="W", text=rich("sequenceDiagram\n  A->>B: hi")),
+    bid(3): block("diagram", pos="X", text=rich("")),
+})
+bad("a diagram without text", {bid(1): block("diagram")})
+bad("marks on a diagram", {bid(1): block("diagram", text=rich("abc", [{"from": 0, "to": 1, "mark": "bold"}]))})
+bad("a diagram title over 128 bytes", {bid(1): block("diagram", props={"title": "t" * 129}, text=rich("graph TD"))})
+bad("a diagram title over one line", {bid(1): block("diagram", props={"title": "a\nb"}, text=rich("graph TD"))})
+bad("a diagram with an unknown prop", {bid(1): block("diagram", props={"theme": "dark"}, text=rich("graph TD"))})
 bad("props over the type's size", {bid(1): block("page-view", props={"rows": [{"id": f"p{i}", "name": "n" * 200} for i in range(200)]})})
 bad("a text block without text", {bid(1): {"type": "paragraph", "parent": "root", "pos": "V", "props": {}}})
 bad("text on a block that has none", {bid(1): block("table", text=rich(""))})

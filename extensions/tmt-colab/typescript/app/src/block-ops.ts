@@ -310,12 +310,15 @@ export function retypeBlock(tree: BlockTree, id: string, into: TurnInto): BlockO
 }
 
 /** The text block Backspace at the start of `id` joins into: the one right before it among its
- * siblings, when that one holds text. */
+ * siblings, when that one holds text. A diagram's source is never joined with prose, either way. */
 export function joinTarget(tree: BlockTree, id: string): BlockRecord | undefined {
   const parent = tree.parentOf(id);
-  if (parent === undefined) return undefined;
+  if (parent === undefined || tree.get(id)?.type === 'diagram') return undefined;
   const previous = tree.children(parent)[tree.indexOf(id) - 1];
-  return previous && TEXT_TYPES.has(previous.type) && previous.text !== undefined
+  return previous &&
+    previous.type !== 'diagram' &&
+    TEXT_TYPES.has(previous.type) &&
+    previous.text !== undefined
     ? previous
     : undefined;
 }

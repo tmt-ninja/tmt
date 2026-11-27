@@ -30,6 +30,7 @@ import {
   pasteBlocks,
   retypeBlock,
   splitBlock,
+  joinTarget,
 } from '../src/block-ops.js';
 import { PASTE_BLOCKS, pasted } from '../src/block-paste.js';
 import { dropTarget } from '../src/block-drop.js';
@@ -560,6 +561,10 @@ describe('paste (#6742)', () => {
     expect(pasted('paragraph', '', 'One line\nand another')).toBeUndefined();
     expect(pasted('paragraph', '', ' https://github.com/tmt-ninja/tmt/pull/1 ')).toBeUndefined();
     expect(pasted('code', '', 'a\n\nb')).toBeUndefined();
+    // A diagram's source is plain too: Mermaid text never turns into blocks (#6746), though the same
+    // text pasted into a paragraph would.
+    expect(pasted('paragraph', '', 'flowchart LR\n\nA --> B')).toBeDefined();
+    expect(pasted('diagram', '', 'flowchart LR\n\nA --> B')).toBeUndefined();
     // Past the bound it goes in as plain text, never as part of the structure.
     const many = Array.from({ length: PASTE_BLOCKS + 1 }, (_, at) => `p${at}`).join('\n\n');
     expect(pasted('paragraph', '', many)).toEqual({ tooLarge: true });
@@ -1076,4 +1081,12 @@ describe('table rows and cells (#6005)', () => {
       roundTrip(three(), [edit({ action: 'remove-column', column: 'a' })]);
     });
   });
+});
+
+it("a diagram's source is never joined with prose by Backspace, either way (#6746)", () => {
+  const diagram = block('d', 'W', PAGE_PARENT, { type: 'diagram', text: 'flowchart LR' });
+  const tree = new BlockTree([block('a', 'V'), diagram, block('b', 'X')]);
+  expect(joinTarget(tree, 'd')).toBeUndefined();
+  expect(joinTarget(tree, 'b')).toBeUndefined();
+  expect(joinTarget(new BlockTree([block('a', 'V'), block('b', 'X')]), 'b')?.id).toBe('a');
 });

@@ -3,7 +3,7 @@
 // Usage: node verify-runtime.mjs <app dist directory> [--update]
 //   --update  rewrites app/runtime-pin.json from the build, for a deliberate dependency change.
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // A chunk's raw bytes: the bound the frame enforces on each script it is handed at bind (#6085).
@@ -177,6 +177,26 @@ for (const [name, text, end] of [
   expect(!text.toLowerCase().includes(end), `${name} contains an element end tag`);
   expect(!text.includes('<' + '!--'), `${name} contains an HTML comment opener`);
 }
+// The app's first paint: index.html and every script, module preload and stylesheet it names. A
+// fixed budget, never written by --update (#6746): 2,574,566 bytes measured on 2026-11-27, plus a
+// 12% margin. A large feature loads on demand rather than joining this set; the whole app has its
+// own, larger bound (APP_BYTES in app_inventory.rs).
+const EAGER_BYTES = 2.75 * 1024 * 1024;
+const eager = [
+  'index.html',
+  ...new Set(
+    [
+      ...read(join(directory, 'index.html')).matchAll(
+        /<(?:script|link)\b[^>]*\b(?:src|href)="\.\/([^"]+)"/g,
+      ),
+    ].map((match) => match[1]),
+  ),
+];
+const eagerBytes = eager.reduce((sum, file) => sum + statSync(join(directory, file)).size, 0);
+expect(
+  eagerBytes <= EAGER_BYTES,
+  `the app's first paint loads ${eagerBytes} bytes in ${eager.length} files, over its ${EAGER_BYTES}-byte budget`,
+);
 const notices = read(join(directory, 'THIRD-PARTY-NOTICES.txt'));
 for (const name of Object.keys(packages))
   expect(
@@ -189,5 +209,5 @@ if (failures.length) {
   process.exit(1);
 }
 console.log(
-  `page runtime ok: ${chunks.map((chunk) => `${chunk.name} ${chunk.length}/${chunk.gzip}`).join(', ')} (raw/gzip); total gzip ${total}; theme ${themeBytes.length} bytes`,
+  `page runtime ok: ${chunks.map((chunk) => `${chunk.name} ${chunk.length}/${chunk.gzip}`).join(', ')} (raw/gzip); total gzip ${total}; theme ${themeBytes.length} bytes; first paint ${eagerBytes} bytes in ${eager.length} files`,
 );

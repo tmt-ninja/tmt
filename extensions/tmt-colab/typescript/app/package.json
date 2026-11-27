@@ -21,9 +21,11 @@
     "@tanstack/react-router": "1.170.33",
     "@tmt/browser-ui": "workspace:*",
     "@tmt/colab-client": "workspace:*",
+    "dompurify": "3.4.17",
     "htm": "3.1.1",
     "lexical": "0.52.0",
     "lucide-react": "1.52.0",
+    "mermaid": "11.17.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "yjs": "13.6.32"
