@@ -282,6 +282,7 @@ mod tests {
                     draft_key: None,
 
                     inline_quotes: Default::default(),
+                    keep_reply: false,
 
                     row_send: None,
                     link: None,

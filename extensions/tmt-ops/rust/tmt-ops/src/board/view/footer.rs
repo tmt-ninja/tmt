@@ -431,7 +431,7 @@ fn agents_legend(app: &App) -> Option<Hints> {
     }
     if let Some(action) = bindings.get("enter").filter(|action| {
         row_allows(app, action)
-            && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint() || matches!(ui, Ui::Quit | Ui::Help))
+            && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint() || matches!(ui, Ui::Quit | Ui::Help | Ui::KeepReply))
     }) {
         keys.push(("⏎".into(), hint_word(app, action)));
     }
@@ -860,7 +860,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                     Verb::Ui(OpsUiAction::ScrollUp | OpsUiAction::ScrollDown)
                 ) && (app.focused_pane() == Some(crate::config::Pane::Replies)
                     || app.framed()))
-                && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint())
+                && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint() || ui == crate::action::OpsUiAction::KeepReply)
                 && !matches!(
                     action.verb,
                     Verb::Ui(

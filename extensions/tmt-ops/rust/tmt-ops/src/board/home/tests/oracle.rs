@@ -1531,6 +1531,24 @@ fn opening_frames(styles: &mut Styles) -> Vec<Value> {
     frames
 }
 
+fn kept_replies_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for &scene in crate::board::kept_replies::tests::HOME_SCENES {
+            let sizes: &[(u16, u16)] = if scene == "kept-reply-yield" {
+                &[(100, 20)]
+            } else {
+                &[(160, 36), (100, 36)]
+            };
+            for &(width, height) in sizes {
+                let app = crate::board::kept_replies::tests::home_scene(scene, look, NOW);
+                frames.push(capture_frame(&app, scene, look_name, width, height, styles));
+            }
+        }
+    }
+    frames
+}
+
 fn work_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
@@ -1891,6 +1909,7 @@ macro_rules! oracle_groups {
         $group!(7, 608, orchestration_frames($styles));
         $group!(7, 116, work_frames($styles));
         $group!(7, 12, opening_frames($styles));
+        $group!(8, 20, kept_replies_frames($styles));
     };
 }
 

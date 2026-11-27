@@ -26,6 +26,7 @@ pub(super) struct Plan {
     messages: Vec<Message>,
     pane: Option<recent_responses::AnswerRead>,
     held_timeline: Option<std::sync::Arc<recent_responses::Page>>,
+    kept_supported: Option<bool>,
 }
 
 impl PartialEq for Plan {
@@ -36,6 +37,7 @@ impl PartialEq for Plan {
             && self.sent == other.sent
             && self.messages == other.messages
             && self.pane == other.pane
+            && self.kept_supported == other.kept_supported
             && match (&self.held_timeline, &other.held_timeline) {
                 (None, None) => true,
                 (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
@@ -50,6 +52,8 @@ pub(super) struct Projection {
     sent: Option<Result<Vec<Value>, String>>,
     bodies: Vec<(MessageKey, Result<String, String>)>,
     pane: Option<recent_responses::Observation>,
+    kept_supported: Option<bool>,
+    kept: Option<Result<Vec<super::kept_replies::KeptReplySummary>, String>>,
 }
 
 /// A published timeline owns its request-keyed bodies, including unavailable
@@ -113,6 +117,8 @@ impl Plan {
                     }])
                 })
             }),
+            kept_supported: None,
+            kept: None,
         }
     }
 
@@ -138,6 +144,33 @@ impl Plan {
         // entries. Keep the one bounded metadata list, never its body.
         let finals = (self.finals && !cancellation.cancelled())
             .then(|| self.key.read(core).map_err(|error| error.to_string()));
+        let (kept_supported, kept) = if !cancellation.cancelled() && (self.finals || self.sent) {
+            let known = match self.kept_supported {
+                Some(supported) => Some(supported),
+                None => core
+                    .api("capabilities", serde_json::json!({}))
+                    .ok()
+                    .map(|doc| {
+                        doc["operations"]
+                            .as_array()
+                            .is_some_and(|ops| super::kept_replies::capability_supported(ops))
+                    }),
+            };
+            match known {
+                Some(true) => (
+                    self.kept_supported.is_none().then_some(true),
+                    Some(super::kept_replies::list(
+                        core,
+                        &self.key.agent,
+                        super::kept_replies::DEFAULT_LIST_LIMIT,
+                    )),
+                ),
+                Some(false) => (self.kept_supported.is_none().then_some(false), None),
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
         if let Some(timeline) = timeline {
             // The committed stream owns its inputs and replies, including an
             // unavailable body. A legacy show must not replace that observation.
@@ -207,6 +240,8 @@ impl Plan {
                 sent,
                 bodies,
                 pane,
+                kept_supported,
+                kept,
             };
         }
         let mut documents = BTreeMap::new();
@@ -276,6 +311,8 @@ impl Plan {
             sent,
             bodies,
             pane,
+            kept_supported,
+            kept,
         }
     }
 }
@@ -324,6 +361,7 @@ impl App {
             messages,
             pane,
             held_timeline,
+            kept_supported: self.kept_replies.supported,
         })
     }
 
@@ -331,6 +369,14 @@ impl App {
         // The event owner checks the entire plan, revision and cancellation before
         // admission. Apply without painting between parts, under the same source checks
         // used by compact details and readers.
+        if let Some(supported) = projection.kept_supported {
+            self.kept_replies.supported = Some(supported);
+        }
+        if let Some(Ok(items)) = projection.kept {
+            self.kept_replies
+                .clear_for_switch(Some(plan.key.agent.clone()));
+            self.kept_replies.publish(&plan.key.agent, items);
+        }
         if let Some(result) = projection.finals {
             self.apply_finals(plan.key.clone(), result);
         }
@@ -423,6 +469,7 @@ mod tests {
                 .collect(),
             pane: None,
             held_timeline: None,
+            kept_supported: None,
         };
         let (events, input) = mpsc::channel();
         let worker = super::super::refresh::Worker::spawn(Core::at(fake), false, events, None);
@@ -528,6 +575,7 @@ mod tests {
             sent: false,
             pane: None,
             held_timeline: None,
+            kept_supported: None,
             messages: vec![
                 message("same".into(), Kind::Reply, 1),
                 message("same".into(), Kind::Question, 2),
@@ -863,6 +911,7 @@ mod tests {
             sent: false,
             pane: None,
             held_timeline: None,
+            kept_supported: None,
             messages: vec![
                 message("old-first".into(), Kind::Question, 2),
                 message("old-second".into(), Kind::Question, 1),
@@ -920,6 +969,69 @@ mod tests {
             shown,
             ["old-first", "new"],
             "replacement cancels the old batch between reads"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn second_refresh_with_known_capability_skips_capabilities_api() {
+        let dir = std::env::temp_dir().join(format!("tmt-kept-cap-once-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        let calls = dir.join("calls");
+        let fake = dir.join("tmt");
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" != api ]; then printf '%s\\n' '{{}}'; exit 0; fi\nrequest=$(cat)\nprintf '%s\\n' \"$request\" >> '{}'\ncase \"$request\" in\n*capabilities*) printf '%s\\n' '{{\"operations\":[\"keptReplies.list\",\"keptReplies.show\",\"keptReplies.remove\"]}}';;\n*keptReplies.list*) printf '%s\\n' '{{\"items\":[]}}';;\n*) printf '%s\\n' '{{\"items\":[]}}';;\nesac\n",
+            calls.display()
+        );
+        crate::test_support::write_ready_executable(&fake, &script);
+        let core = Core::at(fake);
+        let first = Plan {
+            key: FinalsKey {
+                sender: "owner".into(),
+                agent: "agent".into(),
+            },
+            squad: "product".into(),
+            finals: true,
+            sent: true,
+            messages: Vec::new(),
+            pane: None,
+            held_timeline: None,
+            kept_supported: None,
+        };
+        let p1 = first.read(&core, &mut SentTexts::default(), &Cancellation::default());
+        assert_eq!(p1.kept_supported, Some(true));
+        assert!(p1.kept.is_some());
+
+        let second = Plan {
+            kept_supported: Some(true),
+            ..first
+        };
+        let p2 = second.read(&core, &mut SentTexts::default(), &Cancellation::default());
+        assert_eq!(p2.kept_supported, None);
+        assert!(p2.kept.is_some());
+
+        let ops: Vec<_> = std::fs::read_to_string(&calls)
+            .unwrap()
+            .lines()
+            .map(|line| {
+                serde_json::from_str::<Value>(line).unwrap()["operation"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(
+            ops.iter()
+                .filter(|op| op.as_str() == "capabilities")
+                .count(),
+            1
+        );
+        assert_eq!(
+            ops.iter()
+                .filter(|op| op.as_str() == "keptReplies.list")
+                .count(),
+            2
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

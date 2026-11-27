@@ -463,6 +463,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("T", "pane-talk"),
             ("M", "pane-measure"),
             ("ctrl-g", "member-back"),
+            ("ctrl-t", "keep-reply"),
         ]
     } else {
         vec![
@@ -513,6 +514,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         OpsKeyScope::Member => entries.extend([
             ("r", "rename"),
             ("enter", "talk"),
+            ("ctrl-t", "keep-reply"),
             ("z", "jump"),
             ("o", "open"),
             ("x", "remove-member"),

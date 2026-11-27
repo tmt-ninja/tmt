@@ -27,12 +27,14 @@ static EMPTY_QUOTES: BTreeMap<u64, QuoteSource> = BTreeMap::new();
 pub(super) struct Draft {
     text: Editor,
     inline_quotes: BTreeMap<u64, QuoteSource>,
+    keep_reply: bool,
 }
 pub(super) struct Projection<'a> {
     pub key: Option<DraftKey>,
     pub recipient: &'a str,
     pub text: Option<&'a Editor>,
     pub inline_quotes: &'a BTreeMap<u64, QuoteSource>,
+    pub keep_reply: bool,
     pub focused: bool,
 }
 #[derive(Clone)]
@@ -59,6 +61,7 @@ impl Draft {
         Self {
             text: input.text.clone(),
             inline_quotes: input.inline_quotes.clone(),
+            keep_reply: input.keep_reply,
         }
     }
 }
@@ -159,6 +162,17 @@ impl App {
                 && !self.bindings().contains_key("ctrl-l")
                 && self.conversation_checklist_key().is_some(),
             checklist_reference: projection.focused && self.checklist_reference_key().is_some(),
+            keep_reply: projection.keep_reply,
+            keep_reply_key: if projection.focused
+                && self.keep_reply_capable()
+                && self.input.as_ref().is_some_and(|input| {
+                    matches!(input.compose, Compose::Talk { .. })
+                        && shell_prefix(input.text.as_str()).is_none()
+                }) {
+                self.composer_keep_reply_key()
+            } else {
+                None
+            },
             unread: (!member_header)
                 .then(|| identity.map_or_else(Default::default, |id| self.unread_count(id))),
             open: row
@@ -317,6 +331,7 @@ impl App {
                 recipient,
                 text: Some(&input.text),
                 inline_quotes: &input.inline_quotes,
+                keep_reply: input.keep_reply,
                 focused: true,
             });
         }
@@ -333,6 +348,7 @@ impl App {
             recipient: row["name"].as_str()?,
             text: draft.map(|draft| &draft.text),
             inline_quotes: draft.map_or(&EMPTY_QUOTES, |draft| &draft.inline_quotes),
+            keep_reply: draft.is_some_and(|draft| draft.keep_reply),
             focused: false,
         })
     }
@@ -344,7 +360,7 @@ impl App {
         if let Some(input) = self.input.as_ref()
             && let Some(key) = input.draft_key.clone()
         {
-            if input.text.is_empty() {
+            if input.text.is_empty() && !input.keep_reply {
                 self.composer.drafts.remove(&key);
             } else {
                 self.composer.drafts.insert(key, Draft::from_input(input));
@@ -357,10 +373,14 @@ impl App {
             .as_ref()
             .and_then(|input| input.draft_key.clone());
         if let Some(text) = key.and_then(|key| self.composer.drafts.get(&key))
-            && let Some(input) = self.input.as_mut().filter(|input| input.text.is_empty())
+            && let Some(input) = self
+                .input
+                .as_mut()
+                .filter(|input| input.text.is_empty() && !input.keep_reply)
         {
             input.text = text.text.clone();
             input.inline_quotes = text.inline_quotes.clone();
+            input.keep_reply = text.keep_reply;
         }
     }
     pub(super) fn sending_draft(&mut self, input: &Input) {
@@ -376,13 +396,14 @@ impl App {
                     self.composer.drafts.remove(&key);
                 }
             } else {
-                if let Some(input) = self
-                    .input
-                    .as_mut()
-                    .filter(|input| input.draft_key.as_ref() == Some(&key) && input.text.is_empty())
-                {
+                if let Some(input) = self.input.as_mut().filter(|input| {
+                    input.draft_key.as_ref() == Some(&key)
+                        && input.text.is_empty()
+                        && !input.keep_reply
+                }) {
                     input.text = sent.text.clone();
                     input.inline_quotes = sent.inline_quotes.clone();
+                    input.keep_reply = sent.keep_reply;
                 }
                 self.composer.drafts.entry(key).or_insert(sent);
             }

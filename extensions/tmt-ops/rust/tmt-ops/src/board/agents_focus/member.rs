@@ -57,6 +57,18 @@ pub(super) fn render_header(
         );
     let count = app.unread_target(target);
     let mut unread = state_cell::unread(count, look).unwrap_or_else(|| neutral("○ 0 unread", look));
+    let kept_count = if app.kept_replies.member_id.as_deref() == Some(identity_id.as_str()) {
+        app.kept_replies.items.len()
+    } else {
+        0
+    };
+    let mut status = status;
+    if kept_count > 0 {
+        status.spans.push(Span::styled(
+            format!(" · ⚑ {kept_count} kept"),
+            look.role(Role::Accent),
+        ));
+    }
     let name = super::super::notes::single_line(name);
     let scope_name = squad.map_or_else(
         || "COMMON POOL".to_owned(),
@@ -163,7 +175,6 @@ pub(super) fn render_header(
         unread = Line::default();
         right = status.width();
     }
-    let mut status = status;
     if min_identity + SIDE_GAP + right > width {
         status.spans.truncate(1);
         right = status.width();

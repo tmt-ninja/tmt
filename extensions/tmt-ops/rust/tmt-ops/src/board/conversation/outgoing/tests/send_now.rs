@@ -60,6 +60,7 @@ fn sent(request: &str, at_ms: u64, can_send_now: bool) -> Sent {
         message_state_label: Some(HELD.into()),
         can_send_now,
         working: false,
+        keep_reply: None,
     }
 }
 

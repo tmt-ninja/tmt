@@ -2252,6 +2252,7 @@ fn notes_sources_follow_message_ids_not_equal_text_and_keep_pane_observations_di
             message_state_label: None,
             can_send_now: false,
             working: false,
+            keep_reply: None,
         }],
         pane_output: Observation::observed(vec![Item {
             response_id: None,

@@ -1593,6 +1593,7 @@ fn late_capture_bytes_are_bounded_even_when_delivery_label_is_unchanged() {
                 sequence: index as u64,
                 text: "x".repeat(crate::board::app::MESSAGE_LIMIT),
                 squad: "product".into(),
+                keep_reply: false,
             },
             started_ms: 1,
             lead_in: None,
@@ -1629,6 +1630,7 @@ fn late_capture_bytes_are_bounded_even_when_delivery_label_is_unchanged() {
         message_state_label: None,
         can_send_now: false,
         working: false,
+        keep_reply: None,
     }];
     session.observe_captures();
     assert!(session.outgoing_bytes() <= MAX_BYTES);
@@ -1652,6 +1654,7 @@ fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
                 sequence,
                 text: format!("message {sequence}"),
                 squad: "product".into(),
+                keep_reply: false,
             },
             started_ms: sequence,
             outcome: None,
@@ -2141,6 +2144,7 @@ fn a_restored_send_is_dropped_once_a_live_entry_has_the_same_request() {
         message_state_label: None,
         can_send_now: false,
         working: false,
+        keep_reply: None,
     };
     session.sent = vec![sent("req-live"), sent("req-old")];
     let restored: Vec<_> = session.restored_sends().map(|send| &send.request).collect();
