@@ -567,6 +567,7 @@ pub trait RequestRecords {
         checklist: &digest::DigestChecklist,
         state: digest::DigestState,
         now_ms: u64,
+        message_started: bool,
     ) -> Result<(), Self::Error>;
     fn digest_history(
         &self,
@@ -753,9 +754,18 @@ pub trait RequestRecords {
         now_ms: u64,
         limit: u64,
     ) -> Result<RequestIdMatches, Self::Error>;
-    fn wake_state(&self, request_id: &str) -> Result<Option<WakeState>, Self::Error>;
-    fn claim_wake(&mut self, request_id: &str) -> Result<bool, Self::Error>;
-    fn settle_wake(&mut self, request_id: &str, state: WakeState) -> Result<bool, Self::Error>;
+    fn wake_state(&self, request_id: &str, now_ms: u64) -> Result<Option<WakeState>, Self::Error>;
+    fn claim_wake(
+        &mut self,
+        request_id: &str,
+        receipt_deadline_ms: Option<u64>,
+    ) -> Result<bool, Self::Error>;
+    fn settle_wake(
+        &mut self,
+        request_id: &str,
+        state: WakeState,
+        now_ms: u64,
+    ) -> Result<bool, Self::Error>;
     fn find_context(&self, request_id: &str) -> Result<Option<RawRequestContext>, Self::Error>;
     fn find_response(&self, request_id: &str) -> Result<Option<FinalResponse>, Self::Error>;
     fn find_active_request(&self, route: &RequestRoute) -> Result<Option<String>, Self::Error>;

@@ -27,7 +27,7 @@ restores that choice. `--no-channel` remains accepted and remembers plain delive
 A still-running channel session must end before another launch for that identity;
 dead prior enrollment records need no manual cleanup for paste resume.
 
-With the setting on, fresh launches use the driver's channel default: Codex and Claude remain opt-in.
+With the setting on, fresh launches use the driver's channel default: Codex, Claude and Pi remain opt-in.
 An admitted fresh launch remembers its channel/plain choice. Exact resume
 reuses it; explicit `--channel`/`--no-channel` on resume updates the remembered
 choice after successful admission. Opt in once with `tmt resume --channel <name>`;
@@ -43,6 +43,14 @@ pane after a refused or uncertain channel outcome. Codex owns an extra private
 app-server and supervisor per enrolled foreground, cleaned on exit and Ctrl-C.
 Folder trust is answered by the user in Codex's TUI; accepted queued input may
 wait for attachment. Enrollment never changes global provider config, auth or hooks.
+
+For an interactive Pi 1.6.1 session, use `tmt run --channel <name> pi`.
+An idle Pi starts the request immediately. During a running turn, ordinary talks
+use Pi's follow-up queue and `tmt talk --urgent` uses steering. The request
+stays queued until Pi starts that exact user message. If the deadline passes,
+inspect the retained request and wait for its receipt-bound reply. Resending can
+duplicate work. Use `tmt run --no-channel <name> pi` for ordinary guarded paste.
+See the [Pi channel contract](https://github.com/tmt-ninja/tmt/blob/main/contracts/pi-channel-v1.md).
 
 TMT options, including `-s`/`--save` and `--resume`, go before the name; every
 argument after it belongs to the command, without requiring a `--` separator.

@@ -179,6 +179,7 @@ function expectNativeSchema(
     },
     { version: 96, name: 'admit PerLaunch runtimes (pi) in retained finals' },
     { version: 97, name: 'retain standalone terminal command results' },
+    { version: 98, name: 'bound channel receipt evidence to its attempt deadline' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -661,6 +662,7 @@ function expectNativeSchema(
       remote_sender_name: null,
       // Schema 93: only a thread reply names its root.
       thread_root_request_id: null,
+      receipt_deadline_ms: null,
     }))
   );
   expect(newAttempts.columns.map(({ name }) => name)).toContain('route_kind');
@@ -675,6 +677,7 @@ function expectNativeSchema(
     ['remote_target_name', 'TEXT'],
     ['remote_sender_name', 'TEXT'],
     ['thread_root_request_id', 'TEXT'],
+    ['receipt_deadline_ms', 'INTEGER'],
   ]) {
     expect(newAttempts.columns.find((column) => column.name === name)).toMatchObject({
       name,

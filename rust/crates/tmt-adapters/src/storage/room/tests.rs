@@ -374,7 +374,7 @@ fn a_roster_post_reaches_only_the_addressed_members() {
     );
     // The live and Digest delivery frames the line with the message as one untrusted body:
     // the same frame, one reply block, the exact message after the line.
-    let delivered = crate::digest::live_request_text_at(&mut storage, &first_id, || 3000)
+    let (_, delivered) = crate::digest::live_request_text_at(&mut storage, &first_id, || 3000)
         .unwrap()
         .unwrap();
     assert!(delivered.starts_with(&format!("{line}\nOn it.\n\n<tmt-reply from=")));

@@ -91,7 +91,7 @@ const LOCK_POLL: Duration = Duration::from_millis(10);
 /// A process identity as stored in the record.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Process {
+pub(crate) struct Process {
     pub pid: u64,
     pub start: String,
 }
@@ -104,7 +104,7 @@ impl Process {
         }
     }
 
-    fn incarnation(&self) -> Option<ProcessIncarnation> {
+    pub(crate) fn incarnation(&self) -> Option<ProcessIncarnation> {
         ProcessIncarnation::new(self.pid, &self.start).ok()
     }
 }
@@ -116,7 +116,7 @@ impl Process {
 /// observation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub(super) struct Record {
+pub(crate) struct Record {
     pub version: u8,
     pub binding_id: String,
     /// The identity the launch ran as, persisted before spawn. Absent only in a
@@ -141,7 +141,7 @@ pub(super) struct Record {
 /// it and the pane's process, so a reused pane ID on another server never matches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub(super) struct PaneRecord {
+pub(crate) struct PaneRecord {
     pub host: String,
     pub server_id: String,
     pub socket_path: String,
@@ -172,7 +172,7 @@ impl PaneRecord {
         })
     }
 
-    fn is(&self, pane: &PaneAddress<'_>) -> bool {
+    pub(crate) fn is(&self, pane: &PaneAddress<'_>) -> bool {
         Self::of(pane).as_ref() == Some(self)
     }
 }
@@ -199,11 +199,11 @@ fn record_path(directory: &Path, binding_id: &str) -> PathBuf {
     directory.join(format!("{binding_id}.json"))
 }
 
-fn socket_path(directory: &Path, binding_id: &str) -> PathBuf {
+pub(crate) fn socket_path(directory: &Path, binding_id: &str) -> PathBuf {
     directory.join(format!("{binding_id}.sock"))
 }
 
-fn socket_fits(directory: &Path, binding_id: &str) -> bool {
+pub(crate) fn socket_fits(directory: &Path, binding_id: &str) -> bool {
     socket_path(directory, binding_id).as_os_str().len() <= SOCKET_PATH_LIMIT
 }
 
@@ -269,44 +269,8 @@ impl RuntimeChannel for ClaudeChannel {
                 "it already passes --dangerously-load-development-channels",
             ));
         }
-        if !socket_fits(plan.directory, plan.binding_id) {
-            return Err(ChannelError::PathTooLong);
-        }
-        let Some(pane) = PaneRecord::of(&plan.pane) else {
-            return Err(ChannelError::Unattributed);
-        };
-        ensure_private_directory(plan.directory).map_err(|_| ChannelError::Enrollment)?;
-        let owner = Process::of(plan.owner);
-        // A fresh generation per launch tells a relaunched server from a stale one.
-        let generation = uuid::Uuid::new_v4().to_string();
-        locked(plan.directory, || {
-            // The newest launch of a binding replaces an earlier enrollment only
-            // when that one is positively over (see `may_take_over`), or it is this
-            // very launch. Anything alive, different or unverifiable stays
-            // untouched and refuses this launch.
-            match read_record(plan.directory, plan.binding_id) {
-                Ok(None) => {}
-                Ok(Some(old)) if old.launch_owner == owner => {}
-                Ok(Some(old)) if may_take_over(&old, &pane) => {}
-                Ok(Some(_)) | Err(_) => return Err(ChannelError::Occupied),
-            }
-            prune_ended(plan.directory, plan.binding_id);
-            write_record(
-                plan.directory,
-                &Record {
-                    version: RECORD_VERSION,
-                    binding_id: plan.binding_id.to_owned(),
-                    identity_id: Some(plan.identity_id.to_owned()),
-                    generation: generation.clone(),
-                    launch_owner: owner.clone(),
-                    pane: Some(pane.clone()),
-                    foreground: None,
-                    claude: None,
-                },
-            )
-            .map_err(|_| ChannelError::Enrollment)
-        })
-        .map_err(|_| ChannelError::Enrollment)??;
+        let mut lease = acquire_lease(plan)?;
+        let generation = &lease.generation;
         let config = serde_json::json!({
             "mcpServers": {
                 SERVER_NAME: {
@@ -328,13 +292,8 @@ impl RuntimeChannel for ClaudeChannel {
             CHANNEL_FLAG.into(),
             format!("server:{SERVER_NAME}").into(),
         ]);
-        Ok(Box::new(Lease {
-            command,
-            directory: plan.directory.to_owned(),
-            binding_id: plan.binding_id.to_owned(),
-            generation,
-            owner,
-        }))
+        lease.command = command;
+        Ok(Box::new(lease))
     }
 
     fn enrolled(&self, directory: &Path, binding_id: &str) -> Result<bool, ChannelFault> {
@@ -467,11 +426,61 @@ fn check_provider(
 
 /// One launch's enrollment: it knows exactly which record it wrote, and only
 /// ever removes that one.
-struct Lease {
-    command: RuntimeCommand,
+pub(crate) fn acquire_lease(plan: &ChannelPlan<'_>) -> Result<Lease, ChannelError> {
+    if !socket_fits(plan.directory, plan.binding_id) {
+        return Err(ChannelError::PathTooLong);
+    }
+    let Some(pane) = PaneRecord::of(&plan.pane) else {
+        return Err(ChannelError::Unattributed);
+    };
+    ensure_private_directory(plan.directory).map_err(|_| ChannelError::Enrollment)?;
+    let owner = Process::of(plan.owner);
+    // A fresh generation per launch tells a relaunched server from a stale one.
+    let generation = uuid::Uuid::new_v4().to_string();
+    locked(plan.directory, || {
+        // The newest launch of a binding replaces an earlier enrollment only
+        // when that one is positively over (see `may_take_over`), or it is this
+        // very launch. Anything alive, different or unverifiable stays
+        // untouched and refuses this launch.
+        match read_record(plan.directory, plan.binding_id) {
+            Ok(None) => {}
+            Ok(Some(old)) if old.launch_owner == owner => {}
+            Ok(Some(old)) if may_take_over(&old, &pane) => {}
+            Ok(Some(_)) | Err(_) => return Err(ChannelError::Occupied),
+        }
+        prune_ended(plan.directory, plan.binding_id);
+        write_record(
+            plan.directory,
+            &Record {
+                version: RECORD_VERSION,
+                binding_id: plan.binding_id.to_owned(),
+                identity_id: Some(plan.identity_id.to_owned()),
+                generation: generation.clone(),
+                launch_owner: owner.clone(),
+                pane: Some(pane.clone()),
+                foreground: None,
+                claude: None,
+            },
+        )
+        .map_err(|_| ChannelError::Enrollment)
+    })
+    .map_err(|_| ChannelError::Enrollment)??;
+    Ok(Lease {
+        command: plan.command.clone(),
+        directory: plan.directory.to_owned(),
+        binding_id: plan.binding_id.to_owned(),
+        generation,
+        owner,
+        environment: Vec::new(),
+    })
+}
+
+pub(crate) struct Lease {
+    pub(crate) environment: Vec<(OsString, OsString)>,
+    pub(crate) command: RuntimeCommand,
     directory: PathBuf,
     binding_id: String,
-    generation: String,
+    pub(crate) generation: String,
     owner: Process,
 }
 
@@ -481,7 +490,7 @@ impl ChannelEnrollment for Lease {
     }
 
     fn environment(&self) -> &[(OsString, OsString)] {
-        &[]
+        &self.environment
     }
 
     /// Records the spawned foreground in this launch's enrollment, under the
@@ -901,7 +910,7 @@ fn prune_ended(directory: &Path, keep: &str) {
 }
 
 /// Whether the process is the recorded incarnation, observed within a bound.
-fn liveness(process: &ProcessIncarnation) -> RuntimeLiveness {
+pub(crate) fn liveness(process: &ProcessIncarnation) -> RuntimeLiveness {
     match observe_runtime_process(
         &UnixCommandRunner,
         process.pid(),
@@ -1014,7 +1023,7 @@ pub(super) fn remaining(deadline: Instant) -> io::Result<Duration> {
     }
 }
 
-pub(super) fn write_until(
+pub(crate) fn write_until(
     stream: &mut UnixStream,
     mut bytes: &[u8],
     deadline: Instant,
@@ -1033,7 +1042,7 @@ pub(super) fn write_until(
 
 /// One line (newline included), at most `limit` bytes, read before the deadline.
 /// The end of the stream also ends the line, so one cut short is judged as it is.
-pub(super) fn read_line_until(
+pub(crate) fn read_line_until(
     stream: &mut UnixStream,
     deadline: Instant,
     limit: u64,
@@ -1082,7 +1091,10 @@ pub(super) fn read_line_until(
 
 /// `Ok(None)` means no record exists (not opted in); an unreadable or invalid
 /// one is an error, never a reason to assume the session did not opt in.
-fn read_record(directory: &Path, binding_id: &str) -> Result<Option<Record>, ChannelFault> {
+pub(crate) fn read_record(
+    directory: &Path,
+    binding_id: &str,
+) -> Result<Option<Record>, ChannelFault> {
     // One no-follow open, then checks on the opened file: a record removed or
     // replaced between a separate check and the open is absent or the new
     // record, never an invalid one (#5500).

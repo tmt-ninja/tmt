@@ -69,6 +69,7 @@ pub enum Delivery {
 /// One delivery attempt: its outcome and what the attempt noticed on the way.
 pub struct Attempt {
     pub delivery: Delivery,
+    pub message_started: bool,
     /// Channel records no driver could attribute to any pane, found while checking
     /// the pane before a baseline paste. They blocked nothing; the caller names them.
     pub unattributed: Vec<PathBuf>,
@@ -78,6 +79,7 @@ impl From<Delivery> for Attempt {
     fn from(delivery: Delivery) -> Self {
         Self {
             delivery,
+            message_started: false,
             unattributed: Vec::new(),
         }
     }
@@ -161,7 +163,15 @@ fn deliver_text(
         .wake_recipient_is_eligible(request_id, recipient_id)
         .unwrap_or(false);
     let state = if eligible {
-        send(storage, recipient_id, text, delay)
+        let content = if is_request {
+            Messages::Passthrough(text)
+        } else {
+            Messages::Single {
+                registered: text,
+                host: text,
+            }
+        };
+        send_messages(storage, recipient_id, None, content, delay)
             .map(|attempt| attempt.delivery.wake_state())
             .unwrap_or(WakeState::Unavailable)
     } else {
@@ -200,7 +210,9 @@ pub fn deliver_released(
     delay: Duration,
 ) -> Result<Released, RequestError<StorageError>> {
     use crate::request_runtime::wall_time_ms;
-    let claim = RequestService::new(&mut *storage, wall_time_ms).claim_wake(request_id)?;
+    let window = receipt_window(storage, recipient_id).map_err(RequestError::Repository)?;
+    let claim = RequestService::new(&mut *storage, wall_time_ms)
+        .claim_wake_until(request_id, window.as_ref().map(|w| w.deadline_ms))?;
     if !claim.claimed {
         return Ok(Released::NotClaimed(claim.state));
     }
@@ -211,14 +223,22 @@ pub fn deliver_released(
     } else {
         None
     };
-    let Some(text) = text else {
+    let Some((attempt, text)) = text else {
         RequestService::new(&mut *storage, wall_time_ms)
             .settle_request_delivery(request_id, WakeState::Unavailable)?;
         return Ok(Released::Closed);
     };
-    let delivery = send(storage, recipient_id, &text, delay)
-        .map_err(RequestError::Repository)?
-        .delivery;
+    let delivery = send_request(
+        storage,
+        recipient_id,
+        &text,
+        &attempt,
+        true,
+        window.as_ref(),
+        delay,
+    )
+    .map_err(RequestError::Repository)?
+    .delivery;
     RequestService::new(&mut *storage, wall_time_ms)
         .settle_request_delivery(request_id, delivery.wake_state())?;
     Ok(Released::Typed(delivery))
@@ -369,9 +389,64 @@ pub fn send(
         storage,
         identity,
         None,
-        Messages::Single {
-            registered: message,
-            host: message,
+        Messages::Passthrough(message),
+        delay,
+    )
+}
+
+/// Reserve a receipt window only for an enrolled Pi binding. The driver
+/// requires this same deadline before it can submit a correlated request.
+pub struct ReceiptWindow {
+    harness: HarnessId,
+    binding: BindingEntry,
+    pub deadline_ms: u64,
+}
+
+pub fn receipt_window(
+    storage: &mut Storage,
+    identity: &str,
+) -> Result<Option<ReceiptWindow>, StorageError> {
+    let Some(entry) = current(storage, identity)? else {
+        return Ok(None);
+    };
+    if entry.binding.is_none() {
+        return Ok(None);
+    }
+    let Ok(paths) = crate::config::ConfigPaths::discover() else {
+        return Ok(None);
+    };
+    let directory = paths.channel_directory();
+    let registry = RuntimeRegistry::first_party();
+    Ok(registry.channels().find_map(|(harness, channel)| {
+        channel
+            .receipt_window(&directory, &entry)
+            .map(|duration| ReceiptWindow {
+                harness: harness.clone(),
+                binding: entry.clone(),
+                deadline_ms: crate::request_runtime::wall_time_ms()
+                    .saturating_add(duration.as_millis() as u64),
+            })
+    }))
+}
+
+pub fn send_request(
+    storage: &mut Storage,
+    identity: &str,
+    text: &str,
+    attempt: &str,
+    urgent: bool,
+    window: Option<&ReceiptWindow>,
+    delay: Duration,
+) -> Result<Attempt, StorageError> {
+    send_messages(
+        storage,
+        identity,
+        None,
+        Messages::Request {
+            text,
+            attempt,
+            urgent,
+            window,
         },
         delay,
     )
@@ -418,6 +493,18 @@ fn send_messages(
         Ok(harness) => harness,
         Err(fault) => return Ok(Delivery::ChannelUnavailable(fault.into()).into()),
     };
+    let requires_channel = if let Messages::Request {
+        window: Some(window),
+        ..
+    } = &messages
+    {
+        if window.binding != entry || harness.as_ref() != Some(&window.harness) {
+            return Ok(Delivery::ChannelUnavailable(ChannelFault::Mismatch.into()).into());
+        }
+        true
+    } else {
+        false
+    };
     let mut unattributed = Vec::new();
     let mut session = host.session().with_enter_delay(delay);
     let text = messages.rendered();
@@ -430,6 +517,11 @@ fn send_messages(
             Some(id) => messages.registered(&mut registry, id, &entry, &storage),
         },
         || {
+            if requires_channel {
+                return ActionResult::Failed(SendFailure::Denied(Delivery::ChannelUnavailable(
+                    ChannelFault::Inactive.into(),
+                )));
+            }
             // The baseline paste is the last resort for a session that never opted
             // in. A binding made after the pane's marker was lost has no record
             // under its own ID, so the drivers are asked whether an enrolled launch
@@ -477,6 +569,10 @@ fn send_messages(
             )
         },
     );
+    let message_started = matches!(
+        result,
+        ActionResult::Completed(DeliveryAcceptance::MessageStarted)
+    );
     let delivery = match result {
         ActionResult::Completed(DeliveryAcceptance::Unacknowledged) => Delivery::Unacknowledged,
         ActionResult::Completed(_) => Delivery::Sent,
@@ -490,6 +586,7 @@ fn send_messages(
     };
     Ok(Attempt {
         delivery,
+        message_started,
         unattributed,
     })
 }
@@ -537,6 +634,13 @@ struct NoticeAttempt<'a> {
 }
 
 enum Messages<'a> {
+    Passthrough(&'a str),
+    Request {
+        text: &'a str,
+        attempt: &'a str,
+        urgent: bool,
+        window: Option<&'a ReceiptWindow>,
+    },
     Digest {
         text: &'a str,
         expected: &'a BindingEntry,
@@ -553,7 +657,9 @@ enum Messages<'a> {
 impl Messages<'_> {
     fn rendered(&self) -> std::borrow::Cow<'_, str> {
         match self {
-            Self::Digest { text, .. } => std::borrow::Cow::Borrowed(text),
+            Self::Passthrough(text) | Self::Request { text, .. } | Self::Digest { text, .. } => {
+                std::borrow::Cow::Borrowed(text)
+            }
             Self::Single { host, .. } => std::borrow::Cow::Borrowed(host),
             Self::Notices(attempt) => std::borrow::Cow::Borrowed(&attempt.host_text),
         }
@@ -566,14 +672,35 @@ impl Messages<'_> {
         entry: &BindingEntry,
         storage: &std::cell::RefCell<&mut Storage>,
     ) -> Outcome {
-        let send = |registry: &mut RuntimeRegistry, text: &str| match registry
-            .send(harness, entry, text)
-        {
+        let outcome = |result| match result {
             ActionResult::Unsupported => ActionResult::Unsupported,
             ActionResult::Completed(value) => ActionResult::Completed(value),
             ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
         };
+        let send = |registry: &mut RuntimeRegistry, text: &str| {
+            outcome(registry.send_advisory(harness, entry, text))
+        };
         let attempt = match self {
+            Self::Passthrough(text) => return outcome(registry.send(harness, entry, text)),
+            Self::Request {
+                text,
+                attempt,
+                urgent,
+                window,
+            } => {
+                return match registry.send_request(
+                    harness,
+                    entry,
+                    text,
+                    attempt,
+                    *urgent,
+                    window.map(|w| w.deadline_ms),
+                ) {
+                    ActionResult::Completed(value) => ActionResult::Completed(value),
+                    ActionResult::Unsupported => ActionResult::Unsupported,
+                    ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
+                };
+            }
             Self::Digest { text, expected } => {
                 if entry != *expected
                     || current(&mut storage.borrow_mut(), &entry.identity.id)
@@ -687,7 +814,7 @@ impl Messages<'_> {
                     .as_ref()
                     == Some(*expected)
             }
-            Self::Single { .. } => true,
+            Self::Single { .. } | Self::Passthrough(_) | Self::Request { .. } => true,
             Self::Notices(attempt) => {
                 let claimed = match storage
                     .borrow_mut()

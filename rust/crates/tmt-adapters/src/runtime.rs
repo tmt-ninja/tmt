@@ -325,6 +325,43 @@ impl RuntimeRegistry {
         }
     }
 
+    pub fn send_advisory(
+        &mut self,
+        harness: &HarnessId,
+        target: &BindingEntry,
+        message: &str,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<RuntimeError>> {
+        match self
+            .registrations
+            .iter_mut()
+            .find(|entry| &entry.harness == harness)
+        {
+            Some(entry) => entry.driver.send_advisory(target, message),
+            None => ActionResult::Unsupported,
+        }
+    }
+
+    pub fn send_request(
+        &mut self,
+        harness: &HarnessId,
+        target: &BindingEntry,
+        message: &str,
+        attempt: &str,
+        urgent: bool,
+        deadline: Option<u64>,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<RuntimeError>> {
+        match self
+            .registrations
+            .iter_mut()
+            .find(|entry| &entry.harness == harness)
+        {
+            Some(entry) => entry
+                .driver
+                .send_request(target, message, attempt, urgent, deadline),
+            None => ActionResult::Unsupported,
+        }
+    }
+
     /// Relaunch resolves the registered bare executable through PATH, without
     /// replaying any previous arguments or executable path.
     pub fn relaunch(&self, harness: &HarnessId) -> Option<RuntimeCommand> {

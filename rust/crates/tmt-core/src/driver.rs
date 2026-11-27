@@ -51,6 +51,8 @@ pub enum InputState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryAcceptance {
+    /// The provider started the exact user message in this session.
+    MessageStarted,
     /// Submitted to the interface, not proof of model execution or a final reply.
     Submitted,
     /// Accepted by a provider queue, not yet necessarily submitted to its runtime.
@@ -162,6 +164,27 @@ pub trait Driver {
         _message: &str,
     ) -> ActionResult<DeliveryAcceptance, SendFailure<Self::Error>> {
         ActionResult::Unsupported
+    }
+
+    /// Send a notice or an entire checklist as one envelope.
+    fn send_advisory(
+        &mut self,
+        target: &Self::Target,
+        message: &str,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<Self::Error>> {
+        self.send(target, message)
+    }
+
+    /// Delivery of a correlated request. Other traffic continues through send.
+    fn send_request(
+        &mut self,
+        target: &Self::Target,
+        message: &str,
+        _attempt: &str,
+        _urgent: bool,
+        _deadline: Option<u64>,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<Self::Error>> {
+        self.send(target, message)
     }
 
     fn status(&mut self, _target: &Self::Target) -> ActionResult<InterfaceStatus, Self::Error> {

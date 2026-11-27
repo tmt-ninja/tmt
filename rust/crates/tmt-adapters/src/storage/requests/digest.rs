@@ -392,6 +392,7 @@ pub(super) fn settle(
     b: &DigestChecklist,
     state: DigestState,
     now: u64,
+    message_started: bool,
 ) -> Result<(), StorageError> {
     // The existing writer transaction serializes allocation with every Core change.
     // A delivered checklist waits on later evidence (#4858): `confirmed_at_ms` stays null until it
@@ -417,13 +418,13 @@ pub(super) fn settle(
     // it is confirmed here and never offered again at that turn's Stop (#5869).
     if state == DigestState::Delivered
         && b.projection == DigestProjection::Full
-        && super::delivery::folds_typed_text_now(db, &b.identity_id)?
+        && (message_started || super::delivery::folds_typed_text_now(db, &b.identity_id)?)
     {
         let carried = db
             .execute(
-                "UPDATE focus_checklists SET confirmed_at_ms=?2 WHERE id=?1 AND opportunity='idle'
+                "UPDATE focus_checklists SET confirmed_at_ms=?2 WHERE id=?1 AND (?3 OR opportunity='idle')
                  AND confirmed_at_ms IS NULL",
-                params![b.id, checked_now(now, "Digest carried clock")?],
+                params![b.id, checked_now(now, "Digest carried clock")?,message_started],
             )
             .map_err(|e| classify(e, "Confirm a carried digest checklist"))?;
         if carried == 1 {

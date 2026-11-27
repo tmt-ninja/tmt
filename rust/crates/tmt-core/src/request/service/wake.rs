@@ -4,6 +4,14 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     /// Claim exactly one advisory wake while leaving the inbox request queued.
     /// A retained claim is an unknown outcome after process loss, never a retry lease.
     pub fn claim_wake(&mut self, request_id: &str) -> Result<WakeClaim, RequestError<R::Error>> {
+        self.claim_wake_until(request_id, None)
+    }
+
+    pub fn claim_wake_until(
+        &mut self,
+        request_id: &str,
+        receipt_deadline_ms: Option<u64>,
+    ) -> Result<WakeClaim, RequestError<R::Error>> {
         nonempty(request_id)?;
         let clock = &self.clock;
         self.repository.with_request_transaction(|records| {
@@ -11,7 +19,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 .find_request(request_id)?
                 .ok_or(RequestError::NotFound)?;
             let state = records
-                .wake_state(request_id)?
+                .wake_state(request_id, positive(clock())?)?
                 .ok_or(RequestError::NotFound)?;
             if state != WakeState::NotAttempted {
                 return Ok(WakeClaim {
@@ -62,7 +70,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     digest_until_ms,
                 });
             }
-            if !records.claim_wake(request_id)? {
+            if !records.claim_wake(request_id, receipt_deadline_ms)? {
                 return Err(RequestError::StateInvalid);
             }
             let eligible = attempt.response_submitted_at_ms.is_none()
@@ -72,7 +80,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     None => true,
                 };
             if !eligible {
-                if !records.settle_wake(request_id, WakeState::Unavailable)? {
+                if !records.settle_wake(request_id, WakeState::Unavailable, now)? {
                     return Err(RequestError::StateInvalid);
                 }
                 refund_unsent_preamble(records, &attempt, positive(clock())?)?;
@@ -98,6 +106,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     ) -> Result<bool, RequestError<R::Error>> {
         nonempty(request_id)?;
         nonempty(recipient_id)?;
+        let clock = &self.clock;
         self.repository.with_request_observation(|records| {
             let Some(attempt) = records.find_request(request_id)? else {
                 return Ok(false);
@@ -105,7 +114,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             if attempt.kind != RequestKind::Request
                 || attempt.status != AttemptStatus::Queued
                 || attempt.response_submitted_at_ms.is_some()
-                || records.wake_state(request_id)? != Some(WakeState::Claimed)
+                || records.wake_state(request_id, positive(clock())?)? != Some(WakeState::Claimed)
                 || !matches!(&attempt.route, RequestRoute::Inbox { recipient_identity_id } if recipient_identity_id == recipient_id)
                 || !records.identity_is_active(recipient_id)?
             {
@@ -130,8 +139,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         ) {
             return Err(RequestError::StateInvalid);
         }
+        let clock = &self.clock;
         self.repository.with_request_transaction(|records| {
-            if records.settle_wake(request_id, state)? {
+            if records.settle_wake(request_id, state, positive(clock())?)? {
                 Ok(())
             } else {
                 Err(RequestError::StateInvalid)
@@ -164,7 +174,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             else {
                 return Err(RequestError::StateInvalid);
             };
-            if !records.settle_wake(request_id, state)? {
+            if !records.settle_wake(request_id, state, positive(clock())?)? {
                 return Err(RequestError::StateInvalid);
             }
             if state == WakeState::Sent {

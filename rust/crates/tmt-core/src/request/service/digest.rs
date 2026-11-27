@@ -131,7 +131,7 @@ fn reap_stranded_claim<E>(
         return Ok(false);
     };
     if stale.projection != digest::DigestProjection::Full {
-        records.settle_digest_checklist(&stale, DigestState::Uncertain, now)?;
+        records.settle_digest_checklist(&stale, DigestState::Uncertain, now, false)?;
         summary::settled_marker(records, &stale, now)?;
         return Ok(true);
     }
@@ -603,7 +603,20 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         token: &str,
         state: DigestState,
     ) -> Result<bool, RequestError<R::Error>> {
-        if state == DigestState::Claimed {
+        self.settle_digest_handoff(identity, id, token, state, false)
+    }
+
+    /// Exact provider message-start evidence confirms the sealed envelope in
+    /// the same transaction as handoff. Its members still need their own replies.
+    pub fn settle_digest_handoff(
+        &mut self,
+        identity: &str,
+        id: &str,
+        token: &str,
+        state: DigestState,
+        message_started: bool,
+    ) -> Result<bool, RequestError<R::Error>> {
+        if state == DigestState::Claimed || (message_started && state != DigestState::Delivered) {
             return Err(digest_error(DigestRejection::Invalid));
         }
         let clock = &self.clock;
@@ -627,7 +640,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             {
                 return Err(RequestError::RevisionExhausted);
             }
-            records.settle_digest_checklist(&batch, state, now)?;
+            records.settle_digest_checklist(&batch, state, now, message_started)?;
             if batch.projection != digest::DigestProjection::Full {
                 summary::settled_marker(records, &batch, now)?;
             }

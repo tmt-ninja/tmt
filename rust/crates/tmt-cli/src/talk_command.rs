@@ -369,8 +369,19 @@ fn deliver(
         if prepared.wake
             && let Some(identity) = &correlation.identity
         {
+            let window = if input.options.passthrough {
+                None
+            } else {
+                crate::delivery::receipt_window(storage, &identity.id).map_err(|error| {
+                    correlation
+                        .state_error(tmt_core::request::RequestError::Repository(error), false)
+                })?
+            };
             let claim = RequestService::new(&mut *storage, wall_time_ms)
-                .claim_wake(&correlation.request_id)
+                .claim_wake_until(
+                    &correlation.request_id,
+                    window.as_ref().map(|w| w.deadline_ms),
+                )
                 .map_err(|error| correlation.state_error(error, false))?;
             if !claim.claimed {
                 correlation.inbox = true;
@@ -395,12 +406,20 @@ fn deliver(
             let outcome = if correlation.offline {
                 crate::delivery::Delivery::Offline
             } else if eligible {
-                let attempt = crate::delivery::send(
-                    storage,
-                    &identity.id,
-                    &prepared.payload,
-                    Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
-                )
+                let delay = Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0);
+                let attempt = if input.options.passthrough {
+                    crate::delivery::send(storage, &identity.id, &prepared.payload, delay)
+                } else {
+                    crate::delivery::send_request(
+                        storage,
+                        &identity.id,
+                        &prepared.payload,
+                        &prepared.attempt_id,
+                        input.options.urgent,
+                        window.as_ref(),
+                        delay,
+                    )
+                }
                 .map_err(|error| {
                     Failure::storage_access(
                         error,

@@ -149,7 +149,7 @@ pub(super) fn facts(
         status: attempt.status,
         inbox: matches!(attempt.route, RequestRoute::Inbox { .. }),
         wake: RequestRows(db, None, None, None)
-            .wake_state(&attempt.request_id)?
+            .wake_state(&attempt.request_id, now)?
             .unwrap_or(WakeState::NotAttempted),
         prepared_at_ms: attempt.prepared_at_ms,
         settled_at_ms: attempt.settled_at_ms,
