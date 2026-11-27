@@ -1661,8 +1661,11 @@ Core's last event, such as `? stale 4m ago`. With refresh off, rows go stale and
 stay stale until you refresh. A narrow cell can omit the age. Unread replies
 replace the activity words with `● N unread`, with only the glyph in the unread
 colour. The idle alert mark stays alongside the idle word when due. The Agents
-list omits the authored squad state suffix. The selected member detail retains
-it, and the squad Board section retains task, pending and next.
+list omits all authored state words, and the Talk/Measure header shows observed activity.
+`tmt ops sq set <member> state=…` still sets the state shown for the lead in squad
+detail, in the member's Measure STATE tile and in idle notices, with `hold`
+exempting idle alerts and `blocked` contributing to the `✗ N blocked` header count.
+The squad Board section shows task, pending and next.
 
 The working and idle counts use Core activity once per agent and count a stale
 agent as unknown. Each squad TEAM glyph shows Core activity (`?` when stale or
