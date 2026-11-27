@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { posix, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { isMinimumReleaseVersion } from './release-versions.mjs';
 import { e2eShardFiles } from './e2e-shards.mjs';
 import { runPackedCommand } from './packed-command.mjs';
@@ -538,6 +540,163 @@ export function selectColabHarness(paths, map = componentMap()) {
 // The app component suite renders the app in Chromium against its own dev server, so it
 // reads the app, the client and design system it imports, and the lockfile; it needs no
 // Rust. Native-fixture specs skip there; the PR-selected hosted job owns the served proof.
+// Keep the selector's lockfile reader here. The native verification image
+// copies this module for its Node-only component policy consumers.
+const PNPM_LOCKFILE = 'typescript/pnpm-lock.yaml';
+const COLAB_APP = '../extensions/tmt-colab/typescript/app';
+const INSTALL_EDGES = ['dependencies', 'devDependencies', 'optionalDependencies'];
+const PACKAGE_NAME = /^(?:@[\w.-]+\/)?[\w.-]+$/;
+const PACKAGE_ID = /^(?:@[\w.-]+\/)?[\w.-]+@\d+\.\d+\.\d+[\w.+-]*(?:\(|$)/;
+
+// The selector runs before the workspace install. Psych is part of the runner's
+// Ruby standard library. Read its syntax tree without evaluating YAML objects
+// or coercing scalar types. Preserve plain vs quoted scalars in the comparison.
+const PARSE_LOCKFILES = `
+def read_node(node)
+  raise 'unsupported YAML' if (node.respond_to?(:anchor) && node.anchor) ||
+    (node.respond_to?(:tag) && node.tag)
+  case node
+  when Psych::Nodes::Mapping
+    node.children.each_slice(2).each_with_object({}) do |(key, value), result|
+      name, plain = read_node(key)
+      if !name.is_a?(String) || name == '<<' || result.key?(name) ||
+          (plain && name.match?(/\\A(?:true|false|null|~|[+-]?\\d[\\d_.+-]*)\\z/i))
+        raise 'unsupported or duplicate key'
+      end
+      result[name] = read_node(value)
+    end
+  when Psych::Nodes::Scalar
+    [node.value, node.plain]
+  when Psych::Nodes::Sequence
+    node.children.map { |child| read_node(child) }
+  else
+    raise 'unsupported YAML node'
+  end
+end
+locks = JSON.parse(STDIN.read).map do |text|
+  stream = Psych.parse_stream(text)
+  raise 'expected one YAML document' unless stream.children.length == 1
+  document = stream.children.fetch(0)
+  raise 'unsupported YAML document directives' unless document.version.empty? && document.tag_directives.empty?
+  read_node(document.children.fetch(0))
+end
+puts JSON.generate(locks)
+`;
+
+function lockMapping(value) {
+  if (!record(value)) {
+    throw new Error('Expected a lockfile mapping.');
+  }
+  return value;
+}
+
+function entry(table, key) {
+  if (!Object.hasOwn(table, key)) throw new Error('Unresolved lockfile reference.');
+  return lockMapping(table[key]);
+}
+
+function dependencyEdges(node) {
+  return INSTALL_EDGES.flatMap((group) =>
+    Object.hasOwn(node, group) ? Object.entries(lockMapping(node[group])) : []
+  );
+}
+
+function scalar(value) {
+  if (!Array.isArray(value) || typeof value[0] !== 'string' || typeof value[1] !== 'boolean') {
+    throw new Error('Expected a lockfile scalar.');
+  }
+  return value[0];
+}
+
+function appClosure(lock) {
+  const { importers, packages, snapshots, ...global } = lockMapping(lock);
+  if (scalar(global.lockfileVersion) !== '9.0') throw new Error('Unsupported lockfile version.');
+  const imports = lockMapping(importers);
+  const metadata = lockMapping(packages);
+  const resolved = lockMapping(snapshots);
+  const closure = { global, importers: new Map(), packages: new Map(), snapshots: new Map() };
+
+  function visitPeer(binding) {
+    if (Object.hasOwn(resolved, binding)) {
+      visitSnapshot(binding);
+      return;
+    }
+    // pnpm also emits a base peer ID inside a nested context without a
+    // separate base snapshot. Keep every possible resolved variant in that case.
+    const variants = Object.keys(resolved).filter((key) => key.startsWith(`${binding}(`));
+    if (variants.length === 0) throw new Error('Unresolved peer binding.');
+    for (const variant of variants) visitSnapshot(variant);
+  }
+
+  function visitSnapshot(key) {
+    if (closure.snapshots.has(key)) return;
+    if (!PACKAGE_ID.test(key)) throw new Error('Unsupported package identifier.');
+    const node = entry(resolved, key);
+    closure.snapshots.set(key, node);
+    const base = key.split('(', 1)[0];
+    closure.packages.set(base, entry(metadata, base));
+    for (const [name, version] of dependencyEdges(node)) visitDependency(name, scalar(version));
+
+    // pnpm can encode transitive peer bindings in snapshot IDs without listing
+    // them as dependency edges of that snapshot. Retain those exact variants too.
+    const opens = [];
+    for (let index = base.length; index < key.length; index += 1) {
+      if (key[index] === '(') opens.push(index);
+      if (key[index] !== ')') continue;
+      const open = opens.pop();
+      if (open === undefined) throw new Error('Invalid peer binding.');
+      const binding = key.slice(open + 1, index);
+      if (!/^patch_hash=[a-f\d]+$/.test(binding)) visitPeer(binding);
+    }
+    if (opens.length !== 0) throw new Error('Invalid peer binding.');
+  }
+
+  function visitDependency(name, version, importer) {
+    if (!PACKAGE_NAME.test(name) || typeof version !== 'string') {
+      throw new Error('Invalid lockfile dependency.');
+    }
+    if (importer && /^link:\.{1,2}\//.test(version)) {
+      visitImporter(posix.join(importer, version.slice('link:'.length)));
+      return;
+    }
+    // An npm alias stores its resolved name in the reference.
+    visitSnapshot(PACKAGE_ID.test(version) ? version : `${name}@${version}`);
+  }
+
+  function visitImporter(name) {
+    if (closure.importers.has(name)) return;
+    const node = entry(imports, name);
+    closure.importers.set(name, node);
+    for (const [dep, ref] of dependencyEdges(node)) {
+      visitDependency(dep, scalar(lockMapping(ref).version), name);
+    }
+  }
+
+  visitImporter(COLAB_APP);
+  return closure;
+}
+
+/** A skip requires positive evidence that all supplied lockfiles resolve the same app closure. */
+export function colabAppLockfilesDiffer(...texts) {
+  try {
+    if (texts.length < 2 || texts.some((text) => !text || text.length > 2 * 1024 * 1024)) {
+      return true;
+    }
+    const parsed = spawnSync('ruby', ['-rpsych', '-rjson', '-e', PARSE_LOCKFILES], {
+      input: JSON.stringify(texts),
+      encoding: 'utf8',
+      timeout: 5_000,
+      killSignal: 'SIGKILL',
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    if (parsed.status !== 0 || parsed.error || parsed.stderr) return true;
+    const closures = JSON.parse(parsed.stdout).map(appClosure);
+    return closures.slice(1).some((current) => !isDeepStrictEqual(closures[0], current));
+  } catch {
+    return true;
+  }
+}
+
 const COLAB_APP_OWNERS = new Set(['colab-app', 'colab-client', 'browser-ui']);
 
 const COLAB_APP_ROOTS = [
@@ -549,16 +708,35 @@ const COLAB_APP_ROOTS = [
 const COLAB_APP_INPUTS = new Set([
   '.github/actions/install-chromium-deps/action.yml',
   '.github/workflows/colab-browser.yml',
-  'typescript/pnpm-lock.yaml',
+]);
+// Standalone TUI docs tests use their own Playwright entry. The embedded Design
+// route still consumes the catalog, oracle, styles and other docs sources.
+const STANDALONE_TUI_DOCS = new Set([
+  'design/browser-ui/docs/tui/README.md',
+  'design/browser-ui/docs/tui/browser.spec.ts',
+  'design/browser-ui/docs/tui/playwright.config.ts',
+]);
+const PNPM_RESOLUTION_INPUTS = new Set([
+  '.npmrc',
+  '.pnpmfile.cjs',
+  'typescript/.npmrc',
+  'typescript/.pnpmfile.cjs',
+  'typescript/pnpm-workspace.yaml',
 ]);
 
+function isColabAppInput(path, map) {
+  return (
+    COLAB_APP_INPUTS.has(path) ||
+    (COLAB_APP_OWNERS.has(ownerOf(path, map)) && COLAB_APP_ROOTS.some((root) => within(root, path)))
+  );
+}
+
 /** Empty/unknown diffs do not select advisory work; weekly/manual runs cover shared drift. */
-export function selectColabApp(paths, map = componentMap()) {
-  return paths.some(
-    (path) =>
-      COLAB_APP_INPUTS.has(path) ||
-      (COLAB_APP_OWNERS.has(ownerOf(path, map)) &&
-        COLAB_APP_ROOTS.some((root) => within(root, path)))
+export function selectColabApp(paths, map = componentMap(), lockfileAffectsApp = () => true) {
+  return (
+    paths.some((path) => !STANDALONE_TUI_DOCS.has(path) && isColabAppInput(path, map)) ||
+    (paths.includes(PNPM_LOCKFILE) &&
+      (paths.some((path) => PNPM_RESOLUTION_INPUTS.has(path)) || lockfileAffectsApp()))
   );
 }
 
@@ -607,7 +785,10 @@ const COLAB_CHROME_NATIVE_INPUTS = new Set([
 
 /** Empty/unknown diffs select nothing; main-full verification selects it unconditionally. */
 export function selectColabChrome(paths, map = componentMap()) {
-  return selectColabApp(paths, map) || paths.some((path) => COLAB_CHROME_NATIVE_INPUTS.has(path));
+  return paths.some(
+    (path) =>
+      path === PNPM_LOCKFILE || COLAB_CHROME_NATIVE_INPUTS.has(path) || isColabAppInput(path, map)
+  );
 }
 
 // The gallery is a developer-only consumer. Its input-graph guard in ci-scope.test.ts keeps
@@ -1157,6 +1338,21 @@ export function readChangedCiAreas(base, head, cwd) {
   return readChangedCiSelection(base, head, cwd).areas;
 }
 
+function colabAppLockfileAffectsSelection(base, head, cwd) {
+  try {
+    const mergeBase = runPackedCommand('git', ['merge-base', '--all', base, head], { cwd }).trim();
+    if (!/^[a-f0-9]{40}$/.test(mergeBase)) return true;
+    // The PR diff starts at the merge base, but the workflow builds against
+    // the actual event base. A relevant change on either side keeps the suite.
+    const lockfiles = [...new Set([mergeBase, base, head])].map((rev) =>
+      runPackedCommand('git', ['show', `${rev}:${PNPM_LOCKFILE}`], { cwd })
+    );
+    return colabAppLockfilesDiffer(...lockfiles);
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Standard output is the step's `$GITHUB_OUTPUT`, so it carries only the
  * selection outputs; the evidence table goes to standard error and the step summary.
@@ -1295,7 +1491,13 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
   selection ??= { paths: [], areas: selectCiAreas([]), nativeScope: selectNativeScope([]) };
   if (full) selection.areas = { native: true };
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
-  const colabApp = !queue && !seed && !full && selectColabApp(selection.paths);
+  const colabApp =
+    !queue &&
+    !seed &&
+    !full &&
+    selectColabApp(selection.paths, undefined, () =>
+      colabAppLockfileAffectsSelection(base, head, cwd)
+    );
   const colabHosted = !queue && !seed && !full && selectColabHosted(selection.paths);
   const colabHostedEmulator =
     !queue && !seed && !full && selectHostedReaderEmulator(selection.paths);
@@ -1326,7 +1528,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       ? `### CI selection\n\n${fallback ?? (mainFull ? 'Complete trusted-main verification.' : full ? 'Weekly/manual retained-product verification.' : 'Main cache seed.')}\n`
       : renderSelectionEvidence({ base, head, range, ...selection })) +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
-    `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
+    `\nColab app component suite PR selection (app, client, browser UI, workflow or relevant lockfile): ${colabApp}.\n` +
     `\nColab served/hosted PR selection (serve surface, Firebase pin/build config, hosting generator, hosted build or spec): ${colabHosted}.\n` +
     `\nColab cross-screen chrome spec selection (app suite inputs or native fallback chrome; required through Native package matrix): ${colabChrome}.\n` +
     `\nBrowser UI gallery audits selection (leaf, tokens or closed build inputs; required through Native package matrix): ${browserUi}.\n` +
