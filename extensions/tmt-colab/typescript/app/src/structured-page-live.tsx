@@ -5,6 +5,7 @@ import {
   restorable,
   type BlockDraftStore,
   type BlockDraft,
+  type DraftRecoveryIssue,
 } from './block-drafts.js';
 import { text as strings } from './strings.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -138,6 +139,18 @@ export function LiveStructuredPage({
     else if (!held) for (const waiter of waiting.current.splice(0)) waiter.fail();
   }, [write, held]);
   const [restored, setRestored] = useState<BlockDraft[]>([]);
+  const ownerRoot = recovery?.store.recoveryOwner?.();
+  const [offerScope, setOfferScope] = useState<{
+    recovery: BlockDraftSession;
+    ownerRoot?: string;
+    issues: DraftRecoveryIssue[];
+  }>();
+  const currentOffer =
+    !!offerScope && offerScope.recovery === recovery && offerScope.ownerRoot === ownerRoot;
+  const ownerRecoveryHeld = !!ownerRoot && !recovery?.store.canOpenOwnerDrafts?.();
+  const offeredGenerations = useRef<{ recovery: BlockDraftSession; key: string } | undefined>(
+    undefined,
+  );
   const [clearFailed, setClearFailed] = useState<ReadonlySet<string>>(new Set());
   /** Waits for this tab's typing and batches on their way to land or fail (set once the editing
    * hook below exists). */
@@ -150,12 +163,34 @@ export function LiveStructuredPage({
       void settled
         .current()
         .catch(() => {})
-        .then(() => (active() ? recovery.store.load(recovery.page) : []))
+        .then(async () => {
+          if (!active() || (ownerRoot && !recovery.store.canOpenOwnerDrafts?.())) return undefined;
+          return recovery.store.recover
+            ? recovery.store.recover(recovery.page)
+            : { drafts: await recovery.store.load(recovery.page), issues: [] };
+        })
         .then(
-          (entries) => {
-            if (!active()) return;
-            const offered = restorable(recovery.page, entries);
+          (result) => {
+            if (!active() || !result || recovery.store.recoveryOwner?.() !== ownerRoot) return;
+            if (ownerRoot && !recovery.store.canOpenOwnerDrafts?.()) return;
+            const offered = restorable(recovery.page, result.drafts);
+            setOfferScope((previous) => {
+              if (previous?.recovery !== recovery || previous.ownerRoot !== ownerRoot)
+                return { recovery, ownerRoot, issues: result.issues };
+              const known = new Set(previous.issues.map(({ id }) => id));
+              const added = result.issues.filter(({ id }) => !known.has(id));
+              return added.length
+                ? { ...previous, issues: [...previous.issues, ...added] }
+                : previous;
+            });
             setRestored(offered);
+            const key = JSON.stringify(offered.map(({ generation }) => generation).sort());
+            if (
+              offeredGenerations.current?.recovery === recovery &&
+              offeredGenerations.current.key === key
+            )
+              return;
+            offeredGenerations.current = { recovery, key };
             // What a reload offers, for a check that nothing landed comes back (#6749).
             window.dispatchEvent(
               new CustomEvent('colab:block-drafts-offered', { detail: { count: offered.length } }),
@@ -164,15 +199,20 @@ export function LiveStructuredPage({
           () => {},
         );
     },
-    [recovery],
+    [ownerRoot, recovery],
   );
   useEffect(() => {
     let active = true;
-    offer(() => active);
+    if (!recovery) offeredGenerations.current = undefined;
+    if (!ownerRecoveryHeld) offer(() => active);
     return () => {
       active = false;
     };
-  }, [offer]);
+  }, [offer, ownerRecoveryHeld, recovery]);
+  useEffect(() => {
+    if (!currentOffer || ownerRecoveryHeld || !recovery || !offerScope?.issues.length) return;
+    void recovery.store.markRecoveryIssuesSeen?.(recovery.page, offerScope.issues).catch(() => {});
+  }, [currentOffer, offerScope, ownerRecoveryHeld, recovery]);
   const send = useCallback(
     async (ops: BlockOp[], stored?: readonly StoredAttachment[]) => {
       if (!write && !held) throw new Error('Page editing unavailable');
@@ -309,6 +349,12 @@ export function LiveStructuredPage({
   }, [flush]);
   const dismiss = useCallback(
     async (draft: BlockDraft) => {
+      if (
+        !currentOffer ||
+        recovery?.store.recoveryOwner?.() !== ownerRoot ||
+        (ownerRoot && !recovery?.store.canOpenOwnerDrafts?.())
+      )
+        return;
       if (await recovery?.store.clear(recovery.page, draft)) {
         setRestored((entries) => entries.filter((e) => e !== draft));
         setClearFailed((previous) => {
@@ -321,7 +367,7 @@ export function LiveStructuredPage({
         setRecoveryError(strings.blockEdit.notApplied);
       }
     },
-    [recovery],
+    [currentOffer, ownerRoot, recovery],
   );
   const present = (draft: BlockDraft) => {
     if (!tree.holds(draft.id, draft.cell?.table)) return undefined;
@@ -330,7 +376,14 @@ export function LiveStructuredPage({
   };
   const busy = useRef(new Set<string>());
   const keep = async (draft: BlockDraft) => {
-    if (!editable || busy.current.has(draft.target)) return;
+    if (
+      !editable ||
+      !currentOffer ||
+      recovery?.store.recoveryOwner?.() !== ownerRoot ||
+      (ownerRoot && !recovery?.store.canOpenOwnerDrafts?.()) ||
+      busy.current.has(draft.target)
+    )
+      return;
     busy.current.add(draft.target);
     try {
       if (present(draft) !== draft.value) {
@@ -373,12 +426,13 @@ export function LiveStructuredPage({
   };
   const [recoveryError, setRecoveryError] = useState('');
   useEffect(() => {
+    if (!currentOffer) return;
     for (const draft of restored) {
       const block = records.find((b) => b.id === draft.id && !b.deleted);
       const shown = draft.cell ? block?.cells?.[draft.cell.column] : block?.text;
       if (block && heldByPage(draft, shown ?? '')) void dismiss(draft);
     }
-  }, [records, restored, dismiss]);
+  }, [currentOffer, records, restored, dismiss]);
   useEffect(() => {
     onDrawn?.(tree.flat());
   }, [tree, onDrawn]);
@@ -392,14 +446,25 @@ export function LiveStructuredPage({
       anchorBlock={anchor.startsWith('block-') ? anchor.slice(6) : anchor}
       tree={tree}
       recoveryError={recoveryError}
-      restored={restored.filter((d) => {
-        // The editor already offers it in its deleted block's place, or it has landed since.
-        if (drafts.has(d.id) || (pageId && !restorable(pageId, [d]).length)) return false;
-        const shown = present(d);
-        return clearFailed.has(d.target) || shown === undefined || !heldByPage(d, shown);
-      })}
+      recoveryProblems={
+        currentOffer ? [...new Set(offerScope?.issues.map(({ reason }) => reason))] : undefined
+      }
+      onDismissRecoveryProblems={() => {
+        setOfferScope((previous) => previous && { ...previous, issues: [] });
+      }}
+      restored={
+        currentOffer
+          ? restored.filter((d) => {
+              // The editor already offers it in its deleted block's place, or it has landed since.
+              if (drafts.has(d.id) || (pageId && !restorable(pageId, [d]).length)) return false;
+              const shown = present(d);
+              return clearFailed.has(d.target) || shown === undefined || !heldByPage(d, shown);
+            })
+          : []
+      }
       onRestore={keep}
       onForget={dismiss}
+      recoveryHeld={ownerRecoveryHeld}
       drafts={drafts}
       onDraftChange={changeDraft}
       onKeepDraft={keepDraft}

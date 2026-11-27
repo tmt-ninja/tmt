@@ -26,6 +26,7 @@ import { ThreadStatusSeen } from './thread-status-view.js';
 import { askTodoFrom, todoInsertOps } from './ask-todo.js';
 import type { PageAsk } from './ask-panel.js';
 import type { BlockEntry } from './blocks.js';
+import { ownerBlockDraftStore, type BlockDraftStore } from './block-drafts.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
 import { attachment, digest, encodeBinary, requireValue, text as bytesOf } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
@@ -126,6 +127,7 @@ export class Live implements PageBinding {
   readonly discussion: ThreadStore;
   readonly status: ThreadStatusCoordinator;
   readonly files: DocumentFiles;
+  readonly blockDrafts?: BlockDraftStore;
   #progressReads: ProgressReads;
   #answerRefs = '';
   #answerBindings?: [string, string, string | null, string | null][];
@@ -180,6 +182,22 @@ export class Live implements PageBinding {
     remote: RemoteClient | null = null,
     private sessionOwner?: LiveSessionOwner,
   ) {
+    if (sessionOwner && registration.remoteSession && registration.issuer) {
+      this.blockDrafts = ownerBlockDraftStore(bootstrap.space, registration.deviceId, () => {
+        const connection = this.#connection;
+        if (
+          this.#closed ||
+          this.#error ||
+          this.signal?.aborted ||
+          this.#opening?.pending ||
+          !connection?.active ||
+          !this.registration.remoteSession ||
+          !connection.admission.ownerDevice(this.registration.deviceId)
+        )
+          return undefined;
+        return { root: encodeBinary(connection.admission.owner), session: connection };
+      });
+    }
     this.#progressReads = new ProgressReads(
       async (signal) => {
         const includeBindings = this.#answerRefs !== '' && this.#answerRefs !== '[]';

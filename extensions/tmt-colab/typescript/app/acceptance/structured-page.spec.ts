@@ -4,7 +4,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import { recordBlocksResults } from './harness/blocks-results.js';
-import { freePort, openChat, run } from './harness/ask.js';
+import { freePort, openChat, pairedMachine, revokeMachine, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { until } from './harness/process.js';
 import { text } from '../src/strings.js';
@@ -59,6 +59,123 @@ test('open --block scrolls the loopback door to the exact heading and to-do', as
       await expect(target(block)).toBeInViewport();
       await expect(target(other)).not.toBeInViewport();
     }
+  });
+});
+
+test('a replacement owner pairing offers the old device’s kept typing without sending it', async () => {
+  test.setTimeout(240_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const original = await pairBrowser(world, 'draft-original');
+    const oldId = pairedMachine(world, original.name).clientId;
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const create = JSON.parse(
+      run(world, colab, ['page', 'create', '--title', 'Re-pair draft', '--no-open', '--json']),
+    ) as { pageId: string; path: string };
+    run(world, colab, ['share', 'mode', create.pageId, 'link', '--yes', '--json']);
+    const { readerPath } = JSON.parse(
+      run(world, colab, ['share', 'link', 'add', create.pageId, '--yes', '--json']),
+    ) as { readerPath: string };
+    const id = (
+      JSON.parse(
+        run(world, colab, [
+          'block',
+          'insert',
+          create.pageId,
+          '--type',
+          'paragraph',
+          '--text',
+          'Before',
+          '--json',
+        ]),
+      ) as { blockIds: string[] }
+    ).blockIds[0]!;
+    const savedText = () =>
+      (
+        JSON.parse(run(world, colab, ['block', 'get', create.pageId, id, '--json'])) as {
+          block: { base: string };
+        }
+      ).block.base;
+    const address = new URL(create.path, `${door.address}/`).href;
+    const selector = `[data-block-id="${id}"]`;
+    const page = await original.context.newPage();
+    await page.goto(address);
+    await expect(page.locator('.page-connection .status-label')).toHaveText('Live');
+    await restartColab(world, door, async () => {
+      await expect(page.locator('.page-attention[data-attention="reconnecting"]')).toBeVisible({
+        timeout: 30_000,
+      });
+      await page.evaluate((id) => {
+        window.addEventListener('colab:block-draft-durable', (event) => {
+          if ((event as CustomEvent<{ id: string }>).detail.id === id)
+            document.documentElement.dataset.testDraftKept = 'true';
+        });
+      }, id);
+      const block = page.locator(selector);
+      await block.click();
+      await block.locator('[contenteditable="true"]').press(textEnd);
+      await page.keyboard.insertText(' kept through pairing');
+      await expect(page.locator('html')).toHaveAttribute('data-test-draft-kept', 'true');
+      await page.close();
+      revokeMachine(world, original.name);
+    });
+    const fresh = await pairBrowser(world, 'draft-replacement', { reuse: original });
+    expect(pairedMachine(world, fresh.name).clientId).not.toBe(oldId);
+    const reopened = await fresh.context.newPage();
+    await reopened.goto(address);
+    const notice = reopened.getByRole('status').filter({ hasText: text.blockEdit.restored });
+    await expect(notice).toHaveCount(1, { timeout: 30_000 });
+    await expect(reopened.locator(selector)).toHaveAttribute('aria-label', 'paragraph: Before');
+    await expect(notice).toContainText('Before kept through pairing');
+    expect(savedText()).toBe('Before');
+    // The same profile holds the sealed draft. Opening the link reader must not offer it.
+    const reader = await fresh.context.newPage();
+    await reader.goto(new URL(readerPath, address).href);
+    const rendered = reader.frameLocator('main iframe');
+    await expect(rendered.getByText('Before', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(rendered.getByText('Before kept through pairing', { exact: true })).toHaveCount(0);
+    await expect(
+      reader.getByRole('status').filter({ hasText: text.blockEdit.restored }),
+    ).toHaveCount(0);
+    await reader.close();
+    await expect(notice).toHaveCount(1);
+    const mutations = await notice.evaluateHandle((shown) => {
+      const evidence = { withdrawn: false, offers: 1 };
+      new MutationObserver((records) => {
+        for (const record of records)
+          for (const removed of record.removedNodes)
+            if (removed === shown || removed.contains(shown)) evidence.withdrawn = true;
+      }).observe(document.body, { childList: true, subtree: true });
+      window.addEventListener('colab:block-drafts-offered', (event) => {
+        if ((event as CustomEvent<{ count: number }>).detail.count > 0) evidence.offers++;
+      });
+      return evidence;
+    });
+    const keep = notice.getByRole('button', { name: text.blockEdit.keepRestored });
+    const discard = notice.getByRole('button', { name: text.blockDelete.discard });
+    for (let reconnect = 0; reconnect < 2; reconnect++) {
+      await restartColab(world, door, async () => {
+        await expect(
+          reopened.locator('.page-attention[data-attention="reconnecting"]'),
+        ).toBeVisible({ timeout: 30_000 });
+        await expect(notice).toBeVisible();
+        await expect(keep).toBeDisabled();
+        await expect(discard).toBeDisabled();
+      });
+      await expect(reopened.locator('.page-connection .status-label')).toHaveText('Live', {
+        timeout: 30_000,
+      });
+      await expect(keep).toBeEnabled();
+      await expect(discard).toBeEnabled();
+    }
+    expect(await mutations.jsonValue()).toEqual({ withdrawn: false, offers: 1 });
+    await mutations.dispose();
+    await notice.getByRole('button', { name: 'Keep and continue' }).click();
+    await expect.poll(savedText, { timeout: 30_000 }).toBe('Before kept through pairing');
+    await reopened.reload();
+    await expect(reopened.locator(selector)).toHaveText('Before kept through pairing');
+    await expect(notice).toHaveCount(0);
   });
 });
 
@@ -344,7 +461,7 @@ for (const departure of ['reload', 'navigate'] as const) {
             const key = keys.find(
               (item) =>
                 typeof item === 'string' &&
-                item.startsWith('block-drafts:') &&
+                /^(owner-)?block-drafts:/.test(item) &&
                 item.endsWith(`:${pageId}`),
             );
             if (typeof key !== 'string') throw new Error('Missing sealed block draft');
@@ -500,7 +617,7 @@ test('a reload after a landed join offers no stale draft, and still offers one n
       (window as Window & { draftGate?: typeof gate }).draftGate = gate;
       Object.defineProperty(locks, 'request', {
         value: (name: string, callback: LockGrantedCallback<unknown>) => {
-          if (!name.startsWith('block-drafts:') || !gate.hold) return request(name, callback);
+          if (!name.startsWith('owner-block-drafts:') || !gate.hold) return request(name, callback);
           return new Promise<void>((resolve) => gate.held.push(resolve))
             .then(() => request(name, callback))
             .finally(() => gate.done++);

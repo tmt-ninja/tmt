@@ -124,6 +124,8 @@ export interface WorkOutcome {
   childPage?: string;
 }
 export interface PageBinding {
+  /** Local block drafts for a verified mounted page, with live owner admission checked at use. */
+  readonly blockDrafts?: import('./block-drafts.js').BlockDraftStore;
   /** Trusted current-epoch content provenance; absent means not proven owner-only. */
   ownerOnlyContent?(): boolean;
   ownerOnlyWorkBundle?(): boolean;

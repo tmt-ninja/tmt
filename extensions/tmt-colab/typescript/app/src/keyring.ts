@@ -1,6 +1,6 @@
 import { RecipientKey, sign, signingKey, strictVerify, text } from '@tmt/colab-client';
 
-import { record } from './storage.js';
+import { readAdmittedRecord, record, writeAdmittedRecord } from './storage.js';
 
 export interface DeviceKeys {
   sign: CryptoKey;
@@ -83,4 +83,37 @@ export const draftKey = (deviceId: string) => localKey('draft', deviceId);
 /** Recovery reads use the existing key. A missing key cannot open a kept draft. */
 export async function readDraftKey(deviceId: string): Promise<CryptoKey> {
   return checkedLocalKey(await record<CryptoKey>(`draft-key:${deviceId}`), 'draft');
+}
+
+export async function legacyBlockDraftKey(device: string, check: () => void) {
+  const key = await readAdmittedRecord<CryptoKey>(`draft-key:${device}`, check);
+  check();
+  return key === undefined ? undefined : checkedLocalKey(key, 'draft');
+}
+
+/** Resolve the local block-draft key only for the current verified owner. */
+export async function ownerBlockDraftKey(
+  space: string,
+  root: string,
+  check: () => void,
+  create: boolean,
+): Promise<CryptoKey | undefined> {
+  const name = `owner-block-draft-key:${space}:${root}`;
+  return navigator.locks.request(name, async () => {
+    check();
+    const stored = await readAdmittedRecord<{ root: string; key: CryptoKey }>(name, check);
+    check();
+    if (stored !== undefined) {
+      if (stored?.root !== root) throw new Error('Block draft owner mismatch');
+      return checkedLocalKey(stored.key, 'draft');
+    }
+    if (!create) return undefined;
+    const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
+      'encrypt',
+      'decrypt',
+    ]);
+    await writeAdmittedRecord(name, { root, key }, check);
+    check();
+    return key;
+  });
 }

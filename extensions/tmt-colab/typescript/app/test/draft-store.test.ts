@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
+import { blockDraftStore, ownerBlockDraftStore, type BlockDraft } from '../src/block-drafts.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import {
   DRAFTS_PER_PAGE,
@@ -12,17 +13,50 @@ import { COMMENT_BYTES } from '../src/thread-records.js';
 import { savedDrafts, unconfirmedDrafts } from '../src/saved-drafts.js';
 
 const stored = new Map<string, unknown>();
+const storageAccesses: string[] = [];
 let unavailable = false;
+let refuseOwnerWrite = false;
+let beforeOwnerWrite: (() => void) | undefined;
 vi.mock('../src/storage.js', () => ({
   record: async (key: string, ...values: unknown[]) => {
+    storageAccesses.push(key);
     if (unavailable) throw new Error('Storage unavailable');
     if (values.length) stored.set(key, structuredClone(values[0]));
     else return structuredClone(stored.get(key));
   },
+  readAdmittedRecord: async (key: string, check: () => void) => {
+    check();
+    storageAccesses.push(key);
+    return structuredClone(stored.get(key));
+  },
+  recordKeys: async (
+    prefix: string,
+    after: string | undefined,
+    limit: number,
+    check: () => void,
+  ) => {
+    check();
+    storageAccesses.push(`list:${prefix}`);
+    return [...stored.keys()]
+      .filter((key) => key.startsWith(prefix) && (!after || key > after))
+      .sort()
+      .slice(0, limit);
+  },
+  writeAdmittedRecord: async (key: string, value: unknown, check: () => void, replace?: string) => {
+    if (key.startsWith('owner-block-drafts:')) beforeOwnerWrite?.();
+    check();
+    storageAccesses.push(key);
+    if (refuseOwnerWrite && key.startsWith('owner-block-drafts:')) throw new Error('Aborted write');
+    stored.set(key, structuredClone(value));
+    if (replace) stored.delete(replace);
+  },
 }));
 beforeEach(() => {
   stored.clear();
+  storageAccesses.length = 0;
   unavailable = false;
+  refuseOwnerWrite = false;
+  beforeOwnerWrite = undefined;
   vi.stubGlobal('navigator', {
     locks: { request: async (_name: string, action: () => unknown) => action() },
   });
@@ -34,6 +68,174 @@ const store = (space = 'space', device = 'device') => new LocalDraftStore(space,
 const edit = (value: string, extra: Partial<ComposerEdit> = {}): ComposerEdit => ({
   value,
   ...extra,
+});
+
+const block = (value = 'Kept typing', target = 'target'): BlockDraft => ({
+  id: 'block',
+  target,
+  generation: `g-${target}`,
+  base: 'Before',
+  value,
+});
+const ownerKey = 'owner-block-draft-key:space:root';
+const ownerRecord = 'owner-block-drafts:space:root:page';
+const legacyRecord = 'block-drafts:space:old:page';
+
+it('recovers owner drafts after a new pairing and clears only the offered generation', async () => {
+  const draft = block();
+  const first = ownerBlockDraftStore('space', 'old', () => firstAdmission);
+  const firstAdmission = { root: 'root', session: {} };
+  expect(await first.save('page', draft)).toBe(true);
+  expect(stored.has(legacyRecord)).toBe(false);
+  expect(JSON.stringify(stored.get(ownerRecord))).not.toContain(draft.value);
+  expect((stored.get(ownerKey) as { key: CryptoKey }).key.extractable).toBe(false);
+  const nextAdmission = { root: 'root', session: {} };
+  const next = ownerBlockDraftStore('space', 'new', () => nextAdmission);
+  expect(await next.load('page')).toEqual([draft]);
+  expect(await next.clear('page', { ...draft, generation: 'older' })).toBe(true);
+  expect(await next.load('page')).toEqual([draft]);
+  expect(await next.clear('page', draft)).toBe(true);
+  expect(await next.load('page')).toEqual([]);
+});
+
+it('leaves legacy ciphertext after an interrupted write and resumes migration without duplicate offers', async () => {
+  const draft = block('');
+  expect(await blockDraftStore('space', 'old').save('page', draft)).toBe(true);
+  const original = stored.get(legacyRecord);
+  const admitted = { root: 'root', session: {} };
+  const recover = ownerBlockDraftStore('space', 'new', () => admitted);
+  refuseOwnerWrite = true;
+  await expect(recover.load('page')).rejects.toThrow('Aborted write');
+  expect(stored.get(legacyRecord)).toEqual(original);
+  expect(stored.has(ownerRecord)).toBe(false);
+  refuseOwnerWrite = false;
+  expect(await recover.load('page')).toEqual([draft]);
+  expect(stored.has(legacyRecord)).toBe(false);
+  expect(await recover.clear('page', draft)).toBe(true);
+  expect(await recover.load('page')).toEqual([]);
+});
+
+it('resumes a bounded migration across later page opens and preserves records with a missing key', async () => {
+  const drafts = Array.from({ length: 9 }, (_, index) => block('Kept typing', `target-${index}`));
+  for (const [index, draft] of drafts.entries())
+    expect(await blockDraftStore('space', `old-${index}`).save('page', draft)).toBe(true);
+  expect(await blockDraftStore('space', 'old').save('another-page', block())).toBe(true);
+  expect(await blockDraftStore('space', 'lost').save('page', block('Unavailable'))).toBe(true);
+  stored.delete('draft-key:lost');
+  const lost = stored.get('block-drafts:space:lost:page');
+  const admitted = { root: 'root', session: {} };
+  const recovery = ownerBlockDraftStore('space', 'new', () => admitted);
+  const initial = await recovery.recover!('page');
+  expect(initial).toEqual({
+    drafts: drafts.slice(0, 7),
+    issues: [{ id: expect.any(String), reason: 'key' }],
+  });
+  await recovery.markRecoveryIssuesSeen!('page', initial.issues);
+  expect(await recovery.recover!('page')).toEqual({ drafts, issues: [] });
+  expect(await recovery.recover!('page')).toEqual({ drafts, issues: [] });
+  expect(stored.get('block-drafts:space:lost:page')).toEqual(lost);
+  expect(stored.has('block-drafts:space:old:another-page')).toBe(true);
+});
+
+it('closes owner recovery on lost admission and keeps other spaces and owners separate', async () => {
+  const admitted = { root: 'root', session: {} };
+  let session: typeof admitted | undefined = admitted;
+  const recovery = ownerBlockDraftStore('space', 'device', () => session);
+  expect(await recovery.save('page', block())).toBe(true);
+  expect(await recovery.load('page')).toEqual([block()]);
+  expect(recovery.recoveryOwner?.()).toBe(admitted.root);
+  const sealedBytes = () => Buffer.from(JSON.stringify(stored.get(ownerRecord)), 'utf8');
+  const before = sealedBytes();
+  const keyRecord = stored.get(ownerKey);
+  const beforeDenied = storageAccesses.length;
+  session = undefined;
+  expect(recovery.recoveryOwner?.()).toBe(admitted.root);
+  expect(recovery.canOpenOwnerDrafts?.()).toBe(false);
+  expect(await recovery.recover!('page')).toEqual({ drafts: [], issues: [] });
+  expect(await recovery.clear('page', block())).toBe(true);
+  expect(storageAccesses.slice(beforeDenied)).toEqual([
+    'block-drafts:space:device:page',
+    'block-drafts:space:device:page',
+  ]);
+  expect(sealedBytes()).toEqual(before);
+  expect(stored.get(ownerKey)).toBe(keyRecord);
+  session = { root: 'different', session: {} };
+  expect(await recovery.load('page')).toEqual([]);
+  const other = ownerBlockDraftStore('other-space', 'device', () => admitted);
+  expect(await other.load('page')).toEqual([]);
+  expect(sealedBytes()).toEqual(before);
+  session = { root: 'root', session: {} };
+  expect(await recovery.load('page')).toEqual([block()]);
+});
+
+it.each([
+  { reason: 'count', count: 32, body: 'typing' },
+  { reason: 'bytes', count: 24, body: 'x'.repeat(65_000) },
+])('reports the $reason limit and retains the legacy record', async ({ reason, count, body }) => {
+  const legacy = blockDraftStore('space', 'old');
+  const prior = block('Older text');
+  expect(await legacy.save('page', { ...prior, base: body, value: body })).toBe(true);
+  const kept = structuredClone(stored.get(legacyRecord));
+  const owner = { root: 'root', session: {} };
+  const store = ownerBlockDraftStore('space', 'new', () => owner);
+  const drafts = Array.from({ length: count }, (_, i) => ({
+    ...block(body, `owner-${i}`),
+    base: body,
+  }));
+  for (const draft of drafts) expect(await store.save('page', draft)).toBe(true);
+  expect(await store.recover!('page')).toEqual({
+    drafts,
+    issues: [{ id: expect.any(String), reason }],
+  });
+  expect(stored.get(legacyRecord)).toEqual(kept);
+  expect(await store.clear('page', drafts[0]!)).toBe(true);
+  expect((await store.recover!('page')).drafts).toHaveLength(count);
+  expect(stored.has(legacyRecord)).toBe(false);
+});
+
+it('admits a newer device draft after reconnect without reoffering the earlier owner draft', async () => {
+  let admitted: { root: string; session: object } | undefined = { root: 'root', session: {} };
+  const recovery = ownerBlockDraftStore('space', 'old', () => admitted);
+  const first = block();
+  const newer = { ...first, generation: 'after-reconnect', value: 'Newer typing while away' };
+  expect(await recovery.save('page', first)).toBe(true);
+  admitted = undefined;
+  expect(await recovery.save('page', newer)).toBe(true);
+  expect(await recovery.load('page')).toEqual([newer]);
+  admitted = { root: 'root', session: {} };
+  expect(await recovery.load('page')).toEqual([newer]);
+  expect(stored.has(legacyRecord)).toBe(false);
+  const next = ownerBlockDraftStore('space', 'new', () => admitted);
+  expect(await next.load('page')).toEqual([newer]);
+});
+
+it('checks the stored owner root on every unlock and leaves the drafts intact on mismatch', async () => {
+  const admitted = { root: 'root', session: {} };
+  const recovery = ownerBlockDraftStore('space', 'new', () => admitted);
+  expect(await recovery.save('page', block())).toBe(true);
+  expect(await recovery.load('page')).toEqual([block()]);
+  stored.set(ownerKey, { ...(stored.get(ownerKey) as object), root: 'different' });
+  expect(await blockDraftStore('space', 'old').save('page', block())).toBe(true);
+  const before = structuredClone(stored);
+  await expect(recovery.load('page')).rejects.toThrow('Block draft owner mismatch');
+  expect(await recovery.clear('page', block())).toBe(false);
+  expect(stored).toEqual(before);
+});
+
+it('does not complete a migration under an owner session that was replaced mid-write', async () => {
+  const legacy = blockDraftStore('space', 'old');
+  expect(await legacy.save('page', block())).toBe(true);
+  const original = stored.get(legacyRecord);
+  let admitted = { root: 'root', session: {} };
+  const recovery = ownerBlockDraftStore('space', 'new', () => admitted);
+  beforeOwnerWrite = () => {
+    admitted = { root: 'root', session: {} };
+    beforeOwnerWrite = undefined;
+  };
+  await expect(recovery.load('page')).rejects.toThrow('Owner block draft admission ended');
+  expect(stored.get(legacyRecord)).toEqual(original);
+  expect(stored.has(ownerRecord)).toBe(false);
+  expect(await recovery.load('page')).toEqual([block()]);
 });
 
 it('keeps interrupted message text encrypted until its own recovery entry is cleared', async () => {

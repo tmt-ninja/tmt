@@ -804,8 +804,8 @@ function TerminalFailure({
   );
 }
 
-/** Open the kept text only for a trusted Copy action. Pairing again opens a new device store. */
-function EndedDraftCopy({ store, page, blocks }: EndedDraftSource) {
+/** Open this pairing's kept text only for a trusted Copy action. */
+function EndedDraftCopy({ store, page, blocks, mode }: EndedDraftSource) {
   const [feedback, setFeedback] = useState('');
   const scope = useRef<AbortController>(null);
   useLayoutEffect(() => {
@@ -813,16 +813,16 @@ function EndedDraftCopy({ store, page, blocks }: EndedDraftSource) {
     scope.current = controller;
     setFeedback('');
     return () => controller.abort();
-  }, [store, page]);
+  }, [store, page, mode]);
 
   return (
     <>
-      <p>{text.blockDraftsBeforePairing}</p>
+      {mode === 'legacy' && <p>{text.blockDraftsBeforePairing}</p>}
       <BrowserAction
         type="button"
         variant="secondary"
         presentation="compact"
-        label={text.copyBlockDrafts}
+        label={mode === 'device' ? text.copyDeviceBlockDrafts : text.copyBlockDrafts}
         onActivate={async (event) => {
           if (!event.nativeEvent.isTrusted || !scope.current) return;
           const { signal } = scope.current;
@@ -857,6 +857,7 @@ interface EndedDraftSource {
   store: BlockDraftStore;
   page: string;
   blocks: PageView['blocks'];
+  mode: 'device' | 'legacy';
 }
 
 /** The ended message shared by the page card and the drawer row. The row leaves out the code. */
@@ -865,6 +866,7 @@ function EndedBody({
   action,
   compact,
   kept,
+  ownerKept,
   draftCopy,
 }: {
   error: Error;
@@ -872,6 +874,7 @@ function EndedBody({
   compact?: boolean;
   /** A page of blocks: what was typed while it reconnected stays on this device (#6795). */
   kept?: boolean;
+  ownerKept?: boolean;
   draftCopy?: EndedDraftSource;
 }) {
   if (error instanceof SessionEvictedError)
@@ -881,7 +884,8 @@ function EndedBody({
   return (
     <>
       <TerminalFailure error={error} reference={!compact} />
-      {kept && <p>{text.blockDraftsKept}</p>}
+      {ownerKept && <p>{text.blockDraftsKeptForOwner}</p>}
+      {kept && !ownerKept && <p>{text.blockDraftsKept}</p>}
       {action === 'pair' && (
         <>
           {draftCopy && <EndedDraftCopy {...draftCopy} />}
@@ -2083,12 +2087,16 @@ function OpenPage({
     retryMove,
     runLifecycle,
   } = usePageWorkflow(transport, snapshot, view, space);
-  // A new pairing cannot reopen this device's drafts (#6796), but the current page can still
-  // offer their text to copy. For a gone page there is no draft action.
-  const draftStore =
-    view.pageType === 'blocks' && (endedError ? endedAction !== 'pages' : archived)
-      ? transport.blockDrafts
-      : undefined;
+  // An ended card can remember what was durable while it was live. Only the device store can
+  // be opened at terminal loss, and the Copy label names that scope.
+  const draftEligible =
+    view.pageType === 'blocks' && (endedError ? endedAction !== 'pages' : archived);
+  const ownerDraftStore = draftEligible ? snapshot.binding?.blockDrafts : undefined;
+  const wasOwner = !!ownerDraftStore?.recoveryOwner?.();
+  const ownerReadable = !endedError && ownerDraftStore?.canOpenOwnerDrafts?.();
+  const draftStore = draftEligible
+    ? ((ownerReadable ? ownerDraftStore : undefined) ?? transport.blockDrafts)
+    : undefined;
   const [draftsHeld, setDraftsHeld] = useState<{
     store: BlockDraftStore;
     page: string;
@@ -2117,11 +2125,17 @@ function OpenPage({
   // The archived banner waits for the answer, so its kept sentence never arrives later and moves
   // the page.
   const sameDrafts = draftsHeld?.store === draftStore && draftsHeld?.page === snapshot.id;
-  const keptKnown = !draftStore || sameDrafts;
-  const keptDrafts = endedAction !== 'pair' && sameDrafts && draftsHeld.kept;
+  const ownerKept = !!ownerDraftStore?.knownOwnerDrafts?.(snapshot.id);
+  const keptKnown = ownerKept || !draftStore || sameDrafts;
+  const keptDrafts = endedAction !== 'pair' && (ownerKept || (sameDrafts && draftsHeld.kept));
   const draftCopy =
-    endedAction === 'pair' && draftStore && sameDrafts && draftsHeld.kept
-      ? { store: draftStore, page: snapshot.id, blocks: view.blocks }
+    endedError && endedAction === 'pair' && transport.blockDrafts && sameDrafts && draftsHeld.kept
+      ? ({
+          store: transport.blockDrafts,
+          page: snapshot.id,
+          blocks: view.blocks,
+          mode: wasOwner ? 'device' : 'legacy',
+        } as const)
       : undefined;
   useEffect(() => {
     sourceDraft.adoptSnapshot(snapshot);
@@ -3006,6 +3020,7 @@ function OpenPage({
         action={endedAction}
         compact
         kept={keptDrafts}
+        ownerKept={ownerKept}
         draftCopy={draftCopy}
       />
       <EndedLink action={endedAction} />
@@ -3857,7 +3872,7 @@ function OpenPage({
                   <LazyStructuredPage
                     key={snapshot.id}
                     pageId={snapshot.id}
-                    blockDrafts={transport.blockDrafts}
+                    blockDrafts={snapshot.binding?.blockDrafts ?? transport.blockDrafts}
                     onDrawn={setDrawnBlocks}
                     onSettle={setBlockSettler}
                     blocks={view.blocks}
@@ -3943,6 +3958,7 @@ function OpenPage({
                   error={endedError}
                   action={endedAction}
                   kept={keptDrafts}
+                  ownerKept={ownerKept}
                   draftCopy={draftCopy}
                 />
               ) : (

@@ -3,9 +3,9 @@ import { tableColumns } from './block-model.js';
 import { blockTree } from './block-projection.js';
 import { BLOCK_TEXT_BYTES, type BlockEntry } from './blocks.js';
 import type { TableCell } from './block-text-sync.js';
-import { draftKey, readDraftKey } from './keyring.js';
+import { draftKey, legacyBlockDraftKey, ownerBlockDraftKey, readDraftKey } from './keyring.js';
 import { open, seal, type Sealed } from './local-seal.js';
-import { record } from './storage.js';
+import { readAdmittedRecord, record, recordKeys, writeAdmittedRecord } from './storage.js';
 
 export interface BlockDraft {
   /** Stable for one editing session. Two tabs must not replace each other's recovery. */
@@ -36,54 +36,46 @@ function validBlockDraft(value: unknown): value is BlockDraft {
   return true;
 }
 
-/** Same sealed device store as composers. Its v1 reader rejects a whole page on an unknown edit. */
-export function blockDraftStore(space: string, device: string) {
-  const scope = (page: string) => ['tmt-colab-block-drafts-v1', space, device, page];
-  const name = (page: string) => `block-drafts:${space}:${device}:${page}`;
-  const maxBytes = 3 * 1024 * 1024;
-  const load = async (page: string): Promise<BlockDraft[]> => {
-    const stored = await record<Sealed>(name(page));
-    if (stored === undefined) return [];
-    try {
-      const parsed: unknown = JSON.parse(
-        decodeText(await open(await readDraftKey(device), scope(page), stored, maxBytes)),
-      );
-      if (!Array.isArray(parsed)) return [];
-      const seen = new Set<string>();
-      return parsed.filter((entry): entry is BlockDraft => {
-        if (!validBlockDraft(entry) || seen.has(entry.target) || seen.size >= 32) return false;
-        seen.add(entry.target);
-        return true;
-      });
-    } catch {
-      // An unreadable, damaged or future record cannot supply recovery; a new save replaces it.
-      return [];
-    }
-  };
-  /** Changes the page's record in its one queue: `edit` returns the drafts to write, `false` to
-   * refuse, or nothing when there is nothing to write. */
-  async function change(
-    page: string,
-    edit: (drafts: BlockDraft[]) => BlockDraft[] | false | undefined,
-  ) {
-    try {
-      return await navigator.locks.request(name(page), async () => {
-        const drafts = edit(await load(page));
-        if (drafts === undefined) return true;
-        if (!drafts) return false;
-        const bytes = text(JSON.stringify(drafts));
-        if (bytes.length > maxBytes || drafts.length > 32) return false;
-        await record(name(page), await seal(await draftKey(device), scope(page), bytes));
-        return true;
-      });
-    } catch {
-      return false;
-    }
-  }
+const MAX_DRAFT_BYTES = 3 * 1024 * 1024;
+const MAX_DRAFTS = 32;
+const legacyPrefix = (space: string) => `block-drafts:${space}:`;
+const legacyName = (space: string, device: string, page: string) =>
+  `${legacyPrefix(space)}${device}:${page}`;
+const legacyScope = (space: string, device: string, page: string) => [
+  'tmt-colab-block-drafts-v1',
+  space,
+  device,
+  page,
+];
+
+async function readDrafts(
+  key: CryptoKey,
+  scope: string[],
+  stored: Sealed,
+  strict = false,
+): Promise<BlockDraft[]> {
+  const parsed: unknown = JSON.parse(decodeText(await open(key, scope, stored, MAX_DRAFT_BYTES)));
+  if (!Array.isArray(parsed)) throw new Error('Invalid block drafts');
+  const seen = new Set<string>();
+  const drafts = parsed.filter((entry): entry is BlockDraft => {
+    if (!validBlockDraft(entry) || seen.has(entry.target) || seen.size >= MAX_DRAFTS) return false;
+    seen.add(entry.target);
+    return true;
+  });
+  if (strict && drafts.length !== parsed.length) throw new Error('Invalid block draft entry');
+  return drafts;
+}
+
+function draftBytes(drafts: BlockDraft[]) {
+  const bytes = text(JSON.stringify(drafts));
+  return bytes.length <= MAX_DRAFT_BYTES && drafts.length <= MAX_DRAFTS ? bytes : undefined;
+}
+
+type DraftEdit = (drafts: BlockDraft[]) => BlockDraft[] | false | undefined;
+function draftOperations(change: (page: string, edit: DraftEdit) => Promise<boolean>) {
   const at = (drafts: BlockDraft[], target: string) =>
     drafts.findIndex((draft) => draft.target === target);
   return {
-    load,
     save: (page: string, edit: BlockDraft) =>
       change(page, (drafts) => {
         if ([edit.base, edit.value].some((s) => text(s).length > BLOCK_TEXT_BYTES)) return false;
@@ -110,7 +102,250 @@ export function blockDraftStore(space: string, device: string) {
       }),
   };
 }
-export type BlockDraftStore = ReturnType<typeof blockDraftStore>;
+
+/** Same sealed device store as composers. Older bundles continue to use these record names. */
+export function blockDraftStore(space: string, device: string) {
+  const scope = (page: string) => legacyScope(space, device, page);
+  const name = (page: string) => legacyName(space, device, page);
+  const load = async (page: string): Promise<BlockDraft[]> => {
+    const stored = await record<Sealed>(name(page));
+    if (stored === undefined) return [];
+    try {
+      return await readDrafts(await readDraftKey(device), scope(page), stored);
+    } catch {
+      // An unreadable, damaged or future record cannot supply recovery; a new save replaces it.
+      return [];
+    }
+  };
+  /** Changes the page's record in its one queue: `edit` returns the drafts to write, `false` to
+   * refuse, or nothing when there is nothing to write. */
+  async function change(page: string, edit: DraftEdit) {
+    try {
+      return await navigator.locks.request(name(page), async () => {
+        const drafts = edit(await load(page));
+        if (drafts === undefined) return true;
+        if (!drafts) return false;
+        const bytes = draftBytes(drafts);
+        if (!bytes) return false;
+        await record(name(page), await seal(await draftKey(device), scope(page), bytes));
+        return true;
+      });
+    } catch {
+      return false;
+    }
+  }
+  return { load, ...draftOperations(change) };
+}
+export type BlockDraftStore = ReturnType<typeof blockDraftStore> & {
+  recover?(page: string): Promise<{ drafts: BlockDraft[]; issues: DraftRecoveryIssue[] }>;
+  markRecoveryIssuesSeen?(page: string, issues: readonly DraftRecoveryIssue[]): Promise<void>;
+  /** The page binding's last verified owner, for an offer already drawn during a reconnect. */
+  recoveryOwner?(): string | undefined;
+  canOpenOwnerDrafts?(): boolean;
+  /** The last admitted observation in this page binding. This never reads storage. */
+  knownOwnerDrafts?(page: string): boolean;
+};
+
+export interface DraftRecoveryIssue {
+  id: string;
+  reason: 'key' | 'unreadable' | 'count' | 'bytes';
+}
+
+export interface BlockDraftAdmission {
+  root: string;
+  session: object;
+}
+
+const MIGRATION_BATCH = 8;
+const MIGRATION_SCAN = 256;
+const MAX_SEEN_ISSUES = 128;
+
+/** A Live binding supplies current owner admission at each use. Typing during a disconnect
+ * still uses the device store, and those drafts join the owner record upon readmission. */
+export function ownerBlockDraftStore(
+  space: string,
+  device: string,
+  admission: () => BlockDraftAdmission | undefined,
+): BlockDraftStore {
+  const local = blockDraftStore(space, device);
+  let presentationOwner: string | undefined;
+  const observed = new Map<string, { root: string; kept: boolean }>();
+
+  function access(owner: BlockDraftAdmission) {
+    const { root, session } = owner;
+    presentationOwner = root;
+    const remember = (page: string, drafts: readonly BlockDraft[]) =>
+      observed.set(page, { root, kept: restorable(page, drafts).length > 0 });
+    const check = () => {
+      const current = admission();
+      if (current?.root !== root || current.session !== session)
+        throw new Error('Owner block draft admission ended');
+    };
+    const name = (page: string) => `owner-block-drafts:${space}:${root}:${page}`;
+    const scope = (page: string) => ['tmt-colab-owner-block-drafts-v1', space, root, page];
+    const key = (create: boolean) => ownerBlockDraftKey(space, root, check, create);
+    const unlock = async (page: string) => {
+      const existingKey = await key(false);
+      const retained = await readAdmittedRecord<Sealed>(name(page), check);
+      if (retained === undefined) {
+        check();
+        remember(page, []);
+        return { drafts: [], existingKey };
+      }
+      if (!existingKey) throw new Error('Owner block draft key unavailable');
+      const drafts = await readDrafts(existingKey, scope(page), retained, true);
+      check();
+      remember(page, drafts);
+      return { drafts, existingKey };
+    };
+    const change = (page: string, from: string, edit?: DraftEdit) =>
+      navigator.locks.request(name(page), () =>
+        navigator.locks.request(
+          legacyName(space, from, page),
+          async (): Promise<boolean | DraftRecoveryIssue> => {
+            const own = await unlock(page);
+            const oldName = legacyName(space, from, page);
+            const old = await readAdmittedRecord<Sealed>(oldName, check);
+            const issue = (reason: DraftRecoveryIssue['reason']): DraftRecoveryIssue => ({
+              id: JSON.stringify([
+                from,
+                typeof old?.nonce === 'string' ? old.nonce.slice(0, 24) : '',
+                reason,
+              ]),
+              reason,
+            });
+            let legacy: BlockDraft[] = [];
+            if (old !== undefined) {
+              try {
+                const oldKey = await legacyBlockDraftKey(from, check);
+                if (oldKey)
+                  legacy = await readDrafts(oldKey, legacyScope(space, from, page), old, true);
+                else if (!edit) return issue('key');
+                check();
+              } catch {
+                check();
+                if (!edit) return issue('unreadable');
+              }
+            }
+            const targets = new Set(legacy.map((draft) => draft.target));
+            const combined = [
+              ...own.drafts.filter((draft) => !targets.has(draft.target)),
+              ...legacy,
+            ];
+            const next = edit?.(combined);
+            if (next === false) return false;
+            if (next === undefined && !legacy.length) return true;
+            const updated = next ?? combined;
+            if (updated.length > MAX_DRAFTS) return edit ? false : issue('count');
+            const bytes = draftBytes(updated);
+            if (!bytes) return edit ? false : issue('bytes');
+            const writeKey = own.existingKey ?? (await key(true));
+            if (!writeKey) return false;
+            const sealed = await seal(writeKey, scope(page), bytes);
+            await writeAdmittedRecord(
+              name(page),
+              sealed,
+              check,
+              legacy.length ? oldName : undefined,
+            );
+            remember(page, updated);
+            return true;
+          },
+        ),
+      );
+    return { check, unlock, change };
+  }
+
+  const seenName = (owner: BlockDraftAdmission, page: string) =>
+    `owner-block-draft-seen:${space}:${owner.root}:${page}`;
+  const seenIssues = async (name: string, check: () => void) => {
+    const value = await readAdmittedRecord<unknown>(name, check);
+    if (!Array.isArray(value)) return [];
+    return value
+      .slice(-MAX_SEEN_ISSUES)
+      .filter((entry): entry is string => typeof entry === 'string');
+  };
+
+  const recover = async (page: string) => {
+    const owner = admission();
+    if (!owner) return { drafts: await local.load(page), issues: [] };
+    const { check, unlock, change } = access(owner);
+    const cursor = `owner-block-draft-migration:${space}:${owner.root}:${page}`;
+    const prefix = legacyPrefix(space);
+    const issues = await navigator.locks.request(cursor, async () => {
+      const found: DraftRecoveryIssue[] = [];
+      const migrate = async (from: string) => {
+        const result = await change(page, from);
+        if (typeof result === 'object') found.push(result);
+      };
+      // This also checks the owner key before looking for any legacy records.
+      await migrate(device);
+      const saved = await readAdmittedRecord<string>(cursor, check);
+      const after = typeof saved === 'string' && saved.startsWith(prefix) ? saved : undefined;
+      const names = await recordKeys(prefix, after, MIGRATION_SCAN, check);
+      let migrated = 0;
+      let next = names.length === MIGRATION_SCAN ? names.at(-1) : null;
+      for (const name of names) {
+        check();
+        if (typeof name !== 'string') continue;
+        const [from, otherPage, extra] = name.slice(prefix.length).split(':');
+        if (!from || from === device || otherPage !== page || extra !== undefined) continue;
+        await migrate(from);
+        if (++migrated === MIGRATION_BATCH) {
+          next = name;
+          break;
+        }
+      }
+      if (next !== (saved ?? null)) await writeAdmittedRecord(cursor, next, check);
+      const seen = new Set(await seenIssues(seenName(owner, page), check));
+      return found.filter(({ id }) => !seen.has(id));
+    });
+    return { drafts: (await unlock(page)).drafts, issues };
+  };
+
+  const ops = draftOperations(async (page, edit) => {
+    const owner = admission();
+    if (!owner) return false;
+    try {
+      return (await access(owner).change(page, device, edit)) === true;
+    } catch {
+      return false;
+    }
+  });
+  return {
+    recover,
+    async markRecoveryIssuesSeen(page, issues) {
+      const owner = admission();
+      if (!owner || !issues.length) return;
+      const { check } = access(owner);
+      const name = seenName(owner, page);
+      await navigator.locks.request(name, async () => {
+        await ownerBlockDraftKey(space, owner.root, check, false);
+        const ids = new Set(await seenIssues(name, check));
+        for (const issue of issues) {
+          ids.delete(issue.id);
+          ids.add(issue.id);
+        }
+        await writeAdmittedRecord(name, [...ids].slice(-MAX_SEEN_ISSUES), check);
+      });
+    },
+    recoveryOwner: () => {
+      const owner = admission();
+      if (owner) presentationOwner = owner.root;
+      return presentationOwner;
+    },
+    canOpenOwnerDrafts: () => admission() !== undefined,
+    knownOwnerDrafts: (page) => {
+      const known = observed.get(page);
+      return !!known?.kept && known.root === presentationOwner;
+    },
+    load: async (page) => (await recover(page)).drafts,
+    save: (page, draft) => (admission() ? ops.save(page, draft) : local.save(page, draft)),
+    clear: (page, draft) => (admission() ? ops.clear(page, draft) : local.clear(page, draft)),
+    settle: (page, target, keep) =>
+      admission() ? ops.settle(page, target, keep) : local.settle(page, target, keep),
+  };
+}
 
 /** The drafts whose text landed, by generation, in this tab's sessionStorage: written at once when
  * a batch lands, so a reload before the device store drops them never offers them back (#6749).
