@@ -22,10 +22,11 @@ import { useAgentDirectory } from './agent-directory.js';
 import { AgentChip, agentSentence, agentsSentence } from './components/agent-chip.js';
 import { MessageComposer } from './components/message-composer.js';
 import { MessageToolbar } from './components/message-toolbar.js';
-import type {
-  ComposerActivation,
-  ComposerEdit,
-  ComposerRecovery,
+import {
+  sameComposerContent,
+  type ComposerActivation,
+  type ComposerEdit,
+  type ComposerRecovery,
 } from './components/message-composer-edit.js';
 import type { CreatorTarget } from './creator-default.js';
 import { messageRecipient } from './message-recipient.js';
@@ -337,7 +338,9 @@ export function AnnotationInput({
   nextDraft.current = freshEdit;
   function clearDraft() {
     initialized.current = true;
-    setEdit(nextDraft.current());
+    const fresh = nextDraft.current();
+    latestEdit.current = fresh;
+    setEdit(fresh);
     setResetKey((key) => key + 1);
   }
   /** Edit: the failed row's full draft moves back into this composer and the row goes. */
@@ -449,7 +452,7 @@ export function AnnotationInput({
         if (retried) echoed = { ...echoed, local: retried.echo.local, at: retried.echo.at };
         echoHost.show(echoed);
         setEchoing(true);
-        if (current === latestEdit.current) clearDraft();
+        if (sameComposerContent(current, latestEdit.current)) clearDraft();
       }
       stage = 'attachments';
       const prepared = await files.prepare();
@@ -496,9 +499,12 @@ export function AnnotationInput({
       );
       if (echoed) echoed = { ...echoed, deliveries };
       failures.forEach(recordFailure);
-      if (!echoed && current === latestEdit.current) clearDraft();
+      if (!echoed && sameComposerContent(current, latestEdit.current)) clearDraft();
       setError(undefined);
-      committed(origin.thread, current !== latestEdit.current ? latestEdit.current : undefined);
+      committed(
+        origin.thread,
+        sameComposerContent(current, latestEdit.current) ? undefined : latestEdit.current,
+      );
     } catch (failure) {
       if (!origin && failure instanceof AttachmentStaleError) {
         files.stale(failure.attachmentIds);
@@ -507,7 +513,7 @@ export function AnnotationInput({
       }
       fail(origin ? 'S13' : messageSendFailureReference(stage, failure));
       if (origin) {
-        if (!echoed && current === latestEdit.current) clearDraft();
+        if (!echoed && sameComposerContent(current, latestEdit.current)) clearDraft();
         setRecorded(origin.thread);
       }
     } finally {

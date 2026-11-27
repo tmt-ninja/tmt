@@ -1261,10 +1261,16 @@ test('a comment on a structured block survives reopening', async () => {
         return marked.map((range) => range.toString());
       }),
     ).toEqual(['launch.']);
-    await annotation.getByRole('combobox', { name: 'Message' }).fill('Please check this block.');
+    const message = 'Please check this block.';
+    const composer = annotation.getByRole('combobox', { name: 'Message' });
+    await composer.fill(message);
     await annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
-    await expect(page.getByText('Please check this block.', { exact: true })).toBeVisible();
-    // The composer echoes immediately; wait for the admitted thread before navigating away.
+    // The sent text can still be a saved draft until retention resolves. Assert that it
+    // appears in the conversation itself and that it leaves the composer before reload.
+    const sent = annotation.locator('[data-testid="comment-echo"], [data-testid="comment-entry"]');
+    await expect(sent.getByText(message, { exact: true })).toBeVisible();
+    await expect(composer).toHaveText('');
+    // Wait for the admitted thread before navigating away.
     await expect(block.getByRole('button', { name: 'Open comment 1' })).toBeAttached();
     await expect(
       page
@@ -1273,7 +1279,11 @@ test('a comment on a structured block survives reopening', async () => {
     ).toHaveCount(0);
     await page.reload();
     await block.getByRole('button', { name: 'Open comment 1' }).click();
-    await expect(page.getByText('Please check this block.', { exact: true })).toBeVisible();
+    await expect(
+      page.getByTestId('comments-panel').getByTestId('comment-entry').getByText(message, {
+        exact: true,
+      }),
+    ).toBeVisible();
     await commentsClose(page, 'discussion').click();
     await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
     // In Selection mode the same drag quotes the dragged text at a phone width too (#6636).
