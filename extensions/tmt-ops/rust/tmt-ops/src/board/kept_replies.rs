@@ -24,14 +24,14 @@ impl Source {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::board) enum KeepReplyState {
+pub(in crate::board) enum KeepReplyMark {
     Pending,
     Kept,
     NotKept,
     Removed,
 }
 
-impl KeepReplyState {
+impl KeepReplyMark {
     pub(in crate::board) fn from_wire(value: &Value) -> Option<Self> {
         match value.as_str()? {
             "pending" => Some(Self::Pending),

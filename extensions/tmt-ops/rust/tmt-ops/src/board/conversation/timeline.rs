@@ -769,7 +769,7 @@ impl Session {
         if let Some(send) = self.sent.iter().find(|send| send.request == request) {
             return send
                 .keep_reply
-                .is_some_and(crate::board::kept_replies::KeepReplyState::active_mark);
+                .is_some_and(crate::board::kept_replies::KeepReplyMark::active_mark);
         }
         self.outgoing
             .iter()
