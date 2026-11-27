@@ -16,7 +16,6 @@ pub const RECOVERY: u64 = 30 * DAY;
 pub const FROZEN_BYTES: i64 = 64 * 1024 * 1024;
 #[derive(Debug, Clone)]
 pub struct Owned {
-    /// Only the invocation that committed adoption may start an at-most-once form answer.
     pub id: String,
     pub(crate) operation: String,
     pub phase: String,

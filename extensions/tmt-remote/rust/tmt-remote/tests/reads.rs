@@ -1,6 +1,5 @@
-//! Real-socket acceptance of the owner browser reads (`x/-/ops`, `x/-/digest`,
-//! `x/-/digest/savings`): the composed
-//! shell's admission, the exact query grammar, and that a rejected request costs no read.
+//! Real-socket acceptance of Digest usage, savings, and limits reads: the composed shell's
+//! admission, the exact query grammar, and that a rejected request costs no read.
 use std::{
     fs,
     io::{Read, Write},
