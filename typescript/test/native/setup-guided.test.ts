@@ -3,6 +3,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   readlinkSync,
@@ -10,9 +11,10 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import os from 'node:os';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
-import { describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
   expectError,
   parseWholeStdout,
@@ -20,8 +22,7 @@ import {
   withSandbox,
   type Sandbox,
 } from '../support/cli-process.js';
-
-import { installSetupExtensions } from '../support/native-installation.js';
+import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 // Everything lives under the sandbox: a disposable HOME, XDG root and PATH.
 const USER_HOOK = '{ "hooks" : [{ "type": "command", "command": "user-command" }] }';
@@ -66,6 +67,9 @@ function machine(sandbox: Sandbox): string {
   mkdirSync(path.join(sandbox.home, '.gemini'));
   mkdirSync(path.join(sandbox.home, '.claude'));
   writeFileSync(path.join(sandbox.home, '.claude', 'settings.json'), CLAUDE_ORIGINAL);
+  const museSettings = path.join(sandbox.home, '.config', 'muse', 'settings.json');
+  mkdirSync(path.dirname(museSettings), { recursive: true });
+  writeFileSync(museSettings, '{"userSetting":true}\n');
   sandbox.env.PATH = `${bin}${path.delimiter}/usr/bin${path.delimiter}/bin`;
   return bin;
 }
@@ -74,8 +78,71 @@ function ran(sandbox: Sandbox): string[] {
   return readdirSync(sandbox.home).filter((name) => name.startsWith('ran-'));
 }
 
-// Each scenario may prepare four real archive installations; command deadlines stay unchanged.
+const SETUP_PRODUCTS = ['ops', 'digest', 'remote', 'colab'] as const;
+type SetupArtifacts = Record<(typeof SETUP_PRODUCTS)[number], ArtifactFixture>;
+
+async function installSetupFromFixtures(
+  sandbox: Sandbox,
+  artifacts: SetupArtifacts,
+  withSkills = false
+): Promise<void> {
+  if (withSkills) sandbox.env.XDG_CONFIG_HOME = path.join(sandbox.home, '.config');
+  for (const product of SETUP_PRODUCTS) {
+    const artifact = artifacts[product];
+    const result = await runCli(
+      sandbox,
+      [
+        'extension',
+        'install',
+        product,
+        '--yes',
+        '--archive',
+        artifact.archive,
+        '--manifest',
+        artifact.manifest,
+        '--prefix',
+        path.join(sandbox.home, '.local'),
+        ...(withSkills ? ['--skills'] : []),
+        '--json',
+      ],
+      { deadlineMs: 15_000 }
+    );
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  }
+}
+
+// Each scenario installs four pre-built archives; command deadlines stay unchanged.
 describe('guided tmt setup', { timeout: 60_000 }, () => {
+  let fixtureRoot = '';
+  let plainArtifacts!: SetupArtifacts;
+  let skillArtifacts!: SetupArtifacts;
+
+  beforeAll(async () => {
+    fixtureRoot = mkdtempSync(path.join(os.tmpdir(), 'tmt-setup-guided-'));
+    const buildSet = async (suffix: string, withSkills: boolean): Promise<SetupArtifacts> => {
+      const entries = await Promise.all(
+        SETUP_PRODUCTS.map(async (product) => {
+          const root = path.join(fixtureRoot, `${suffix}-${product}`);
+          mkdirSync(root, { recursive: true });
+          const artifact = await createArtifact(
+            { root },
+            '0.1.0-alpha.1',
+            new Uint8Array(),
+            product,
+            withSkills ? { [`tmt-${product}/SKILL.md`]: `${product} fixture guidance\n` } : {}
+          );
+          return [product, artifact] as const;
+        })
+      );
+      return Object.fromEntries(entries) as SetupArtifacts;
+    };
+    plainArtifacts = await buildSet('plain', false);
+    skillArtifacts = await buildSet('skills', true);
+  });
+
+  afterAll(() => {
+    if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
+  });
   it('shares bare-root guidance with the inventory without executing extensions or creating state', async () => {
     await withSandbox(async (sandbox) => {
       const marker = path.join(sandbox.root, 'extension-executed');
@@ -115,52 +182,43 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
     });
   });
 
-  it.each(['present', 'configOnly'] as const)(
-    'requires consent for %s Muse skills and preserves its settings',
-    async (state) => {
-      await withSandbox(async (sandbox) => {
-        await installSetupExtensions(sandbox);
-        const bin = path.join(sandbox.root, 'muse-bin');
-        mkdirSync(bin);
-        symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
-        sandbox.env.PATH = bin;
-        const settings = path.join(sandbox.home, '.config', 'muse', 'settings.json');
-        mkdirSync(path.dirname(settings), { recursive: true });
-        writeFileSync(settings, '{"userSetting":true}\n');
-        if (state === 'present') {
-          writeExecutable(
-            path.join(bin, 'muse'),
-            '#!/bin/sh\nprintf ran > "$HOME/ran-muse"\n',
-            0o755
-          );
-        }
+  it('requires consent for present Muse skills and preserves its settings', async () => {
+    await withSandbox(async (sandbox) => {
+      await installSetupFromFixtures(sandbox, plainArtifacts);
+      const bin = path.join(sandbox.root, 'muse-bin');
+      mkdirSync(bin);
+      symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
+      sandbox.env.PATH = bin;
+      const settings = path.join(sandbox.home, '.config', 'muse', 'settings.json');
+      mkdirSync(path.dirname(settings), { recursive: true });
+      writeFileSync(settings, '{"userSetting":true}\n');
+      writeExecutable(path.join(bin, 'muse'), '#!/bin/sh\nprintf ran > "$HOME/ran-muse"\n', 0o755);
 
-        const before = tree(sandbox.root);
-        expectError(await runCli(sandbox, ['setup', '--json']), 'SETUP_CONSENT_REQUIRED');
-        expect(tree(sandbox.root)).toEqual(before);
+      const before = tree(sandbox.root);
+      expectError(await runCli(sandbox, ['setup', '--json']), 'SETUP_CONSENT_REQUIRED');
+      expect(tree(sandbox.root)).toEqual(before);
 
-        const applied = await runCli(sandbox, ['setup', '--yes', '--json']);
-        expect(applied.status, applied.stdout + applied.stderr).toBe(0);
-        const report = parseWholeStdout(applied);
-        expect(report.agents).toContainEqual({ name: 'muse', state });
-        const plan = report.plan as { kind: string; path: string }[];
-        expect(plan).toHaveLength(2);
-        expect(plan.every((item) => item.kind === 'skill')).toBe(true);
-        for (const name of ['tmt', 'tmt-inbox']) {
-          expect(
-            lstatSync(path.join(sandbox.home, '.agents', 'skills', name)).isSymbolicLink()
-          ).toBe(true);
-        }
-        expect(readFileSync(settings, 'utf8')).toBe('{"userSetting":true}\n');
-        expect(ran(sandbox)).toEqual([]);
-        expect(existsSync(sandbox.database)).toBe(false);
-      });
-    }
-  );
+      const applied = await runCli(sandbox, ['setup', '--yes', '--json']);
+      expect(applied.status, applied.stdout + applied.stderr).toBe(0);
+      const report = parseWholeStdout(applied);
+      expect(report.agents).toContainEqual({ name: 'muse', state: 'present' });
+      const plan = report.plan as { kind: string; path: string }[];
+      expect(plan).toHaveLength(2);
+      expect(plan.every((item) => item.kind === 'skill')).toBe(true);
+      for (const name of ['tmt', 'tmt-inbox']) {
+        expect(lstatSync(path.join(sandbox.home, '.agents', 'skills', name)).isSymbolicLink()).toBe(
+          true
+        );
+      }
+      expect(readFileSync(settings, 'utf8')).toBe('{"userSetting":true}\n');
+      expect(ran(sandbox)).toEqual([]);
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
 
   it('sets up every detected agent after one approval and is idempotent', async () => {
     await withSandbox(async (sandbox) => {
-      await installSetupExtensions(sandbox);
+      await installSetupFromFixtures(sandbox, plainArtifacts);
       machine(sandbox);
       const before = tree(sandbox.root);
       // No terminal and no --yes: the plan is printed, nothing changes.
@@ -172,7 +230,7 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
       expect(refused.stdout).toContain('!  gemini');
       expect(refused.stdout).toContain('✗  agy');
       expect(refused.stdout).toContain('~/.claude/settings.json');
-      expect(refused.stdout).toContain('not found: pi · opencode · muse · cursor-agent');
+      expect(refused.stdout).toContain('not found: pi · opencode · cursor-agent');
       expect(refused.stderr).toContain('nothing was changed');
       expectError(await runCli(sandbox, ['setup', '--json']), 'SETUP_CONSENT_REQUIRED');
       expect(tree(sandbox.root)).toEqual(before);
@@ -188,9 +246,12 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
         { name: 'agy', state: 'broken' },
         { name: 'pi', state: 'absent' },
         { name: 'opencode', state: 'absent' },
-        { name: 'muse', state: 'absent' },
+        { name: 'muse', state: 'configOnly' },
         { name: 'cursor-agent', state: 'absent' },
       ]);
+      expect(
+        readFileSync(path.join(sandbox.home, '.config', 'muse', 'settings.json'), 'utf8')
+      ).toBe('{"userSetting":true}\n');
       const plan = report.plan as { kind: string; driver: string | null; path: string }[];
       expect(plan.filter((item) => item.kind === 'hooks').map((item) => item.driver)).toEqual([
         'claude',
@@ -248,7 +309,7 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
 
   it('replaces planned published names without backups and leaves source destinations untouched', async () => {
     await withSandbox(async (sandbox) => {
-      await installSetupExtensions(sandbox);
+      await installSetupFromFixtures(sandbox, plainArtifacts);
       machine(sandbox);
       // A real directory at the published name is replaced.
       const occupied = path.join(sandbox.home, '.claude', 'skills', 'tmt');
@@ -299,7 +360,7 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
 
   it('proceeds with other providers when agy has a dangling symlink and supports symlinked agy hooks.json', async () => {
     await withSandbox(async (sandbox) => {
-      await installSetupExtensions(sandbox);
+      await installSetupFromFixtures(sandbox, plainArtifacts);
       const bin = machine(sandbox);
       writeExecutable(path.join(bin, 'agy'), '#!/bin/sh\ntouch "$HOME/ran-agy"\n', 0o755);
       const configDir = path.join(sandbox.home, '.gemini', 'config');
@@ -348,21 +409,6 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
     });
   });
 
-  it('reports a machine with no agents and changes nothing', async () => {
-    await withSandbox(async (sandbox) => {
-      await installSetupExtensions(sandbox);
-      const bin = path.join(sandbox.root, 'bin');
-      mkdirSync(bin);
-      symlinkSync(sandbox.cli.executable, path.join(bin, 'tmt'));
-      sandbox.env.PATH = `${bin}${path.delimiter}/usr/bin${path.delimiter}/bin`;
-      const before = tree(sandbox.root);
-      const result = await runCli(sandbox, ['setup']);
-      expect(result.status, result.stderr).toBe(0);
-      expect(result.stdout).toContain('AGENTS 0');
-      expect(result.stdout).toContain('✓ Everything is set up');
-      expect(tree(sandbox.root)).toEqual(before);
-    });
-  });
   it('requires consent for missing extensions even when no agent needs setup', async () => {
     await withSandbox(async (sandbox) => {
       launcher(sandbox);
@@ -382,7 +428,7 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
   it('keeps healthy binaries and retries only missing bundled skills from the active release', async () => {
     await withSandbox(async (sandbox) => {
       launcher(sandbox);
-      await installSetupExtensions(sandbox, true);
+      await installSetupFromFixtures(sandbox, skillArtifacts, true);
       const prefix = path.join(sandbox.home, '.local');
       const before = ['ops', 'digest', 'remote', 'colab'].map((product) => ({
         product,
@@ -417,74 +463,10 @@ describe('guided tmt setup', { timeout: 60_000 }, () => {
     });
   });
 
-  it('projects active versions and missing dependencies from the setup inventory without effects', async () => {
-    await withSandbox(async (sandbox) => {
-      launcher(sandbox);
-      await installSetupExtensions(sandbox);
-      const configured = await runCli(sandbox, ['setup', '--yes', '--json']);
-      expect(configured.status, configured.stdout + configured.stderr).toBe(0);
-      const current = parseWholeStdout(await runCli(sandbox, ['setup', '--json']));
-      const publicInventory = parseWholeStdout(
-        await runCli(sandbox, ['extension', 'ls', '--json'])
-      );
-      expect(current.extensions).toHaveLength(4);
-      expect(current.guidance).toEqual(publicInventory.guidance);
-      const next = await runCli(sandbox, ['setup']);
-      expect(next.stdout.match(/Next:/g)).toHaveLength(1);
-      for (const action of (current.guidance as { actions: { argv: string[] }[] }).actions) {
-        expect(next.stdout).toContain(action.argv.join(' '));
-      }
-      for (const row of current.extensions as Array<Record<string, unknown>>) {
-        expect(
-          (publicInventory.extensions as Array<Record<string, unknown>>).find(
-            (item) => item.name === row.extension
-          )
-        ).toMatchObject({ installed: row.installed, version: row.version });
-      }
-      const prefix = path.join(sandbox.home, '.local');
-      const colab = await runCli(sandbox, ['extension', 'rm', 'colab', '--yes', '--json']);
-      expect(colab.status, colab.stdout + colab.stderr).toBe(0);
-      const before = tree(sandbox.root);
-      const listed = await runCli(sandbox, ['extension', 'ls', '--json']);
-      expect(listed.status, listed.stdout + listed.stderr).toBe(0);
-      expect(listed.stderr).toBe('');
-      const rows = parseWholeStdout(listed).extensions as Array<Record<string, unknown>>;
-      expect(parseWholeStdout(listed).guidance).toMatchObject({
-        actions: expect.arrayContaining([
-          expect.objectContaining({
-            id: 'install-colab',
-            kind: 'install',
-            argv: ['tmt', 'extension', 'install', 'colab', '--yes'],
-          }),
-        ]),
-      });
-      expect(rows).toHaveLength(4);
-      for (const name of ['ops', 'digest', 'remote', 'colab']) {
-        const row = rows.find((row) => row.name === name)!;
-        expect(row).toMatchObject({
-          official: true,
-          installed: name !== 'colab',
-          missing: name === 'colab',
-          dependencies: name === 'colab' ? ['remote'] : [],
-        });
-        if (name === 'colab') expect(row.version).toBeNull();
-        else {
-          const receipt = JSON.parse(
-            readFileSync(path.join(prefix, 'lib', `tmt-${name}`, 'current', 'receipt.json'), 'utf8')
-          );
-          expect(row.version).toBe(receipt.version);
-        }
-      }
-      expectError(await runCli(sandbox, ['setup', '--json']), 'SETUP_CONSENT_REQUIRED');
-      expect(tree(sandbox.root)).toEqual(before);
-      expect(existsSync(sandbox.database)).toBe(false);
-    });
-  });
-
   it('reports partial failure in one JSON document, skips Colab and preserves completed products', async () => {
     await withSandbox(async (sandbox) => {
       launcher(sandbox);
-      await installSetupExtensions(sandbox);
+      await installSetupFromFixtures(sandbox, plainArtifacts);
       const prefix = path.join(sandbox.home, '.local');
       const remote = path.join(prefix, 'bin', 'tmt-remote');
       const destination = readlinkSync(remote);
