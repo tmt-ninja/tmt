@@ -8372,6 +8372,11 @@ var USAGE_RANGES = [
 	"7d",
 	"30d"
 ];
+var PRICING_BASIS = "standard-list";
+var isPriceDate = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+function pricingVersion(pricing) {
+	return pricing?.basis === PRICING_BASIS && isPriceDate(pricing.version) ? pricing.version : void 0;
+}
 var safeCount = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 function isTotals(value) {
 	const totals = value;
@@ -8383,13 +8388,13 @@ function providerRecords(doc) {
 	if (!Array.isArray(rows)) return void 0;
 	const seen = /* @__PURE__ */ new Set();
 	const parsed = [];
-	const priced = doc.pricing?.basis === "standard-base-input" && typeof doc.pricing.version === "string" && /^\d{4}-\d{2}-\d{2}$/.test(doc.pricing.version);
+	const priced = pricingVersion(doc.pricing) !== void 0;
 	for (const value of rows) {
 		const row = value;
 		if (!row || typeof row.driver !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(row.driver) || seen.has(row.driver) || !isTotals(row.totals) || !Array.isArray(row.seats) || !row.seats.every((id) => typeof id === "string") || !safeCount(row.partialSeats) || row.partialSeats > row.seats.length) return void 0;
 		seen.add(row.driver);
 		const reasons = row.costUnavailable;
-		const validReasons = Array.isArray(reasons) && reasons.every((reason) => typeof reason === "string" && /^[a-z_]{1,64}$/.test(reason));
+		const validReasons = isCostReasonList(reasons);
 		const validCost = validReasons && reasons.length === 0 && safeCount(row.inputCost?.usdMicros);
 		const inputCost = priced && validCost ? { usdMicros: row.inputCost.usdMicros } : null;
 		const costUnavailable = inputCost ? [] : row.inputCost === null && validReasons && reasons.length ? reasons : [validCost && !priced ? "pricing_unavailable" : "cost_evidence_invalid"];
@@ -8403,6 +8408,26 @@ function providerRecords(doc) {
 		});
 	}
 	return parsed.filter((row) => row.totals.input + row.totals.output > 0);
+}
+function isCostReasonList(value) {
+	return Array.isArray(value) && value.every((reason) => typeof reason === "string" && /^[a-z_]{1,64}$/.test(reason));
+}
+/** The browser consumes quotes from Digest. A bad or ambiguous row leaves that model unpriced. */
+function modelQuotes(doc) {
+	const quotes = /* @__PURE__ */ new Map();
+	const rows = doc.usage.models;
+	if (!pricingVersion(doc.pricing) || !Array.isArray(rows)) return quotes;
+	for (const value of rows) {
+		const row = record(value);
+		const model = row.modelId;
+		if (typeof model !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(model)) continue;
+		const { usdMicros, lowerBound } = record(row.cost);
+		quotes.set(model, !quotes.has(model) && isCostReasonList(row.costUnavailable) && row.costUnavailable.length === 0 && safeCount(usdMicros) && typeof lowerBound === "boolean" ? {
+			usdMicros,
+			lowerBound
+		} : null);
+	}
+	return quotes;
 }
 var ACCOUNT_KEY = /^[0-9a-f]{12}$/;
 var ACCOUNT_LABEL = /^[A-Za-z0-9._-]{1,32}$/;
@@ -8537,11 +8562,13 @@ function savingsFigures(row) {
 		} : null,
 		avoidedCost: {
 			usdMicros: whole(cost.usdMicros),
+			lowerBound: typeof cost.lowerBound === "boolean" ? cost.lowerBound : null,
 			reason: text(cost.reason),
 			covered: rows(cost.covered)?.map((entry) => ({
 				id: entry.id,
 				measuredSaved: whole(entry.measuredSaved),
-				usdMicros: whole(entry.usdMicros)
+				usdMicros: whole(entry.usdMicros),
+				lowerBound: typeof entry.lowerBound === "boolean" ? entry.lowerBound : null
 			})) ?? null,
 			unpriced: rows(cost.unpriced)?.map((entry) => ({
 				id: entry.id,
@@ -8591,7 +8618,7 @@ function savingsFromAnswer(range, answer) {
 				}];
 			}),
 			total: savingsFigures(record(report.total)),
-			pricing: typeof pricing.version === "string" && typeof pricing.asOf === "string" && typeof pricing.origin === "string" ? {
+			pricing: pricing.basis === PRICING_BASIS && isPriceDate(pricing.version) && isPriceDate(pricing.asOf) && typeof pricing.origin === "string" ? {
 				version: pricing.version,
 				asOf: pricing.asOf,
 				origin: pricing.origin
@@ -8967,8 +8994,7 @@ function attribution(seat) {
 		rest: seat.unattributed ?? NONE
 	};
 }
-/** #6751 C: token share by model over every seat, with the cached-input ratio. On tokens only:
-* a cost weighting waits for a price row for every model, never an estimate. */
+/** #6751 C: token share by model over every seat, with the cached-input ratio. */
 function modelShares(doc) {
 	const byModel = /* @__PURE__ */ new Map();
 	let rest = NONE;
@@ -9011,6 +9037,25 @@ function modelShares(doc) {
 		} : null,
 		cachedRatio: cachedRatio(all),
 		partial: doc.usage.seats.some((seat) => !seat.coverage.complete)
+	};
+}
+/** Shares are based on the report's priced models, including any estimates marked as floors. */
+function modelCostShares(doc, models) {
+	const quotes = modelQuotes(doc);
+	const rows = models.map(({ model }) => ({
+		model,
+		cost: quotes.get(model) ?? null
+	}));
+	const pricedTotal = rows.reduce((total, { cost }) => total + (cost?.usdMicros ?? 0), 0);
+	const hasDenominator = Number.isSafeInteger(pricedTotal) && pricedTotal > 0;
+	return {
+		rows: new Map(rows.map(({ model, cost }) => [model, {
+			cost,
+			share: cost && hasDenominator ? percentOf(cost.usdMicros, pricedTotal) : null
+		}])),
+		excluded: rows.filter(({ cost }) => cost === null).map(({ model }) => model),
+		hasFloors: rows.some(({ cost }) => cost?.lowerBound),
+		hasDenominator
 	};
 }
 /** #6751 C: each seat's share of the range and its model mix, largest seat first. */
@@ -9151,15 +9196,14 @@ function durationText(ms) {
 	const hours = Math.floor(minutes / 60);
 	return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
 }
-/** US dollars from micro-dollars: cents from a dollar up, four places below it; a negative is
-* Digest adding wake-ups. */
+/** Format the reported micro-dollars exactly so a floor never rounds up. */
 function usdText(micros) {
 	if (micros < 0) return `−${usdText(-micros)}`;
-	const dollars = micros / 1e6;
-	return `$${dollars.toLocaleString("en-US", {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: dollars >= 1 ? 2 : 4
-	})}`;
+	return `$${Math.floor(micros / 1e6).toLocaleString("en-US")}.${String(micros % 1e6).padStart(6, "0").replace(/0+$/, "").padEnd(2, "0")}`;
+}
+function costEstimate({ usdMicros, lowerBound }) {
+	if (!lowerBound) return usdText(usdMicros);
+	return usdMicros < 0 ? `at least ${usdText(-usdMicros)} in added cost` : `at least ${usdText(usdMicros)}`;
 }
 /** Why the report could not estimate the avoided cost, in plain words; an unknown reason as is. */
 var COST_REASONS = {
@@ -9190,9 +9234,16 @@ function avoidedCost(doc) {
 		value: UNKNOWN$1,
 		note: `Cost unknown: ${why || reasonWords(cost.reason)}.`
 	};
+	if (!doc.pricing || cost.lowerBound === null) return {
+		value: UNKNOWN$1,
+		note: "Cost unknown: this report does not identify a pricing v2 estimate."
+	};
 	const members = cost.covered.length + cost.unpriced.length;
 	return {
-		value: usdText(cost.usdMicros),
+		value: costEstimate({
+			usdMicros: cost.usdMicros,
+			lowerBound: cost.lowerBound
+		}),
 		note: cost.unpriced.length ? `Covers ${cost.covered.length} of ${members} members; ${why}.` : null
 	};
 }
@@ -9222,7 +9273,7 @@ function savingsView(doc) {
 				value: messages
 			},
 			{
-				label: "Avoided cost (estimate)",
+				label: "Avoided cost (list price estimate)",
 				value: cost.value
 			}
 		],
@@ -9621,27 +9672,22 @@ function providerUsageCard(doc) {
 		cost_evidence_invalid: "The cost evidence could not be read."
 	};
 	const rows = [...records].sort((a, b) => b.totals.input + b.totals.output - (a.totals.input + a.totals.output) || a.driver.localeCompare(b.driver));
-	const money = new Intl.NumberFormat("en-US", {
-		style: "currency",
-		currency: "USD",
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 6
-	});
+	const estimateLabel = "Input cost estimate (list price)";
 	const grid = table([
 		"Provider",
 		"Input",
 		"Output",
 		"Cached input",
-		"Input cost estimate (list price)",
+		estimateLabel,
 		"Coverage"
 	], rows.map((row) => {
 		const name = el$1("span", void 0, providerLabel$1(row.driver));
 		name.title = row.driver;
-		const cost = el$1("span", row.inputCost ? browserUiClasses.tableMono : void 0, row.inputCost ? money.format(row.inputCost.usdMicros / 1e6) : "Unavailable");
+		const cost = el$1("span", row.inputCost ? browserUiClasses.tableMono : void 0, row.inputCost ? usdText(row.inputCost.usdMicros) : "Unavailable");
 		if (!row.inputCost) cost.append(el$1("span", "usage-note", ` — ${row.costUnavailable.map((reason) => Object.hasOwn(reasons, reason) ? reasons[reason] : reason).join(" ")}`));
 		const coverage = row.partialSeats ? `Partial (${row.partialSeats} ${row.partialSeats === 1 ? "seat" : "seats"})` : "Recorded";
 		const compact = el$1("span", browserUiClasses.tableCompactMeta);
-		compact.append("Input estimate: ", cost.cloneNode(true), ` · ${coverage}`);
+		compact.append(`${estimateLabel}: `, cost.cloneNode(true), ` · ${coverage}`);
 		name.append(compact);
 		return [
 			name,
@@ -9662,8 +9708,7 @@ function providerUsageCard(doc) {
 	scroll.setAttribute("role", "region");
 	scroll.setAttribute("aria-label", "Provider usage table");
 	scroll.append(grid);
-	const version = doc.pricing?.version;
-	const note = el$1("p", "usage-note", `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${typeof version === "string" && /^\d{4}-\d{2}-\d{2}$/.test(version) ? version : "unavailable"}. Incomplete records are lower bounds.`);
+	const note = el$1("p", "usage-note", `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${pricingVersion(doc.pricing) ?? "unavailable"}. Incomplete records are lower bounds.`);
 	note.append(remainder);
 	return card$1("digest-provider-usage", "Provider usage", [scroll, note]);
 }
@@ -9777,20 +9822,32 @@ function mixText(seat) {
 	if (seat.unattributed > 0) parts.push(`no model ${seat.unattributed}%`);
 	return parts.length ? parts.join(" · ") : void 0;
 }
-/** #6751 C: token share by model and by seat, with the cached-input ratio. */
+/** #6751 C: token and cost shares by model, token share by seat, and the cached-input ratio. */
 function sharesCard(doc) {
 	const id = "digest-shares";
 	const title = "Usage share";
-	const subtitle = "Tokens in this range, by model and by seat.";
+	const subtitle = "Tokens by model and by seat. Cost estimates use standard list prices.";
 	const seats = seatMix(doc).filter((seat) => seat.tokens > 0);
 	if (!seats.length) return card$1(id, title, [el$1("p", "usage-note", "No token observations in this range.")], { subtitle });
 	const shares = modelShares(doc);
 	const byModel = el$1("div", "digest-share-group");
 	byModel.id = "digest-shares-models";
 	byModel.append(el$1("h3", "digest-share-title", "By model"));
-	shares.models.slice(0, MODELS_KEPT).forEach((model, at) => byModel.append(shareMeter(model.model, model.share, at % 7)));
+	const costs = modelCostShares(doc, shares.models);
+	const modelMeter = (model, tone) => {
+		const row = costs.rows.get(model.model);
+		const cost = row?.cost ? costEstimate(row.cost) : "No price";
+		const percent = row?.share == null ? "" : ` · ${row.share}% of priced cost`;
+		return shareMeter(model.model, model.share, tone, `${model.tokens.toLocaleString("en-US")} tokens · ${cost}${percent}`);
+	};
+	shares.models.slice(0, MODELS_KEPT).forEach((model, at) => byModel.append(modelMeter(model, at % 7)));
 	const restModels = shares.models.slice(MODELS_KEPT);
-	if (restModels.length) byModel.append(shareMeter(`Other (${restModels.length} ${restModels.length === 1 ? "model" : "models"})`, shareSum(restModels), OTHER_STEP));
+	if (restModels.length) {
+		const rest = el$1("details");
+		const count = restModels.length;
+		rest.append(el$1("summary", void 0, `Other (${count} ${count === 1 ? "model" : "models"}): ${shareSum(restModels)}% of tokens`), ...restModels.map((model) => modelMeter(model, OTHER_STEP)));
+		byModel.append(rest);
+	}
 	if (shares.unattributed) byModel.append(shareMeter("No model recorded", shares.unattributed.share, OTHER_STEP, shares.models.length ? `Core recorded no model for part of ${shares.unattributed.seats} ${shares.unattributed.seats === 1 ? "seat's" : "seats'"} tokens.` : "Core recorded no model for these tokens."));
 	byModel.append(bareTiles(tile("Cached input", shares.cachedRatio === null ? "—" : `${shares.cachedRatio}% of input`, {
 		tone: "info",
@@ -9800,21 +9857,22 @@ function sharesCard(doc) {
 	bySeat.id = "digest-shares-seats";
 	bySeat.append(el$1("h3", "digest-share-title", "By seat"));
 	const hue = seatHues(doc, false);
-	for (const seat of seats.slice(0, SERIES_KEPT)) bySeat.append(shareMeter(seatLabel(seat.name, seat.partial), seat.share, hue.get(seat.id) ?? OTHER_STEP, mixText(seat)));
+	for (const seat of seats.slice(0, SERIES_KEPT)) bySeat.append(shareMeter(seatLabel(seat.name, seat.partial), seat.share, hue.get(seat.id) ?? OTHER_STEP, [`${seat.tokens.toLocaleString("en-US")} tokens`, mixText(seat)].filter(Boolean).join(" · ")));
 	const restSeats = seats.slice(SERIES_KEPT);
 	if (restSeats.length) bySeat.append(shareMeter(`Other (${restSeats.length} seats)`, shareSum(restSeats), OTHER_STEP));
+	bySeat.append(el$1("p", "usage-note", "Per-seat cost needs seat-level quotes in the report."));
 	const groups = el$1("div", "digest-share-groups");
 	groups.append(byModel, bySeat);
 	const notes = [];
 	if (seats.some((seat) => seat.partial)) notes.push(el$1("p", "usage-note", "* Partial: some of this range has no data for the seat."));
 	if (doc.usage.unavailable.length) notes.push(el$1("p", "usage-note", "Unavailable seats are not included in these shares."));
-	const price = el$1("p", "usage-note digest-share-cost", "Shares are of tokens, input plus output. Cost needs each model's output and cached-input prices, which the price table does not have yet (");
-	const issue = el$1("a", void 0, "#6855");
-	issue.href = "https://github.com/tmt-ninja/tmt/issues/6855";
-	issue.target = "_blank";
-	issue.rel = "noreferrer";
-	price.append(issue, ").");
-	notes.push(price);
+	const excluded = [...costs.excluded, ...shares.unattributed ? ["tokens with no recorded model"] : []];
+	const costNotes = [
+		costs.hasDenominator ? "Cost shares use only priced models." : "Cost shares are unavailable without a positive priced total.",
+		excluded.length ? `Excluded: ${excluded.join(", ")}.` : "",
+		costs.hasFloors ? "Cost shares include lower-bound estimates." : ""
+	];
+	notes.push(el$1("p", "usage-note digest-share-cost", costNotes.filter(Boolean).join(" ")));
 	return card$1(id, title, [groups, ...notes], { subtitle });
 }
 /** #6751 E: every seat together per bucket; a bucket no seat read stays blank, never 0. */

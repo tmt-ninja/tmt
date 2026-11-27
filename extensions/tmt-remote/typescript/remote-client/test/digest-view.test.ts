@@ -20,6 +20,7 @@ import {
   seatName,
   tokenSeries,
   modelShares,
+  modelCostShares,
   seatMix,
   trend,
   runway,
@@ -212,7 +213,7 @@ it('providers pair each weekly window with its history chart and a stable hue', 
 function withShares(...drivers: string[]): UsageDocument {
   return {
     ...day,
-    pricing: { version: '2026-11-01', basis: 'standard-base-input', origin: 'embedded' },
+    pricing: { version: '2026-11-01', basis: 'standard-list', origin: 'embedded' },
     usage: {
       ...day.usage,
       providers: drivers.map((driver, at) => ({
@@ -827,6 +828,33 @@ it('projects a weekly window to its reset at the recent pace, or says when it ru
   ).toMatchObject({ fromLeft: 60 });
 });
 
+it('computes cost share from report quotes and leaves the zero-total denominator unavailable', () => {
+  const models = modelShares(day).models;
+  const result = modelCostShares(day, models);
+  expect(result.rows.get('gpt-6.2-sol')).toEqual({
+    cost: { usdMicros: 700_000, lowerBound: true },
+    share: 35,
+  });
+  expect(result.rows.get('claude-opus-5-5')?.share).toBe(60);
+  expect(result.excluded).toEqual(['claude-fable-5-2']);
+  expect(result.hasFloors).toBe(true);
+  const zero = {
+    ...day,
+    usage: {
+      ...day.usage,
+      models: [
+        { modelId: 'gpt-6.2-sol', cost: { usdMicros: 0, lowerBound: false }, costUnavailable: [] },
+      ],
+    },
+  };
+  const zeroShare = modelCostShares(zero, models);
+  expect(zeroShare.hasDenominator).toBe(false);
+  expect(zeroShare.rows.get('gpt-6.2-sol')).toEqual({
+    cost: { usdMicros: 0, lowerBound: false },
+    share: null,
+  });
+});
+
 it('says what Digest saved, measured first, with every unknown figure as Unknown (#6751 D)', async () => {
   const { mockSavings } = await import('../src/digest-mock.js');
   const whole = savingsView(mockSavings('24h'));
@@ -834,14 +862,14 @@ it('says what Digest saved, measured first, with every unknown figure as Unknown
     'Wake-ups saved (measured)',
     'Upper bound',
     'Messages delivered',
-    'Avoided cost (estimate)',
+    'Avoided cost (list price estimate)',
   ]);
   expect(whole.tiles.every((tile) => tile.value !== 'Unknown')).toBe(true);
   expect(whole.tiles[2]!.value).toMatch(/^\d+ in \d+$/);
   expect(whole.tiles[3]!.value).toMatch(/^\$\d/);
   expect(whole.coverageNote).toBeNull();
   expect(whole.costNote).toBeNull();
-  expect(whole.pricing).toBe('Estimate at list price, price table 2026-11-15 (built-in).');
+  expect(whole.pricing).toBe('Estimate at list price, price table 2026-11-27 (built-in).');
   // Busiest member first.
   expect(whole.rows[0]![0]).toBe('core-1');
   const partial = savingsView(mockSavings('7d', 'partial'));
@@ -870,7 +898,7 @@ it('keeps a reason the page has no words for, and a zero as a zero', () => {
         turnsSaved: 0,
         measuredSaved: null,
         delay: null,
-        avoidedCost: { usdMicros: null, reason, covered: [], unpriced: [] },
+        avoidedCost: { usdMicros: null, lowerBound: null, reason, covered: [], unpriced: [] },
       },
       pricing: null,
     });
@@ -887,7 +915,13 @@ it('keeps a reason the page has no words for, and a zero as a zero', () => {
       turnsSaved: 0,
       measuredSaved: null,
       delay: null,
-      avoidedCost: { usdMicros: null, reason: 'brand_new_reason', covered: [], unpriced: [] },
+      avoidedCost: {
+        usdMicros: null,
+        lowerBound: null,
+        reason: 'brand_new_reason',
+        covered: [],
+        unpriced: [],
+      },
     },
     pricing: null,
   });
@@ -905,6 +939,13 @@ it('shows the avoided cost as the report gives it: priced members only, with the
   };
   // Every member priced: the report's sum, nothing to qualify.
   expect(cost(mockSavings('24h'))).toEqual({ value: '$0.559', note: null });
+  const floor = mockSavings('24h');
+  floor.total.avoidedCost.lowerBound = true;
+  expect(cost(floor).value).toBe('at least $0.559');
+  floor.total.avoidedCost.usdMicros = 1_239_001;
+  expect(cost(floor).value).toBe('at least $1.239001');
+  floor.total.avoidedCost.usdMicros = -559_000;
+  expect(cost(floor).value).toBe('at least $0.559 in added cost');
   // core-1, ux-1 and feat-1 have unpriced wake-ups: the report's sum covers tmt-lead and remote-1.
   expect(cost(mockSavings('24h', 'mixed'))).toEqual({
     value: '$0.1505',

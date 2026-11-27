@@ -67,6 +67,27 @@ export interface UsageProvider {
   costUnavailable: readonly string[];
 }
 
+export interface UsageCost {
+  usdMicros: number;
+  lowerBound: boolean;
+}
+
+interface UsageModelCost {
+  modelId: string;
+  cost: UsageCost | null;
+  costUnavailable: readonly string[];
+}
+
+const PRICING_BASIS = 'standard-list';
+const isPriceDate = (value: unknown): value is string =>
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+export function pricingVersion(pricing: UsageDocument['pricing']): string | undefined {
+  return pricing?.basis === PRICING_BASIS && isPriceDate(pricing.version)
+    ? pricing.version
+    : undefined;
+}
+
 const safeCount = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
@@ -88,10 +109,7 @@ export function providerRecords(doc: UsageDocument): readonly UsageProvider[] | 
   if (!Array.isArray(rows)) return undefined;
   const seen = new Set<string>();
   const parsed: UsageProvider[] = [];
-  const priced =
-    doc.pricing?.basis === 'standard-base-input' &&
-    typeof doc.pricing.version === 'string' &&
-    /^\d{4}-\d{2}-\d{2}$/.test(doc.pricing.version);
+  const priced = pricingVersion(doc.pricing) !== undefined;
   for (const value of rows) {
     const row = value as Partial<UsageProvider> | null;
     if (
@@ -108,9 +126,7 @@ export function providerRecords(doc: UsageDocument): readonly UsageProvider[] | 
       return undefined;
     seen.add(row.driver);
     const reasons = row.costUnavailable;
-    const validReasons =
-      Array.isArray(reasons) &&
-      reasons.every((reason) => typeof reason === 'string' && /^[a-z_]{1,64}$/.test(reason));
+    const validReasons = isCostReasonList(reasons);
     const validCost = validReasons && reasons.length === 0 && safeCount(row.inputCost?.usdMicros);
     const inputCost = priced && validCost ? { usdMicros: row.inputCost!.usdMicros } : null;
     const costUnavailable = inputCost
@@ -128,6 +144,37 @@ export function providerRecords(doc: UsageDocument): readonly UsageProvider[] | 
     });
   }
   return parsed.filter((row) => row.totals.input + row.totals.output > 0);
+}
+
+function isCostReasonList(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every((reason) => typeof reason === 'string' && /^[a-z_]{1,64}$/.test(reason))
+  );
+}
+
+/** The browser consumes quotes from Digest. A bad or ambiguous row leaves that model unpriced. */
+export function modelQuotes(doc: UsageDocument): ReadonlyMap<string, UsageCost | null> {
+  const quotes = new Map<string, UsageCost | null>();
+  const rows: unknown = doc.usage.models;
+  if (!pricingVersion(doc.pricing) || !Array.isArray(rows)) return quotes;
+  for (const value of rows) {
+    const row = record(value);
+    const model = row.modelId;
+    if (typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(model)) continue;
+    const { usdMicros, lowerBound } = record(row.cost);
+    quotes.set(
+      model,
+      !quotes.has(model) &&
+        isCostReasonList(row.costUnavailable) &&
+        row.costUnavailable.length === 0 &&
+        safeCount(usdMicros) &&
+        typeof lowerBound === 'boolean'
+        ? { usdMicros, lowerBound }
+        : null,
+    );
+  }
+  return quotes;
 }
 
 export interface UsageUnavailable {
@@ -229,6 +276,8 @@ export interface UsageDocument {
     seats: readonly UsageSeat[];
     /** Absent on older report producers. */
     providers?: readonly UsageProvider[];
+    /** Quotes by model as reported by Digest pricing v2. */
+    models?: readonly UsageModelCost[];
     providerUnattributed?: UsageTotals;
     unavailable: readonly UsageUnavailable[];
   };
@@ -431,7 +480,15 @@ export interface SavingsFigures {
 export interface SavingsCost {
   usdMicros: number | null;
   reason: string | null;
-  covered: { id: string; measuredSaved: number | null; usdMicros: number | null }[] | null;
+  lowerBound: boolean | null;
+  covered:
+    | {
+        id: string;
+        measuredSaved: number | null;
+        usdMicros: number | null;
+        lowerBound: boolean | null;
+      }[]
+    | null;
   unpriced:
     | { id: string; measuredSaved: number | null; models: string[]; reason: string | null }[]
     | null;
@@ -485,12 +542,14 @@ function savingsFigures(row: Record<string, unknown>): SavingsFigures {
     delay: median !== null && p90 !== null && max !== null ? { median, p90, max } : null,
     avoidedCost: {
       usdMicros: whole(cost.usdMicros),
+      lowerBound: typeof cost.lowerBound === 'boolean' ? cost.lowerBound : null,
       reason: text(cost.reason),
       covered:
         rows(cost.covered)?.map((entry) => ({
           id: entry.id,
           measuredSaved: whole(entry.measuredSaved),
           usdMicros: whole(entry.usdMicros),
+          lowerBound: typeof entry.lowerBound === 'boolean' ? entry.lowerBound : null,
         })) ?? null,
       unpriced:
         rows(cost.unpriced)?.map((entry) => ({
@@ -555,8 +614,9 @@ export function savingsFromAnswer(
       }),
       total: savingsFigures(record(report.total)),
       pricing:
-        typeof pricing.version === 'string' &&
-        typeof pricing.asOf === 'string' &&
+        pricing.basis === PRICING_BASIS &&
+        isPriceDate(pricing.version) &&
+        isPriceDate(pricing.asOf) &&
         typeof pricing.origin === 'string'
           ? { version: pricing.version, asOf: pricing.asOf, origin: pricing.origin }
           : null,

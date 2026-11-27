@@ -455,9 +455,9 @@
             },
             "wakeMethod": {
               "pricing": {
-                "version": "2026-11-15",
-                "asOf": "2026-11-15",
-                "basis": "standard-base-input",
+                "version": "2026-11-27",
+                "asOf": "2026-11-27",
+                "basis": "standard-list",
                 "origin": "built-in",
                 "fetchedAtMs": null
               }
@@ -552,9 +552,9 @@
           },
           "wakeMethod": {
             "pricing": {
-              "version": "2026-11-15",
-              "asOf": "2026-11-15",
-              "basis": "standard-base-input",
+              "version": "2026-11-27",
+              "asOf": "2026-11-27",
+              "basis": "standard-list",
               "origin": "built-in",
               "fetchedAtMs": null
             }

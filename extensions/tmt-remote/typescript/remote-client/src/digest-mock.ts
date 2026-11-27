@@ -305,7 +305,27 @@ export function mockDocument(range: UsageRange, shape: MockShape = {}): UsageDoc
     usage: {
       seats,
       unavailable: [],
+      // Fixed illustrative report quotes, independent of the sample's generated token series.
+      models: [
+        {
+          modelId: 'claude-opus-5-5',
+          cost: { usdMicros: 1_200_000, lowerBound: false },
+          costUnavailable: [],
+        },
+        {
+          modelId: 'gpt-6.2-sol',
+          cost: { usdMicros: 700_000, lowerBound: true },
+          costUnavailable: [],
+        },
+        {
+          modelId: 'gpt-6.2-astra',
+          cost: { usdMicros: 100_000, lowerBound: true },
+          costUnavailable: [],
+        },
+        { modelId: 'claude-fable-5-2', cost: null, costUnavailable: ['no_price'] },
+      ],
     },
+    pricing: { version: '2026-11-27', basis: 'standard-list', origin: 'built-in' },
     limits: shape.oneProvider
       ? limits.filter((limit) => limit.seats.includes(SEATS[1].id))
       : limits,
@@ -361,6 +381,7 @@ export function mockSavings(range: UsageRange, variant: SavingsVariant = 'whole'
       delay: unknown ? null : { median: (40 + index * 25) * 1000, p90: 300_000, max: 900_000 },
       avoidedCost: {
         usdMicros: measuredSaved === null || models ? null : measuredSaved * 21_500,
+        lowerBound: measuredSaved === null || models ? null : false,
         reason: measuredSaved === null ? 'no_known_arrivals' : models ? 'no_price' : null,
         covered: null,
         unpriced: null,
@@ -388,11 +409,13 @@ export function mockSavings(range: UsageRange, variant: SavingsVariant = 'whole'
           covered.length || !unpriced.length
             ? covered.reduce((total, member) => total + member.avoidedCost.usdMicros!, 0)
             : null,
+        lowerBound: !covered.length && unpriced.length ? null : false,
         reason: !covered.length && unpriced.length ? 'no_price' : null,
         covered: covered.map((member) => ({
           id: member.id,
           measuredSaved: member.measuredSaved,
           usdMicros: member.avoidedCost.usdMicros,
+          lowerBound: member.avoidedCost.lowerBound,
         })),
         unpriced: unpriced.map((member) => ({
           id: member.id,
@@ -402,7 +425,7 @@ export function mockSavings(range: UsageRange, variant: SavingsVariant = 'whole'
         })),
       },
     },
-    pricing: { version: '2026-11-15', asOf: '2026-11-15', origin: 'built-in' },
+    pricing: { version: '2026-11-27', asOf: '2026-11-27', origin: 'built-in' },
   };
 }
 
