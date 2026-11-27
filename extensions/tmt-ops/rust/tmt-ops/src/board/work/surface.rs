@@ -785,7 +785,7 @@ fn paint_inspector(
         area,
         &format!("Detail · {number}"),
         Some("Tab focus · Space hide"),
-        state.inspector_focused,
+        state.inspector_focused && state.talk_dialog.is_none(),
     );
     if area.is_empty() {
         return;
@@ -1346,7 +1346,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             list_area,
             &list_title,
             Some(&list_note),
-            !state.inspector_focused,
+            !state.inspector_focused && state.talk_dialog.is_none(),
         );
         let content_top = list_inner.y;
         let content_bottom = list_inner.bottom();
@@ -2087,6 +2087,10 @@ impl App {
             (body.height * 4 / 5).max(12).min(body.height),
         ];
         let areas = modal.areas(body, demand, false, false);
+        frame.buffer_mut().set_style(
+            body,
+            ratatui::style::Style::new().add_modifier(Modifier::DIM),
+        );
         modal.paint_flat(areas, frame.buffer_mut(), &look.theme, look.depth);
         let note = Line::styled(
             format!(" from {} ", dialog.item_label),
