@@ -444,15 +444,20 @@ fn verified_observation(
     closed
 }
 
-/// A refusal returned once the allowance has run out is the budget: every
-/// probe still running at the deadline fails, so the layer it landed in
-/// (`native-admission`, `main-provider`, `storage`) proved nothing (#6014).
+/// A probe refusal returned once the allowance has run out is the budget:
+/// every probe still running at the deadline fails, so the layer it landed in
+/// proved nothing (#6014). A definitive answer, such as `binding` (the
+/// verified caller is not this target), keeps its layer.
 pub(crate) fn at_deadline(
     result: Result<(), &'static str>,
     deadline: Instant,
 ) -> Result<(), &'static str> {
     result.map_err(|layer| {
-        if Instant::now() >= deadline {
+        let cut_short = matches!(
+            layer,
+            "native-admission" | "main-provider" | "storage" | "stale-commit"
+        );
+        if cut_short && Instant::now() >= deadline {
             "budget"
         } else {
             layer

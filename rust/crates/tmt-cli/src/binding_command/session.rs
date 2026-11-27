@@ -135,6 +135,12 @@ mod tests {
             );
         }
         assert_eq!(at_deadline(Ok(()), spent), Ok(()));
+        // A proven answer is not a timeout.
+        assert_eq!(at_deadline(Err("binding"), spent), Err("binding"));
+        assert_eq!(
+            unrecorded_reason(at_deadline(Err("binding"), spent)),
+            "the verified caller is not this target binding"
+        );
     }
 
     #[test]
