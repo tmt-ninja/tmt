@@ -147,7 +147,7 @@ struct Admission {
 }
 
 /// Open items and their overlapping reference attribute: the one count the board's Talk and
-/// Measure views and `checklist counts` share.
+/// Measure views share.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Counts {
     pub links: usize,
@@ -176,15 +176,6 @@ impl Counts {
 pub fn open(item: &Item) -> bool {
     !item.archived && item.completion == Completion::Open
 }
-/// The most members one `counts` read covers: the squad roster cap.
-pub const COUNTS_LIMIT: usize = 32;
-/// A member's open items for a board read, or why they cannot be counted.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MemberCount {
-    pub id: Id,
-    pub open: Result<usize, &'static str>,
-}
-
 /// Only this local invocation constructor captures the public caller. A request
 /// has no actor field; arbitrary client-supplied identity strings grant nothing.
 pub struct Service {
@@ -201,7 +192,7 @@ impl Service {
         Self::build(core, config, room_id, None, false)?.ok_or_else(no_actor)
     }
 
-    /// A service for reads only (list, show, events, preview, counts): the caller, else the
+    /// A service for reads only (list, show, events, preview): the caller, else the
     /// configured person as Core's `user.person` reports it. Neither creates or marks anyone;
     /// `None` when there is neither.
     pub fn reading(
@@ -481,62 +472,6 @@ impl Service {
             current,
             total_count,
         })
-    }
-
-    /// Every given member's open conversation-list items in this room, from one admission and
-    /// one reference read: the board's count, for at most [`COUNTS_LIMIT`] members. With no
-    /// members given, the room's current roster.
-    pub fn counts(&self, members: Option<Vec<Id>>) -> Result<Vec<MemberCount>, Error> {
-        let _migration =
-            crate::migration::config_write_guard(&self.config_path).map_err(Error::storage)?;
-        let (admission, _) = self.admit(false, false, None)?;
-        let members = match members {
-            Some(members) => members,
-            None => admission
-                .roster
-                .iter()
-                .map(|member| Id::parse(&member.id))
-                .collect::<Result<_, _>>()?,
-        };
-        if members.len() > COUNTS_LIMIT {
-            return Err(Error::new(
-                Code::InputInvalid,
-                format!("At most {COUNTS_LIMIT} members per read."),
-            ));
-        }
-        if !admission.room.available {
-            return Ok(members
-                .into_iter()
-                .map(|id| MemberCount {
-                    id,
-                    open: Err("room-unavailable"),
-                })
-                .collect());
-        }
-        let ids: Vec<&str> = members.iter().map(Id::as_str).collect();
-        let refs = self
-            .core
-            .api("references.resolve", json!({ "identityIds": ids }))
-            .map_err(|e| port(Code::MemberUnavailable, e))?;
-        members
-            .into_iter()
-            .map(|id| {
-                let found = refs["identities"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .any(|identity| identity["id"] == id.as_str() && identity["found"] == true);
-                if !found {
-                    return Ok(MemberCount {
-                        id,
-                        open: Err("member-unavailable"),
-                    });
-                }
-                let document = self.store.for_member(id.clone()).read()?;
-                let open = Counts::of(document.iter().flat_map(|d| &d.items)).todo;
-                Ok(MemberCount { id, open: Ok(open) })
-            })
-            .collect()
     }
 
     pub fn show(&self, checklist_id: &Id, item_id: &Id) -> Result<Current, Error> {

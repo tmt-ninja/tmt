@@ -461,8 +461,9 @@ cold default; interactive sort changes only the current layer.
 `member_links` owns the current-frame resolved-reference rectangles and conversation
 read-focus cursor. It reuses the existing action menu surface within an adjacent
 clipped rectangle; no separate popup/widget family or source authority is added.
-Command mentions use the same targets and source-byte occurrence map: `commands` is the
-board recognizer, verified against the same grammar and byte-range fixtures as web Ops.
+Command mentions use the same targets and source-byte occurrence map. The native test for
+`member_links::commands` verifies exact UTF-8 source and command byte ranges against
+`command-fixtures.json`.
 `command_popover` uses the link menu's 40-cell full-text
 chunks and 48-wide placement. Run choices exist only when the entire single-line command fits
 at once; resizing requires reopening. Display normalization cannot silently rewrite runnable

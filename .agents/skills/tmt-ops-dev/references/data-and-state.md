@@ -264,13 +264,11 @@ hidden accepted alias `list`, both returning semantic JSON action `list`. The ad
 parses only explicit UUIDs and revisions, invokes the unchanged service once and
 projects its typed results/errors. The board consumes the same typed service directly; `Service::preview` reuses read admission to expose its captured actor, current inventory and eligible roster. Board filters and authored drafts remain presentation state.
 
-Read admission (`Service::reading`: `ls`, `show`, `events`, `counts`, the board's checklist
-load and the conversation preview) takes the admitted caller, else Core's non-creating
-`user.person`; an older Core that rejects it is `CHECKLIST_CORE_UNSUPPORTED` (`counts` reason
-`core-unsupported`), never "no person". A reading service refuses
-writes. Write admission keeps `user.identity`, which creates and marks the person. `counts`
-admits once, resolves the requested members in one `references.resolve`, and counts each
-member list with `checklist::Counts`, the single open-todo rule the board also uses.
+Read admission (`Service::reading`: `ls`, `show`, `events`, the board's checklist load and
+the conversation preview) takes the admitted caller, else Core's non-creating `user.person`.
+An older Core that rejects this read returns `CHECKLIST_CORE_UNSUPPORTED`. A reading service
+refuses writes. Write admission keeps `user.identity`, which creates and marks the person.
+The board uses `checklist::Counts` for the open-todo rule.
 
 - `model` owns the frozen item lifecycle: positive item revisions, a separate inventory
   revision, full authored order including archived items, exact expectations and no-op
