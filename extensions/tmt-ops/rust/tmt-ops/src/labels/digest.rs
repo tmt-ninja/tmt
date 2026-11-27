@@ -270,6 +270,8 @@ pub struct Pricing {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PricedModel {
     pub model_id: String,
+    /// The first UTC day the row prices; None for no start or from an older producer.
+    pub effective_from: Option<String>,
     pub usd_micros_per_million_input_tokens: u64,
     pub source: String,
 }
@@ -556,7 +558,8 @@ impl Savings {
 
 impl Cost {
     fn parse(value: &Value) -> Option<Self> {
-        if value.get("assumption")? != "uncached-input" {
+        // Digest prices avoided input as uncached input; a floor is never shown as a figure.
+        if value.get("lowerBound")? != false {
             return None;
         }
         Some(Self {
@@ -565,7 +568,7 @@ impl Cost {
             model_observed_at_ms: number(value.get("modelObservedAtMs")?)?,
             pricing_version: text(value.get("pricingVersion")?)?,
             usd_micros_per_million_input_tokens: number(
-                value.get("usdMicrosPerMillionInputTokens")?,
+                value.get("usdMicrosPerMillion")?.get("input")?,
             )?,
         })
     }
@@ -602,16 +605,25 @@ impl Pricing {
         let models: Vec<_> = models
             .iter()
             .map(|model| {
+                let effective_from = match model.get("effectiveFrom") {
+                    None | Some(Value::Null) => None,
+                    Some(day) => Some(text(day)?),
+                };
                 Some(PricedModel {
                     model_id: text(model.get("modelId")?)?,
+                    effective_from,
                     usd_micros_per_million_input_tokens: number(
-                        model.get("usdMicrosPerMillionInputTokens")?,
+                        model.get("usdMicrosPerMillion")?.get("input")?,
                     )?,
                     source: text(model.get("source")?)?,
                 })
             })
             .collect::<Option<_>>()?;
-        let mut ids: Vec<_> = models.iter().map(|model| &model.model_id).collect();
+        // A model may have one row per start day (Digest's dated rates).
+        let mut ids: Vec<_> = models
+            .iter()
+            .map(|model| (&model.model_id, &model.effective_from))
+            .collect();
         ids.sort();
         ids.dedup();
         if ids.len() != models.len() {
@@ -627,6 +639,66 @@ impl Pricing {
             models,
         })
     }
+}
+
+impl Pricing {
+    /// One row per model to show, in table order: the row in effect on `today` (a UTC
+    /// `YYYY-MM-DD`), the latest start on or before it. Rows dated later are hidden. A model
+    /// with no row in effect yet shows its earliest, with that start to mark it "from".
+    /// Display only: Digest's quotes already chose the row in effect when the tokens were seen.
+    pub fn shown(&self, today: &str) -> Vec<(&PricedModel, Option<&str>)> {
+        let mut shown: Vec<(&PricedModel, Option<&str>)> = Vec::new();
+        for model in &self.models {
+            if shown
+                .iter()
+                .any(|(held, _)| held.model_id == model.model_id)
+            {
+                continue;
+            }
+            let rows = || {
+                self.models
+                    .iter()
+                    .filter(|row| row.model_id == model.model_id)
+            };
+            let current = rows()
+                .filter(|row| {
+                    row.effective_from
+                        .as_deref()
+                        .is_none_or(|from| from <= today)
+                })
+                .max_by(|a, b| a.effective_from.cmp(&b.effective_from));
+            shown.push(match current {
+                Some(row) => (row, None),
+                None => {
+                    let first = rows()
+                        .min_by(|a, b| a.effective_from.cmp(&b.effective_from))
+                        .unwrap_or(model);
+                    (first, first.effective_from.as_deref())
+                }
+            });
+        }
+        shown
+    }
+}
+
+/// The UTC calendar day of a millisecond time, as `YYYY-MM-DD` (Hinnant's civil-from-days):
+/// the day Digest's dated price rows are keyed by.
+pub fn utc_day(ms: u64) -> String {
+    let days = i64::try_from(ms / 86_400_000).unwrap_or(i64::MAX / 2) + 719_468;
+    let era = days.div_euclid(146_097);
+    let day_of_era = days.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted + 2) / 5 + 1;
+    let month = if shifted < 10 {
+        shifted + 3
+    } else {
+        shifted - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 /// Supplier text shown beside numbers: bounded, single-line, no control codes.

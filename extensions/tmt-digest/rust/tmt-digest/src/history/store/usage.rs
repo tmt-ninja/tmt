@@ -7,7 +7,7 @@ use crate::{
         MAX, invalid,
         usage::{MINUTE, UsagePage},
     },
-    pricing::Table,
+    pricing::{Table, Tokens},
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
@@ -104,7 +104,11 @@ impl Store {
                 if observed > now {
                     return None;
                 }
-                prices.quote(&model, observed, tokens)
+                // Avoided input is priced as uncached input: that is the cost avoided.
+                prices
+                    .quote(&model, observed, Tokens::uncached_input(tokens))
+                    .ok()
+                    .map(|quote| quote.json().clone())
             })
             .unwrap_or(Value::Null);
         let percent = if recent && tokens.is_some() {

@@ -991,7 +991,7 @@ fn a_partly_attributed_seat_names_its_remainder_and_keeps_it_on_the_unattributed
     let seat = &document["usage"]["seats"][0];
     assert_eq!(
         seat["byModel"],
-        json!([{"modelId": "gpt-6.1-sol", "input": 6, "output": 1, "cached": 1}])
+        json!([{"modelId": "gpt-6.1-sol", "input": 6, "output": 1, "cached": 1, "cacheWrite": null}])
     );
     assert_eq!(
         seat["unattributed"],
@@ -1311,4 +1311,24 @@ fn a_seat_reports_why_its_newest_reading_was_incomplete() {
             expected
         );
     }
+}
+
+#[test]
+fn a_reported_cache_write_is_priced_and_one_beyond_the_input_is_refused() {
+    // Opus, 6 input of which 1 cached and 2 written, 1 output: 3 x 4 + 1 x 0.2 + 2 x 5 + 1 x 20
+    // = 42.2 micro-dollars, priced at the write rate, so not a floor.
+    let document = attributed_as(json!([{"modelId": "claude-opus-5-5", "inputTokens": 6,
+        "outputTokens": 1, "cachedInputTokens": 1, "cacheWriteTokens": 2}]));
+    let model = &document["usage"]["models"][0];
+    assert_eq!(model["totals"]["cacheWrite"], 2);
+    assert_eq!(model["cost"], json!({"usdMicros": 42, "lowerBound": false}));
+    let line = &document["usage"]["lines"][0];
+    assert_eq!(line["line"], "claude");
+    assert_eq!(line["cost"], json!({"usdMicros": 42, "lowerBound": false}));
+    // Cached plus written beyond the input cannot be split: Core's answer is refused.
+    let (mut totals, series, ids, labels) = one_seat(None);
+    totals["identities"][0]["windows"][0]["buckets"][0]["byModel"] = json!([{
+        "modelId": "claude-opus-5-5", "inputTokens": 6, "outputTokens": 1,
+        "cachedInputTokens": 5, "cacheWriteTokens": 2}]);
+    assert!(model::usage(&totals, &series, &ids, &labels).is_err());
 }

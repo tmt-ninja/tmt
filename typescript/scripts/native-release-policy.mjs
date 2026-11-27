@@ -27,8 +27,8 @@ const PRODUCTS = {
 
 // Core owns the source file/format; release tooling only carries its exact bytes.
 export const DIGEST_PRICING = Object.freeze({
-  source: 'extensions/tmt-digest/pricing/pricing-v1.json',
-  asset: 'tmt-digest-pricing-v1.json',
+  source: 'extensions/tmt-digest/pricing/pricing-v2.json',
+  asset: 'tmt-digest-pricing-v2.json',
   limit: 64 * 1024,
 });
 

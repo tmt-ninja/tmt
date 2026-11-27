@@ -45,8 +45,8 @@ const SHA = 'a'.repeat(40);
 const TAG = 'v5.0.0-alpha.9';
 const EXTENSION_TAG = 'tmt-ops-v0.1.0-alpha.2';
 const DIGEST_TAG = 'tmt-digest-v0.1.0-alpha.4';
-const PRICING_SOURCE = 'extensions/tmt-digest/pricing/pricing-v1.json';
-const PRICING_ASSET = 'tmt-digest-pricing-v1.json';
+const PRICING_SOURCE = 'extensions/tmt-digest/pricing/pricing-v2.json';
+const PRICING_ASSET = 'tmt-digest-pricing-v2.json';
 // Exercise the release boundary with the canonical product file's exact bytes.
 const PRICING_BYTES = readFileSync(new URL(`../../../${PRICING_SOURCE}`, import.meta.url));
 const assets = (...names: string[]) => names.map((name, index) => ({ id: index + 1, name }));
@@ -379,7 +379,7 @@ describe('publishDraft', () => {
       return mode === 'oversized asset'
         ? 'x'.repeat(65537)
         : mode === 'different'
-          ? PRICING_BYTES.toString().replace('v1', 'v2')
+          ? PRICING_BYTES.toString().replace('pricing-v2', 'pricing-v3')
           : mode === 'whitespace'
             ? PRICING_BYTES.toString() + '\n'
             : PRICING_BYTES.toString();

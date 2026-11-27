@@ -26,7 +26,7 @@ import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
 const script = fileURLToPath(new URL('../../scripts/publication-gates.mjs', import.meta.url));
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const MIGRATIONS = 'rust/crates/tmt-adapters/src/storage/migrations.rs';
-const PRICING_SOURCE = 'extensions/tmt-digest/pricing/pricing-v1.json';
+const PRICING_SOURCE = 'extensions/tmt-digest/pricing/pricing-v2.json';
 
 let root: string;
 let predecessorScript: string;

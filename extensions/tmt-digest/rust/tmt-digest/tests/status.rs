@@ -466,7 +466,7 @@ fn valuation_status_is_read_only_and_matches_day_week_and_lifetime_bounds() {
         assert_eq!(savings["estimatedInputTokensAvoided"], 2700);
         assert_eq!(savings["cost"]["usdMicros"], 5400);
         assert_eq!(savings["cost"]["modelObservedAtMs"], through);
-        assert_eq!(document["pricing"]["version"], "2026-11-15");
+        assert_eq!(document["pricing"]["version"], "2026-11-27");
         if window == "lifetime" {
             assert!(savings["percent"].is_null());
         } else {
@@ -505,15 +505,14 @@ fn valuation_status_is_read_only_and_matches_day_week_and_lifetime_bounds() {
 
 fn fetched_file() -> Vec<u8> {
     let mut file: Value =
-        serde_json::from_str(include_str!("../../../pricing/pricing-v1.json")).unwrap();
-    file["version"] = json!("2026-11-20");
-    file["asOf"] = json!("2026-11-20");
+        serde_json::from_str(include_str!("../../../pricing/pricing-v2.json")).unwrap();
+    file["version"] = json!("2026-12-01");
     file["models"]
         .as_array_mut()
         .unwrap()
         .iter_mut()
         .find(|row| row["modelId"] == "gpt-6.1-sol")
-        .unwrap()["usdMicrosPerMillionInputTokens"] = json!(3_000_000);
+        .unwrap()["usdMicrosPerMillion"]["input"] = json!(3_000_000);
     serde_json::to_vec(&file).unwrap()
 }
 
@@ -535,11 +534,11 @@ fn status_quotes_with_a_fetched_price_file_and_says_where_it_came_from() {
     };
     let first = run();
     assert_eq!(first["pricing"]["origin"], "fetched");
-    assert_eq!(first["pricing"]["version"], "2026-11-20");
+    assert_eq!(first["pricing"]["version"], "2026-12-01");
     assert!(first["pricing"]["fetchedAtMs"].as_u64().unwrap() > 0);
     let cost = &first["members"][0]["savings"]["cost"];
-    assert_eq!(cost["pricingVersion"], "2026-11-20");
-    assert_eq!(cost["usdMicrosPerMillionInputTokens"], 3_000_000);
+    assert_eq!(cost["pricingVersion"], "2026-12-01");
+    assert_eq!(cost["usdMicrosPerMillion"]["input"], 3_000_000);
     assert_eq!(cost["usdMicros"], 8100);
     // The second status is inside the 30 s spacing: no request, the private cache answers.
     let second = run();
@@ -567,7 +566,7 @@ fn a_stalled_price_server_never_holds_status_past_its_deadline() {
     assert!(output.status.success(), "{:?}", output.stderr);
     let document: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(document["pricing"]["origin"], "built-in");
-    assert_eq!(document["pricing"]["version"], "2026-11-15");
+    assert_eq!(document["pricing"]["version"], "2026-11-27");
     assert!(
         waited < std::time::Duration::from_millis(4_500),
         "{waited:?}"
@@ -615,8 +614,8 @@ fn the_savings_report_prices_from_the_cache_or_the_built_in_table_and_never_fetc
     // No cache: the built-in table, named as such, and no cache directory made.
     let first = report();
     assert_eq!(first["origin"], "built-in");
-    assert_eq!(first["version"], "2026-11-15");
-    assert_eq!(first["asOf"], "2026-11-15");
+    assert_eq!(first["version"], "2026-11-27");
+    assert_eq!(first["asOf"], "2026-11-27");
     assert!(first["fetchedAtMs"].is_null());
     assert!(listing().is_none());
     // An empty cache directory stays empty.
@@ -639,7 +638,7 @@ fn the_savings_report_prices_from_the_cache_or_the_built_in_table_and_never_fetc
     let kept = listing();
     let cached = report();
     assert_eq!(cached["origin"], "cached");
-    assert_eq!(cached["version"], "2026-11-20");
+    assert_eq!(cached["version"], "2026-12-01");
     assert!(cached["fetchedAtMs"].as_u64().unwrap() > 0);
     assert_eq!(listing(), kept);
     assert_eq!(server.hits(), 1);
@@ -651,5 +650,5 @@ fn status_with_the_fetch_off_names_the_built_in_table_and_asks_for_nothing() {
     let document = fixture.status();
     assert_eq!(document["pricing"]["origin"], "built-in");
     assert!(document["pricing"].get("fetchedAtMs").is_none());
-    assert_eq!(document["pricing"]["models"].as_array().unwrap().len(), 24);
+    assert_eq!(document["pricing"]["models"].as_array().unwrap().len(), 35);
 }

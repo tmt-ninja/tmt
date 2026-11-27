@@ -1,7 +1,7 @@
-//! The price table Digest quotes with: standard base-input list prices, an
-//! explicit uncached-input assumption, never historical bills. One public file,
-//! `extensions/tmt-digest/pricing/pricing-v1.json`, is embedded as the built-in
-//! table and refetched anonymously by `status` (see the contract's Pricing file).
+//! The price table Digest quotes with: standard list prices per model for four token
+//! classes (uncached input, cached input, cache writes, output), never historical bills.
+//! One public file, `extensions/tmt-digest/pricing/pricing-v2.json`, is embedded as the
+//! built-in table and refetched anonymously by `status` (see the contract's Pricing file).
 
 mod cache;
 mod fetch;
@@ -17,22 +17,56 @@ use std::{
     time::Duration,
 };
 
-const BUILT_IN: &str = include_str!("../../../pricing/pricing-v1.json");
-const SCHEMA: &str = "tmt-digest-pricing-v1";
-const BASIS: &str = "standard-base-input";
+const BUILT_IN: &str = include_str!("../../../pricing/pricing-v2.json");
+const SCHEMA: &str = "tmt-digest-pricing-v2";
+const BASIS: &str = "standard-list";
 const MAX_MODELS: usize = 64;
-const MAX_FILE_BYTES: usize = 16 * 1024;
+const MAX_FILE_BYTES: usize = 32 * 1024;
 /// Attempts are at least this far apart; a failed attempt counts.
 const ATTEMPT_EVERY_MS: u64 = 30_000;
 /// The fetch has its own deadline; this only bounds the wait for its thread.
 const WAIT: Duration = Duration::from_millis(2_500);
 
+/// One model's list prices in USD micros per million tokens. `input` is the uncached input
+/// rate and always known; another class is null when the provider page states no rate for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct Rates {
+    input: u64,
+    // `deserialize_with` makes the key required: a class is null, never left out.
+    #[serde(deserialize_with = "Option::deserialize")]
+    cached_input: Option<u64>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    cache_write: Option<u64>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    output: Option<u64>,
+}
+
+impl Rates {
+    const ZERO: Self = Self {
+        input: 0,
+        cached_input: Some(0),
+        cache_write: Some(0),
+        output: Some(0),
+    };
+
+    fn json(self) -> Value {
+        json!({"input": self.input, "cachedInput": self.cached_input,
+            "cacheWrite": self.cache_write, "output": self.output})
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Rate {
     model_id: String,
-    usd_micros_per_million_input_tokens: u64,
+    /// The first UTC day this row prices, or null for no start. A model's rows have distinct
+    /// starts, and each applies until the next one begins.
+    #[serde(deserialize_with = "Option::deserialize")]
+    effective_from: Option<String>,
+    usd_micros_per_million: Rates,
     source: String,
+    as_of: String,
 }
 
 /// Models the owner's plan does not bill per token (#6081). They are valued at zero
@@ -41,13 +75,72 @@ const UNBILLED: &[&str] = &["codex-auto-review"];
 /// Where the unbilled rule is recorded, as the `source` of its zero rows.
 const UNBILLED_SOURCE: &str = "https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-digest/contracts/digest-v1.md#unbilled-models";
 
+/// The tokens one quote prices, as Core counts them: `input` includes the cached input and
+/// the cache writes. `cache_write` is None when the source reported no cache-write count.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Tokens {
+    pub input: u64,
+    pub cached: u64,
+    pub cache_write: Option<u64>,
+    pub output: u64,
+}
+
+impl Tokens {
+    /// Tokens priced as uncached input alone, as the avoided-input savings are.
+    pub fn uncached_input(input: u64) -> Self {
+        Self {
+            input,
+            cache_write: Some(0),
+            ..Self::default()
+        }
+    }
+}
+
+/// Why a quote is a floor: the provider bills cache writes and the source reported none.
+pub const CACHE_WRITE_UNREPORTED: &str = "cache_write_unreported";
+
+/// Why a quote has no figure. The text is the report's reason id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unpriced {
+    /// The model has no row.
+    NoPrice,
+    /// A class with tokens has no rate.
+    ClassPriceMissing,
+    /// Counts that do not add up, or arithmetic past the safe integer.
+    Unsafe,
+}
+
+impl Unpriced {
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::NoPrice => "no_price",
+            Self::ClassPriceMissing => "class_price_missing",
+            Self::Unsafe => "unsafe_cost",
+        }
+    }
+}
+
+/// One model's priced tokens. `lower_bound` marks a floor: the provider bills cache writes
+/// but the source reported none, so any writes were priced at the input rate.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Quote {
+    pub usd_micros: u64,
+    pub lower_bound: bool,
+    json: Value,
+}
+
+impl Quote {
+    pub fn json(&self) -> &Value {
+        &self.json
+    }
+}
+
 /// One validated price file. Equal `version`s always mean equal tables.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Table {
     schema: String,
     version: String,
-    as_of: String,
     basis: String,
     models: Vec<Rate>,
 }
@@ -65,14 +158,15 @@ impl Table {
     fn valid(&self) -> bool {
         self.schema == SCHEMA
             && date(&self.version)
-            && date(&self.as_of)
             && self.basis == BASIS
             && (1..=MAX_MODELS).contains(&self.models.len())
             && self.models.iter().enumerate().all(|(index, rate)| {
-                rate.valid()
-                    && !self.models[..index]
-                        .iter()
-                        .any(|other| other.model_id == rate.model_id)
+                rate.valid(&self.version)
+                    // A model's rows are listed by start, each later than the one before
+                    // (null first), so two rows never claim one day.
+                    && self.models[..index].iter().all(|other| {
+                        other.model_id != rate.model_id || other.effective_from < rate.effective_from
+                    })
             })
     }
 
@@ -82,49 +176,136 @@ impl Table {
         self.version > known.version || self == known
     }
 
-    pub fn quote(&self, model: &str, observed_at: u64, tokens: u64) -> Option<Value> {
-        if observed_at > MAX || tokens > MAX {
-            return None;
+    /// The model's row in effect on the UTC day of `observed_at`: the latest start on or
+    /// before that day. A model with rows but none started yet has no price.
+    fn rate(&self, model: &str, observed_at: u64) -> Option<(Rates, Option<&str>)> {
+        let day = utc_day(observed_at);
+        let mut rows = self
+            .models
+            .iter()
+            .filter(|rate| rate.model_id == model)
+            .peekable();
+        if rows.peek().is_none() {
+            return UNBILLED.contains(&model).then_some((Rates::ZERO, None));
         }
-        let per_million = match self.models.iter().find(|rate| rate.model_id == model) {
-            Some(rate) => rate.usd_micros_per_million_input_tokens,
-            None if UNBILLED.contains(&model) => 0,
-            None => return None,
-        };
-        let micros = (u128::from(tokens) * u128::from(per_million) + 500_000) / 1_000_000;
-        let micros = u64::try_from(micros).ok().filter(|n| *n <= MAX)?;
-        Some(json!({
-            "usdMicros":micros,"modelId":model,"modelObservedAtMs":observed_at,
-            "pricingVersion":self.version,"usdMicrosPerMillionInputTokens":per_million,
-            "assumption":"uncached-input"
-        }))
+        rows.filter(|rate| {
+            rate.effective_from
+                .as_deref()
+                .is_none_or(|from| from <= day.as_str())
+        })
+        .max_by(|a, b| a.effective_from.cmp(&b.effective_from))
+        .map(|rate| (rate.usd_micros_per_million, rate.effective_from.as_deref()))
+    }
+
+    /// Prices `tokens` of `model` at this table's list rates, rounding the sum once to the
+    /// nearest micro-dollar, half upward. A class with tokens needs a rate. Unreported cache
+    /// writes of a model whose provider bills them separately make the quote a floor.
+    pub fn quote(&self, model: &str, observed_at: u64, tokens: Tokens) -> Result<Quote, Unpriced> {
+        let counts = [tokens.input, tokens.cached, tokens.output]
+            .into_iter()
+            .chain(tokens.cache_write);
+        if observed_at > MAX || counts.into_iter().any(|n| n > MAX) {
+            return Err(Unpriced::Unsafe);
+        }
+        let (rates, effective_from) = self.rate(model, observed_at).ok_or(Unpriced::NoPrice)?;
+        let uncached = tokens
+            .input
+            .checked_sub(tokens.cached)
+            .and_then(|rest| rest.checked_sub(tokens.cache_write.unwrap_or(0)))
+            .ok_or(Unpriced::Unsafe)?;
+        let write = tokens.cache_write.unwrap_or(0);
+        let lower_bound =
+            tokens.cache_write.is_none() && uncached > 0 && rates.cache_write != Some(rates.input);
+        let mut sum = u128::from(uncached) * u128::from(rates.input);
+        for (count, rate) in [
+            (tokens.cached, rates.cached_input),
+            (write, rates.cache_write),
+            (tokens.output, rates.output),
+        ] {
+            if count > 0 {
+                sum += u128::from(count) * u128::from(rate.ok_or(Unpriced::ClassPriceMissing)?);
+            }
+        }
+        let micros = u64::try_from((sum + 500_000) / 1_000_000)
+            .ok()
+            .filter(|n| *n <= MAX)
+            .ok_or(Unpriced::Unsafe)?;
+        Ok(Quote {
+            usd_micros: micros,
+            lower_bound,
+            json: json!({
+                "usdMicros": micros, "modelId": model, "modelObservedAtMs": observed_at,
+                "pricingVersion": self.version, "effectiveFrom": effective_from,
+                "tokens": {"uncachedInput": uncached, "cachedInput": tokens.cached,
+                    "cacheWrite": tokens.cache_write, "output": tokens.output},
+                "usdMicrosPerMillion": rates.json(),
+                "lowerBound": lower_bound,
+                "lowerBoundReason": lower_bound.then_some(CACHE_WRITE_UNREPORTED),
+            }),
+        })
     }
 
     pub(crate) fn document(&self) -> Value {
-        json!({"version":self.version,"asOf":self.as_of,"basis":self.basis,
-            "models":self.models.iter().map(|rate| json!({"modelId":rate.model_id,
-                "usdMicrosPerMillionInputTokens":rate.usd_micros_per_million_input_tokens,
-                "source":rate.source}))
-                .chain(UNBILLED.iter()
-                    .filter(|model| !self.models.iter().any(|rate| rate.model_id == **model))
-                    .map(|model| json!({"modelId":model,"usdMicrosPerMillionInputTokens":0,
-                        "source":UNBILLED_SOURCE})))
-                .collect::<Vec<_>>()})
+        let rows = self.models.iter().map(|rate| {
+            json!({"modelId": rate.model_id, "effectiveFrom": rate.effective_from,
+                "usdMicrosPerMillion": rate.usd_micros_per_million.json(),
+                "source": rate.source, "asOf": rate.as_of})
+        });
+        let unbilled = UNBILLED
+            .iter()
+            .filter(|model| !self.models.iter().any(|rate| rate.model_id == **model))
+            .map(|model| {
+                json!({"modelId": model, "effectiveFrom": null,
+                    "usdMicrosPerMillion": Rates::ZERO.json(),
+                    "source": UNBILLED_SOURCE, "asOf": self.version})
+            });
+        // The table's date is its newest verification: no row is newer than the version.
+        let as_of = self.models.iter().map(|rate| &rate.as_of).max();
+        json!({"version": self.version, "asOf": as_of, "basis": self.basis,
+            "models": rows.chain(unbilled).collect::<Vec<_>>()})
     }
 }
 
 impl Rate {
-    fn valid(&self) -> bool {
+    fn valid(&self, version: &str) -> bool {
         let id = self.model_id.as_bytes();
+        let rates = self.usd_micros_per_million;
         (1..=64).contains(&id.len())
             && id
                 .iter()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'))
-            && self.usd_micros_per_million_input_tokens <= MAX
+            && [rates.input]
+                .into_iter()
+                .chain(rates.cached_input)
+                .chain(rates.cache_write)
+                .chain(rates.output)
+                .all(|rate| rate <= MAX)
             && self.source.starts_with("https://")
             && self.source.len() <= 256
             && self.source.bytes().all(|c| (0x21..=0x7e).contains(&c))
+            && date(&self.as_of)
+            && self.as_of.as_str() <= version
+            && self.effective_from.as_deref().is_none_or(date)
     }
+}
+
+/// The UTC calendar day of a millisecond time, as `YYYY-MM-DD` (Hinnant's civil-from-days).
+fn utc_day(ms: u64) -> String {
+    let days = i64::try_from(ms / 86_400_000).unwrap_or(i64::MAX / 2) + 719_468;
+    let era = days.div_euclid(146_097);
+    let day_of_era = days.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted + 2) / 5 + 1;
+    let month = if shifted < 10 {
+        shifted + 3
+    } else {
+        shifted - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 /// A real `YYYY-MM-DD` date, as the file's `version` and `asOf` are.

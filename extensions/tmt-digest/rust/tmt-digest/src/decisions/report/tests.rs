@@ -93,7 +93,11 @@ fn turn(
         measured,
         tokens: tokens.map(|(input, output)| input + output),
         input_tokens: tokens.map(|(input, _)| input),
-        by_model: by_model.map(|rows| rows.into_iter().map(|(m, n)| (m.to_owned(), n)).collect()),
+        by_model: by_model.map(|rows| {
+            rows.into_iter()
+                .map(|(m, n)| (m.to_owned(), crate::pricing::Tokens::uncached_input(n)))
+                .collect()
+        }),
     }
 }
 
@@ -187,7 +191,7 @@ fn every_report_carries_the_baseline_and_the_turns_saved_beside_the_actual_delay
     // 1,000 input tokens at the listed USD 4 per million; the unlisted model is not priced.
     assert_eq!(
         wake["costPerWake"],
-        json!({"medianUsdMicros": 4_000, "priced": 1, "reason": null})
+        json!({"medianUsdMicros": 4_000, "priced": 1, "reason": null, "lowerBound": false})
     );
     // One of the two measured wake-ups had no price: the priced one's median is not stretched
     // over it, so the member has no cost and names the model (#6794).
@@ -218,7 +222,7 @@ fn every_report_carries_the_baseline_and_the_turns_saved_beside_the_actual_delay
     let member = &run_with_wake(&settlements, &[], None, Some(&unpriced))["members"][0];
     assert_eq!(
         member["wakeUps"]["costPerWake"],
-        json!({"medianUsdMicros": null, "priced": 0, "reason": "no_price"})
+        json!({"medianUsdMicros": null, "priced": 0, "reason": "no_price", "lowerBound": false})
     );
     assert_eq!(member["avoidedCost"]["usdMicros"], Value::Null);
     // Without Core's turns the report says so rather than showing zero.
@@ -254,19 +258,20 @@ fn the_total_cost_sums_only_priced_members_and_lists_the_unpriced_with_their_sav
         ..turn(true, Some((1_000, 200)), Some(vec![(model, 1_000)]))
     };
     // A's model has a price (USD 4 per million input tokens), B's has none.
-    let turns = [on(A, "claude-opus-5-5"), on(B, "gpt-6.2-sol")];
+    let turns = [on(A, "claude-opus-5-5"), on(B, "gpt-7-sol")];
     let document = run_with_wake(&settlements, &[], None, Some(&turns));
     assert_eq!(document["total"]["measuredSaved"], 4);
     // A's own 2 x 4,000, never 4 saved x the 4,000 median across both members.
     assert_eq!(
         document["total"]["avoidedCost"],
-        json!({"usdMicros": 8_000, "estimate": true,
-               "covered": [{"id": A, "name": "worker", "measuredSaved": 2, "usdMicros": 8_000}],
+        json!({"usdMicros": 8_000, "estimate": true, "lowerBound": false,
+               "covered": [{"id": A, "name": "worker", "measuredSaved": 2, "usdMicros": 8_000,
+                            "lowerBound": false}],
                "unpriced": [{"id": B, "name": null, "measuredSaved": 2,
-                             "models": ["gpt-6.2-sol"], "reason": "no_price"}]})
+                             "models": ["gpt-7-sol"], "reason": "no_price"}]})
     );
     // No member priced: no cost at all, and both are listed.
-    let none = [on(A, "gpt-6.2-sol"), on(B, "gpt-6.2-sol")];
+    let none = [on(A, "gpt-7-sol"), on(B, "gpt-7-sol")];
     let cost = &run_with_wake(&settlements, &[], None, Some(&none))["total"]["avoidedCost"];
     assert_eq!(cost["usdMicros"], Value::Null);
     assert_eq!(cost["reason"], "no_price");
@@ -283,6 +288,69 @@ fn the_total_cost_sums_only_priced_members_and_lists_the_unpriced_with_their_sav
         (cost["covered"].clone(), cost["unpriced"].clone()),
         (json!([]), json!([]))
     );
+}
+
+#[test]
+fn a_wake_up_is_priced_over_every_class_and_a_floor_is_carried_to_the_total() {
+    let mut item = checklist(
+        1,
+        50_000,
+        60_000,
+        &[20_000, 30_000, 40_000],
+        "delivered",
+        true,
+    );
+    for message in &mut item.items {
+        message.phase_at_arrival = Some("idle".into());
+    }
+    let settlements = [(A.to_owned(), item)];
+    let priced = |model: &str, tokens: crate::pricing::Tokens| WakeTurn {
+        by_model: Some(vec![(model.to_owned(), tokens)]),
+        ..turn(true, Some((1_000, 100)), None)
+    };
+    // Claude reports its writes: 500 uncached x 4 + 300 cached x 0.2 + 200 written x 5
+    // + 100 output x 20 = 2,000 + 60 + 1,000 + 2,000, at the real rates.
+    let claude = crate::pricing::Tokens {
+        input: 1_000,
+        cached: 300,
+        cache_write: Some(200),
+        output: 100,
+    };
+    let member = &run_with_wake(
+        &settlements,
+        &[],
+        None,
+        Some(&[priced("claude-opus-5-5", claude)]),
+    )["members"][0];
+    assert_eq!(member["wakeUps"]["costPerWake"]["medianUsdMicros"], 5_060);
+    assert_eq!(member["wakeUps"]["costPerWake"]["lowerBound"], false);
+    assert_eq!(
+        member["avoidedCost"],
+        json!({"usdMicros": 10_120, "estimate": true, "lowerBound": false})
+    );
+    // Codex reports no writes and OpenAI bills them: 1,000 at 2 + 100 output x 10 is a floor,
+    // and so is every total that includes it.
+    let codex = crate::pricing::Tokens {
+        input: 1_000,
+        cached: 0,
+        cache_write: None,
+        output: 100,
+    };
+    let document = run_with_wake(
+        &settlements,
+        &[],
+        None,
+        Some(&[priced("gpt-6.2-sol", codex)]),
+    );
+    let member = &document["members"][0];
+    assert_eq!(member["wakeUps"]["costPerWake"]["medianUsdMicros"], 3_000);
+    assert_eq!(member["wakeUps"]["costPerWake"]["lowerBound"], true);
+    assert_eq!(member["avoidedCost"]["usdMicros"], 6_000);
+    assert_eq!(member["avoidedCost"]["lowerBound"], true);
+    let total = &document["total"]["avoidedCost"];
+    assert_eq!(total["usdMicros"], 6_000);
+    assert_eq!(total["lowerBound"], true);
+    assert_eq!(total["covered"][0]["lowerBound"], true);
 }
 
 #[test]

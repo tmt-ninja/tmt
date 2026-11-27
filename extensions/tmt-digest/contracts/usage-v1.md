@@ -73,6 +73,18 @@ with Core's usual 15 seconds and 1 MiB per call:
   (`claude-*`), `gpt` (`gpt-*`), `other`, and `unattributed` for totals Core could
   not attribute. `seats` counts identities contributing; `partialSeats` those whose
   coverage is not complete. The family is a presentation label, not a provider claim.
+  Each line also has `cost` and `costUnavailable`: the sum of its models' costs (below),
+  null with every reason when any model in it is unpriced, and `lowerBound` when any of
+  them is a floor; the `unattributed` line is always null with `unattributed`.
+- `usage.models[]`: one row per model id across seats, ascending: `modelId`, `line`,
+  `totals` `{input,output,cached,cacheWrite}` (`cacheWrite` null when any seat's row lacked
+  Core's count), contributing `seats` (sorted UUIDs), `partialSeats`, `cost` (null or
+  `{usdMicros, lowerBound}`) and sorted `costUnavailable` reason ids. Rates are per model,
+  so this is the priced unit: each seat's share is [quoted](digest-v1.md#quotes) on its own
+  over all four classes at the rates in effect on the report's UTC day (a window's rollup
+  bucket has no finer time), and the shares are summed. `lowerBound` is true when any
+  share's cache writes went unreported where the provider bills them. Reasons: `no_price`,
+  `class_price_missing`, `unsafe_cost`; any makes `cost` null.
 - `usage.providers[]`: recorded driver shares, ascending by `driver`, from Core's
   optional `byDriver` in the totals read. Each row contains `driver`, `totals`
   `{input,output,cached}`, contributing `seats` (sorted UUIDs), `partialSeats`,
@@ -83,11 +95,13 @@ with Core's usual 15 seconds and 1 MiB per call:
   Core could not attribute to a driver, including retained older records. Missing
   or failed usage reads remain in `usage.unavailable`, never zero provider rows.
 - `pricing`: the one validated cached-or-built-in pricing snapshot used by the
-  provider estimates, with the same version, origin, basis and model-rate fields
-  as [Digest status pricing](digest-v1.md#pricing-file). Label estimates exactly
-  **Input cost estimate (list price)** and show the table version. They value
-  recorded input as uncached standard base input, including cached input once;
-  output is not priced. They are not bills or money saved. Prices are applied to
+  model and provider estimates, with the same version, origin, basis and model-rate fields
+  as [Digest status pricing](digest-v1.md#pricing-file). A model or line `cost` is a
+  **Cost estimate (list price)**; label a `lowerBound` one as a floor. A provider's
+  `inputCost` is labelled exactly **Input cost estimate (list price)** and shows the table
+  version. It values recorded input as uncached input at each model's `input` rate,
+  including cached input once; output is not priced, because a driver share has no class
+  split by model. They are not bills or money saved. Prices are applied to
   model-attributed input, never to an inferred latest model. A seat's aggregate
   can be priced for a driver only when one driver covers all its token totals:
   independent driver/model splits do not establish a joint attribution.

@@ -71,7 +71,8 @@
                         "modelId": "claude-opus-5-5",
                         "inputTokens": 1000,
                         "outputTokens": 200,
-                        "cachedInputTokens": 600
+                        "cachedInputTokens": 600,
+                        "cacheWriteTokens": 100
                       }
                     ]
                   }
@@ -523,7 +524,8 @@
                   "modelId": "claude-opus-5-5",
                   "input": 1000,
                   "output": 200,
-                  "cached": 600
+                  "cached": 600,
+                  "cacheWrite": 100
                 }
               ],
               "series": [
@@ -569,13 +571,15 @@
                   "modelId": "gpt-6.1-sol",
                   "input": 3000,
                   "output": 500,
-                  "cached": 2000
+                  "cached": 2000,
+                  "cacheWrite": null
                 },
                 {
                   "modelId": "gpt-6-astra",
                   "input": 2000,
                   "output": 300,
-                  "cached": 1000
+                  "cached": 1000,
+                  "cacheWrite": null
                 }
               ],
               "series": [
@@ -655,7 +659,8 @@
                   "modelId": "claude-sonnet-5-5",
                   "input": 50,
                   "output": 10,
-                  "cached": 0
+                  "cached": 0,
+                  "cacheWrite": null
                 }
               ],
               "series": [
@@ -705,7 +710,12 @@
                 "cached": 600
               },
               "seats": 2,
-              "partialSeats": 1
+              "partialSeats": 1,
+              "cost": {
+                "usdMicros": 6020,
+                "lowerBound": true
+              },
+              "costUnavailable": []
             },
             {
               "line": "gpt",
@@ -715,7 +725,12 @@
                 "cached": 3000
               },
               "seats": 1,
-              "partialSeats": 0
+              "partialSeats": 0,
+              "cost": {
+                "usdMicros": 33200,
+                "lowerBound": true
+              },
+              "costUnavailable": []
             },
             {
               "line": "unattributed",
@@ -725,7 +740,11 @@
                 "cached": 0
               },
               "seats": 1,
-              "partialSeats": 1
+              "partialSeats": 1,
+              "cost": null,
+              "costUnavailable": [
+                "unattributed"
+              ]
             }
           ],
           "providers": [],
@@ -733,7 +752,85 @@
             "input": 6150,
             "output": 1030,
             "cached": 3600
-          }
+          },
+          "models": [
+            {
+              "modelId": "claude-opus-5-5",
+              "line": "claude",
+              "totals": {
+                "input": 1000,
+                "output": 200,
+                "cached": 600,
+                "cacheWrite": 100
+              },
+              "seats": [
+                "10000000-0000-4000-8000-000000000001"
+              ],
+              "partialSeats": 0,
+              "cost": {
+                "usdMicros": 5820,
+                "lowerBound": false
+              },
+              "costUnavailable": []
+            },
+            {
+              "modelId": "claude-sonnet-5-5",
+              "line": "claude",
+              "totals": {
+                "input": 50,
+                "output": 10,
+                "cached": 0,
+                "cacheWrite": null
+              },
+              "seats": [
+                "10000000-0000-4000-8000-000000000005"
+              ],
+              "partialSeats": 1,
+              "cost": {
+                "usdMicros": 200,
+                "lowerBound": true
+              },
+              "costUnavailable": []
+            },
+            {
+              "modelId": "gpt-6-astra",
+              "line": "gpt",
+              "totals": {
+                "input": 2000,
+                "output": 300,
+                "cached": 1000,
+                "cacheWrite": null
+              },
+              "seats": [
+                "10000000-0000-4000-8000-000000000002"
+              ],
+              "partialSeats": 0,
+              "cost": {
+                "usdMicros": 26000,
+                "lowerBound": true
+              },
+              "costUnavailable": []
+            },
+            {
+              "modelId": "gpt-6.1-sol",
+              "line": "gpt",
+              "totals": {
+                "input": 3000,
+                "output": 500,
+                "cached": 2000,
+                "cacheWrite": null
+              },
+              "seats": [
+                "10000000-0000-4000-8000-000000000002"
+              ],
+              "partialSeats": 0,
+              "cost": {
+                "usdMicros": 7200,
+                "lowerBound": true
+              },
+              "costUnavailable": []
+            }
+          ]
         },
         "limits": [
           {
@@ -951,130 +1048,430 @@
         },
         "warnings": [],
         "pricing": {
-          "version": "2026-11-15",
-          "asOf": "2026-11-15",
-          "basis": "standard-base-input",
+          "version": "2026-11-27",
+          "asOf": "2026-11-27",
+          "basis": "standard-list",
           "origin": "built-in",
           "models": [
             {
               "modelId": "claude-opus-5-5",
-              "usdMicrosPerMillionInputTokens": 4000000,
-              "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 4000000,
+                "cachedInput": 200000,
+                "cacheWrite": 5000000,
+                "output": 20000000
+              },
+              "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "claude-sonnet-5-5",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2500000,
+                "output": 10000000
+              },
+              "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gpt-6-astra",
-              "usdMicrosPerMillionInputTokens": 10000000,
-              "source": "https://developers.openai.com/api/docs/models/gpt-6-astra"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 10000000,
+                "cachedInput": 1000000,
+                "cacheWrite": 12500000,
+                "output": 50000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gpt-6-sol",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://developers.openai.com/api/docs/models/gpt-6-sol"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 200000,
+                "cacheWrite": 2500000,
+                "output": 10000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gpt-6.1-sol",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2500000,
+                "output": 10000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gpt-6.1-terra",
-              "usdMicrosPerMillionInputTokens": 1000000,
-              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-terra"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 1000000,
+                "cachedInput": 50000,
+                "cacheWrite": 1250000,
+                "output": 5000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gpt-6.2-sol",
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2500000,
+                "output": 10000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gpt-6.2-astra",
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 8000000,
+                "cachedInput": 400000,
+                "cacheWrite": 10000000,
+                "output": 40000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3-flash-preview",
-              "usdMicrosPerMillionInputTokens": 500000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 500000,
+                "cachedInput": 50000,
+                "cacheWrite": 500000,
+                "output": 3000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.1-flash-lite",
-              "usdMicrosPerMillionInputTokens": 250000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 250000,
+                "cachedInput": 25000,
+                "cacheWrite": 250000,
+                "output": 1500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.1-pro-preview",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 200000,
+                "cacheWrite": 2000000,
+                "output": 12000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.5-flash-lite",
-              "usdMicrosPerMillionInputTokens": 300000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 300000,
+                "cachedInput": 30000,
+                "cacheWrite": 300000,
+                "output": 2500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.6-flash",
-              "usdMicrosPerMillionInputTokens": 750000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 750000,
+                "cachedInput": 75000,
+                "cacheWrite": 750000,
+                "output": 3750000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-3.6-flash",
+              "effectiveFrom": "2027-01-01",
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 150000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.8-flash",
-              "usdMicrosPerMillionInputTokens": 750000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 750000,
+                "cachedInput": 75000,
+                "cacheWrite": 750000,
+                "output": 3750000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-3.8-flash",
+              "effectiveFrom": "2027-01-01",
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 150000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-argon",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2000000,
+                "output": 10000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-4-argon",
+              "effectiveFrom": "2026-12-01",
+              "usdMicrosPerMillion": {
+                "input": 4000000,
+                "cachedInput": 200000,
+                "cacheWrite": 4000000,
+                "output": 20000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.8-flash-low",
-              "usdMicrosPerMillionInputTokens": 750000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 750000,
+                "cachedInput": 75000,
+                "cacheWrite": 750000,
+                "output": 3750000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-3.8-flash-low",
+              "effectiveFrom": "2027-01-01",
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 150000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.8-flash-medium",
-              "usdMicrosPerMillionInputTokens": 750000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 750000,
+                "cachedInput": 75000,
+                "cacheWrite": 750000,
+                "output": 3750000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-3.8-flash-medium",
+              "effectiveFrom": "2027-01-01",
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 150000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.8-flash-high",
-              "usdMicrosPerMillionInputTokens": 750000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 750000,
+                "cachedInput": 75000,
+                "cacheWrite": 750000,
+                "output": 3750000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-3.8-flash-high",
+              "effectiveFrom": "2027-01-01",
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 150000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-argon-low",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2000000,
+                "output": 10000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-4-argon-low",
+              "effectiveFrom": "2026-12-01",
+              "usdMicrosPerMillion": {
+                "input": 4000000,
+                "cachedInput": 200000,
+                "cacheWrite": 4000000,
+                "output": 20000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-argon-medium",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2000000,
+                "output": 10000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-4-argon-medium",
+              "effectiveFrom": "2026-12-01",
+              "usdMicrosPerMillion": {
+                "input": 4000000,
+                "cachedInput": 200000,
+                "cacheWrite": 4000000,
+                "output": 20000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-argon-high",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2000000,
+                "output": 10000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-4-argon-high",
+              "effectiveFrom": "2026-12-01",
+              "usdMicrosPerMillion": {
+                "input": 4000000,
+                "cachedInput": 200000,
+                "cacheWrite": 4000000,
+                "output": 20000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-hydrogen",
-              "usdMicrosPerMillionInputTokens": 1500000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 75000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-hydrogen-low",
-              "usdMicrosPerMillionInputTokens": 1500000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 75000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-hydrogen-medium",
-              "usdMicrosPerMillionInputTokens": 1500000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 75000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-hydrogen-high",
-              "usdMicrosPerMillionInputTokens": 1500000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 75000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "codex-auto-review",
-              "usdMicrosPerMillionInputTokens": 0,
-              "source": "https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-digest/contracts/digest-v1.md#unbilled-models"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 0,
+                "cachedInput": 0,
+                "cacheWrite": 0,
+                "output": 0
+              },
+              "source": "https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-digest/contracts/digest-v1.md#unbilled-models",
+              "asOf": "2026-11-27"
             }
           ]
         }
@@ -1154,7 +1551,8 @@
                         "modelId": "claude-opus-5-5",
                         "inputTokens": 1000,
                         "outputTokens": 200,
-                        "cachedInputTokens": 600
+                        "cachedInputTokens": 600,
+                        "cacheWriteTokens": 100
                       }
                     ],
                     "byDriver": [
@@ -1623,7 +2021,8 @@
                   "modelId": "claude-opus-5-5",
                   "input": 1000,
                   "output": 200,
-                  "cached": 600
+                  "cached": 600,
+                  "cacheWrite": 100
                 }
               ],
               "series": [
@@ -1669,13 +2068,15 @@
                   "modelId": "gpt-6.1-sol",
                   "input": 3000,
                   "output": 500,
-                  "cached": 2000
+                  "cached": 2000,
+                  "cacheWrite": null
                 },
                 {
                   "modelId": "gpt-6-astra",
                   "input": 2000,
                   "output": 300,
-                  "cached": 1000
+                  "cached": 1000,
+                  "cacheWrite": null
                 }
               ],
               "series": [
@@ -1723,7 +2124,8 @@
                   "modelId": "gemini-4-hydrogen",
                   "input": 100,
                   "output": 20,
-                  "cached": 0
+                  "cached": 0,
+                  "cacheWrite": null
                 }
               ],
               "series": [
@@ -1761,7 +2163,8 @@
                   "modelId": "future-model",
                   "input": 50,
                   "output": 10,
-                  "cached": 0
+                  "cached": 0,
+                  "cacheWrite": null
                 }
               ],
               "series": [
@@ -1811,7 +2214,12 @@
                 "cached": 600
               },
               "seats": 1,
-              "partialSeats": 0
+              "partialSeats": 0,
+              "cost": {
+                "usdMicros": 5820,
+                "lowerBound": false
+              },
+              "costUnavailable": []
             },
             {
               "line": "gpt",
@@ -1821,7 +2229,12 @@
                 "cached": 3000
               },
               "seats": 1,
-              "partialSeats": 0
+              "partialSeats": 0,
+              "cost": {
+                "usdMicros": 33200,
+                "lowerBound": true
+              },
+              "costUnavailable": []
             },
             {
               "line": "other",
@@ -1831,7 +2244,11 @@
                 "cached": 0
               },
               "seats": 2,
-              "partialSeats": 2
+              "partialSeats": 2,
+              "cost": null,
+              "costUnavailable": [
+                "no_price"
+              ]
             }
           ],
           "providers": [
@@ -1904,7 +2321,103 @@
             "input": 0,
             "output": 0,
             "cached": 0
-          }
+          },
+          "models": [
+            {
+              "modelId": "claude-opus-5-5",
+              "line": "claude",
+              "totals": {
+                "input": 1000,
+                "output": 200,
+                "cached": 600,
+                "cacheWrite": 100
+              },
+              "seats": [
+                "10000000-0000-4000-8000-000000000001"
+              ],
+              "partialSeats": 0,
+              "cost": {
+                "usdMicros": 5820,
+                "lowerBound": false
+              },
+              "costUnavailable": []
+            },
+            {
+              "modelId": "future-model",
+              "line": "other",
+              "totals": {
+                "input": 50,
+                "output": 10,
+                "cached": 0,
+                "cacheWrite": null
+              },
+              "seats": [
+                "10000000-0000-4000-8000-000000000005"
+              ],
+              "partialSeats": 1,
+              "cost": null,
+              "costUnavailable": [
+                "no_price"
+              ]
+            },
+            {
+              "modelId": "gemini-4-hydrogen",
+              "line": "other",
+              "totals": {
+                "input": 100,
+                "output": 20,
+                "cached": 0,
+                "cacheWrite": null
+              },
+              "seats": [
+                "10000000-0000-4000-8000-000000000003"
+              ],
+              "partialSeats": 1,
+              "cost": {
+                "usdMicros": 300,
+                "lowerBound": false
+              },
+              "costUnavailable": []
+            },
+            {
+              "modelId": "gpt-6-astra",
+              "line": "gpt",
+              "totals": {
+                "input": 2000,
+                "output": 300,
+                "cached": 1000,
+                "cacheWrite": null
+              },
+              "seats": [
+                "10000000-0000-4000-8000-000000000002"
+              ],
+              "partialSeats": 0,
+              "cost": {
+                "usdMicros": 26000,
+                "lowerBound": true
+              },
+              "costUnavailable": []
+            },
+            {
+              "modelId": "gpt-6.1-sol",
+              "line": "gpt",
+              "totals": {
+                "input": 3000,
+                "output": 500,
+                "cached": 2000,
+                "cacheWrite": null
+              },
+              "seats": [
+                "10000000-0000-4000-8000-000000000002"
+              ],
+              "partialSeats": 0,
+              "cost": {
+                "usdMicros": 7200,
+                "lowerBound": true
+              },
+              "costUnavailable": []
+            }
+          ]
         },
         "limits": [
           {
@@ -2111,130 +2624,430 @@
         },
         "warnings": [],
         "pricing": {
-          "version": "2026-11-15",
-          "asOf": "2026-11-15",
-          "basis": "standard-base-input",
+          "version": "2026-11-27",
+          "asOf": "2026-11-27",
+          "basis": "standard-list",
           "origin": "built-in",
           "models": [
             {
               "modelId": "claude-opus-5-5",
-              "usdMicrosPerMillionInputTokens": 4000000,
-              "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 4000000,
+                "cachedInput": 200000,
+                "cacheWrite": 5000000,
+                "output": 20000000
+              },
+              "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "claude-sonnet-5-5",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2500000,
+                "output": 10000000
+              },
+              "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gpt-6-astra",
-              "usdMicrosPerMillionInputTokens": 10000000,
-              "source": "https://developers.openai.com/api/docs/models/gpt-6-astra"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 10000000,
+                "cachedInput": 1000000,
+                "cacheWrite": 12500000,
+                "output": 50000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gpt-6-sol",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://developers.openai.com/api/docs/models/gpt-6-sol"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 200000,
+                "cacheWrite": 2500000,
+                "output": 10000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gpt-6.1-sol",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2500000,
+                "output": 10000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gpt-6.1-terra",
-              "usdMicrosPerMillionInputTokens": 1000000,
-              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-terra"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 1000000,
+                "cachedInput": 50000,
+                "cacheWrite": 1250000,
+                "output": 5000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gpt-6.2-sol",
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2500000,
+                "output": 10000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gpt-6.2-astra",
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 8000000,
+                "cachedInput": 400000,
+                "cacheWrite": 10000000,
+                "output": 40000000
+              },
+              "source": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3-flash-preview",
-              "usdMicrosPerMillionInputTokens": 500000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 500000,
+                "cachedInput": 50000,
+                "cacheWrite": 500000,
+                "output": 3000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.1-flash-lite",
-              "usdMicrosPerMillionInputTokens": 250000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 250000,
+                "cachedInput": 25000,
+                "cacheWrite": 250000,
+                "output": 1500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.1-pro-preview",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 200000,
+                "cacheWrite": 2000000,
+                "output": 12000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.5-flash-lite",
-              "usdMicrosPerMillionInputTokens": 300000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 300000,
+                "cachedInput": 30000,
+                "cacheWrite": 300000,
+                "output": 2500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.6-flash",
-              "usdMicrosPerMillionInputTokens": 750000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 750000,
+                "cachedInput": 75000,
+                "cacheWrite": 750000,
+                "output": 3750000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-3.6-flash",
+              "effectiveFrom": "2027-01-01",
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 150000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.8-flash",
-              "usdMicrosPerMillionInputTokens": 750000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 750000,
+                "cachedInput": 75000,
+                "cacheWrite": 750000,
+                "output": 3750000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-3.8-flash",
+              "effectiveFrom": "2027-01-01",
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 150000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-argon",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2000000,
+                "output": 10000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-4-argon",
+              "effectiveFrom": "2026-12-01",
+              "usdMicrosPerMillion": {
+                "input": 4000000,
+                "cachedInput": 200000,
+                "cacheWrite": 4000000,
+                "output": 20000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.8-flash-low",
-              "usdMicrosPerMillionInputTokens": 750000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 750000,
+                "cachedInput": 75000,
+                "cacheWrite": 750000,
+                "output": 3750000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-3.8-flash-low",
+              "effectiveFrom": "2027-01-01",
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 150000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.8-flash-medium",
-              "usdMicrosPerMillionInputTokens": 750000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 750000,
+                "cachedInput": 75000,
+                "cacheWrite": 750000,
+                "output": 3750000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-3.8-flash-medium",
+              "effectiveFrom": "2027-01-01",
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 150000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-3.8-flash-high",
-              "usdMicrosPerMillionInputTokens": 750000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 750000,
+                "cachedInput": 75000,
+                "cacheWrite": 750000,
+                "output": 3750000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-3.8-flash-high",
+              "effectiveFrom": "2027-01-01",
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 150000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-argon-low",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2000000,
+                "output": 10000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-4-argon-low",
+              "effectiveFrom": "2026-12-01",
+              "usdMicrosPerMillion": {
+                "input": 4000000,
+                "cachedInput": 200000,
+                "cacheWrite": 4000000,
+                "output": 20000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-argon-medium",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2000000,
+                "output": 10000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-4-argon-medium",
+              "effectiveFrom": "2026-12-01",
+              "usdMicrosPerMillion": {
+                "input": 4000000,
+                "cachedInput": 200000,
+                "cacheWrite": 4000000,
+                "output": 20000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-argon-high",
-              "usdMicrosPerMillionInputTokens": 2000000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 2000000,
+                "cachedInput": 100000,
+                "cacheWrite": 2000000,
+                "output": 10000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
+            },
+            {
+              "modelId": "gemini-4-argon-high",
+              "effectiveFrom": "2026-12-01",
+              "usdMicrosPerMillion": {
+                "input": 4000000,
+                "cachedInput": 200000,
+                "cacheWrite": 4000000,
+                "output": 20000000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-hydrogen",
-              "usdMicrosPerMillionInputTokens": 1500000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 75000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-hydrogen-low",
-              "usdMicrosPerMillionInputTokens": 1500000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 75000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-hydrogen-medium",
-              "usdMicrosPerMillionInputTokens": 1500000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 75000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "gemini-4-hydrogen-high",
-              "usdMicrosPerMillionInputTokens": 1500000,
-              "source": "https://ai.google.dev/gemini-api/docs/pricing"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 1500000,
+                "cachedInput": 75000,
+                "cacheWrite": 1500000,
+                "output": 7500000
+              },
+              "source": "https://ai.google.dev/gemini-api/docs/pricing",
+              "asOf": "2026-11-27"
             },
             {
               "modelId": "codex-auto-review",
-              "usdMicrosPerMillionInputTokens": 0,
-              "source": "https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-digest/contracts/digest-v1.md#unbilled-models"
+              "effectiveFrom": null,
+              "usdMicrosPerMillion": {
+                "input": 0,
+                "cachedInput": 0,
+                "cacheWrite": 0,
+                "output": 0
+              },
+              "source": "https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-digest/contracts/digest-v1.md#unbilled-models",
+              "asOf": "2026-11-27"
             }
           ]
         }

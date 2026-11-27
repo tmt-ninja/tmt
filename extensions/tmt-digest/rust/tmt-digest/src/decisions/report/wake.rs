@@ -5,7 +5,7 @@
 
 use crate::{
     core::Error,
-    pricing::{Resolved, Table},
+    pricing::{Resolved, Table, Tokens},
 };
 use serde_json::{Value, json};
 
@@ -18,8 +18,9 @@ pub struct WakeTurn {
     /// Input plus output tokens; none when Core kept no sum.
     pub tokens: Option<u64>,
     pub input_tokens: Option<u64>,
-    /// Input tokens per model; none when the split is unknown.
-    pub by_model: Option<Vec<(String, u64)>>,
+    /// Each model's tokens; none when the split is unknown. Core reports no cache writes per
+    /// turn, so a row's `cache_write` is None unless the page carries the count.
+    pub by_model: Option<Vec<(String, Tokens)>>,
 }
 
 fn invalid() -> Error {
@@ -52,9 +53,18 @@ pub fn parse(page: &Value) -> Result<(Vec<WakeTurn>, bool), Error> {
                     .ok_or_else(invalid)?
                     .iter()
                     .map(|row| {
+                        let cache_write = match &row["cacheWriteTokens"] {
+                            Value::Null => None,
+                            count => Some(number(count)?),
+                        };
                         Ok((
                             row["modelId"].as_str().ok_or_else(invalid)?.to_owned(),
-                            number(&row["inputTokens"])?,
+                            Tokens {
+                                input: number(&row["inputTokens"])?,
+                                cached: number(&row["cachedInputTokens"])?,
+                                cache_write,
+                                output: number(&row["outputTokens"])?,
+                            },
                         ))
                     })
                     .collect::<Result<Vec<_>, Error>>()?,
@@ -72,19 +82,23 @@ pub fn parse(page: &Value) -> Result<(Vec<WakeTurn>, bool), Error> {
     Ok((turns, page["more"].as_bool().ok_or_else(invalid)?))
 }
 
-/// The turn's API-equivalent cost in USD micros, or why it has none.
-fn cost(turn: &WakeTurn, prices: &Table) -> Result<u64, &'static str> {
+/// The turn's API-equivalent cost in USD micros and whether it is a floor, or why it has none.
+fn cost(turn: &WakeTurn, prices: &Table) -> Result<(u64, bool), &'static str> {
     let rows = turn.by_model.as_ref().ok_or("unattributed")?;
     // A share no model claims cannot be priced without guessing its model.
-    if Some(rows.iter().map(|(_, input)| *input).sum::<u64>()) != turn.input_tokens {
+    if Some(rows.iter().map(|(_, tokens)| tokens.input).sum::<u64>()) != turn.input_tokens {
         return Err("unattributed");
     }
-    rows.iter().try_fold(0u64, |total, (model, input)| {
-        let quote = prices
-            .quote(model, turn.ended_at_ms, *input)
-            .ok_or("no_price")?;
-        Ok(total.saturating_add(quote["usdMicros"].as_u64().ok_or("no_price")?))
-    })
+    rows.iter()
+        .try_fold((0u64, false), |(total, floor), (model, tokens)| {
+            let quote = prices
+                .quote(model, turn.ended_at_ms, *tokens)
+                .map_err(|why| why.reason())?;
+            Ok((
+                total.saturating_add(quote.usd_micros),
+                floor || quote.lower_bound,
+            ))
+        })
 }
 
 /// Count, rounded mean and nearest-rank median, or null without values.
@@ -180,6 +194,7 @@ pub fn figures(turns: Option<&[&WakeTurn]>, arrivals: &Arrivals, prices: &Table)
         return value;
     };
     let (mut measured, mut partial, mut costs) = (vec![], vec![], vec![]);
+    let mut lower_bound = false;
     let mut reason = "no_measured_turn";
     let mut unpriced = std::collections::BTreeSet::new();
     for turn in turns {
@@ -187,7 +202,10 @@ pub fn figures(turns: Option<&[&WakeTurn]>, arrivals: &Arrivals, prices: &Table)
             (true, Some(tokens)) => {
                 measured.push(tokens);
                 match cost(turn, prices) {
-                    Ok(micros) => costs.push(micros),
+                    Ok((micros, floor)) => {
+                        costs.push(micros);
+                        lower_bound |= floor;
+                    }
                     Err(why) => {
                         if reason != "no_price" {
                             reason = why;
@@ -196,8 +214,8 @@ pub fn figures(turns: Option<&[&WakeTurn]>, arrivals: &Arrivals, prices: &Table)
                             turn.by_model
                                 .iter()
                                 .flatten()
-                                .filter(|(model, input)| {
-                                    prices.quote(model, turn.ended_at_ms, *input).is_none()
+                                .filter(|(model, tokens)| {
+                                    prices.quote(model, turn.ended_at_ms, *tokens).is_err()
                                 })
                                 .map(|(model, _)| model.clone()),
                         );
@@ -221,12 +239,14 @@ pub fn figures(turns: Option<&[&WakeTurn]>, arrivals: &Arrivals, prices: &Table)
             "medianUsdMicros": median_cost,
             "priced": costs.len(),
             "reason": if median_cost.is_some() { Value::Null } else { reason.into() },
+            "lowerBound": median_cost.is_some() && lower_bound,
         },
     });
     value["avoidedCost"] = match (measured_saved, median_cost.filter(|_| every_turn_priced)) {
         (Some(saved), Some(cost)) => json!({
             "usdMicros": saved.saturating_mul(i64::try_from(cost).unwrap_or(i64::MAX)),
             "estimate": true,
+            "lowerBound": lower_bound,
         }),
         (None, _) => json!({"usdMicros": null, "reason": "no_known_arrivals", "estimate": true}),
         (_, None) => json!({"usdMicros": null, "reason": reason, "estimate": true,
@@ -245,6 +265,7 @@ pub fn total_cost(members: &[Value], turns_available: bool) -> Value {
             "covered": [], "unpriced": []});
     }
     let (mut covered, mut unpriced, mut sum, mut known) = (vec![], vec![], 0i64, false);
+    let mut lower_bound = false;
     for member in members {
         let Some(saved) = member["measuredSaved"].as_i64() else {
             continue;
@@ -257,8 +278,10 @@ pub fn total_cost(members: &[Value], turns_available: bool) -> Value {
         match cost["usdMicros"].as_i64() {
             Some(micros) => {
                 sum = sum.saturating_add(micros);
+                let floor = cost["lowerBound"] == true;
+                lower_bound |= floor;
                 covered.push(json!({"id": member["id"], "name": member["name"],
-                    "measuredSaved": saved, "usdMicros": micros}));
+                    "measuredSaved": saved, "usdMicros": micros, "lowerBound": floor}));
             }
             None => unpriced.push(json!({"id": member["id"], "name": member["name"],
                 "measuredSaved": saved,
@@ -273,7 +296,7 @@ pub fn total_cost(members: &[Value], turns_available: bool) -> Value {
         json!({"usdMicros": null,
             "reason": if no_price { json!("no_price") } else { unpriced[0]["reason"].clone() }})
     } else {
-        json!({"usdMicros": sum})
+        json!({"usdMicros": sum, "lowerBound": lower_bound})
     };
     let mut value = json!({"estimate": true, "covered": covered, "unpriced": unpriced});
     for (key, field) in usd.as_object().into_iter().flatten() {
@@ -290,7 +313,7 @@ pub fn method(prices: &Resolved) -> Value {
     json!({
         "measuredTurn": "Core's sum of the member's own 5-second usage buckets over the first turn after a hand-over; measured only when both turn boundaries carried a usage read and continuous complete reads cover the span between them, otherwise counted as partial",
         "tokens": "input plus output tokens; reasoning tokens are not in the usage record and are not counted",
-        "cost": "API-equivalent: each model's input tokens at its listed rate; a model without a price row stays unpriced (no_price), and a share no model claims stays unpriced (unattributed)",
+        "cost": "API-equivalent: each model's uncached input, cached input, cache writes and output at its listed rates; a model without a price row stays unpriced (no_price), a class with tokens and no rate stays unpriced (class_price_missing), and a share no model claims stays unpriced (unattributed); cache writes the turn did not report are priced at the input rate where the provider bills them separately, which makes the figure a floor (lowerBound)",
         "pricing": {"version": pricing["version"], "asOf": pricing["asOf"], "basis": pricing["basis"],
             "origin": pricing["origin"], "fetchedAtMs": pricing["fetchedAtMs"]},
         "measuredSaved": "held messages that arrived while their member was idle, less the deliveries of those checklists; counted only for checklists whose every message has a known arrival phase; messages that arrived while it was working or waiting would have joined that turn",

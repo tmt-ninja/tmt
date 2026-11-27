@@ -1,6 +1,6 @@
 //! Driver shares are independent of model shares. Never invent their joint attribution.
-use super::{Error, MAX, ModelTotals, Seat, Tokens, Value, invalid, json, number, provider_id};
-use crate::pricing::Table;
+use super::{Error, MAX, ModelTotals, Seat, Tokens, Value, invalid, json, provider_id};
+use crate::pricing::{Table, Tokens as Priced};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -70,13 +70,18 @@ fn cost(seat: &Seat, prices: &Table, at_ms: u64) -> Result<u64, &'static str> {
     if input != Some(seat.totals.input) {
         return Err("model_attribution_unknown");
     }
+    // The driver row's input cost: model-attributed input at each model's uncached input
+    // rate. The full per-class cost is per model (`usage.models`), since a driver share has
+    // no class split by model.
     models.iter().try_fold(0u64, |sum, model| {
-        prices.quote(&model.model_id, at_ms, 0).ok_or("no_price")?;
         let quote = prices
-            .quote(&model.model_id, at_ms, model.tokens.input)
-            .ok_or("unsafe_cost")?;
-        let micros = number(&quote["usdMicros"]).ok_or("unsafe_cost")?;
-        sum.checked_add(micros)
+            .quote(
+                &model.model_id,
+                at_ms,
+                Priced::uncached_input(model.tokens.input),
+            )
+            .map_err(|why| why.reason())?;
+        sum.checked_add(quote.usd_micros)
             .filter(|n| *n <= MAX)
             .ok_or("unsafe_cost")
     })

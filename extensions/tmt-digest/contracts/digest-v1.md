@@ -266,17 +266,19 @@ have no `measuredSaved` (null when none qualifies).
 that ended in the window: `delivered` turns, of which `measured`; `tokensPerWake` gives the
 count, rounded mean and nearest-rank median of input plus output tokens, separately for
 measured and partial turns. `costPerWake` is the median API-equivalent cost of the measured
-turns that could be priced: each model's input tokens at its listed rate in the
-[pricing file](#pricing-file) in use (output tokens and cache discounts are not in that
-file and are not priced). A model without a price row is `no_price` and a share no model
-claims is `unattributed`; neither is ever given a cost, and `medianUsdMicros` is null with
-that `reason` when nothing could be priced (`no_measured_turn` with no measured turn).
+turns that could be priced: each model's tokens [quoted](#quotes) over every class at
+the [pricing file](#pricing-file)'s rates in effect on the turn's end day. A model without
+a price row is `no_price`, a class with tokens and no rate is `class_price_missing`, and a
+share no model claims is `unattributed`; none is ever given a cost, and `medianUsdMicros`
+is null with that `reason` when nothing could be priced (`no_measured_turn` with no
+measured turn). `costPerWake.lowerBound` is true when any priced turn was a floor.
 `avoidedCost` is the one figure labelled `estimate: true`. A member's is `measuredSaved`
-times that median only when every measured wake-up had a price; otherwise it is null with
+(avoided wake-ups) times that median full per-wake cost, so it follows all four classes,
+only when every measured wake-up had a price; otherwise it is null with
 its reason and `unpricedModels`, the models without a price row, so a median of some turns
 is never stretched over the rest. The total's is not a median over everyone: `usdMicros` is
 the sum of those members' own costs, `covered` lists each of them (`id`, `name`,
-`measuredSaved`, `usdMicros`), and `unpriced` lists every other member with a non-zero
+`measuredSaved`, `usdMicros`, `lowerBound`), and `unpriced` lists every other member with a non-zero
 `measuredSaved` (`id`, `name`, `measuredSaved`, `models`, `reason`) and no cost. With
 members to list but none priced, `usdMicros` is null (`no_price` when any lacks a price);
 with no member's saving known it is null with `no_known_arrivals`. When Core cannot answer
@@ -437,43 +439,65 @@ valuation is independently null when its required evidence is unavailable; older
 producers may omit these additive fields. Consumers must label cost as an estimate
 **at list price**, never as money saved or a historical bill.
 
-`cost` is null or `{usdMicros, modelId, modelObservedAtMs, pricingVersion,
-usdMicrosPerMillionInputTokens, assumption:"uncached-input"}`. It quotes the
-parent `estimatedInputTokensAvoided` at the latest evidenced completed-request
-model's standard base uncached input list price. The model comes from public
+`cost` is null or a [quote](#quotes). It prices the parent `estimatedInputTokensAvoided`
+as **uncached input** (`tokens.uncachedInput`, every other class 0): those are input
+tokens a wake-up would have read, so that is the cost avoided, and it is never a floor.
+The model is the latest evidenced completed-request model, from public
 `consumption.history`'s `latest.consumption`, never the starting/resume model or a
-provider transcript. Its timestamp records model evidence, not the savings event's
-model. It may postdate the parent savings checkpoint. Missing/unsupported models,
-prices or tokens, future model evidence, and unsafe arithmetic produce null;
-known zero tokens produce zero only with a supported evidenced model. Quotes round
-to the nearest micro-dollar, half upward, using checked wide intermediates.
+provider transcript, and the rates are those in effect on that evidence's UTC day. Its
+timestamp records model evidence, not the savings event's model. It may postdate the
+parent savings checkpoint. Missing/unsupported models, prices or tokens, future model
+evidence, and unsafe arithmetic produce null; known zero tokens produce zero only with a
+supported evidenced model.
+
+### Quotes
+
+A quote is `{usdMicros, modelId, modelObservedAtMs, pricingVersion, effectiveFrom,
+tokens:{uncachedInput, cachedInput, cacheWrite, output}, usdMicrosPerMillion:{input,
+cachedInput, cacheWrite, output}, lowerBound, lowerBoundReason}`. Core's input count
+includes cached input and cache writes, so `uncachedInput` is input less both, and a
+negative remainder is unsafe (null). Each class is priced at its own rate and the sum is
+rounded once to the nearest micro-dollar, half upward, using checked wide intermediates.
+The row is the model's row in effect on the UTC day of `modelObservedAtMs`
+(`effectiveFrom` names it, null for a row with no start); a day before every row's start
+has no price. A class with tokens and a null rate makes the quote null
+(`class_price_missing`); a class with no tokens needs no rate.
+
+`cacheWrite` is null when the source reported no cache-write count. Claude reports
+writes, and they are priced at the write rate with no floor. Codex reports none while
+OpenAI bills them, so where the model's `cacheWrite` rate differs from its `input` rate and
+some input is uncached, the unreported writes are priced at the input rate and the quote
+is a floor: `lowerBound: true`, `lowerBoundReason: "cache_write_unreported"`. That floor
+understates by at most 0.25x input on written tokens (writes are listed at 1.25x input).
+Where the rates are equal (Gemini bills no separate write) nothing is missing and there
+is no floor. Every total that includes a floor carries `lowerBound: true`, so a consumer can
+label it.
 
 A successful status document also contains additive root `pricing: {version, asOf,
-basis, origin, fetchedAtMs?, models:[{modelId, usdMicrosPerMillionInputTokens,
-source}]}`, acquired with the same status call. It names the one table every quote of
-that document used ([Pricing file](#pricing-file)). `basis` is `standard-base-input`;
-`source` is the official source URL and `asOf` is the verification date. Version
-`2026-11-15` adds `gemini-4-hydrogen` and `gemini-4-hydrogen-{low,medium,high}` ($1.50/M
-Standard base input on Google's pricing page, verified 2026-11-15), keeps the canonical
-Claude Opus/Sonnet 5.5 and GPT-6/6.1 Sol rows,
-adds `gpt-6.1-terra` ($1/M) and `gpt-6-astra` ($10/M) from OpenAI's model pages,
-and keeps these exact Gemini IDs from Google's paid Standard text-input pricing:
-`gemini-3-flash-preview` ($0.50/M), `gemini-3.1-flash-lite` ($0.25/M),
-`gemini-3.1-pro-preview` ($2/M base tier, prompts <=200k),
-`gemini-3.5-flash-lite` ($0.30/M), `gemini-3.6-flash` and `gemini-3.8-flash`
-($0.75/M introductory through 2026-12-31), and `gemini-4-argon` ($2/M introductory
-through 2026-11-30). Agy's normalized `gemini-3.8-flash-{low,medium,high}`,
-`gemini-4-argon-{low,medium,high}`, and `gemini-4-hydrogen-{low,medium,high}` labels
-have explicit rows at their family's base input rate; effort is not a separate provider
-input-price tier. Other
-aliases and unverified slugs remain unpriced. The [provider page](https://ai.google.dev/gemini-api/docs/pricing)
-announces $1.50/M for those Flash models starting 2027-01-01 and $4/M for Argon
-starting 2026-12-01. Those later rates require new verified immutable versions;
-there is no clock-based rate switch in this table.
+basis, origin, fetchedAtMs?, models:[{modelId, effectiveFrom, usdMicrosPerMillion,
+source, asOf}]}`, acquired with the same status call. It names the one table every quote of
+that document used ([Pricing file](#pricing-file)); the root `asOf` is the newest row's.
+`basis` is `standard-list`: the provider's Standard tier list rates for short-context
+requests (OpenAI up to 272K input, Gemini 3.1 Pro up to 200K), with `cacheWrite` the
+shortest-retention write rate (Anthropic 5-minute, OpenAI 30-minute). It excludes
+long-context, fast, priority, regional and batch modifiers, explicit-cache storage fees,
+negotiated discounts, subscription allowances and historical price reconstruction.
 
-The fixed assumption excludes cached input, cache writes, fast/regional/long-context
-modifiers, negotiated discounts, subscription allowances and historical price
-reconstruction. Updating rates requires a new verified file `version`.
+Version `2026-11-27` was verified on each row's `source` page that day. It prices the
+Claude Opus/Sonnet 5.5 rows, GPT-6/6.1/6.2 Sol, GPT-6.1 Terra and GPT-6/6.2 Astra from
+OpenAI's model pages (`gpt-6.2-sol` and `gpt-6.2-astra` are new), and these exact Gemini IDs
+from Google's paid Standard text pricing: `gemini-3-flash-preview`,
+`gemini-3.1-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3.5-flash-lite`,
+`gemini-3.6-flash`, `gemini-3.8-flash`, `gemini-4-argon` and `gemini-4-hydrogen`. Agy's
+normalized `gemini-3.8-flash-{low,medium,high}`, `gemini-4-argon-{low,medium,high}` and
+`gemini-4-hydrogen-{low,medium,high}` labels have explicit rows at their family's rates;
+effort is not a separate provider price tier. Other aliases and unverified slugs remain
+unpriced. Google's page states dated rates, which are dated rows: `gemini-4-argon` and its
+labels move from $2/M input ($0.10 cached, $10 output) to $4/M ($0.20, $20) on
+2026-12-01, and `gemini-3.6-flash`, `gemini-3.8-flash` and its labels from $0.75/M
+($0.075, $3.75) to $1.50/M ($0.15, $7.50) on 2027-01-01. **Announced future rates are as
+published on the row's `asOf`**, with that page as its `source`; a later reverify that
+finds a changed announcement cuts a new version.
 
 A successful status document also contains additive root `global: {enabled, default,
 text}`: the [global switch](#global-switch), the default it would restore and the label
@@ -519,7 +543,7 @@ Ops owns the separate display/toggle consumer; this producer adds no UI.
 
 `codex-auto-review` is not billed per token on the owner's plan (owner decision,
 2026-11-05), so it has no list price to verify. Digest values it at zero: a quote
-for it has `usdMicrosPerMillionInputTokens: 0`, and the status `pricing.models` list
+for it has every rate 0 and is never a floor, and the status `pricing.models` list
 adds a zero row whose `source` is this section. A table that prices the model takes
 precedence. The rule names exactly this ID; any other model missing from the table
 still has no quote, so a seat that used it has no price.
@@ -527,20 +551,26 @@ still has no quote, so a seat that used it has no price.
 ### Pricing file
 
 The price table is one public file in the repository,
-[`pricing/pricing-v1.json`](../pricing/pricing-v1.json), with the shape of the
-status `pricing` object plus `schema`:
+[`pricing/pricing-v2.json`](../pricing/pricing-v2.json), with the shape of the
+status `pricing` object less `origin`, `fetchedAtMs` and the root `asOf`, plus `schema`:
 
 ```json
 {
-  "schema": "tmt-digest-pricing-v1",
-  "version": "2026-11-15",
-  "asOf": "2026-11-15",
-  "basis": "standard-base-input",
+  "schema": "tmt-digest-pricing-v2",
+  "version": "2026-11-27",
+  "basis": "standard-list",
   "models": [
     {
       "modelId": "claude-opus-5-5",
-      "usdMicrosPerMillionInputTokens": 4000000,
-      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+      "effectiveFrom": null,
+      "usdMicrosPerMillion": {
+        "input": 4000000,
+        "cachedInput": 200000,
+        "cacheWrite": 5000000,
+        "output": 20000000
+      },
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-11-27"
     }
   ]
 }
@@ -548,14 +578,20 @@ status `pricing` object plus `schema`:
 
 - **Built-in table.** Digest embeds these exact bytes; they are the built-in table
   and keep no second copy in code. Each Digest release attaches the same file as
-  release asset `tmt-digest-pricing-v1.json`, and the release check proves it equals
-  the file at the tagged commit.
+  release asset `tmt-digest-pricing-v2.json`, and the release check proves it equals
+  the file at the tagged commit. It replaced `pricing-v1.json` (input rates only) before
+  launch: released alpha builds fetch the v1 path, get no file and keep their cache or
+  built-in table.
 - **Validation.** A file is used only if all of this holds, else it is dropped: at
-  most 16 KiB of UTF-8 JSON with exactly the keys above (none missing, extra or
-  repeated); `schema` equals `tmt-digest-pricing-v1`; `version` and `asOf` are real
-  `YYYY-MM-DD` dates; `basis` equals `standard-base-input`; 1–64 models with unique
-  `modelId` (`[A-Za-z0-9._-]`, at most 64 bytes), integer prices in `0..=9007199254740991`
-  and a `source` that is an `https://` address of at most 256 printable bytes.
+  most 32 KiB of UTF-8 JSON with exactly the keys above (none missing, extra or
+  repeated; a null class or `effectiveFrom` is written, never left out); `schema` equals
+  `tmt-digest-pricing-v2`; `version`, each `asOf` and each non-null `effectiveFrom` are
+  real `YYYY-MM-DD` dates, and no `asOf` is after `version`; `basis` equals
+  `standard-list`; 1–64 rows, `modelId` `[A-Za-z0-9._-]` of at most 64 bytes; a model's
+  rows are listed with strictly ascending `effectiveFrom` (null first), so no two claim
+  one day; `input` is an integer and each other class an integer or null, in
+  `0..=9007199254740991`; and `source` is an `https://` address of at most 256 printable
+  bytes.
 - **One version, one table.** Quotes with equal `pricingVersion` are summed, so a
   version never changes its prices. A fetched or cached file whose `version` is
   already known (the built-in table's, or the cache's) is used only if it equals
@@ -564,13 +600,13 @@ status `pricing` object plus `schema`:
   changes nothing. A price change always takes a
   new `version`.
 - **Fetch.** `tmt digest status` makes one anonymous HTTPS GET of
-  `https://raw.githubusercontent.com/pj-tmt/tmt/main/extensions/tmt-digest/pricing/pricing-v1.json`:
+  `https://raw.githubusercontent.com/pj-tmt/tmt/main/extensions/tmt-digest/pricing/pricing-v2.json`:
   no token, cookie, authorization header, redirect, retry or GitHub API call, and
   only `User-Agent: tmt-digest/<version>` as identification. The Ops board reads
   status when it opens or reloads, so those are the fetch moments; the tick, the
   usage report and every other command make no request.
   The request runs while Core is read, has a 2-second deadline from DNS to the last
-  byte, accepts only a 200 answer of at most 16 KiB; status waits at most 2.5 seconds
+  byte, accepts only a 200 answer of at most 32 KiB; status waits at most 2.5 seconds
   for it. Attempts are at least 30 seconds apart, and a failed one counts, so a
   dead network costs one wait per half minute.
 - **Fallback order.** The fetched file, then the cache, then the built-in table;
@@ -578,7 +614,8 @@ status `pricing` object plus `schema`:
   leaves the cache unchanged.
 - **Cache.** `digest/pricing/fetched-v1.json` under Core's data root: a private
   directory and file (owner-only, no symlinks, at most 64 KiB), replaced atomically.
-  It holds the last valid fetched file, `fetchedAtMs` and the last `attemptedAtMs`.
+  It holds the last valid fetched file, `fetchedAtMs` and the last `attemptedAtMs`, under
+  its own shape `version` 2; a version-1 cache (a v1 table) is no cache and is replaced.
   It is untrusted on read: the file is validated again, and any doubt means no cache.
   A write first removes leftover `.fetched-v1.json.<pid>` temporary files older than one
   minute, which a process that ended before its fetch can leave behind.

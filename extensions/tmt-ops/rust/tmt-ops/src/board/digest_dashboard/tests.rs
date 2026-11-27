@@ -865,8 +865,8 @@ pub(in crate::board) fn valued_document() -> serde_json::Value {
     let mut document = savings_document();
     document["members"][0]["savings"]["cost"] = serde_json::json!({
         "usdMicros": 12_398_600, "modelId": "gpt-6-sol", "modelObservedAtMs": 1000,
-        "pricingVersion": "2026-10-14", "usdMicrosPerMillionInputTokens": 2_000_000,
-        "assumption": "uncached-input"});
+        "pricingVersion": "2026-10-14", "usdMicrosPerMillion": {"input": 2_000_000},
+        "lowerBound": false});
     document["members"][0]["savings"]["percent"] = serde_json::json!({
         "basisPoints": 1820, "estimatedInputTokensAvoided": 18_200,
         "observedInputTokens": 81_800, "fromMs": 60_000, "throughMs": 120_000});
@@ -874,9 +874,9 @@ pub(in crate::board) fn valued_document() -> serde_json::Value {
         "version": "2026-10-14", "asOf": "2026-10-14", "basis": "standard-base-input",
         "origin": "fetched",
         "models": [
-            {"modelId": "claude-opus-5-5", "usdMicrosPerMillionInputTokens": 4_000_000,
+            {"modelId": "claude-opus-5-5", "usdMicrosPerMillion": {"input": 4_000_000},
              "source": "https://example.test/anthropic-pricing"},
-            {"modelId": "gpt-6-sol", "usdMicrosPerMillionInputTokens": 2_000_000,
+            {"modelId": "gpt-6-sol", "usdMicrosPerMillion": {"input": 2_000_000},
              "source": "https://example.test/openai-pricing"}]});
     document
 }

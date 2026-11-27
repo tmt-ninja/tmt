@@ -399,8 +399,8 @@ fn with_valuations(window: &str, rows: &[(u64, Value, Value)]) -> Value {
 
 fn quote(version: &str, micros: u64) -> Value {
     json!({"usdMicros":micros, "modelId":"gpt-6-sol", "modelObservedAtMs":1000,
-        "pricingVersion":version, "usdMicrosPerMillionInputTokens":2_000_000,
-        "assumption":"uncached-input"})
+        "pricingVersion":version, "usdMicrosPerMillion": {"input": 2_000_000},
+        "lowerBound": false})
 }
 
 fn share(avoided: u64, observed: u64, from: u64, through: u64) -> Value {
@@ -428,7 +428,7 @@ fn valuation_vectors_parse_to_the_supplied_quotes_and_ratios() {
         let Some(expected) = case["expected"].as_object() else {
             continue;
         };
-        let tokens = case["tokens"].as_u64().unwrap();
+        let tokens = case["tokens"]["input"].as_u64().unwrap();
         let document = with_valuations(
             "24h",
             &[(tokens, Value::Object(expected.clone()), Value::Null)],
@@ -438,8 +438,13 @@ fn valuation_vectors_parse_to_the_supplied_quotes_and_ratios() {
         .savings
         .clone()
         .unwrap()
-        .cost
-        .unwrap_or_else(|| panic!("quote {} parses", case["name"]));
+        .cost;
+        // A floor is never shown as a figure; Digest's savings quotes are never one.
+        if expected["lowerBound"] == true {
+            assert!(cost.is_none(), "floor {} is refused", case["name"]);
+            continue;
+        }
+        let cost = cost.unwrap_or_else(|| panic!("quote {} parses", case["name"]));
         assert_eq!(cost.usd_micros, expected["usdMicros"].as_u64().unwrap());
         assert_eq!(cost.model_id, expected["modelId"].as_str().unwrap());
         // The vector names its own pricing version; a new approved table changes only data.
@@ -518,8 +523,8 @@ fn valuation_vector_cost_sums_never_add_quotes_from_different_price_tables() {
 fn each_valuation_fails_alone_and_never_removes_the_token_figure() {
     let valid_cost = quote("2026-10-14", 5400);
     let valid_percent = share(2700, 7300, 60_000, 120_000);
-    let mut wrong_assumption = valid_cost.clone();
-    wrong_assumption["assumption"] = json!("cached-input");
+    let mut floor = valid_cost.clone();
+    floor["lowerBound"] = json!(true);
     let mut unsafe_cost = valid_cost.clone();
     unsafe_cost["usdMicros"] = json!(9_007_199_254_740_992u64);
     let mut disagrees = valid_percent.clone();
@@ -530,13 +535,7 @@ fn each_valuation_fails_alone_and_never_removes_the_token_figure() {
     control["modelId"] = json!("gpt\u{1b}[2J");
     for (name, cost, percent, kept_cost, kept_percent) in [
         ("both valid", &valid_cost, &valid_percent, true, true),
-        (
-            "wrong assumption",
-            &wrong_assumption,
-            &valid_percent,
-            false,
-            true,
-        ),
+        ("a floor, not a figure", &floor, &valid_percent, false, true),
         ("unsafe usd", &unsafe_cost, &valid_percent, false, true),
         ("control in model id", &control, &valid_percent, false, true),
         (
@@ -701,15 +700,15 @@ fn percents_combine_numerators_over_one_exact_interval_and_never_average() {
 
 #[test]
 fn pricing_is_a_bounded_unique_table_and_an_unknown_shape_is_absent() {
-    let table = json!({"version":"2026-10-14", "asOf":"2026-10-14", "basis":"standard-base-input",
+    let table = json!({"version":"2026-10-14", "asOf":"2026-10-14", "basis":"standard-list",
         "models":[
-            {"modelId":"claude-opus-5-5", "usdMicrosPerMillionInputTokens":4_000_000, "source":"https://example.test/a"},
-            {"modelId":"gpt-6-sol", "usdMicrosPerMillionInputTokens":2_000_000, "source":"https://example.test/b"}]});
+            {"modelId":"claude-opus-5-5", "usdMicrosPerMillion": {"input": 4_000_000}, "source":"https://example.test/a"},
+            {"modelId":"gpt-6-sol", "usdMicrosPerMillion": {"input": 2_000_000}, "source":"https://example.test/b"}]});
     let mut with = document();
     with["pricing"] = table.clone();
     let pricing = parse(&with).unwrap().pricing.expect("valid pricing");
     assert_eq!(pricing.version, "2026-10-14");
-    assert_eq!(pricing.basis, "standard-base-input");
+    assert_eq!(pricing.basis, "standard-list");
     assert_eq!(pricing.models.len(), 2);
     assert_eq!(
         pricing.models[1].usd_micros_per_million_input_tokens,
@@ -720,6 +719,22 @@ fn pricing_is_a_bounded_unique_table_and_an_unknown_shape_is_absent() {
     let mut duplicate = table.clone();
     duplicate["models"][1]["modelId"] = json!("claude-opus-5-5");
     bad.push(duplicate);
+    // A dated row of the same model is a second row, but two rows with one start are not.
+    let mut dated = table.clone();
+    dated["models"][1]["modelId"] = json!("claude-opus-5-5");
+    dated["models"][1]["effectiveFrom"] = json!("2026-12-01");
+    let mut with_dated = document();
+    with_dated["pricing"] = dated.clone();
+    let models = parse(&with_dated)
+        .unwrap()
+        .pricing
+        .expect("dated rows")
+        .models;
+    assert_eq!(models[1].effective_from.as_deref(), Some("2026-12-01"));
+    assert_eq!(models[0].effective_from, None);
+    let mut same_start = dated;
+    same_start["models"][0]["effectiveFrom"] = json!("2026-12-01");
+    bad.push(same_start);
     let mut empty = table.clone();
     empty["models"] = json!([]);
     bad.push(empty);
@@ -727,7 +742,7 @@ fn pricing_is_a_bounded_unique_table_and_an_unknown_shape_is_absent() {
     control["models"][0]["source"] = json!("https://example.test/\u{7}");
     bad.push(control);
     let mut unsafe_rate = table.clone();
-    unsafe_rate["models"][0]["usdMicrosPerMillionInputTokens"] = json!(9_007_199_254_740_992u64);
+    unsafe_rate["models"][0]["usdMicrosPerMillion"]["input"] = json!(9_007_199_254_740_992u64);
     bad.push(unsafe_rate);
     bad.push(json!("a string"));
     bad.push(json!({"version":"x"}));
@@ -790,4 +805,50 @@ fn digest_redesign_month_percent_lights_up_when_supplied() {
         Savings::parse(&raw).unwrap().percent.unwrap().basis_points,
         1000
     );
+}
+
+#[test]
+fn pricing_shows_one_row_per_model_the_one_in_effect_today() {
+    let row = |model: &str, from: Value, rate: u64| {
+        json!({"modelId": model, "effectiveFrom": from,
+            "usdMicrosPerMillion": {"input": rate}, "source": "https://example.test/p"})
+    };
+    let mut status = document();
+    status["pricing"] = json!({"version": "2026-11-27", "asOf": "2026-11-27",
+    "basis": "standard-list", "models": [
+        row("argon", Value::Null, 2_000_000),
+        row("argon", json!("2026-12-01"), 4_000_000),
+        row("next", json!("2027-01-01"), 1_500_000),
+    ]});
+    let pricing = parse(&status).unwrap().pricing.unwrap();
+    let shown = |today: &str| {
+        pricing
+            .shown(today)
+            .into_iter()
+            .map(|(model, from)| {
+                (
+                    model.model_id.clone(),
+                    model.usd_micros_per_million_input_tokens,
+                    from.map(str::to_owned),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let next = ("next".to_owned(), 1_500_000, Some("2027-01-01".to_owned()));
+    assert_eq!(
+        shown("2026-11-30"),
+        [("argon".to_owned(), 2_000_000, None), next.clone()]
+    );
+    assert_eq!(
+        shown("2026-12-01"),
+        [("argon".to_owned(), 4_000_000, None), next]
+    );
+    assert_eq!(shown("2027-01-01")[1], ("next".to_owned(), 1_500_000, None));
+    for (ms, day) in [
+        (0, "1970-01-01"),
+        (1_796_083_199_999, "2026-11-30"),
+        (1_796_083_200_000, "2026-12-01"),
+    ] {
+        assert_eq!(super::utc_day(ms), day);
+    }
 }

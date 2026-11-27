@@ -37,9 +37,14 @@ fn normative_quotes_and_weighted_ratios_have_independent_values() {
                 .quote(
                     case["model"].as_str().unwrap(),
                     case["observedAtMs"].as_u64().unwrap(),
-                    case["tokens"].as_u64().unwrap()
+                    crate::pricing::Tokens {
+                        input: case["tokens"]["input"].as_u64().unwrap(),
+                        cached: case["tokens"]["cached"].as_u64().unwrap(),
+                        cache_write: case["tokens"]["cacheWrite"].as_u64(),
+                        output: case["tokens"]["output"].as_u64().unwrap(),
+                    }
                 )
-                .unwrap_or(Value::Null),
+                .map_or(Value::Null, |quote| quote.json().clone()),
             case["expected"],
             "{}",
             case["name"]
@@ -74,8 +79,8 @@ fn normative_quotes_and_weighted_ratios_have_independent_values() {
         assert_eq!(case["pricesDiffer"], true, "{}", case["name"]);
     }
     let table = crate::pricing::Resolved::built_in().document();
-    assert_eq!(table["models"].as_array().unwrap().len(), 24);
-    assert_eq!(table["version"], "2026-11-15");
+    assert_eq!(table["models"].as_array().unwrap().len(), 35);
+    assert_eq!(table["version"], "2026-11-27");
     assert!(
         table["models"]
             .as_array()

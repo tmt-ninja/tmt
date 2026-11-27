@@ -50,10 +50,10 @@ describe('active products', () => {
 
 describe('release rehearsal selection', () => {
   it('rehearses Digest for a changed or removed pricing source, including a move from its fixed path', () => {
-    expect(select('extensions/tmt-digest/pricing/pricing-v1.json')).toEqual(['digest']);
+    expect(select('extensions/tmt-digest/pricing/pricing-v2.json')).toEqual(['digest']);
     expect(
       select(
-        'extensions/tmt-digest/pricing/pricing-v1.json',
+        'extensions/tmt-digest/pricing/pricing-v2.json',
         'extensions/tmt-digest/pricing/moved.json'
       )
     ).toEqual(['digest']);
@@ -64,7 +64,7 @@ describe('release rehearsal selection', () => {
       ),
     };
     expect(
-      selectReleaseRehearsal(['extensions/tmt-digest/pricing/pricing-v1.json'], blocked)
+      selectReleaseRehearsal(['extensions/tmt-digest/pricing/pricing-v2.json'], blocked)
     ).toEqual([]);
   });
   it.each([

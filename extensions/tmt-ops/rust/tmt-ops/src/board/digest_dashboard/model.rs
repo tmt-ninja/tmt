@@ -281,7 +281,7 @@ fn human_window(from: u64, through: u64) -> String {
 
 /// The supplier's list-price table and where it came from, read-only. Source
 /// addresses are plain text; the board never opens them.
-pub(super) fn pricing_details(status: &crate::labels::digest::Status) -> Vec<String> {
+pub(super) fn pricing_details(status: &crate::labels::digest::Status, now_ms: u64) -> Vec<String> {
     let Some(pricing) = &status.pricing else {
         return Vec::new();
     };
@@ -293,9 +293,11 @@ pub(super) fn pricing_details(status: &crate::labels::digest::Status) -> Vec<Str
         line.push_str(&format!(" · source: {origin}"));
     }
     let mut fields = vec![line];
-    fields.extend(pricing.models.iter().map(|model| {
+    let today = crate::labels::digest::utc_day(now_ms);
+    fields.extend(pricing.shown(&today).into_iter().map(|(model, from)| {
+        let from = from.map(|day| format!(" from {day}")).unwrap_or_default();
         format!(
-            "{}: {} per 1M input tokens · {}",
+            "{}: {} per 1M input tokens{from} · {}",
             model.model_id,
             rate_text(model.usd_micros_per_million_input_tokens),
             model.source

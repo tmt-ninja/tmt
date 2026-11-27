@@ -70,7 +70,7 @@ impl PriceServer {
             }
         });
         Self {
-            url: format!("http://{address}/pricing-v1.json"),
+            url: format!("http://{address}/pricing-v2.json"),
             address,
             hits,
             stopped,

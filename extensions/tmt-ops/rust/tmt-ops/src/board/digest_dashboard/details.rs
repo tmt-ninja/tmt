@@ -300,7 +300,7 @@ pub(super) fn evidence(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<Strin
             "Status observed: {}",
             model::observation_time(Some(status.observed_at_ms), now_ms, &zone)
         ));
-        text.extend(model::pricing_details(status));
+        text.extend(model::pricing_details(status, now_ms));
     }
     text.push(METHOD.into());
     text
