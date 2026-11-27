@@ -618,7 +618,7 @@ fn without_a_data_root_the_cache_alone_answers() {
 fn the_account_is_named_by_the_root_and_never_by_a_reading() {
     let pushed = PushedFixture::new(&config());
     // A reading, from the cache or from a newer push, carries no account: it is stored in a
-    // 1024-byte state that has no room for one (#5274).
+    // 4096-byte state that leaves account on sampled readings (#5274).
     assert!(pushed.read(NOW).unwrap().account.is_none());
     assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
     assert!(pushed.read(NOW).unwrap().account.is_none());

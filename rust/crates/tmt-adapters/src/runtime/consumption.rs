@@ -223,7 +223,7 @@ impl Consumption {
     }
 }
 
-/// Compact opaque cursor data stays inside DriverState's existing 1 KiB cap.
+/// Compact opaque cursor data stays inside DriverState's existing 4 KiB cap.
 /// Hashes retain equality, not provider IDs or paths. Only the last counted
 /// message is retained: unexpected noncontiguous repeats may count again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1259,7 +1259,7 @@ mod tests {
             "UPDATE identity_session_preferences SET driver_state = NULL",
             "UPDATE identity_session_preferences SET driver_state_version = 0",
             "UPDATE identity_session_preferences SET driver_state = zeroblob(8)",
-            "UPDATE identity_session_preferences SET driver_state = printf('%.*c', 1025, 'x')",
+            "UPDATE identity_session_preferences SET driver_state = printf('%.*c', 4097, 'x')",
             "UPDATE identity_session_preferences SET remembered_harness = NULL,
              runtime_mode = NULL, provider_session_id = NULL",
         ] {

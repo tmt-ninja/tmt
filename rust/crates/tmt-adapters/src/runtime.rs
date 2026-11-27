@@ -486,7 +486,7 @@ impl RuntimeRegistry {
     }
 
     /// The public `resume.consumption` projection, shared by `ls --json` and
-    /// `consumption.changes`. The remembered state is capped at 1024 bytes and carries no
+    /// `consumption.changes`. The remembered state is capped at 4096 bytes and carries no
     /// account; the newest sample names it only when it is the same observation (#5274).
     pub fn consumption_document(
         &self,

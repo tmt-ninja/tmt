@@ -52,7 +52,7 @@ fn the_missing_start_detail_preserves_schema_81_rows_and_change_cursor_triggers(
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 98);
+    assert_eq!(storage.health().unwrap().schema_version, 99);
     storage.close().unwrap();
     let db = Connection::open(&path).unwrap();
     db.pragma_update(None, "foreign_keys", true).unwrap();
@@ -146,7 +146,7 @@ fn the_widened_detail_list_keeps_every_stored_detail_and_accepts_the_new_tokens(
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 98);
+    assert_eq!(storage.health().unwrap().schema_version, 99);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -239,7 +239,7 @@ fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
     old.close().unwrap();
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 98);
+    assert_eq!(storage.health().unwrap().schema_version, 99);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -342,7 +342,7 @@ fn diagnostic_stages_preserve_schema_84_rows_and_reject_unbounded_details() {
         .query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
     old.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 98);
+    assert_eq!(storage.health().unwrap().schema_version, 99);
     storage.close().unwrap();
     let db = Connection::open(&path).unwrap();
     db.pragma_update(None, "foreign_keys", true).unwrap();
@@ -450,7 +450,7 @@ fn empty_boundary_evidence_preserves_schema_89_rows_and_stays_bounded() {
         .query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
     old.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 98);
+    assert_eq!(storage.health().unwrap().schema_version, 99);
     storage.close().unwrap();
     let db = Connection::open(&path).unwrap();
     db.pragma_update(None, "foreign_keys", true).unwrap();
@@ -525,5 +525,119 @@ fn empty_boundary_evidence_preserves_schema_89_rows_and_stays_bounded() {
         after,
         before + 1,
         "detail-only updates still publish one change"
+    );
+}
+
+#[test]
+fn migration_099_widens_driver_state_cap_and_preserves_1024_era_rows() {
+    let mut db = rusqlite::Connection::open_in_memory().unwrap();
+    apply_through(&mut db, 98).unwrap();
+
+    db.execute_batch(BINDING).unwrap();
+
+    let exact_1024 = "a".repeat(1024);
+    db.execute(
+        "INSERT INTO identity_session_preferences
+         (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id, driver_state, driver_state_version)
+         VALUES ('identity', 'claude', 'claude', 'interactive', 'sess-1', ?1, 5)",
+        [&exact_1024],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO identity_resume_records
+         (identity_id, harness, runtime_mode, provider_session_id, driver_state_version, driver_state)
+         VALUES ('identity', 'codex', 'interactive', 'sess-2', 4, ?1)",
+        [&exact_1024],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO launch_observations
+         (binding_id, preferences_fingerprint, owner_pid, owner_start, driver, created_at_ms, expires_at_ms,
+          status, provider_pid, provider_transition, provider_start, provider_session, runtime_mode,
+          driver_state_version, driver_state, observed_at_ms)
+         VALUES ('binding', ?1, 100, 'start-1', 'claude', 10, 1000,
+          'pending', 200, 'started', 'start-2', 'sess-1', 'interactive', 5, ?2, 20)",
+        rusqlite::params!["0".repeat(64), exact_1024],
+    )
+    .unwrap();
+
+    let objects_before: Vec<String> = db
+        .prepare(
+            "SELECT name FROM sqlite_schema
+             WHERE tbl_name IN ('identity_session_preferences','identity_resume_records','launch_observations')
+               AND type IN ('index','trigger')
+             ORDER BY name",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+
+    apply(&mut db).unwrap();
+
+    let objects_after: Vec<String> = db
+        .prepare(
+            "SELECT name FROM sqlite_schema
+             WHERE tbl_name IN ('identity_session_preferences','identity_resume_records','launch_observations')
+               AND type IN ('index','trigger')
+             ORDER BY name",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(objects_before, objects_after);
+
+    let pref_state: String = db
+        .query_row(
+            "SELECT driver_state FROM identity_session_preferences WHERE identity_id='identity'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let resume_state: String = db
+        .query_row(
+            "SELECT driver_state FROM identity_resume_records WHERE identity_id='identity'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let launch_state: String = db
+        .query_row(
+            "SELECT driver_state FROM launch_observations WHERE binding_id='binding'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(pref_state, exact_1024);
+    assert_eq!(resume_state, exact_1024);
+    assert_eq!(launch_state, exact_1024);
+
+    let larger_2048 = "b".repeat(2048);
+    db.execute(
+        "UPDATE identity_session_preferences SET driver_state=?1 WHERE identity_id='identity'",
+        [&larger_2048],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE identity_resume_records SET driver_state=?1 WHERE identity_id='identity'",
+        [&larger_2048],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE launch_observations SET driver_state=?1 WHERE binding_id='binding'",
+        [&larger_2048],
+    )
+    .unwrap();
+
+    let over_cap = "c".repeat(4097);
+    assert!(
+        db.execute(
+            "UPDATE identity_session_preferences SET driver_state=?1 WHERE identity_id='identity'",
+            [&over_cap],
+        )
+        .is_err()
     );
 }

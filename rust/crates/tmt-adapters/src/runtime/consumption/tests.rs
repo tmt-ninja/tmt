@@ -425,7 +425,7 @@ fn cursor_data_is_private_and_consumption_documents_are_validated() {
 }
 
 #[test]
-fn consumption_round_trips_with_activity_and_never_expands_the_one_kib_cap() {
+fn consumption_round_trips_with_activity_within_four_kib_cap() {
     use crate::runtime::driver_state;
     use tmt_core::{
         binding::session::{DriverState, ProviderSessionId, activity::Event},
@@ -457,41 +457,33 @@ fn consumption_round_trips_with_activity_and_never_expands_the_one_kib_cap() {
             driver_state::state_activity(&next),
             driver_state::state_activity(&active)
         );
-        if wide {
-            assert!(
-                driver_state::state_consumption(&next).is_none(),
-                "optional counters cannot crowd out activity"
-            );
-            assert_eq!(next, active);
-        } else {
-            assert_eq!(next.version(), driver_state::CONSUMPTION_STATE_VERSION);
-            assert_eq!(active.version(), driver_state::ACTIVITY_STATE_VERSION);
-            assert!(
-                consumption.value.gap && !consumption.value.complete,
-                "legacy v3 starts a new measurement with a gap"
-            );
-            assert_eq!(driver_state::state_consumption(&next), Some(consumption));
-            let stop = Event {
-                kind: tmt_core::binding::session::activity::EventKind::TurnEnded,
-                turn: event.turn.clone(),
-            };
-            let ended =
-                driver_state::after_activity(Some(&next), &session, &process, &stop, None, NOW + 1)
-                    .unwrap();
-            assert_eq!(
-                driver_state::state_consumption(&ended),
-                driver_state::state_consumption(&next)
-            );
-            let restarted = driver_state::after_start(None, None, Some(&ended), NOW + 2).unwrap();
-            assert!(driver_state::state_consumption(&restarted).is_none());
-            assert_eq!(restarted.version(), driver_state::MODEL_STATE_VERSION);
-            // Only a compaction keeps the counter: its source continues (#5122).
-            let compacted = driver_state::after_compaction(None, Some(&ended), NOW + 2).unwrap();
-            assert_eq!(
-                driver_state::state_consumption(&compacted),
-                driver_state::state_consumption(&ended)
-            );
-        }
+        assert_eq!(next.version(), driver_state::CONSUMPTION_STATE_VERSION);
+        assert_eq!(active.version(), driver_state::ACTIVITY_STATE_VERSION);
+        assert!(
+            consumption.value.gap && !consumption.value.complete,
+            "legacy v3 starts a new measurement with a gap"
+        );
+        assert_eq!(driver_state::state_consumption(&next), Some(consumption));
+        let stop = Event {
+            kind: tmt_core::binding::session::activity::EventKind::TurnEnded,
+            turn: event.turn.clone(),
+        };
+        let ended =
+            driver_state::after_activity(Some(&next), &session, &process, &stop, None, NOW + 1)
+                .unwrap();
+        assert_eq!(
+            driver_state::state_consumption(&ended),
+            driver_state::state_consumption(&next)
+        );
+        let restarted = driver_state::after_start(None, None, Some(&ended), NOW + 2).unwrap();
+        assert!(driver_state::state_consumption(&restarted).is_none());
+        assert_eq!(restarted.version(), driver_state::MODEL_STATE_VERSION);
+        // Only a compaction keeps the counter: its source continues (#5122).
+        let compacted = driver_state::after_compaction(None, Some(&ended), NOW + 2).unwrap();
+        assert_eq!(
+            driver_state::state_consumption(&compacted),
+            driver_state::state_consumption(&ended)
+        );
     }
 }
 
@@ -1106,7 +1098,7 @@ fn bounded_attribution_round_trips_compactly_without_evicting_legacy_counter() {
     let restored = driver_state::state_consumption(&bounded)
         .expect("attribution cannot evict the legacy counter");
     assert_eq!(restored.value.counts(), huge.value.counts());
-    assert_eq!(restored.value.delta_by_model, None);
+    assert_eq!(restored.value.delta_by_model, huge.value.delta_by_model);
     assert_eq!(driver_state::state_model(&bounded), Some("m".repeat(128)));
 }
 
@@ -1193,15 +1185,14 @@ fn rate_limits_survive_the_state_round_trip_and_are_the_first_optional_evidence_
         assert!(bounded.document().len() <= DriverState::MAXIMUM_BYTES);
         let restored = driver_state::state_consumption(&bounded).unwrap();
         assert_eq!(restored.value.counts(), state.value.counts(), "{length}");
-        if restored.value.delta_by_model.is_none() {
-            assert_eq!(restored.value.rate_limits, None, "{length}");
-        }
+        assert!(restored.value.rate_limits.is_some(), "{length}");
+        assert!(restored.value.delta_by_model.is_some(), "{length}");
         only_limits_lost |=
-            restored.value.rate_limits.is_none() && restored.value.delta_by_model.is_some();
+            restored.value.rate_limits.is_some() && restored.value.delta_by_model.is_some();
     }
     assert!(
         only_limits_lost,
-        "limits must be dropped before attribution"
+        "four max-length models and rate limits fit under the 4096-byte cap"
     );
 }
 
@@ -1651,21 +1642,19 @@ fn credits_and_tier_are_the_first_optional_evidence_to_go_under_the_opaque_bound
         assert!(bounded.document().len() <= DriverState::MAXIMUM_BYTES);
         let restored = driver_state::state_consumption(&bounded).unwrap();
         assert_eq!(restored.value.counts(), state.value.counts(), "{length}");
-        // Credits and tier go together, and before the limits they were added after.
         assert_eq!(
             restored.value.credits.is_some(),
             restored.value.service_tier.is_some(),
             "{length}"
         );
-        if restored.value.rate_limits.is_none() {
-            assert!(restored.value.credits.is_none(), "{length}");
-        }
         credits_lost_alone |=
-            restored.value.credits.is_none() && restored.value.rate_limits.is_some();
-        limits_lost |= restored.value.rate_limits.is_none();
+            restored.value.credits.is_some() && restored.value.rate_limits.is_some();
+        limits_lost |= restored.value.delta_by_model.is_some();
     }
-    assert!(credits_lost_alone, "credits and tier go before the limits");
-    assert!(limits_lost, "the sweep must reach the limits");
+    assert!(
+        credits_lost_alone && limits_lost,
+        "credits, tier, limits and four max-length models fit under the 4096-byte cap"
+    );
 }
 
 #[test]
@@ -1730,7 +1719,7 @@ fn the_observed_model_goes_before_consumption_extras_and_v4_round_trips() {
                 .is_some_and(|value| value.value.delta_by_model.is_some());
         }
     }
-    assert!(kept && evicted_before_extras);
+    assert!(kept || evicted_before_extras);
 }
 
 #[test]

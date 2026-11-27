@@ -478,6 +478,10 @@ const MIGRATIONS: &[Migration] = &[
         "bound channel receipt evidence to its attempt deadline",
         "schema/098.sql"
     ),
+    migration!(
+        "widen driver_state cap from 1024 to 4096 bytes",
+        "schema/099.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

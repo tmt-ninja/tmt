@@ -10,7 +10,7 @@
 //! Version 5 adds the last observed model: the model an admitted provider event
 //! reported. It is written only while present and goes first under the bound.
 //! Older documents retain their original versions/bytes; optional counters never
-//! expand the core's 1 KiB opaque-state bound.
+//! expand the core's 4 KiB opaque-state bound.
 //! The resume launch model is never inferred from transcripts, arguments or files;
 //! consumption attribution separately reads the model on accepted provider records.
 
@@ -1029,50 +1029,106 @@ mod tests {
     #[test]
     fn the_observed_model_goes_first_and_the_legacy_version_returns() {
         let model = "m".repeat(128);
-        let session = ProviderSessionId::new(&"\"".repeat(128)).unwrap();
+        let session = ProviderSessionId::new(&"\"".repeat(256)).unwrap();
         let turn = "t".repeat(256);
+        let rows: Vec<_> = (0..4)
+            .map(|i| {
+                json!([
+                    format!("model-{i:02}-{}", "x".repeat(119)),
+                    250,
+                    25,
+                    125,
+                    10
+                ])
+            })
+            .collect();
+        let consumption = super::super::consumption::State::read(&json!({
+            "value": {
+                "inputTokens": 1000,
+                "outputTokens": 100,
+                "cachedInputTokens": 500,
+                "cacheWriteTokens": 40,
+                "modelId": model,
+                "deltaByModel": rows,
+                "rateLimits": {
+                    "provider": "claude",
+                    "observedAtMs": 1_795_750_000_000u64,
+                    "windows": [
+                        { "windowMinutes": 300, "usedPercent": 42.5, "resetsAtMs": 1_795_760_000_000u64 }
+                    ]
+                },
+                "credits": { "observedAtMs": 1_795_750_000_000u64, "hasCredits": true, "unlimited": false, "balance": "12.50" },
+                "serviceTier": "priority",
+                "epoch": "50fec1a2-581c-4adc-924d-15c31cef4da4",
+                "sequence": 12,
+                "observedAtMs": 1_795_750_000_000u64,
+                "complete": true,
+                "gap": false
+            },
+            "cursor": {
+                "dev": 16777234u64,
+                "ino": 98765432u64,
+                "offset": 456789u64,
+                "last": "a".repeat(64),
+                "request": "b".repeat(64),
+                "counts": { "input": 1000, "output": 100, "cached": 500 }
+            }
+        }))
+        .expect("valid sized consumption state");
         let mut evicted = false;
         let mut kept = false;
         for length in (1..=256).rev() {
             let process = ProcessIncarnation::new(42, &"\\".repeat(length)).unwrap();
-            let previous = after_start(Some(&model), Some(usage(7)), None, 10).unwrap();
-            let Some(next) = after_activity(
-                Some(&previous),
+            let started = after_start(Some(&model), Some(usage(7)), None, 10).unwrap();
+            let with_consumption =
+                after_observation(Some(usage(7)), Some(consumption.clone()), Some(&started))
+                    .unwrap();
+            let with_activity = after_activity(
+                Some(&with_consumption),
                 &session,
                 &process,
                 &working(&turn),
                 Some(&model),
                 20,
-            ) else {
-                continue; // activity alone exceeds the bound, as before v5
-            };
-            let without = after_activity(
-                Some(&after_observation(Some(usage(7)), None, Some(&legacy(&model))).unwrap()),
-                &session,
-                &process,
-                &working(&turn),
-                None,
-                20,
             )
             .unwrap();
+            let Some(next) = after_launch_start(
+                Some(with_activity.clone()),
+                None,
+                &session,
+                &process,
+                false,
+                30,
+            ) else {
+                continue;
+            };
             assert!(next.document().len() <= DriverState::MAXIMUM_BYTES);
-            assert_eq!(state_activity(&next), state_activity(&without));
+            assert_eq!(state_activity(&next), state_activity(&with_activity));
             assert_eq!(state_usage(&next), Some(usage(7)));
             assert_eq!(state_model(&next), Some(model.clone()));
-            if state_observed_model(&next).is_none() {
-                // Evicted: the same version and bytes as a document that never had it.
+            assert_eq!(
+                state_observed_model(&next),
+                state_observed_model(&with_activity)
+            );
+            if !state_no_startup_idle_matches(&next, &session, &process) {
+                // Evicted: noStartupIdle goes first when the 4096-byte cap bites,
+                // returning the document to the observed-model version.
                 evicted = true;
-                assert_eq!(next, without);
-                assert_eq!(next.version(), ACTIVITY_STATE_VERSION);
+                assert_eq!(next, with_activity);
+                assert_eq!(next.version(), OBSERVED_STATE_VERSION);
                 let with = format!(
-                    r#"{},"observed":{}}}"#,
-                    without.document().strip_suffix('}').unwrap(),
-                    ObservedModel::new(&model, 20).unwrap().document()
+                    r#"{},"noStartupIdle":{}}}"#,
+                    with_activity.document().strip_suffix('}').unwrap(),
+                    NoStartupIdle {
+                        session: session.clone(),
+                        process: process.clone(),
+                    }
+                    .document()
                 );
                 assert!(with.len() > DriverState::MAXIMUM_BYTES);
             } else {
                 kept = true;
-                assert_eq!(next.version(), OBSERVED_STATE_VERSION);
+                assert_eq!(next.version(), STARTUP_IDLE_STATE_VERSION);
             }
         }
         assert!(evicted && kept, "the escaped IDs cross the bound");
@@ -1111,5 +1167,169 @@ mod tests {
         assert_eq!(ready.version(), ACTIVITY_STATE_VERSION);
         assert_eq!(state_activity(&ready).unwrap().phase, ActivityPhase::Idle);
         assert!(!state_no_startup_idle_matches(&ready, &session, &process));
+    }
+
+    #[test]
+    fn full_claude_state_with_every_field_and_extra_optional_field_fits_within_cap() {
+        let session = ProviderSessionId::new("50fec1a2-581c-4adc-924d-15c31cef4da4").unwrap();
+        let process = ProcessIncarnation::new(12345, "ps-v1:Fri Nov 27 04:00:00 2026").unwrap();
+        let consumption_json = json!({
+            "value": {
+                "inputTokens": 123456,
+                "outputTokens": 12345,
+                "cachedInputTokens": 90000,
+                "cacheWriteTokens": 5000,
+                "modelId": "claude-sonnet-4-6",
+                "deltaByModel": [["claude-sonnet-4-6", 123456, 12345, 90000, 5000]],
+                "rateLimits": {
+                    "provider": "claude",
+                    "observedAtMs": 1_795_750_000_000u64,
+                    "windows": [
+                        { "windowMinutes": 300, "usedPercent": 42.5, "resetsAtMs": 1_795_760_000_000u64 }
+                    ]
+                },
+                "credits": { "observedAtMs": 1_795_750_000_000u64, "hasCredits": true, "unlimited": false, "balance": "12.50" },
+                "serviceTier": "priority",
+                "epoch": "50fec1a2-581c-4adc-924d-15c31cef4da4",
+                "sequence": 12,
+                "observedAtMs": 1_795_750_000_000u64,
+                "complete": true,
+                "gap": false
+            },
+            "cursor": {
+                "dev": 16777234u64,
+                "ino": 98765432u64,
+                "offset": 456789u64,
+                "last": "a".repeat(64),
+                "request": "b".repeat(64),
+                "counts": { "input": 12000, "output": 500, "cached": 8000 }
+            }
+        });
+        let consumption = super::super::consumption::State::read(&consumption_json)
+            .expect("valid full consumption state");
+        let doc = Document {
+            model: Some("claude-sonnet-4-6".into()),
+            usage: Usage::new(123456, Some(200_000), 1_795_750_000_000),
+            activity: Some(Activity {
+                session: session.clone(),
+                process: process.clone(),
+                phase: ActivityPhase::Idle,
+                turn: Some(session.clone()),
+                since_ms: 1_795_750_000_000,
+                last_activity_ms: 1_795_750_000_000,
+            }),
+            consumption: Some(consumption),
+            observed: ObservedModel::new("claude-sonnet-4-6", 1_795_750_000_000),
+            no_startup_idle: Some(NoStartupIdle { session, process }),
+        };
+        let written = doc.write().expect("full state fits within 4096-byte cap");
+        assert!(written.document().len() <= DriverState::MAXIMUM_BYTES);
+        assert!(written.document().len() > 1024);
+        assert_eq!(written.version(), STARTUP_IDLE_STATE_VERSION);
+        let parsed = Document::read(&written).expect("round-trip");
+        assert!(parsed.observed.is_some());
+        let c = parsed.consumption.expect("consumption preserved");
+        assert!(c.value.rate_limits.is_some());
+        assert!(c.value.credits.is_some());
+        assert!(c.value.delta_by_model.is_some());
+    }
+
+    #[test]
+    fn eviction_ladder_drops_newest_optional_evidence_first_at_4096_cap() {
+        let model = "m".repeat(128);
+        let session = ProviderSessionId::new(&"\"".repeat(256)).unwrap();
+        let turn = ProviderSessionId::new(&"\\".repeat(256)).unwrap();
+        let process = ProcessIncarnation::new(42, &"\\".repeat(256)).unwrap();
+        let base_consumption = super::super::consumption::State::read(&json!({
+            "value": {
+                "inputTokens": 1000,
+                "outputTokens": 100,
+                "cachedInputTokens": 500,
+                "cacheWriteTokens": 40,
+                "modelId": model,
+                "rateLimits": {
+                    "provider": "claude",
+                    "observedAtMs": 1_795_750_000_000u64,
+                    "windows": [
+                        { "windowMinutes": 300, "usedPercent": 42.5, "resetsAtMs": 1_795_760_000_000u64 }
+                    ]
+                },
+                "credits": { "observedAtMs": 1_795_750_000_000u64, "hasCredits": true, "unlimited": false, "balance": "12.50" },
+                "serviceTier": "priority",
+                "epoch": "50fec1a2-581c-4adc-924d-15c31cef4da4",
+                "sequence": 12,
+                "observedAtMs": 1_795_750_000_000u64,
+                "complete": true,
+                "gap": false
+            },
+            "cursor": {
+                "dev": 16777234u64,
+                "ino": 98765432u64,
+                "offset": 456789u64,
+                "last": "a".repeat(64),
+                "request": "b".repeat(64),
+                "counts": { "input": 1000, "output": 100, "cached": 500 }
+            }
+        }))
+        .expect("valid base consumption");
+
+        // Cross 4096 bytes with fine-grained steps so credits/tier go first, then limits,
+        // then deltaByModel/modelId.
+        let mut saw_credits_evicted = false;
+        let mut saw_limits_evicted = false;
+        let mut saw_attribution_evicted = false;
+        for row_count in 1..=120 {
+            let mut c = base_consumption.clone();
+            c.value.delta_by_model = Some(
+                (0..row_count)
+                    .map(|i| super::super::consumption::ModelUsage {
+                        model_id: format!("m-{i:03}"),
+                        input_tokens: 1,
+                        output_tokens: 0,
+                        cached_input_tokens: 0,
+                        cache_write_tokens: Some(0),
+                    })
+                    .collect(),
+            );
+            let doc = Document {
+                model: Some(model.clone()),
+                usage: Usage::new(100, Some(200_000), 1_795_750_000_000),
+                activity: Some(Activity {
+                    session: session.clone(),
+                    process: process.clone(),
+                    phase: ActivityPhase::Working,
+                    turn: Some(turn.clone()),
+                    since_ms: 10,
+                    last_activity_ms: 20,
+                }),
+                consumption: Some(c),
+                observed: ObservedModel::new(&model, 20),
+                no_startup_idle: None,
+            };
+            let written = doc
+                .write()
+                .expect("eviction ladder always fits within 4096 bytes");
+            assert!(written.document().len() <= DriverState::MAXIMUM_BYTES);
+            let raw: Value = serde_json::from_str(written.document()).unwrap();
+            let val = &raw["consumption"]["value"];
+            let has_credits = val.get("credits").is_some();
+            let has_tier = val.get("serviceTier").is_some();
+            let has_limits = val.get("rateLimits").is_some();
+            let has_delta = val.get("deltaByModel").is_some();
+            assert_eq!(has_credits, has_tier);
+            if !has_credits && has_limits && has_delta {
+                saw_credits_evicted = true;
+            }
+            if !has_limits && has_delta {
+                assert!(!has_credits);
+                saw_limits_evicted = true;
+            }
+            if !has_delta {
+                assert!(!has_credits && !has_limits);
+                assert!(val.get("cacheWriteTokens").is_some());
+                saw_attribution_evicted = true;
+            }
+        }
+        assert!(saw_credits_evicted && saw_limits_evicted && saw_attribution_evicted);
     }
 }
