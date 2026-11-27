@@ -620,7 +620,7 @@ pub(in crate::board) mod tests {
             Some(crate::action::OpsUiAction::KeepReply)
         );
         let mut app = crate::board::app::workspace::tests::board();
-        assert_eq!(app.composer_keep_reply_key().as_deref(), Some("^P"));
+        assert_eq!(app.composer_keep_reply_key().as_deref(), Some("^T"));
         app.focus_composer();
         // Without Core capability, toggling explains the requirement and leaves keep_reply false.
         let _ = app.toggle_keep_reply();
