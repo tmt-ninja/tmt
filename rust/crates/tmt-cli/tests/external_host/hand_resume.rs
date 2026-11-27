@@ -311,6 +311,21 @@ fn codex_locator(fixture: &Fixture) -> (String, String) {
     (session, home.to_str().unwrap().to_owned())
 }
 
+/// The bind's own `SESSION_NOT_RECORDED` warning for an exhausted allowance.
+fn allowance_exhausted(stdout: &str) -> bool {
+    serde_json::from_str::<Value>(stdout)
+        .ok()
+        .and_then(|document| document["warnings"].as_array().cloned())
+        .is_some_and(|warnings| {
+            warnings.iter().any(|warning| {
+                warning["code"] == "SESSION_NOT_RECORDED"
+                    && warning["reason"].as_str().is_some_and(|reason| {
+                        reason.ends_with("the bounded session-verification allowance was exhausted")
+                    })
+            })
+        })
+}
+
 #[test]
 fn explicit_binds_in_the_verified_provider_learn_its_session_without_a_hook() {
     register();
@@ -339,7 +354,17 @@ fn explicit_binds_in_the_verified_provider_learn_its_session_without_a_hook() {
                     ("TMT_CALLER_SESSION_DEBUG", "1"),
                 ]
             };
-            let output = agent.command(&environment, &args);
+            let mut output = agent.command(&environment, &args);
+            // As with a start hook (`SteppedProvider::hook_with_env`), a bind
+            // whose verification ran out of its fixed allowance (a slow host)
+            // proved nothing either way, so it runs again with the same input,
+            // at most three times in all. Only its explicit signal counts.
+            for _ in 1..3 {
+                if !allowance_exhausted(&output.1) {
+                    break;
+                }
+                output = agent.command(&environment, &args);
+            }
             assert_eq!(output.0, 0, "{provider} {args:?}: {output:?}");
             let document: Value = serde_json::from_str(&output.1).unwrap();
             assert_eq!(

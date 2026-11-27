@@ -86,6 +86,10 @@ A scratch tmux server runs only through `scripts/private-tmux.sh <scratch-dir> <
 - External-host fixtures: `cargo test --locked -p tmt-adapters host::external::tests`. Success
   cases use a thirty-second test runner budget; conformance timing uses scripted elapsed
   values and the late-answer case keeps the production runner and deadline.
+- The `tmt-cli` `external_host` binary: run it locally with the thread count CI's partitions use
+  (`--test-threads` in `typescript/scripts/workspace-nextest.mjs`, for example
+  `cargo test --locked -p tmt-cli --test external_host -- --test-threads 4`). At the default
+  count, a loaded Mac runs out of the fixed probe allowances and fails earlier layers (#6014).
 - Completion setup: `cargo test --locked -p tmt-adapters completion_install` and
   `cargo test --locked -p tmt-cli --test completion_install` (read-only startup-file
   evidence, shell detection, framework-managed zsh; a real PTY checks the help hint).
