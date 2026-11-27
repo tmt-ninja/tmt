@@ -84,7 +84,8 @@ export function useTicketLinks({
     const authored = (href: string, newTab: boolean) => {
       if (!enabled) return false;
       const link = classifyPageLink(href, base(), space);
-      if (link.kind !== 'internal') return false;
+      // Deep links, including cross-page block mentions, use the existing anchor navigation.
+      if (link.kind !== 'internal' || link.anchor) return false;
       const [, kind, id] = link.route.split('/');
       if (!id) return false;
       const page = kind === 'pages' ? id : home && ticketPageByPrefix(home, id);

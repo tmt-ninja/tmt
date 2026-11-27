@@ -6660,7 +6660,8 @@ project repository used for Work. The trusted structured page UI uses it to reso
 and opening a target page requires the usual page admission. Links are derived display spans
 within one text run, outside code and existing links or mentions. They never become document
 marks. The drawer uses the admitted page in read-only mode, or the GitHub repository and
-number with an external link. The hint is absent from share reads and exported documents.
+number with an external link. Links to anchors, including cross-page block mentions, use
+the existing navigation. The hint is absent from share reads and exported documents.
 
 Title discovery shares the open-page reader, its single in-flight slot, cancellation and
 deadlines. It searches at most one work number per page per 60 seconds and one per serve-wide
