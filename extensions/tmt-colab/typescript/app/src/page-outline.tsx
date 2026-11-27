@@ -74,6 +74,13 @@ export function PageOutline({
     };
   }, [menu, menuOpen]);
   const [current, setCurrent] = useState(0);
+  const jump = useRef<{
+    id: string;
+    headingTop: number;
+    settledAt?: number;
+    timer: number;
+  } | null>(null);
+  useEffect(() => () => window.clearTimeout(jump.current?.timer), []);
   // A click leaves the toggle focused without a frame, until the keyboard is used on it.
   const [pointer, setPointer] = useState(false);
   // Whether more of a long list is below its visible part, which the bottom edge fades.
@@ -95,6 +102,29 @@ export function PageOutline({
   useEffect(() => {
     if (headings.length < 3) return;
     const update = () => {
+      const root = document.documentElement;
+      const end =
+        root.scrollHeight > innerHeight + 1 && scrollY + innerHeight >= root.scrollHeight - 2;
+      const selection = jump.current;
+      if (selection) {
+        const index = headings.findIndex((heading) => heading.id === selection.id);
+        const top = locate(selection.id)?.top();
+        // The heading can also move inside a frame without changing the window's scroll position.
+        const moved =
+          selection.settledAt !== undefined &&
+          (Math.abs(scrollY - selection.settledAt) > 2 ||
+            (top !== undefined && Math.abs(top - selection.headingTop) > 2));
+        // Keep the clicked heading at the landing position even if rounding put it below the edge.
+        // At the document bottom, the normal end rule picks the last heading in view.
+        const landedAtEnd = end && selection.settledAt !== undefined;
+        if (index >= 0 && !moved && !landedAtEnd) {
+          if (top !== undefined && selection.settledAt === undefined) selection.headingTop = top;
+          setCurrent(index);
+          return;
+        }
+        window.clearTimeout(selection.timer);
+        jump.current = null;
+      }
       const bar = document.querySelector<HTMLElement>('.tmt-ui-shell-bar, .tmt-ui-header');
       const edge = (bar?.getBoundingClientRect().bottom ?? 0) + (innerWidth <= 640 ? 64 : 24);
       let active = 0;
@@ -104,9 +134,6 @@ export function PageOutline({
       });
       // A short last section never reaches the edge: once the page is scrolled to its end, the last
       // heading in view is current, so jumping to it marks it (#6833).
-      const root = document.documentElement;
-      const end =
-        root.scrollHeight > innerHeight + 1 && scrollY + innerHeight >= root.scrollHeight - 2;
       if (end)
         headings.forEach((heading, index) => {
           const node = locate(heading.id);
@@ -114,12 +141,35 @@ export function PageOutline({
         });
       setCurrent(active);
     };
+    const settle = () => {
+      const selection = jump.current;
+      if (selection && selection.settledAt === undefined) {
+        window.clearTimeout(selection.timer);
+        selection.headingTop = locate(selection.id)?.top() ?? selection.headingTop;
+        selection.settledAt = scrollY;
+        update();
+      }
+    };
+    const release = () => {
+      if (jump.current === null) return;
+      window.clearTimeout(jump.current.timer);
+      jump.current = null;
+      update();
+    };
     update();
     window.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);
+    document.addEventListener('scrollend', settle);
+    window.addEventListener('wheel', release, { passive: true });
+    window.addEventListener('touchstart', release, { passive: true });
+    window.addEventListener('keydown', release);
     return () => {
       window.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
+      document.removeEventListener('scrollend', settle);
+      window.removeEventListener('wheel', release);
+      window.removeEventListener('touchstart', release);
+      window.removeEventListener('keydown', release);
     };
   }, [headings, locate]);
   if (headings.length < 3) return null;
@@ -136,6 +186,17 @@ export function PageOutline({
               onClick={(event) => {
                 const keyboard = event.detail === 0;
                 const target = locate(heading.id);
+                if (target) {
+                  window.clearTimeout(jump.current?.timer);
+                  jump.current = {
+                    id: heading.id,
+                    headingTop: target.top(),
+                    // A jump to the current position may produce no scrollend.
+                    timer: window.setTimeout(() => {
+                      if (jump.current) jump.current.settledAt = scrollY;
+                    }, 500),
+                  };
+                }
                 setCurrent(index);
                 if (strip) {
                   setFloating(false);

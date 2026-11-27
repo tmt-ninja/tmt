@@ -914,6 +914,55 @@ for (const width of [1440, 390])
     await expect(page.getByRole('navigation', { name: 'Page outline' })).toHaveCount(0);
   });
 
+for (const width of [390, 1440])
+  test(`outline keeps the tapped heading after scrollend until the page moves at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await run(page, 'mount', { structuredOutline: true });
+    const outline = page.getByRole('navigation', { name: 'Page outline' });
+    const toggle = outline.locator('.page-outline-toggle');
+    const details = outline.getByRole('button', { name: 'Details' });
+    if (width === 390) await toggle.click();
+    else {
+      // Exercise a deterministic off-edge landing on desktop as well as the natural phone case.
+      await page
+        .locator('.structured-page-stage')
+        .getByRole('heading', { name: 'Details' })
+        .evaluate((heading) => {
+          const block = heading.closest<HTMLElement>('[data-block-id]')!;
+          block.style.scrollMarginTop = `calc(${getComputedStyle(block).scrollMarginTop} + 1px)`;
+        });
+    }
+    await expect(details).toBeVisible();
+    const settled = await page.evaluateHandle(() => ({
+      ended: new Promise<void>((resolve) => {
+        document.addEventListener(
+          'scrollend',
+          () => requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          { once: true },
+        );
+      }),
+    }));
+    await details.click();
+    await settled.evaluate(({ ended }) => ended);
+    await settled.dispose();
+    if (width === 390) {
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(toggle).toContainText('Details');
+    } else {
+      await expect(details).toHaveAttribute('aria-current', 'location');
+    }
+    await page.evaluate(() => window.scrollTo(0, 0));
+    if (width === 390) await expect(toggle).toContainText('Overview');
+    else
+      await expect(outline.getByRole('button', { name: /^Overview/ })).toHaveAttribute(
+        'aria-current',
+        'location',
+      );
+  });
+
 for (const width of [1440, 390])
   test(`HTML outline follows visible headings and jumps without resizing the frame at ${width}`, async ({
     page,
