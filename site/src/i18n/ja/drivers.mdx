@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 8e3b6ab18ab1ff3ad10a01d5402a926cc31e54a1
+sourceRevision: 7562d817ff0365804de2b071f0af8bba0a24533d
 title: driver
 ---
 
@@ -34,7 +34,7 @@ $ tmt setup                      # optional: connect every agent found, after yo
 - [Codex](/drivers/codex)：runtime driver です。複数のペインが 1 つの Codex サーバーを共有する場合も安全に動作します。
 - agy: Antigravity CLI 用の組み込み runtime driver。正確な会話の再開と開始時のコンテキストに対応します。
 
-Pi にも組み込み runtime driver があります。`tmt run <name> pi` は、対応する TMT skill を会話に読み込む `/tmt` と `/tmt-inbox` コマンドを含め、起動ごとに連携機能を渡します。Pi の全体設定ファイルに lifecycle hook を追加しません。
+Pi にも組み込み runtime driver があります。`tmt run <name> pi` は、対応する TMT skill を会話に読み込む `/tmt` と `/tmt-inbox` コマンドを含め、起動ごとに連携機能を渡します。通常の Pi 起動で使う場合は、`tmt install pi` がプレビューと同意を経てユーザー拡張を提供します。どちらも Pi の `settings.json` を編集しません。
 
 Cursor Agent には `cursor-agent` による基本的な組み込み検出があり、専用の対話型プロセスから呼び出し元を識別できます。lifecycle hook、使用量カウンター、正確な会話の再開にはまだ対応していません。プロセスの証拠が曖昧な場合は識別を拒否し、汎用の `agent` 実行ファイルを Cursor として認識しません。
 

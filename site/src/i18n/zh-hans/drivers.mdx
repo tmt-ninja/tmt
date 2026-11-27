@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 8e3b6ab18ab1ff3ad10a01d5402a926cc31e54a1
+sourceRevision: 7562d817ff0365804de2b071f0af8bba0a24533d
 title: Driver
 ---
 
@@ -34,7 +34,7 @@ $ tmt setup                      # optional: connect every agent found, after yo
 - [Codex](/drivers/codex)：runtime driver，即使多个窗格共用一个 Codex 服务器，也能安全工作。
 - agy：Antigravity CLI 的内置 runtime driver，支持精确恢复会话和启动上下文。
 
-Pi 也有内置 runtime driver。`tmt run <name> pi` 在每次启动时提供集成，包括将对应 TMT skill 载入对话的 `/tmt` 与 `/tmt-inbox` 命令；不会向 Pi 的全局设置文件安装生命周期钩子。
+Pi 也有内置 runtime driver。`tmt run <name> pi` 在每次启动时提供集成，包括将对应 TMT skill 载入对话的 `/tmt` 与 `/tmt-inbox` 命令。若要在普通 Pi 启动时使用，`tmt install pi` 会在预览并征得同意后提供用户扩展。两种方式都不会编辑 Pi 的 `settings.json`。
 
 Cursor Agent 已内置通过 `cursor-agent` 进行的基本检测，可从专用交互进程识别调用方。目前尚无生命周期钩子、用量计数器或精确恢复会话功能。进程证据不明确时会拒绝识别；通用的 `agent` 可执行文件不会被识别为 Cursor。
 
