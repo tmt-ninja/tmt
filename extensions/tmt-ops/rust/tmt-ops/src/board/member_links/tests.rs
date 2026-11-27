@@ -14,6 +14,18 @@ pub(in crate::board) const FILE_SCENES: &[&str] = &[
 pub(in crate::board) fn capture_reference_hits(app: &App) -> String {
     // The oracle records painted hit geometry and actions, not keyboard focus identity.
     struct PaintedHit<'a>(&'a Hit);
+    struct PaintedTarget<'a>(&'a Target);
+    impl std::fmt::Debug for PaintedTarget<'_> {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self.0 {
+                Target::FenceCopy { .. } => formatter.write_str("FenceCopy"),
+                Target::FenceRun { command, .. } => {
+                    formatter.debug_tuple("FenceRun").field(command).finish()
+                }
+                target => std::fmt::Debug::fmt(target, formatter),
+            }
+        }
+    }
     impl std::fmt::Debug for PaintedHit<'_> {
         fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let hit = self.0;
@@ -21,7 +33,7 @@ pub(in crate::board) fn capture_reference_hits(app: &App) -> String {
                 .debug_struct("Hit")
                 .field("area", &hit.area)
                 .field("surface", &hit.surface)
-                .field("target", &hit.target)
+                .field("target", &PaintedTarget(&hit.target))
                 .field("checklist", &hit.checklist)
                 .field("reader", &hit.reader)
                 .field("occurrence", &hit.occurrence)
@@ -1275,7 +1287,7 @@ mod named_surface_tests {
                             .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                             .collect();
                         let cells:Vec<_> = buffer.content.iter().map(|cell| serde_json::json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect();
-                        let hits:Vec<_> = app.member_links.borrow().hits.iter().map(|hit|serde_json::json!({"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height,"identity":match &hit.target { Target::Member(id) | Target::Work(id) | Target::Checklist(id) | Target::Url(id) | Target::File(id) => id, Target::Command(command) => &command.shown },"reader":hit.reader})).collect();
+                        let hits:Vec<_> = app.member_links.borrow().hits.iter().map(|hit|serde_json::json!({"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height,"identity":match &hit.target { Target::Member(id) | Target::Work(id) | Target::Checklist(id) | Target::Url(id) | Target::File(id) => id, Target::Command(command) => &command.shown, Target::FenceCopy { .. } => "FenceCopy", Target::FenceRun { command, .. } => command },"reader":hit.reader})).collect();
                         frames.push(serde_json::json!({"scene":scene,"width":width,"height":36,"base":base,"depth":format!("{depth:?}"),"lines":lines,"cells":cells,"memberHits":hits}));
                     }
                 }
@@ -1710,4 +1722,171 @@ fn an_open_hint_remains_visible_next_to_a_clipped_long_name() {
             assert_open_hint_cell(cell, look, offset as u16);
         }
     }
+}
+
+pub(in crate::board) const FENCE_SCENES: &[&str] = &[
+    "talk-fence-copy",
+    "talk-fence-copy-focus",
+    "talk-fence-copied",
+];
+
+const FENCE_RESPONSE: &str = "Try this:\n\n```sh\nmake test\n```\n\nThen review the output.";
+
+fn draw_fence_case(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
+fn fence_hit(app: &App, is_copy: bool) -> Hit {
+    app.member_links
+        .borrow()
+        .hits
+        .iter()
+        .find(|hit| {
+            if is_copy {
+                matches!(hit.target, Target::FenceCopy { .. })
+            } else {
+                matches!(hit.target, Target::FenceRun { .. })
+            }
+        })
+        .expect("visible fence control")
+        .clone()
+}
+
+pub(in crate::board) fn capture_fence_case(
+    scene: &str,
+    look: crate::look::Look,
+    width: u16,
+    height: u16,
+) -> App {
+    let mut app = super::command_popover::capture_case(look, width, height, FENCE_RESPONSE, false);
+    draw_fence_case(&app, width, height);
+    if scene == "talk-fence-copy-focus" {
+        let hit = fence_hit(&app, true);
+        app.member_links.borrow_mut().focused = Some(hit);
+    }
+    if scene == "talk-fence-copied" {
+        let Target::FenceCopy { key, .. } = fence_hit(&app, true).target else {
+            unreachable!()
+        };
+        app.fence_copied(key, 1, std::time::Instant::now());
+    }
+    app
+}
+
+#[test]
+fn fence_copy_requires_a_same_cell_click_and_never_joins_selected_text() {
+    use MouseEventKind::{Down, Drag, Up};
+    let mut app = capture_fence_case("talk-fence-copy", crate::look::Look::default(), 160, 36);
+    let area = fence_hit(&app, true).area;
+    let body = fence_hit(&app, true).surface;
+    let now = std::time::Instant::now();
+    let mouse = |app: &mut App, kind, column, row| {
+        app.mouse(
+            MouseEvent {
+                kind,
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            },
+            now,
+        )
+    };
+    let mouse_button = MouseButton::Left;
+    let press = (area.x, area.y);
+    assert!(matches!(
+        mouse(&mut app, Down(mouse_button), press.0, press.1),
+        Effect::None
+    ));
+    assert!(matches!(
+        mouse(&mut app, Up(mouse_button), press.0 + 1, press.1),
+        Effect::None
+    ));
+    mouse(&mut app, Down(mouse_button), press.0, press.1);
+    mouse(&mut app, Drag(mouse_button), press.0 - 1, press.1);
+    assert!(matches!(
+        mouse(&mut app, Up(mouse_button), press.0, press.1),
+        Effect::None
+    ));
+
+    // Select out of the code row and over the button. The chrome contributes no text.
+    let buffer = draw_fence_case(&app, 160, 36);
+    let col = (body.x..body.right())
+        .find(|&x| buffer[(x, area.y + 1)].symbol() == "m")
+        .expect("source text position");
+    mouse(&mut app, Down(mouse_button), col + 1, area.y + 1);
+    mouse(&mut app, Drag(mouse_button), area.x, area.y);
+    let selected = mouse(&mut app, Up(mouse_button), area.x, area.y);
+    assert!(
+        matches!(&selected, Effect::Act(Request::Copy { text, feedback: crate::board::app::CopyFeedback::Selection, .. }) if text == "m"),
+        "{selected:?}"
+    );
+    let menu: String = draw_fence_case(&app, 160, 36)
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(menu.contains("Quote") && menu.contains("Copy") && menu.contains("Add to checklist"));
+    app.conversation_source_escape();
+    mouse(&mut app, Down(mouse_button), press.0, press.1);
+    assert!(
+        matches!(mouse(&mut app, Up(mouse_button), press.0, press.1),
+        Effect::Act(Request::Copy { text, feedback: crate::board::app::CopyFeedback::Fence(_), .. }) if text == "make test\n")
+    );
+}
+
+#[test]
+fn fence_buttons_use_reader_focus_copy_feedback_and_the_existing_run_form() {
+    use crate::board::app::CopyFeedback;
+    use std::time::{Duration, Instant};
+    let mut app = capture_fence_case("talk-fence-copy", crate::look::Look::default(), 160, 36);
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    let run = fence_hit(&app, false);
+    let copy = fence_hit(&app, true);
+    assert!(!app.member_link_owns_enter());
+    app.key(key(KeyCode::Right));
+    assert_eq!(app.member_links.borrow().focused.as_ref(), Some(&run));
+    app.key(key(KeyCode::Right));
+    assert_eq!(app.member_links.borrow().focused.as_ref(), Some(&copy));
+    assert!(app.member_link_owns_enter());
+    let Effect::Act(Request::Copy {
+        text,
+        feedback: CopyFeedback::Fence(copied),
+        ..
+    }) = app.key(key(KeyCode::Enter))
+    else {
+        panic!("Enter copies the fence");
+    };
+    assert_eq!(text, "make test\n");
+    let now = Instant::now();
+    app.fence_copied(copied, 1, now);
+    let text: String = draw_fence_case(&app, 160, 36)
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains("✓ copied"));
+    assert_eq!(app.notice.as_deref(), Some("Copied 1 line."));
+    assert!(app.expire_fence_copy(now + Duration::from_secs(2)));
+    let text: String = draw_fence_case(&app, 160, 36)
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(!text.contains("✓ copied"));
+    app.key(key(KeyCode::Left));
+    app.key(key(KeyCode::Enter));
+    let form: String = draw_fence_case(&app, 160, 36)
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(
+        form.contains("Run command") && form.contains("make test"),
+        "{form}"
+    );
 }

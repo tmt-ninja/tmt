@@ -138,6 +138,7 @@ pub struct Snapshot {
 pub enum CopyFeedback {
     Destination,
     Selection,
+    Fence(super::member_links::FenceKey),
 }
 
 /// What the member frame asks core for.
@@ -4176,7 +4177,9 @@ impl App {
                 super::member_links::Target::Command(shown) => self.command_popover(&shown, anchor),
                 super::member_links::Target::Member(_)
                 | super::member_links::Target::Work(_)
-                | super::member_links::Target::Checklist(_) => Effect::None,
+                | super::member_links::Target::Checklist(_)
+                | super::member_links::Target::FenceCopy { .. }
+                | super::member_links::Target::FenceRun { .. } => Effect::None,
             };
         }
         let Some(menu) = &mut self.menu else {
@@ -5200,6 +5203,7 @@ impl App {
 
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
         if event.kind == MouseEventKind::Moved {
+            self.member_link_mouse(event);
             self.move_pointer(event);
             return Effect::None;
         }

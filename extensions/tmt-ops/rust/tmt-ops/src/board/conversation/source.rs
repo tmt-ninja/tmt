@@ -368,7 +368,7 @@ fn paint_text(
     let mut first_row = None;
     for (row, text) in displayed(surface, rendered.mapped.lines.len(), offset).enumerate() {
         let line = offset + row;
-        if line < first || line > last {
+        if line < first || line > last || rendered.copy.is_chrome(line) {
             continue;
         }
         anchored.capture(line, text);
@@ -704,14 +704,16 @@ impl App {
                     let key = state.active.clone()?;
                     let rendered = state.sessions.get(&key)?.rendered.as_ref()?;
                     let offset = self.scrolls.offset(Pane::Replies);
-                    let row = surface.text.as_str().split('\n').next()?;
+                    let row = displayed(&surface, rendered.mapped.lines.len(), offset)
+                        .enumerate()
+                        .find(|(row, _)| !rendered.copy.is_chrome(offset + row))?;
                     Selection::Text(Anchored::start(
                         surface.target.clone(),
                         key,
                         surface.area.width,
                         rendered,
-                        (offset, 0),
-                        row,
+                        (offset + row.0, 0),
+                        row.1,
                         false,
                     ))
                 } else {
@@ -811,12 +813,17 @@ impl App {
                         .filter(|rendered| anchored.attached_to(rendered))
                         .map_or(super::note_source::Source::Unavailable, |rendered| {
                             let (first, last) = anchored.lines();
-                            rendered
-                                .anchor_sources
-                                .get(first..=last)
-                                .map_or(super::note_source::Source::Unavailable, |lines| {
-                                    rendered.note_sources.selected(lines.iter().copied())
-                                })
+                            rendered.anchor_sources.get(first..=last).map_or(
+                                super::note_source::Source::Unavailable,
+                                |lines| {
+                                    rendered.note_sources.selected(
+                                        lines
+                                            .iter()
+                                            .copied()
+                                            .filter(|&row| !rendered.copy.is_chrome(row)),
+                                    )
+                                },
+                            )
                         }),
                 };
                 let seed = crate::board::conversation_checklist::Seed {
@@ -911,6 +918,10 @@ impl App {
                     let row = usize::from(event.row - area.y);
                     let offset = self.scrolls.offset(Pane::Replies);
                     let line = offset + row;
+                    if rendered.copy.is_chrome(line) {
+                        state.selection_click = None;
+                        return Some(Effect::None);
+                    }
                     let text = displayed(&surface, rendered.mapped.lines.len(), offset).nth(row)?;
                     let mut anchored = Anchored::start(
                         surface.target.clone(),

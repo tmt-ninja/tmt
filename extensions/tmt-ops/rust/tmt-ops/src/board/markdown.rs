@@ -8,7 +8,7 @@ mod files;
 mod inline;
 mod tables;
 
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
@@ -105,6 +105,7 @@ struct Renderer<'a> {
     source_line: usize,
     look: crate::look::Look,
     blocks: Vec<Block>,
+    fences: Vec<(usize, Fence)>,
     current: Option<Block>,
     bold: usize,
     italic: usize,
@@ -438,9 +439,9 @@ impl Renderer<'_> {
                 self.separate();
                 self.table_start(range);
             }
-            Event::Start(Tag::CodeBlock(_)) => {
+            Event::Start(Tag::CodeBlock(kind)) => {
                 self.separate();
-                self.code_block(range);
+                self.code_block(range, kind);
             }
             Event::Start(Tag::BlockQuote(_)) => {
                 self.separate();
@@ -570,11 +571,19 @@ pub fn render(text: &str, width: usize, look: crate::look::Look) -> Vec<Line<'st
 
 /// Painted response lines and their zero-based source lines. No parsed link
 /// destination or activation target crosses this display boundary.
+pub(super) struct Fence {
+    pub language: String,
+    range: std::ops::Range<usize>,
+    pub body: Option<String>,
+    pub command: Option<String>,
+}
+
 pub(super) struct Mapped {
     pub lines: Vec<Line<'static>>,
     pub sources: Vec<usize>,
     pub mentions: Vec<Vec<super::member_links::Link>>,
     pub code_origins: Vec<(usize, super::member_links::Origin)>,
+    pub fences: Vec<(usize, Fence)>,
 }
 
 pub(super) fn render_mapped(text: &str, width: usize, look: crate::look::Look) -> Mapped {
@@ -608,7 +617,7 @@ pub(super) fn render_conversation(
 ) -> Mapped {
     // Display normalization must never silently rewrite a command that can be submitted.
     let clean = super::notes::sanitize(text);
-    project(
+    let mut mapped = project(
         &clean,
         width,
         look,
@@ -616,7 +625,11 @@ pub(super) fn render_conversation(
         Format::Message,
         clean == text,
         work,
-    )
+    );
+    if !mapped.fences.is_empty() {
+        blocks::recover_bodies(&mut mapped.fences, text, &clean);
+    }
+    mapped
 }
 pub(super) fn render_plain_with_members<'a>(
     text: &'a str,
@@ -857,6 +870,7 @@ fn project<'a>(
         source_line: 0,
         look,
         blocks: Vec::new(),
+        fences: Vec::new(),
         current: None,
         bold: 0,
         italic: 0,
@@ -898,8 +912,13 @@ fn project<'a>(
         sources: Vec::new(),
         mentions: Vec::new(),
         code_origins: Vec::new(),
+        fences: Vec::new(),
     };
-    for block in renderer.blocks {
+    let mut fences = renderer.fences.into_iter().peekable();
+    for (index, block) in renderer.blocks.into_iter().enumerate() {
+        if let Some((_, fence)) = fences.next_if(|(block, _)| *block == index) {
+            mapped.fences.push((mapped.lines.len(), fence));
+        }
         let code_origin = block.code_origin.clone();
         for (line, source, mentions) in wrap(block, width.max(1)) {
             if let Some(origin) = &code_origin {

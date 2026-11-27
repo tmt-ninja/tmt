@@ -385,9 +385,11 @@ end inside any source line (list item, quote, heading, table row, code or paragr
 there, so a few words are exactly those characters; painted-only glyphs (bullets, quote bars,
 borders) are skipped when aligning, and text that cannot be aligned copies what it shows.
 Markers come with a line selected whole, and code fences or a table's header and delimiter
-only with a whole line of that block. Rows
-without a source (headers, status lines, pane output) keep their displayed text. Quoting never
-depends on the agent's state. The
+only with a whole line of that block. Rows without a source (headers, status lines, pane output)
+keep their displayed text. A fenced code block's control strip is skipped by selection and
+source copy. Its Copy button takes the original fence body on Enter or an unmoved same-cell
+release. A runnable fence opens the existing prefilled Run form. Quoting never depends on the
+agent's state. The
 `q Quote` entry, `q` or Enter inserts a literal quote fold after the logical line
 containing the composer caret. The whole current line and later text remain;
 the fold occupies its own line and the caret lands on the answer line after it. At the

@@ -73,6 +73,9 @@ pub(in crate::board::conversation) struct Anchored {
 
 /// The fully painted transcript line, including its message gutter.
 fn displayed_line(rendered: &Rendered, line: usize) -> String {
+    if rendered.copy.is_chrome(line) {
+        return String::new();
+    }
     rendered
         .mapped
         .lines
@@ -186,7 +189,14 @@ impl Anchored {
     }
 
     pub(super) fn selected(&self) -> Option<String> {
-        let parts: Vec<_> = self.parts().into_iter().map(|(text, _)| text).collect();
+        let (first, _) = self.lines();
+        let parts: Vec<_> = self
+            .parts()
+            .into_iter()
+            .enumerate()
+            .filter(|(offset, _)| self.rows.contains_key(&(first + offset)))
+            .map(|(_, (text, _))| text)
+            .collect();
         parts
             .iter()
             .any(|part| !part.is_empty())
@@ -225,7 +235,9 @@ impl Anchored {
     }
 
     fn backfill(&mut self, rendered: &Rendered, lines: Range<usize>) {
-        for line in lines.filter(|line| *line < rendered.mapped.lines.len()) {
+        for line in lines
+            .filter(|line| *line < rendered.mapped.lines.len() && !rendered.copy.is_chrome(*line))
+        {
             self.rows
                 .entry(line)
                 .or_insert_with(|| displayed_line(rendered, line));
@@ -234,6 +246,24 @@ impl Anchored {
 
     /// Move the free end, as a drag or a key does.
     pub(super) fn extend(&mut self, rendered: &Rendered, line: usize, column: usize) {
+        let (line, column) = if rendered.copy.is_chrome(line) {
+            if line > self.fixed.line {
+                let Some(previous) = (0..line).rev().find(|row| !rendered.copy.is_chrome(*row))
+                else {
+                    return;
+                };
+                (previous, usize::from(self.width))
+            } else {
+                let Some(next) = (line + 1..rendered.mapped.lines.len())
+                    .find(|row| !rendered.copy.is_chrome(*row))
+                else {
+                    return;
+                };
+                (next, 0)
+            }
+        } else {
+            (line, column)
+        };
         let (low, high) = (self.moving.line.min(line), self.moving.line.max(line));
         self.moving = Spot::at(rendered, line, column);
         self.backfill(rendered, low..high + 1);
@@ -254,8 +284,12 @@ impl Anchored {
             .map(|line| displayed_line(rendered, line))
             .collect();
         let (Some(fixed), Some(moving)) = (
-            self.fixed.follow(&lines, self.width),
-            self.moving.follow(&lines, self.width),
+            self.fixed
+                .follow(&lines, self.width)
+                .filter(|row| !rendered.copy.is_chrome(*row)),
+            self.moving
+                .follow(&lines, self.width)
+                .filter(|row| !rendered.copy.is_chrome(*row)),
         ) else {
             return false;
         };
@@ -287,8 +321,12 @@ impl Anchored {
         let (first, last) = self.lines();
         let low = first.min(offset);
         let high = last.max((offset + painted.len()).saturating_sub(1));
-        let rows: Vec<_> = (low..=high)
-            .map(|line| {
+        let indices: Vec<_> = (low..=high)
+            .filter(|row| !rendered.copy.is_chrome(*row))
+            .collect();
+        let rows: Vec<_> = indices
+            .iter()
+            .map(|&line| {
                 line.checked_sub(offset)
                     .and_then(|row| painted.get(row).copied())
                     .or_else(|| self.rows.get(&line).map(String::as_str))
@@ -299,14 +337,22 @@ impl Anchored {
             })
             .collect();
         let mut editor = Editor::from(rows.join("\n"));
-        editor.place(self.width, self.fixed.line - low, self.fixed.column, false);
-        editor.place(self.width, self.moving.line - low, self.moving.column, true);
+        let (Ok(fixed), Ok(moving)) = (
+            indices.binary_search(&self.fixed.line),
+            indices.binary_search(&self.moving.line),
+        ) else {
+            return;
+        };
+        editor.place(self.width, fixed, self.fixed.column, false);
+        editor.place(self.width, moving, self.moving.column, true);
         editor.key(event, self.width, usize::MAX);
         let (row, column) = editor.layout(self.width).cursor;
-        for (index, text) in rows.into_iter().enumerate() {
-            self.rows.insert(low + index, text);
+        for (&index, text) in indices.iter().zip(rows) {
+            self.rows.insert(index, text);
         }
-        self.moving = Spot::at(rendered, low + row, column);
+        if let Some(&index) = indices.get(row) {
+            self.moving = Spot::at(rendered, index, column);
+        }
         self.control = None;
     }
 }

@@ -467,6 +467,7 @@ pub(super) enum ActionOutcome {
     RenameMember(Box<workspace::rename_member::Completed>),
     CloseMember(Box<workspace::close_member::Completed>),
     Message(String),
+    FenceCopied(member_links::FenceKey, usize),
     WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
     MemberPlacement(
         Box<(
@@ -617,20 +618,28 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             text,
             program,
             feedback,
-        } => effects::copy(&text, program.as_deref(), effects::tmux_socket().as_deref())
-            .map(|copied| match feedback {
-                app::CopyFeedback::Destination => copied.describe().to_owned(),
-                app::CopyFeedback::Selection => {
-                    format!("⧉ Copied {} characters", text.chars().count())
-                }
-            })
-            .map_err(|error| match feedback {
-                app::CopyFeedback::Destination => error,
-                app::CopyFeedback::Selection if !error.starts_with("Copy failed: ") => {
-                    format!("Could not copy: {error}")
-                }
-                app::CopyFeedback::Selection => error,
-            }),
+        } => {
+            let result =
+                effects::copy(&text, program.as_deref(), effects::tmux_socket().as_deref());
+            if let app::CopyFeedback::Fence(key) = feedback {
+                return result.map(|_| ActionOutcome::FenceCopied(key, text.lines().count()));
+            }
+            result
+                .map(|copied| match feedback {
+                    app::CopyFeedback::Destination => copied.describe().to_owned(),
+                    app::CopyFeedback::Selection => {
+                        format!("⧉ Copied {} characters", text.chars().count())
+                    }
+                    app::CopyFeedback::Fence(_) => unreachable!(),
+                })
+                .map_err(|error| match feedback {
+                    app::CopyFeedback::Destination => error,
+                    app::CopyFeedback::Selection if !error.starts_with("Copy failed: ") => {
+                        format!("Could not copy: {error}")
+                    }
+                    app::CopyFeedback::Selection | app::CopyFeedback::Fence(_) => error,
+                })
+        }
         Request::Run(argv) => effects::spawn(&argv).map(|()| format!("Started {}.", argv[0])),
         Request::PreparedRun { action, row, ops } => core
             .json(&["whoami"])
@@ -1009,6 +1018,7 @@ fn session(
         // The footer names a waiting reload, so a new one repaints.
         dirty |= app.standalone.tick(now);
         dirty |= app.expire_notice(now);
+        dirty |= app.expire_fence_copy(now);
         dirty |= app.reload.poll(now);
         if app.reload.pending()
             && !app.reload_blocked()
@@ -1576,6 +1586,9 @@ fn session(
                             }
                             Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
                             Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
+                            Ok(ActionOutcome::FenceCopied(key, lines)) => {
+                                app.fence_copied(key, lines, now)
+                            }
                             Ok(ActionOutcome::MemberPlacement(completed)) => {
                                 let (save, result) = *completed;
                                 save.finish(app, result);
