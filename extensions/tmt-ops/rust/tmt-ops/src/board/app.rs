@@ -7801,17 +7801,19 @@ mod standalone_command_tests {
         for ch in "printf ok".chars() {
             press(&mut app, KeyCode::Char(ch));
         }
-        assert!(matches!(
-            press(&mut app, KeyCode::Enter),
-            Effect::Standalone(super::super::standalone::Task::Run(_))
-        ));
+        let Effect::Standalone(super::super::standalone::Task::Run(run, _)) =
+            press(&mut app, KeyCode::Enter)
+        else {
+            panic!("expected a standalone run")
+        };
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert_eq!(app.overlay(), None);
-        app.standalone_completed(super::super::standalone::Completed::Run(Ok(
-            serde_json::json!({
+        app.standalone_completed(super::super::standalone::Completed::Run(
+            run,
+            Ok(serde_json::json!({
                 "runId": "run", "stdout": "ok", "stderr": "", "exitCode": 0
-            }),
-        )));
+            })),
+        ));
         assert_eq!(app.overlay(), None);
         assert_eq!(press(&mut app, KeyCode::Char('!')), Effect::None);
         assert_eq!(

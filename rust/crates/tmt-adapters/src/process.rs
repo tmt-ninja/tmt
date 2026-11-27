@@ -44,7 +44,7 @@ pub struct CommandOutput {
 }
 
 /// A shell command's bounded observation, including a terminated partial result.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ShellOutput {
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
@@ -53,6 +53,22 @@ pub(crate) struct ShellOutput {
     pub timed_out: bool,
     pub truncated: bool,
     pub cancelled: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ShellStream {
+    Stdout,
+    Stderr,
+}
+
+pub(crate) type ShellObserver<'a> =
+    dyn FnMut(ShellStream, &[u8], Instant, &dyn Fn() -> bool) -> io::Result<()> + 'a;
+
+#[derive(Default)]
+pub(crate) struct ShellControl<'a, 'b> {
+    pub interrupt: Option<&'a crate::interrupt::Interrupt>,
+    pub lifeline: Option<std::os::fd::BorrowedFd<'a>>,
+    pub output: Option<&'a mut ShellObserver<'b>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -419,7 +435,7 @@ impl UnixCommandRunner {
         timeout: Duration,
         limit: usize,
     ) -> Result<ShellOutput, CommandError> {
-        self.run_shell_in_interrupt(command, directory, timeout, limit, None, None)
+        self.run_shell_in_interrupt(command, directory, timeout, limit, ShellControl::default())
     }
 
     pub(crate) fn run_shell_in_interrupt(
@@ -428,9 +444,13 @@ impl UnixCommandRunner {
         directory: &std::path::Path,
         timeout: Duration,
         limit: usize,
-        interrupt: Option<&crate::interrupt::Interrupt>,
-        lifeline: Option<std::os::fd::BorrowedFd<'_>>,
+        control: ShellControl<'_, '_>,
     ) -> Result<ShellOutput, CommandError> {
+        let ShellControl {
+            interrupt,
+            lifeline,
+            output,
+        } = control;
         let is_cancelled = || {
             interrupt.is_some_and(crate::interrupt::Interrupt::is_interrupted)
                 || lifeline.is_some_and(|fd| {
@@ -493,15 +513,29 @@ impl UnixCommandRunner {
         };
         let remaining_bytes = std::cell::Cell::new(limit);
         let truncated = std::cell::Cell::new(false);
+        let output = output.map(std::cell::RefCell::new);
+        let observe = |stream, bytes: &[u8]| {
+            (output.as_ref().expect("observed output").borrow_mut())(
+                stream,
+                bytes,
+                deadline,
+                &is_cancelled,
+            )
+        };
+        let sink = output.as_ref().map(|_| &observe as &ShellSink<'_>);
         let mut stdout = ShellCapture {
             bytes: Vec::new(),
             remaining: &remaining_bytes,
             truncated: &truncated,
+            stream: ShellStream::Stdout,
+            observe: sink,
         };
         let mut stderr = ShellCapture {
             bytes: Vec::new(),
             remaining: &remaining_bytes,
             truncated: &truncated,
+            stream: ShellStream::Stderr,
+            observe: sink,
         };
         let read = {
             let mut communication = child
@@ -594,10 +628,14 @@ impl UnixCommandRunner {
     }
 }
 
+type ShellSink<'a> = dyn Fn(ShellStream, &[u8]) -> io::Result<()> + 'a;
+
 struct ShellCapture<'a> {
     bytes: Vec<u8>,
     remaining: &'a std::cell::Cell<usize>,
     truncated: &'a std::cell::Cell<bool>,
+    stream: ShellStream,
+    observe: Option<&'a ShellSink<'a>>,
 }
 
 impl Write for ShellCapture<'_> {
@@ -605,6 +643,19 @@ impl Write for ShellCapture<'_> {
         let allowed = bytes.len().min(self.remaining.get());
         self.bytes.extend_from_slice(&bytes[..allowed]);
         self.remaining.set(self.remaining.get() - allowed);
+        if let Some(observe) = self.observe
+            && allowed != 0
+        {
+            observe(self.stream, &bytes[..allowed]).map_err(|error| {
+                // write_all retries Interrupted with the same bytes. These
+                // bytes are already charged, and Stop needs outer cleanup.
+                if error.kind() == io::ErrorKind::Interrupted {
+                    io::Error::other(error)
+                } else {
+                    error
+                }
+            })?;
+        }
         if allowed < bytes.len() {
             self.truncated.set(true);
             return Err(io::Error::other("Shell output limit exceeded"));

@@ -72,15 +72,19 @@ pub(in crate::board) fn capture(scene: &str, look: crate::look::Look) -> App {
     if scene == "run-command" {
         return app;
     }
-    assert!(matches!(
-        press(&mut app, KeyCode::Enter),
-        Effect::Standalone(Task::Run(_))
-    ));
+    let Effect::Standalone(Task::Run(run, _)) = press(&mut app, KeyCode::Enter) else {
+        panic!("expected a standalone run");
+    };
     if scene == "run-command-running" {
         app.standalone.elapsed.set(12);
+        app.standalone.progress(
+            run,
+            "cargo test -p tmt-ops header::spinner\n   Compiling tmt-ops v0.1.0-dev\n",
+            false,
+        );
         return app;
     }
-    app.standalone_completed(Completed::Run(Ok(result())));
+    app.standalone_completed(Completed::Run(run, Ok(result())));
     if scene == "run-command-result" {
         return app;
     }
@@ -171,6 +175,63 @@ fn standalone_command_kept_row_opens_retained_output_and_can_move() {
 }
 
 #[test]
+fn running_output_follows_the_tail_until_scrolled_then_yields_to_the_final_result() {
+    let mut app = capture("run-command-running", crate::look::Look::default());
+    let mut screen = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 36)).unwrap();
+    let mut paint = |app: &mut App| {
+        screen
+            .draw(|frame| {
+                crate::board::view::prepare(app, frame.area());
+                crate::board::view::render(frame, app);
+            })
+            .unwrap();
+        screen
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+    let id = app.standalone.run_id;
+    let rows: String = (1..=24)
+        .map(|index| format!("live row {index:02}\n"))
+        .collect();
+    app.standalone.progress(id, &rows, false);
+    let tail = paint(&mut app);
+    assert!(tail.contains("live row 24"));
+    assert!(tail.contains("running 0:12") && tail.contains("Stop"));
+    assert!(!tail.contains("Keep in list"));
+    press(&mut app, KeyCode::PageUp);
+    let scrolled = paint(&mut app);
+    assert!(!scrolled.contains("live row 24"));
+    app.standalone.progress(id, "live row 25\n", false);
+    assert_eq!(paint(&mut app), scrolled);
+    app.standalone.progress(id + 1, "stale row\n", false);
+    press(&mut app, KeyCode::End);
+    let tail = paint(&mut app);
+    assert!(tail.contains("live row 25"));
+    assert!(!tail.contains("stale row"));
+    press(&mut app, KeyCode::PageUp);
+    assert!(!paint(&mut app).contains("live row 25"));
+    // Output is delivered before the next paint, while the held viewport still
+    // has its old end. One page forward must stop at row 25.
+    app.standalone.progress(id, "live row 26\n", false);
+    press(&mut app, KeyCode::PageDown);
+    let advanced = paint(&mut app);
+    assert!(advanced.contains("live row 25"));
+    assert!(!advanced.contains("live row 26"));
+    press(&mut app, KeyCode::Down);
+    app.standalone.progress(id, "live row 27\n", false);
+    assert!(paint(&mut app).contains("live row 27"));
+    app.standalone_completed(Completed::Run(id, Ok(result())));
+    let finished = paint(&mut app);
+    assert!(finished.contains("Keep in list") && finished.contains("Run again"));
+    assert!(finished.contains("test result: ok. 12 passed; 0 failed"));
+    assert!(!finished.contains("live row 27"));
+}
+
+#[test]
 fn standalone_command_form_and_running_screen_show_content_with_their_buttons() {
     for (scene, expected) in [
         (
@@ -180,6 +241,7 @@ fn standalone_command_form_and_running_screen_show_content_with_their_buttons() 
                 "/work/core-ops-spinner",
                 "! make test",
                 "Cancel",
+                "Run",
             ],
         ),
         (
@@ -189,6 +251,7 @@ fn standalone_command_form_and_running_screen_show_content_with_their_buttons() 
                 "/work/core-ops-spinner",
                 "! make test",
                 "Stop",
+                "Compiling tmt-ops",
             ],
         ),
     ] {

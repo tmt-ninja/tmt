@@ -73,7 +73,7 @@ describe('public local extension API', () => {
         .split('\n')
         .map((line) => JSON.parse(line));
       expect(frames).toHaveLength(6);
-      expect(frames[0].session).toEqual({ framing: 'ndjson' });
+      expect(frames[0].session).toEqual({ framing: 'ndjson', terminalCommandOutput: true });
       expect(frames[1].error.code).toBe('API_INPUT_INVALID');
       expect(frames[3].outcome).toBe('applied');
       expect(frames[4].identities[0]).toMatchObject({ id, found: true, name: 'Session Grace' });

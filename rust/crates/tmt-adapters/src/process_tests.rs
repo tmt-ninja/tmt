@@ -39,12 +39,15 @@ fn shell_signal_fixture() {
             &root,
             Duration::from_secs(30),
             65_536,
-            Some(&interrupt),
-            if std::env::var_os("TMT_TEST_SHELL_HANGUP").is_some() {
-                use std::os::fd::AsFd;
-                Some(stdin.as_fd())
-            } else {
-                None
+            crate::process::ShellControl {
+                interrupt: Some(&interrupt),
+                lifeline: if std::env::var_os("TMT_TEST_SHELL_HANGUP").is_some() {
+                    use std::os::fd::AsFd;
+                    Some(stdin.as_fd())
+                } else {
+                    None
+                },
+                output: None,
             },
         )
         .unwrap();
@@ -154,6 +157,225 @@ fn shell_run_reports_bounded_output() {
         .unwrap();
     assert_eq!(result.stdout, b"12345");
     assert!(result.truncated);
+}
+
+#[test]
+fn shell_observation_keeps_the_legacy_bytes_and_result() {
+    use crate::process::{ShellControl, ShellStream};
+    let root = TestDirectory::new();
+    let command = "printf '\\033[31mraw\\r\\n'; printf 'other\\tbytes' >&2; exit 7";
+    let timeout = Duration::from_secs(3);
+    let legacy = UnixCommandRunner
+        .run_shell_in(command, &root.path, timeout, 65_536)
+        .unwrap();
+    assert_eq!(legacy.stdout, b"\x1b[31mraw\r\n");
+    assert_eq!(legacy.stderr, b"other\tbytes");
+    assert_eq!(legacy.exit_code, Some(7));
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    let observed = UnixCommandRunner
+        .run_shell_in_interrupt(
+            command,
+            &root.path,
+            timeout,
+            65_536,
+            ShellControl {
+                output: Some(&mut |stream, bytes, _, _| {
+                    match stream {
+                        ShellStream::Stdout => &mut stdout,
+                        ShellStream::Stderr => &mut stderr,
+                    }
+                    .extend_from_slice(bytes);
+                    Ok(())
+                }),
+                ..ShellControl::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(observed, legacy);
+    assert_eq!(stdout, legacy.stdout);
+    assert_eq!(stderr, legacy.stderr);
+}
+
+#[test]
+fn shell_output_stop_during_backpressure_observes_each_byte_once() {
+    use crate::process::ShellControl;
+    use std::{
+        cell::Cell,
+        net::Shutdown,
+        os::{fd::AsFd, unix::net::UnixStream},
+    };
+
+    let root = TestDirectory::new();
+    let pidfile = root.path.join("child");
+    let command = format!(
+        "echo $$ > '{}'; printf x; exec /bin/sleep 6",
+        pidfile.display()
+    );
+    let (_reader, writer) = full_progress_sink();
+    let (stop, lifeline) = UnixStream::pair().unwrap();
+    let checks = Cell::new(0);
+    let mut calls = 0;
+    let result = UnixCommandRunner
+        .run_shell_in_interrupt(
+            &command,
+            &root.path,
+            Duration::from_secs(2),
+            64,
+            ShellControl {
+                lifeline: Some(lifeline.as_fd()),
+                output: Some(&mut |_, bytes, deadline, cancelled| {
+                    calls += 1;
+                    assert_eq!(bytes, b"x");
+                    crate::framed_stdio::publish_progress(
+                        &writer,
+                        b"progress",
+                        64,
+                        deadline,
+                        &|| {
+                            checks.set(checks.get() + 1);
+                            if checks.get() == 2 {
+                                stop.shutdown(Shutdown::Write).unwrap();
+                            }
+                            cancelled()
+                        },
+                    )
+                }),
+                ..ShellControl::default()
+            },
+        )
+        .unwrap();
+    assert!(result.cancelled);
+    assert_eq!(kill(read_pid(&pidfile), None), Err(Errno::ESRCH));
+    assert_eq!(calls, 1, "Stop must not replay an already captured byte");
+    assert_eq!(result.stdout, b"x");
+}
+
+fn full_progress_sink() -> (
+    std::os::unix::net::UnixStream,
+    std::os::unix::net::UnixStream,
+) {
+    use std::{io::Write, os::unix::net::UnixStream};
+
+    let (reader, mut writer) = UnixStream::pair().unwrap();
+    writer.set_nonblocking(true).unwrap();
+    let page = [0; 4096];
+    loop {
+        match writer.write(&page) {
+            Ok(0) => panic!("socket stopped accepting data without an error"),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("{error}"),
+        }
+    }
+    (reader, writer)
+}
+
+#[test]
+fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
+    use crate::process::{CLEANUP_TIMEOUT, ShellControl, runtime::observe_runtime_process};
+
+    let root = TestDirectory::new();
+    let pidfile = root.path.join("child");
+    let member_file = root.path.join("member");
+    let command = format!(
+        "echo $$ > '{}'; /bin/sleep 6 & echo $! > '{}'; printf ready; wait",
+        pidfile.display(),
+        member_file.display(),
+    );
+    let (_reader, writer) = full_progress_sink();
+    let timeout = Duration::from_secs(2);
+    let mut attempted = false;
+    #[cfg(target_os = "linux")]
+    let mut member_exit = None;
+    let started = Instant::now();
+    let result = UnixCommandRunner
+        .run_shell_in_interrupt(
+            &command,
+            &root.path,
+            timeout,
+            65_536,
+            ShellControl {
+                output: Some(&mut |_, _bytes, deadline, cancelled| {
+                    attempted = true;
+                    let member = read_pid(&member_file);
+                    assert!(kill(member, None).is_ok());
+                    #[cfg(target_os = "linux")]
+                    {
+                        assert_eq!(
+                            nix::unistd::getpgid(Some(member)).unwrap(),
+                            read_pid(&pidfile),
+                            "the fixture member must belong to the shell's group"
+                        );
+                        member_exit = Some(MemberExit::watch(member));
+                    }
+                    crate::framed_stdio::publish_progress(
+                        &writer,
+                        b"progress",
+                        64,
+                        deadline,
+                        cancelled,
+                    )
+                }),
+                ..ShellControl::default()
+            },
+        )
+        .unwrap();
+    assert!(attempted);
+    assert!(result.timed_out);
+    assert_eq!(result.stdout, b"ready");
+    assert_eq!(kill(read_pid(&pidfile), None), Err(Errno::ESRCH));
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed <= timeout + CLEANUP_TIMEOUT + CLEANUP_WAIT,
+        "back-pressure exceeded the deadline and reap allowance: {elapsed:?}"
+    );
+    let member = read_pid(&member_file).as_raw() as u64;
+    let deadline = Instant::now() + CLEANUP_WAIT;
+    #[cfg(target_os = "linux")]
+    {
+        // Reaping the leader does not wait for the member to exit. Leave time
+        // within the same budget for a diagnostic if its exit event is missing.
+        let budget = deadline.saturating_duration_since(Instant::now());
+        let exited = member_exit
+            .expect("registered the member before blocking")
+            .exited(budget.saturating_sub(POLL_INTERVAL));
+        assert!(
+            matches!(exited, Ok(true)),
+            "no member exit after group cleanup: event {exited:?}, observed {:?}",
+            observe_runtime_process(&UnixCommandRunner, member, deadline)
+        );
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let observed = observe_runtime_process(&UnixCommandRunner, member, deadline).unwrap();
+        assert_eq!(
+            observed,
+            crate::process::runtime::ProcessObservation::Gone,
+            "a member survived group cleanup"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct MemberExit(std::os::fd::OwnedFd);
+
+#[cfg(target_os = "linux")]
+impl MemberExit {
+    fn watch(member: Pid) -> Self {
+        use rustix::process::{PidfdFlags, pidfd_open};
+        let member = rustix::process::Pid::from_raw(member.as_raw()).unwrap();
+        Self(pidfd_open(member, PidfdFlags::empty()).unwrap())
+    }
+
+    fn exited(self, budget: Duration) -> rustix::io::Result<bool> {
+        use rustix::event::{PollFd, PollFlags, Timespec, poll};
+        let mut interest = [PollFd::new(&self.0, PollFlags::IN)];
+        let ready = poll(&mut interest, Some(&Timespec::try_from(budget).unwrap()))?;
+        Ok(ready == 1
+            && interest[0]
+                .revents()
+                .intersects(PollFlags::IN | PollFlags::HUP))
+    }
 }
 
 #[test]

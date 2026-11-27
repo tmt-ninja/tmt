@@ -6,10 +6,13 @@
 //! The crate has no dependencies and no effects.
 
 mod control;
+mod output_sanitizer;
 pub use control::{
     COMMAND_LIMIT, Control, ControlReply, NAME_LIMIT, RelaunchKind, TerminalRunResult,
     display_name, valid_command,
 };
+
+pub use output_sanitizer::{OutputSanitizer, sanitize_output};
 
 use std::fmt;
 

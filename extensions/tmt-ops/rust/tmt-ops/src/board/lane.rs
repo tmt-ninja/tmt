@@ -278,7 +278,7 @@ impl Lane {
 
     pub fn submit(&self, job: Job) {
         if let Job::Standalone(
-            task @ (super::standalone::Task::Run(_)
+            task @ (super::standalone::Task::Run(..)
             | super::standalone::Task::Keep(_)
             | super::standalone::Task::Discard
             | super::standalone::Task::Stop),

@@ -151,6 +151,79 @@ fn a_changed_member_command_target_refuses_before_running() {
 }
 
 #[test]
+fn a_standalone_command_streams_before_completion_and_keeps_only_its_final() {
+    use std::os::{fd::OwnedFd, unix::net::UnixStream};
+
+    let mut world = World::new();
+    let (reader, writer) = UnixStream::pair().unwrap();
+    reader
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut child = world
+        .command(&["api", "--session"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::from(OwnedFd::from(writer)))
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    world.commands.push(Some(child));
+    let mut output = BufReader::new(reader);
+    let mut read = || {
+        let mut line = String::new();
+        assert_ne!(output.read_line(&mut line).unwrap(), 0, "expected a frame");
+        serde_json::from_str::<Value>(&line).unwrap()
+    };
+
+    let request = serde_json::json!({
+        "version":1,"operation":"terminal.command.run",
+        "input":{
+            "target":{"kind":"local","cwd":world.root},
+            "command":"printf 'first\\n'; while [ ! -f release ]; do /bin/sleep 0.02; done; printf 'second\\n' >&2",
+            "stream":true,
+        }
+    });
+    writeln!(input, "{request}").unwrap();
+    assert_eq!(
+        read(),
+        serde_json::json!({"commandOutput":{"sequence":0,"stream":"stdout","text":"first\n"}}),
+        "stdout must arrive while the producer is still waiting"
+    );
+    fs::write(world.root.join("release"), b"").unwrap();
+    assert_eq!(
+        read(),
+        serde_json::json!({"commandOutput":{"sequence":1,"stream":"stderr","text":"second\n"}})
+    );
+    let final_frame = read();
+    assert_eq!(final_frame["stdout"], "first\n");
+    assert_eq!(final_frame["stderr"], "second\n");
+    assert_eq!(final_frame["exitCode"], 0);
+    assert!(final_frame["runId"].is_string());
+    assert!(final_frame.get("commandOutput").is_none());
+
+    let wrong_keep = serde_json::json!({
+        "version":1,"operation":"terminal.command.keep",
+        "input":{"runId":"00000000-0000-4000-8000-000000000000","replyTag":1},
+    });
+    writeln!(input, "{wrong_keep}").unwrap();
+    let fault = read();
+    assert_eq!(fault["keepReply"]["replyTag"], 1);
+    assert_eq!(
+        fault["keepReply"]["resource"]["error"]["code"],
+        "TERMINAL_COMMAND_RESULT_UNAVAILABLE"
+    );
+    let keep = serde_json::json!({
+        "version":1,"operation":"terminal.command.keep",
+        "input":{"runId":final_frame["runId"],"replyTag":2},
+    });
+    writeln!(input, "{keep}").unwrap();
+    let receipt = read();
+    assert_eq!(receipt["keepReply"]["replyTag"], 2);
+    assert!(receipt["keepReply"]["resource"]["terminalId"].is_string());
+    drop(input);
+    assert!(world.finish(0).status.success());
+}
+
+#[test]
 fn a_kept_command_opens_one_independent_shell_and_removes_it_with_the_result() {
     let mut world = World::new();
     let cwd = world.root.join("saved-command");

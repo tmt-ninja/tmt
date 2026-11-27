@@ -88,6 +88,96 @@ fn local_frame_rejection_keeps_the_unmodified_channel_usable() {
 }
 
 #[test]
+fn progress_requires_a_terminal_frame_and_refuses_trailing_output() {
+    for (response, expected) in [
+        ("progress\n", io::ErrorKind::UnexpectedEof),
+        ("progress\nfinal\nextra\n", io::ErrorKind::InvalidData),
+    ] {
+        let (_fixture, mut channel) = open(
+            &format!("IFS= read -r request; printf '%s' '{response}'"),
+            64,
+        );
+        let mut progress = 0;
+        let result = channel.exchange_lifeline_frames(
+            b"run",
+            Instant::now() + START_BUDGET,
+            || false,
+            |frame| {
+                if frame == b"progress" {
+                    progress += 1;
+                    Ok(false)
+                } else {
+                    Ok(frame == b"final")
+                }
+            },
+        );
+        assert_eq!(progress, 1);
+        assert_eq!(result.unwrap_err().cause.unwrap().kind(), expected);
+        assert!(channel.pid().is_none());
+    }
+}
+
+#[test]
+fn a_late_frame_after_final_refuses_before_sending_the_next_request() {
+    let (fixture, mut channel) = open(
+        "IFS= read -r request; printf 'final\\n'; while [ ! -f release ]; do sleep 0.01; done; printf 'extra\\n'; printf ready > extra; cat > next",
+        64,
+    );
+    let frame = channel
+        .exchange_lifeline_frames(
+            b"run",
+            Instant::now() + START_BUDGET,
+            || false,
+            |frame| Ok(frame == b"final"),
+        )
+        .unwrap();
+    assert_eq!(frame, b"final");
+    fs::write(fixture.0.join("release"), b"").unwrap();
+    ready(&fixture.0.join("extra"));
+    assert_eq!(
+        exchange(&mut channel, b"keep")
+            .unwrap_err()
+            .cause
+            .unwrap()
+            .kind(),
+        io::ErrorKind::InvalidData,
+    );
+    assert!(
+        fs::read(fixture.0.join("next"))
+            .unwrap_or_default()
+            .is_empty()
+    );
+    assert!(channel.pid().is_none());
+}
+
+#[test]
+fn stopping_after_progress_drains_the_final_frame_and_reaps_the_child() {
+    let (fixture, mut channel) = open(
+        "IFS= read -r request; printf 'progress\\n'; IFS= read -r eof || printf 'final\\n'",
+        64,
+    );
+    let stopped = AtomicBool::new(false);
+    let frame = channel
+        .exchange_lifeline_frames(
+            b"run",
+            Instant::now() + START_BUDGET,
+            || stopped.load(Ordering::Relaxed),
+            |frame| {
+                if frame == b"progress" {
+                    stopped.store(true, Ordering::Relaxed);
+                    Ok(false)
+                } else {
+                    Ok(frame == b"final")
+                }
+            },
+        )
+        .unwrap();
+    assert_eq!(frame, b"final");
+    assert!(channel.pid().is_none());
+    gone(&fixture.0.join("pid"));
+}
+
+#[test]
 fn incomplete_response_closes_the_child_without_replaying_the_request() {
     let (fixture, mut channel) = open(
         "IFS= read -r line; printf '%s' \"$line\" > seen; printf partial; exit 7",

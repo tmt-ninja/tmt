@@ -69,6 +69,100 @@ fn lines(path: PathBuf) -> Vec<String> {
 
 const CANCELLATION_FRAME: &str = r#"printf '%s\n' '{"error":{"code":"SHELL_RUN_CANCELLED","message":"Shell cancelled; its process group was terminated and reaped."}}'"#;
 
+#[test]
+fn delayed_run_output_after_keep_submission_cannot_be_its_receipt() {
+    let fixture = Fixture::new();
+    let executable = fixture.0.join("tmt");
+    crate::test_support::write_ready_executable(
+        &executable,
+        r#"#!/bin/sh
+IFS= read -r capability
+printf '%s\n' '{"session":{"terminalCommandOutput":true}}'
+IFS= read -r run
+printf '%s\n' '{"stdout":"first\n","stderr":"","exitCode":0,"runId":"run"}'
+IFS= read -r keep
+case "$keep" in *'"operation":"terminal.command.keep"'*) ;; *) exit 2 ;; esac
+printf '%s\n' '{"terminalId":"delayed-run-frame"}'
+cat >/dev/null
+"#,
+    );
+    let core = Core::at(executable);
+    let stopped = std::sync::atomic::AtomicBool::new(false);
+    let mut session = core.standalone_session(&stopped).unwrap();
+    let result = session
+        .run(json!({"command":"printf first"}), &stopped, |_| {})
+        .unwrap();
+    assert_eq!(result["runId"], "run");
+    let error = session.keep("run").unwrap_err();
+    assert_eq!(error.code, "SQUAD_CORE_UNAVAILABLE");
+    assert!(error.message.contains("Keep outcome unconfirmed"));
+}
+
+#[test]
+fn standalone_advertisement_selects_streaming_without_breaking_older_core() {
+    for (supported, sequence) in [(false, 0), (true, 0), (true, 1)] {
+        let fixture = Fixture::new();
+        let executable = fixture.0.join("tmt");
+        crate::test_support::write_ready_executable(
+            &executable,
+            &format!(
+                r#"#!/bin/sh
+cd '{}'
+IFS= read -r capability
+case "$capability" in *'"operation":"capabilities"'*) ;; *) exit 2 ;; esac
+if [ '{supported}' = true ]; then
+  printf '%s\n' '{{"session":{{"framing":"ndjson","terminalCommandOutput":true}}}}'
+else
+  printf '%s\n' '{{"session":{{"framing":"ndjson"}}}}'
+fi
+IFS= read -r run
+printf '%s\n' "$run" > run-request
+if [ '{supported}' = true ]; then
+  printf '%s\n' '{{"commandOutput":{{"sequence":{sequence},"stream":"stdout","text":"first\n"}}}}'
+fi
+printf '%s\n' '{{"stdout":"first\n","stderr":"","exitCode":0,"runId":"run"}}'
+cat >/dev/null
+"#,
+                fixture.0.display(),
+            ),
+        );
+        let core = Core::at(executable);
+        let stopped = std::sync::atomic::AtomicBool::new(false);
+        let mut session = core.standalone_session(&stopped).unwrap();
+        let mut progress = String::new();
+        let mut legacy = false;
+        let outcome = session.run(
+            json!({"command":"printf first"}),
+            &stopped,
+            |output| match output {
+                StandaloneProgress::Legacy => legacy = true,
+                StandaloneProgress::Text { text, .. } => progress.push_str(text),
+            },
+        );
+        let request: Value =
+            serde_json::from_str(&fs::read_to_string(fixture.0.join("run-request")).unwrap())
+                .unwrap();
+        assert_eq!(
+            request["input"].get("stream"),
+            supported.then(|| json!(true)).as_ref()
+        );
+        assert_eq!(legacy, !supported);
+        if sequence == 0 {
+            assert_eq!(outcome.unwrap()["runId"], "run");
+        } else {
+            assert_eq!(outcome.unwrap_err().code, "SQUAD_CORE_UNAVAILABLE");
+        }
+        assert_eq!(
+            progress,
+            if supported && sequence == 0 {
+                "first\n"
+            } else {
+                ""
+            }
+        );
+    }
+}
+
 fn stopped_shell_exchange(
     operation: &str,
     tail: &str,
@@ -79,7 +173,7 @@ fn stopped_shell_exchange(
     crate::test_support::write_ready_executable(
         &executable,
         &format!(
-            "#!/bin/sh\ncd '{}'\nIFS= read -r request\nprintf '%s\\n' \"$request\" > requests\nprintf ready > admitted\ncat >> requests\n{tail}\n",
+            "#!/bin/sh\ncd '{}'\nIFS= read -r request\ncase \"$request\" in *'\"operation\":\"capabilities\"'*) printf '{{}}\\n'; IFS= read -r request ;; esac\nprintf '%s\\n' \"$request\" > requests\nprintf ready > admitted\ncat >> requests\n{tail}\n",
             fixture.0.display(),
         ),
     );
@@ -118,7 +212,7 @@ fn standalone_stop_reports_the_cancellation_frame_only_after_clean_exit() {
     ] {
         let error = stopped_shell_exchange("terminal.command.run", &tail, |core, stop| {
             core.standalone_session(stop)?
-                .run(json!({"command":"sleep 60"}), stop)
+                .run(json!({"command":"sleep 60"}), stop, |_| {})
         })
         .unwrap_err();
         assert_eq!(error.code, expected, "{}", error.message);
@@ -132,7 +226,7 @@ fn standalone_completion_racing_stop_preserves_output_without_staging() {
         r#"printf '%s\n' '{"stdout":"finished","exitCode":0,"runId":"used"}'"#,
         |core, stop| {
             core.standalone_session(stop)?
-                .run(json!({"command":"pwd"}), stop)
+                .run(json!({"command":"pwd"}), stop, |_| {})
         },
     )
     .unwrap();
