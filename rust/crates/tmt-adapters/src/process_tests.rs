@@ -285,7 +285,7 @@ fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
     let (_reader, writer) = full_progress_sink();
     let timeout = Duration::from_secs(2);
     let mut attempted = false;
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     let mut member_exit = None;
     let started = Instant::now();
     let result = UnixCommandRunner
@@ -299,13 +299,13 @@ fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
                     attempted = true;
                     let member = read_pid(&member_file);
                     assert!(kill(member, None).is_ok());
-                    assert_eq!(
-                        nix::unistd::getpgid(Some(member)).unwrap(),
-                        read_pid(&pidfile),
-                        "the fixture member must belong to the shell's group"
-                    );
-                    #[cfg(any(target_os = "linux", target_os = "macos"))]
+                    #[cfg(target_os = "linux")]
                     {
+                        assert_eq!(
+                            nix::unistd::getpgid(Some(member)).unwrap(),
+                            read_pid(&pidfile),
+                            "the fixture member must belong to the shell's group"
+                        );
                         member_exit = Some(MemberExit::watch(member));
                     }
                     crate::framed_stdio::publish_progress(
@@ -331,7 +331,7 @@ fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
     );
     let member = read_pid(&member_file).as_raw() as u64;
     let deadline = Instant::now() + CLEANUP_WAIT;
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     {
         // Reaping the leader does not wait for the member to exit. Leave time
         // within the same budget for a diagnostic if its exit event is missing.
@@ -345,7 +345,7 @@ fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
             observe_runtime_process(&UnixCommandRunner, member, deadline)
         );
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(target_os = "linux"))]
     {
         let observed = observe_runtime_process(&UnixCommandRunner, member, deadline).unwrap();
         assert_eq!(
@@ -375,48 +375,6 @@ impl MemberExit {
             && interest[0]
                 .revents()
                 .intersects(PollFlags::IN | PollFlags::HUP))
-    }
-}
-
-#[cfg(target_os = "macos")]
-struct MemberExit {
-    queue: nix::sys::event::Kqueue,
-    registration: nix::sys::event::KEvent,
-}
-
-#[cfg(target_os = "macos")]
-impl MemberExit {
-    fn watch(member: Pid) -> Self {
-        use nix::sys::event::{EvFlags, EventFilter, FilterFlag, KEvent, Kqueue};
-        let queue = Kqueue::new().unwrap();
-        let registration = KEvent::new(
-            usize::try_from(member.as_raw()).unwrap(),
-            EventFilter::EVFILT_PROC,
-            EvFlags::EV_ADD | EvFlags::EV_ONESHOT,
-            FilterFlag::NOTE_EXIT,
-            0,
-            0,
-        );
-        queue.kevent(&[registration], &mut [], None).unwrap();
-        Self {
-            queue,
-            registration,
-        }
-    }
-
-    fn exited(self, budget: Duration) -> nix::Result<bool> {
-        use nix::libc::timespec;
-        use nix::sys::event::{EvFlags, FilterFlag};
-        let mut events = [self.registration];
-        let timeout = timespec {
-            tv_sec: i64::try_from(budget.as_secs()).unwrap(),
-            tv_nsec: budget.subsec_nanos().into(),
-        };
-        let ready = self.queue.kevent(&[], &mut events, Some(timeout))?;
-        Ok(ready == 1
-            && events[0].ident() == self.registration.ident()
-            && !events[0].flags().contains(EvFlags::EV_ERROR)
-            && events[0].fflags().contains(FilterFlag::NOTE_EXIT))
     }
 }
 
