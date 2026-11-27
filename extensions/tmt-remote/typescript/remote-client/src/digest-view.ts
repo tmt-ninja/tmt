@@ -4,7 +4,7 @@
  * it is never turned into a zero here.
  */
 import type { Layer, SeriesChartOptions } from '@tmt/browser-ui/chart';
-import { isLimitAccount, modelQuotes, providerRecords } from './digest-source.js';
+import { isLimitAccount, modelQuotes, providerRecords, seatQuote } from './digest-source.js';
 import type {
   LimitHistory,
   LimitWindow,
@@ -675,6 +675,7 @@ export interface SeatMix {
   /** Percent of every seat's tokens in the range, one decimal. */
   share: number;
   cachedRatio: number | null;
+  costLabel: string;
   /** The seat's tokens by model, largest first, as percent of the seat's own tokens. */
   models: { model: string; share: number }[];
   /** Percent of the seat's tokens no model row covers; 0 when Core attributed them all. */
@@ -695,6 +696,7 @@ export function seatMix(doc: UsageDocument): SeatMix[] {
         tokens,
         share: percentOf(tokens, whole),
         cachedRatio: cachedRatio(seat.totals),
+        costLabel: seatCostLabel(seat, doc.pricing),
         models: models
           .map(([model, totals]) => ({ model, tokens: tokensOf(totals) }))
           .sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model))
@@ -869,6 +871,26 @@ export function costEstimate({ usdMicros, lowerBound }: UsageCost): string {
   return usdMicros < 0
     ? `at least ${usdText(-usdMicros)} in added cost`
     : `at least ${usdText(usdMicros)}`;
+}
+
+const SEAT_COST_REASONS: Readonly<Record<string, string>> = {
+  unattributed: 'Some tokens have no recorded model.',
+  no_price: 'A model has no list price.',
+  class_price_missing: 'A token type has no list price.',
+  unsafe_cost: 'The cost exceeds the supported range.',
+  pricing_unavailable: 'The list-price basis or version is unavailable.',
+  cost_evidence_invalid: 'The report has no usable seat cost.',
+};
+
+function seatCostLabel(seat: UsageSeat, pricing: UsageDocument['pricing']): string {
+  const { cost, reasons } = seatQuote(seat, pricing);
+  if (cost) return costEstimate(cost);
+  const detail = reasons.map((reason) =>
+    Object.hasOwn(SEAT_COST_REASONS, reason)
+      ? SEAT_COST_REASONS[reason]
+      : 'The report could not estimate the cost.',
+  );
+  return `Cost unknown. ${[...new Set(detail)].join(' ')}`;
 }
 
 /** Why the report could not estimate the avoided cost, in plain words; an unknown reason as is. */

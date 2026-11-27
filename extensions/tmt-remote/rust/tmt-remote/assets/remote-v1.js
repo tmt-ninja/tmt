@@ -8217,6 +8217,27 @@ function providerRecords(doc) {
 function isCostReasonList(value) {
 	return Array.isArray(value) && value.every((reason) => typeof reason === "string" && /^[a-z_]{1,64}$/.test(reason));
 }
+function reportedQuote(row) {
+	const { usdMicros, lowerBound } = record(row.cost);
+	return isCostReasonList(row.costUnavailable) && row.costUnavailable.length === 0 && safeCount(usdMicros) && typeof lowerBound === "boolean" ? {
+		usdMicros,
+		lowerBound
+	} : null;
+}
+/** Read the seat total from Digest and preserve reasons even if the amount is unusable. */
+function seatQuote(value, pricing) {
+	const row = record(value);
+	const cost = reportedQuote(row);
+	if (cost && pricingVersion(pricing)) return {
+		cost,
+		reasons: []
+	};
+	const reasons = row.costUnavailable;
+	return {
+		cost: null,
+		reasons: isCostReasonList(reasons) && reasons.length > 0 ? reasons : [cost ? "pricing_unavailable" : "cost_evidence_invalid"]
+	};
+}
 /** The browser consumes quotes from Digest. A bad or ambiguous row leaves that model unpriced. */
 function modelQuotes(doc) {
 	const quotes = /* @__PURE__ */ new Map();
@@ -8226,11 +8247,7 @@ function modelQuotes(doc) {
 		const row = record(value);
 		const model = row.modelId;
 		if (typeof model !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(model)) continue;
-		const { usdMicros, lowerBound } = record(row.cost);
-		quotes.set(model, !quotes.has(model) && isCostReasonList(row.costUnavailable) && row.costUnavailable.length === 0 && safeCount(usdMicros) && typeof lowerBound === "boolean" ? {
-			usdMicros,
-			lowerBound
-		} : null);
+		quotes.set(model, quotes.has(model) ? null : reportedQuote(row));
 	}
 	return quotes;
 }
@@ -8875,6 +8892,7 @@ function seatMix(doc) {
 			tokens,
 			share: percentOf(tokens, whole),
 			cachedRatio: cachedRatio(seat.totals),
+			costLabel: seatCostLabel(seat, doc.pricing),
 			models: models.map(([model, totals]) => ({
 				model,
 				tokens: tokensOf(totals)
@@ -9009,6 +9027,20 @@ function usdText(micros) {
 function costEstimate({ usdMicros, lowerBound }) {
 	if (!lowerBound) return usdText(usdMicros);
 	return usdMicros < 0 ? `at least ${usdText(-usdMicros)} in added cost` : `at least ${usdText(usdMicros)}`;
+}
+var SEAT_COST_REASONS = {
+	unattributed: "Some tokens have no recorded model.",
+	no_price: "A model has no list price.",
+	class_price_missing: "A token type has no list price.",
+	unsafe_cost: "The cost exceeds the supported range.",
+	pricing_unavailable: "The list-price basis or version is unavailable.",
+	cost_evidence_invalid: "The report has no usable seat cost."
+};
+function seatCostLabel(seat, pricing) {
+	const { cost, reasons } = seatQuote(seat, pricing);
+	if (cost) return costEstimate(cost);
+	const detail = reasons.map((reason) => Object.hasOwn(SEAT_COST_REASONS, reason) ? SEAT_COST_REASONS[reason] : "The report could not estimate the cost.");
+	return `Cost unknown. ${[...new Set(detail)].join(" ")}`;
 }
 /** Why the report could not estimate the avoided cost, in plain words; an unknown reason as is. */
 var COST_REASONS = {
@@ -9627,7 +9659,7 @@ function mixText(seat) {
 	if (seat.unattributed > 0) parts.push(`no model ${seat.unattributed}%`);
 	return parts.length ? parts.join(" · ") : void 0;
 }
-/** #6751 C: token and cost shares by model, token share by seat, and the cached-input ratio. */
+/** #6751 C: token shares, list-price estimates, and the cached-input ratio. */
 function sharesCard(doc) {
 	const id = "digest-shares";
 	const title = "Usage share";
@@ -9662,10 +9694,19 @@ function sharesCard(doc) {
 	bySeat.id = "digest-shares-seats";
 	bySeat.append(el("h3", "digest-share-title", "By seat"));
 	const hue = seatHues(doc, false);
-	for (const seat of seats.slice(0, SERIES_KEPT)) bySeat.append(shareMeter(seatLabel(seat.name, seat.partial), seat.share, hue.get(seat.id) ?? OTHER_STEP, [`${seat.tokens.toLocaleString("en-US")} tokens`, mixText(seat)].filter(Boolean).join(" · ")));
+	const seatMeter = (seat) => shareMeter(seatLabel(seat.name, seat.partial), seat.share, hue.get(seat.id) ?? OTHER_STEP, [
+		`${seat.tokens.toLocaleString("en-US")} tokens`,
+		seat.costLabel,
+		mixText(seat)
+	].filter(Boolean).join(" · "));
+	seats.slice(0, SERIES_KEPT).forEach((seat) => bySeat.append(seatMeter(seat)));
 	const restSeats = seats.slice(SERIES_KEPT);
-	if (restSeats.length) bySeat.append(shareMeter(`Other (${restSeats.length} seats)`, shareSum(restSeats), OTHER_STEP));
-	bySeat.append(el("p", "usage-note", "Per-seat cost needs seat-level quotes in the report."));
+	if (restSeats.length) {
+		const rest = el("details");
+		const count = restSeats.length;
+		rest.append(el("summary", void 0, `Other (${count} ${count === 1 ? "seat" : "seats"}): ${shareSum(restSeats)}% of tokens`), ...restSeats.map(seatMeter));
+		bySeat.append(rest);
+	}
 	const groups = el("div", "digest-share-groups");
 	groups.append(byModel, bySeat);
 	const notes = [];
