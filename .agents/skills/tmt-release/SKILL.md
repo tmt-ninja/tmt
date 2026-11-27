@@ -19,8 +19,8 @@ cut version requests a draft and verification; it overrides no publication gate.
 
 A new product's first alpha needs its product owner's authorization and reviewed
 component-map activation accepted by tmt-lead and its squad lead. Existing-product
-authorization activates no new product. Remote and Colab are activated (#1523);
-Herdr is activated (#1418), with first alpha `0.1.0-alpha.1`.
+authorization activates no new product. The [component map](../../../.github/components.json)
+records current activation.
 
 Ben also retains authorization for README installer promotion, release App
 credential creation/rotation, changes to the main-only `release` Environment,

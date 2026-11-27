@@ -73,6 +73,17 @@ a working directory, active pane or sole identity.
 expected-name guard with pinned identity reads, before host capture; ordinary
 check keeps name/pane routing and its existing Digest opportunity.
 
+## Command output boundary
+
+Ordinary commands on the shared output path return a `tmt-cli-style::Render`
+report. `CliOutput` chooses its human or JSON presentation and stream.
+`tmt-command-output::Failure` preserves error details and status through
+the shared renderer. Consent questions and declines use stderr, and interactive
+prompts require stdin and stderr terminals. Live streams and interactive
+commands keep their timing and protocols. Core's exhaustive `OutputBoundary`
+inventory classifies each invocation, including exact-byte and interactive
+protocols with their own contracts.
+
 ## Command dispatch and help
 
 - `tmt-cli/src/grammar.rs` owns the ordered core registrations, shared spec/option helpers

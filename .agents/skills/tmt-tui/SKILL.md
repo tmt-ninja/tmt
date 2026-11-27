@@ -34,9 +34,8 @@ bytes or of `tmt-pty-protocol`.
 
 ## Dialogs
 
-A new overlay that asks, edits, chooses or shows is a `components::Dialog`; the
-rule it implements is [Dialogs](../../../design/cli-style.md#dialogs). Ops overlays move onto it
-one group at a time (#5647); until then each keeps its own keys and close path.
+A new overlay that asks, edits, chooses or shows uses `components::Dialog` and
+follows the [Dialogs](../../../design/cli-style.md#dialogs) rule.
 
 - Pick the kind by what the user does: `Confirm` for a yes/no with text (delete
   timer?), `Form` for fields (rename squad), `List` for choosing a row
