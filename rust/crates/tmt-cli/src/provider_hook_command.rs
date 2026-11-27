@@ -40,45 +40,9 @@ const ERROR_LINE: &str = "tmt: lifecycle context unavailable; continuing without
 /// With `TMT_HOOK_DEBUG=1`, the line before `ERROR_LINE` when the hook's own
 /// fixed budget ran out, so a caller can tell an overrun from a refusal.
 const BUDGET_SPENT_LINE: &str = "tmt: hook budget spent.";
-/// With `TMT_HOOK_DEBUG_STAGE=1`, the line before `ERROR_LINE` naming the failing
-/// internal hook stage when context is unavailable.
-const STAGE_FAILED_PREFIX: &str = "tmt: hook stage failed: ";
-
-thread_local! {
-    static FAILED_STAGE: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
-}
-
-fn clear_failed_stage() {
-    FAILED_STAGE.with(|cell| cell.set(None));
-}
-
-fn fail_stage(stage: &'static str) {
-    FAILED_STAGE.with(|cell| {
-        if cell.get().is_none() {
-            cell.set(Some(stage));
-        }
-    });
-}
-
-fn take_failed_stage() -> Option<&'static str> {
-    FAILED_STAGE.with(|cell| cell.replace(None))
-}
-
-fn worker_failed_stage(stderr: &[u8]) -> Option<String> {
-    String::from_utf8_lossy(stderr)
-        .lines()
-        .find_map(|line| line.strip_prefix(STAGE_FAILED_PREFIX))
-        .map(str::trim)
-        .filter(|stage| !stage.is_empty())
-        .map(str::to_owned)
-}
 
 fn debug_budget() -> bool {
     std::env::var_os("TMT_HOOK_DEBUG").as_deref() == Some(std::ffi::OsStr::new("1"))
-}
-
-fn debug_stage() -> bool {
-    std::env::var_os("TMT_HOOK_DEBUG_STAGE").as_deref() == Some(std::ffi::OsStr::new("1"))
 }
 
 /// Provider hooks always exit successfully. The existing bounded process owner
@@ -90,7 +54,6 @@ pub fn execute(
     work_budget_ms: Option<u64>,
     activity_only: bool,
 ) -> io::Result<u8> {
-    clear_failed_stage();
     let started = Instant::now();
     let learning = Learning::capture(provider);
     let mut diagnostic_deadline = started + BUDGET;
@@ -100,7 +63,6 @@ pub fn execute(
     let mut turn_end = false;
     let mut empty_hook_output = "";
     let mut publication_deadline = started;
-    let mut worker_stage: Option<String> = None;
     let result = (|| {
         let registry = RuntimeRegistry::first_party();
         let harness = HarnessId::new(provider).map_err(|_| ())?;
@@ -152,14 +114,13 @@ pub fn execute(
         }
         lifecycle
             .wait_for_hook_admission(input.as_bytes(), deadline)
-            .map_err(|_| fail_stage("parent.wait_for_hook_admission"))?;
+            .map_err(|_| ())?;
         let mut args =
-            worker_arguments(provider, deadline.saturating_duration_since(Instant::now()))
-                .inspect_err(|_| fail_stage("parent.worker_arguments"))?;
+            worker_arguments(provider, deadline.saturating_duration_since(Instant::now()))?;
         if activity_only {
             args.push("--activity-only".into());
         }
-        let executable = std::env::current_exe().map_err(|_| fail_stage("parent.current_exe"))?;
+        let executable = std::env::current_exe().map_err(|_| ())?;
         let output = UnixCommandRunner
             .execute(CommandRequest {
                 program: executable.as_os_str(),
@@ -171,21 +132,12 @@ pub fn execute(
             .map_err(|error| {
                 if error.kind == tmt_adapters::process::CommandFailure::Timeout {
                     failure_reason = Reason::BudgetTimeout;
-                    fail_stage("parent.worker_timeout");
-                } else {
-                    if let Some(output) = error.output.as_ref() {
-                        worker_stage = worker_failed_stage(&output.stderr);
-                    }
-                    fail_stage("parent.worker_execute");
                 }
             })?;
         if !output.stderr.is_empty() {
-            worker_stage = worker_failed_stage(&output.stderr);
-            fail_stage("parent.worker_stderr");
             return Err(());
         }
         crate::workspace_hook::Observation::decode(&output.stdout)
-            .inspect_err(|_| fail_stage("parent.decode_observation"))
     })();
     if !worker
         && result.is_ok()
@@ -230,28 +182,19 @@ pub fn execute(
             }
         }
         Err(()) => {
-            if !worker && !empty_hook_output.is_empty() {
-                let _ = io::stdout().lock().write_all(empty_hook_output.as_bytes());
-            }
-            let failed_stage = worker_stage.as_deref().or_else(|| take_failed_stage());
-            {
-                let mut stderr = io::stderr().lock();
-                write_unavailable_context_error_with_debug(
-                    &mut stderr,
-                    turn_end,
-                    budget_spent,
-                    worker,
-                    failed_stage,
-                    debug_budget(),
-                    debug_stage(),
-                );
-                let _ = stderr.flush();
-            }
             if worker {
                 // Cleanup must precede worker exit: the supervisor cannot
                 // safely signal a group after reaping its numeric leader.
                 let _ = SupervisedProbeRunner::abort_worker_group();
+            } else if !empty_hook_output.is_empty() {
+                let _ = io::stdout().lock().write_all(empty_hook_output.as_bytes());
             }
+            write_unavailable_context_error(
+                &mut io::stderr().lock(),
+                turn_end,
+                budget_spent,
+                worker,
+            );
         }
     }
     // Only the internal worker reports failure to its group-owning supervisor.
@@ -259,39 +202,15 @@ pub fn execute(
     Ok(u8::from(worker && failed))
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 fn write_unavailable_context_error(
     stderr: &mut impl Write,
     turn_end: bool,
     budget_spent: bool,
     worker: bool,
 ) {
-    write_unavailable_context_error_with_debug(
-        stderr,
-        turn_end,
-        budget_spent,
-        worker,
-        None,
-        debug_budget(),
-        debug_stage(),
-    );
-}
-
-fn write_unavailable_context_error_with_debug(
-    stderr: &mut impl Write,
-    turn_end: bool,
-    budget_spent: bool,
-    worker: bool,
-    failed_stage: Option<&str>,
-    debug_budget: bool,
-    debug_stage: bool,
-) {
     if !turn_end {
-        if debug_budget && budget_spent && !worker {
+        if budget_spent && !worker && debug_budget() {
             let _ = writeln!(stderr, "{BUDGET_SPENT_LINE}");
-        }
-        if debug_stage && let Some(stage) = failed_stage {
-            let _ = writeln!(stderr, "{STAGE_FAILED_PREFIX}{stage}");
         }
         let _ = writeln!(stderr, "{ERROR_LINE}");
     }
@@ -359,12 +278,7 @@ fn adopt_initial_session(
     deadline: Instant,
 ) -> Result<bool, ()> {
     use tmt_core::binding::session::{BindingSessionState, ObservedSessionKey, SessionTransition};
-    let binding = bound
-        .stored
-        .entry
-        .binding
-        .as_ref()
-        .ok_or_else(|| fail_stage("adopt_initial_session.missing_binding"))?;
+    let binding = bound.stored.entry.binding.as_ref().ok_or(())?;
     if binding.session != BindingSessionState::default()
         || bound.stored.preferences.remembered.is_some()
         || !bound.stored.preferences.retained.is_empty()
@@ -394,7 +308,6 @@ fn adopt_initial_session(
         ),
         BindingEvidence::Active(_)
     ) {
-        fail_stage("adopt_initial_session.inactive_binding");
         return Err(());
     }
     let Some(mode) = lifecycle.mode(bound.host) else {
@@ -410,7 +323,7 @@ fn adopt_initial_session(
             SessionTransition::Started,
             RuntimeLiveness::Alive,
         )
-        .ok_or_else(|| fail_stage("adopt_initial_session.admit"))?;
+        .ok_or(())?;
     let mut preferences = bound.stored.preferences.clone();
     preferences.remember(harness.clone(), mode, session.clone());
     // Adoption is optional: a busy store or a lost CAS leaves the event to the
@@ -423,13 +336,7 @@ fn adopt_initial_session(
     if !matches!(changed, Ok(true)) {
         return Ok(false);
     }
-    bound
-        .stored
-        .entry
-        .binding
-        .as_mut()
-        .ok_or_else(|| fail_stage("adopt_initial_session.missing_binding_after_commit"))?
-        .session = next;
+    bound.stored.entry.binding.as_mut().ok_or(())?.session = next;
     bound.stored.preferences = preferences;
     Ok(true)
 }
@@ -901,11 +808,13 @@ pub(super) struct BoundCaller {
     pub(super) process: ProcessIncarnation,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CallerProbeFailure {
     Config,
     Host,
     Pane,
+    PaneMissing,
+    Snapshot,
     Storage(StorageErrorCode),
     Process,
 }
@@ -1202,17 +1111,13 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
     if let Some(learning) = stage_learning {
         let _ = learning.stage(Step::PaneSnapshot, deadline);
     }
-    let snapshot = panes
-        .observe_snapshot(OperationOptions {
-            deadline: Some(deadline),
-            pane_ids: Some(std::slice::from_ref(&pane)),
-        })
-        .map_err(|_| CallerProbeFailure::Pane)?;
-    let observed_pane = snapshot
-        .panes
-        .iter()
-        .find(|item| item.id == pane)
-        .ok_or(CallerProbeFailure::Pane)?;
+    let (snapshot, observed_pane) =
+        observe_pane_snapshot_with(&pane, deadline, |attempt_deadline| {
+            panes.observe_snapshot(OperationOptions {
+                deadline: Some(attempt_deadline),
+                pane_ids: Some(std::slice::from_ref(&pane)),
+            })
+        })?;
     // A nested caller's host was chosen from one pinned ancestry; the
     // pane it reports now must be the pane shell that ancestry held.
     if panes
@@ -1390,12 +1295,51 @@ fn probe_failure(probe: DigestStop, deadline: Instant) -> DigestStop {
     }
 }
 
+const PANE_SNAPSHOT_POLL_STEP: Duration = Duration::from_millis(10);
+
+/// Retries a pane snapshot only within `deadline` when the caller pane is
+/// missing from a successful snapshot or the host reports a retryable error.
+fn observe_pane_snapshot_with(
+    pane: &str,
+    deadline: Instant,
+    mut observe: impl FnMut(Instant) -> Result<EndpointSnapshot, tmt_adapters::host::HostError>,
+) -> Result<(EndpointSnapshot, tmt_core::endpoint::PaneObservation), CallerProbeFailure> {
+    loop {
+        match observe(deadline) {
+            Ok(snapshot) => {
+                if let Some(observed_pane) =
+                    snapshot.panes.iter().find(|item| item.id == pane).cloned()
+                {
+                    return Ok((snapshot, observed_pane));
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(CallerProbeFailure::PaneMissing);
+                }
+                std::thread::sleep(remaining.min(PANE_SNAPSHOT_POLL_STEP));
+            }
+            Err(error) => {
+                if !error.retryable_snapshot_error() {
+                    return Err(CallerProbeFailure::Snapshot);
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(CallerProbeFailure::Snapshot);
+                }
+                std::thread::sleep(remaining.min(PANE_SNAPSHOT_POLL_STEP));
+            }
+        }
+    }
+}
+
 fn caller_failure_detail(error: CallerProbeFailure, deadline: Instant) -> DigestStop {
     probe_failure(
         match error {
             CallerProbeFailure::Config => DigestStop::LaunchCallerConfig,
             CallerProbeFailure::Host => DigestStop::LaunchCallerHost,
             CallerProbeFailure::Pane => DigestStop::LaunchCallerPane,
+            CallerProbeFailure::PaneMissing => DigestStop::LaunchCallerPaneMissing,
+            CallerProbeFailure::Snapshot => DigestStop::LaunchCallerSnapshot,
             CallerProbeFailure::Storage(StorageErrorCode::Busy) => {
                 DigestStop::LaunchCallerStorageBusy
             }
@@ -1628,17 +1572,8 @@ fn observe_lifecycle_event(
         deadline,
         SupervisedProbeRunner,
     )
-    .map_err(|failure| {
-        note_caller_failure(learning, failure, deadline);
-        fail_stage(match failure {
-            CallerProbeFailure::Config => "verified_caller.config",
-            CallerProbeFailure::Host => "verified_caller.host",
-            CallerProbeFailure::Storage(StorageErrorCode::Busy) => "verified_caller.storage_busy",
-            CallerProbeFailure::Storage(_) => "verified_caller.storage",
-            CallerProbeFailure::Pane => "verified_caller.pane",
-            CallerProbeFailure::Process => "verified_caller.process",
-        });
-    })? {
+    .map_err(|failure| note_caller_failure(learning, failure, deadline))?
+    {
         Caller::Unobserved => return Ok(Observation::default()),
         // With no stored identity, only emit the fixed naming hint. The
         // command-derived suggested_name (for example "claude") is not a
@@ -1715,17 +1650,12 @@ fn observe_bound_lifecycle_event_with(
         snapshot,
         process,
     } = bound;
-    let binding = stored
-        .entry
-        .binding
-        .as_ref()
-        .ok_or_else(|| fail_stage("observe_bound_lifecycle.missing_binding"))?;
+    let binding = stored.entry.binding.as_ref().ok_or(())?;
     let pane = binding.pane_id.clone();
     if !matches!(
         evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot.clone())),
         BindingEvidence::Active(_)
     ) {
-        fail_stage("observe_bound_lifecycle.inactive_binding");
         return Err(());
     }
     if event.transition() == Some(tmt_core::binding::session::SessionTransition::Ended)
@@ -1746,7 +1676,7 @@ fn observe_bound_lifecycle_event_with(
         Some(key) if key.incarnation == process => RuntimeLiveness::Alive,
         Some(key) => {
             observe_runtime_process(&SupervisedProbeRunner, key.incarnation.pid(), deadline)
-                .map_err(|_| fail_stage("observe_bound_lifecycle.observe_runtime_process"))?
+                .map_err(|_| ())?
                 .matches(&key.incarnation)
         }
         None => RuntimeLiveness::Unknown,
@@ -1814,9 +1744,7 @@ fn observe_bound_lifecycle_event_with(
             &snapshot,
             (provider, event.session(), reason),
             deadline,
-        )
-        .inspect_err(|_| fail_stage("observe_bound_lifecycle.record_start_refusal"))?;
-        fail_stage("observe_bound_lifecycle.start_refused");
+        )?;
         return Err(());
     }
     let Some(mut next) = proposed else {
@@ -1831,24 +1759,18 @@ fn observe_bound_lifecycle_event_with(
                     tmt_core::binding::session::StartRefusalReason::AdmissionRefused,
                 ),
                 deadline,
-            )
-            .inspect_err(|_| fail_stage("observe_bound_lifecycle.record_admission_refusal"))?;
+            )?;
         }
-        fail_stage("observe_bound_lifecycle.admission_refused");
         return Err(());
     };
     if event.starting() {
         next.start_refusal = None;
     }
     if Instant::now() >= deadline {
-        fail_stage("observe_bound_lifecycle.deadline_expired");
         return Err(());
     }
-    let mode = lifecycle
-        .mode(host)
-        .ok_or_else(|| fail_stage("observe_bound_lifecycle.missing_mode"))?;
-    let mut storage = Storage::open_hook(&paths.database, deadline)
-        .map_err(|_| fail_stage("observe_bound_lifecycle.open_storage"))?;
+    let mode = lifecycle.mode(host).ok_or(())?;
+    let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
     let changed = commit_session(
         &mut storage,
         SessionCommit {
@@ -1861,13 +1783,13 @@ fn observe_bound_lifecycle_event_with(
             fence_preferences: event.starting() || owned_resume,
         },
     )
-    .map_err(|_| fail_stage("observe_bound_lifecycle.commit_session"))?;
+    .map_err(|_| ())?;
     if changed
         && event.starting()
         && let Some(owner) = next.launch_owner.as_ref()
         && let Some(session) = storage
             .session_preferences(&binding.identity_id)
-            .map_err(|_| fail_stage("observe_bound_lifecycle.session_preferences"))?
+            .map_err(|_| ())?
             .remembered
             .as_ref()
     {
@@ -1879,7 +1801,7 @@ fn observe_bound_lifecycle_event_with(
             session,
             &RuntimeRegistry::first_party(),
         )
-        .map_err(|_| fail_stage("observe_bound_lifecycle.launch_preset_associate"))?;
+        .map_err(|_| ())?;
     }
     let post_commit =
         if changed && Instant::now() < deadline && (event.starting() || starting_turn.is_some()) {
@@ -1893,7 +1815,7 @@ fn observe_bound_lifecycle_event_with(
             Ok(None)
         };
     let mut refreshed = if changed {
-        post_commit.map_err(|_| fail_stage("observe_bound_lifecycle.post_commit"))?
+        post_commit.map_err(|_| ())?
     } else {
         let _ = post_commit;
         None
@@ -2019,7 +1941,7 @@ fn observe_bound_lifecycle_event_with(
             .unwrap_or(deadline),
         event.transition() == Some(tmt_core::binding::session::SessionTransition::Compacted),
     )
-    .map_err(|_| fail_stage("observe_bound_lifecycle.render"))?;
+    .map_err(|_| ())?;
     let current = Storage::context_by_pane_until(
         &paths.database,
         snapshot.server.host,
@@ -2028,7 +1950,7 @@ fn observe_bound_lifecycle_event_with(
         tmt_adapters::request_runtime::wall_time_ms(),
         ContextWait::Hook(deadline),
     )
-    .map_err(|_| fail_stage("observe_bound_lifecycle.context_by_pane_until"))?
+    .map_err(|_| ())?
     .ok_or(())?;
     if Instant::now() >= deadline
         || current
@@ -2532,9 +2454,7 @@ fn observe_main_event(
     run: Run<'_>,
 ) -> Result<Observation, ()> {
     let deadline = run.deadline;
-    let host = lifecycle
-        .host_evidence()
-        .map_err(|_| fail_stage("observe_main_event.host_evidence"))?;
+    let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
         return unsupported_host(run);
     }
@@ -2552,17 +2472,7 @@ fn observe_main_event(
         deadline,
         SupervisedProbeRunner,
     )
-    .map_err(|failure| {
-        note_caller_failure(run.learning, failure, deadline);
-        fail_stage(match failure {
-            CallerProbeFailure::Config => "verified_caller.config",
-            CallerProbeFailure::Host => "verified_caller.host",
-            CallerProbeFailure::Storage(StorageErrorCode::Busy) => "verified_caller.storage_busy",
-            CallerProbeFailure::Storage(_) => "verified_caller.storage",
-            CallerProbeFailure::Pane => "verified_caller.pane",
-            CallerProbeFailure::Process => "verified_caller.process",
-        });
-    })?
+    .map_err(|failure| note_caller_failure(run.learning, failure, deadline))?
     else {
         run.stopped(Stop::UnboundSession);
         return Ok(Observation::default());
@@ -2610,11 +2520,7 @@ fn observe_bound_main_event_with(
         process,
         ..
     } = bound;
-    let binding = stored
-        .entry
-        .binding
-        .as_ref()
-        .ok_or_else(|| fail_stage("observe_bound_main_event.missing_binding"))?;
+    let binding = stored.entry.binding.as_ref().ok_or(())?;
     let Some(process) =
         lifecycle.activity_process(&binding.session, &process, session, host, deadline)
     else {
@@ -2634,23 +2540,10 @@ fn observe_bound_main_event_with(
         },
         deadline,
     )
-    .map_err(|failure| {
-        fail_stage(match failure {
-            ContinuationFailure::Binding => "continue_awaiting_session.binding",
-            ContinuationFailure::OwnerProbe => "continue_awaiting_session.owner_probe",
-            ContinuationFailure::Open(_) => "continue_awaiting_session.open",
-            ContinuationFailure::Write(_) => "continue_awaiting_session.write",
-            ContinuationFailure::Close(_) => "continue_awaiting_session.close",
-            ContinuationFailure::Read(_) => "continue_awaiting_session.read",
-        });
-    })?;
+    .map_err(|_| ())?;
     let mutating_continuation = continued.is_some();
     let stored = continued.unwrap_or(stored);
-    let binding = stored
-        .entry
-        .binding
-        .as_ref()
-        .ok_or_else(|| fail_stage("observe_bound_main_event.missing_binding_after_continue"))?;
+    let binding = stored.entry.binding.as_ref().ok_or(())?;
     if binding.session.state != tmt_core::binding::session::RuntimeState::Running
         || !binding.session.key.as_ref().is_some_and(|key| {
             key.incarnation == process && key.provider_session.as_ref() == Some(session)
@@ -2732,31 +2625,21 @@ fn observe_bound_main_event_with(
             tmt_adapters::request_runtime::wall_time_ms(),
             ContextWait::Hook(deadline),
         )
-        .map_err(|_| fail_stage("observe_bound_main_event.context_by_pane_until_err"))?
-        .ok_or_else(|| fail_stage("observe_bound_main_event.context_by_pane_until_none"))?;
-        if Instant::now() >= deadline {
-            fail_stage("observe_bound_main_event.deadline_expired");
-            return Err(());
-        }
-        if refreshed.entry.binding.as_ref() != Some(binding) {
-            fail_stage("observe_bound_main_event.refreshed_binding_mismatch");
-            return Err(());
-        }
-        if refreshed.preferences != stored.preferences {
-            fail_stage("observe_bound_main_event.refreshed_preferences_mismatch");
-            return Err(());
-        }
-        if !matches!(
-            evaluate_binding(&refreshed.entry, &EndpointProbe::Live(snapshot)),
-            BindingEvidence::Active(_)
-        ) {
-            fail_stage("observe_bound_main_event.refreshed_inactive");
+        .map_err(|_| ())?
+        .ok_or(())?;
+        if Instant::now() >= deadline
+            || refreshed.entry.binding.as_ref() != Some(binding)
+            || refreshed.preferences != stored.preferences
+            || !matches!(
+                evaluate_binding(&refreshed.entry, &EndpointProbe::Live(snapshot)),
+                BindingEvidence::Active(_)
+            )
+        {
             return Err(());
         }
         Some(refreshed)
     } else {
         if Instant::now() >= deadline {
-            fail_stage("observe_bound_main_event.deadline_expired");
             return Err(());
         }
         None
@@ -2773,14 +2656,11 @@ fn observe_bound_main_event_with(
         form,
         payload,
         deadline,
-    })
-    .inspect_err(|_| fail_stage("observe_bound_main_event.commit_turn"))?;
+    })?;
     let context = if context.is_empty() {
         context
     } else {
-        lifecycle
-            .encode_prompt_context(&context)
-            .ok_or_else(|| fail_stage("observe_bound_main_event.encode_prompt_context"))?
+        lifecycle.encode_prompt_context(&context).ok_or(())?
     };
     Ok(Observation {
         context,
@@ -3098,6 +2978,14 @@ mod digest_launch_tests {
             (CallerProbeFailure::Host, DigestStop::LaunchCallerHost),
             (CallerProbeFailure::Pane, DigestStop::LaunchCallerPane),
             (
+                CallerProbeFailure::PaneMissing,
+                DigestStop::LaunchCallerPaneMissing,
+            ),
+            (
+                CallerProbeFailure::Snapshot,
+                DigestStop::LaunchCallerSnapshot,
+            ),
+            (
                 CallerProbeFailure::Storage(StorageErrorCode::Busy),
                 DigestStop::LaunchCallerStorageBusy,
             ),
@@ -3324,55 +3212,90 @@ mod answer_tests {
 }
 
 #[cfg(test)]
-mod stage_diagnostics_tests {
-    use super::{
-        ERROR_LINE, STAGE_FAILED_PREFIX, clear_failed_stage, fail_stage, take_failed_stage,
-        worker_failed_stage, write_unavailable_context_error_with_debug,
+mod pane_snapshot_retry_tests {
+    use super::{CallerProbeFailure, observe_pane_snapshot_with};
+    use std::time::{Duration, Instant};
+    use tmt_adapters::host::HostError;
+    use tmt_core::{
+        endpoint::{EndpointSnapshot, PaneObservation, ServerEvidence},
+        host::HostKind,
     };
 
+    fn test_server() -> ServerEvidence {
+        ServerEvidence {
+            host: HostKind::Tmux,
+            server_id: "test-server".into(),
+            socket_path: "/tmp/tmux-test".into(),
+            server_pid: 100,
+            server_start_time: "start".into(),
+        }
+    }
+
+    fn empty_snapshot() -> EndpointSnapshot {
+        EndpointSnapshot {
+            server: test_server(),
+            panes: Vec::new(),
+        }
+    }
+
+    fn snapshot_with_pane(id: &str) -> EndpointSnapshot {
+        EndpointSnapshot {
+            server: test_server(),
+            panes: vec![PaneObservation {
+                id: id.into(),
+                target: Some("s:0.0".into()),
+                cwd: Some("/tmp".into()),
+                command: "sh".into(),
+                pane_pid: 4242,
+                pane_incarnation: None,
+                suggested_name: None,
+                marker: None,
+                location: None,
+                agent_name: None,
+            }],
+        }
+    }
+
     #[test]
-    fn debug_flag_emits_and_forwards_failing_stage_without_changing_non_debug_error_line() {
-        let mut quiet = Vec::new();
-        write_unavailable_context_error_with_debug(
-            &mut quiet,
-            false,
-            false,
-            false,
-            Some("observe_bound_lifecycle.admission_refused"),
-            true,
-            false,
-        );
-        assert_eq!(
-            String::from_utf8(quiet).expect("utf8"),
-            format!("{ERROR_LINE}\n")
-        );
+    fn pane_appears_on_second_snapshot_and_succeeds() {
+        let mut attempts = 0usize;
+        let deadline = Instant::now() + Duration::from_millis(200);
+        let (snapshot, pane) = observe_pane_snapshot_with("%1", deadline, |_| {
+            attempts += 1;
+            if attempts == 1 {
+                Ok(empty_snapshot())
+            } else {
+                Ok(snapshot_with_pane("%1"))
+            }
+        })
+        .expect("pane should be found on second attempt");
+        assert_eq!(attempts, 2);
+        assert_eq!(pane.id, "%1");
+        assert_eq!(snapshot.panes.len(), 1);
+    }
 
-        let mut debug_worker = Vec::new();
-        write_unavailable_context_error_with_debug(
-            &mut debug_worker,
-            false,
-            false,
-            true,
-            Some("observe_bound_lifecycle.admission_refused"),
-            false,
-            true,
-        );
-        let worker_text = String::from_utf8(debug_worker).expect("utf8");
-        assert_eq!(
-            worker_text,
-            format!(
-                "{STAGE_FAILED_PREFIX}observe_bound_lifecycle.admission_refused\n{ERROR_LINE}\n"
-            )
-        );
-        assert_eq!(
-            worker_failed_stage(worker_text.as_bytes()).as_deref(),
-            Some("observe_bound_lifecycle.admission_refused")
-        );
+    #[test]
+    fn pane_never_appears_and_fails_at_deadline() {
+        let mut attempts = 0usize;
+        let deadline = Instant::now() + Duration::from_millis(25);
+        let result = observe_pane_snapshot_with("%1", deadline, |_| {
+            attempts += 1;
+            Ok(empty_snapshot())
+        });
+        assert_eq!(result, Err(CallerProbeFailure::PaneMissing));
+        assert!(attempts >= 2);
+        assert!(Instant::now() >= deadline);
+    }
 
-        clear_failed_stage();
-        fail_stage("verified_caller.pane");
-        fail_stage("parent.worker_stderr");
-        assert_eq!(take_failed_stage(), Some("verified_caller.pane"));
-        assert_eq!(take_failed_stage(), None);
+    #[test]
+    fn permanent_snapshot_error_does_not_retry() {
+        let mut attempts = 0usize;
+        let deadline = Instant::now() + Duration::from_millis(200);
+        let result = observe_pane_snapshot_with("%1", deadline, |_| {
+            attempts += 1;
+            Err(HostError::Unavailable("fake".into()))
+        });
+        assert_eq!(result, Err(CallerProbeFailure::Snapshot));
+        assert_eq!(attempts, 1);
     }
 }
