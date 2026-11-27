@@ -550,7 +550,7 @@ impl Controller {
                                 .is_some_and(|request| request["command"].is_string()),
                     ),
                 ],
-                "↑↓ scroll · k keep · r run again · e edit · Esc close",
+                "Esc close",
                 &[][..],
             ),
             Some(Page::Remove { .. }) => (
@@ -624,6 +624,25 @@ impl Controller {
         if form {
             // The form uses the otherwise empty position row immediately above its buttons.
             hits.content.height += area.position.height;
+        }
+        if matches!(self.page, Some(Page::Finished { .. })) && !area.position.is_empty() {
+            let hint = if self
+                .request
+                .as_ref()
+                .is_some_and(|request| request["command"].is_string())
+            {
+                "↑↓ scroll · e edit"
+            } else {
+                "↑↓ scroll"
+            };
+            strip::paint_left(
+                frame.buffer_mut(),
+                area.position,
+                Line::styled(
+                    super::view::fit(hint, area.position.width as usize),
+                    look.role(tmt_cli_style::Role::Dim),
+                ),
+            );
         }
         let mut content = hits.content;
         let role = look.role(tmt_cli_style::Role::Text);

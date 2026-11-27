@@ -29,7 +29,7 @@ impl Renderer<'_> {
                     first + offset,
                     Some(start),
                     style,
-                    Some((&reference.command, occurrence)),
+                    Some((&reference.command, occurrence, offset == 0)),
                 );
                 start += line.len() + 1;
             }
@@ -72,7 +72,7 @@ impl Renderer<'_> {
                     let occurrence = self.next_mention;
                     self.next_mention += 1;
                     self.next_command += 1;
-                    (command, occurrence)
+                    (command, occurrence, true)
                 });
                 self.code_line(line, index, start, style, link);
                 painted = true;
@@ -89,7 +89,7 @@ impl Renderer<'_> {
         source_line: usize,
         start: Option<usize>,
         style: Style,
-        link: Option<(&Command, usize)>,
+        link: Option<(&Command, usize, bool)>,
     ) {
         // The conversation already sanitizes its source. Keep non-conversation
         // uses inert as well, and omit exact offsets if that changes the bytes.
@@ -101,9 +101,10 @@ impl Renderer<'_> {
             (line, start)
         };
         let (line, start) = match link {
-            Some((command, _)) if command.shown == line => {
-                if let Some(prefix) = line.strip_suffix(&command.text) {
-                    (command.text.as_str(), start.map(|at| at + prefix.len()))
+            Some((command, _, true)) if command.shown.lines().next() == Some(line) => {
+                let text = command.text.split('\n').next().unwrap_or_default();
+                if let Some(prefix) = line.strip_suffix(text) {
+                    (text, start.map(|at| at + prefix.len()))
                 } else {
                     (line, start)
                 }
@@ -118,7 +119,7 @@ impl Renderer<'_> {
             let first = glyphs.peek().map_or(0, |glyph| glyph.symbol.width());
             let marker = used > 0 && first < self.width;
             let chip = link.is_some() && !rest.trim().is_empty();
-            let chip_prefix = if chip && used == 0 {
+            let chip_prefix = if link.is_some_and(|(_, _, first)| first) && chip && used == 0 {
                 match self.width {
                     1 => "",
                     2..=3 => "▶",
@@ -165,7 +166,7 @@ impl Renderer<'_> {
                 shown: fragment_start..fragment_start + fragment.len(),
             });
             let mut part = Part::new(fragment.into(), style, source_line, None);
-            if let Some((command, occurrence)) = link
+            if let Some((command, occurrence, _)) = link
                 && chip
             {
                 part.text = format!("{chip_prefix}{fragment}{}", " ".repeat(chip_suffix));
