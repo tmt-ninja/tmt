@@ -51,6 +51,8 @@ pub enum InputState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryAcceptance {
+    /// The provider started the exact user message in this session.
+    MessageStarted,
     /// Submitted to the interface, not proof of model execution or a final reply.
     Submitted,
     /// Accepted by a provider queue, not yet necessarily submitted to its runtime.

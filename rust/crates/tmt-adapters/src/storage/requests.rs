@@ -582,8 +582,9 @@ impl RequestRecords for RequestRows<'_> {
         b: &tmt_core::request::digest::DigestChecklist,
         state: tmt_core::request::digest::DigestState,
         now: u64,
+        message_started: bool,
     ) -> Result<(), Self::Error> {
-        digest::settle(self.0, b, state, now)?;
+        digest::settle(self.0, b, state, now, message_started)?;
         digest_journal::settle(self.0, b, state, now)
     }
     fn digest_history(

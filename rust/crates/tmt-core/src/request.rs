@@ -567,6 +567,7 @@ pub trait RequestRecords {
         checklist: &digest::DigestChecklist,
         state: digest::DigestState,
         now_ms: u64,
+        message_started: bool,
     ) -> Result<(), Self::Error>;
     fn digest_history(
         &self,

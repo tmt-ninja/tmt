@@ -318,7 +318,7 @@ pub(super) fn send(
             && generation == record.generation
             && sha256 == tmt_core::content_digest::sha256(content.as_bytes()) =>
         {
-            ActionResult::Completed(DeliveryAcceptance::Submitted)
+            ActionResult::Completed(DeliveryAcceptance::MessageStarted)
         }
         Ok(Reply::Refused) => denied(ChannelFault::Refused),
         _ => ActionResult::Completed(DeliveryAcceptance::Unacknowledged),

@@ -69,6 +69,7 @@ pub enum Delivery {
 /// One delivery attempt: its outcome and what the attempt noticed on the way.
 pub struct Attempt {
     pub delivery: Delivery,
+    pub message_started: bool,
     /// Channel records no driver could attribute to any pane, found while checking
     /// the pane before a baseline paste. They blocked nothing; the caller names them.
     pub unattributed: Vec<PathBuf>,
@@ -78,6 +79,7 @@ impl From<Delivery> for Attempt {
     fn from(delivery: Delivery) -> Self {
         Self {
             delivery,
+            message_started: false,
             unattributed: Vec::new(),
         }
     }
@@ -161,7 +163,15 @@ fn deliver_text(
         .wake_recipient_is_eligible(request_id, recipient_id)
         .unwrap_or(false);
     let state = if eligible {
-        send(storage, recipient_id, text, delay)
+        let content = if is_request {
+            Messages::Passthrough(text)
+        } else {
+            Messages::Single {
+                registered: text,
+                host: text,
+            }
+        };
+        send_messages(storage, recipient_id, None, content, delay)
             .map(|attempt| attempt.delivery.wake_state())
             .unwrap_or(WakeState::Unavailable)
     } else {
@@ -379,10 +389,7 @@ pub fn send(
         storage,
         identity,
         None,
-        Messages::Single {
-            registered: message,
-            host: message,
-        },
+        Messages::Passthrough(message),
         delay,
     )
 }
@@ -554,6 +561,10 @@ fn send_messages(
             )
         },
     );
+    let message_started = matches!(
+        result,
+        ActionResult::Completed(DeliveryAcceptance::MessageStarted)
+    );
     let delivery = match result {
         ActionResult::Completed(DeliveryAcceptance::Unacknowledged) => Delivery::Unacknowledged,
         ActionResult::Completed(_) => Delivery::Sent,
@@ -567,6 +578,7 @@ fn send_messages(
     };
     Ok(Attempt {
         delivery,
+        message_started,
         unattributed,
     })
 }
@@ -614,6 +626,7 @@ struct NoticeAttempt<'a> {
 }
 
 enum Messages<'a> {
+    Passthrough(&'a str),
     Request {
         text: &'a str,
         attempt: &'a str,
@@ -636,7 +649,7 @@ enum Messages<'a> {
 impl Messages<'_> {
     fn rendered(&self) -> std::borrow::Cow<'_, str> {
         match self {
-            Self::Request { text, .. } | Self::Digest { text, .. } => {
+            Self::Passthrough(text) | Self::Request { text, .. } | Self::Digest { text, .. } => {
                 std::borrow::Cow::Borrowed(text)
             }
             Self::Single { host, .. } => std::borrow::Cow::Borrowed(host),
@@ -651,14 +664,29 @@ impl Messages<'_> {
         entry: &BindingEntry,
         storage: &std::cell::RefCell<&mut Storage>,
     ) -> Outcome {
-        let send = |registry: &mut RuntimeRegistry, text: &str| match registry
-            .send(harness, entry, text)
-        {
+        let outcome = |result| match result {
             ActionResult::Unsupported => ActionResult::Unsupported,
             ActionResult::Completed(value) => ActionResult::Completed(value),
             ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
         };
+        let send = |registry: &mut RuntimeRegistry, text: &str| {
+            if harness.as_str() == "pi" {
+                // Correlate the whole advisory envelope on this connection. Its
+                // constituents retain their independent Core consumption state.
+                let connection_id = uuid::Uuid::new_v4().to_string();
+                return outcome(registry.send_request(
+                    harness,
+                    entry,
+                    text,
+                    &connection_id,
+                    false,
+                    Some(crate::request_runtime::wall_time_ms() + 30_000),
+                ));
+            }
+            outcome(registry.send(harness, entry, text))
+        };
         let attempt = match self {
+            Self::Passthrough(text) => return outcome(registry.send(harness, entry, text)),
             Self::Request {
                 text,
                 attempt,
@@ -791,7 +819,7 @@ impl Messages<'_> {
                     .as_ref()
                     == Some(*expected)
             }
-            Self::Single { .. } | Self::Request { .. } => true,
+            Self::Single { .. } | Self::Passthrough(_) | Self::Request { .. } => true,
             Self::Notices(attempt) => {
                 let claimed = match storage
                     .borrow_mut()

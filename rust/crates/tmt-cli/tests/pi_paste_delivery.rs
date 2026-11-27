@@ -895,6 +895,12 @@ fn enrolled_pi_delivers_original_request_and_fences_a_replaced_session() {
   fs.writeFileSync(path.join(root,'ready'),'1');
   process.stdin.on('data',bytes=>{
     fs.appendFileSync(path.join(root,'input'),bytes);
+    if(bytes.toString().includes('TURN-ON')){
+      emit('before_agent_start',{messageType:'user',prompt:'fixture turn'});fs.writeFileSync(path.join(root,'in-turn'),'1');
+    }
+    if(bytes.toString().includes('TURN-OFF')){
+      emit('agent_settled',{aborted:false});fs.writeFileSync(path.join(root,'turn-over'),'1');
+    }
     if(bytes.toString().includes('BLOCK')) {
       emit('ui_prompt_start',{}); fs.writeFileSync(path.join(root,'blocked'),'1');
     }
@@ -1060,6 +1066,94 @@ fn enrolled_pi_delivers_original_request_and_fences_a_replaced_session() {
     }
     let text = fs::read_to_string(root.join("submissions")).unwrap();
     assert_eq!(text.lines().count(), 4);
+    fs::remove_file(root.join("busy")).unwrap();
+    // A durable answer to Pi's own request also delivers its unframed notice.
+    let outgoing = tmux.tmt_json(&[
+        "talk",
+        "--identity",
+        "pi-worker",
+        "--detach",
+        "sender",
+        "Please return a notice",
+        "--json",
+    ]);
+    let id = outgoing["requestId"].as_str().unwrap();
+    let incoming = tmux.tmt_json(&[
+        "x",
+        "show",
+        id,
+        "--incoming",
+        "--identity",
+        "sender",
+        "--json",
+    ]);
+    let receipt = incoming["exchange"]["reply"]["receipt"].as_str().unwrap();
+    tmux.tmt_json(&[
+        "reply",
+        id,
+        "--receipt",
+        receipt,
+        "--message",
+        "notice proof",
+        "--json",
+    ]);
+    wait_until("the enrolled Pi starts the reply notice", || {
+        fs::read_to_string(root.join("submissions"))
+            .unwrap()
+            .lines()
+            .any(|l| l.contains("notice proof"))
+    });
+
+    tmux.tmt_json(&["identity", "create", "digest-owner", "--json"]);
+    let now = tmt_adapters::request_runtime::wall_time_ms() as i64;
+    tmux.db().execute("INSERT INTO focus_policies(identity_id,revision,until_ms,owner_identity_id,setter_identity_id,max_hold_ms)
+        SELECT target.id,1,?1,owner.id,owner.id,300000 FROM identities target, identities owner WHERE target.name='pi-worker' AND owner.name='digest-owner'",[now+300_000]).unwrap();
+    assert!(
+        tmux.tmux(&["send-keys", "-t", &tmux.pane_id, "TURN-ON", "Enter"])
+            .status
+            .success()
+    );
+    wait_until("turn hook recorded", || root.join("in-turn").exists());
+    let mut held_requests = Vec::new();
+    for message in ["digest member one", "digest member two"] {
+        let held = tmux.tmt_json(&[
+            "talk",
+            "--identity",
+            "sender",
+            "--detach",
+            "pi-worker",
+            message,
+            "--json",
+        ]);
+        assert_eq!(held["digest"], true, "{held}");
+        held_requests.push(held["requestId"].as_str().unwrap().to_owned());
+    }
+    assert!(
+        tmux.tmux(&["send-keys", "-t", &tmux.pane_id, "TURN-OFF", "Enter"])
+            .status
+            .success()
+    );
+    wait_until("idle hook recorded", || root.join("turn-over").exists());
+    tmux.db().execute("UPDATE focus_policies SET until_ms=1 WHERE identity_id=(SELECT id FROM identities WHERE name='pi-worker')",[]).unwrap();
+    tmux.tmt_json(&["check", "pi-worker", "--json"]);
+    let text = fs::read_to_string(root.join("submissions")).unwrap();
+    let groups: Vec<_> = text
+        .lines()
+        .filter(|l| l.contains("digest member one"))
+        .collect();
+    assert_eq!(groups.len(), 1, "missing or duplicated checklist");
+    let confirmed:i64=tmux.db().query_row("SELECT count(*) FROM focus_checklists WHERE state='delivered' AND confirmed_at_ms IS NOT NULL",[],|r|r.get(0)).unwrap();
+    assert_eq!(confirmed, 1);
+    for id in held_requests {
+        let shown = tmux.tmt_json(&["x", "show", &id, "--identity", "sender", "--json"]);
+        assert_eq!(
+            shown["exchange"]["messageState"]["state"], "delivered",
+            "{shown}"
+        );
+    }
+    assert!(groups[0].contains("digest member two") && groups[0].contains("TMT Digest checklist"));
+    tmux.tmt_json(&["check", "pi-worker", "--json"]);
+    assert_eq!(fs::read_to_string(root.join("submissions")).unwrap(), text);
     assert!(
         tmux.tmux(&["send-keys", "-t", &tmux.pane_id, "BLOCK", "Enter"])
             .status

@@ -673,23 +673,22 @@ fn send_claim(
     } else {
         ready_entry(storage, identity, readiness)?.as_ref() == Some(entry)
     };
-    let state = if !verified {
-        DigestState::Unsent
+    let attempt = if verified {
+        Some(delivery::send_digest(storage, entry, text, delay)?)
     } else {
-        match delivery::send_digest(storage, entry, text, delay)?
-            .delivery
-            .wake_state()
-        {
-            WakeState::Sent => DigestState::Delivered,
-            WakeState::Uncertain => DigestState::Uncertain,
-            _ => DigestState::Unsent,
-        }
+        None
     };
-    RequestService::new(storage, wall_time_ms).settle_digest_checklist(
+    let state = match attempt.as_ref().map(|a| a.delivery.wake_state()) {
+        Some(WakeState::Sent) => DigestState::Delivered,
+        Some(WakeState::Uncertain) => DigestState::Uncertain,
+        _ => DigestState::Unsent,
+    };
+    RequestService::new(storage, wall_time_ms).settle_digest_handoff(
         identity,
         &batch.id,
         &batch.attempt_token,
         state,
+        attempt.is_some_and(|a| a.message_started),
     )?;
     Ok(state)
 }
