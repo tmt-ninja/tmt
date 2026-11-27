@@ -376,6 +376,24 @@ impl HostError {
             | Self::Process(_) => false,
         }
     }
+
+    /// Whether a failed pane snapshot may succeed on a bounded retry within the caller's deadline.
+    pub fn retryable_snapshot_error(&self) -> bool {
+        match self {
+            Self::Tmux(error) => error.kind == crate::tmux::TmuxFailure::Command,
+            Self::Pty(_) => true,
+            Self::Refused {
+                code: tmt_driver_protocol::ErrorCode::NotReady,
+                ..
+            } => true,
+            Self::Unavailable(_)
+            | Self::Driver(_)
+            | Self::Refused { .. }
+            | Self::Evidence { .. }
+            | Self::ServerIds(_)
+            | Self::Process(_) => false,
+        }
+    }
 }
 
 impl From<TmuxError> for HostError {

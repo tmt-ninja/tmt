@@ -126,7 +126,8 @@ pub struct Consumption {
 ///   session was read;
 /// - `family-scan`: the session tree could not be listed whole, or a header is pending;
 /// - `family-members`: more started sessions than are followed;
-/// - `family`: an earlier tick found the started sessions incomplete and none read since.
+/// - `family`: an earlier tick found the started sessions incomplete and none read since;
+/// - `no-token-source`: the provider's transcript carries no token counts.
 pub const INCOMPLETE_REASONS: &[&str] = &[
     "partial-line",
     "child-usage-unreadable",
@@ -136,6 +137,7 @@ pub const INCOMPLETE_REASONS: &[&str] = &[
     "family-scan",
     "family-members",
     "family",
+    "no-token-source",
 ];
 
 impl Consumption {
@@ -452,10 +454,7 @@ fn agy_message_with_model(line: &str, observed_model: Option<&str>) -> Result<Op
     if entry["type"] != "PLANNER_RESPONSE" || entry["source"] != "MODEL" {
         return Ok(None);
     }
-    if entry["status"] != "DONE"
-        && entry.get("input_tokens").is_none()
-        && entry.get("output_tokens").is_none()
-    {
+    if entry.get("input_tokens").is_none() && entry.get("output_tokens").is_none() {
         return Ok(None);
     }
     let cached = optional_count(&entry, "cache_read_tokens").ok_or(())?;
@@ -527,16 +526,43 @@ pub fn agy_with_model(
 ) -> Option<State> {
     // A new cursor absorbs historical responses; the current hook cannot
     // supply a missing model for one of those older requests.
-    let observed_model = previous.and(observed_model);
-    appended_until(
+    let model_for_rows = previous.and(observed_model);
+    let mut state = appended_until(
         root,
         path,
         previous,
         now,
-        |line| agy_message_with_model(line, observed_model),
+        |line| agy_message_with_model(line, model_for_rows),
         false,
         || Instant::now() >= deadline,
-    )
+    )?;
+    if state.value.input_tokens == 0
+        && state.value.output_tokens == 0
+        && state.value.cached_input_tokens == 0
+        && state.value.complete
+    {
+        state.value.complete = false;
+        state.value.incomplete_reason = Some("no-token-source".to_owned());
+    }
+    let absorbed_historical_tokens =
+        previous.is_none() && state.cursor.as_ref().is_some_and(|c| c.counts.is_some());
+    if !absorbed_historical_tokens
+        && state
+            .value
+            .delta_by_model
+            .as_ref()
+            .is_none_or(Vec::is_empty)
+        && let Some(model) = observed_model.filter(|model| attribution::valid_model(model))
+    {
+        state.value.delta_by_model = Some(vec![ModelUsage {
+            model_id: model.to_owned(),
+            input_tokens: 0,
+            output_tokens: 0,
+            cached_input_tokens: 0,
+            cache_write_tokens: None,
+        }]);
+    }
+    Some(state)
 }
 
 /// Pi session JSONL (`docs/session-format.md`, `docs/message-types.md`):
@@ -833,6 +859,9 @@ fn appended_until(
     }
     next.cursor.as_mut()?.offset += consumed;
     next.value.complete = complete;
+    if complete {
+        next.value.incomplete_reason = None;
+    }
     next.value.gap = false;
     next.value.advance(now)?;
     Some(next)

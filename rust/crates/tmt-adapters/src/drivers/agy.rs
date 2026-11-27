@@ -1578,4 +1578,70 @@ mod tests {
             Err(HookInputError::Unsupported)
         );
     }
+
+    #[test]
+    fn turn_without_tokens_reports_uncovered_no_token_source_and_surfaces_observed_model() {
+        let dir = crate::test_support::TestDirectory::new();
+        let brain = dir.path.join(".gemini/antigravity-cli/brain");
+        let transcript = brain
+            .join(SESSION)
+            .join(".system_generated/logs/transcript.jsonl");
+        std::fs::create_dir_all(transcript.parent().expect("transcript parent"))
+            .expect("create transcript dir");
+        std::fs::write(
+            &transcript,
+            concat!(
+                "{\"type\":\"USER_INPUT\",\"content\":\"hi\"}\n",
+                "{\"type\":\"PLANNER_RESPONSE\",\"source\":\"MODEL\",\"content\":\"hello\"}\n"
+            ),
+        )
+        .expect("write transcript");
+
+        let env = crate::skill_installation::ProviderEnvironment::from_parts(
+            &dir.path,
+            &dir.path,
+            Vec::new(),
+            [],
+        );
+        let previous = crate::runtime::driver_state::after_compaction(
+            Some("gemini-4-hydrogen-medium"),
+            None,
+            1_000,
+        )
+        .expect("previous state");
+
+        let turn = crate::runtime::lifecycle::TurnEnd {
+            session: tmt_core::binding::session::ProviderSessionId::new(SESSION)
+                .expect("session id"),
+            transcript: Some(transcript),
+            final_text: None,
+            interrupted: false,
+        };
+        let obs = AgyLifecycle.turn_observation(
+            &turn,
+            &env,
+            Some(&previous),
+            2_000,
+            std::time::Instant::now() + std::time::Duration::from_secs(5),
+        );
+        let state = obs.state.expect("driver state");
+        let consumption =
+            crate::runtime::driver_state::state_consumption(&state).expect("consumption state");
+        assert!(!consumption.value.complete);
+        assert_eq!(
+            consumption.value.incomplete_reason.as_deref(),
+            Some("no-token-source")
+        );
+        assert_eq!(consumption.value.input_tokens, 0);
+        assert_eq!(consumption.value.output_tokens, 0);
+        assert_eq!(
+            consumption
+                .value
+                .delta_by_model
+                .as_ref()
+                .map(|rows| rows.iter().map(|r| r.model_id.as_str()).collect::<Vec<_>>()),
+            Some(vec!["gemini-4-hydrogen-medium"])
+        );
+        assert!(crate::runtime::driver_state::state_usage(&state).is_none());
+    }
 }

@@ -808,11 +808,13 @@ pub(super) struct BoundCaller {
     pub(super) process: ProcessIncarnation,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CallerProbeFailure {
     Config,
     Host,
     Pane,
+    PaneMissing,
+    Snapshot,
     Storage(StorageErrorCode),
     Process,
 }
@@ -1109,17 +1111,13 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
     if let Some(learning) = stage_learning {
         let _ = learning.stage(Step::PaneSnapshot, deadline);
     }
-    let snapshot = panes
-        .observe_snapshot(OperationOptions {
-            deadline: Some(deadline),
-            pane_ids: Some(std::slice::from_ref(&pane)),
-        })
-        .map_err(|_| CallerProbeFailure::Pane)?;
-    let observed_pane = snapshot
-        .panes
-        .iter()
-        .find(|item| item.id == pane)
-        .ok_or(CallerProbeFailure::Pane)?;
+    let (snapshot, observed_pane) =
+        observe_pane_snapshot_with(&pane, deadline, |attempt_deadline| {
+            panes.observe_snapshot(OperationOptions {
+                deadline: Some(attempt_deadline),
+                pane_ids: Some(std::slice::from_ref(&pane)),
+            })
+        })?;
     // A nested caller's host was chosen from one pinned ancestry; the
     // pane it reports now must be the pane shell that ancestry held.
     if panes
@@ -1297,6 +1295,71 @@ fn probe_failure(probe: DigestStop, deadline: Instant) -> DigestStop {
     }
 }
 
+const PANE_SNAPSHOT_POLL_STEP: Duration = Duration::from_millis(10);
+
+/// Retries a pane snapshot only within `deadline` when the caller pane is
+/// missing from a successful snapshot or the host reports a retryable error.
+fn observe_pane_snapshot_with(
+    pane: &str,
+    deadline: Instant,
+    mut observe: impl FnMut(Instant) -> Result<EndpointSnapshot, tmt_adapters::host::HostError>,
+) -> Result<(EndpointSnapshot, tmt_core::endpoint::PaneObservation), CallerProbeFailure> {
+    loop {
+        match observe(deadline) {
+            Ok(snapshot) => {
+                if let Some(observed_pane) =
+                    snapshot.panes.iter().find(|item| item.id == pane).cloned()
+                {
+                    return Ok((snapshot, observed_pane));
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(CallerProbeFailure::PaneMissing);
+                }
+                std::thread::sleep(remaining.min(PANE_SNAPSHOT_POLL_STEP));
+            }
+            Err(error) => {
+                if !error.retryable_snapshot_error() {
+                    return Err(CallerProbeFailure::Snapshot);
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(CallerProbeFailure::Snapshot);
+                }
+                std::thread::sleep(remaining.min(PANE_SNAPSHOT_POLL_STEP));
+            }
+        }
+    }
+}
+
+fn caller_failure_detail(error: CallerProbeFailure, deadline: Instant) -> DigestStop {
+    probe_failure(
+        match error {
+            CallerProbeFailure::Config => DigestStop::LaunchCallerConfig,
+            CallerProbeFailure::Host => DigestStop::LaunchCallerHost,
+            CallerProbeFailure::Pane | CallerProbeFailure::PaneMissing => {
+                DigestStop::LaunchCallerPane
+            }
+            CallerProbeFailure::Snapshot => DigestStop::LaunchCallerProbe,
+            CallerProbeFailure::Storage(StorageErrorCode::Busy) => {
+                DigestStop::LaunchCallerStorageBusy
+            }
+            CallerProbeFailure::Storage(_) => DigestStop::LaunchCallerStorage,
+            CallerProbeFailure::Process => DigestStop::LaunchCallerProcess,
+        },
+        deadline,
+    )
+}
+
+fn note_caller_failure(learning: Option<&Learning>, error: CallerProbeFailure, deadline: Instant) {
+    if let Some(learning) = learning {
+        let _ = learning.note(
+            SessionLearningDetail::DigestStop(caller_failure_detail(error, deadline)),
+            deadline,
+        );
+    }
+}
+
 fn caller_check(
     caller: Result<Caller, CallerProbeFailure>,
     deadline: Instant,
@@ -1304,19 +1367,7 @@ fn caller_check(
     match caller {
         Ok(Caller::Bound(bound)) => Ok(bound),
         Ok(_) => Err(DigestStop::LaunchCaller),
-        Err(error) => Err(probe_failure(
-            match error {
-                CallerProbeFailure::Config => DigestStop::LaunchCallerConfig,
-                CallerProbeFailure::Host => DigestStop::LaunchCallerHost,
-                CallerProbeFailure::Pane => DigestStop::LaunchCallerPane,
-                CallerProbeFailure::Storage(StorageErrorCode::Busy) => {
-                    DigestStop::LaunchCallerStorageBusy
-                }
-                CallerProbeFailure::Storage(_) => DigestStop::LaunchCallerStorage,
-                CallerProbeFailure::Process => DigestStop::LaunchCallerProcess,
-            },
-            deadline,
-        )),
+        Err(error) => Err(caller_failure_detail(error, deadline)),
     }
 }
 
@@ -1522,7 +1573,7 @@ fn observe_lifecycle_event(
         deadline,
         SupervisedProbeRunner,
     )
-    .map_err(|_| ())?
+    .map_err(|failure| note_caller_failure(learning, failure, deadline))?
     {
         Caller::Unobserved => return Ok(Observation::default()),
         // With no stored identity, only emit the fixed naming hint. The
@@ -2422,7 +2473,7 @@ fn observe_main_event(
         deadline,
         SupervisedProbeRunner,
     )
-    .map_err(|_| ())?
+    .map_err(|failure| note_caller_failure(run.learning, failure, deadline))?
     else {
         run.stopped(Stop::UnboundSession);
         return Ok(Observation::default());
@@ -2928,6 +2979,11 @@ mod digest_launch_tests {
             (CallerProbeFailure::Host, DigestStop::LaunchCallerHost),
             (CallerProbeFailure::Pane, DigestStop::LaunchCallerPane),
             (
+                CallerProbeFailure::PaneMissing,
+                DigestStop::LaunchCallerPane,
+            ),
+            (CallerProbeFailure::Snapshot, DigestStop::LaunchCallerProbe),
+            (
                 CallerProbeFailure::Storage(StorageErrorCode::Busy),
                 DigestStop::LaunchCallerStorageBusy,
             ),
@@ -2941,6 +2997,10 @@ mod digest_launch_tests {
             assert_eq!(
                 caller_check(Err(failure), passed).err(),
                 Some(DigestStop::LaunchDeadline)
+            );
+            assert_eq!(
+                SessionLearningDetail::DigestStop(caller_failure_detail(failure, later)),
+                SessionLearningDetail::DigestStop(expected)
             );
         }
         for (failure, expected) in [
@@ -3146,5 +3206,94 @@ mod answer_tests {
         for observation in [None, Some(None), Some(Some(observed))] {
             assert_eq!(kept_answer(false, observation, Some(&payload)), None);
         }
+    }
+}
+
+#[cfg(test)]
+mod pane_snapshot_retry_tests {
+    use super::{CallerProbeFailure, observe_pane_snapshot_with};
+    use std::time::{Duration, Instant};
+    use tmt_adapters::host::HostError;
+    use tmt_core::{
+        endpoint::{EndpointSnapshot, PaneObservation, ServerEvidence},
+        host::HostKind,
+    };
+
+    fn test_server() -> ServerEvidence {
+        ServerEvidence {
+            host: HostKind::Tmux,
+            server_id: "test-server".into(),
+            socket_path: "/tmp/tmux-test".into(),
+            server_pid: 100,
+            server_start_time: "start".into(),
+        }
+    }
+
+    fn empty_snapshot() -> EndpointSnapshot {
+        EndpointSnapshot {
+            server: test_server(),
+            panes: Vec::new(),
+        }
+    }
+
+    fn snapshot_with_pane(id: &str) -> EndpointSnapshot {
+        EndpointSnapshot {
+            server: test_server(),
+            panes: vec![PaneObservation {
+                id: id.into(),
+                target: Some("s:0.0".into()),
+                cwd: Some("/tmp".into()),
+                command: "sh".into(),
+                pane_pid: 4242,
+                pane_incarnation: None,
+                suggested_name: None,
+                marker: None,
+                location: None,
+                agent_name: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn pane_appears_on_second_snapshot_and_succeeds() {
+        let mut attempts = 0usize;
+        let deadline = Instant::now() + Duration::from_millis(200);
+        let (snapshot, pane) = observe_pane_snapshot_with("%1", deadline, |_| {
+            attempts += 1;
+            if attempts == 1 {
+                Ok(empty_snapshot())
+            } else {
+                Ok(snapshot_with_pane("%1"))
+            }
+        })
+        .expect("pane should be found on second attempt");
+        assert_eq!(attempts, 2);
+        assert_eq!(pane.id, "%1");
+        assert_eq!(snapshot.panes.len(), 1);
+    }
+
+    #[test]
+    fn pane_never_appears_and_fails_at_deadline() {
+        let mut attempts = 0usize;
+        let deadline = Instant::now() + Duration::from_millis(25);
+        let result = observe_pane_snapshot_with("%1", deadline, |_| {
+            attempts += 1;
+            Ok(empty_snapshot())
+        });
+        assert_eq!(result, Err(CallerProbeFailure::PaneMissing));
+        assert!(attempts >= 2);
+        assert!(Instant::now() >= deadline);
+    }
+
+    #[test]
+    fn permanent_snapshot_error_does_not_retry() {
+        let mut attempts = 0usize;
+        let deadline = Instant::now() + Duration::from_millis(200);
+        let result = observe_pane_snapshot_with("%1", deadline, |_| {
+            attempts += 1;
+            Err(HostError::Unavailable("fake".into()))
+        });
+        assert_eq!(result, Err(CallerProbeFailure::Snapshot));
+        assert_eq!(attempts, 1);
     }
 }
