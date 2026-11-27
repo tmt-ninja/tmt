@@ -6170,11 +6170,11 @@ test('the rail shows the same items in the same order on every page', async () =
     for (const path of ['/', '/remote/', '/remote/settings', '/digest/', '/settings/']) {
       await page.goto(`${origin}${path}`);
       const items = page.locator('.tmt-ui-rail .tmt-ui-rail-item');
-      await expect(items).toHaveCount(7);
+      await expect(items).toHaveCount(6);
       rails.push(await items.evaluateAll((nodes) => nodes.map((node) => node.dataset.id!)));
     }
     for (const rail of rails)
-      expect(rail).toEqual(['home', 'colab', 'design', 'remote', 'ops', 'digest', 'settings']);
+      expect(rail).toEqual(['home', 'colab', 'design', 'remote', 'digest', 'settings']);
   } finally {
     await page.close();
   }
@@ -6677,7 +6677,7 @@ for (const family of ['/design', '/studio']) {
         await rail
           .locator('.tmt-ui-rail-item')
           .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-id'))),
-      ).toEqual(['home', 'colab', 'design', 'remote', 'ops', 'digest', 'settings']);
+      ).toEqual(['home', 'colab', 'design', 'remote', 'digest', 'settings']);
       await expect(rail.locator('[data-id="design"]')).toHaveAttribute('aria-current', 'page');
       await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
       expect(imports).toBe(1);
