@@ -271,6 +271,37 @@ mod tests {
     }
 
     #[test]
+    fn transcript_run_opens_the_prefilled_form_without_sending_pty_input() {
+        use crate::board::standalone::Task as RunTask;
+
+        let command = "printf '%s' 'one quoted value'";
+        let mut app = reader(&format!("Please run `! {command}`."));
+        let press = |app: &mut App, code| app.key(KeyEvent::new(code, KeyModifiers::NONE));
+        press(&mut app, KeyCode::Right);
+        press(&mut app, KeyCode::Enter);
+        let labels: Vec<_> = app
+            .menu
+            .as_ref()
+            .expect("the command menu opens")
+            .entries
+            .iter()
+            .filter(|entry| entry.label.starts_with("Run"))
+            .map(|entry| entry.label.as_str())
+            .collect();
+        assert_eq!(labels, ["Run…"]);
+
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Standalone(RunTask::Target(MEMBER.into()))
+        );
+        assert!(app.terminals.offer(&[], None, 0).is_none());
+        assert!(app.standalone.shown());
+        let screen = draw(&app, 120, 40);
+        assert!(screen.contains("Run command"));
+        assert!(screen.contains(command));
+    }
+
+    #[test]
     fn selecting_and_opening_command_mentions_is_inert_then_run_queues_the_exact_command() {
         let mut app = reader("Please run `! printf '%s' 'one quoted value'` then `! pwd`.");
         let hits: Vec<_> = app
