@@ -32,7 +32,7 @@ pub(in crate::board) fn desired_height(app: &App, width: u16, surface: &Surface)
         session.observe_context(app, &target, row);
     }
     if refresh == Refresh::Current || session.needs_outgoing_prepare() {
-        session.prepare(usize::from(width), app.look(), &app.references);
+        session.prepare_app(usize::from(width), app.look(), app);
     }
     let waiting = (session.outgoing.is_empty() || session.tail.is_some())
         && session.reply.as_ref().is_some_and(|reply| {
@@ -117,7 +117,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
     // Derived from the settled time at paint: a held reply keeps its true age.
     let header = Rect { height: 0, ..area };
     let rebuilt = (refresh == Refresh::Current || session.needs_outgoing_prepare())
-        && session.prepare(usize::from(area.width), look, &app.references);
+        && session.prepare_app(usize::from(area.width), look, app);
     // The Send now chip owns the last row while Core says the newest own message can go now.
     let send_now = session.send_now_request().map(str::to_owned);
     let chip_rows = u16::from(send_now.is_some() && area.height >= 3);

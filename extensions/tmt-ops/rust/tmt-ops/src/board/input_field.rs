@@ -158,15 +158,25 @@ pub(in crate::board) fn paint(
                     Span::styled(start, key),
                     Span::styled(format!(" to message {}", caption.recipient()), muted),
                 ]);
-                for (symbol, description) in [
-                    ("@", " mention an agent"),
-                    ("#", " reference a checklist item"),
+                for (symbol, descriptions) in [
+                    ("@", &[" mention an agent"][..]),
+                    (
+                        "#",
+                        &[
+                            " reference work or a checklist item",
+                            " reference work or checklist",
+                            " work or checklist",
+                        ][..],
+                    ),
                 ] {
-                    if (symbol == "#" && !checklist)
-                        || line.width() + description.len() + 4 > usize::from(editor.width)
-                    {
+                    if symbol == "#" && !checklist {
                         break;
                     }
+                    let Some(description) = descriptions.iter().copied().find(|description| {
+                        line.width() + description.len() + 4 <= usize::from(editor.width)
+                    }) else {
+                        break;
+                    };
                     line.spans.extend([
                         Span::styled(" · ", muted),
                         Span::styled(symbol, key),
@@ -253,47 +263,53 @@ mod tests {
                     theme: Theme::new(base),
                     depth,
                 };
-                let area = Rect::new(0, 0, 120, MAX_BOX_ROWS + 1);
-                let mut buffer = Buffer::empty(area);
-                let editor = paint(
-                    &mut buffer,
-                    area,
-                    Caption::Message {
-                        to: "worker",
-                        checklist: true,
-                    },
-                    "⏎",
-                    focused,
-                    Shape {
-                        draft_rows: None,
-                        padded: true,
-                    },
-                    look,
-                );
-                assert_eq!(
-                    background(&buffer[(editor.x, editor.y)]),
-                    background(&buffer[(area.right() - 1, editor.y)]),
-                    "{base:?}/{depth:?}, focused={focused}: a muted placeholder must not change the box fill"
-                );
-                let text: String = (editor.x..editor.right())
-                    .map(|x| buffer[(x, editor.y)].symbol())
-                    .collect();
-                let expected =
-                    "⏎ to message worker · @ mention an agent · # reference a checklist item";
-                assert_eq!(text.trim_end(), expected);
-                for (offset, character) in expected.chars().enumerate() {
-                    assert_eq!(
-                        buffer[(editor.x + offset as u16, editor.y)]
-                            .modifier
-                            .contains(Modifier::BOLD),
-                        matches!(character, '⏎' | '@' | '#'),
+                for expected in [
+                    "⏎ to message worker · @ mention an agent · # reference work or a checklist item",
+                    "⏎ to message worker · @ mention an agent · # reference work or checklist",
+                    "⏎ to message worker · @ mention an agent · # work or checklist",
+                    "⏎ to message worker · @ mention an agent",
+                ] {
+                    let area =
+                        Rect::new(0, 0, expected.chars().count() as u16 + 4, MAX_BOX_ROWS + 1);
+                    let mut buffer = Buffer::empty(area);
+                    let editor = paint(
+                        &mut buffer,
+                        area,
+                        Caption::Message {
+                            to: "worker",
+                            checklist: true,
+                        },
+                        "⏎",
+                        focused,
+                        Shape {
+                            draft_rows: None,
+                            padded: true,
+                        },
+                        look,
                     );
-                }
-                let placeholder = &buffer[(editor.x + 2, editor.y)];
-                let padding = &buffer[(area.right() - 1, editor.y)];
-                if padding.modifier.contains(Modifier::REVERSED) {
-                    assert_eq!(placeholder.bg, padding.bg, "keep the inverted text ink");
-                    assert!(placeholder.modifier.contains(Modifier::DIM));
+                    assert_eq!(
+                        background(&buffer[(editor.x, editor.y)]),
+                        background(&buffer[(area.right() - 1, editor.y)]),
+                        "{base:?}/{depth:?}, focused={focused}: a muted placeholder must not change the box fill"
+                    );
+                    let text: String = (editor.x..editor.right())
+                        .map(|x| buffer[(x, editor.y)].symbol())
+                        .collect();
+                    assert_eq!(text.trim_end(), expected);
+                    for (offset, character) in expected.chars().enumerate() {
+                        assert_eq!(
+                            buffer[(editor.x + offset as u16, editor.y)]
+                                .modifier
+                                .contains(Modifier::BOLD),
+                            matches!(character, '⏎' | '@' | '#'),
+                        );
+                    }
+                    let placeholder = &buffer[(editor.x + 2, editor.y)];
+                    let padding = &buffer[(area.right() - 1, editor.y)];
+                    if padding.modifier.contains(Modifier::REVERSED) {
+                        assert_eq!(placeholder.bg, padding.bg, "keep the inverted text ink");
+                        assert!(placeholder.modifier.contains(Modifier::DIM));
+                    }
                 }
             }
         }

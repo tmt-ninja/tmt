@@ -1324,7 +1324,9 @@ fn checklist_reference_frames(styles: &mut Styles) -> Vec<Value> {
         |_| grid(&[160, 100], &[36]),
         reference_case,
         |captured, app| {
-            if captured["state"] == "notes-reference-menu" {
+            if captured["state"] == "notes-reference-menu"
+                || captured["state"] == "work-reference-menu"
+            {
                 captured["references"] = json!(
                     crate::board::member_links::tests::capture_reference_hits(app)
                 );
@@ -1336,7 +1338,7 @@ fn checklist_reference_frames(styles: &mut Styles) -> Vec<Value> {
 #[test]
 fn checklist_reference_scene_rows_show_the_actual_interactions() {
     let frames = checklist_reference_frames(&mut Styles::default());
-    assert_eq!(frames.len(), 24);
+    assert_eq!(frames.len(), 32);
     for frame in frames {
         let lines = frame["lines"].as_array().unwrap();
         let has_line = |text: &str| {
@@ -1348,7 +1350,14 @@ fn checklist_reference_scene_rows_show_the_actual_interactions() {
             "notes-reference-completion" => &[
                 "#Check release notes (a72c)",
                 "#Verify package (d041)",
-                "Checklist · # ·",
+                "TUI-12 Terminal resize",
+                "TUI-13 Check narrow pane",
+                "Work & Checklist · # ·",
+            ],
+            "work-reference-menu" => &[
+                "Please review #TUI-13 Check narrow pane.",
+                "Open in Colab",
+                "Copy number",
             ],
             "notes-reference-menu" => &[
                 "Please review #Check release notes (a72c).",
@@ -1851,7 +1860,7 @@ macro_rules! oracle_groups {
         $group!(7, 24, checklist_chip_frames($styles));
         $group!(7, 80, add_note_frames($styles));
         $group!(7, 48, checklist_overlay_frames($styles));
-        $group!(7, 24, checklist_reference_frames($styles));
+        $group!(7, 32, checklist_reference_frames($styles));
         $group!(7, 40, one_turn_frames($styles));
         $group!(7, 24, versions_frames($styles));
         $group!(6, 696, new_member_frames($styles));

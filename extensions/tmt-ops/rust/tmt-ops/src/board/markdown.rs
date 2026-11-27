@@ -72,7 +72,9 @@ impl Part {
         matches!(
             &self.member,
             Some((
-                super::member_links::Target::File(_) | super::member_links::Target::Command(_),
+                super::member_links::Target::File(_)
+                    | super::member_links::Target::Command(_)
+                    | super::member_links::Target::Work(_),
                 _
             ))
         )
@@ -587,7 +589,7 @@ pub(super) fn render_with_members<'a>(
     look: crate::look::Look,
     inventory: Option<&'a super::inventory::Inventory>,
 ) -> Mapped {
-    project(text, width, look, inventory, Format::Markdown, false)
+    project(text, width, look, inventory, Format::Markdown, false, None)
 }
 /// Conversation messages keep authored single newlines without rewriting source bytes.
 pub(super) fn render_conversation_with_members<'a>(
@@ -595,6 +597,16 @@ pub(super) fn render_conversation_with_members<'a>(
     width: usize,
     look: crate::look::Look,
     inventory: Option<&'a super::inventory::Inventory>,
+) -> Mapped {
+    render_conversation(text, width, look, inventory, None)
+}
+
+pub(super) fn render_conversation(
+    text: &str,
+    width: usize,
+    look: crate::look::Look,
+    inventory: Option<&super::inventory::Inventory>,
+    work: Option<&super::work::References>,
 ) -> Mapped {
     // Display normalization must never silently rewrite a command that can be submitted.
     let clean = super::notes::sanitize(text);
@@ -605,6 +617,7 @@ pub(super) fn render_conversation_with_members<'a>(
         inventory,
         Format::Message,
         clean == text,
+        work,
     )
 }
 pub(super) fn render_plain_with_members<'a>(
@@ -613,7 +626,15 @@ pub(super) fn render_plain_with_members<'a>(
     look: crate::look::Look,
     inventory: &'a super::inventory::Inventory,
 ) -> Mapped {
-    project(text, width, look, Some(inventory), Format::Plain, false)
+    project(
+        text,
+        width,
+        look,
+        Some(inventory),
+        Format::Plain,
+        false,
+        None,
+    )
 }
 
 /// Discover captions in source order, without reading a list during Markdown layout.
@@ -661,6 +682,113 @@ fn checklist_references(text: &str) -> Vec<SourceReference> {
     references
 }
 
+struct WorkMatch<'a> {
+    range: std::ops::Range<usize>,
+    reference: &'a super::work::Reference,
+}
+
+fn work_references<'a>(text: &str, work: &'a super::work::References) -> Vec<WorkMatch<'a>> {
+    let mut covered = 0;
+    text.match_indices('#')
+        .filter_map(|(start, _)| {
+            if start < covered
+                || text[..start].chars().next_back().is_some_and(|ch| {
+                    ch.is_alphanumeric() || matches!(ch, '#' | '_' | '-' | '/' | '\\')
+                })
+            {
+                return None;
+            }
+            let suffix = &text[start + 1..];
+            let length = suffix
+                .bytes()
+                .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+                .count();
+            let reference = work.get(&suffix[..length])?;
+            let end = start + 1 + length;
+            // A locally sent body already has this caption. Its source range
+            // belongs to the link as well, so the title is painted only once.
+            covered = text[end..]
+                .strip_prefix(" (")
+                .and_then(|tail| tail.strip_prefix(&reference.title))
+                .filter(|tail| tail.starts_with(')'))
+                .map_or(end, |_| end + reference.title.len() + 3);
+            Some(WorkMatch {
+                range: start..covered,
+                reference,
+            })
+        })
+        .collect()
+}
+
+/// Attach titles to Talk references, without rewriting quoted or literal source.
+pub(super) fn expand_work_references(
+    text: String,
+    work: &super::work::References,
+    limit: usize,
+) -> Option<String> {
+    if text.len() > limit {
+        return None;
+    }
+    let mut references = work_references(&text, work);
+    if references.is_empty() {
+        return Some(text);
+    }
+    let events: Vec<_> = Parser::new_ext(&text, MESSAGE_OPTIONS)
+        .into_offset_iter()
+        .collect();
+    files::retain_prose(&mut references, |reference| &reference.range, &events);
+    let mut inert: Vec<_> = events
+        .into_iter()
+        .filter_map(|(event, range)| {
+            matches!(event, Event::Start(Tag::BlockQuote(_))).then_some(range)
+        })
+        .collect();
+    inert.extend(
+        checklist_references(&text)
+            .into_iter()
+            .map(|reference| reference.range),
+    );
+    inert.extend(
+        files::scan(&text)
+            .into_iter()
+            .map(|reference| reference.range),
+    );
+    inert.sort_unstable_by_key(|range| range.start);
+    let (mut next, mut end) = (0, 0);
+    references.retain(|reference| {
+        while next < inert.len() && inert[next].start < reference.range.end {
+            end = end.max(inert[next].end);
+            next += 1;
+        }
+        end <= reference.range.start
+    });
+    let mut length = text.len();
+    for found in &references {
+        length = length - found.range.len()
+            + found.reference.number.len()
+            + found.reference.title.len()
+            + 4;
+        if length > limit {
+            return None;
+        }
+    }
+    let mut expanded = String::with_capacity(length);
+    let mut at = 0;
+    for found in references {
+        expanded.push_str(&text[at..found.range.start]);
+        expanded.push('#');
+        expanded.push_str(&found.reference.number);
+        expanded.push_str(" (");
+        expanded.push_str(&found.reference.title);
+        expanded.push(')');
+        at = found.range.end;
+    }
+    expanded.push_str(&text[at..]);
+    Some(expanded)
+}
+
+const MESSAGE_OPTIONS: Options = Options::ENABLE_TABLES.union(Options::ENABLE_FOOTNOTES);
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Format {
     Markdown,
@@ -675,8 +803,9 @@ fn project<'a>(
     inventory: Option<&'a super::inventory::Inventory>,
     format: Format,
     commands_unchanged: bool,
+    work: Option<&super::work::References>,
 ) -> Mapped {
-    let options = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES;
+    let options = MESSAGE_OPTIONS;
     let mut references = Vec::new();
     if format == Format::Message {
         references.extend(files::scan(text).into_iter().map(|file| SourceReference {
@@ -685,6 +814,16 @@ fn project<'a>(
             target: super::member_links::Target::File(file.path),
         }));
         references.extend(checklist_references(text));
+        if let Some(work) = work {
+            references.extend(work_references(text, work).into_iter().map(|found| {
+                let reference = found.reference;
+                SourceReference {
+                    range: found.range,
+                    label: format!("#{} {}", reference.number, reference.title),
+                    target: super::member_links::Target::Work(reference.number.clone()),
+                }
+            }));
+        }
         // Earlier references own overlapping bytes. At an equal start keep the
         // longer reference, which includes the complete checklist caption.
         references.sort_by_key(|reference| {

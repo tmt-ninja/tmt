@@ -136,7 +136,7 @@ fn wrapped_activity_is_literal_copyable_and_has_no_source_or_acknowledgment_span
     let look = Look::default();
     for width in [160, 100, 80, 60, 20] {
         let inventory = Inventory::default();
-        let rendered = session.timeline_transcript(width, look, &inventory);
+        let rendered = session.timeline_transcript(width, look, &inventory, None);
         if width == 160 {
             assert_eq!(
                 rendered.mapped.lines.len(),

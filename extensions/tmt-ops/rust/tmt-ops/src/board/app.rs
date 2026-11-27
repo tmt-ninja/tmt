@@ -413,6 +413,10 @@ pub enum Choice {
     WorkspaceTarget(super::workspace::OpsTarget),
     /// A click on the Checklist chip of a member's header: opens the list.
     MemberNotes,
+    OpenWorkReference {
+        number: String,
+        target: super::work::OpenTarget,
+    },
     OpenChecklistItem {
         key: super::conversation_checklist::Key,
         id: crate::checklist::model::Id,
@@ -3564,6 +3568,9 @@ impl App {
             Choice::Checklist => self.open_checklist(),
             Choice::RoomChecklist(room) => self.open_room_checklist(room),
             Choice::MemberNotes => self.open_notes(),
+            Choice::OpenWorkReference { number, target } => {
+                self.open_work_reference(&number, &target)
+            }
             Choice::OpenChecklistItem { key, id } => self.open_checklist_item(&key, id),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
@@ -3974,13 +3981,22 @@ impl App {
             .folds()
             .iter()
             .any(|fold| fold.source.start == 0 && input.inline_quotes.contains_key(&fold.id));
-        let text = crate::requests::message::inline_body(
-            row.map(|row| (squad, row)),
-            &input.quoted_message_with(&|id| self.mention_name(id), &|name| {
-                self.skill_sent(&input, name)
-            }),
-            starts_quote,
-        );
+        let mut body = input.quoted_message_with(&|id| self.mention_name(id), &|name| {
+            self.skill_sent(&input, name)
+        });
+        if matches!(input.compose, Compose::Talk { .. })
+            && let Some(work) = self.work.references()
+        {
+            let Some(expanded) = super::markdown::expand_work_references(body, work, MESSAGE_LIMIT)
+            else {
+                return self.say(
+                    "Message including Work titles exceeds 1 MiB; nothing sent. Draft retained.",
+                );
+            };
+            body = expanded;
+        }
+        let mut fallback =
+            crate::requests::message::inline_body(row.map(|row| (squad, row)), &body, starts_quote);
         if input
             .row_send
             .as_ref()
@@ -4030,11 +4046,8 @@ impl App {
                 };
                 Some((send.sender_id.clone()?, recipient, send.name.clone()))
             });
-        let mut fallback = text;
         let mut text = if chat.is_some() {
-            input.quoted_message_with(&|id| self.mention_name(id), &|name| {
-                self.skill_sent(&input, name)
-            })
+            body
         } else {
             fallback.clone()
         };
@@ -4155,6 +4168,7 @@ impl App {
                 super::member_links::Target::File(path) => self.file_popover(&path, anchor),
                 super::member_links::Target::Command(shown) => self.command_popover(&shown, anchor),
                 super::member_links::Target::Member(_)
+                | super::member_links::Target::Work(_)
                 | super::member_links::Target::Checklist(_) => Effect::None,
             };
         }

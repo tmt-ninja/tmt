@@ -724,7 +724,7 @@ fn a_long_run_of_unknown_clocks_builds_in_linear_time() {
             let session = &state.sessions[state.active.as_ref().unwrap()];
             let inventory = crate::board::inventory::Inventory::default();
             let started = std::time::Instant::now();
-            let transcript = session.timeline_transcript(160, Look::default(), &inventory);
+            let transcript = session.timeline_transcript(160, Look::default(), &inventory, None);
             let elapsed = started.elapsed();
             // The painted text, geometry and source map, as one number to compare across builds.
             let mut hasher = std::collections::hash_map::DefaultHasher::new();

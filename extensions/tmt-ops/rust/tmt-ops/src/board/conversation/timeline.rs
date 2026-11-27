@@ -35,6 +35,7 @@ struct Paint<'a> {
     look: Look,
     read_only: bool,
     inventory: &'a crate::board::inventory::Inventory,
+    work: Option<&'a crate::board::work::References>,
     lines: Vec<Line<'static>>,
     mentions: Vec<Vec<crate::board::member_links::Link>>,
     anchors: Vec<String>,
@@ -49,12 +50,18 @@ struct Paint<'a> {
     next_mention: usize,
 }
 impl<'a> Paint<'a> {
-    fn new(width: usize, look: Look, inventory: &'a crate::board::inventory::Inventory) -> Self {
+    fn new(
+        width: usize,
+        look: Look,
+        inventory: &'a crate::board::inventory::Inventory,
+        work: Option<&'a crate::board::work::References>,
+    ) -> Self {
         Self {
             width,
             look,
             read_only: false,
             inventory,
+            work,
             lines: Vec::new(),
             mentions: Vec::new(),
             anchors: Vec::new(),
@@ -155,11 +162,12 @@ impl<'a> Paint<'a> {
         );
     }
     fn body(&mut self, text: &str, muted: bool, note: note_source::Source) -> Range<usize> {
-        let mapped = markdown::render_conversation_with_members(
+        let mapped = markdown::render_conversation(
             text,
             self.width.saturating_sub(exchange_view::BODY_INDENT).max(1),
             self.look,
             Some(self.inventory),
+            self.work,
         );
         let text = sanitize(text);
         let message = self.copy.messages.len();
@@ -334,6 +342,7 @@ impl Session {
         width: usize,
         look: Look,
         inventory: &crate::board::inventory::Inventory,
+        work: Option<&crate::board::work::References>,
     ) -> transcript::RenderedTranscript {
         let empty = match &self.pane_output {
             crate::board::recent_responses::Observation::Observed(page) => model::Page {
@@ -350,7 +359,7 @@ impl Session {
             _ => &empty,
         };
         let context = &self.transcript_context;
-        let mut paint = Paint::new(width, look, inventory);
+        let mut paint = Paint::new(width, look, inventory, work);
         paint.read_only = context.read_only;
         if page.coverage.older_dropped
             && matches!(&self.pane_output, crate::board::recent_responses::Observation::Observed(held) if held.cursor().is_none())

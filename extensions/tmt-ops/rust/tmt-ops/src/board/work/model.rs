@@ -241,11 +241,63 @@ impl Item {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(in crate::board) struct Reference {
+    pub number: String,
+    pub title: String,
+    pub status: Status,
+    pub target: super::OpenTarget,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(in crate::board) struct References(BTreeMap<String, Option<Reference>>);
+
+impl References {
+    fn add(&mut self, number: &str, title: &str, status: Status, page: &str, block: Option<&str>) {
+        let Some((prefix, serial)) = number.split_once('-') else {
+            return;
+        };
+        if !(1..=6).contains(&prefix.len())
+            || !prefix.bytes().all(|ch| ch.is_ascii_alphabetic())
+            || !serial.bytes().all(|byte| byte.is_ascii_digit())
+            || serial.parse::<u64>().ok().is_none_or(|serial| serial == 0)
+        {
+            return;
+        }
+        self.0
+            .entry(number.to_ascii_uppercase())
+            .and_modify(|entry| *entry = None)
+            .or_insert_with(|| {
+                Some(Reference {
+                    number: number.to_ascii_uppercase(),
+                    title: title.to_owned(),
+                    status,
+                    target: super::OpenTarget {
+                        page: page.into(),
+                        block: block.map(str::to_owned),
+                    },
+                })
+            });
+    }
+
+    pub fn get(&self, number: &str) -> Option<&Reference> {
+        if number.len() > 26 {
+            return None;
+        }
+        self.0.get(&number.to_ascii_uppercase())?.as_ref()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Reference> {
+        self.0.values().filter_map(Option::as_ref)
+    }
+}
+
 #[derive(Debug)]
 pub(in crate::board) struct List {
     pub space: String,
     pub projects: Vec<String>,
     pub items: Vec<Item>,
+    pub references: Arc<References>,
     pub missing: usize,
     pub omitted: usize,
     pub has_summary: bool,
@@ -349,12 +401,14 @@ impl List {
             space,
             projects: names(&value["projects"]),
             items: Vec::new(),
+            references: Default::default(),
             missing: 0,
             omitted: 0,
             has_summary: false,
             orders: BTreeMap::new(),
             omitted_orders: Default::default(),
         };
+        let mut references = References::default();
         for page in pages {
             if page["archived"] == true {
                 continue;
@@ -382,6 +436,9 @@ impl List {
             }
             let title = text(&page["title"], 4096).unwrap_or_else(|| "Untitled".into());
             let number = text(&page["workNumber"], 64);
+            if let Some(number) = number.as_deref() {
+                references.add(number, &title, status, id, None);
+            }
             let last = time(&page["lastUpdateAtMs"]);
             let can_open = ["link", "shortLink"].into_iter().any(|key| {
                 page[key]
@@ -430,12 +487,11 @@ impl List {
             }
             let parent = number.as_deref().unwrap_or(&title);
             for todo in todos.into_iter().flatten() {
-                let (Some(block), Some(number), Some(owner), Some(checked)) = (
+                let (Some(block), Some(number), Some(checked)) = (
                     todo["id"]
                         .as_str()
                         .filter(|id| !id.is_empty() && id.len() <= 128 && single_line(id) == *id),
                     text(&todo["number"], 64),
-                    text(&todo["assignee"], 128),
                     todo["checked"].as_bool(),
                 ) else {
                     continue;
@@ -449,11 +505,18 @@ impl List {
                         _ => Status::Discussing,
                     }
                 };
+                let todo_title = text(&todo["text"], 256).unwrap_or_else(|| title.clone());
+                if canonical_identity(block) {
+                    references.add(&number, &todo_title, status, id, Some(block));
+                }
+                let Some(owner) = text(&todo["assignee"], 128) else {
+                    continue;
+                };
                 list.items.push(Item {
                     key: format!("{id}:{block}"),
                     page: id.into(),
                     number: Some(number),
-                    title: text(&todo["text"], 256).unwrap_or_else(|| title.clone()),
+                    title: todo_title,
                     status,
                     needs_you: u64::from(status == Status::NeedsYou),
                     high: false,
@@ -491,6 +554,7 @@ impl List {
             })
             .map(str::to_owned)
             .collect();
+        list.references = Arc::new(references);
         list.items.sort_by(|a, b| a.order().cmp(&b.order()));
         Ok(list)
     }

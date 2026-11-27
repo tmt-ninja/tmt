@@ -1,6 +1,6 @@
 //! One selected-agent conversation for every shell placement. Identity owns
 //! reading state; Scrolls owns the viewport and acquisition stays on the worker.
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use super::{
     app::{App, RowTarget},
@@ -176,7 +176,8 @@ struct Rendered {
     pane_start: Option<usize>,
     width: usize,
     look: Look,
-    identities: Option<std::sync::Arc<()>>,
+    identities: Option<Arc<()>>,
+    work: Option<Arc<super::work::References>>,
     mapped: Mapped,
     anchor_text: super::notes::IndexedText,
     anchor_sources: Vec<usize>,
@@ -446,17 +447,37 @@ impl Session {
         words
     }
 
+    #[cfg(test)]
     fn prepare(
         &mut self,
         width: usize,
         look: Look,
         inventory: &super::inventory::Inventory,
     ) -> bool {
+        self.prepare_with_work(width, look, inventory, None)
+    }
+
+    fn prepare_app(&mut self, width: usize, look: Look, app: &App) -> bool {
+        self.prepare_with_work(width, look, &app.references, app.work.references())
+    }
+
+    fn prepare_with_work(
+        &mut self,
+        width: usize,
+        look: Look,
+        inventory: &super::inventory::Inventory,
+        work: Option<&Arc<super::work::References>>,
+    ) -> bool {
         let identities = Some(std::sync::Arc::clone(&inventory.generation));
         let changed = self.stale
             || self.rendered.as_ref().is_none_or(|rendered| {
                 rendered.width != width
                     || rendered.look != look
+                    || match (rendered.work.as_ref(), work) {
+                        (None, None) => false,
+                        (Some(old), Some(new)) => !Arc::ptr_eq(old, new),
+                        _ => true,
+                    }
                     || match (&rendered.identities, &identities) {
                         (None, None) => false,
                         (Some(old), Some(new)) => !std::sync::Arc::ptr_eq(old, new),
@@ -464,7 +485,8 @@ impl Session {
                     }
             });
         if changed {
-            let transcript = self.timeline_transcript(width, look, inventory);
+            let transcript =
+                self.timeline_transcript(width, look, inventory, work.map(Arc::as_ref));
             let anchor_text = super::notes::IndexedText::new(transcript.anchor_text);
             // Visual rows keep the transcript's source rows for anchors and, through
             // the transcript's own map, for the retained response lines.
@@ -475,6 +497,7 @@ impl Session {
                 width,
                 look,
                 identities,
+                work: work.cloned(),
                 mapped: Mapped {
                     sources: (0..transcript.mapped.lines.len()).collect(),
                     ..transcript.mapped
@@ -1137,7 +1160,7 @@ fn render_target(
     // Acquisition stays held, but a local send/outcome must update that held session.
     // `prepare` clears stale, so repeat Retained paints reuse the same mapped text.
     let rebuilt = (refresh == Refresh::Current || session.needs_outgoing_prepare())
-        && session.prepare(usize::from(body.width), look, &app.references);
+        && session.prepare_app(usize::from(body.width), look, app);
     let mapped = &session.rendered.as_ref().unwrap().mapped;
     let previous = app.scrolls.offset(Pane::Replies);
     if session.follow {

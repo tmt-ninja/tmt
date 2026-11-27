@@ -283,7 +283,9 @@ impl App {
         let (text, title, copy) = match target {
             Target::Url(url) => (url.clone(), "Full link", Choice::LinkCopy(url)),
             Target::File(path) => (path.clone(), "Full path", Choice::FileCopy(path.into())),
-            Target::Member(_) | Target::Checklist(_) | Target::Command(_) => return Effect::None,
+            Target::Member(_) | Target::Work(_) | Target::Checklist(_) | Target::Command(_) => {
+                return Effect::None;
+            }
         };
         let entries: Vec<_> = chunks(&text, LINE)
             .into_iter()
@@ -483,9 +485,11 @@ mod tests {
             .iter()
             .filter_map(|hit| match &hit.target {
                 Target::Url(url) => Some((hit.area, url.clone())),
-                Target::Member(_) | Target::Checklist(_) | Target::File(_) | Target::Command(_) => {
-                    None
-                }
+                Target::Member(_)
+                | Target::Work(_)
+                | Target::Checklist(_)
+                | Target::File(_)
+                | Target::Command(_) => None,
             })
             .collect()
     }
