@@ -42,11 +42,11 @@ struct PrivateTmux {
 
 impl PrivateTmux {
     fn new(label: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
+        let root = if label == "chan" {nix::unistd::mkdtemp("/tmp/tmtp-XXXXXX").unwrap()}else{std::env::temp_dir().join(format!(
             "tmt-pi-{label}-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
+        ))};
         for dir in [
             "home",
             "xdg-config",
@@ -227,7 +227,7 @@ impl PrivateTmux {
         let claimed: i64 = self
             .db()
             .query_row(
-                "SELECT count(*) FROM request_attempts WHERE status = 'claimed'",
+                "SELECT count(*) FROM request_attempts WHERE wake_state = 'claimed'",
                 [],
                 |row| row.get(0),
             )
@@ -832,5 +832,80 @@ done
     assert_ne!(after_turn["digest"], true, "{after_turn:#}");
     tmux.wait_for_received("talk-after-turn");
 
+    tmux.assert_clean_attempts_and_no_dot_pi();
+}
+
+#[test]
+fn enrolled_pi_delivers_original_request_and_fences_a_replaced_session() {
+    let tmux = PrivateTmux::new("chan");
+    let root = &tmux.root;
+    // An actual interpreter named pi remains the foreground and socket peer.
+    let node = Command::new("node").args(["-p", "process.execPath"]).output().unwrap();
+    assert!(node.status.success());
+    let node = PathBuf::from(String::from_utf8(node.stdout).unwrap().trim());
+    let runtime = root.join("runtime");
+    fs::create_dir(&runtime).unwrap();
+    fs::copy(node, runtime.join("pi")).unwrap();
+    let fake = root.join("bin/pi");
+    let script = format!("#!{}\n{}", runtime.join("pi").display(), r#"
+(async()=>{
+  const fs = require('node:fs'), path = require('node:path');
+  if(process.argv.includes('--version')) { console.log('1.6.1'); return; }
+  const root=process.env.TMT_TEST_ROOT;
+  const callbacks=new Map();
+  let session='ace3e386-fa75-4420-a4fd-e377545441c7';
+  const ctx={mode:'tui',isIdle:()=>true,sessionManager:{getSessionId:()=>session}};
+  function emit(name,e){ for(const fn of callbacks.get(name)||[]) fn(e,ctx); }
+  const pi={on(name,fn){if(!callbacks.has(name))callbacks.set(name,[]);callbacks.get(name).push(fn);},
+    registerCommand(){},sendUserMessage(text,options){
+      fs.appendFileSync(path.join(root,'submissions'),JSON.stringify({text,options})+'\n');
+      emit('message_start',{message:{role:'user',content:[{type:'text',text}]}});
+    }};
+  for(let i=2;i<process.argv.length;i++) if(process.argv[i]==='--extension')
+    (await import(require('node:url').pathToFileURL(process.argv[++i]))).default(pi);
+  emit('session_start',{reason:'startup'});
+  fs.writeFileSync(path.join(root,'ready'),'1');
+  process.stdin.on('data',bytes=>{
+    fs.appendFileSync(path.join(root,'input'),bytes);
+    if(bytes.toString().includes('SWITCH')){
+      emit('session_shutdown',{reason:'new'});
+      session='505873ec-e67a-4b7f-83d4-f474334ed029';
+      emit('session_start',{reason:'new'});fs.writeFileSync(path.join(root,'switched'),'1');
+    }
+    if(bytes.toString().includes('QUIT')) process.exit();
+  });
+})().catch(e=>{ console.error(e);process.exitCode=1; });
+"#);
+    tmt_test_support::write_executable(&fake,script.as_bytes(),0o755).unwrap();
+    tmux.tmt_json(&["identity","create","sender","--json"]);
+    tmux.tmt_json(&["config","set","experimental.channel","true","--global","--json"]);
+    let tmt = env!("CARGO_BIN_EXE_tmt");
+    let mut env = support::command(root,&[]);
+    tmux.tmt_env(&mut env);
+    let assignments = env.get_envs().filter_map(|(key,value)|value.map(|v| format!("{}={}",key.to_string_lossy(),quote(v.to_str().unwrap())))).collect::<Vec<_>>().join(" ");
+    let cmd=format!("exec env -i {assignments} {} run --channel pi-worker {} >{} 2>&1",
+        quote(tmt),quote(fake.to_str().unwrap()),quote(root.join("launch").to_str().unwrap()));
+    assert!(tmux.tmux(&["respawn-pane","-k","-t",&tmux.pane_id,&cmd]).status.success());
+    wait_until("Pi handshake and session admission",||{
+        if !root.join("ready").exists(){return false}
+        tmux.db().query_row("SELECT count(*) FROM bindings WHERE runtime_state='running' AND observed_provider_session_id IS NOT NULL",[],|r|r.get::<_,i64>(0)).unwrap()>0
+    });
+    let sent=tmux.tmt_json(&["talk","--identity","sender","--detach","pi-worker","one exact request","--json"]);
+    assert_eq!(sent["status"],"sent","{sent}");
+    let text=fs::read_to_string(root.join("submissions")).unwrap();
+    assert_eq!(text.lines().count(),1);
+    let payload:Value=serde_json::from_str(text.trim()).unwrap();
+    let frame=payload["text"].as_str().unwrap();
+    assert!(frame.contains(sent["requestId"].as_str().unwrap()) && frame.contains("one exact request") && frame.contains("--receipt v2_"));
+    assert_eq!(payload["options"],serde_json::json!({"expandPromptTemplates":false}));
+    assert!(!root.join("input").exists());
+    assert!(tmux.tmux(&["send-keys","-t",&tmux.pane_id,"SWITCH","Enter"]).status.success());
+    wait_until("old endpoint retired",||root.join("switched").exists());
+    let refused=tmux.tmt(&["talk","--identity","sender","--detach","pi-worker","must not paste","--json"]);
+    assert!(!refused.status.success());
+    assert_eq!(fs::read_to_string(root.join("submissions")).unwrap(),text);
+    assert!(!fs::read_to_string(root.join("input")).unwrap().contains("must not paste"));
+    assert!(tmux.tmux(&["send-keys","-t",&tmux.pane_id,"QUIT","Enter"]).status.success());
+    wait_until("lease retired",||fs::read_dir(support::state_dir(root).join("channels/pi")).unwrap().all(|e|e.unwrap().path().extension().is_none_or(|ext| ext!="json" && ext!="sock")));
     tmux.assert_clean_attempts_and_no_dot_pi();
 }

@@ -4,6 +4,7 @@
 
 mod caller;
 mod caller_session;
+mod channel;
 pub mod user_extension;
 
 use crate::process::CommandRunner;
@@ -42,7 +43,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
         session_env: &["PI_CODING_AGENT", "PI_SESSION_ID"],
         driver: || Box::new(PiRuntime),
         lifecycle: || Box::new(PiLifecycle),
-        channel: None,
+        channel: Some(|| Box::new(channel::PiChannel)),
     }),
 };
 
@@ -528,13 +529,26 @@ impl tmt_core::driver::Driver for PiRuntime {
 
     fn send(
         &mut self,
-        _target: &Self::Target,
-        _message: &str,
+        target: &Self::Target,
+        message: &str,
     ) -> tmt_core::driver::ActionResult<
         tmt_core::driver::DeliveryAcceptance,
         tmt_core::driver::SendFailure<Self::Error>,
     > {
-        tmt_core::driver::ActionResult::Unsupported
+        channel::send(target, message, None)
+    }
+
+    fn send_request(
+        &mut self,
+        target: &Self::Target,
+        message: &str,
+        attempt: &str,
+        urgent: bool,
+    ) -> tmt_core::driver::ActionResult<
+        tmt_core::driver::DeliveryAcceptance,
+        tmt_core::driver::SendFailure<Self::Error>,
+    > {
+        channel::send(target, message, Some((attempt, urgent)))
     }
 
     fn resume(

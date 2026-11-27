@@ -377,6 +377,27 @@ pub fn send(
     )
 }
 
+pub fn send_request(
+    storage: &mut Storage,
+    identity: &str,
+    text: &str,
+    attempt: &str,
+    urgent: bool,
+    delay: Duration,
+) -> Result<Attempt, StorageError> {
+    send_messages(
+        storage,
+        identity,
+        None,
+        Messages::Request {
+            text,
+            attempt,
+            urgent,
+        },
+        delay,
+    )
+}
+
 fn send_messages(
     storage: &mut Storage,
     identity: &str,
@@ -537,6 +558,11 @@ struct NoticeAttempt<'a> {
 }
 
 enum Messages<'a> {
+    Request {
+        text: &'a str,
+        attempt: &'a str,
+        urgent: bool,
+    },
     Digest {
         text: &'a str,
         expected: &'a BindingEntry,
@@ -553,7 +579,9 @@ enum Messages<'a> {
 impl Messages<'_> {
     fn rendered(&self) -> std::borrow::Cow<'_, str> {
         match self {
-            Self::Digest { text, .. } => std::borrow::Cow::Borrowed(text),
+            Self::Request { text, .. } | Self::Digest { text, .. } => {
+                std::borrow::Cow::Borrowed(text)
+            }
             Self::Single { host, .. } => std::borrow::Cow::Borrowed(host),
             Self::Notices(attempt) => std::borrow::Cow::Borrowed(&attempt.host_text),
         }
@@ -574,6 +602,17 @@ impl Messages<'_> {
             ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
         };
         let attempt = match self {
+            Self::Request {
+                text,
+                attempt,
+                urgent,
+            } => {
+                return match registry.send_request(harness, entry, text, attempt, *urgent) {
+                    ActionResult::Completed(value) => ActionResult::Completed(value),
+                    ActionResult::Unsupported => ActionResult::Unsupported,
+                    ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
+                };
+            }
             Self::Digest { text, expected } => {
                 if entry != *expected
                     || current(&mut storage.borrow_mut(), &entry.identity.id)
@@ -687,7 +726,7 @@ impl Messages<'_> {
                     .as_ref()
                     == Some(*expected)
             }
-            Self::Single { .. } => true,
+            Self::Single { .. } | Self::Request { .. } => true,
             Self::Notices(attempt) => {
                 let claimed = match storage
                     .borrow_mut()

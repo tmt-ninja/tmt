@@ -164,6 +164,17 @@ pub trait Driver {
         ActionResult::Unsupported
     }
 
+    /// Delivery of a correlated request. Other traffic continues through send.
+    fn send_request(
+        &mut self,
+        target: &Self::Target,
+        message: &str,
+        _attempt: &str,
+        _urgent: bool,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<Self::Error>> {
+        self.send(target, message)
+    }
+
     fn status(&mut self, _target: &Self::Target) -> ActionResult<InterfaceStatus, Self::Error> {
         ActionResult::Unsupported
     }

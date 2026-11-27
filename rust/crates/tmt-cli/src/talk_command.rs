@@ -395,12 +395,19 @@ fn deliver(
             let outcome = if correlation.offline {
                 crate::delivery::Delivery::Offline
             } else if eligible {
-                let attempt = crate::delivery::send(
-                    storage,
-                    &identity.id,
-                    &prepared.payload,
-                    Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
-                )
+                let delay = Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0);
+                let attempt = if input.options.passthrough {
+                    crate::delivery::send(storage, &identity.id, &prepared.payload, delay)
+                } else {
+                    crate::delivery::send_request(
+                        storage,
+                        &identity.id,
+                        &prepared.payload,
+                        &prepared.attempt_id,
+                        input.options.urgent,
+                        delay,
+                    )
+                }
                 .map_err(|error| {
                     Failure::storage_access(
                         error,

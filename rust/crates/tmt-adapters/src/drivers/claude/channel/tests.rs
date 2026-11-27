@@ -910,6 +910,7 @@ fn lease(scratch: &Scratch, owner: &ProcessIncarnation) -> Lease {
         .enroll(&plan(&scratch.0, owner, &command, &server()))
         .unwrap();
     Lease {
+        environment: Vec::new(),
         command: enrolled.command().clone(),
         directory: scratch.0.clone(),
         binding_id: BINDING.into(),

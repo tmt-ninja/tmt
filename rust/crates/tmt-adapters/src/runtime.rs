@@ -325,6 +325,24 @@ impl RuntimeRegistry {
         }
     }
 
+    pub fn send_request(
+        &mut self,
+        harness: &HarnessId,
+        target: &BindingEntry,
+        message: &str,
+        attempt: &str,
+        urgent: bool,
+    ) -> ActionResult<DeliveryAcceptance, SendFailure<RuntimeError>> {
+        match self
+            .registrations
+            .iter_mut()
+            .find(|entry| &entry.harness == harness)
+        {
+            Some(entry) => entry.driver.send_request(target, message, attempt, urgent),
+            None => ActionResult::Unsupported,
+        }
+    }
+
     /// Relaunch resolves the registered bare executable through PATH, without
     /// replaying any previous arguments or executable path.
     pub fn relaunch(&self, harness: &HarnessId) -> Option<RuntimeCommand> {
