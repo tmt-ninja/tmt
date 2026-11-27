@@ -79,6 +79,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
         unread.render(frame, app, body);
     }
     app.render_work_view_dialog(frame, body);
+    app.render_work_talk_dialog(frame, body);
     if let Some(menu) = &app.menu {
         let anchor = menu.anchor;
         let body = if let Some(anchor) = anchor {

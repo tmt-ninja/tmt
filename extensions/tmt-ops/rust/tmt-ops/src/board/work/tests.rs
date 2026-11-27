@@ -592,6 +592,8 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "work-view-collapsed",
     "work-view-save",
     "work-view-manage",
+    "work-talk-open",
+    "work-talk-draft",
 ];
 
 pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
@@ -689,6 +691,14 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
         if scene == "work-stale" {
             app.work
                 .apply(Instant::now(), Err("Colab owner list unavailable.".into()));
+        }
+        if matches!(scene, "work-talk-open" | "work-talk-draft") {
+            key(&mut app, KeyCode::Char('t'));
+            if scene == "work-talk-draft" {
+                for ch in "Check the protocol decision.".chars() {
+                    key(&mut app, KeyCode::Char(ch));
+                }
+            }
         }
         if matches!(
             scene,
@@ -1246,7 +1256,7 @@ fn colab_work_w168_dashboard_search_space_collapse_and_inspector() {
     assert!(!app.work.searching);
     assert!(app.work.search.is_empty());
 
-    // `t` jumps to the bound owner's Talk tab in Agents without leaking Work search.
+    // `t` opens the inline Talk dialog over Work without leaving Work or leaking Work search.
     app.search.insert("worker", 4096);
     key(&mut app, KeyCode::Char('/'));
     for ch in "COLAB-119".chars() {
@@ -1254,8 +1264,8 @@ fn colab_work_w168_dashboard_search_space_collapse_and_inspector() {
     }
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Char('t'));
-    assert_eq!(app.shell.tab, OpsTab::Agents);
-    assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
+    assert_eq!(app.shell.tab, OpsTab::Work);
+    assert_eq!(app.overlay(), Some(crate::board::app::Overlay::WorkTalk));
     assert_eq!(app.search.as_str(), "worker");
     assert_eq!(app.work.search.as_str(), "COLAB-119");
     assert!(matches!(
@@ -1263,12 +1273,13 @@ fn colab_work_w168_dashboard_search_space_collapse_and_inspector() {
         Some(crate::board::workspace::OpsTarget::Member { identity_id, .. }) if identity_id == MEMBER
     ));
 
-    // If the Agents filter would hide the bound member, `t` clears it so the member is selected.
-    key(&mut app, KeyCode::Char('2'));
+    // `Tab` inside the WorkTalk dialog jumps to full Agents › Talk (clearing filter if needed).
     app.search.clear();
     app.search.insert("no-such-agent", 4096);
-    key(&mut app, KeyCode::Char('t'));
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.overlay(), None);
     assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
     assert!(app.search.is_empty());
     assert!(matches!(
         &app.workspace.selected,
@@ -1518,5 +1529,140 @@ fn colab_work_renders_boxed_panes_and_needs_you_preview() {
         focused_lines
             .iter()
             .any(|l| l.contains("┏ Detail · COLAB-119"))
+    );
+}
+
+#[test]
+fn work_talk_dialog_sends_only_to_bound_member_and_preserves_work_state() {
+    let now = 1_800_000_000_000_u64;
+    let document = owner_list(now);
+    let mut app = board();
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    let key = |app: &mut App, code: KeyCode| app.key(KeyEvent::new(code, KeyModifiers::NONE));
+    key(&mut app, KeyCode::Char('2'));
+    let selected_work = app.work.selected.clone();
+
+    // Open WorkTalk on COLAB-119 (bound to MEMBER = "worker").
+    assert_eq!(key(&mut app, KeyCode::Char('t')), Effect::None);
+    assert_eq!(app.shell.tab, OpsTab::Work);
+    assert_eq!(app.overlay(), Some(crate::board::app::Overlay::WorkTalk));
+    assert_eq!(app.work.selected, selected_work);
+
+    // Render dialog: centered Talk · worker with border note and no work strip inside.
+    let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let rendered: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(120)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("Talk · worker"), "{rendered}");
+    assert!(
+        rendered.contains("from COLAB-119 · Esc back to Work"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("▸ Work"), "{rendered}");
+
+    // Type a draft and test Esc preserves draft + Work state.
+    for ch in "hello draft".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert_eq!(app.overlay(), None);
+    assert_eq!(app.shell.tab, OpsTab::Work);
+    assert_eq!(app.work.selected, selected_work);
+
+    // Reopen with t: draft is restored; Tab opens full Agents › Talk and keeps draft.
+    assert_eq!(key(&mut app, KeyCode::Char('t')), Effect::None);
+    assert_eq!(
+        app.composer_projection()
+            .and_then(|p| p.text)
+            .map(|t| t.as_str().to_owned()),
+        Some("hello draft".to_owned())
+    );
+    assert_eq!(key(&mut app, KeyCode::Tab), Effect::None);
+    assert_eq!(app.overlay(), None);
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
+    assert_eq!(
+        app.composer_projection()
+            .and_then(|p| p.text)
+            .map(|t| t.as_str().to_owned()),
+        Some("hello draft".to_owned())
+    );
+
+    // Back to Work, reopen with t, and press Enter -> sends only to bound member via Request::Talk.
+    key(&mut app, KeyCode::Char('2'));
+    assert_eq!(key(&mut app, KeyCode::Char('t')), Effect::None);
+    let effect = key(&mut app, KeyCode::Enter);
+    assert!(
+        matches!(
+            &effect,
+            Effect::Act(crate::board::app::Request::Talk { to, text, .. })
+                if to == "worker" && text.contains("hello draft")
+        ),
+        "expected Request::Talk to bound member worker, got {effect:?}"
+    );
+}
+
+#[test]
+fn work_talk_no_owner_shows_notice_and_no_dialog() {
+    let now = 1_800_000_000_000_u64;
+    let document = owner_list(now);
+    let mut app = board();
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    let key = |app: &mut App, code: KeyCode| app.key(KeyEvent::new(code, KeyModifiers::NONE));
+    key(&mut app, KeyCode::Char('2'));
+    app.work.selected = Some(UNCHECKED.into());
+    assert_eq!(key(&mut app, KeyCode::Char('t')), Effect::None);
+    assert_eq!(app.overlay(), None);
+    assert_eq!(app.shell.tab, OpsTab::Work);
+    assert!(app.notice.is_some());
+}
+
+#[test]
+fn the_work_talk_dialog_follows_the_close_rule() {
+    let now = 1_800_000_000_000_u64;
+    let document = owner_list(now);
+    let mut app = board();
+    app.work
+        .apply(Instant::now(), List::decode(&document).map_err(Into::into));
+    let key = |app: &mut App, code: KeyCode| app.key(KeyEvent::new(code, KeyModifiers::NONE));
+    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('t'));
+    assert_eq!(app.overlay(), Some(crate::board::app::Overlay::WorkTalk));
+    for ch in "keep me".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    // Outside press closes Overlay::WorkTalk and preserves draft.
+    app.mouse(
+        ratatui::crossterm::event::MouseEvent {
+            kind: ratatui::crossterm::event::MouseEventKind::Down(
+                ratatui::crossterm::event::MouseButton::Left,
+            ),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        },
+        Instant::now(),
+    );
+    assert_eq!(app.overlay(), None);
+    key(&mut app, KeyCode::Char('t'));
+    assert_eq!(
+        app.composer_projection()
+            .and_then(|p| p.text)
+            .map(|t| t.as_str().to_owned()),
+        Some("keep me".to_owned())
     );
 }

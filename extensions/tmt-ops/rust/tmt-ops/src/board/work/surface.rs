@@ -26,7 +26,7 @@ use crate::board::{
 };
 use crate::config::WorkView;
 
-use super::{Item, List, Progress, Status, ViewDialog, ViewSelection, age_label};
+use super::{Item, List, Progress, Status, ViewDialog, ViewSelection, WorkTalkDialog, age_label};
 
 #[derive(Clone, Debug)]
 pub(in crate::board) enum Hit {
@@ -1799,26 +1799,41 @@ impl App {
             return Effect::None;
         }
         if let Hit::Talk(key) = hit {
-            let target = self
+            let resolved = self
                 .work
                 .list
                 .as_ref()
                 .and_then(|list| list.items.iter().find(|item| item.key == key))
                 .and_then(|item| {
-                    self.workspace_snapshot()
-                        .and_then(|snapshot| item.owner_target(&snapshot.roster))
+                    let snapshot = self.workspace_snapshot()?;
+                    let target = item.owner_target(&snapshot.roster)?;
+                    let item_label = item.number.as_deref().unwrap_or(&item.title).to_owned();
+                    let owner_name = item
+                        .owner_name(Some(&snapshot.roster))
+                        .unwrap_or("member")
+                        .to_owned();
+                    Some((target, item_label, owner_name))
                 });
-            if let Some(target) = target {
-                self.work.searching = false;
-                self.workspace.selected = Some(target.clone());
-                self.show_conversation_of(&target);
-                if !self.search.is_empty()
-                    && !self.workspace_rows().iter().any(|row| row.target == target)
-                {
-                    super::super::search_field::clear(&mut self.search, &mut self.searching);
-                    self.workspace.selected = Some(target);
-                    self.workspace_reconcile();
-                }
+            let Some((target, item_label, owner_name)) = resolved else {
+                return self.say("Selected work item has no bound squad member.");
+            };
+            self.work.searching = false;
+            let prev_selected = self.workspace.selected.clone();
+            self.workspace.selected = Some(target.clone());
+            self.workspace_reconcile();
+            self.work.talk_dialog = Some(WorkTalkDialog {
+                item_key: key,
+                item_label,
+                owner_name,
+                target: target.clone(),
+                prev_selected,
+            });
+            self.invalidate_frame_geometry();
+            if let Some(send) =
+                self.send_target(crate::board::app::RowTarget::Workspace(target), false)
+            {
+                let squad = self.target_squad(&send.target).unwrap_or_default();
+                return self.compose_row(send, crate::action::Verb::Talk, squad);
             }
             return Effect::None;
         }
@@ -1999,6 +2014,147 @@ impl App {
             next,
             saved: format!("Saved view \"{name}\"."),
         })
+    }
+
+    pub(in crate::board) fn work_talk_close(&mut self) {
+        self.remember_draft();
+        self.input = None;
+        if let Some(dialog) = self.work.talk_dialog.take() {
+            self.workspace.selected = dialog.prev_selected;
+            self.workspace_reconcile();
+        }
+        self.invalidate_frame_geometry();
+    }
+
+    pub(in crate::board) fn work_talk_key(&mut self, key: KeyEvent) -> Effect {
+        match key.code {
+            KeyCode::Esc => {
+                self.work_talk_close();
+                Effect::None
+            }
+            KeyCode::Tab => {
+                if let Some(dialog) = self.work.talk_dialog.take() {
+                    self.remember_draft();
+                    self.workspace.selected = Some(dialog.target.clone());
+                    self.show_conversation_of(&dialog.target);
+                    if !self.search.is_empty()
+                        && !self
+                            .workspace_rows()
+                            .iter()
+                            .any(|row| row.target == dialog.target)
+                    {
+                        super::super::search_field::clear(&mut self.search, &mut self.searching);
+                        self.workspace.selected = Some(dialog.target);
+                        self.workspace_reconcile();
+                    }
+                    self.invalidate_frame_geometry();
+                }
+                Effect::None
+            }
+            _ => self.input_key(key),
+        }
+    }
+
+    pub(in crate::board) fn work_talk_mouse(&mut self, _mouse: MouseEvent) -> Option<Effect> {
+        None
+    }
+
+    pub(in crate::board) fn render_work_talk_dialog(&self, frame: &mut Frame, body: Rect) {
+        use tmt_tui::components::{Modal, Placement};
+        let Some(dialog) = &self.work.talk_dialog else {
+            return;
+        };
+        if body.width < 20 || body.height < 10 {
+            return;
+        }
+        let look = self.look();
+        let modal = Modal {
+            title: String::new(),
+            placement: Placement::Body,
+        };
+        let demand = [
+            body.width.saturating_sub(6).clamp(20, 104),
+            body.height.saturating_sub(4).clamp(10, 28),
+        ];
+        let areas = modal.areas(body, demand, true, false);
+        modal.paint_flat(areas, frame.buffer_mut(), &look.theme, look.depth);
+        let note = Line::styled(
+            format!(" from {} · Esc back to Work ", dialog.item_label),
+            look.role(Role::Dim),
+        );
+        let outline = Outline {
+            title: Line::raw(format!(" Talk · {} ", dialog.owner_name)),
+            border: look.role(Role::Accent),
+            title_style: look.role(Role::Accent).add_modifier(Modifier::BOLD),
+        };
+        outline.paint_noted(
+            areas.outer,
+            frame.buffer_mut(),
+            OutlineFrame::Thick,
+            Some(&note),
+            ascii_mode(self),
+        );
+        self.peek_areas
+            .set(crate::board::app::Overlay::WorkTalk, Some(areas.outer));
+
+        let inner_box = outline.inner(areas.outer);
+        let inner = if inner_box.width > 2 {
+            Rect::new(
+                inner_box.x + 1,
+                inner_box.y,
+                inner_box.width - 2,
+                inner_box.height,
+            )
+        } else {
+            inner_box
+        };
+        if inner.height < 3 || inner.is_empty() {
+            return;
+        }
+        let footer_y = inner.bottom() - 1;
+        let content = Rect::new(inner.x, inner.y, inner.width, inner.height - 1);
+        let input_rows = if self.composer_projection().is_some() {
+            self.composer_rows(
+                content.width,
+                crate::board::input_field::padded(frame.area().height),
+            )
+            .min(content.height.saturating_sub(1))
+        } else {
+            0
+        };
+        let gap = u16::from(input_rows > 0 && content.height > input_rows + 1);
+        let transcript_h = content.height.saturating_sub(input_rows + gap);
+        let transcript_area = Rect::new(content.x, content.y, content.width, transcript_h);
+        if !transcript_area.is_empty() {
+            let surface = crate::board::conversation::exchange::Surface {
+                target: crate::board::app::RowTarget::Workspace(dialog.target.clone()),
+                interactive: true,
+            };
+            crate::board::conversation::exchange::render(frame, self, transcript_area, &surface);
+        }
+        if input_rows > 0 {
+            let composer_band = Rect::new(
+                content.x,
+                content.bottom() - input_rows,
+                content.width,
+                input_rows,
+            );
+            self.input_band.set(Some(composer_band));
+            crate::board::view::waiting::inline_prompt(frame, self, content);
+        } else {
+            self.input_band.set(None);
+        }
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(inner.x, footer_y, inner.width, 1),
+            Line::styled(
+                fit(
+                    "⏎ Send   Tab Open full Talk   Esc Back to Work",
+                    usize::from(inner.width),
+                ),
+                look.role(Role::Muted),
+            ),
+        );
     }
 
     pub(in crate::board) fn render_work_view_dialog(&self, frame: &mut Frame, body: Rect) {

@@ -738,6 +738,7 @@ pub(super) enum Overlay {
     EstimateBasis,
     OrchestrationWhy,
     Unread,
+    WorkTalk,
     WorkViews,
     Discovery,
     MemberSession,
@@ -754,7 +755,7 @@ pub(super) enum Overlay {
 }
 impl Overlay {
     #[cfg(test)]
-    pub(super) const ALL: [Self; 27] = [
+    pub(super) const ALL: [Self; 28] = [
         Self::Workspace,
         Self::Recovery,
         Self::Help,
@@ -770,6 +771,7 @@ impl Overlay {
         Self::EstimateBasis,
         Self::OrchestrationWhy,
         Self::Unread,
+        Self::WorkTalk,
         Self::Discovery,
         Self::MemberSession,
         Self::Notes,
@@ -813,6 +815,7 @@ impl Overlay {
                 Self::PastePreview => "paste-preview",
                 Self::OfflineResume => "offline-resume",
                 Self::Standalone => "run-command",
+                Self::WorkTalk => "work-talk",
                 Self::WorkViews => "work-views",
             }
             .into(),
@@ -4298,6 +4301,8 @@ impl App {
             Some(Overlay::OrchestrationWhy)
         } else if self.unread_overlay.is_some() {
             Some(Overlay::Unread)
+        } else if self.work.talk_dialog.is_some() {
+            Some(Overlay::WorkTalk)
         } else if self.work.view_dialog.is_some() {
             Some(Overlay::WorkViews)
         } else if self.switch_tool_shown() {
@@ -4460,6 +4465,11 @@ impl App {
             Overlay::CronReview => self.cron_review_event(event),
             Overlay::Confirm => self.confirm_event(event),
             Overlay::MonitorDetails => self.monitor_details_event(event),
+            Overlay::WorkTalk => match event {
+                ratatui::crossterm::event::Event::Key(key) => Some(self.work_talk_key(*key)),
+                ratatui::crossterm::event::Event::Mouse(mouse) => self.work_talk_mouse(*mouse),
+                _ => None,
+            },
             Overlay::WorkViews => match event {
                 ratatui::crossterm::event::Event::Key(key) => {
                     Some(self.work_view_dialog_key(*key).unwrap_or(Effect::None))

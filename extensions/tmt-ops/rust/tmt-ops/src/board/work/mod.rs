@@ -62,6 +62,15 @@ pub(in crate::board) enum ViewDialog {
     },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::board) struct WorkTalkDialog {
+    pub item_key: String,
+    pub item_label: String,
+    pub owner_name: String,
+    pub target: crate::board::workspace::OpsTarget,
+    pub prev_selected: Option<crate::board::workspace::OpsTarget>,
+}
+
 #[derive(Debug, Default)]
 pub(in crate::board) struct State {
     pub list: Option<List>,
@@ -86,6 +95,7 @@ pub(in crate::board) struct State {
     pub view_dialog: Option<ViewDialog>,
     pub view_draft_name: String,
     pub view_draft_default: bool,
+    pub talk_dialog: Option<WorkTalkDialog>,
     pub expanded: std::collections::BTreeSet<Option<String>>,
     pub hits: RefCell<Vec<(Rect, surface::Hit)>>,
     order_pending: bool,
