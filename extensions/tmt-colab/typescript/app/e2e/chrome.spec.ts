@@ -1,7 +1,10 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtempSync } from 'node:fs';
+import { access, mkdir, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fittingCharacters } from './header-title.js';
 import { expect, test, type Page } from '@playwright/test';
 import tokens from '../../../../../design/tokens/tokens.json' with { type: 'json' };
@@ -27,7 +30,9 @@ const captureDirectory =
   process.env.COLAB_CHROME_CAPTURE_DIR ??
   fileURLToPath(new URL('../test-results/chrome-captures/', import.meta.url));
 const run = promisify(execFile);
+const nativeResponses = ['private', 'recovery', 'public-recovery', 'owner', 'css'];
 let nativeDirectory: string;
+let nativeFixture: ReturnType<typeof run> | undefined;
 
 test.beforeAll(async () => {
   const executable = process.env.COLAB_CHROME_FIXTURE_EXECUTABLE;
@@ -39,20 +44,30 @@ test.beforeAll(async () => {
     'Needs the native chrome fixture: build the socket test and set COLAB_CHROME_FIXTURE_EXECUTABLE',
   );
   if (!executable) return;
-  nativeDirectory = await mkdtemp('/tmp/colab-chrome-');
+  nativeDirectory = mkdtempSync(join(tmpdir(), 'colab-chrome-'));
+  const fixture = run(executable, ['--exact', 'chrome_browser_responses', '--ignored'], {
+    env: { ...process.env, COLAB_CHROME_FIXTURE_DIR: nativeDirectory },
+    maxBuffer: 65536,
+  });
+  nativeFixture = fixture;
+  // The native test supplies the responses and verifies its own socket teardown before exiting.
+  // Playwright bounds this hook, and afterAll reaps the child if the hook is interrupted.
   try {
-    await run(executable, ['--exact', 'chrome_browser_responses', '--ignored'], {
-      env: { ...process.env, COLAB_CHROME_FIXTURE_DIR: nativeDirectory },
-      timeout: 10000,
-      maxBuffer: 65536,
-    });
-    await mkdir(captureDirectory, { recursive: true });
+    await fixture;
   } catch (error) {
-    await rm(nativeDirectory, { recursive: true, force: true });
-    throw error;
+    const { signalCode, exitCode } = fixture.child;
+    const outcome = signalCode ? `signal ${signalCode}` : `exit code ${exitCode ?? 'unavailable'}`;
+    throw new Error(`Native chrome fixture failed (${outcome})`, { cause: error });
   }
+  await Promise.all(nativeResponses.map((name) => access(join(nativeDirectory, `${name}.json`))));
+  await mkdir(captureDirectory, { recursive: true });
 });
 test.afterAll(async () => {
+  if (nativeFixture) {
+    const { child } = nativeFixture;
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await nativeFixture.catch(() => undefined);
+  }
   if (nativeDirectory) await rm(nativeDirectory, { recursive: true, force: true });
 });
 
