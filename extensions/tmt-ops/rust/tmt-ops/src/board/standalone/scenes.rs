@@ -275,6 +275,71 @@ fn standalone_command_form_and_running_screen_show_content_with_their_buttons() 
 }
 
 #[test]
+fn run_window_is_centered_and_escape_leaves_the_run_stoppable() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut app = capture("run-command-running", crate::look::Look::default());
+    let mut screen = Terminal::new(TestBackend::new(100, 36)).unwrap();
+    screen
+        .draw(|frame| app.standalone.render(frame, &app, frame.area()))
+        .unwrap();
+    let outer = app.standalone.outer();
+    assert!(!outer.is_empty());
+    assert!(u16::abs_diff(2 * outer.x + outer.width, 100) <= 1);
+    assert!(u16::abs_diff(2 * outer.y + outer.height, 36) <= 1);
+    let text: String = screen
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains("worker · /work/core-ops-spinner"));
+    assert!(text.contains("Stop"));
+
+    assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.standalone.shown());
+    assert!(app.standalone.running());
+    assert_eq!(press(&mut app, KeyCode::Char('!')), Effect::None);
+    assert!(app.standalone.shown());
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+        Effect::Standalone(Task::Stop)
+    );
+}
+
+#[test]
+fn run_window_result_reports_exit_and_duration_and_defaults_to_close() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    for close in [KeyCode::Enter, KeyCode::Esc] {
+        let mut app = capture("run-command-result", crate::look::Look::default());
+        let mut screen = Terminal::new(TestBackend::new(100, 36)).unwrap();
+        screen
+            .draw(|frame| app.standalone.render(frame, &app, frame.area()))
+            .unwrap();
+        let text: String = screen
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        for expected in ["✓ exited 0 after 41s", "Keep in list", "Run again", "Close"] {
+            assert!(text.contains(expected), "missing {expected:?}");
+        }
+
+        assert_eq!(
+            press(&mut app, close),
+            Effect::Standalone(Task::Discard),
+            "{close:?} closes the finished run"
+        );
+        assert!(!app.standalone.shown());
+        assert!(app.standalone.page.is_none());
+    }
+}
+
+#[test]
 fn standalone_command_follows_a_pool_member_into_its_visible_squad() {
     use crate::board::app::workspace::tests::{MEMBER, ROOM};
     let mut app = capture("run-command-kept", crate::look::Look::default());
