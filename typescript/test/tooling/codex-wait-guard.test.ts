@@ -100,12 +100,23 @@ type Run = {
   ms: number;
 };
 
-function newCase() {
+/**
+ * A case with its own HOME and TMPDIR. Its key cache starts filled (#6877): the guard's Keychain
+ * read has a 500 ms bound, and spawning the fake `security` on a loaded runner can exceed it, so
+ * the first judged call would lose its key and send no request. Cases about the Keychain or the
+ * cache itself pass `{ keyCached: false }` and start with an empty cache.
+ */
+function newCase({ keyCached = true }: { keyCached?: boolean } = {}) {
   const dir = mkdtempSync(path.join(root, 'case-'));
   // The key cache lives under this case's own TMPDIR, never the host's.
   const tmp = path.join(dir, 'tmp');
   mkdirSync(tmp);
   writeFileSync(path.join(dir, 'keychain'), KEY);
+  if (keyCached) {
+    // The layout the guard's own cacheKey() writes: a private directory and a 0600 file.
+    mkdirSync(path.join(tmp, CACHE), { mode: 0o700 });
+    writeFileSync(path.join(tmp, CACHE, 'key'), KEY, { mode: 0o600 });
+  }
   const logDir = path.join(dir, 'state', 'tmt');
   received = [];
   const run = (
@@ -832,7 +843,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       ['timeout', () => {}, {}],
     ];
     for (const [reason, respond, environment] of cases) {
-      const c = newCase();
+      const c = newCase({ keyCached: !environment.NO_KEY });
       if (environment.NO_KEY) rmSync(path.join(c.dir, 'keychain'));
       answer = respond;
       const result = await c.guard(
@@ -863,7 +874,8 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       'http://10.0.0.1/v1',
       'not a url',
     ]) {
-      const c = newCase();
+      // An empty cache, so the absent security.log below proves the Keychain was not read.
+      const c = newCase({ keyCached: false });
       answer = verdict('deny');
       const result = await c.guard(bash('sleep 600'), {
         TMT_WAIT_GUARD_URL: override,
@@ -881,7 +893,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
   });
 
   it('caches the key privately, and re-reads the Keychain once on a 401', async () => {
-    const c = newCase();
+    const c = newCase({ keyCached: false });
     answer = verdict('allow');
     await c.guard(bash('timeout 60 make build'));
     await c.guard(bash('timeout 60 make build'));
