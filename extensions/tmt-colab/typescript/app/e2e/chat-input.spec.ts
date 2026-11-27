@@ -60,6 +60,17 @@ test('a refused recovery write leaves the owner message in the composer', async 
   expect((await run(page, 'proof')).createChats).toBe(0);
 });
 
+test('an oversized UTF-8 message is refused before storage or publication', async ({ page }) => {
+  const input = await composer(page, { agents: ['Solo'], pending: 'hold' });
+  const body = 'é'.repeat(8193);
+  await input.fill(body);
+  await input.press('Enter');
+  await expect(page.getByRole('alert')).toContainText('Not sent.');
+  await expect(input).toHaveText(body);
+  expect((await run(page, 'proof')).pendingCalls).toBe(0);
+  expect((await run(page, 'proof')).createChats).toBe(0);
+});
+
 test('an owner message remains editable while recovery storage settles', async ({ page }) => {
   const input = await composer(page, { agents: ['Solo'], pending: 'hold' });
   await input.fill('Wait for storage.');

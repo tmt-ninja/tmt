@@ -38,6 +38,7 @@ import {
   type MessageSendReference,
   type MessageSendStage,
 } from './message-send-refusal.js';
+import { byteLength } from './closed.js';
 import { text } from './strings.js';
 import { CommentSendFailures } from './comment-send-failures.js';
 import { NoticeLine } from './components/notice-line.js';
@@ -49,6 +50,7 @@ import { captureConversation } from './thread-store.js';
 import { PendingMessageContext } from './draft-store.js';
 import {
   anchorContext,
+  COMMENT_BYTES,
   type DiscussionRef,
   type ThreadAnchor,
   type ThreadView,
@@ -411,8 +413,9 @@ export function AnnotationInput({
       ownsSend = true;
       setFailures([]);
       setBusy(true);
+      const oversized = byteLength(captured.value) > COMMENT_BYTES;
       retained = fromUnsentRow ? unsentRef.current?.retained : undefined;
-      if (pendingMessages && !retained) {
+      if (!oversized && pendingMessages && !retained) {
         // The echo may replace the composer only after its text is recoverable on reload.
         window.addEventListener('beforeunload', warnBeforeLeaving);
         setRetention('pending');
@@ -453,6 +456,12 @@ export function AnnotationInput({
         echoHost.show(echoed);
         setEchoing(true);
         if (sameComposerContent(current, latestEdit.current)) clearDraft();
+      }
+      // Oversized text cannot reach the discussion writer or its encrypted recovery store.
+      // It still gets the same local failed row and Edit path as a refused comment record.
+      if (oversized) {
+        fail('S12');
+        return;
       }
       stage = 'attachments';
       const prepared = await files.prepare();
