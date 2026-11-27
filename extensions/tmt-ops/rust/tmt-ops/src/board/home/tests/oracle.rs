@@ -1186,6 +1186,20 @@ fn link_popover_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+fn fence_copy_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::member_links::tests::FENCE_SCENES,
+        |_| grid(&[160, 100], &[36]),
+        crate::board::member_links::tests::capture_fence_case,
+        |frame, app| {
+            frame["references"] = json!(crate::board::member_links::tests::capture_reference_hits(
+                app
+            ));
+        },
+    )
+}
+
 fn link_file_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
         styles,
@@ -1896,6 +1910,7 @@ macro_rules! oracle_groups {
         $group!(7, 88, terminal_tab_frames($styles));
         $group!(7, 48, member_terminals_frames($styles));
         $group!(7, 40, standalone_command_frames($styles));
+        $group!(7, 24, fence_copy_frames($styles));
         $group!(7, 36, member_nesting_frames($styles));
         $group!(8, 36, offline_resume_frames($styles));
         $group!(8, 16, settings_keys_frames($styles));

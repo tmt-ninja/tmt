@@ -165,6 +165,19 @@ pub(super) fn resolve(text: &str, inventory: &Inventory) -> Vec<Resolved> {
     found
 }
 
+/// A fence in a retained transcript projection. Rebuilding that projection revokes
+/// its identities, so a late clipboard result cannot mark a newly admitted fence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FenceKey(u64);
+
+impl FenceKey {
+    pub(super) fn next() -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
 /// What a painted reference stands for: a member, address, inert path or command.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Target {
@@ -174,6 +187,20 @@ pub(super) enum Target {
     Url(String),
     File(String),
     Command(commands::Command),
+    FenceCopy {
+        key: FenceKey,
+        text: std::sync::Arc<str>,
+    },
+    FenceRun {
+        key: FenceKey,
+        command: String,
+    },
+}
+
+impl Target {
+    fn fence_button(&self) -> bool {
+        matches!(self, Self::FenceCopy { .. } | Self::FenceRun { .. })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -254,6 +281,7 @@ pub(super) struct State {
     pressed: Option<(Hit, ratatui::layout::Position, bool)>,
     screen: Rect,
     hovered: Option<Hit>,
+    copied_fence: Option<(FenceKey, std::time::Instant)>,
     inventory: Option<std::sync::Arc<()>>,
     cache: Vec<Cached>,
     /// The opened link's checklist entry survives Show full and a background transcript refresh.
@@ -496,6 +524,11 @@ pub(super) fn paint_hits(
                 // Bind to the first painted fragment, the same one keyboard cycling uses.
                 state.focused = Some(hit.clone());
             }
+            if hit.target.fence_button() {
+                paint_fence_button(frame, app, &state, &hit, focused);
+                state.hits.push(hit);
+                continue;
+            }
             for x in hit.area.x..hit.area.right() {
                 let hover = state
                     .hovered
@@ -529,6 +562,38 @@ pub(super) fn paint_hits(
                 });
             }
             state.hits.push(hit);
+        }
+    }
+}
+
+fn paint_fence_button(frame: &mut Frame, app: &App, state: &State, hit: &Hit, focused: bool) {
+    let look = app.look();
+    let buffer = frame.buffer_mut();
+    let copied = matches!(hit.target, Target::FenceCopy { key, .. }
+        if state.copied_fence.is_some_and(|(copied, _)| copied == key));
+    if copied {
+        let caption = if hit.area.width >= 8 {
+            "✓ copied"
+        } else {
+            "✓"
+        };
+        let background = look
+            .role(tmt_cli_style::Role::Code)
+            .patch(look.role(tmt_cli_style::Role::Track));
+        let style = background.patch(look.role(tmt_cli_style::Role::Working));
+        for x in hit.area.x..hit.area.right() {
+            buffer.set_string(x, hit.area.y, " ", style);
+        }
+        buffer.set_string(
+            hit.area.right() - caption.chars().count() as u16,
+            hit.area.y,
+            caption,
+            style,
+        );
+    }
+    if focused && !copied {
+        for x in hit.area.x..hit.area.right() {
+            buffer[(x, hit.area.y)].set_style(look.selection());
         }
     }
 }
@@ -745,6 +810,25 @@ impl App {
     }
 
     fn open_member_link(&mut self, hit: Hit) -> Effect {
+        match &hit.target {
+            Target::FenceCopy { key, text } => {
+                return Effect::Act(super::app::Request::Copy {
+                    text: text.to_string(),
+                    program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
+                    feedback: super::app::CopyFeedback::Fence(*key),
+                });
+            }
+            Target::FenceRun { command, .. } => {
+                let Some(target) = self
+                    .terminals_owner()
+                    .and_then(|id| self.member_link_target(id))
+                else {
+                    return self.say("Select a member before opening Run.");
+                };
+                return self.command_form(&target, command);
+            }
+            _ => {}
+        }
         if let Target::Command(shown) = &hit.target {
             return self.command_popover(shown, hit.area);
         }
@@ -892,7 +976,10 @@ impl App {
                     .cloned();
                 self.member_links.borrow_mut().pressed = None;
                 let hit = hit?;
-                if hit.reader && self.rendered_selection_at(point) {
+                if hit.target.fence_button() {
+                    self.member_links.borrow_mut().pressed = Some((hit, point, false));
+                    Some(Effect::None)
+                } else if hit.reader && self.rendered_selection_at(point) {
                     // A conversation link remains clickable, but the first drag
                     // must select its rendered name rather than open a menu.
                     self.member_links.borrow_mut().pressed = Some((hit, point, false));
@@ -901,15 +988,23 @@ impl App {
                     Some(self.open_member_link(hit))
                 }
             }
-            MouseEventKind::Drag(MouseButton::Left) => {
-                if let Some((_, start, dragged)) = &mut self.member_links.borrow_mut().pressed {
-                    *dragged |= point != *start;
+            MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Moved => {
+                if let Some((hit, start, dragged)) = &mut self.member_links.borrow_mut().pressed
+                    && (hit.target.fence_button()
+                        || event.kind == MouseEventKind::Drag(MouseButton::Left))
+                {
+                    *dragged |= point != *start
+                        || (hit.target.fence_button()
+                            && event.kind == MouseEventKind::Drag(MouseButton::Left));
                 }
                 None
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                let (mut hit, _, dragged) = self.member_links.borrow_mut().pressed.take()?;
-                if dragged || !hit.area.contains(point) {
+                let (mut hit, start, dragged) = self.member_links.borrow_mut().pressed.take()?;
+                if dragged
+                    || !hit.area.contains(point)
+                    || (hit.target.fence_button() && start != point)
+                {
                     return None;
                 }
                 let current = self
@@ -1083,6 +1178,23 @@ impl App {
             _ => None,
         }
     }
+    pub(super) fn fence_copied(&mut self, key: FenceKey, lines: usize, now: std::time::Instant) {
+        self.member_links.borrow_mut().copied_fence =
+            Some((key, now + std::time::Duration::from_secs(2)));
+        let unit = if lines == 1 { "line" } else { "lines" };
+        self.finished(Ok(format!("Copied {lines} {unit}.")));
+    }
+
+    pub(super) fn expire_fence_copy(&self, now: std::time::Instant) -> bool {
+        let mut state = self.member_links.borrow_mut();
+        if state.copied_fence.is_some_and(|(_, until)| now >= until) {
+            state.copied_fence = None;
+            true
+        } else {
+            false
+        }
+    }
+
     pub(super) fn member_link_action(&mut self, target: &OpsTarget, jump: bool) -> Effect {
         if !self.member_link_valid(target) {
             return self.say(

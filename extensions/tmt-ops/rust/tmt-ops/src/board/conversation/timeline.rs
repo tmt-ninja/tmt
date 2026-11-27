@@ -186,6 +186,69 @@ impl<'a> Paint<'a> {
             Some(anchor),
         );
     }
+    fn fence_strip(&mut self, fence: markdown::Fence) {
+        use crate::board::member_links::{FenceKey, Link, Target};
+        use unicode_width::UnicodeWidthStr;
+
+        let Some(text) = fence.body else { return };
+        let width = self.width.saturating_sub(exchange_view::BODY_INDENT).max(1);
+        let key = FenceKey::next();
+        let code = self
+            .look
+            .role(Role::Code)
+            .patch(self.look.role(Role::Track));
+        let keycap = code.patch(self.look.role(Role::Keycap));
+        let copy = if width >= 8 { "  ⎘ copy" } else { "⎘" };
+        let copy_width = copy.width();
+        let run = fence
+            .command
+            .filter(|_| width >= copy_width + "▶ Run…  ".width());
+        let run_width = run.as_ref().map_or(0, |_| "▶ Run…  ".width());
+        let left = width - copy_width - run_width;
+        let language = if !fence.language.is_empty() && fence.language.width() + 1 < left {
+            format!(" {}", fence.language)
+        } else {
+            String::new()
+        };
+        let mut spans = vec![
+            Span::styled(language.clone(), code.patch(self.look.role(Role::Dim))),
+            Span::styled(" ".repeat(left - language.width()), code),
+        ];
+        let mut links = Vec::new();
+        if let Some(command) = run {
+            spans.push(Span::styled("▶ Run…", keycap));
+            spans.push(Span::styled("  ", code));
+            links.push(Link {
+                column: exchange_view::BODY_INDENT + left,
+                width: "▶ Run…".width(),
+                target: Target::FenceRun { key, command },
+                occurrence: 0,
+                source: None,
+            });
+        }
+        spans.push(Span::styled(copy, keycap));
+        links.push(Link {
+            column: exchange_view::BODY_INDENT + left + run_width,
+            width: copy_width,
+            target: Target::FenceCopy {
+                key,
+                text: Arc::from(text),
+            },
+            occurrence: 0,
+            source: None,
+        });
+        self.line(
+            exchange_view::body(Line::from(spans), self.look),
+            links,
+            None,
+            &note_source::Source::Unavailable,
+            Some("code block controls".into()),
+        );
+        let row = self.copy.rows.last_mut().unwrap();
+        row.chrome = true;
+        row.shown.clear();
+    }
+
     fn body(&mut self, text: &str, muted: bool, note: note_source::Source) -> Range<usize> {
         let mapped = markdown::render_conversation(
             text,
@@ -207,6 +270,7 @@ impl<'a> Paint<'a> {
             .max()
             .unwrap_or(0);
         let mut code_origins = mapped.code_origins.into_iter().peekable();
+        let mut fences = mapped.fences.into_iter().peekable();
         for (index, ((line, mut links), source)) in mapped
             .lines
             .into_iter()
@@ -214,6 +278,9 @@ impl<'a> Paint<'a> {
             .zip(mapped.sources)
             .enumerate()
         {
+            if let Some((_, fence)) = fences.next_if(|(row, _)| *row == index) {
+                self.fence_strip(fence);
+            }
             let shown = line.to_string();
             let mut line = exchange_view::body(line, self.look);
             if muted {
@@ -255,6 +322,7 @@ impl<'a> Paint<'a> {
                 sources: (0..count).collect(),
                 mentions: self.mentions,
                 code_origins: Vec::new(),
+                fences: Vec::new(),
             },
             anchor_text: self.anchors.join("\n"),
             timeline_spans: self.bodies,

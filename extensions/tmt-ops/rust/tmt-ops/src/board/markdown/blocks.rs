@@ -6,8 +6,33 @@ use unicode_width::UnicodeWidthStr;
 const CONTINUATION: &str = "↪";
 
 impl Renderer<'_> {
-    pub(super) fn code_block(&mut self, range: std::ops::Range<usize>) {
+    pub(super) fn code_block(&mut self, range: std::ops::Range<usize>, kind: CodeBlockKind<'_>) {
         self.skip_until = range.end;
+        if self.preserve_breaks
+            && let CodeBlockKind::Fenced(info) = kind
+        {
+            let language = super::super::notes::single_line(&info);
+            let language = language
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            let command = self
+                .commands
+                .get(self.next_command)
+                .filter(|reference| !reference.console && reference.range.start == range.start)
+                .filter(|reference| tmt_pty_protocol::valid_command(&reference.command.text))
+                .map(|reference| reference.command.text.clone());
+            self.fences.push((
+                self.blocks.len(),
+                Fence {
+                    language,
+                    range: range.clone(),
+                    body: None,
+                    command,
+                },
+            ));
+        }
         let style = self
             .look
             .role(Role::Code)
@@ -199,6 +224,121 @@ impl Renderer<'_> {
             used += bytes;
             if used >= line.len() {
                 break;
+            }
+        }
+    }
+}
+
+/// The parser gives the exact source offsets of code text even when it strips container
+/// prefixes or represents CRLF as a separate LF event. Work from those offsets, never the
+/// normalized event text. A top-level fence keeps even the indentation hidden by Markdown.
+fn source_bodies(source: &str) -> Vec<(std::ops::Range<usize>, String)> {
+    let mut bodies = Vec::new();
+    let mut fence = None;
+    let mut containers = 0;
+    for (event, span) in Parser::new_ext(source, MESSAGE_OPTIONS).into_offset_iter() {
+        match event {
+            Event::Start(Tag::BlockQuote(_) | Tag::Item) => containers += 1,
+            Event::End(TagEnd::BlockQuote(_) | TagEnd::Item) => containers -= 1,
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_))) => {
+                let start = source[span.clone()]
+                    .find('\n')
+                    .map(|offset| span.start + offset + 1);
+                fence = Some((span, start, start, String::new()));
+            }
+            Event::Text(_) => {
+                if let Some((_, _, end, body)) = &mut fence {
+                    let mut start = span.start;
+                    if source.as_bytes().get(start) == Some(&b'\n')
+                        && start > 0
+                        && source.as_bytes()[start - 1] == b'\r'
+                    {
+                        start -= 1;
+                    }
+                    *end = Some(span.end);
+                    if containers > 0 {
+                        body.push_str(&source[start..span.end]);
+                    }
+                }
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some((span, start, end, mut body)) = fence.take() {
+                    if containers == 0
+                        && let Some((start, end)) = start.zip(end)
+                    {
+                        body.push_str(&source[start..end]);
+                    }
+                    bodies.push((span, body));
+                }
+            }
+            _ => {}
+        }
+    }
+    bodies
+}
+
+pub(super) fn recover_bodies(fences: &mut [(usize, Fence)], source: &str, clean: &str) {
+    let originals = source_bodies(source);
+    let display = if source == clean {
+        originals
+            .iter()
+            .map(|(span, _)| span.clone())
+            .collect::<Vec<_>>()
+    } else {
+        let projected = source_bodies(clean);
+        if projected.len() != originals.len()
+            || originals
+                .iter()
+                .zip(&projected)
+                .any(|((_, raw), (_, shown))| {
+                    super::super::notes::sanitize(raw) != super::super::notes::sanitize(shown)
+                })
+        {
+            return;
+        }
+        projected.into_iter().map(|(span, _)| span).collect()
+    };
+    let mut bodies = display.into_iter().zip(originals).peekable();
+    for (_, fence) in fences {
+        while bodies
+            .peek()
+            .is_some_and(|(range, _)| range.start < fence.range.start)
+        {
+            bodies.next();
+        }
+        if let Some((_, (_, body))) = bodies.next_if(|(range, _)| range == &fence.range) {
+            fence.body = Some(body);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fences_preserve_source_payload_and_line_identity_across_wraps() {
+        for (source, payload, language, first) in [
+            (
+                "```rust\n  a long code line  \n\n  b\n```\n",
+                "  a long code line  \n\n  b\n",
+                "rust",
+                1,
+            ),
+            ("  ```\r\n   x  \r\n  ```\r\n", "   x  \r\n", "", 1),
+            ("> ```text\n> x  \n>   y\n> ```\n", "x  \n  y\n", "text", 1),
+            ("~~~\n  x", "  x", "", 1),
+        ] {
+            for width in [5, 80] {
+                let mapped =
+                    render_conversation(source, width, crate::look::Look::default(), None, None);
+                let [(row, fence)] = &mapped.fences[..] else {
+                    panic!("one strip for {source:?}")
+                };
+                assert_eq!(fence.body.as_deref(), Some(payload), "{source:?}");
+                assert_eq!(fence.language, language);
+                assert_eq!(mapped.sources[*row], first);
+                assert_eq!(mapped.lines.len(), mapped.sources.len());
             }
         }
     }

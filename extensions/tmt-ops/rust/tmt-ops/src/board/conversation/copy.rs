@@ -20,11 +20,18 @@ pub(super) struct Map {
     pub rows: Vec<Row>,
 }
 
+impl Map {
+    pub fn is_chrome(&self, row: usize) -> bool {
+        self.rows.get(row).is_some_and(|row| row.chrome)
+    }
+}
+
 pub(super) struct Row {
     pub at: Option<At>,
     pub shown: String,
     origins: Vec<Origin>,
     pub code_origin: Option<Origin>,
+    pub chrome: bool,
 }
 
 impl Row {
@@ -33,6 +40,7 @@ impl Row {
             at,
             shown,
             code_origin: None,
+            chrome: false,
             origins: links
                 .iter()
                 .filter_map(|link| link.source.clone())
@@ -65,6 +73,10 @@ pub(super) fn passage(map: &Map, selected: &Selected) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut line = first;
     while line <= last {
+        if map.is_chrome(line) {
+            line += 1;
+            continue;
+        }
         let Some(start) = map.rows.get(line).and_then(|row| row.at) else {
             parts.push(shown(selected, line));
             line += 1;
@@ -72,13 +84,17 @@ pub(super) fn passage(map: &Map, selected: &Selected) -> String {
         };
         // A run of displayed lines of one message is copied as the source lines it covers.
         let (mut low, mut high, mut end) = (start.line, start.line, line);
-        while end < last
-            && let Some(next) = map.rows.get(end + 1).and_then(|row| row.at)
-            && next.message == start.message
-        {
+        while end < last {
+            let next_row = (end + 1..=last).find(|row| !map.is_chrome(*row));
+            let Some((index, next)) = next_row
+                .and_then(|index| map.rows.get(index)?.at.map(|at| (index, at)))
+                .filter(|(_, at)| at.message == start.message)
+            else {
+                break;
+            };
             low = low.min(next.line);
             high = high.max(next.line);
-            end += 1;
+            end = index;
         }
         let text = &map.messages[start.message];
         let head = (line == first)

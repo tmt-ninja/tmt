@@ -303,7 +303,11 @@ impl App {
                 "Full command",
                 Choice::CommandCopy(command),
             ),
-            Target::Member(_) | Target::Work(_) | Target::Checklist(_) => {
+            Target::Member(_)
+            | Target::Work(_)
+            | Target::Checklist(_)
+            | Target::FenceCopy { .. }
+            | Target::FenceRun { .. } => {
                 return Effect::None;
             }
         };
@@ -529,7 +533,9 @@ mod tests {
                 | Target::Work(_)
                 | Target::Checklist(_)
                 | Target::File(_)
-                | Target::Command(_) => None,
+                | Target::Command(_)
+                | Target::FenceCopy { .. }
+                | Target::FenceRun { .. } => None,
             })
             .collect()
     }
