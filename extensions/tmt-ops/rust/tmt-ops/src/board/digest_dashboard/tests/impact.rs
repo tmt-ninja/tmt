@@ -600,7 +600,7 @@ fn money_never_skips_an_unfit_context_field() {
             member["savings"]["estimatedInputTokensAvoided"] =
                 serde_json::json!(1_000_000_000_000_000u64);
             member["savings"]["cost"]["usdMicros"] = serde_json::json!(0);
-            member["savings"]["cost"]["usdMicrosPerMillionInputTokens"] = serde_json::json!(0);
+            member["savings"]["cost"]["usdMicrosPerMillion"]["input"] = serde_json::json!(0);
             member["savings"]["percent"] = serde_json::Value::Null;
             member
         })

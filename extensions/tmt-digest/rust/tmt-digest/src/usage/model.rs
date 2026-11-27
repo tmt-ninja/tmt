@@ -2,9 +2,13 @@
 //! Nothing here reads Core, a store or the clock, and missing evidence is
 //! carried as unavailable, never as zero.
 
+mod costs;
 mod providers;
 
-use crate::{core::Error, pricing::Resolved};
+use crate::{
+    core::Error,
+    pricing::{Resolved, Table},
+};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -78,6 +82,8 @@ impl Tokens {
 pub struct ModelTotals {
     model_id: String,
     tokens: Tokens,
+    /// Core's cache-write count, a subset of input; None when Core reported none.
+    cache_write: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -298,12 +304,26 @@ fn models(bucket: &Value, totals: Tokens) -> Result<Option<Vec<ModelTotals>>, Er
         let model_id = row["modelId"]
             .as_str()
             .ok_or_else(|| invalid("consumption attribution"))?;
+        let cache_write = match &row["cacheWriteTokens"] {
+            Value::Null => None,
+            count => Some(
+                number(count)
+                    .filter(|n| {
+                        tokens
+                            .cached
+                            .checked_add(*n)
+                            .is_some_and(|sum| sum <= tokens.input)
+                    })
+                    .ok_or_else(|| invalid("consumption attribution"))?,
+            ),
+        };
         sum = sum
             .add(tokens)
             .ok_or_else(|| invalid("consumption attribution"))?;
         parsed.push(ModelTotals {
             model_id: model_id.to_owned(),
             tokens,
+            cache_write,
         });
     }
     // Rows may cover only part of the bucket, never more than it.
@@ -716,6 +736,7 @@ fn seat_json(seat: &Seat) -> Value {
         "lines": seat_lines(seat),
         "byModel": seat.by_model.as_ref().map(|models| models.iter().map(|model| {
             let mut row = model.tokens.json();
+            row["cacheWrite"] = json!(model.cache_write);
             row["modelId"] = json!(model.model_id);
             row
         }).collect::<Vec<_>>()),
@@ -767,18 +788,27 @@ fn unavailable_json(row: &Unavailable) -> Value {
 /// The `usage`, `limits` and `limitsUnavailable` sections.
 pub fn usage_sections(
     usage: &Usage,
+    prices: &Table,
     as_of_ms: u64,
 ) -> Result<(Value, Vec<Value>, Vec<Value>), Error> {
     let grouped = lines(&usage.seats)?;
+    let (models, line_costs) = costs::section(&usage.seats, prices, as_of_ms)?;
     let answers = usage.accounts.as_deref().unwrap_or_default();
     let section = json!({
         "seats": usage.seats.iter().map(seat_json).collect::<Vec<_>>(),
         "unavailable": usage.unavailable.iter().map(unavailable_json).collect::<Vec<_>>(),
         "otherSessions": other_sessions(),
-        "lines": grouped.iter().map(|(name, line)| json!({
-            "line": name, "totals": line.tokens.json(),
-            "seats": line.seats.len(), "partialSeats": line.partial.len(),
-        })).collect::<Vec<_>>(),
+        "models": models,
+        "lines": grouped.iter().map(|(name, line)| {
+            let mut row = json!({
+                "line": name, "totals": line.tokens.json(),
+                "seats": line.seats.len(), "partialSeats": line.partial.len(),
+            });
+            for (key, field) in line_costs.get(name).and_then(Value::as_object).into_iter().flatten() {
+                row[key] = field.clone();
+            }
+            row
+        }).collect::<Vec<_>>(),
     });
     Ok((
         section,
@@ -948,7 +978,8 @@ fn credits(seats: &[Seat]) -> Value {
 }
 
 pub fn document(report: &Report) -> Result<Value, Error> {
-    let (mut usage, limits, unavailable) = usage_sections(&report.usage, report.as_of_ms)?;
+    let (mut usage, limits, unavailable) =
+        usage_sections(&report.usage, report.pricing.table(), report.as_of_ms)?;
     let (providers, unattributed) =
         providers::section(&report.usage.seats, report.pricing.table(), report.as_of_ms)?;
     usage["providers"] = json!(providers);

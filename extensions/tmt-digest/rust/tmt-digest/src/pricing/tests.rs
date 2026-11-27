@@ -2,7 +2,7 @@
 //! server and a private directory; nothing here touches the network.
 
 use super::{
-    BUILT_IN, Lookup, Resolved, Table, built_in, cache,
+    BUILT_IN, Lookup, Resolved, Table, Tokens, built_in, cache,
     fetch::{self, Target},
 };
 use serde_json::{Value, json};
@@ -104,7 +104,7 @@ impl Server {
     }
 
     fn target(&self) -> Target {
-        Target::local(format!("http://{}/pricing-v1.json", self.address))
+        Target::local(format!("http://{}/pricing-v2.json", self.address))
     }
 }
 impl Drop for Server {
@@ -122,6 +122,18 @@ fn reply(stream: &mut TcpStream, status: &str, extra: &str, body: &[u8]) {
     let _ = stream.write_all(body);
 }
 
+/// The old single-class call shape: `n` tokens of uncached input, as the quote's JSON.
+trait QuoteInput {
+    fn quote_input(&self, model: &str, observed_at: u64, n: u64) -> Option<Value>;
+}
+impl QuoteInput for Table {
+    fn quote_input(&self, model: &str, observed_at: u64, n: u64) -> Option<Value> {
+        self.quote(model, observed_at, Tokens::uncached_input(n))
+            .ok()
+            .map(|quote| quote.json().clone())
+    }
+}
+
 fn base() -> Value {
     serde_json::from_str(BUILT_IN).unwrap()
 }
@@ -137,10 +149,16 @@ fn edited(edit: impl FnOnce(&mut Value)) -> Vec<u8> {
 /// A later version with one changed price.
 fn newer() -> Value {
     let mut file = base();
-    file["version"] = json!("2026-11-20");
-    file["asOf"] = json!("2026-11-20");
-    file["models"][0]["usdMicrosPerMillionInputTokens"] = json!(5_000_000);
+    file["version"] = json!("2026-12-01");
+    file["models"][0]["usdMicrosPerMillion"]["input"] = json!(5_000_000);
     file
+}
+/// An older version: no row may be verified after its file's version.
+fn backdate(file: &mut Value, date: &str) {
+    file["version"] = json!(date);
+    for row in file["models"].as_array_mut().unwrap() {
+        row["asOf"] = json!(date);
+    }
 }
 fn table(file: &Value) -> Table {
     Table::parse(&bytes(file)).unwrap()
@@ -158,7 +176,7 @@ fn price(resolved: &Resolved, model: &str) -> u64 {
         .unwrap()
         .iter()
         .find(|row| row["modelId"] == model)
-        .unwrap()["usdMicrosPerMillionInputTokens"]
+        .unwrap()["usdMicrosPerMillion"]["input"]
         .as_u64()
         .unwrap()
 }
@@ -166,9 +184,9 @@ fn price(resolved: &Resolved, model: &str) -> u64 {
 #[test]
 fn the_embedded_file_is_the_documented_table() {
     let document = Resolved::built_in().document();
-    assert_eq!(document["version"], "2026-11-15");
-    assert_eq!(document["asOf"], "2026-11-15");
-    assert_eq!(document["basis"], "standard-base-input");
+    assert_eq!(document["version"], "2026-11-27");
+    assert_eq!(document["asOf"], "2026-11-27");
+    assert_eq!(document["basis"], "standard-list");
     assert_eq!(document["origin"], "built-in");
     assert!(document.get("fetchedAtMs").is_none());
     let models: Vec<_> = document["models"]
@@ -177,6 +195,7 @@ fn the_embedded_file_is_the_documented_table() {
         .iter()
         .map(|row| row["modelId"].as_str().unwrap())
         .collect();
+    // A dated row follows the row it replaces.
     assert_eq!(
         models,
         [
@@ -186,28 +205,39 @@ fn the_embedded_file_is_the_documented_table() {
             "gpt-6-sol",
             "gpt-6.1-sol",
             "gpt-6.1-terra",
+            "gpt-6.2-sol",
+            "gpt-6.2-astra",
             "gemini-3-flash-preview",
             "gemini-3.1-flash-lite",
             "gemini-3.1-pro-preview",
             "gemini-3.5-flash-lite",
             "gemini-3.6-flash",
+            "gemini-3.6-flash",
+            "gemini-3.8-flash",
             "gemini-3.8-flash",
             "gemini-4-argon",
+            "gemini-4-argon",
+            "gemini-3.8-flash-low",
             "gemini-3.8-flash-low",
             "gemini-3.8-flash-medium",
+            "gemini-3.8-flash-medium",
+            "gemini-3.8-flash-high",
             "gemini-3.8-flash-high",
             "gemini-4-argon-low",
+            "gemini-4-argon-low",
             "gemini-4-argon-medium",
+            "gemini-4-argon-medium",
+            "gemini-4-argon-high",
             "gemini-4-argon-high",
             "gemini-4-hydrogen",
             "gemini-4-hydrogen-low",
             "gemini-4-hydrogen-medium",
             "gemini-4-hydrogen-high",
-            "codex-auto-review"
+            "codex-auto-review",
         ]
     );
     // The file on disk is what the build embeds; the release asset is checked against it.
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../pricing/pricing-v1.json");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../pricing/pricing-v2.json");
     assert_eq!(fs::read_to_string(path).unwrap(), BUILT_IN);
     assert_eq!(built_in(), &Table::parse(BUILT_IN.as_bytes()).unwrap());
 }
@@ -215,30 +245,95 @@ fn the_embedded_file_is_the_documented_table() {
 #[test]
 fn every_malformed_file_is_dropped() {
     let text = BUILT_IN.to_owned();
-    let price_key = "usdMicrosPerMillionInputTokens";
     let cases: Vec<(&str, Vec<u8>)> = vec![
         ("extra top-level key", edited(|f| f["extra"] = json!(1))),
         (
             "missing key",
             edited(|f| {
-                f.as_object_mut().unwrap().remove("asOf");
+                f["models"][0].as_object_mut().unwrap().remove("asOf");
             }),
         ),
         (
             "wrong schema",
-            edited(|f| f["schema"] = json!("tmt-digest-pricing-v2")),
+            edited(|f| f["schema"] = json!("tmt-digest-pricing-v1")),
         ),
         (
             "impossible date",
             edited(|f| f["version"] = json!("2026-02-30")),
         ),
-        ("month 13", edited(|f| f["asOf"] = json!("2026-13-01"))),
+        (
+            "month 13",
+            edited(|f| f["models"][0]["asOf"] = json!("2026-13-01")),
+        ),
         ("short date", edited(|f| f["version"] = json!("26-10-14"))),
         (
             "unknown basis",
             edited(|f| f["basis"] = json!("cached-input")),
         ),
         ("no models", edited(|f| f["models"] = json!([]))),
+        (
+            "an effectiveFrom left out instead of null",
+            edited(|f| {
+                f["models"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("effectiveFrom");
+            }),
+        ),
+        (
+            "an impossible effectiveFrom",
+            edited(|f| f["models"][0]["effectiveFrom"] = json!("2026-11-31")),
+        ),
+        (
+            "a model's dated rows out of order",
+            edited(|f| {
+                let rows = f["models"].as_array_mut().unwrap();
+                let at = rows
+                    .iter()
+                    .position(|row| row["effectiveFrom"] == "2026-12-01")
+                    .unwrap();
+                rows.swap(at - 1, at);
+            }),
+        ),
+        (
+            "two rows of one model with the same start",
+            edited(|f| {
+                let mut again = f["models"][0].clone();
+                again["usdMicrosPerMillion"]["input"] = json!(1);
+                f["models"].as_array_mut().unwrap().push(again);
+            }),
+        ),
+        (
+            "a root asOf, as v1 had",
+            edited(|f| f["asOf"] = json!("2026-11-27")),
+        ),
+        (
+            "a row verified after the version",
+            edited(|f| f["models"][0]["asOf"] = json!("2026-11-28")),
+        ),
+        (
+            "a null input rate",
+            edited(|f| f["models"][0]["usdMicrosPerMillion"]["input"] = json!(null)),
+        ),
+        (
+            "a class left out instead of null",
+            edited(|f| {
+                f["models"][0]["usdMicrosPerMillion"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("cacheWrite");
+            }),
+        ),
+        (
+            "an unknown class",
+            edited(|f| f["models"][0]["usdMicrosPerMillion"]["reasoning"] = json!(1)),
+        ),
+        (
+            "an output rate above the safe integer",
+            edited(|f| {
+                f["models"][0]["usdMicrosPerMillion"]["output"] = json!(9_007_199_254_740_992u64)
+            }),
+        ),
         (
             "duplicate model",
             edited(|f| {
@@ -256,19 +351,21 @@ fn every_malformed_file_is_dropped() {
         ),
         (
             "negative price",
-            edited(|f| f["models"][0][price_key] = json!(-1)),
+            edited(|f| f["models"][0]["usdMicrosPerMillion"]["input"] = json!(-1)),
         ),
         (
             "fractional price",
-            edited(|f| f["models"][0][price_key] = json!(1.5)),
+            edited(|f| f["models"][0]["usdMicrosPerMillion"]["input"] = json!(1.5)),
         ),
         (
             "price above the safe integer",
-            edited(|f| f["models"][0][price_key] = json!(9_007_199_254_740_992u64)),
+            edited(|f| {
+                f["models"][0]["usdMicrosPerMillion"]["input"] = json!(9_007_199_254_740_992u64)
+            }),
         ),
         (
             "price as text",
-            edited(|f| f["models"][0][price_key] = json!("4000000")),
+            edited(|f| f["models"][0]["usdMicrosPerMillion"]["input"] = json!("4000000")),
         ),
         (
             "plain http source",
@@ -293,8 +390,10 @@ fn every_malformed_file_is_dropped() {
             edited(|f| {
                 f["models"] = (0..65)
                     .map(|index| {
-                        json!({"modelId":format!("m{index}"),price_key:1,
-                            "source":"https://example.com/p"})
+                        json!({"modelId":format!("m{index}"),"effectiveFrom":null,
+                            "usdMicrosPerMillion":{"input":1,"cachedInput":null,
+                                "cacheWrite":null,"output":null},
+                            "source":"https://example.com/p","asOf":"2026-11-27"})
                     })
                     .collect()
             }),
@@ -311,8 +410,8 @@ fn every_malformed_file_is_dropped() {
                 .into_bytes(),
         ),
         (
-            "over 16 KiB",
-            format!("{text}{}", " ".repeat(16 * 1024)).into_bytes(),
+            "over 32 KiB",
+            format!("{text}{}", " ".repeat(32 * 1024)).into_bytes(),
         ),
         ("empty", Vec::new()),
         ("an array", b"[]".to_vec()),
@@ -327,11 +426,11 @@ fn every_malformed_file_is_dropped() {
 fn a_version_is_one_table_and_never_older_than_what_is_known() {
     let known = table(&base());
     let mut repriced = base();
-    repriced["models"][1]["usdMicrosPerMillionInputTokens"] = json!(2_000_001);
+    repriced["models"][1]["usdMicrosPerMillion"]["input"] = json!(2_000_001);
     let mut re_sourced = base();
     re_sourced["models"][1]["source"] = json!("https://example.com/other");
     let mut older = base();
-    older["version"] = json!("2026-10-13");
+    backdate(&mut older, "2026-10-13");
     assert!(known.follows(&known), "the same table again");
     assert!(
         table(&newer()).follows(&known),
@@ -354,14 +453,14 @@ fn a_version_is_one_table_and_never_older_than_what_is_known() {
 #[test]
 fn quotes_use_the_table_in_hand() {
     let fetched = table(&newer());
-    let quote = fetched.quote("claude-opus-5-5", 7, 1_000).unwrap();
-    assert_eq!(quote["pricingVersion"], "2026-11-20");
-    assert_eq!(quote["usdMicrosPerMillionInputTokens"], 5_000_000);
+    let quote = fetched.quote_input("claude-opus-5-5", 7, 1_000).unwrap();
+    assert_eq!(quote["pricingVersion"], "2026-12-01");
+    assert_eq!(quote["usdMicrosPerMillion"]["input"], 5_000_000);
     assert_eq!(quote["usdMicros"], 5_000);
-    let old = built_in().quote("claude-opus-5-5", 7, 1_000).unwrap();
-    assert_eq!(old["pricingVersion"], "2026-11-15");
+    let old = built_in().quote_input("claude-opus-5-5", 7, 1_000).unwrap();
+    assert_eq!(old["pricingVersion"], "2026-11-27");
     assert_eq!(old["usdMicros"], 4_000);
-    assert!(fetched.quote("unknown-model", 7, 1).is_none());
+    assert!(fetched.quote_input("unknown-model", 7, 1).is_none());
     let root = Temp::new();
     assert_eq!(
         Resolved::read_only(&root.0).document()["origin"],
@@ -385,7 +484,10 @@ fn quotes_use_the_table_in_hand() {
     let resolved = Resolved::read_only(&root.0);
     assert_eq!(resolved.document()["origin"], "cached");
     assert_eq!(
-        resolved.table().quote("claude-opus-5-5", 7, 1000).unwrap()["usdMicros"],
+        resolved
+            .table()
+            .quote_input("claude-opus-5-5", 7, 1000)
+            .unwrap()["usdMicros"],
         5000
     );
     assert_eq!(
@@ -432,7 +534,7 @@ fn the_address_override_admits_https_and_this_machine_only() {
 fn the_default_address_is_the_raw_main_url_of_the_embedded_file() {
     assert_eq!(
         fetch::URL,
-        "https://raw.githubusercontent.com/pj-tmt/tmt/main/extensions/tmt-digest/pricing/pricing-v1.json"
+        "https://raw.githubusercontent.com/pj-tmt/tmt/main/extensions/tmt-digest/pricing/pricing-v2.json"
     );
     let default = fetch::target_from(Err(std::env::VarError::NotPresent)).unwrap();
     assert!(!default.is_loopback());
@@ -444,12 +546,12 @@ fn a_valid_fetch_is_used_and_cached_privately() {
     let server = Server::answering(Answer::Body(bytes(&newer())));
     let resolved = Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
     let document = resolved.document();
-    assert_eq!(document["version"], "2026-11-20");
+    assert_eq!(document["version"], "2026-12-01");
     assert_eq!(document["origin"], "fetched");
     assert_eq!(document["fetchedAtMs"], NOW);
     assert_eq!(price(&resolved, "claude-opus-5-5"), 5_000_000);
     let request = server.requests.lock().unwrap().join("\n").to_lowercase();
-    assert!(request.starts_with("get /pricing-v1.json http/1.1"));
+    assert!(request.starts_with("get /pricing-v2.json http/1.1"));
     assert!(request.contains("user-agent: tmt-digest/"));
     for header in ["authorization", "cookie", "x-github", "referer"] {
         assert!(!request.contains(header), "{header} was sent");
@@ -478,8 +580,8 @@ fn a_valid_fetch_is_used_and_cached_privately() {
 fn an_unusable_answer_falls_back_to_the_cache_and_then_the_built_in_table() {
     let mut bad_schema = newer();
     bad_schema["schema"] = json!("x");
-    let older = edited(|f| f["version"] = json!("2026-10-13"));
-    let repriced = edited(|f| f["models"][0]["usdMicrosPerMillionInputTokens"] = json!(1));
+    let older = edited(|f| backdate(f, "2026-10-13"));
+    let repriced = edited(|f| f["models"][0]["usdMicrosPerMillion"]["input"] = json!(1));
     let answers = [
         ("not found", Answer::Status(404)),
         ("server error", Answer::Status(500)),
@@ -504,7 +606,7 @@ fn an_unusable_answer_falls_back_to_the_cache_and_then_the_built_in_table() {
         let resolved = Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
         let document = resolved.document();
         assert_eq!(document["origin"], "cached", "{name}");
-        assert_eq!(document["version"], "2026-11-20", "{name}");
+        assert_eq!(document["version"], "2026-12-01", "{name}");
         assert_eq!(document["fetchedAtMs"], NOW - 60_000, "{name}");
         let kept = cache::read(&temp.0).unwrap();
         assert_eq!(
@@ -525,7 +627,7 @@ fn a_fetched_file_cannot_change_the_prices_of_a_known_version() {
     let temp = Temp::new();
     cache::write(&temp.0, &state(&newer(), NOW - 60_000)).unwrap();
     let mut conflicting = newer();
-    conflicting["models"][2]["usdMicrosPerMillionInputTokens"] = json!(9);
+    conflicting["models"][2]["usdMicrosPerMillion"]["input"] = json!(9);
     let server = Server::answering(Answer::Body(bytes(&conflicting)));
     let resolved = Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
     assert_eq!(resolved.document()["origin"], "cached");
@@ -549,9 +651,8 @@ fn a_fetched_file_cannot_change_the_prices_of_a_known_version() {
 fn a_fetched_file_older_than_the_cached_one_is_dropped() {
     // Newer than the built-in table, older than the cache: valid, but it would roll back.
     let mut between = newer();
-    between["version"] = json!("2026-11-18");
-    between["asOf"] = json!("2026-11-18");
-    between["models"][0]["usdMicrosPerMillionInputTokens"] = json!(4_500_000);
+    between["version"] = json!("2026-11-29");
+    between["models"][0]["usdMicrosPerMillion"]["input"] = json!(4_500_000);
     let server = Server::answering(Answer::Body(bytes(&between)));
 
     let temp = Temp::new();
@@ -561,14 +662,14 @@ fn a_fetched_file_older_than_the_cached_one_is_dropped() {
         "fetched",
         "alone it is usable"
     );
-    assert_eq!(resolved.document()["version"], "2026-11-18");
+    assert_eq!(resolved.document()["version"], "2026-11-29");
 
     let temp = Temp::new();
     cache::write(&temp.0, &state(&newer(), NOW - 60_000)).unwrap();
     let resolved = Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
     let document = resolved.document();
     assert_eq!(document["origin"], "cached");
-    assert_eq!(document["version"], "2026-11-20");
+    assert_eq!(document["version"], "2026-12-01");
     assert_eq!(price(&resolved, "claude-opus-5-5"), 5_000_000);
     let kept = cache::read(&temp.0).unwrap();
     assert_eq!(kept.attempted_at_ms, NOW, "the attempt counts");
@@ -669,9 +770,9 @@ fn with_the_fetch_off_the_cache_still_serves_and_nothing_is_written() {
 #[test]
 fn a_cache_that_no_longer_follows_the_built_in_table_is_ignored() {
     let mut older = base();
-    older["version"] = json!("2026-10-13");
+    backdate(&mut older, "2026-10-13");
     let mut repriced = base();
-    repriced["models"][0]["usdMicrosPerMillionInputTokens"] = json!(1);
+    repriced["models"][0]["usdMicrosPerMillion"]["input"] = json!(1);
     for (name, file) in [("older", older), ("same version, other prices", repriced)] {
         let temp = Temp::new();
         cache::write(&temp.0, &state(&file, NOW - 60_000)).unwrap();
@@ -723,7 +824,7 @@ fn the_cache_is_private_and_untrusted_on_read() {
         fs::remove_file(&path).unwrap();
     };
     broken("unknown key", &|f| f["extra"] = json!(1));
-    broken("other cache version", &|f| f["version"] = json!(2));
+    broken("the version-1 cache", &|f| f["version"] = json!(1));
     broken("time without a file", &|f| f["file"] = Value::Null);
     broken("file without a time", &|f| f["fetchedAtMs"] = Value::Null);
     broken("unsafe time", &|f| {
@@ -763,10 +864,13 @@ fn exact_gemini_rows_have_the_verified_base_rate_and_unlisted_aliases_stay_unkno
         ("gemini-4-hydrogen-medium", 1_500_000),
         ("gemini-4-hydrogen-high", 1_500_000),
     ] {
-        let quote = built_in().quote(model, 1000, 1_000_000).unwrap();
+        let quote = built_in().quote_input(model, 1000, 1_000_000).unwrap();
         assert_eq!(quote["usdMicros"], rate, "{model}");
-        assert_eq!(quote["usdMicrosPerMillionInputTokens"], rate, "{model}");
-        assert_eq!(built_in().quote(model, 1000, 0).unwrap()["usdMicros"], 0);
+        assert_eq!(quote["usdMicrosPerMillion"]["input"], rate, "{model}");
+        assert_eq!(
+            built_in().quote_input(model, 1000, 0).unwrap()["usdMicros"],
+            0
+        );
     }
     for unknown in [
         "gemini-3.7-flash",
@@ -774,9 +878,12 @@ fn exact_gemini_rows_have_the_verified_base_rate_and_unlisted_aliases_stay_unkno
         "gemini-3-pro",
         "gemini-4-argon-turbo",
     ] {
-        assert!(built_in().quote(unknown, 1000, 1).is_none(), "{unknown}");
         assert!(
-            built_in().quote(unknown, 1000, 0).is_none(),
+            built_in().quote_input(unknown, 1000, 1).is_none(),
+            "{unknown}"
+        );
+        assert!(
+            built_in().quote_input(unknown, 1000, 0).is_none(),
             "unknown is not zero"
         );
     }
@@ -785,16 +892,20 @@ fn exact_gemini_rows_have_the_verified_base_rate_and_unlisted_aliases_stay_unkno
 #[test]
 fn unbilled_models_are_zero_and_unknown_models_stay_unpriced() {
     // A Codex seat's day: Terra input plus auto-review input values to Terra's share alone.
-    let terra = built_in().quote("gpt-6.1-terra", 1000, 3_000_000).unwrap();
+    let terra = built_in()
+        .quote_input("gpt-6.1-terra", 1000, 3_000_000)
+        .unwrap();
     let review = built_in()
-        .quote("codex-auto-review", 1000, 2_000_000)
+        .quote_input("codex-auto-review", 1000, 2_000_000)
         .unwrap();
     assert_eq!(terra["usdMicros"], 3_000_000);
     assert_eq!(review["usdMicros"], 0);
-    assert_eq!(review["usdMicrosPerMillionInputTokens"], 0);
+    assert_eq!(review["usdMicrosPerMillion"]["input"], 0);
     assert_eq!(review["pricingVersion"], terra["pricingVersion"]);
     assert_eq!(
-        built_in().quote("gpt-6-astra", 1000, 1_000_000).unwrap()["usdMicros"],
+        built_in()
+            .quote_input("gpt-6-astra", 1000, 1_000_000)
+            .unwrap()["usdMicros"],
         10_000_000
     );
     // The status table lists the zero row with the rule as its source.
@@ -805,7 +916,7 @@ fn unbilled_models_are_zero_and_unknown_models_stay_unpriced() {
         .iter()
         .find(|row| row["modelId"] == "codex-auto-review")
         .unwrap();
-    assert_eq!(row["usdMicrosPerMillionInputTokens"], 0);
+    assert_eq!(row["usdMicrosPerMillion"]["input"], 0);
     assert!(
         row["source"]
             .as_str()
@@ -814,19 +925,230 @@ fn unbilled_models_are_zero_and_unknown_models_stay_unpriced() {
     );
     // Only the named model is unbilled: any other unknown model still blocks a price.
     for unknown in ["codex-auto-review-2", "gpt-6.2-terra", "auto-review"] {
-        assert!(built_in().quote(unknown, 1000, 0).is_none(), "{unknown}");
+        assert!(
+            built_in().quote_input(unknown, 1000, 0).is_none(),
+            "{unknown}"
+        );
     }
     // A table that prices the model wins over the rule.
     let mut file: Value = serde_json::from_str(BUILT_IN).unwrap();
-    file["version"] = json!("2026-11-20");
+    file["version"] = json!("2026-12-01");
     file["models"].as_array_mut().unwrap().push(json!({
         "modelId": "codex-auto-review",
-        "usdMicrosPerMillionInputTokens": 1_000_000,
-        "source": "https://example.com/price"
+        "effectiveFrom": null,
+        "usdMicrosPerMillion": {"input": 1_000_000, "cachedInput": null,
+            "cacheWrite": null, "output": null},
+        "source": "https://example.com/price",
+        "asOf": "2026-12-01"
     }));
     let priced = table(&file);
     assert_eq!(
-        priced.quote("codex-auto-review", 1000, 1_000_000).unwrap()["usdMicros"],
+        priced
+            .quote_input("codex-auto-review", 1000, 1_000_000)
+            .unwrap()["usdMicros"],
         1_000_000
     );
+}
+
+fn tokens(input: u64, cached: u64, cache_write: Option<u64>, output: u64) -> Tokens {
+    Tokens {
+        input,
+        cached,
+        cache_write,
+        output,
+    }
+}
+
+#[test]
+fn each_class_is_priced_at_its_own_rate_and_the_sum_is_rounded_once() {
+    // Opus 5.5: $4 input, $0.20 cache hit, $5 5-minute write, $20 output per million.
+    let quote = built_in()
+        .quote(
+            "claude-opus-5-5",
+            1000,
+            tokens(1_000_000, 600_000, Some(100_000), 50_000),
+        )
+        .unwrap();
+    assert_eq!(quote.usd_micros, 1_200_000 + 120_000 + 500_000 + 1_000_000);
+    assert!(!quote.lower_bound);
+    let json = quote.json();
+    assert_eq!(
+        json["tokens"],
+        json!({"uncachedInput": 300_000, "cachedInput": 600_000, "cacheWrite": 100_000,
+            "output": 50_000})
+    );
+    assert_eq!(
+        json["usdMicrosPerMillion"],
+        json!({"input": 4_000_000, "cachedInput": 200_000, "cacheWrite": 5_000_000,
+            "output": 20_000_000})
+    );
+    assert_eq!(json["lowerBound"], false);
+    assert_eq!(json["lowerBoundReason"], Value::Null);
+    // Flash-Lite: 2 uncached (0.5 µ$) and 20 cached (0.5 µ$) tokens are one micro-dollar
+    // together; rounding each class first would give two.
+    let small = built_in()
+        .quote("gemini-3.1-flash-lite", 1000, tokens(22, 20, Some(0), 0))
+        .unwrap();
+    assert_eq!(small.usd_micros, 1);
+}
+
+#[test]
+fn a_class_with_tokens_needs_a_rate_and_an_empty_class_does_not() {
+    let mut file = base();
+    file["version"] = json!("2026-12-01");
+    file["models"][0]["usdMicrosPerMillion"]["output"] = json!(null);
+    let table = table(&file);
+    let priced = table
+        .quote("claude-opus-5-5", 1000, tokens(1_000, 0, Some(0), 0))
+        .unwrap();
+    assert_eq!(priced.usd_micros, 4_000);
+    assert_eq!(priced.json()["usdMicrosPerMillion"]["output"], Value::Null);
+    assert_eq!(
+        table.quote("claude-opus-5-5", 1000, tokens(1_000, 0, Some(0), 1)),
+        Err(super::Unpriced::ClassPriceMissing)
+    );
+    assert_eq!(
+        super::Unpriced::ClassPriceMissing.reason(),
+        "class_price_missing"
+    );
+    assert_eq!(
+        built_in().quote("gpt-7", 1000, tokens(0, 0, Some(0), 0)),
+        Err(super::Unpriced::NoPrice)
+    );
+}
+
+#[test]
+fn unreported_cache_writes_are_a_floor_only_where_the_provider_bills_them() {
+    // OpenAI bills writes at 1.25x input; Codex reports no count: input rate, marked a floor.
+    let floor = built_in()
+        .quote("gpt-6.2-sol", 1000, tokens(1_000_000, 400_000, None, 0))
+        .unwrap();
+    assert_eq!(floor.usd_micros, 1_200_000 + 40_000);
+    assert!(floor.lower_bound);
+    assert_eq!(floor.json()["lowerBound"], true);
+    assert_eq!(floor.json()["lowerBoundReason"], "cache_write_unreported");
+    assert_eq!(floor.json()["tokens"]["cacheWrite"], Value::Null);
+    // Gemini bills no separate write: nothing is missing, so no floor.
+    let gemini = built_in()
+        .quote("gemini-4-argon", 1000, tokens(1_000_000, 0, None, 0))
+        .unwrap();
+    assert_eq!(gemini.usd_micros, 2_000_000);
+    assert!(!gemini.lower_bound);
+    // Reported writes use their own rate, and an input that is all cache hits had no writes.
+    for counts in [
+        tokens(1_000_000, 0, Some(1_000_000), 0),
+        tokens(1_000, 1_000, None, 5),
+    ] {
+        assert!(
+            !built_in()
+                .quote("claude-opus-5-5", 1000, counts)
+                .unwrap()
+                .lower_bound
+        );
+    }
+}
+
+#[test]
+fn counts_that_do_not_add_up_are_unsafe_and_unbilled_models_are_zero_in_every_class() {
+    for counts in [
+        tokens(10, 11, Some(0), 0),
+        tokens(10, 5, Some(6), 0),
+        tokens(9_007_199_254_740_992, 0, Some(0), 0),
+        tokens(0, 0, Some(0), 9_007_199_254_740_992),
+    ] {
+        assert_eq!(
+            built_in().quote("claude-opus-5-5", 1000, counts),
+            Err(super::Unpriced::Unsafe),
+            "{counts:?}"
+        );
+    }
+    let review = built_in()
+        .quote("codex-auto-review", 1000, tokens(1_000, 500, None, 1_000))
+        .unwrap();
+    assert_eq!(review.usd_micros, 0);
+    assert!(!review.lower_bound);
+}
+
+#[test]
+fn every_dated_boundary_prices_each_side_at_its_own_row() {
+    const DECEMBER: u64 = 1_796_083_200_000; // 2026-12-01T00:00:00Z
+    const JANUARY: u64 = 1_798_761_600_000; // 2027-01-01T00:00:00Z
+    let argon = [
+        "gemini-4-argon",
+        "gemini-4-argon-low",
+        "gemini-4-argon-medium",
+        "gemini-4-argon-high",
+    ];
+    let flash = [
+        "gemini-3.6-flash",
+        "gemini-3.8-flash",
+        "gemini-3.8-flash-low",
+        "gemini-3.8-flash-medium",
+        "gemini-3.8-flash-high",
+    ];
+    let cases = argon
+        .iter()
+        .map(|model| (*model, DECEMBER, 2_000_000, 4_000_000))
+        .chain(
+            flash
+                .iter()
+                .map(|model| (*model, JANUARY, 750_000, 1_500_000)),
+        );
+    for (model, boundary, before, after) in cases {
+        let at = |ms: u64| {
+            built_in()
+                .quote(model, ms, Tokens::uncached_input(1_000_000))
+                .unwrap()
+                .usd_micros
+        };
+        assert_eq!(at(boundary - 1), before, "{model} before");
+        assert_eq!(at(boundary), after, "{model} from");
+    }
+    // Every dated row is one of these, so no boundary goes untested.
+    let dated = base()["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| !row["effectiveFrom"].is_null())
+        .count();
+    assert_eq!(dated, argon.len() + flash.len());
+}
+
+#[test]
+fn a_dated_row_prices_from_its_utc_day_and_a_model_not_yet_started_has_no_price() {
+    const DECEMBER: u64 = 1_796_083_200_000; // 2026-12-01T00:00:00Z
+    let input = |at: u64| {
+        built_in()
+            .quote("gemini-4-argon-high", at, Tokens::uncached_input(1_000_000))
+            .unwrap()
+    };
+    assert_eq!(input(DECEMBER - 1).usd_micros, 2_000_000);
+    assert_eq!(input(DECEMBER - 1).json()["effectiveFrom"], Value::Null);
+    assert_eq!(input(DECEMBER).usd_micros, 4_000_000);
+    assert_eq!(input(DECEMBER).json()["effectiveFrom"], "2026-12-01");
+    // Only a row that starts later: nothing prices the earlier day.
+    let mut file = base();
+    file["version"] = json!("2026-12-01");
+    file["models"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|row| row["modelId"] != "gemini-4-argon" || row["effectiveFrom"] != Value::Null);
+    let later = table(&file);
+    assert_eq!(
+        later.quote("gemini-4-argon", DECEMBER - 1, Tokens::uncached_input(1)),
+        Err(super::Unpriced::NoPrice)
+    );
+    assert!(
+        later
+            .quote("gemini-4-argon", DECEMBER, Tokens::uncached_input(1))
+            .is_ok()
+    );
+    for (ms, day) in [
+        (0, "1970-01-01"),
+        (951_782_400_000, "2000-02-29"),
+        (DECEMBER - 1, "2026-11-30"),
+        (1_798_761_600_000, "2027-01-01"),
+    ] {
+        assert_eq!(super::utc_day(ms), day);
+    }
 }

@@ -30,8 +30,8 @@ const targets = [
   'x86_64-unknown-linux-musl',
 ];
 const digestOf = (text: string) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
-const PRICING_SOURCE = 'extensions/tmt-digest/pricing/pricing-v1.json';
-const PRICING_ASSET = 'tmt-digest-pricing-v1.json';
+const PRICING_SOURCE = 'extensions/tmt-digest/pricing/pricing-v2.json';
+const PRICING_ASSET = 'tmt-digest-pricing-v2.json';
 // Exercise the release boundary with the canonical product file's exact bytes.
 const PRICING_BYTES = readFileSync(new URL(`../../../${PRICING_SOURCE}`, import.meta.url));
 
@@ -202,7 +202,7 @@ describe('bundleFiles', () => {
     expect(bundleFiles('digest', manifest(tag, 'digest'), tag)).toEqual([
       ...targets.map((target) => `tmt-digest-${target}.tar.gz`),
       'dist-manifest.json',
-      'tmt-digest-pricing-v1.json',
+      'tmt-digest-pricing-v2.json',
     ]);
   });
 });

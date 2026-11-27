@@ -29,8 +29,8 @@ non-force pointer update. Smoke and the Project reconcile dispatch precede index
 an index failure keeps the release published and the run red. API-free client
 consumption remains pending.
 
-Digest releases additionally carry `tmt-digest-pricing-v1.json`, copied from
-`extensions/tmt-digest/pricing/pricing-v1.json` at the captured cut, never current main.
+Digest releases additionally carry `tmt-digest-pricing-v2.json`, copied from
+`extensions/tmt-digest/pricing/pricing-v2.json` at the captured cut, never current main.
 Draft attachment verifies its stored digest before the completeness marker is uploaded last.
 Pricing-source changes select Digest's rehearsal; its draft-less dry gate requires the source
 file within 64 KiB. The mandatory final publish guard requires one pricing asset with exactly

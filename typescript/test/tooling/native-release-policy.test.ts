@@ -43,8 +43,8 @@ const {
 describe('native release publication policy', () => {
   it('pins the Core-owned Digest pricing source and release asset without changing marker flags', () => {
     expect(DIGEST_PRICING).toEqual({
-      source: 'extensions/tmt-digest/pricing/pricing-v1.json',
-      asset: 'tmt-digest-pricing-v1.json',
+      source: 'extensions/tmt-digest/pricing/pricing-v2.json',
+      asset: 'tmt-digest-pricing-v2.json',
       limit: 65536,
     });
     expect(releasePolicy('digest')).toEqual({

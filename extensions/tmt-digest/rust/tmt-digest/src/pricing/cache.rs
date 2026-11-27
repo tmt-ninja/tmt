@@ -14,6 +14,9 @@ use std::{
 
 const FILE: &str = "fetched-v1.json";
 const MAX_BYTES: u64 = 64 * 1024;
+/// The cache's own shape version. 2 holds a `pricing-v2` table; a version-1 cache is
+/// no cache and the next write replaces it.
+const VERSION: u8 = 2;
 /// A temporary file this old belongs to no live writer.
 const STALE_AFTER: Duration = Duration::from_secs(60);
 
@@ -78,7 +81,7 @@ pub fn read(root: &Path) -> Option<State> {
         fetched_at_ms: stored.fetched_at_ms,
         file: stored.file,
     };
-    (stored.version == 1 && state.valid()).then_some(state)
+    (stored.version == VERSION && state.valid()).then_some(state)
 }
 
 /// Removes the temporary files a writer left behind when the process ended before
@@ -123,7 +126,7 @@ pub fn write(root: &Path, state: &State) -> io::Result<()> {
     }
     remove_stale(&directory);
     let bytes = serde_json::to_vec(&Stored {
-        version: 1,
+        version: VERSION,
         attempted_at_ms: state.attempted_at_ms,
         fetched_at_ms: state.fetched_at_ms,
         file: state.file.clone(),

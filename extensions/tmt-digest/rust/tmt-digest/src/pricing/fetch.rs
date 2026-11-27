@@ -5,7 +5,7 @@
 use super::MAX_FILE_BYTES;
 use std::time::Duration;
 
-pub(super) const URL: &str = "https://raw.githubusercontent.com/pj-tmt/tmt/main/extensions/tmt-digest/pricing/pricing-v1.json";
+pub(super) const URL: &str = "https://raw.githubusercontent.com/pj-tmt/tmt/main/extensions/tmt-digest/pricing/pricing-v2.json";
 /// Selects the address; `off` (or anything that is not an admitted address)
 /// turns the fetch off.
 const ENV: &str = "TMT_DIGEST_PRICING_URL";
