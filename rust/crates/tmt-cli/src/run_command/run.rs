@@ -899,21 +899,14 @@ pub(super) fn run_bound(
     }
     // A start hook can race the foreground admission. Associate its already
     // admitted session only when this exact child/owner still holds the binding.
-    if let (Some(owner), Some((key, _))) = (&owner, &admitted)
-        && let Ok(preferences) = storage.session_preferences(&binding.identity_id)
-        && let Some(session) = preferences
-            .remembered
-            .as_ref()
-            .filter(|session| key.provider_session.as_ref() == Some(&session.provider_session))
-        && tmt_adapters::runtime::launch_preset::associate(
-            storage,
-            &binding.identity_id,
-            &binding.id,
-            owner,
-            session,
-            &registry,
-        )
-        .is_err()
+    if associate_remembered_preset(
+        storage,
+        binding,
+        owner.as_ref(),
+        admitted.as_ref(),
+        &registry,
+    )
+    .is_err()
     {
         diagnostic("could not associate this launch preset with its admitted session.");
     }
@@ -1275,3 +1268,57 @@ fn prepare_launch_hooks(
         state_directory: Some(state_directory),
     })
 }
+
+fn associate_remembered_preset(
+    storage: &mut Storage,
+    binding: &Binding,
+    owner: Option<&ProcessIncarnation>,
+    admitted: Option<&(
+        tmt_core::binding::session::ObservedSessionKey,
+        tmt_core::binding::session::RuntimeState,
+    )>,
+    registry: &RuntimeRegistry,
+) -> Result<(), tmt_adapters::storage::StorageError> {
+    let Some(owner) = owner else {
+        return Ok(());
+    };
+    let current = storage
+        .with_binding_transaction(|records| records.entry_by_id(&binding.identity_id))?
+        .and_then(|entry| entry.binding)
+        .filter(|current| current.id == binding.id);
+    let Some(current) =
+        current.filter(|current| current.session.launch_owner.as_ref() == Some(owner))
+    else {
+        return Ok(());
+    };
+    let committed_session = match admitted {
+        Some((key, _)) => key.provider_session.as_ref(),
+        None => current
+            .session
+            .key
+            .as_ref()
+            .and_then(|key| key.provider_session.as_ref()),
+    };
+    let Some(committed_session) = committed_session else {
+        return Ok(());
+    };
+    let preferences = storage.session_preferences(&binding.identity_id)?;
+    if let Some(session) = preferences
+        .remembered
+        .as_ref()
+        .filter(|session| session.provider_session == *committed_session)
+    {
+        tmt_adapters::runtime::launch_preset::associate(
+            storage,
+            &binding.identity_id,
+            &binding.id,
+            owner,
+            session,
+            registry,
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;
