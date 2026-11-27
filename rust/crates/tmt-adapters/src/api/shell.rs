@@ -939,34 +939,70 @@ mod tests {
 
     #[test]
     fn cancelling_a_started_command_leaves_the_session_unkeepable() {
-        use std::{os::fd::AsFd, os::unix::net::UnixStream, time::Instant};
+        use nix::{
+            fcntl::{FcntlArg, OFlag, fcntl},
+            sys::stat::Mode,
+            unistd::mkfifo,
+        };
+        use std::{
+            fs::OpenOptions,
+            io::Read,
+            os::{
+                fd::AsFd,
+                unix::{fs::OpenOptionsExt, net::UnixStream},
+            },
+        };
 
         let root = crate::test_support::TestDirectory::new();
         let paths =
             crate::config::ConfigPaths::resolve(&root.path, &root.path, Some(&root.path), None);
         let mut session = crate::api::Session::new(paths);
+        // Keep the first store open and its migrations outside the launch/Stop fixture.
+        assert_eq!(
+            saved_request(&mut session, "terminal.saved.list", json!({}), None).unwrap()["terminals"],
+            json!([])
+        );
+        let ready = root.path.join("launch-ready");
+        let hold = root.path.join("launch-hold");
+        let mode = Mode::S_IRUSR | Mode::S_IWUSR;
+        mkfifo(&ready, mode).unwrap();
+        mkfifo(&hold, mode).unwrap();
         let (client, server) = UnixStream::pair().unwrap();
         std::thread::scope(|scope| {
-            let marker = root.path.join("started");
+            let mut reader = OpenOptions::new()
+                .read(true)
+                .custom_flags(OFlag::O_NONBLOCK.bits())
+                .open(&ready)
+                .unwrap();
+            // Avoid EOF before the shell opens the FIFO; an early Run return drops this writer.
+            let writer = OpenOptions::new().write(true).open(&ready).unwrap();
+            let flags = OFlag::from_bits_retain(fcntl(&reader, FcntlArg::F_GETFL).unwrap());
+            fcntl(
+                &reader,
+                FcntlArg::F_SETFL(flags.difference(OFlag::O_NONBLOCK)),
+            )
+            .unwrap();
             let stop = scope.spawn(move || {
-                let deadline = Instant::now() + Duration::from_secs(3);
-                while !marker.exists() && Instant::now() < deadline {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                let started = marker.exists();
+                let mut byte = [0];
+                let ready = reader.read_exact(&mut byte).map(|()| byte[0]);
                 drop(client);
-                started
+                ready
             });
             let result = saved_request(
                 &mut session,
                 "terminal.command.run",
                 json!({
                     "target":{"kind":"local","cwd":root.path},
-                    "command":"printf started > started; exec /bin/sleep 30",
+                    "command":"printf 1 > launch-ready && read -r release < launch-hold",
                 }),
                 Some(server.as_fd()),
             );
-            assert!(stop.join().unwrap(), "Stop follows a confirmed launch");
+            drop(writer);
+            let ready = stop.join().unwrap();
+            assert!(
+                matches!(ready, Ok(b'1')),
+                "Stop follows a confirmed launch: readiness {ready:?}, Run {result:?}"
+            );
             assert_eq!(result.unwrap_err().code(), "SHELL_RUN_CANCELLED");
         });
         let (_client, server) = UnixStream::pair().unwrap();
