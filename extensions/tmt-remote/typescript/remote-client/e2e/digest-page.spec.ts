@@ -43,6 +43,13 @@ test('provider usage renders native records independently of prices and allowanc
   await expect(card).toContainText('2026-11-27');
   const shares = page.locator('#digest-shares');
   const modelRows = shares.locator('#digest-shares-models .digest-share');
+  const seatRow = (name: string) =>
+    shares.locator('#digest-shares-seats .digest-share').filter({ hasText: name });
+  await expect(seatRow('claude-seat')).toContainText('$0.00582');
+  await expect(seatRow('codex-a')).toContainText('at least $0.0332');
+  await expect(seatRow('retired-seat (retired)')).toContainText(
+    'Cost unknown. A model has no list price.',
+  );
   await expect(modelRows.filter({ hasText: 'gpt-6-astra' })).toContainText(
     '2,300 tokens · at least $0.026 · 66.1% of priced cost',
   );
@@ -117,6 +124,27 @@ test('provider usage renders native records independently of prices and allowanc
   await page.evaluate(() => {
     window.digestProviderDocument.usage.providers![2]!.inputCost = { usdMicros: -1 };
     window.digestProviderDocument.usage.providers![3]!.costUnavailable = ['constructor'];
+    const seats = window.digestProviderDocument.usage.seats;
+    Object.assign(
+      seats.find(({ name }) => name === 'claude-seat')!,
+      {
+        cost: { usdMicros: 0, lowerBound: false },
+      },
+    );
+    Object.assign(
+      seats.find(({ name }) => name === 'codex-a')!,
+      {
+        cost: { usdMicros: -1, lowerBound: false },
+        costUnavailable: ['class_price_missing', 'unsafe_cost'],
+      },
+    );
+    Object.assign(
+      seats.find(({ name }) => name === 'codex-b')!,
+      {
+        cost: null,
+        costUnavailable: ['unattributed', 'constructor'],
+      },
+    );
   });
   await page.getByRole('tab', { name: '30d', exact: true }).click();
   await expect(card.locator('tbody tr')).toHaveCount(4);
@@ -124,6 +152,13 @@ test('provider usage renders native records independently of prices and allowanc
   await expect(card).toContainText('The cost evidence could not be read.');
   await expect(card).toContainText('constructor');
   await expect(card).not.toContainText('function Object');
+  await expect(seatRow('claude-seat')).toContainText('tokens · $0.00');
+  await expect(seatRow('codex-a')).toContainText(
+    'Cost unknown. A token type has no list price. The cost exceeds the supported range.',
+  );
+  await expect(seatRow('codex-b')).toContainText(
+    'Cost unknown. Some tokens have no recorded model. The report could not estimate the cost.',
+  );
   await page.evaluate(() => {
     window.digestProviderDocument.usage.providers![2]!.inputCost = { usdMicros: 26000 };
     window.digestProviderDocument.pricing!.basis = 'unsupported';
@@ -131,6 +166,9 @@ test('provider usage renders native records independently of prices and allowanc
   await page.getByRole('tab', { name: '24h', exact: true }).click();
   await expect(card.locator('tbody tr')).toHaveCount(4);
   await expect(card).toContainText('The pricing basis or version was not reported.');
+  await expect(seatRow('claude-seat')).toContainText(
+    'Cost unknown. The list-price basis or version is unavailable.',
+  );
   await page.evaluate(() => {
     const doc = window.digestProviderDocument;
     Object.assign(doc.usage, {
@@ -686,7 +724,7 @@ test('usage share names each model and seat, keeps what no model covers apart an
   const seats = page.locator('#digest-shares-seats .digest-share');
   await expect(seats).toHaveCount(6);
   await expect(seats.filter({ hasText: 'night-1' }).locator('.digest-share-detail')).toHaveText(
-    /tokens · gpt-6\.2-sol 60(\.\d)?% · gpt-6\.2-astra 15(\.\d)?% · no model 25(\.\d)?%$/,
+    /tokens · Cost unknown\. The report has no usable seat cost\. · gpt-6\.2-sol 60(\.\d)?% · gpt-6\.2-astra 15(\.\d)?% · no model 25(\.\d)?%$/,
   );
   // A seat keeps the hue the token chart and its legend draw it in.
   const legend = page.locator('#digest-ranking tbody tr').first();
@@ -707,14 +745,24 @@ test('usage share names each model and seat, keeps what no model covers apart an
   await expect(page.locator('#digest-shares .digest-share-cost')).toHaveText(
     'Cost shares use only priced models. Excluded: claude-fable-5-2, tokens with no recorded model. Cost shares include lower-bound estimates.',
   );
-  await expect(page.locator('#digest-shares-seats')).toContainText(
+  await expect(page.locator('#digest-shares-seats')).not.toContainText(
     'Per-seat cost needs seat-level quotes in the report.',
   );
   await expect(page.locator('#digest-shares-seats')).not.toContainText('No price');
   // A large team folds the rest into one row; a Digest without attribution has no model to name.
   await open(page, '?seats=24', { width: 1440, height: 900 });
-  await expect(seats).toHaveCount(7);
-  await expect(seats.last().locator('.digest-share-name')).toHaveText('Other (18 seats)');
+  await expect(seats.filter({ visible: true })).toHaveCount(6);
+  const rest = page.locator('#digest-shares-seats details');
+  await expect(rest.locator('summary')).toHaveText(/^Other \(18 seats\): .*% of tokens$/);
+  await rest.locator('summary').press('Enter');
+  await expect(rest).toHaveAttribute('open', '');
+  await expect(rest.locator('.digest-share').filter({ visible: true })).toHaveCount(18);
+  await expect(rest.locator('.digest-share-detail').last()).toContainText('Cost unknown.');
+  if (process.env.DIGEST_CAPTURE_DIR)
+    await rest.screenshot({
+      path: path.join(process.env.DIGEST_CAPTURE_DIR, 'seat-cost-overflow-1440.png'),
+      animations: 'disabled',
+    });
   await open(page, '?older-usage', { width: 1440, height: 900 });
   await expect(models.locator('.digest-share-name')).toHaveText(['No model recorded']);
   await expect(models.locator('.digest-share-value')).toHaveText(['100%']);

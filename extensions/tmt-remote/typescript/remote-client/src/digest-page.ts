@@ -729,7 +729,7 @@ function mixText(seat: SeatMix): string | undefined {
   return parts.length ? parts.join(' · ') : undefined;
 }
 
-/** #6751 C: token and cost shares by model, token share by seat, and the cached-input ratio. */
+/** #6751 C: token shares, list-price estimates, and the cached-input ratio. */
 function sharesCard(doc: UsageDocument): HTMLElement {
   const id = 'digest-shares';
   const title = 'Usage share';
@@ -797,21 +797,30 @@ function sharesCard(doc: UsageDocument): HTMLElement {
   bySeat.append(el('h3', 'digest-share-title', 'By seat'));
   // A seat keeps the hue the token chart draws it in; the folded rest is neutral.
   const hue = seatHues(doc, false);
-  for (const seat of seats.slice(0, SERIES_KEPT))
-    bySeat.append(
-      shareMeter(
-        seatLabel(seat.name, seat.partial),
-        seat.share,
-        hue.get(seat.id) ?? OTHER_STEP,
-        [`${seat.tokens.toLocaleString('en-US')} tokens`, mixText(seat)]
-          .filter(Boolean)
-          .join(' · '),
-      ),
+  const seatMeter = (seat: SeatMix) =>
+    shareMeter(
+      seatLabel(seat.name, seat.partial),
+      seat.share,
+      hue.get(seat.id) ?? OTHER_STEP,
+      [`${seat.tokens.toLocaleString('en-US')} tokens`, seat.costLabel, mixText(seat)]
+        .filter(Boolean)
+        .join(' · '),
     );
+  seats.slice(0, SERIES_KEPT).forEach((seat) => bySeat.append(seatMeter(seat)));
   const restSeats = seats.slice(SERIES_KEPT);
-  if (restSeats.length)
-    bySeat.append(shareMeter(`Other (${restSeats.length} seats)`, shareSum(restSeats), OTHER_STEP));
-  bySeat.append(el('p', 'usage-note', 'Per-seat cost needs seat-level quotes in the report.'));
+  if (restSeats.length) {
+    const rest = el('details');
+    const count = restSeats.length;
+    rest.append(
+      el(
+        'summary',
+        undefined,
+        `Other (${count} ${count === 1 ? 'seat' : 'seats'}): ${shareSum(restSeats)}% of tokens`,
+      ),
+      ...restSeats.map(seatMeter),
+    );
+    bySeat.append(rest);
+  }
   const groups = el('div', 'digest-share-groups');
   groups.append(byModel, bySeat);
   const notes: HTMLElement[] = [];

@@ -6,6 +6,7 @@ import {
   limitHistoryFrom,
   modelQuotes,
   providerRecords,
+  seatQuote,
   type UsageDocument,
   readSavings,
   reportFromAnswers,
@@ -79,6 +80,73 @@ it('accepts native v2 reported costs and preserves token records when cost evide
       costUnavailable: ['pricing_unavailable'],
     });
   }
+});
+
+it('reads the reported seat total without replacing it with any model-row quote', () => {
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL('../../../../tmt-digest/contracts/vectors/usage-report-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const first = vectors.cases[0].expected as UsageDocument;
+  const second = vectors.cases[1].expected as UsageDocument;
+  const quote = (doc: UsageDocument, name: string) =>
+    seatQuote(
+      doc.usage.seats.find((seat) => seat.name === name),
+      doc.pricing,
+    );
+  expect(quote(first, 'claude-seat')).toEqual({
+    cost: { usdMicros: 5_820, lowerBound: false },
+    reasons: [],
+  });
+  expect(quote(first, 'codex-a')).toEqual({
+    cost: { usdMicros: 33_200, lowerBound: true },
+    reasons: [],
+  });
+  expect(quote(first, 'codex-b')).toEqual({ cost: null, reasons: ['unattributed'] });
+  expect(quote(second, 'retired-seat')).toEqual({ cost: null, reasons: ['no_price'] });
+  const byModel = [{ cost: { usdMicros: 17, lowerBound: false }, costUnavailable: [] }];
+  expect(
+    seatQuote({ byModel, cost: null, costUnavailable: ['unattributed'] }, first.pricing),
+  ).toEqual({ cost: null, reasons: ['unattributed'] });
+});
+
+it('keeps a real zero and rejects unusable seat costs while preserving their reported reasons', () => {
+  const pricing = { basis: 'standard-list', version: '2026-11-15', origin: 'file' };
+  const zero = { cost: { usdMicros: 0, lowerBound: false }, costUnavailable: [] };
+  expect(seatQuote(zero, pricing)).toEqual({ cost: zero.cost, reasons: [] });
+  expect(seatQuote(zero, { ...pricing, basis: 'standard-base-input' })).toEqual({
+    cost: null,
+    reasons: ['pricing_unavailable'],
+  });
+  for (const cost of [
+    undefined,
+    null,
+    { usdMicros: '0', lowerBound: false },
+    { usdMicros: -1, lowerBound: false },
+    { usdMicros: 1.25, lowerBound: false },
+    { usdMicros: Number.MAX_SAFE_INTEGER + 1, lowerBound: false },
+    { usdMicros: 0 },
+    { usdMicros: 0, lowerBound: 'false' },
+  ]) {
+    expect(seatQuote({ cost, costUnavailable: [] }, pricing)).toEqual({
+      cost: null,
+      reasons: ['cost_evidence_invalid'],
+    });
+    expect(
+      seatQuote({ cost, costUnavailable: ['class_price_missing', 'unattributed'] }, pricing),
+    ).toEqual({ cost: null, reasons: ['class_price_missing', 'unattributed'] });
+  }
+  expect(seatQuote({}, pricing).cost).toBeNull();
+  expect(seatQuote({ ...zero, costUnavailable: ['no_price'] }, pricing)).toEqual({
+    cost: null,
+    reasons: ['no_price'],
+  });
+  expect(seatQuote({ ...zero, costUnavailable: [17] }, pricing)).toEqual({
+    cost: null,
+    reasons: ['cost_evidence_invalid'],
+  });
 });
 
 it('says one plain sentence for each way the digest read is unavailable', () => {

@@ -44,6 +44,9 @@ export interface UsageSeat {
   /** Core's attribution by model; null when Core attributed none of the total, absent on older
    * reports. The rows may sum to less than `totals`. */
   byModel?: readonly ModelUsage[] | null;
+  /** The report's whole-seat estimate. Earlier usage-v1 reports may omit these fields. */
+  cost?: UsageCost | null;
+  costUnavailable?: readonly string[];
   /** What no model row covers, present only when `byModel` is not null and falls short. */
   unattributed?: UsageTotals;
   /** Hourly for 24h, daily for 7d and 30d, oldest first. */
@@ -153,6 +156,34 @@ function isCostReasonList(value: unknown): value is string[] {
   );
 }
 
+function reportedQuote(row: Record<string, unknown>): UsageCost | null {
+  const { usdMicros, lowerBound } = record(row.cost);
+  return isCostReasonList(row.costUnavailable) &&
+    row.costUnavailable.length === 0 &&
+    safeCount(usdMicros) &&
+    typeof lowerBound === 'boolean'
+    ? { usdMicros, lowerBound }
+    : null;
+}
+
+/** Read the seat total from Digest and preserve reasons even if the amount is unusable. */
+export function seatQuote(
+  value: unknown,
+  pricing: UsageDocument['pricing'],
+): { cost: UsageCost | null; reasons: readonly string[] } {
+  const row = record(value);
+  const cost = reportedQuote(row);
+  if (cost && pricingVersion(pricing)) return { cost, reasons: [] };
+  const reasons = row.costUnavailable;
+  return {
+    cost: null,
+    reasons:
+      isCostReasonList(reasons) && reasons.length > 0
+        ? reasons
+        : [cost ? 'pricing_unavailable' : 'cost_evidence_invalid'],
+  };
+}
+
 /** The browser consumes quotes from Digest. A bad or ambiguous row leaves that model unpriced. */
 export function modelQuotes(doc: UsageDocument): ReadonlyMap<string, UsageCost | null> {
   const quotes = new Map<string, UsageCost | null>();
@@ -162,17 +193,7 @@ export function modelQuotes(doc: UsageDocument): ReadonlyMap<string, UsageCost |
     const row = record(value);
     const model = row.modelId;
     if (typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(model)) continue;
-    const { usdMicros, lowerBound } = record(row.cost);
-    quotes.set(
-      model,
-      !quotes.has(model) &&
-        isCostReasonList(row.costUnavailable) &&
-        row.costUnavailable.length === 0 &&
-        safeCount(usdMicros) &&
-        typeof lowerBound === 'boolean'
-        ? { usdMicros, lowerBound }
-        : null,
-    );
+    quotes.set(model, quotes.has(model) ? null : reportedQuote(row));
   }
   return quotes;
 }
