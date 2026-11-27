@@ -45,7 +45,7 @@ for (const width of [1440, 390])
         const frame = page.locator('.design-workspace iframe').first().contentFrame();
         if (path.startsWith('/design'))
           await expect(frame.locator('.docs-article h1').first()).toBeVisible();
-        else await expect(page.getByRole('heading', { name: /All pages$/ })).toBeVisible();
+        else await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('List');
         if (path.endsWith('/brand')) {
           await expect(frame.locator('.docs-article h1').first()).toHaveText('Brand');
           await expect(frame.locator('.docs-canvas svg.tmt-brand-mark')).toHaveCount(4);

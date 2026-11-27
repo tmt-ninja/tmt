@@ -7004,8 +7004,7 @@ function appRail(answer, routes, place, route) {
 	else if (home) item.href = appHref(routes, home);
 	if (home) {
 		const here = place.href.split(/[?#]/)[0];
-		const homeHref = rail.main.find((item) => item.id === "home").href;
-		if (here === homeHref || homeHref === `${place.origin}/colab/work` && here === `${homeHref}/list`) for (const item of rail.main) item.current = item.id === "home";
+		if (rail.main.find((item) => item.id === "home").href === here) for (const item of rail.main) item.current = item.id === "home";
 	}
 	return rail;
 }
@@ -7077,7 +7076,7 @@ function startShellHost(root, routes, options = {}) {
 		}
 		return {
 			rail,
-			menu: rail.main.some((item) => item.id === "home" && item.current) ? void 0 : menu
+			menu
 		};
 	};
 	const controls = mountShell(root, view(), (id, href) => {

@@ -277,10 +277,7 @@ export function appRail(
   // In the app a claimed Home is current on its in-app route (#6474).
   if (home) {
     const here = place.href.split(/[?#]/)[0];
-    const homeHref = rail.main.find((item) => item.id === 'home')!.href;
-    const atHome =
-      here === homeHref ||
-      (homeHref === `${place.origin}/colab/work` && here === `${homeHref}/list`);
+    const atHome = rail.main.find((item) => item.id === 'home')!.href === here;
     if (atHome) for (const item of rail.main) item.current = item.id === 'home';
   }
   return rail;
@@ -389,9 +386,7 @@ export function startShellHost(
       const route = routes.find((candidate) => candidate.rail === item.id);
       if (route && route !== current?.route) item.href = lastLocation.get(route.id) ?? item.href;
     }
-    // The folded module menu must not take aria-current from Home.
-    const homeCurrent = rail.main.some((item) => item.id === 'home' && item.current);
-    return { rail, menu: homeCurrent ? undefined : menu };
+    return { rail, menu };
   };
   const controls: ShellControls = mountShell(
     root,

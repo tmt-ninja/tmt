@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { capturePath } from './captures.js';
+import { openModuleNavigation } from '../test/home-list.js';
 
 // Work home (#6474) over the owner list: open work by status, a count that filters the project
 // rows, and what got done with its owner and release.
@@ -302,9 +303,21 @@ for (const width of [1440, 390])
       await expect(list).toHaveAttribute('aria-selected', 'true');
       await expect(branch.locator('[data-page-list]')).toBeVisible();
       const rail = branch.locator('nav.tmt-ui-rail');
-      await expect(rail.locator('[data-id="home"]')).toHaveAttribute('aria-current', 'page');
+      if (width === 390) await openModuleNavigation(page, branch);
+      await expect(rail.locator('[data-id="all"]')).toBeVisible();
+      await expect(rail.locator('[data-id="all"]')).toHaveAttribute('aria-current', 'page');
       await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
-      await expect(rail.locator('[data-id="all"][aria-current="page"]')).toHaveCount(0);
+      await expect(rail.locator('[data-id="home"][aria-current="page"]')).toHaveCount(0);
+      if (width === 390) {
+        if (process.env.COLAB_CAPTURE_DIR)
+          await page.screenshot({
+            path: await capturePath(`work-list-rail-${width}-${theme}.png`),
+          });
+        await page.keyboard.press('Escape');
+        const drawer = branch.getByRole('button', { name: 'Open navigation' });
+        await expect(drawer).toHaveAttribute('aria-expanded', 'false');
+        await drawer.evaluate((button) => button.blur());
+      }
       const bar = branch.locator('.tmt-ui-topbar:visible');
       await expect(bar.locator('.tmt-ui-topbar-title-current')).toHaveText('List');
       await expect(bar.locator('.colab-work-view-prefix')).toHaveText('Work');
@@ -327,6 +340,9 @@ for (const width of [1440, 390])
       const heading = branch.locator('[data-work-home] .work-home-title');
       await expect(heading).toBeVisible();
       await expect(bar.locator('.tmt-ui-topbar-title-current')).toHaveText('Home');
+      await expect(rail.locator('[data-id="home"]')).toHaveAttribute('aria-current', 'page');
+      await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
+      await expect(rail.locator('[data-id="all"]')).not.toBeVisible();
       expect((await tabs.boundingBox())!.x).toBeCloseTo((await heading.boundingBox())!.x, 0);
       if (process.env.COLAB_CAPTURE_DIR) {
         await page.screenshot({

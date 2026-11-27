@@ -60,7 +60,7 @@ test('real Colab keeps public short entries across admission, reload and history
     await expect(
       page.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
     ).toBeVisible();
-    expect(new URL(page.url()).pathname).toBe('/colab/');
+    expect(new URL(page.url()).pathname).toBe('/colab/work/list');
     await page.goBack();
     await expect(proof()).toHaveText('Short route content');
     expect(page.url()).toBe(canonical);
@@ -68,7 +68,7 @@ test('real Colab keeps public short entries across admission, reload and history
     await expect(
       page.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
     ).toBeVisible();
-    expect(new URL(page.url()).pathname).toBe('/colab/');
+    expect(new URL(page.url()).pathname).toBe('/colab/work/list');
     await page.goto(
       `${door.mounts}colab/#space=${shown.spaceId}&path=%2Fpages%2F${created.pageId}`,
     );

@@ -318,6 +318,9 @@ for (const width of [1440, 390])
       const topNumber = bar.getByRole('button', { name: 'COLAB-128', exact: true });
       const pageNumber = title.getByRole('button', { name: 'COLAB-128', exact: true });
       const feedback = page.locator('.colab-work-number-feedback');
+      // The structured stage gives the title its desktop inset before any Copy action.
+      await expect(page.locator('#work-page-fixture .structured-page-stage')).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
       const before = await title.boundingBox();
       const pointerTarget = width === 390 ? pageNumber : topNumber;
       await pointerTarget.click();

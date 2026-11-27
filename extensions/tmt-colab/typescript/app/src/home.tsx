@@ -113,7 +113,6 @@ import { AppHeader } from './app-header.js';
 
 const t = text.pageList;
 const rootRoute = getRouteApi('__root__');
-const homeRoute = getRouteApi('/work/list');
 export { validateHomeSearch, type HomeSearch } from './page-list-filter.js';
 import { pageListFilter, type HomeSearch } from './page-list-filter.js';
 
@@ -160,7 +159,8 @@ function StageEmpty({
   );
 }
 
-export function Home() {
+export function Home({ routeId }: { routeId: '/' | '/work/list' }) {
+  const homeRoute = getRouteApi(routeId);
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const phone = useMedia('(max-width: 760px)');
   const space = homeRoute.useLoaderData();

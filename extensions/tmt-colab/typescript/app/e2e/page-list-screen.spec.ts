@@ -22,8 +22,9 @@ for (const width of [1440, 390])
       page,
     }) => {
       await mount(page, width, theme);
-      await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('All pages');
-      await expect(app(page).getByRole('tab')).toHaveCount(6);
+      await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('List');
+      const stages = app(page).getByRole('tablist', { name: 'Page views' });
+      await expect(stages.getByRole('tab')).toHaveCount(6);
       for (const name of [
         'All, 75',
         '◆ Needs you, 1 · waiting',
@@ -52,7 +53,7 @@ for (const width of [1440, 390])
             .then((value) => value!);
         const [search, tabs, list] = await Promise.all([
           box('.page-list-search'),
-          box('[role="tablist"]'),
+          box('.page-stage-tabs [role="tablist"]'),
           box('.page-list-scroll'),
         ]);
         return { search, tabs, list };
@@ -65,13 +66,13 @@ for (const width of [1440, 390])
       expect(before.search.height).toBeGreaterThan(0);
 
       if (width < 480) {
-        const tops = await app(page)
+        const tops = await stages
           .getByRole('tab')
           .evaluateAll((tabs) => tabs.map((tab) => tab.getBoundingClientRect().top));
         expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(1);
         expect(
           await app(page)
-            .locator('[data-slot=tabs-bar-scroller]')
+            .locator('.page-stage-tabs [data-slot=tabs-bar-scroller]')
             .evaluate((node) => node.scrollWidth > node.clientWidth),
         ).toBe(true);
       }
@@ -284,7 +285,7 @@ test('New page names the chosen agent as creator and offers it next time (#5076)
   expect((await page.evaluate(() => window.__newPages))[1]!.creator).toBeUndefined(); // From a view of one project the page starts in it, and Blank page, the first card, makes a page
   // of blocks: no template (#6707).
   await page.evaluate(() => (location.hash = `/?project=${encodeURIComponent('["blog"]')}`));
-  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
+  await expect(app(page).locator('.colab-work-list-scope')).toHaveText('blog');
   await opener.click();
   const projectField = dialog.getByRole('combobox', { name: 'Project' });
   await expect(projectField).toHaveText('blog');
@@ -629,7 +630,7 @@ test('compact project condition preserves draft and focus across viewport change
   await home.getByRole('button', { name: 'Filter', exact: true }).click();
   await page.getByRole('menuitemcheckbox', { name: 'blog', exact: true }).click();
   await expect(home).not.toHaveAttribute('data-compact');
-  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
+  await expect(app(page).locator('.colab-work-list-scope')).toHaveText('blog');
   // The picked project is a token in the field beside the typed text; leaving the field for the
   // menu applied that text, as Enter does.
   const chip = home.getByRole('button', { name: 'Remove project filter blog', exact: true });

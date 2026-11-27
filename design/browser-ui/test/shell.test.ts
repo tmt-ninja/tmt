@@ -13,7 +13,7 @@ import {
   type ShellModule,
 } from '../src/shell.js';
 import { moduleIcon } from '../src/shell-icons.js';
-import { appRail, rememberedMenu } from '../src/shell-host.js';
+import { rememberedMenu } from '../src/shell-host.js';
 
 const origin = 'http://127.0.0.1:50711';
 const colab: ShellModule = {
@@ -61,35 +61,6 @@ it('orders Home, Colab, Design, Remote, Ops, Digest, then TMT settings at the bo
   expect(rail.bottom.map((item) => [item.id, item.label, item.href])).toEqual([
     ['settings', 'TMT settings', `${origin}/settings/`],
   ]);
-});
-
-it('selects the claimed Home across both Work tabs, including filtered views', () => {
-  vi.stubGlobal('document', { createElement: () => new URL(origin) });
-  const mount = `${origin}/r/abcdefghijklmnop/x/colab/`;
-  const claim = {
-    ...colab,
-    rail: { ...colab.rail, path: mount },
-    homePage: `${mount}work`,
-  };
-  const route = {
-    id: 'colab',
-    rail: 'colab',
-    paths: ['/colab', '/colab/'],
-    load: async () => ({ mount: () => {} }),
-  };
-  const current = (path: string) =>
-    appRail(
-      { version: 1, modules: [claim, remote] },
-      [route],
-      { origin, href: `${origin}${path}` },
-      route,
-    )
-      .main.filter((item) => item.current)
-      .map((item) => item.id);
-
-  expect(current('/colab/work')).toEqual(['home']);
-  expect(current('/colab/work/list?q=plan')).toEqual(['home']);
-  expect(current('/colab/pages/one')).toEqual(['colab']);
 });
 
 it('marks the longest matching module, or the host-named one, and settings on /settings', () => {

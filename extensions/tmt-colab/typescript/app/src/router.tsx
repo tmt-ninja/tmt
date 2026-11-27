@@ -1116,7 +1116,7 @@ const root = createRootRouteWithContext<AppContext>()({
     const router = useRouter();
     const pathname = useRouterState({ select: (state) => state.location.pathname });
     const opening = pathname.startsWith('/pages/');
-    const onList = pathname === WORK_LIST_PATH;
+    const onList = isListPath(pathname);
     const retryRoute = useCallback(() => void router.invalidate(), [router]);
     const recovery = useMountRecovery(onList || opening ? error : undefined, pathname, retryRoute);
     const listFailure = onList && error instanceof HomeReadFailure;
@@ -1232,7 +1232,7 @@ async function loadSpaceHome({ context }: { context: AppContext }) {
 }
 function HomePending() {
   const workView = useRouterState({
-    select: ({ location }) => (location.pathname === WORK_LIST_PATH ? 'list' : 'home'),
+    select: ({ location }) => (isListPath(location.pathname) ? 'list' : 'home'),
   });
   const opening = useContext(OpeningFrame);
   useLayoutEffect(() => {
@@ -1255,12 +1255,8 @@ const workTabs = [
   { id: 'list', tabId: 'work-tab-list', panelId: 'work-panel-list', label: text.workHome.listTab },
 ] as const;
 
-function WorkTabs() {
+function WorkTabLayout({ selected, children }: { selected: 'home' | 'list'; children: ReactNode }) {
   const router = useRouter();
-  const selected = useRouterState({
-    select: ({ matches }) =>
-      matches.some(({ routeId }) => routeId === WORK_LIST_PATH) ? 'list' : 'home',
-  });
   return (
     <div className="colab-work-tabs" data-work-view={selected}>
       <BrowserTabs
@@ -1272,9 +1268,21 @@ function WorkTabs() {
             void router.navigate({ to: id === 'list' ? WORK_LIST_PATH : '/work' });
         }}
       >
-        {(tab) => tab.id === selected && <Outlet />}
+        {(tab) => tab.id === selected && children}
       </BrowserTabs>
     </div>
+  );
+}
+
+function WorkTabs() {
+  const selected = useRouterState({
+    select: ({ matches }) =>
+      matches.some(({ routeId }) => routeId === WORK_LIST_PATH) ? 'list' : 'home',
+  });
+  return (
+    <WorkTabLayout selected={selected}>
+      <Outlet />
+    </WorkTabLayout>
   );
 }
 
@@ -1299,22 +1307,33 @@ const workList = createRoute({
   path: 'list',
   validateSearch: validateHomeSearch,
   loader: loadSpaceHome,
-  component: Home,
+  component: () => <Home routeId={WORK_LIST_PATH} />,
   pendingComponent: HomePending,
   pendingMs: 150,
   pendingMinMs: 300,
 });
-const oldList = (path: '/' | '/all') =>
-  createRoute({
-    getParentRoute: () => root,
-    path,
-    validateSearch: validateHomeSearch,
-    beforeLoad: ({ search }) => {
-      throw redirect({ to: WORK_LIST_PATH, search, replace: true });
-    },
-  });
-const home = oldList('/');
-const allPages = oldList('/all');
+const home = createRoute({
+  getParentRoute: () => root,
+  path: '/',
+  validateSearch: validateHomeSearch,
+  loader: loadSpaceHome,
+  component: () => (
+    <WorkTabLayout selected="list">
+      <Home routeId="/" />
+    </WorkTabLayout>
+  ),
+  pendingComponent: HomePending,
+  pendingMs: 150,
+  pendingMinMs: 300,
+});
+const allPages = createRoute({
+  getParentRoute: () => root,
+  path: '/all',
+  validateSearch: validateHomeSearch,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: WORK_LIST_PATH, search, replace: true });
+  },
+});
 /**
  * Timings of opening a page, for whoever profiles it: local performance entries only, no report.
  * The frame appears after `pendingMs` and stays `pendingMinMs`; a fast open never shows it.
@@ -1535,7 +1554,7 @@ function Shell() {
       opening ? state.location.pathname : (state.resolvedLocation ?? state.location).pathname,
   });
   const isPage = pathname.startsWith('/pages/');
-  const isWork = pathname === '/work' || pathname === WORK_LIST_PATH;
+  const isWork = pathname === '/work' || isListPath(pathname);
   // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
   const hostSlot = useContext(ShellHostSlot);
   const ownShell = hostSlot === null;

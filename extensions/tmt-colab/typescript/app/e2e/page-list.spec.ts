@@ -1061,7 +1061,7 @@ test('a reader gets search, filters and the scope, but no project writes or arch
       page.getByRole('menuitem', { name: `${action} — Read-only access` }),
     ).toHaveAttribute('aria-disabled', 'true');
   await page.keyboard.press('Escape');
-  await expect(app(page).getByRole('tab')).toHaveCount(0);
+  await expect(app(page).getByRole('tablist', { name: 'Page views' })).toHaveCount(0);
   await expect(app(page).getByRole('button', { name: /^Projects for/ })).toHaveCount(0);
   await filterProject(page, 'ops');
   await expect(titles(page)).toHaveText(['Delta ops']);

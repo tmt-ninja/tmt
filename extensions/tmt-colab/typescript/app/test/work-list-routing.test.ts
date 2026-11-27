@@ -66,13 +66,28 @@ it.each([
   15_000,
 );
 
-it('the preview root redirects to Work List', async () => {
+it('the preview root loads the list without rewriting its URL', async () => {
   const router = await start('/', 'preview');
   try {
     await router.load();
     router.history.flush();
-    expect(window.location.hash).toBe('#/work/list');
-    expect(router.matchRoutes(router.state.location).at(-1)?.routeId).toBe('/work/list');
+    expect(window.location.hash).toBe('');
+    expect(router.state.matches.at(-1)).toMatchObject({
+      routeId: '/',
+      status: 'success',
+      loaderData: { pages: [] },
+    });
+  } finally {
+    router.history.destroy();
+  }
+});
+
+it('the explicit All pages alias redirects to Work List with its validated search', async () => {
+  const router = await start('/#/all?stage=done', 'preview');
+  try {
+    await router.load();
+    router.history.flush();
+    expect(window.location.hash).toBe('#/work/list?stage=done');
   } finally {
     router.history.destroy();
   }

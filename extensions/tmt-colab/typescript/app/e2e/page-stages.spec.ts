@@ -21,7 +21,8 @@ const app = (page: Page) => page.locator('#list-fixture');
 const rows = (page: Page) => app(page).locator('.page-list-table [data-page-id]');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
-const tab = (page: Page, name: string | RegExp) => app(page).getByRole('tab', { name });
+const stages = (page: Page) => app(page).getByRole('tablist', { name: 'Page views' });
+const tab = (page: Page, name: string | RegExp) => stages(page).getByRole('tab', { name });
 const hash = (page: Page) => new URL(page.url()).hash;
 
 test('the tabs are All, Needs you, Discussion, In progress, Done and Archived, counting what each holds', async ({
@@ -36,7 +37,7 @@ test('the tabs are All, Needs you, Discussion, In progress, Done and Archived, c
     'Done, 1',
     'Archived, 1',
   ].entries())
-    await expect(app(page).getByRole('tab').nth(index)).toHaveAccessibleName(name);
+    await expect(stages(page).getByRole('tab').nth(index)).toHaveAccessibleName(name);
   // The bare link opens on All, and the address stays plain: that is the default.
   await expect(tab(page, 'All, 5')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText([
@@ -231,7 +232,7 @@ test('a cold start reads again and fills In progress as the pages report, with n
     'Done, 0',
     'Archived, 0',
   ].entries())
-    await expect(app(page).getByRole('tab').nth(index)).toHaveAccessibleName(name);
+    await expect(stages(page).getByRole('tab').nth(index)).toHaveAccessibleName(name);
   await expect(app(page).locator('.page-list-empty')).toHaveCount(0);
 });
 
@@ -240,11 +241,11 @@ for (const width of [1440, 390, 320])
   test(`every stage tab is keyboard reachable in the strip: ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(page);
-    const strip = app(page).locator('[data-slot="tabs-bar-scroller"]');
+    const strip = app(page).locator('.page-stage-tabs [data-slot="tabs-bar-scroller"]');
     const names = [/^All/, /^Needs you/, /^Discussion/, /^In progress/, /^Done/, /^Archived/];
     if (width <= 390)
       expect(await strip.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
-    const tops = await app(page)
+    const tops = await stages(page)
       .getByRole('tab')
       .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top));
     expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(1);
@@ -281,7 +282,7 @@ for (const width of [390, 320])
     test(`a link to ${link} opens with its tab inside the strip: ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await mount(page, 'stages', link);
-      const selected = app(page).getByRole('tab', { selected: true });
+      const selected = stages(page).getByRole('tab', { selected: true });
       await expect(selected).toHaveCount(1);
       await expect
         .poll(() =>

@@ -21,13 +21,6 @@ async function run(page: Page, method: string, argument?: unknown) {
 
 /** The reply or Chat composer inside its real host, which shows a sent message at once. */
 async function mount(page: Page, surface: string, mode = 'accepted') {
-  // The annotation fixture owns its page link. The preview router would redirect it to Work List.
-  await page.route('**/src/main.tsx', (route) =>
-    route.fulfill({
-      contentType: 'text/javascript',
-      body: "document.body.classList.remove('guidance');",
-    }),
-  );
   await page.goto('/');
   await run(page, 'setSurface', surface);
   await run(page, 'setAgents', [{ ...destination(), agentName: 'alpha' }]);
@@ -35,7 +28,6 @@ async function mount(page: Page, surface: string, mode = 'accepted') {
   await run(page, 'setDirectory', 'ok');
   await run(page, 'setEchoHost', true);
   await run(page, 'mount', mode);
-  await expect(page.locator('body')).toHaveCSS('font-family', /Inter/);
   const input = page.getByRole('combobox', { name: 'Message', exact: true });
   await expect(input).toBeVisible();
   await expect(page.locator('.annotation-hint[role="status"]')).not.toContainText('Checking');

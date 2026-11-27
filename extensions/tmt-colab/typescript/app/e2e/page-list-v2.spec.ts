@@ -40,7 +40,7 @@ test('concept17 shows real pins in owner order, wraps after three and shares the
   await page.setViewportSize({ width: 1586, height: 992 });
   await mount(page);
   // The bar's title slot names the list; the content repeats no heading and no title row.
-  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('All pages');
+  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('List');
   await expect(app(page).locator('h1:visible')).toHaveCount(1);
   await expect(app(page).locator('.colab-title-row')).toHaveCount(0);
   await expect(app(page).locator('.tmt-ui-header:visible')).toHaveCount(0);
@@ -79,7 +79,7 @@ test('concept17 shows real pins in owner order, wraps after three and shares the
     app(page).getByRole('button', { name: 'Remove project filter blog', exact: true }),
   ).toBeVisible();
   await expect(pins.getByRole('link')).toHaveText(['Review 2']);
-  await expect(app(page).locator('.tmt-ui-topbar-title-current')).toHaveText('blog');
+  await expect(app(page).locator('.colab-work-list-scope')).toHaveText('blog');
   await expect(app(page).locator('h1:visible')).toHaveCount(1);
   await expect(app(page).locator('.tmt-ui-header:visible')).toHaveCount(0);
 
