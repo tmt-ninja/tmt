@@ -104,32 +104,19 @@ impl Info<'_> {
         }
         let line = Rect::new(area.x, area.bottom() - 1, area.width, 1);
         let newline = self.newline.glyph();
-        let keep_full = self
-            .keep_reply_key
-            .as_deref()
-            .map(|k| format!("  {k} keep reply"))
-            .unwrap_or_default();
-        let keep_short = self
-            .keep_reply_key
-            .as_deref()
-            .map(|k| format!("  {k}"))
-            .unwrap_or_default();
         let full = format!(
-            "⏎ send  {newline} new line  {} mention{}{}",
+            "⏎ send  {newline} new line  {} mention{}",
             crate::board::mentions::PRIMARY_TRIGGER,
             if self.checklist { "  ^L checklist" } else { "" },
-            keep_full,
         );
         let shortened = format!(
-            "⏎ send  {newline} new line  {} mention  ^L{}",
+            "⏎ send  {newline} new line  {} mention  ^L",
             crate::board::mentions::PRIMARY_TRIGGER,
-            keep_short,
         );
         let keys = format!(
-            "⏎  {newline}  {}{}{}",
+            "⏎  {newline}  {}{}",
             crate::board::mentions::PRIMARY_TRIGGER,
             if self.checklist { "  ^L" } else { "" },
-            keep_short,
         );
         let (full, shortened, keys) = (full.as_str(), shortened.as_str(), keys.as_str());
         let full_left = self.left(true, true, look);
@@ -168,6 +155,20 @@ impl Info<'_> {
         } else {
             right
         };
+        let with_keep = self.keep_reply_key.as_deref().and_then(|k| {
+            let candidate = if right == with_reference {
+                format!(
+                    "{right_base}  {k} keep  # item",
+                    right_base = right.strip_suffix("  # item").unwrap_or(right)
+                )
+            } else if right == full {
+                format!("{right}  {k} keep")
+            } else {
+                return None;
+            };
+            (left.width() + candidate.width() + 2 <= usize::from(line.width)).then_some(candidate)
+        });
+        let right = with_keep.as_deref().unwrap_or(right);
         let width = right.width().min(usize::from(line.width)) as u16;
         let right_area = Rect::new(line.right() - width, line.y, width, 1);
         // The short Checklist label needs only one separator cell, so it fits

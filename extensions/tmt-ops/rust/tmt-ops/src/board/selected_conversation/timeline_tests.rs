@@ -157,6 +157,7 @@ fn plan() -> Plan {
         })
         .collect(),
         held_timeline: None,
+        kept_supported: None,
         pane: Some(recent_responses::AnswerRead {
             key: (Some(OWNER.into()), AGENT.into()),
             before: None,

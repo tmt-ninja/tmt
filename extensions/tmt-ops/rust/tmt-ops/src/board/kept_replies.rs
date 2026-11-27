@@ -307,7 +307,16 @@ impl super::app::App {
         self.bindings()
             .into_iter()
             .find(|(_, bound)| bound.verb == action)
-            .map(|(key, _)| super::view::footer::key_label(&key).to_owned())
+            .map(|(key, _)| {
+                if let Some(ch) = key
+                    .strip_prefix("ctrl-")
+                    .filter(|rest| rest.chars().count() == 1)
+                {
+                    format!("^{}", ch.to_uppercase())
+                } else {
+                    super::view::footer::key_label(&key).to_owned()
+                }
+            })
     }
 
     pub(in crate::board) fn toggle_keep_reply(&mut self) -> super::app::Effect {
@@ -611,7 +620,7 @@ pub(in crate::board) mod tests {
             Some(crate::action::OpsUiAction::KeepReply)
         );
         let mut app = crate::board::app::workspace::tests::board();
-        assert_eq!(app.composer_keep_reply_key(), None);
+        assert_eq!(app.composer_keep_reply_key().as_deref(), Some("^P"));
         app.focus_composer();
         // Without Core capability, toggling explains the requirement and leaves keep_reply false.
         let _ = app.toggle_keep_reply();
