@@ -78,7 +78,7 @@ export function PageOutline({
     id: string;
     headingTop: number;
     settledAt?: number;
-    timer: number;
+    timer?: number;
   } | null>(null);
   useEffect(() => () => window.clearTimeout(jump.current?.timer), []);
   // A click leaves the toggle focused without a frame, until the keyboard is used on it.
@@ -156,15 +156,24 @@ export function PageOutline({
       jump.current = null;
       update();
     };
+    const onScroll = () => {
+      const selection = jump.current;
+      // A real scroll settles at scrollend, even when the animation outlasts the no-scroll timer.
+      if (selection?.timer !== undefined) {
+        window.clearTimeout(selection.timer);
+        selection.timer = undefined;
+      }
+      update();
+    };
     update();
-    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', update);
     document.addEventListener('scrollend', settle);
     window.addEventListener('wheel', release, { passive: true });
     window.addEventListener('touchstart', release, { passive: true });
     window.addEventListener('keydown', release);
     return () => {
-      window.removeEventListener('scroll', update);
+      window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', update);
       document.removeEventListener('scrollend', settle);
       window.removeEventListener('wheel', release);
@@ -186,7 +195,9 @@ export function PageOutline({
               onClick={(event) => {
                 const keyboard = event.detail === 0;
                 const target = locate(heading.id);
-                if (target) {
+                const scrollToHeading = () => {
+                  setCurrent(index);
+                  if (!target) return;
                   window.clearTimeout(jump.current?.timer);
                   jump.current = {
                     id: heading.id,
@@ -196,16 +207,16 @@ export function PageOutline({
                       if (jump.current) jump.current.settledAt = scrollY;
                     }, 500),
                   };
-                }
-                setCurrent(index);
+                  target.scrollTo(keyboard);
+                };
                 if (strip) {
                   setFloating(false);
                   if (keyboard) stripButton.current?.focus();
-                  target?.scrollTo(keyboard);
+                  scrollToHeading();
                 } else if (menu) {
                   setMenuOpen(false);
                   toggle.current?.focus();
-                  target?.scrollTo(keyboard);
+                  scrollToHeading();
                 } else if (innerWidth <= 640) {
                   setPreference(false);
                   try {
@@ -213,9 +224,9 @@ export function PageOutline({
                   } catch {
                     /* Optional preference. */
                   }
-                  // Closing the phone list changes the target's position in the page.
-                  requestAnimationFrame(() => target?.scrollTo(keyboard));
-                } else target?.scrollTo(keyboard);
+                  // Let the phone list close before starting the jump and tracking its scroll.
+                  requestAnimationFrame(scrollToHeading);
+                } else scrollToHeading();
               }}
             >
               <OutlineRow title={heading.title} section={bySection.get(heading.id)} />

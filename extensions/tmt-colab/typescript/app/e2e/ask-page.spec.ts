@@ -963,6 +963,50 @@ for (const width of [390, 1440])
       );
   });
 
+test('phone outline keeps the tapped heading through a long smooth jump', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto('/');
+  await run(page, 'mount', { structuredOutline: true, outlineSections: 30 });
+  const outline = page.getByRole('navigation', { name: 'Page outline' });
+  const toggle = outline.locator('.page-outline-toggle');
+  await expect(toggle).toContainText('Overview');
+  await toggle.click();
+  const pick = outline.getByRole('button', { name: 'Section 29', exact: true });
+  await expect(pick).toBeVisible();
+  const heading = page
+    .locator('.structured-page-stage')
+    .getByRole('heading', { name: 'Section 29' });
+  const settled = await heading.evaluateHandle((heading) => {
+    const block = heading.closest<HTMLElement>('[data-block-id]')!;
+    // Force a 1 px off-edge landing and make the real pointer jump animate in this fixture.
+    block.style.scrollMarginTop = `calc(${getComputedStyle(block).scrollMarginTop} + 1px)`;
+    const scrollIntoView = block.scrollIntoView.bind(block);
+    return {
+      elapsed: new Promise<number>((resolve) => {
+        block.scrollIntoView = () => {
+          const started = performance.now();
+          document.addEventListener(
+            'scrollend',
+            () => {
+              const elapsed = performance.now() - started;
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve(elapsed)));
+            },
+            { once: true },
+          );
+          scrollIntoView({ block: 'start', behavior: 'smooth' });
+        };
+      }),
+    };
+  });
+  await pick.click();
+  expect(await settled.evaluate(({ elapsed }) => elapsed)).toBeGreaterThan(500);
+  await settled.dispose();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(heading).toBeInViewport();
+  await expect(toggle).toContainText('Section 29');
+});
+
 for (const width of [1440, 390])
   test(`HTML outline follows visible headings and jumps without resizing the frame at ${width}`, async ({
     page,
