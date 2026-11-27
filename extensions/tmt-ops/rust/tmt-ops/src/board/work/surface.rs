@@ -833,21 +833,41 @@ fn paint_inspector(
                 Span::styled(count_label, look.role(Role::Muted)),
             ]),
         );
-        if let Some((idx, todo)) = ask_todos.iter().enumerate().next() {
-            let label = format!("▸ #{}  {}", idx + 1, todo.title);
-            inspector_line(
-                frame,
-                area,
-                &mut y,
-                Line::styled(fit(&label, width), look.role(Role::Text)),
-            );
-            if let Some(prompt) = todo.next.as_deref().or(item.next.as_deref()) {
+        if !ask_todos.is_empty() {
+            for (idx, todo) in ask_todos.iter().take(3).enumerate() {
+                let marker = if idx == 0 { "▸" } else { " " };
+                let label = format!("{marker} #{}  {}", idx + 1, todo.title);
+                inspector_line(
+                    frame,
+                    area,
+                    &mut y,
+                    Line::styled(fit(&label, width), look.role(Role::Text)),
+                );
+                if let Some(prompt) = todo
+                    .next
+                    .as_deref()
+                    .or((idx == 0).then_some(item.next.as_deref()).flatten())
+                {
+                    inspector_line(
+                        frame,
+                        area,
+                        &mut y,
+                        Line::styled(
+                            fit(&format!("  \"{prompt}\""), width),
+                            look.role(Role::Muted),
+                        ),
+                    );
+                }
+            }
+            let shown_asks = ask_todos.len().min(3);
+            let extra_asks = ask_count.saturating_sub(shown_asks as u64);
+            if extra_asks > 0 {
                 inspector_line(
                     frame,
                     area,
                     &mut y,
                     Line::styled(
-                        fit(&format!("  \"{prompt}\""), width),
+                        fit(&format!("  +{extra_asks} more · answer in Colab"), width),
                         look.role(Role::Muted),
                     ),
                 );

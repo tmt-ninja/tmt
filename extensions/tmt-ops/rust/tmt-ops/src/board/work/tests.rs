@@ -604,14 +604,24 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
         pages["pages"][0]["summary"]["needsYou"] = json!(2);
         pages["pages"][0]["summary"]["fields"]["next"] =
             json!("Approve rounded borders for Work panes?");
-        pages["pages"][0]["summary"]["todos"] = json!([{
-            "id": "todo-ask-1",
-            "number": "COLAB-119.1",
-            "text": "Confirm border tokens",
-            "assignee": "worker",
-            "checked": false,
-            "ask": "needs-you",
-        }]);
+        pages["pages"][0]["summary"]["todos"] = json!([
+            {
+                "id": "todo-ask-1",
+                "number": "COLAB-119.1",
+                "text": "Confirm border tokens",
+                "assignee": "worker",
+                "checked": false,
+                "ask": "needs-you",
+            },
+            {
+                "id": "todo-ask-2",
+                "number": "COLAB-119.2",
+                "text": "Confirm Needs-you preview",
+                "assignee": "worker",
+                "checked": false,
+                "ask": "needs-you",
+            },
+        ]);
     }
     if scene.starts_with("work-order-") {
         pages = ordered_list(crate::status::now_ms());
@@ -1423,14 +1433,24 @@ fn colab_work_renders_boxed_panes_and_needs_you_preview() {
     document["pages"][0]["summary"]["needsYou"] = json!(2);
     document["pages"][0]["summary"]["fields"]["next"] =
         json!("Approve rounded borders for Work panes?");
-    document["pages"][0]["summary"]["todos"] = json!([{
-        "id": "todo-ask-1",
-        "number": "COLAB-119.1",
-        "text": "Confirm border tokens",
-        "assignee": "Ada",
-        "checked": false,
-        "ask": "needs-you",
-    }]);
+    document["pages"][0]["summary"]["todos"] = json!([
+        {
+            "id": "todo-ask-1",
+            "number": "COLAB-119.1",
+            "text": "Confirm border tokens",
+            "assignee": "Ada",
+            "checked": false,
+            "ask": "needs-you",
+        },
+        {
+            "id": "todo-ask-2",
+            "number": "COLAB-119.2",
+            "text": "Confirm Needs-you preview",
+            "assignee": "Ada",
+            "checked": false,
+            "ask": "needs-you",
+        },
+    ]);
 
     let mut app = board();
     app.work
@@ -1469,6 +1489,11 @@ fn colab_work_renders_boxed_panes_and_needs_you_preview() {
         lines
             .iter()
             .any(|l| l.contains("▸ #1  Confirm border tokens"))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("  #2  Confirm Needs-you preview"))
     );
     assert!(
         lines

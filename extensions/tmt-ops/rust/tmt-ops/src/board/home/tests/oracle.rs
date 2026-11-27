@@ -1555,6 +1555,27 @@ fn work_frames(styles: &mut Styles) -> Vec<Value> {
     frames
 }
 
+#[test]
+#[ignore = "exports only the work-* scenes to HOME_ORACLE_OUT without recording"]
+fn dump_work_oracle() {
+    let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
+    let captured = crate::status::with_now_ms(NOW, || {
+        let mut styles = Styles::default();
+        let frames = work_frames(&mut styles);
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        json!({"styles": styles, "frames": frames})
+    });
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&captured).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
 fn digest_impact_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
