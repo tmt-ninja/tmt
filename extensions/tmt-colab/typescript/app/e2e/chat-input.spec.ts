@@ -50,7 +50,7 @@ async function composer(page: Page, options: object) {
   return page.getByRole('combobox', { name: 'Message', exact: true });
 }
 
-test('a refused recovery write leaves the owner message in the composer', async ({ page }) => {
+test('an owner can send explicitly after a refused recovery write', async ({ page }) => {
   const input = await composer(page, { agents: ['Solo'], pending: 'refuse' });
   await input.fill('Keep this message.');
   await input.press('Enter');
@@ -58,6 +58,10 @@ test('a refused recovery write leaves the owner message in the composer', async 
   await expect(page.getByRole('status')).toContainText('Drafts are not saved on this device.');
   await expect(input).toHaveText('Keep this message.');
   expect((await run(page, 'proof')).createChats).toBe(0);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(input).toHaveText('');
+  await expect(page.getByRole('status')).not.toContainText('Drafts are not saved on this device.');
+  expect(await run(page, 'proof')).toMatchObject({ pendingCalls: 1, createChats: 1 });
 });
 
 test('an oversized UTF-8 message is refused before storage or publication', async ({ page }) => {

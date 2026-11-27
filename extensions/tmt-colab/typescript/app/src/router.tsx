@@ -191,13 +191,7 @@ import { FilesSurface } from './files-panel.js';
 import { MetadataDialogs } from './metadata-dialogs.js';
 import { verifiedQuestionStates } from './question-registry.js';
 import { CreatorDefaultProvider, creatorTarget } from './creator-default.js';
-import {
-  CHAT_DRAFT,
-  interruptedCommentTarget,
-  SavedDrafts,
-  savedDrafts,
-  unconfirmedDrafts,
-} from './saved-drafts.js';
+import { CHAT_DRAFT, SavedDrafts, savedDrafts, unconfirmedDrafts } from './saved-drafts.js';
 import { PendingMessageContext, pendingMessageStore } from './draft-store.js';
 import type { ComposerRecovery } from './components/message-composer-edit.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
@@ -2993,9 +2987,9 @@ function OpenPage({
   const anchorGone = (anchor: ThreadAnchor) =>
     view.pageType === 'blocks' && 'block' in anchor && !!view.blocks?.[anchor.block]?.deleted;
   function commentRecovery(key: string) {
-    const target = interruptedCommentTarget(key);
-    const edit = drafts.current.get(key);
-    if (!target || !edit || archived || discussionPending || discussionBlocked) return;
+    const stored = drafts.current.get(key);
+    if (!stored?.destination || archived || discussionPending || discussionBlocked) return;
+    const { destination: target, ...edit } = stored;
     if ('writer' in target) {
       const thread = view.threads?.find(
         (candidate) => candidate.ref.writer === target.writer && candidate.threadId === target.id,

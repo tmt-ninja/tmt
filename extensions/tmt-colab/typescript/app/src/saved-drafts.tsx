@@ -3,14 +3,7 @@ import { BrowserAction } from '@tmt/browser-ui/react';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { persistable } from './draft-store.js';
 import { text } from './strings.js';
-import {
-  anchorContext,
-  validateAnchor,
-  validateRef,
-  type DiscussionRef,
-  type ThreadAnchor,
-  type ThreadView,
-} from './thread-records.js';
+import { anchorContext, validateAnchor, type ThreadView } from './thread-records.js';
 import { useState } from 'react';
 
 /** The reserved draft key of the page Chat composer. */
@@ -22,22 +15,6 @@ export interface SavedDraft {
   quote?: string;
   text: string;
   unconfirmed?: boolean;
-}
-
-/** Older recovery keys carry only a random ID and still offer Copy. */
-export function interruptedCommentTarget(key: string): DiscussionRef | ThreadAnchor | undefined {
-  if (!key.startsWith('unconfirmed:comment:')) return;
-  const start = key.indexOf(':', 'unconfirmed:comment:'.length);
-  if (start < 0) return;
-  try {
-    const target: unknown = JSON.parse(key.slice(start + 1));
-    if (target && typeof target === 'object' && Object.hasOwn(target, 'writer'))
-      validateRef(target);
-    else validateAnchor(target);
-    return target;
-  } catch {
-    return;
-  }
 }
 
 export function unconfirmedDrafts(

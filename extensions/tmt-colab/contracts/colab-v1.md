@@ -4509,10 +4509,11 @@ answer` is a new comment and an ordinary single-comment Ask; the batch is untouc
 
 On a paired page, Chat and comment Send retain the captured text and its destination in the
 existing encrypted device draft store before showing an echo that replaces the draft or starting
-publication. If retention fails, the composer keeps the text and says drafts are not saved.
-During that wait, leaving the page can still discard unsaved text, so the browser warns. Once
-publication starts, a reload can show the text as unconfirmed with the existing possible-delivery
-warning. A verified discussion record clears that recovery entry. Restoring text to Chat, a
+publication. If retention fails, the composer keeps the text and says drafts are not saved. A
+second explicit Send can publish without a recovery copy. The browser warns before leaving while
+retention is pending or failed. With a retained copy, a reload can show the text as unconfirmed
+with the existing possible-delivery warning. A verified discussion record clears that recovery
+entry. Restoring text to Chat, a
 comment quote, or a live thread is an explicit local action and never republishes it. The signed
 writer and exact-envelope recovery rules are unchanged.
 

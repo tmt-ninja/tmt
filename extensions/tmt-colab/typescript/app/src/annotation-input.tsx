@@ -415,7 +415,8 @@ export function AnnotationInput({
       setBusy(true);
       const oversized = byteLength(captured.value) > COMMENT_BYTES;
       retained = fromUnsentRow ? unsentRef.current?.retained : undefined;
-      if (!oversized && pendingMessages && !retained) {
+      // After a refusal, an explicit second Send acknowledges the missing recovery copy.
+      if (!oversized && pendingMessages && !retained && retention !== 'failed') {
         // The echo may replace the composer only after its text is recoverable on reload.
         window.addEventListener('beforeunload', warnBeforeLeaving);
         setRetention('pending');
@@ -477,6 +478,10 @@ export function AnnotationInput({
           ? await discussion!.createChat(captured.value, attach)
           : await discussion!.create(captured.value, captured.anchor, attach);
       if (retained) void pendingMessages?.clear(retained).catch(() => {});
+      if (retention === 'failed') {
+        window.removeEventListener('beforeunload', warnBeforeLeaving);
+        setRetention(undefined);
+      }
       onRecorded?.();
       stage = 'dispatch';
       if (echoed) {
