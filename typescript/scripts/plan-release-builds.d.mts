@@ -51,3 +51,11 @@ export function renderPlanSummary(
   }
 ): string;
 export function releasesFrom(parsed: readonly unknown[]): ReleaseObject[];
+
+/** Reads the release catalogue until `tag` appears, within one time budget for every read. */
+export function readAllocatedDraftList(options: {
+  readonly list: (budgetMs: number) => readonly { readonly tag_name: string }[];
+  readonly tag: string;
+  readonly sleep: (ms: number) => void;
+  readonly now?: () => number;
+}): { readonly releases: readonly { readonly tag_name: string }[]; readonly missing: boolean };

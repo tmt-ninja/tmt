@@ -26,6 +26,14 @@ const COMMIT = /^[0-9a-f]{40}$/;
 const COMPONENTS = fileURLToPath(new URL('../../.github/components.json', import.meta.url));
 const RELISTS = 5;
 const RELIST_DELAY_MS = 3000;
+/**
+ * The whole catalogue discovery's budget, every read included. One full paginated read took up
+ * to 24 s on hosted runners (11-27; a 25 s per-read cap failed two plans, #6800), and the plan
+ * job has 5 minutes for checkout, this discovery and the parking step.
+ */
+const LIST_BUDGET_MS = 200_000;
+/** A re-read starts only while at least this much of the budget remains for it. */
+const LIST_READ_MIN_MS = 45_000;
 
 const oldestFirst = (left, right) =>
   Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.tag.localeCompare(right.tag);
@@ -206,13 +214,22 @@ export function releasesFrom(parsed) {
   return parsed.flat();
 }
 
-/** Re-read only when the requested tag is absent; known state and read errors go to the caller. */
-function readAllocatedDraftList({ list, tag, sleep }) {
+/**
+ * Re-read only when the requested tag is absent, within one budget: each read gets what remains
+ * of it, and a re-read starts only while enough remains. Known state and read errors go to the
+ * caller.
+ */
+export function readAllocatedDraftList({ list, tag, sleep, now = Date.now }) {
+  const deadline = now() + LIST_BUDGET_MS;
   const hasTag = (rows) => rows.some(({ tag_name }) => tag_name === tag);
-  let releases = list();
-  for (let read = 0; read < RELISTS && !hasTag(releases); read += 1) {
+  let releases = list(deadline - now());
+  for (
+    let read = 0;
+    read < RELISTS && !hasTag(releases) && deadline - now() >= RELIST_DELAY_MS + LIST_READ_MIN_MS;
+    read += 1
+  ) {
     sleep(RELIST_DELAY_MS);
-    releases = list();
+    releases = list(deadline - now());
   }
   return { releases, missing: !hasTag(releases) };
 }
@@ -252,11 +269,11 @@ function main(argv) {
     const discovery = readAllocatedDraftList({
       tag: values.tag,
       sleep: (ms) => Atomics.wait(pause, 0, 0, ms),
-      list: () => {
+      list: (budget) => {
         const result = spawnSync(
           'gh',
           ['api', '--paginate', '--slurp', `repos/${repository}/releases`],
-          { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 25_000, killSignal: 'SIGKILL' }
+          { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: budget, killSignal: 'SIGKILL' }
         );
         if (result.error) throw result.error;
         if (result.status !== 0)

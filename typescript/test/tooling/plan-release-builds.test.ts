@@ -11,6 +11,7 @@ import {
   FAILURE_ASSET,
   HOLD_ASSET,
   planReleaseBuilds,
+  readAllocatedDraftList,
   releasesFrom,
   renderPlanSummary,
   type ReleaseObject,
@@ -43,6 +44,39 @@ function draft(
 const tags = (plan: { builds: readonly { tag: string }[] }) => plan.builds.map(({ tag }) => tag);
 
 describe('#6800 allocated draft catalogue visibility', () => {
+  // A fake clock: each read costs `readMs`, each pause its own length.
+  function budgeted(lists: string[][], readMs: number) {
+    let clock = 0;
+    const budgets: number[] = [];
+    const result = readAllocatedDraftList({
+      tag: 'v1.0.0',
+      now: () => clock,
+      sleep: (ms) => (clock += ms),
+      list: (budget) => {
+        budgets.push(budget);
+        clock += readMs;
+        const rows = lists[budgets.length - 1];
+        if (rows === undefined) throw new Error('Unexpected additional catalogue read');
+        return rows.map((tag_name) => ({ tag_name }));
+      },
+    });
+    return { result, budgets };
+  }
+
+  it('gives one slow catalogue read the whole 200 s budget, not a fixed per-read cap', () => {
+    // A full paginated read took up to 24 s on hosted runners; a 25 s cap failed two plans.
+    const { result, budgets } = budgeted([['v1.0.0']], 40_000);
+    expect(result.missing).toBe(false);
+    expect(budgets).toEqual([200_000]);
+  });
+
+  it('re-reads only while enough budget remains, then reports the tag missing', () => {
+    // 50 s reads: 200 -> 150 -> 97 -> 44 s left; a fourth read would start under 48 s.
+    const { result, budgets } = budgeted([[], [], [], []], 50_000);
+    expect(result.missing).toBe(true);
+    expect(budgets).toEqual([200_000, 147_000, 94_000]);
+  });
+
   const tag = 'tmt-remote-v0.1.0-alpha.315';
   const selected = { ...draft(tag, '2'), id: 42 };
   const runUrl = 'https://github.com/example/tmt/actions/runs/123';
