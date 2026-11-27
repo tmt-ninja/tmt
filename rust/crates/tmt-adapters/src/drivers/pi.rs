@@ -5,6 +5,7 @@
 mod caller;
 mod caller_session;
 mod channel;
+pub(crate) use channel::needs_receipt_window;
 pub mod user_extension;
 
 use crate::process::CommandRunner;
@@ -544,11 +545,12 @@ impl tmt_core::driver::Driver for PiRuntime {
         message: &str,
         attempt: &str,
         urgent: bool,
+        deadline: Option<u64>,
     ) -> tmt_core::driver::ActionResult<
         tmt_core::driver::DeliveryAcceptance,
         tmt_core::driver::SendFailure<Self::Error>,
     > {
-        channel::send(target, message, Some((attempt, urgent)))
+        channel::send(target, message, Some((attempt, urgent, deadline)))
     }
 
     fn resume(

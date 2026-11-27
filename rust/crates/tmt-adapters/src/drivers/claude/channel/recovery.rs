@@ -166,7 +166,7 @@ fn report<R: CommandRunner>(
         )
     } else {
         format!(
-            "The launch ended before it recorded its Claude process, so TMT cannot check it. Before recovering, confirm that no Claude started by launch owner {} (started {}) still runs in {where_}.",
+            "The launch ended before it recorded its provider process, so TMT cannot check it. Before recovering, confirm that no provider process started by launch owner {} (started {}) still runs in {where_}.",
             record.launch_owner.pid, record.launch_owner.start
         )
     };

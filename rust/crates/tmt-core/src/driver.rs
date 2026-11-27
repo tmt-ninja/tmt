@@ -171,6 +171,7 @@ pub trait Driver {
         message: &str,
         _attempt: &str,
         _urgent: bool,
+        _deadline: Option<u64>,
     ) -> ActionResult<DeliveryAcceptance, SendFailure<Self::Error>> {
         self.send(target, message)
     }

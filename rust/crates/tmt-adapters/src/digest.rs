@@ -226,7 +226,7 @@ fn framed_for(
 pub fn live_request_text(
     storage: &mut Storage,
     request_id: &str,
-) -> Result<Option<String>, RequestError<StorageError>> {
+) -> Result<Option<(String, String)>, RequestError<StorageError>> {
     live_request_text_at(storage, request_id, wall_time_ms)
 }
 
@@ -235,7 +235,7 @@ pub(crate) fn live_request_text_at(
     storage: &mut Storage,
     request_id: &str,
     clock: fn() -> u64,
-) -> Result<Option<String>, RequestError<StorageError>> {
+) -> Result<Option<(String, String)>, RequestError<StorageError>> {
     let safe_id = request_id
         .strip_prefix("req_")
         .is_some_and(tmt_core::dispatch::canonical_id);
@@ -260,7 +260,7 @@ pub(crate) fn live_request_text_at(
         sender.name.as_deref().unwrap_or("unknown"),
         request_id,
     )
-    .map(Some)
+    .map(|text| Some((attempt.attempt_id.clone(), text)))
 }
 
 /// One item exactly as its live delivery reads: a request is the generated request

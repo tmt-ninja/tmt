@@ -200,7 +200,9 @@ pub fn deliver_released(
     delay: Duration,
 ) -> Result<Released, RequestError<StorageError>> {
     use crate::request_runtime::wall_time_ms;
-    let claim = RequestService::new(&mut *storage, wall_time_ms).claim_wake(request_id)?;
+    let window = receipt_window(storage, recipient_id).map_err(RequestError::Repository)?;
+    let claim = RequestService::new(&mut *storage, wall_time_ms)
+        .claim_wake_until(request_id, window.as_ref().map(|w| w.deadline_ms))?;
     if !claim.claimed {
         return Ok(Released::NotClaimed(claim.state));
     }
@@ -211,14 +213,22 @@ pub fn deliver_released(
     } else {
         None
     };
-    let Some(text) = text else {
+    let Some((attempt, text)) = text else {
         RequestService::new(&mut *storage, wall_time_ms)
             .settle_request_delivery(request_id, WakeState::Unavailable)?;
         return Ok(Released::Closed);
     };
-    let delivery = send(storage, recipient_id, &text, delay)
-        .map_err(RequestError::Repository)?
-        .delivery;
+    let delivery = send_request(
+        storage,
+        recipient_id,
+        &text,
+        &attempt,
+        true,
+        window.as_ref(),
+        delay,
+    )
+    .map_err(RequestError::Repository)?
+    .delivery;
     RequestService::new(&mut *storage, wall_time_ms)
         .settle_request_delivery(request_id, delivery.wake_state())?;
     Ok(Released::Typed(delivery))
@@ -377,12 +387,40 @@ pub fn send(
     )
 }
 
+/// Reserve a receipt window only for an enrolled Pi binding. The driver
+/// requires this same deadline before it can submit a correlated request.
+pub struct ReceiptWindow {
+    binding: BindingEntry,
+    pub deadline_ms: u64,
+}
+
+pub fn receipt_window(
+    storage: &mut Storage,
+    identity: &str,
+) -> Result<Option<ReceiptWindow>, StorageError> {
+    let Some(entry) = current(storage, identity)? else {
+        return Ok(None);
+    };
+    let Ok(paths) = crate::config::ConfigPaths::discover() else {
+        return Ok(None);
+    };
+    Ok(
+        crate::drivers::pi::needs_receipt_window(&paths.channel_directory(), &entry).then(|| {
+            ReceiptWindow {
+                binding: entry,
+                deadline_ms: crate::request_runtime::wall_time_ms() + 30_000,
+            }
+        }),
+    )
+}
+
 pub fn send_request(
     storage: &mut Storage,
     identity: &str,
     text: &str,
     attempt: &str,
     urgent: bool,
+    window: Option<&ReceiptWindow>,
     delay: Duration,
 ) -> Result<Attempt, StorageError> {
     send_messages(
@@ -393,6 +431,7 @@ pub fn send_request(
             text,
             attempt,
             urgent,
+            window,
         },
         delay,
     )
@@ -439,6 +478,18 @@ fn send_messages(
         Ok(harness) => harness,
         Err(fault) => return Ok(Delivery::ChannelUnavailable(fault.into()).into()),
     };
+    let requires_pi = if let Messages::Request {
+        window: Some(window),
+        ..
+    } = &messages
+    {
+        if window.binding != entry || harness.as_ref().is_none_or(|h| h.as_str() != "pi") {
+            return Ok(Delivery::ChannelUnavailable(ChannelFault::Mismatch.into()).into());
+        }
+        true
+    } else {
+        false
+    };
     let mut unattributed = Vec::new();
     let mut session = host.session().with_enter_delay(delay);
     let text = messages.rendered();
@@ -451,6 +502,11 @@ fn send_messages(
             Some(id) => messages.registered(&mut registry, id, &entry, &storage),
         },
         || {
+            if requires_pi {
+                return ActionResult::Failed(SendFailure::Denied(Delivery::ChannelUnavailable(
+                    ChannelFault::Inactive.into(),
+                )));
+            }
             // The baseline paste is the last resort for a session that never opted
             // in. A binding made after the pane's marker was lost has no record
             // under its own ID, so the drivers are asked whether an enrolled launch
@@ -562,6 +618,7 @@ enum Messages<'a> {
         text: &'a str,
         attempt: &'a str,
         urgent: bool,
+        window: Option<&'a ReceiptWindow>,
     },
     Digest {
         text: &'a str,
@@ -606,8 +663,16 @@ impl Messages<'_> {
                 text,
                 attempt,
                 urgent,
+                window,
             } => {
-                return match registry.send_request(harness, entry, text, attempt, *urgent) {
+                return match registry.send_request(
+                    harness,
+                    entry,
+                    text,
+                    attempt,
+                    *urgent,
+                    window.map(|w| w.deadline_ms),
+                ) {
                     ActionResult::Completed(value) => ActionResult::Completed(value),
                     ActionResult::Unsupported => ActionResult::Unsupported,
                     ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),

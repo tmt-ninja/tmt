@@ -178,7 +178,7 @@ fn the_rebuild_keeps_every_row_dependent_row_index_and_trigger() {
     drop(old);
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 97);
+    assert_eq!(storage.health().unwrap().schema_version, 98);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -197,6 +197,7 @@ fn the_rebuild_keeps_every_row_dependent_row_index_and_trigger() {
     // Schema 93 adds the thread root index (#6407).
     let mut expected = before.dependents.keys().cloned().collect::<Vec<_>>();
     expected.push("request_thread_root".to_owned());
+    expected.push("request_receipt_deadline_advances_change_cursor".to_owned());
     expected.sort();
     assert_eq!(
         after.dependents.keys().cloned().collect::<Vec<_>>(),
@@ -465,7 +466,7 @@ fn a_failed_rebuild_changes_nothing() {
     // The same database then migrates, and nothing about the failed attempt lingers.
     drop(db);
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 97);
+    assert_eq!(storage.health().unwrap().schema_version, 98);
     storage.close().unwrap();
     assert_eq!(
         snapshot(&Connection::open(&path).unwrap()).attempts,

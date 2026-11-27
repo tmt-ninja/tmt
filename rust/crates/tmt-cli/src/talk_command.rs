@@ -369,8 +369,19 @@ fn deliver(
         if prepared.wake
             && let Some(identity) = &correlation.identity
         {
+            let window = if input.options.passthrough {
+                None
+            } else {
+                crate::delivery::receipt_window(storage, &identity.id).map_err(|error| {
+                    correlation
+                        .state_error(tmt_core::request::RequestError::Repository(error), false)
+                })?
+            };
             let claim = RequestService::new(&mut *storage, wall_time_ms)
-                .claim_wake(&correlation.request_id)
+                .claim_wake_until(
+                    &correlation.request_id,
+                    window.as_ref().map(|w| w.deadline_ms),
+                )
                 .map_err(|error| correlation.state_error(error, false))?;
             if !claim.claimed {
                 correlation.inbox = true;
@@ -405,6 +416,7 @@ fn deliver(
                         &prepared.payload,
                         &prepared.attempt_id,
                         input.options.urgent,
+                        window.as_ref(),
                         delay,
                     )
                 }

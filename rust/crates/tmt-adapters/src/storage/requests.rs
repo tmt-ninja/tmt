@@ -753,11 +753,12 @@ impl RequestRecords for RequestRows<'_> {
         Ok(RequestIdMatches { ids, total })
     }
 
-    fn wake_state(&self, request_id: &str) -> Result<Option<WakeState>, Self::Error> {
+    fn wake_state(&self, request_id: &str, now_ms: u64) -> Result<Option<WakeState>, Self::Error> {
         self.0
             .query_row(
-                "SELECT wake_state FROM request_attempts WHERE request_id = ?",
-                [request_id],
+                "SELECT CASE WHEN wake_state='uncertain' AND receipt_deadline_ms > ?2 THEN 'claimed'
+                             ELSE wake_state END FROM request_attempts WHERE request_id = ?1",
+                params![request_id,checked_i64(now_ms,"Observation time")?],
                 |row| match row.get::<_, String>(0)?.as_str() {
                     "not_attempted" => Ok(WakeState::NotAttempted),
                     "claimed" => Ok(WakeState::Claimed),
@@ -771,14 +772,24 @@ impl RequestRecords for RequestRows<'_> {
             .map_err(|error| classify(error, "Read request wake state"))
     }
 
-    fn claim_wake(&mut self, request_id: &str) -> Result<bool, Self::Error> {
+    fn claim_wake(
+        &mut self,
+        request_id: &str,
+        receipt_deadline_ms: Option<u64>,
+    ) -> Result<bool, Self::Error> {
         let changed = self
             .0
             .execute(
-                "UPDATE request_attempts SET wake_state = 'claimed'
-                 WHERE request_id = ? AND route_kind = 'inbox' AND status = 'queued'
+                "UPDATE request_attempts SET receipt_deadline_ms=?2,
+                    wake_state=CASE WHEN ?2 IS NULL THEN 'claimed' ELSE 'uncertain' END
+                 WHERE request_id = ?1 AND route_kind = 'inbox' AND status = 'queued'
                    AND request_kind = 'request' AND wake_state = 'not_attempted'",
-                [request_id],
+                params![
+                    request_id,
+                    receipt_deadline_ms
+                        .map(|ms| checked_i64(ms, "Receipt deadline"))
+                        .transpose()?
+                ],
             )
             .map_err(|error| classify(error, "Claim request wake"))?
             == 1;
@@ -793,10 +804,17 @@ impl RequestRecords for RequestRows<'_> {
         Ok(changed)
     }
 
-    fn settle_wake(&mut self, request_id: &str, state: WakeState) -> Result<bool, Self::Error> {
+    fn settle_wake(
+        &mut self,
+        request_id: &str,
+        state: WakeState,
+        now_ms: u64,
+    ) -> Result<bool, Self::Error> {
         let changed = self.0.execute(
-            "UPDATE request_attempts SET wake_state=? WHERE request_id=? AND wake_state='claimed'",
-            params![state.as_str(),request_id],
+            "UPDATE request_attempts SET wake_state=?1, receipt_deadline_ms=NULL WHERE request_id=?2 AND
+                (wake_state='claimed' OR (wake_state='uncertain' AND receipt_deadline_ms IS NOT NULL AND
+                 (?1='uncertain' OR receipt_deadline_ms > ?3)))",
+            params![state.as_str(),request_id,checked_i64(now_ms,"Settlement time")?],
         ).map_err(|error|classify(error,"Settle request wake"))? == 1;
         if changed && matches!(state, WakeState::Sent | WakeState::Uncertain) {
             super::capture_batches::delivered(

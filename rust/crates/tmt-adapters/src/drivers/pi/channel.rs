@@ -23,7 +23,6 @@ use tmt_core::{
 
 pub(super) struct PiChannel;
 const VERSION: &str = "1.6.1";
-const WAIT: Duration = Duration::from_secs(25);
 const HANDSHAKE: Duration = Duration::from_secs(2);
 const EXTENSION: &[u8] = include_bytes!("channel-extension.mjs");
 
@@ -166,17 +165,39 @@ fn denied(f: ChannelFault) -> Sent {
 // Verify the process behind the socket before disclosing request text or its
 // receipt. The PID in a JSON greeting alone is never evidence of the peer.
 fn peer_pid(stream: &UnixStream) -> Option<u64> {
-    #[cfg(target_os="macos")]
-    let pid = nix::sys::socket::getsockopt(stream,nix::sys::socket::sockopt::LocalPeerPid).ok()?;
-    #[cfg(target_os="linux")]
-    let pid = nix::sys::socket::getsockopt(stream,nix::sys::socket::sockopt::PeerCredentials).ok()?.pid();
-    #[cfg(any(target_os="macos",target_os="linux"))]
+    #[cfg(target_os = "macos")]
+    let pid = nix::sys::socket::getsockopt(stream, nix::sys::socket::sockopt::LocalPeerPid).ok()?;
+    #[cfg(target_os = "linux")]
+    let pid = nix::sys::socket::getsockopt(stream, nix::sys::socket::sockopt::PeerCredentials)
+        .ok()?
+        .pid();
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     return u64::try_from(pid).ok();
-    #[cfg(not(any(target_os="macos",target_os="linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     None
 }
 
-pub(super) fn send(entry: &BindingEntry, content: &str, request: Option<(&str, bool)>) -> Sent {
+/// A stale record for another independently verified launch is also ignored
+/// by send and by the pane guard. Preserve the new launch's ordinary paste.
+pub(crate) fn needs_receipt_window(root: &Path, entry: &BindingEntry) -> bool {
+    let Some(binding) = &entry.binding else {
+        return false;
+    };
+    match socket::read_record(&root.join("pi"), &binding.id) {
+        Ok(None) => false,
+        Ok(Some(record)) => !binding.session.launch_owner.as_ref().is_some_and(|owner| {
+            record.launch_owner.incarnation().as_ref() != Some(owner)
+                && socket::liveness(owner) == RuntimeLiveness::Alive
+        }),
+        Err(_) => true,
+    }
+}
+
+pub(super) fn send(
+    entry: &BindingEntry,
+    content: &str,
+    request: Option<(&str, bool, Option<u64>)>,
+) -> Sent {
     let Some(b) = &entry.binding else {
         return ActionResult::Unsupported;
     };
@@ -236,48 +257,56 @@ pub(super) fn send(entry: &BindingEntry, content: &str, request: Option<(&str, b
     {
         return denied(ChannelFault::NotReady);
     }
-    let Some((attempt, urgent)) = request else {
+    let Some((attempt, urgent, Some(deadline))) = request else {
         return denied(ChannelFault::Refused);
     };
     let Ok(mut stream) = UnixStream::connect(socket::socket_path(&directory, &b.id)) else {
         return denied(ChannelFault::Unreachable);
     };
-    if peer_pid(&stream) != Some(key.incarnation.pid()) || socket::liveness(&key.incarnation)!=RuntimeLiveness::Alive {
+    if peer_pid(&stream) != Some(key.incarnation.pid())
+        || socket::liveness(&key.incarnation) != RuntimeLiveness::Alive
+    {
         return denied(ChannelFault::Mismatch);
     }
     let hello = socket::read_line_until(&mut stream, Instant::now() + HANDSHAKE, 4096)
         .ok()
+        .filter(|v| v.ends_with(b"\n"))
         .and_then(|v| serde_json::from_slice::<Hello>(&v).ok());
     if !hello.is_some_and(|h| {
-        h.version == 1
-            && h.pid == key.incarnation.pid()
-            && h.session == session.as_str()
-
+        h.version == 1 && h.pid == key.incarnation.pid() && h.session == session.as_str()
     }) {
         return denied(ChannelFault::Mismatch);
     }
-    let limit = Instant::now() + WAIT;
+    let remaining = deadline.saturating_sub(crate::request_runtime::wall_time_ms());
+    if remaining == 0 || remaining > 30_000 {
+        return denied(ChannelFault::NotReady);
+    }
+    let limit = Instant::now() + Duration::from_millis(remaining);
     let frame = Frame {
         version: 1,
         generation: &record.generation,
         session: session.as_str(),
         attempt,
         urgent,
-        deadline: crate::request_runtime::wall_time_ms() + WAIT.as_millis() as u64,
+        deadline,
         content,
     };
     let Ok(mut bytes) = serde_json::to_vec(&frame) else {
         return denied(ChannelFault::Refused);
     };
     bytes.push(b'\n');
-    if bytes.len() > 2 * 1024 * 1024 {
+    if bytes.len() > 7 * 1024 * 1024 {
         return denied(ChannelFault::TooLarge);
     }
     if socket::write_until(&mut stream, &bytes, limit).is_err() {
         return ActionResult::Completed(DeliveryAcceptance::Unacknowledged);
     }
-    let reply = socket::read_line_until(&mut stream, limit, 4096)
-        .and_then(|b| serde_json::from_slice::<Reply>(&b).map_err(io::Error::other));
+    let reply = socket::read_line_until(&mut stream, limit, 4096).and_then(|b| {
+        if !b.ends_with(b"\n") {
+            return Err(io::Error::other("Incomplete Pi receipt"));
+        }
+        serde_json::from_slice::<Reply>(&b).map_err(io::Error::other)
+    });
     match reply {
         Ok(Reply::Started {
             attempt: a,

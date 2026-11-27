@@ -474,6 +474,10 @@ const MIGRATIONS: &[Migration] = &[
         "retain standalone terminal command results",
         "schema/097.sql"
     ),
+    migration!(
+        "bound channel receipt evidence to its attempt deadline",
+        "schema/098.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

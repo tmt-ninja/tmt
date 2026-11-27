@@ -332,13 +332,16 @@ impl RuntimeRegistry {
         message: &str,
         attempt: &str,
         urgent: bool,
+        deadline: Option<u64>,
     ) -> ActionResult<DeliveryAcceptance, SendFailure<RuntimeError>> {
         match self
             .registrations
             .iter_mut()
             .find(|entry| &entry.harness == harness)
         {
-            Some(entry) => entry.driver.send_request(target, message, attempt, urgent),
+            Some(entry) => entry
+                .driver
+                .send_request(target, message, attempt, urgent, deadline),
             None => ActionResult::Unsupported,
         }
     }
