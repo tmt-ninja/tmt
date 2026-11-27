@@ -33,6 +33,9 @@ export function createShellTopBar(
   navigation: HTMLButtonElement,
   railSearch?: HTMLElement,
   layerHost?: ShellLayerHost,
+  /** The shell's Go to menu, first among the common controls; shown while the side menu is
+   * collapsed (#6833). */
+  goTo?: HTMLElement,
 ) {
   const document = root.ownerDocument;
   const view = document.defaultView!;
@@ -143,7 +146,7 @@ export function createShellTopBar(
     const searchHelp = help(search, 'Search TMT');
     const remoteHelp = help(remote, 'Remote: session count unconfirmed');
     left.append(searchHelp.wrapper, title);
-    common.append(theme, remoteHelp.wrapper);
+    common.append(...(goTo ? [goTo] : []), theme, remoteHelp.wrapper);
     right.append(statusSlot, common, actions);
     header.append(left, right);
 

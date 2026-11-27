@@ -33,8 +33,11 @@ import { readFile } from 'node:fs/promises';
 // Top-bar control size: the shell's Search and common controls carry their own square, so a
 // module's value never resizes them (#6750): 133,999 -> 134,059 (+60), exact, no headroom (GUI lead
 // approval on #6750).
+// Side menu collapse (#6833): the rail's collapse button, its collapsed and peek states and the bar's
+// Go to menu: 134,059 -> 134,956 (+897), exact, no headroom (GUI lead approval on #6833). A page
+// frame draws no rail, so #5809's stripping recovers these bytes too.
 // Measured by buildPageUi() with Node v26.12.1.
-export const PAGE_UI_LIMIT = 134_059;
+export const PAGE_UI_LIMIT = 134_956;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the

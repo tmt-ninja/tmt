@@ -378,6 +378,7 @@ export const layoutPatterns: LayoutDoc[] = [
           'The rail is 232 px. One deepest current row is selected with a soft accent fill; its module shows bold with an accent icon.',
           'The top bar is 62 px (56 px through 900 px). Its left group is navigation, phone search and the route’s one h1; status, the common controls and the page menu follow on the right.',
           'Through 900 px the rail and menu become one drawer behind the top-left menu button, with the same tree.',
+          'From 901 px the rail collapses from « at its head or with Cmd/Ctrl+\\: » then leads the top bar, Go to joins the common controls, and a pointer at the window’s left edge floats the rail over the page. Each device remembers the choice.',
           'The shell adds no padding or width to the page; each module keeps its own layout.',
         ])}
         {template('Shell', 'all', 560, () => (

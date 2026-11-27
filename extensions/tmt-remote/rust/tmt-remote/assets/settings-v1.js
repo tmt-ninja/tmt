@@ -507,6 +507,36 @@ function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 var shellIconNodes = {
 	list: [["path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }]],
 	bookmark: [["path", { d: "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" }]],
+	"layout-grid": [
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "3",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "14",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "14",
+			y: "14",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "3",
+			y: "14",
+			rx: "1"
+		}]
+	],
 	"layout-dashboard": [
 		["rect", {
 			width: "7",
@@ -701,6 +731,28 @@ var shellIconNodes = {
 		ry: "2"
 	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
 	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
+	"panel-left-close": [
+		["rect", {
+			width: "18",
+			height: "18",
+			x: "3",
+			y: "3",
+			rx: "2"
+		}],
+		["path", { d: "M9 3v18" }],
+		["path", { d: "m16 15-3-3 3-3" }]
+	],
+	"panel-left-open": [
+		["rect", {
+			width: "18",
+			height: "18",
+			x: "3",
+			y: "3",
+			rx: "2"
+		}],
+		["path", { d: "M9 3v18" }],
+		["path", { d: "m14 9 3 3-3 3" }]
+	],
 	palette: [
 		["path", { d: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" }],
 		["circle", {
@@ -1536,6 +1588,30 @@ function mountBrowserMenu(container, initial) {
 		}
 	};
 }
+//#endregion
+//#region ../../../../design/browser-ui/src/rail-state.ts
+/**
+* Whether the wide screen's side menu (the shell's rail) is collapsed (#6833): one value per
+* device and origin, the shell's to apply and any host's to read, so a page's outline can follow
+* it. A browser without storage keeps the menu expanded and remembers nothing.
+*/
+var railStorageKey = "tmt-shell-rail";
+var listeners = /* @__PURE__ */ new Set();
+var collapsed = read();
+function read() {
+	try {
+		return globalThis.localStorage?.getItem(railStorageKey) === "collapsed";
+	} catch {
+		return false;
+	}
+}
+globalThis.addEventListener?.("storage", (event) => {
+	if (event.key !== "tmt-shell-rail" && event.key !== null) return;
+	const next = read();
+	if (next === collapsed) return;
+	collapsed = next;
+	for (const listener of listeners) listener();
+});
 //#endregion
 //#region src/remote-menu.ts
 function remoteMenu(actions, shell = void 0) {

@@ -6,6 +6,12 @@
 export const shellIconNodes = {
   list: [['path', { d: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' }]],
   bookmark: [['path', { d: 'm19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z' }]],
+  'layout-grid': [
+    ['rect', { width: '7', height: '7', x: '3', y: '3', rx: '1' }],
+    ['rect', { width: '7', height: '7', x: '14', y: '3', rx: '1' }],
+    ['rect', { width: '7', height: '7', x: '14', y: '14', rx: '1' }],
+    ['rect', { width: '7', height: '7', x: '3', y: '14', rx: '1' }],
+  ],
   'layout-dashboard': [
     ['rect', { width: '7', height: '9', x: '3', y: '3', rx: '1' }],
     ['rect', { width: '7', height: '5', x: '14', y: '3', rx: '1' }],
@@ -152,6 +158,16 @@ export const shellIconNodes = {
   x: [
     ['path', { d: 'M18 6 6 18' }],
     ['path', { d: 'm6 6 12 12' }],
+  ],
+  'panel-left-close': [
+    ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2' }],
+    ['path', { d: 'M9 3v18' }],
+    ['path', { d: 'm16 15-3-3 3-3' }],
+  ],
+  'panel-left-open': [
+    ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2' }],
+    ['path', { d: 'M9 3v18' }],
+    ['path', { d: 'm14 9 3 3-3 3' }],
   ],
   palette: [
     [

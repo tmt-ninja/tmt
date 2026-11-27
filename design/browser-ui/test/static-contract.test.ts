@@ -51,14 +51,15 @@ it('exports frozen static names and an exact non-writing generated stylesheet', 
   for (const rejected of ['.ordinary { opacity: 0; }', '.tmt-ui-swap-other { opacity: 0; }'])
     expect(contentWithoutMotion(rejected)).toMatch(zeroOpacity);
   expect('.tmt-ui-swap { opacity: 0; background: rgba(0,0,0,0.5); }').toMatch(colors);
-  // The one shadow is the overlay token, and only floating layers draw it.
+  // The one shadow is the overlay token, and only floating layers draw it: a phone's open drawer and
+  // a collapsed side menu's peek float the rail (#6833).
   const shadows = [...structured.matchAll(/([^{}]+)\{[^{}]*box-shadow:\s*([^;]+);/g)];
   for (const [, selector, value] of shadows) {
     if (value === 'none') continue;
     expect(value).toBe('var(--tmt-ui-shadow-overlay)');
     if (selector!.trim() === ".tmt-ui-panel:not([data-mode='column'])") continue;
     expect(selector!.trim()).toMatch(
-      /^\.tmt-ui-(?:dialog|drawer|menu-surface|chips-surface|notification|rail-tip)$|^\.tmt-ui-shell\[data-drawer='open'\] \.tmt-ui-rail$/,
+      /^\.tmt-ui-(?:dialog|drawer|menu-surface|chips-surface|notification|rail-tip)$|^\.tmt-ui-shell\[data-drawer='open'\] \.tmt-ui-rail$|^\[data-rail='collapsed'\]\[data-rail-peek\] > \.tmt-ui-rail$/,
     );
   }
   expect(before).not.toMatch(/(?:^|\n)(?:body|input|button|h[12]|\*)\s*[{,]/);

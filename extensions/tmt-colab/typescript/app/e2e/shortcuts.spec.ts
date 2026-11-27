@@ -591,6 +591,137 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   await expect(selected(page)).toHaveAttribute('data-id', 'all');
 });
 
+// #6833: with the side menu collapsed, the bar's Go to carries Colab's own rows, the ones the rail
+// draws in its order (All pages, Templates, the saved shortcuts with Manage, Colab settings), and
+// each does what its rail row does.
+test("a collapsed side menu's Go to carries Colab's own rows and each one acts", async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mount(page);
+  // A new page's pointer may rest on the rail's edge zone (Linux); read the page with it over it.
+  await page.mouse.move(720, 450);
+  await page.getByRole('button', { name: 'Save as shortcut', exact: true }).click();
+  const save = page.getByRole('dialog', { name: 'Save as shortcut', exact: true });
+  await save.getByRole('textbox', { name: 'Name', exact: true }).fill('Mine');
+  await save.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('#list-fixture .tmt-ui-shell')).toHaveAttribute(
+    'data-rail',
+    'collapsed',
+  );
+  await expect(rail(page).locator('.tmt-ui-module-menu-label')).toHaveText([
+    'All pages',
+    'Templates',
+    'Mine',
+    'Colab settings',
+  ]);
+  const places = await page
+    .locator('#list-fixture a.tmt-ui-rail-item .tmt-ui-rail-label')
+    .allTextContents();
+  const goTo = page
+    .locator('#list-fixture .tmt-ui-topbar')
+    .getByRole('button', { name: 'Go to', exact: true });
+  const menu = page.getByRole('menu', { name: 'Go to' });
+  await goTo.click();
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    ...places,
+    'All pages',
+    'Templates',
+    'Mine',
+    'Manage',
+    'Colab settings',
+  ]);
+  await expect(menu.locator('.tmt-ui-menu-heading')).toHaveText(['Colab', 'Shortcuts']);
+  const choose = async (name: string) => {
+    if (!(await menu.isVisible())) await goTo.click();
+    await menu.getByRole('menuitem', { name, exact: true }).click();
+    await expect(menu).toBeHidden();
+  };
+  await choose('Templates');
+  await expect(page).toHaveURL(/#\/templates/);
+  await expect(selected(page)).toHaveAttribute('data-id', 'templates');
+  await choose('Colab settings');
+  await expect(page).toHaveURL(/#\/settings/);
+  await expect(selected(page)).toHaveAttribute('data-id', 'colab-settings');
+  await choose('Mine');
+  await expect(page).toHaveURL(/shortcut=/);
+  await expect(railShortcuts(page)).toHaveAttribute('aria-current', 'page');
+  await choose('All pages');
+  await expect(page).not.toHaveURL(/shortcut=/);
+  await expect(selected(page)).toHaveAttribute('data-id', 'all');
+  await choose('Manage');
+  await expect(page.getByRole('dialog', { name: 'Manage shortcuts', exact: true })).toBeVisible();
+});
+
+// #6843's Work List: there, collapsed, Go to still carries the Colab group, and All pages leads back
+// to the list from elsewhere.
+test("on Work List a collapsed side menu's Go to carries the Colab group", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/test/page-list-browser.tsx';
+    await (await import(path)).mountPageList('stages', '/work/list', ['design']);
+  });
+  await page.mouse.move(720, 450);
+  await expect(page).toHaveURL(/#\/work\/list/);
+  const goTo = page
+    .locator('#list-fixture .tmt-ui-topbar')
+    .getByRole('button', { name: 'Go to', exact: true });
+  const menu = page.getByRole('menu', { name: 'Go to' });
+  const places = await page
+    .locator('#list-fixture a.tmt-ui-rail-item .tmt-ui-rail-label')
+    .allTextContents();
+  await goTo.click();
+  await expect(menu.locator('.tmt-ui-menu-heading')).toHaveText(['Colab', 'Shortcuts']);
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    ...places,
+    'All pages',
+    'Templates',
+    'design',
+    'Manage',
+    'Colab settings',
+  ]);
+  await menu.getByRole('menuitem', { name: 'Templates', exact: true }).click();
+  await expect(page).toHaveURL(/#\/templates/);
+  await goTo.click();
+  await menu.getByRole('menuitem', { name: 'All pages', exact: true }).click();
+  await expect(page).toHaveURL(/#\/work\/list/);
+  await expect(selected(page)).toHaveAttribute('data-id', 'all');
+});
+
+// With many saved shortcuts the Go to popover stays inside the window and scrolls inside, at 1440
+// and at the narrowest width the side menu collapses at; its last row is still reached and acts.
+for (const width of [1440, 901])
+  test(`a collapsed side menu's Go to stays inside the window with 20 shortcuts at ${width}`, async ({
+    page,
+  }) => {
+    await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+    await page.setViewportSize({ width, height: 700 });
+    const names = Array.from({ length: 20 }, (_, n) => `Project ${String(n + 1).padStart(2, '0')}`);
+    await mount(page, 'stages', names);
+    await page.mouse.move(width / 2, 350);
+    await expect(railShortcuts(page)).toHaveCount(20);
+    await page
+      .locator('#list-fixture .tmt-ui-topbar')
+      .getByRole('button', { name: 'Go to', exact: true })
+      .click();
+    const menu = page.getByRole('menu', { name: 'Go to' });
+    await expect(menu.getByRole('menuitem', { name: 'Project 20', exact: true })).toBeAttached();
+    const surface = menu.locator('xpath=..');
+    const box = (await surface.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(700);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(await surface.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+    const last = menu.getByRole('menuitem', { name: 'Colab settings', exact: true });
+    await last.scrollIntoViewIfNeeded();
+    await last.click();
+    await expect(selected(page)).toHaveAttribute('data-id', 'colab-settings');
+  });
+
 test('sidebar shortcut exposes honest counts; its commands live in Manage without navigation', async ({
   page,
 }) => {

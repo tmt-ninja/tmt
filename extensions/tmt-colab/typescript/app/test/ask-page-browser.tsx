@@ -359,7 +359,7 @@ export async function mount(
     structuredOutline?: boolean;
     /** More outline sections than the window holds, after the first three. */
     outlineSections?: number;
-    structuredKind?: 'duplicate' | 'image' | 'mockup';
+    structuredKind?: 'duplicate' | 'image' | 'mockup' | 'table';
   } = {},
 ) {
   resumeAttachmentUploads();
@@ -501,7 +501,37 @@ export async function mount(
       ? { creationRecipient: { machineId: destination().machine, agentId: destination().agent } }
       : {}),
   };
-  if (options.structuredKind) {
+  if (options.structuredKind === 'table') {
+    // A table as wide as its column allows, in the first section: six columns of long cells.
+    const columns = ['Area', 'Owner', 'State', 'Due', 'Risk', 'Notes'].map((name, at) => ({
+      id: `c${at}`,
+      name,
+    }));
+    current = {
+      ...current,
+      blocks: {
+        ...current.blocks,
+        [id(80)]: { type: 'table', parent: 'root', pos: 'BV', props: { columns } },
+        ...Object.fromEntries(
+          [1, 2, 3].map((row) => [
+            id(80 + row),
+            {
+              type: 'row',
+              parent: id(80),
+              pos: String.fromCharCode(64 + row),
+              props: {},
+              cells: Object.fromEntries(
+                columns.map((column) => [
+                  column.id,
+                  { s: `${column.name} ${row}: a long cell that wraps in its column`, marks: [] },
+                ]),
+              ),
+            },
+          ]),
+        ),
+      },
+    };
+  } else if (options.structuredKind) {
     const kind = options.structuredKind;
     current = {
       ...current,

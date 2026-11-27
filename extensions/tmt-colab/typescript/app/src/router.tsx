@@ -181,6 +181,7 @@ import { SessionLimitError } from './session-limit-error.js';
 import { SessionLimitBody } from './session-limit.js';
 import { ExportPanel } from './export-panel.js';
 import { BrowserDrawer, BrowserPanel } from '@tmt/browser-ui/react';
+import { useRailCollapsed } from './use-rail.js';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
@@ -1633,6 +1634,25 @@ function Page() {
   );
 }
 
+/** The bar's way back while the side menu is collapsed (#6833): Work, then the page's project, each a
+ * link where this page has a route; a hosted page shows them as text. */
+function PagePath({ routing, project }: { routing: PageRouting; project?: string }) {
+  const work = <span className="colab-path-work">{text.workHome.title}</span>;
+  return (
+    <>
+      {routing.home(work, text.workHome.title)}
+      {project !== undefined && (
+        <>
+          <span className="colab-title-divider" aria-hidden="true">
+            /
+          </span>
+          {routing.scopeCrumb(project) ?? <span>{project}</span>}
+        </>
+      )}
+    </>
+  );
+}
+
 /** The page route's own routing: links go to page routes of this router, and the brand and the
  * project crumb link back to the space list. */
 function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
@@ -1854,6 +1874,9 @@ function OpenPage({
   const toolbar = useRef<HTMLElement>(null);
   const [workBandSize, setWorkBandSize] = useState(0);
   const [barLabels, setBarLabels] = useState<readonly string[]>([]);
+  // The shell's side menu, collapsed: the bar leads with the way back and the outline becomes a
+  // strip, only for the route's own page, not one hosted in a panel or Design (#6833).
+  const railCollapsed = useRailCollapsed() && !embedded;
   const [addingSubpage, setAddingSubpage] = useState(false);
   // A phone viewer's sub-pages, opened from the page menu (#6652).
   const [viewerSheet, setViewerSheet] = useState(false);
@@ -2855,17 +2878,20 @@ function OpenPage({
     };
   }, []);
   const [htmlGutter, setHtmlGutter] = useState(false);
+  // The collapsed side menu's outline strip needs only its own 40px of gutter (#6833).
+  const [htmlStripGutter, setHtmlStripGutter] = useState(false);
   useEffect(() => {
     const node = host.current;
     if (!node) return;
     const markerLane = 28;
     const authorColumn = 1280;
     const outlineAndGap = 228;
-    const measure = () =>
-      setHtmlGutter(
-        view.layout === 'column' &&
-          (node.clientWidth - markerLane - authorColumn) / 2 >= outlineAndGap,
-      );
+    const strip = 40;
+    const measure = () => {
+      const gutter = (node.clientWidth - markerLane - authorColumn) / 2;
+      setHtmlGutter(view.layout === 'column' && gutter >= outlineAndGap);
+      setHtmlStripGutter(view.layout === 'column' && gutter >= strip);
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     measure();
@@ -3303,7 +3329,15 @@ function OpenPage({
               />
             </>
           }
-          crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
+          crumb={
+            // With the side menu collapsed, the bar leads with the way back: Work, then the page's
+            // project (#6833).
+            railCollapsed ? (
+              <PagePath routing={routing} project={scope ?? barLabels[0]} />
+            ) : scope === undefined ? undefined : (
+              routing.scopeCrumb(scope)
+            )
+          }
           barRef={toolbar}
           page
           title={view.title || snapshot.title || text.unknownPageTitle}
@@ -3852,12 +3886,17 @@ function OpenPage({
             </ul>
           )}
           {!design && view.pageType !== 'blocks' && hasHtmlOutline && (
-            <div ref={htmlOutline} className="html-outline" data-compact={!htmlGutter || undefined}>
+            <div
+              ref={htmlOutline}
+              className="html-outline"
+              data-compact={(!htmlGutter && !(railCollapsed && htmlStripGutter)) || undefined}
+            >
               <PageOutline
                 headings={htmlHeadings}
                 locate={locateHtmlHeading}
                 compact={!htmlGutter}
                 sections={htmlSections}
+                collapsedRail={railCollapsed && htmlStripGutter}
               />
             </div>
           )}
@@ -3872,6 +3911,7 @@ function OpenPage({
                   headings={outlineHeadings}
                   locate={locateStructuredHeading}
                   sections={pageSections}
+                  collapsedRail={railCollapsed}
                 />
                 <div
                   className="structured-page-stage"

@@ -8,7 +8,10 @@ import {
 import { countText } from './static.js';
 import { keyTurn } from './trusted-activation.js';
 import { createShellTopBar, type ShellCommonControls, type ShellTopBar } from './topbar.js';
+import { mountBrowserMenu, type BrowserMenuHostItem } from './menu-host.js';
+import { railCollapsed, setRailCollapsed, subscribeRail } from './rail-state.js';
 export type { ShellCommonControls, ShellRemoteStatus, ShellTopBar } from './topbar.js';
+export { railCollapsed, railStorageKey, setRailCollapsed, subscribeRail } from './rail-state.js';
 
 /**
  * The one TMT web shell (#3937, Colab page c5ccd17a): a full-width global rail,
@@ -521,7 +524,14 @@ export function mountShell(
   sub.className = 'tmt-ui-shell-brand-sub';
   sub.textContent = 'terminal team';
   text.append(word, sub);
-  brand.append(text);
+  // The wide screen's side menu collapses from its head (#6833); a phone keeps its drawer.
+  const apple = /Mac|iPhone|iPad|iPod/.test(document.defaultView!.navigator.platform);
+  const keys = apple ? 'Meta+Backslash' : 'Control+Backslash';
+  const collapse = document.createElement('button');
+  collapse.type = 'button';
+  collapse.className = 'tmt-ui-rail-collapse';
+  collapse.setAttribute('aria-keyshortcuts', keys);
+  brand.append(text, collapse);
   const rail = document.createElement('nav');
   rail.className = 'tmt-ui-rail';
   rail.setAttribute('aria-label', 'TMT');
@@ -533,7 +543,10 @@ export function mountShell(
   const bar = root.querySelector(':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar')!;
   const railSearch = document.createElement('div');
   railSearch.className = 'tmt-ui-rail-search-section';
-  const topBar = createShellTopBar(root, bar, open, railSearch, layerHost);
+  // While the side menu is collapsed, the bar's controls reach the rail's places (#6833).
+  const goTo = document.createElement('span');
+  goTo.className = 'tmt-ui-shell-goto';
+  const topBar = createShellTopBar(root, bar, open, railSearch, layerHost, goTo);
   bar.after(menu);
   // The cluster is the bar's second layer: it sits over the bar's right end and tells the host
   // header how much room to leave (`--tmt-ui-shell-tools-width`). A React shell draws the element
@@ -569,10 +582,109 @@ export function mountShell(
   watchTools?.observe(toolsRoot);
   reserve();
 
+  // A nested (docs) shell keeps its own collapsed state; the product's shell keeps the device's.
+  let localCollapsed = false;
+  const local = new Set<() => void>();
+  const rail$ = layerHost
+    ? {
+        get: () => localCollapsed,
+        set: (next: boolean) => {
+          localCollapsed = next;
+          for (const listener of local) listener();
+        },
+        subscribe: (listener: () => void) => (local.add(listener), () => local.delete(listener)),
+      }
+    : { get: railCollapsed, set: setRailCollapsed, subscribe: subscribeRail };
+  const win = document.defaultView!;
+  const wide = win.matchMedia('(min-width: 901px)');
+  const icons = {
+    menu: icon(document, 'menu'),
+    expand: icon(document, 'panel-left-open'),
+    pin: icon(document, 'panel-left-open'),
+    collapse: icon(document, 'panel-left-close'),
+  };
+  const hint = (label: string) => `${label} (${apple ? '⌘\\' : 'Ctrl+\\'})`;
+  const syncOpen = () => {
+    const expand = wide.matches && rail$.get();
+    open.setAttribute('aria-label', expand ? 'Expand side menu' : 'Open navigation');
+    // The rail's own button collapses it, or keeps open the rail floating over a collapsed page.
+    const collapseLabel = expand ? 'Expand side menu' : 'Collapse side menu';
+    collapse.setAttribute('aria-label', collapseLabel);
+    collapse.title = hint(collapseLabel);
+    collapse.replaceChildren(expand ? icons.pin : icons.collapse);
+    if (expand) {
+      open.setAttribute('aria-keyshortcuts', keys);
+      open.title = hint('Expand side menu');
+      open.setAttribute('aria-expanded', 'false');
+    } else {
+      open.removeAttribute('aria-keyshortcuts');
+      open.removeAttribute('title');
+      open.setAttribute('aria-expanded', String(root.dataset.drawer === 'open'));
+    }
+    open.replaceChildren(expand ? icons.expand : icons.menu);
+  };
   const setDrawer = (shown: boolean) => {
     root.dataset.drawer = shown ? 'open' : 'closed';
-    open.setAttribute('aria-expanded', String(shown));
+    open.setAttribute('aria-expanded', String(shown && !(wide.matches && rail$.get())));
   };
+  // The floating rail closes once the pointer is past its edge, whatever element the pointer was
+  // over when it appeared, unless focus is inside it.
+  const away = (event: PointerEvent) => {
+    if (event.pointerType === 'touch' || rail.contains(document.activeElement)) return;
+    if (event.clientX > rail.getBoundingClientRect().right) setPeek(false);
+  };
+  const setPeek = (shown: boolean) => {
+    if (shown === 'railPeek' in root.dataset) return;
+    if (shown) root.dataset.railPeek = '';
+    else delete root.dataset.railPeek;
+    if (shown) document.addEventListener('pointermove', away);
+    else document.removeEventListener('pointermove', away);
+  };
+  // `collapsed` only where the rail is a column: a phone's drawer is the same rail, never collapsed.
+  const applyRail = () => {
+    const collapsed = rail$.get() && wide.matches;
+    root.dataset.rail = collapsed ? 'collapsed' : 'expanded';
+    if (!collapsed) setPeek(false);
+    syncOpen();
+  };
+  const stopRail = rail$.subscribe(applyRail);
+  wide.addEventListener('change', applyRail);
+  /** Collapses or expands the side menu, keeping focus on the control that stays drawn. */
+  const toggleRail = (next: boolean, keyboard: boolean) => {
+    const hadFocus = rail.contains(document.activeElement) || open === document.activeElement;
+    rail$.set(next);
+    if (!hadFocus && !keyboard) return;
+    (next ? open : collapse).focus({ focusVisible: keyboard } as FocusOptions);
+  };
+  collapse.onclick = (event) => toggleRail(!rail$.get(), event.detail === 0);
+  const shortcut = (event: KeyboardEvent) => {
+    if (
+      event.code !== 'Backslash' ||
+      event.altKey ||
+      event.shiftKey ||
+      !(apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) ||
+      !wide.matches ||
+      event.defaultPrevented
+    )
+      return;
+    if (layerHost && (!(event.target instanceof Node) || !layerHost.root.contains(event.target)))
+      return;
+    event.preventDefault();
+    toggleRail(!rail$.get(), true);
+  };
+  document.addEventListener('keydown', shortcut);
+  // A pointer at the window's left edge floats the collapsed rail over the page until it leaves;
+  // focus inside it keeps it, and Escape or a choice closes it.
+  const edge = document.createElement('div');
+  edge.className = 'tmt-ui-rail-edge';
+  edge.setAttribute('aria-hidden', 'true');
+  edge.addEventListener('pointerenter', (event) => {
+    if (event.pointerType !== 'touch' && root.dataset.rail === 'collapsed') setPeek(true);
+  });
+  rail.addEventListener('focusout', (event) => {
+    if ('railPeek' in root.dataset && !rail.contains(event.relatedTarget as Node | null))
+      setPeek(false);
+  });
   // Unavailable items keep their reason beside the hovered or focused item, in the top layer.
   const tip = document.createElement('div');
   tip.className = 'tmt-ui-rail-tip';
@@ -659,6 +771,7 @@ export function mountShell(
   // Escape returns it to the button. A keyboard opening (a click with no pointer detail) shows
   // that focus; a tap or click does not, so the row stays at rest (shell.css).
   open.onclick = (event) => {
+    if (wide.matches && rail$.get()) return toggleRail(false, event.detail === 0);
     const shown = root.dataset.drawer !== 'open';
     setDrawer(shown);
     if (shown)
@@ -673,6 +786,11 @@ export function mountShell(
     if (event.key === 'Escape' && root.dataset.drawer === 'open') {
       setDrawer(false);
       open.focus();
+    }
+    if (event.key === 'Escape' && 'railPeek' in root.dataset) {
+      const inside = rail.contains(document.activeElement);
+      setPeek(false);
+      if (inside) open.focus();
     }
   };
   document.addEventListener('keydown', close);
@@ -698,6 +816,7 @@ export function mountShell(
       if (anchor.getAttribute('aria-disabled') === 'true') return event.preventDefault();
       if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       setDrawer(false);
+      setPeek(false);
       if (select?.(anchor.dataset.id!, anchor.getAttribute('href')!)) event.preventDefault();
     };
     return anchor;
@@ -1110,7 +1229,106 @@ export function mountShell(
     }
   };
   setDrawer(false);
-  render(view);
+  root.prepend(edge);
+  applyRail();
+  // The bar's Go to menu while the side menu is collapsed (#6833): the rail's places, then the
+  // current module's own menu in the rail's order, built from the view the rail draws (one
+  // source). Its trigger is an app switcher's grid, never the list icon the page outline uses; its
+  // name is its tooltip. The rail keeps its read-failure alert and placeholder rows to itself.
+  type GoToEntry =
+    | { link: { id: string; href: string; disabled?: boolean } }
+    | { action: ShellMenuAction };
+  let goToEntries = new Map<string, GoToEntry>();
+  const goToOptions = (next: ShellView) => {
+    const entries = new Map<string, GoToEntry>();
+    const items: BrowserMenuHostItem[] = [];
+    // A row without its own icon keeps an empty glyph, so every label starts on one edge.
+    const glyph = (name: ShellIcon | undefined) => {
+      if (name) return icon(document, name);
+      const blank = icon(document, 'list');
+      blank.replaceChildren();
+      return blank;
+    };
+    for (const place of [...next.rail.main, ...next.rail.bottom]) {
+      entries.set(`place:${place.id}`, { link: place });
+      items.push({
+        key: `place:${place.id}`,
+        label: place.label,
+        leadingIcon: icon(document, place.icon),
+        ...(place.disabled ? { disabled: true, disabledReason: place.note } : {}),
+      });
+    }
+    const menu = next.menu?.placeholder ? undefined : next.menu;
+    menu?.groups.forEach((group, index) => {
+      // The module's title heads its first unnamed group; a named group keeps the rail's heading.
+      let lead: Partial<BrowserMenuHostItem> =
+        (group.label ?? (index === 0 ? menu.title : undefined))
+          ? { heading: group.label ?? menu.title }
+          : { separated: true };
+      const push = (key: string, entry: GoToEntry, item: Omit<BrowserMenuHostItem, 'key'>) => {
+        entries.set(key, entry);
+        items.push({ key, ...item, ...lead });
+        lead = {};
+      };
+      for (const item of group.items)
+        push(
+          `menu:${index}:${item.id}`,
+          { link: item },
+          {
+            label: item.label,
+            leadingIcon: glyph(item.icon ?? group.fallbackIcon),
+            ...(item.disabled ? { disabled: true, disabledReason: item.note } : {}),
+          },
+        );
+      for (const [kind, action] of [
+        ['action', group.action],
+        ['add', group.add],
+      ] as const)
+        if (action)
+          push(
+            `${kind}:${index}`,
+            { action },
+            {
+              label: action.label,
+              leadingIcon: glyph(kind === 'add' ? 'plus' : group.action?.icon),
+              ...(action.disabledReason
+                ? { disabled: true, disabledReason: action.disabledReason }
+                : {}),
+            },
+          );
+    });
+    if (menu?.settings) {
+      entries.set('settings', { link: menu.settings });
+      items.push({
+        key: 'settings',
+        label: menu.settings.label,
+        leadingIcon: glyph(menu.settings.icon),
+        separated: true,
+      });
+    }
+    goToEntries = entries;
+    return {
+      label: 'Go to',
+      icon: icon(document, 'layout-grid'),
+      items,
+      onSelect: (key: string) => {
+        const entry = goToEntries.get(key);
+        if (!entry) return;
+        if ('action' in entry) {
+          if (!entry.action.disabledReason) entry.action.onActivate();
+          return;
+        }
+        if (entry.link.disabled) return;
+        if (!select?.(entry.link.id, entry.link.href)) win.location.assign(entry.link.href);
+      },
+    };
+  };
+  const goToMenu = mountBrowserMenu(goTo, goToOptions(view));
+  const draw = (next: ShellView) => {
+    render(next);
+    goToMenu.update(goToOptions(next));
+  };
+  draw(view);
   /** The menu list measured last: an update that keeps it drew the same rows. */
   let measured: Element | undefined;
   return {
@@ -1119,7 +1337,7 @@ export function mountShell(
     topBarReady: topBar.topBarReady,
     setTopBar: topBar.setTopBar,
     clearTopBar: topBar.clear,
-    update: render,
+    update: draw,
     menuGeometry() {
       const list = rail.querySelector('ul.tmt-ui-rail-sub:not([data-placeholder])');
       if (!list?.getClientRects().length || list === measured) return undefined;
@@ -1135,7 +1353,15 @@ export function mountShell(
       root.style.removeProperty('--tmt-ui-shell-tools-width');
       if (!drawn) toolsRoot.remove();
       document.removeEventListener('keydown', close);
+      document.removeEventListener('keydown', shortcut);
       document.removeEventListener('pointerdown', outside);
+      wide.removeEventListener('change', applyRail);
+      stopRail();
+      goToMenu.dispose();
+      goTo.remove();
+      edge.remove();
+      delete root.dataset.rail;
+      setPeek(false);
       hideTip();
       open.remove();
       tip.remove();
