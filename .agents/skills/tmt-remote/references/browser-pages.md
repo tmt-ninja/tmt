@@ -52,8 +52,8 @@ states. Standalone notice pages retain their identifying `h1` above the state `h
 
 The SPA root installs shared top-bar bindings before route adoption. Remote-owned routes put
 their single h1 in the bar's left title slot, with module/name/section segments; the shared leaf
-hides prefixes and truncates the last segment on phones. Ops and TMT Settings update that title
-for each section, including loading and unavailable states. Content keeps its one-line subtitle
+hides prefixes and truncates the last segment on phones. TMT Settings updates that title for each
+section, including loading and unavailable states. Content keeps its one-line subtitle
 and page actions, without a duplicate heading or hero sentence. The shell retains document titles,
 Back navigation and common controls; the GUI-owned leaf controls their order. The leaf owns the single trusted Command/Ctrl+K listener; Remote owns the
 confined module prefetch, registry and pending-open lifetime. Navigation is unavailable until the
@@ -274,7 +274,8 @@ those live regions. Presentation equality never suppresses signed reads or autho
 
 ## TMT Settings General
 
-General and the Ops terminal cards share `commandCopy(text)`: a terminal reference, a Copy button and inline success/manual-copy feedback, with no command execution.
+General uses `commandCopy(text)` to show a terminal reference, a Copy button and inline
+success or manual-copy feedback. It never executes the command.
 
 General uses the shared shell module menu and page inset. Its appearance previews keep the existing
 browser-only System/Light/Dark theme owner and keyboard choice. Core configuration remains read-only:
