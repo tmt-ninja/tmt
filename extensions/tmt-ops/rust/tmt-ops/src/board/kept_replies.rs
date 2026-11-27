@@ -189,7 +189,12 @@ impl KeptRepliesState {
         true
     }
 
-    pub(in crate::board) fn hit_at(&self, member_id: &str, column: u16, row: u16) -> Option<String> {
+    pub(in crate::board) fn hit_at(
+        &self,
+        member_id: &str,
+        column: u16,
+        row: u16,
+    ) -> Option<String> {
         self.hits
             .borrow()
             .iter()
@@ -235,10 +240,7 @@ pub(in crate::board) fn parse_detail(document: &Value) -> Result<KeptReplyDetail
         .as_str()
         .ok_or_else(|| "Kept reply response missing key.".to_owned())?
         .to_owned();
-    let member_id = document["memberId"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
+    let member_id = document["memberId"].as_str().unwrap_or_default().to_owned();
     let at_ms = document["atMs"].as_u64().unwrap_or(0);
     let text = document["text"]
         .as_str()
@@ -317,7 +319,8 @@ impl super::app::App {
                     && super::composer::shell_prefix(input.text.as_str()).is_none()
             });
         if !focused_talk {
-            return self.say("Keep reply is only available while composing a one-to-one Talk message.");
+            return self
+                .say("Keep reply is only available while composing a one-to-one Talk message.");
         }
         if !self.keep_reply_capable() {
             return self.say("Kept replies require a newer Core (keptReplies API unavailable).");
@@ -476,11 +479,8 @@ impl super::app::App {
 pub(in crate::board) mod tests {
     use super::*;
 
-    pub(in crate::board) const HOME_SCENES: &[&str] = &[
-        "kept-reply-draft",
-        "kept-reply-list",
-        "kept-reply-yield",
-    ];
+    pub(in crate::board) const HOME_SCENES: &[&str] =
+        &["kept-reply-draft", "kept-reply-list", "kept-reply-yield"];
 
     pub(in crate::board) fn home_scene(
         scene: &str,

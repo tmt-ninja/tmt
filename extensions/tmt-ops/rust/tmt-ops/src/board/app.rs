@@ -3828,7 +3828,7 @@ impl App {
                 if message {
                     input.text.insert("\n", limit);
                     self.composer.invalidate();
-        self.kept_replies.invalidate_hits();
+                    self.kept_replies.invalidate_hits();
                 }
                 return Effect::None;
             }
@@ -3852,7 +3852,7 @@ impl App {
                 if message {
                     input.text.insert("\n", limit);
                     self.composer.invalidate();
-        self.kept_replies.invalidate_hits();
+                    self.kept_replies.invalidate_hits();
                 }
                 return Effect::None;
             }
@@ -3861,7 +3861,7 @@ impl App {
                 let width = self.input_viewport.get().map_or(80, |(area, _)| area.width);
                 input.text.key(key, width, limit);
                 self.composer.invalidate();
-        self.kept_replies.invalidate_hits();
+                self.kept_replies.invalidate_hits();
                 return Effect::None;
             }
         }

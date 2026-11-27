@@ -402,7 +402,9 @@ impl App {
                     message_state_label: crate::requests::message_state_label(send),
                     can_send_now: crate::requests::can_send_now(send),
                     working: crate::requests::is_working(send),
-                    keep_reply: crate::board::kept_replies::KeepReplyState::from_wire(&send["keepReply"]),
+                    keep_reply: crate::board::kept_replies::KeepReplyState::from_wire(
+                        &send["keepReply"],
+                    ),
                 })
             })
             .collect()

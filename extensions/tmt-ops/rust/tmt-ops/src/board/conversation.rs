@@ -990,7 +990,10 @@ fn render_target(
         .then_some(app.kept_replies.items.len())
         .unwrap_or(0);
     let state_text = if kept_count > 0 {
-        format!("{state_words} · {} · {role} · ⚑ {kept_count} kept", sanitize(&squad))
+        format!(
+            "{state_words} · {} · {role} · ⚑ {kept_count} kept",
+            sanitize(&squad)
+        )
     } else {
         format!("{state_words} · {} · {role}", sanitize(&squad))
     };

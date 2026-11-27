@@ -164,11 +164,10 @@ impl App {
             checklist_reference: projection.focused && self.checklist_reference_key().is_some(),
             keep_reply: projection.keep_reply,
             keep_reply_key: if projection.focused
-                && self
-                    .input
-                    .as_ref()
-                    .is_some_and(|input| matches!(input.compose, Compose::Talk { .. }) && shell_prefix(input.text.as_str()).is_none())
-            {
+                && self.input.as_ref().is_some_and(|input| {
+                    matches!(input.compose, Compose::Talk { .. })
+                        && shell_prefix(input.text.as_str()).is_none()
+                }) {
                 self.composer_keep_reply_key()
             } else {
                 None

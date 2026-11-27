@@ -34,10 +34,10 @@ mod hyperlinks;
 mod identity_line;
 mod input_field;
 mod inventory;
+mod kept_replies;
 mod key_hints;
 mod key_value;
 mod keycap;
-mod kept_replies;
 mod lane;
 mod limits;
 mod local_time;
@@ -512,8 +512,9 @@ fn chat_send(
 ) -> ActionOutcome {
     ActionOutcome::Send(Box::new(conversation::outgoing::Completed {
         ticket: None,
-        outcome: Config::load(core)
-            .and_then(|config| send::chat(core, &config, sender, recipient, text, fallback, keep_reply)),
+        outcome: Config::load(core).and_then(|config| {
+            send::chat(core, &config, sender, recipient, text, fallback, keep_reply)
+        }),
         what,
         to: name,
     }))
