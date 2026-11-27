@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
 import { COMPONENT_SHARDS } from '../../scripts/colab-acceptance-shards.mjs';
+import { colabAppLockfilesDiffer } from '../../scripts/colab-app-lockfile.mjs';
 import { UNIT_CONSUMER_NAMES } from '../../scripts/unit-test-consumers.mjs';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { QUALIFIER_README, qualifierCommands } from '../../scripts/remote-squads-qualifier.mjs';
@@ -70,6 +71,38 @@ const { runPackedCommand } = await import(
 const { isComponentRetired } = (await import(
   new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
 )) as { isComponentRetired: (name: string) => boolean };
+
+// JSON is a YAML subset. Model an app linked to a workspace package with a
+// registry transitive dependency, alongside an unrelated root importer.
+const lockFixture = (unrelated = '1.0.0', transitiveIntegrity = 'sha512-fixture') =>
+  JSON.stringify({
+    lockfileVersion: '9.0',
+    settings: { autoInstallPeers: true },
+    importers: {
+      '.': { devDependencies: { unused: { specifier: unrelated, version: unrelated } } },
+      '../extensions/tmt-colab/typescript/app': {
+        dependencies: {
+          '@tmt/browser-ui': {
+            specifier: 'workspace:*',
+            version: 'link:../../../../design/browser-ui',
+          },
+        },
+      },
+      '../design/browser-ui': {
+        dependencies: { direct: { specifier: '1.0.0', version: '1.0.0' } },
+      },
+    },
+    packages: {
+      'direct@1.0.0': {},
+      'transitive@1.0.0': { resolution: { integrity: transitiveIntegrity } },
+      [`unused@${unrelated}`]: {},
+    },
+    snapshots: {
+      'direct@1.0.0': { dependencies: { transitive: '1.0.0' } },
+      'transitive@1.0.0': {},
+      [`unused@${unrelated}`]: {},
+    },
+  });
 
 it('selects the wasm renderer proof for its inputs and CI wiring only', () => {
   for (const file of [
@@ -2547,6 +2580,33 @@ describe('CI diff and command integration', () => {
       const unrelatedHead = commit();
       expect(colabSelected(deletedColabHead, unrelatedHead)).toBe('false');
 
+      mkdirSync(path.join(root, 'typescript'));
+      const lockPath = path.join(root, 'typescript/pnpm-lock.yaml');
+      writeFileSync(lockPath, lockFixture());
+      const lockBase = commit();
+      writeFileSync(lockPath, lockFixture('2.0.0'));
+      const unrelatedLockHead = commit();
+      const lockOutput = capture();
+      runCiScope([lockBase, unrelatedLockHead], {
+        cwd: root,
+        stdout: lockOutput,
+        stderr: capture(),
+      });
+      expect(outputs(lockOutput.text())).toMatchObject({
+        colab_app: 'false',
+        colab_chrome: 'true',
+        colab_harness: 'true',
+      });
+      writeFileSync(lockPath, lockFixture('2.0.0', 'sha512-changed'));
+      const relevantLockHead = commit();
+      const relevantOutput = capture();
+      runCiScope([unrelatedLockHead, relevantLockHead], {
+        cwd: root,
+        stdout: relevantOutput,
+        stderr: capture(),
+      });
+      expect(outputs(relevantOutput.text()).colab_app).toBe('true');
+
       expect(() => runCiScope(['only-one'], { cwd: root, stdout, stderr })).toThrow(
         'exact base and head'
       );
@@ -2603,6 +2663,7 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-colab/typescript/app/vite.config.ts',
     'extensions/tmt-colab/typescript/colab-client/src/index.ts',
     'design/browser-ui/src/static.css',
+    'design/browser-ui/docs/tui/catalog.ts',
     '.github/workflows/colab-browser.yml',
     '.github/actions/install-chromium-deps/action.yml',
     'typescript/pnpm-lock.yaml',
@@ -2610,6 +2671,55 @@ describe('CI diff and command integration', () => {
     expect(selectColabApp([file])).toBe(true);
     expect(selectColabChrome([file])).toBe(true);
     expect(selectColabApp(['.agents/skills/tmt-dev/references/development.md', file])).toBe(true);
+  });
+
+  it.each([
+    'design/browser-ui/docs/tui/README.md',
+    'design/browser-ui/docs/tui/browser.spec.ts',
+    'design/browser-ui/docs/tui/playwright.config.ts',
+  ])('leaves standalone TUI docs inputs with the existing required selectors: %s', (file) => {
+    expect(selectColabApp([file])).toBe(false);
+    expect(selectColabChrome([file])).toBe(true);
+    expect(selectBrowserUi([file])).toBe(true);
+  });
+
+  it('uses the Colab resolved lockfile closure without changing the required chrome selection', () => {
+    const lock = lockFixture();
+    const linked = lock.replace('"direct":{"specifier":"1.0.0"', '"direct":{"specifier":"^1.0.0"');
+    const transitive = lockFixture('1.0.0', 'sha512-changed');
+    const settings = lock.replace('"autoInstallPeers":true', '"autoInstallPeers":false');
+    const overrides = lock.replace('"settings":', '"overrides":{"unused":"1.0.0"},"settings":');
+    const patches = lock.replace(
+      '"settings":',
+      '"patchedDependencies":{"unused":"unused.patch"},"settings":'
+    );
+    const paths = ['typescript/pnpm-lock.yaml'];
+    expect(colabAppLockfilesDiffer(lock, lockFixture('2.0.0'))).toBe(false);
+    expect(selectColabChrome(paths)).toBe(true);
+    const duplicate = lock.replace('"settings":{', '"settings":{},"settings":{');
+    const missingApp = lock.replace('../extensions/tmt-colab/typescript/app', '../unknown');
+    const missingLinked = lock.replace('"../design/browser-ui"', '"../unknown"');
+    for (const variant of [
+      linked,
+      transitive,
+      settings,
+      overrides,
+      patches,
+      duplicate,
+      missingApp,
+      missingLinked,
+      'not: [yaml',
+    ]) {
+      expect(colabAppLockfilesDiffer(lock, variant)).toBe(true);
+    }
+    const current = readFileSync(new URL('../../pnpm-lock.yaml', import.meta.url), 'utf8');
+    expect(colabAppLockfilesDiffer(current, current)).toBe(false);
+    expect(
+      selectColabApp([...paths, 'typescript/pnpm-workspace.yaml'], undefined, () => false)
+    ).toBe(true);
+    expect(
+      selectColabApp([...paths, 'design/browser-ui/docs/tui/catalog.ts'], undefined, () => false)
+    ).toBe(true);
   });
 
   it.each([

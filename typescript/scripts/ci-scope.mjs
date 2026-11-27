@@ -6,6 +6,7 @@ import { isMinimumReleaseVersion } from './release-versions.mjs';
 import { e2eShardFiles } from './e2e-shards.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { retryReleaseRead } from './release-read-retry.mjs';
+import { colabAppLockfilesDiffer, PNPM_LOCKFILE } from './colab-app-lockfile.mjs';
 import {
   componentOfProduct,
   isComponentRetired,
@@ -549,16 +550,35 @@ const COLAB_APP_ROOTS = [
 const COLAB_APP_INPUTS = new Set([
   '.github/actions/install-chromium-deps/action.yml',
   '.github/workflows/colab-browser.yml',
-  'typescript/pnpm-lock.yaml',
+]);
+// Standalone TUI docs tests use their own Playwright entry. The embedded Design
+// route still consumes the catalog, oracle, styles and other docs sources.
+const STANDALONE_TUI_DOCS = new Set([
+  'design/browser-ui/docs/tui/README.md',
+  'design/browser-ui/docs/tui/browser.spec.ts',
+  'design/browser-ui/docs/tui/playwright.config.ts',
+]);
+const PNPM_RESOLUTION_INPUTS = new Set([
+  '.npmrc',
+  '.pnpmfile.cjs',
+  'typescript/.npmrc',
+  'typescript/.pnpmfile.cjs',
+  'typescript/pnpm-workspace.yaml',
 ]);
 
+function isColabAppInput(path, map) {
+  return (
+    COLAB_APP_INPUTS.has(path) ||
+    (COLAB_APP_OWNERS.has(ownerOf(path, map)) && COLAB_APP_ROOTS.some((root) => within(root, path)))
+  );
+}
+
 /** Empty/unknown diffs do not select advisory work; weekly/manual runs cover shared drift. */
-export function selectColabApp(paths, map = componentMap()) {
-  return paths.some(
-    (path) =>
-      COLAB_APP_INPUTS.has(path) ||
-      (COLAB_APP_OWNERS.has(ownerOf(path, map)) &&
-        COLAB_APP_ROOTS.some((root) => within(root, path)))
+export function selectColabApp(paths, map = componentMap(), lockfileAffectsApp = () => true) {
+  return (
+    paths.some((path) => !STANDALONE_TUI_DOCS.has(path) && isColabAppInput(path, map)) ||
+    (paths.includes(PNPM_LOCKFILE) &&
+      (paths.some((path) => PNPM_RESOLUTION_INPUTS.has(path)) || lockfileAffectsApp()))
   );
 }
 
@@ -607,7 +627,10 @@ const COLAB_CHROME_NATIVE_INPUTS = new Set([
 
 /** Empty/unknown diffs select nothing; main-full verification selects it unconditionally. */
 export function selectColabChrome(paths, map = componentMap()) {
-  return selectColabApp(paths, map) || paths.some((path) => COLAB_CHROME_NATIVE_INPUTS.has(path));
+  return paths.some(
+    (path) =>
+      path === PNPM_LOCKFILE || COLAB_CHROME_NATIVE_INPUTS.has(path) || isColabAppInput(path, map)
+  );
 }
 
 // The gallery is a developer-only consumer. Its input-graph guard in ci-scope.test.ts keeps
@@ -1157,6 +1180,21 @@ export function readChangedCiAreas(base, head, cwd) {
   return readChangedCiSelection(base, head, cwd).areas;
 }
 
+function colabAppLockfileAffectsSelection(base, head, cwd) {
+  try {
+    const mergeBase = runPackedCommand('git', ['merge-base', '--all', base, head], { cwd }).trim();
+    if (!/^[a-f0-9]{40}$/.test(mergeBase)) return true;
+    // The PR diff starts at the merge base, but the workflow builds against
+    // the actual event base. A relevant change on either side keeps the suite.
+    const lockfiles = [...new Set([mergeBase, base, head])].map((rev) =>
+      runPackedCommand('git', ['show', `${rev}:${PNPM_LOCKFILE}`], { cwd })
+    );
+    return colabAppLockfilesDiffer(...lockfiles);
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Standard output is the step's `$GITHUB_OUTPUT`, so it carries only the
  * selection outputs; the evidence table goes to standard error and the step summary.
@@ -1295,7 +1333,13 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
   selection ??= { paths: [], areas: selectCiAreas([]), nativeScope: selectNativeScope([]) };
   if (full) selection.areas = { native: true };
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
-  const colabApp = !queue && !seed && !full && selectColabApp(selection.paths);
+  const colabApp =
+    !queue &&
+    !seed &&
+    !full &&
+    selectColabApp(selection.paths, undefined, () =>
+      colabAppLockfileAffectsSelection(base, head, cwd)
+    );
   const colabHosted = !queue && !seed && !full && selectColabHosted(selection.paths);
   const colabHostedEmulator =
     !queue && !seed && !full && selectHostedReaderEmulator(selection.paths);
@@ -1326,7 +1370,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       ? `### CI selection\n\n${fallback ?? (mainFull ? 'Complete trusted-main verification.' : full ? 'Weekly/manual retained-product verification.' : 'Main cache seed.')}\n`
       : renderSelectionEvidence({ base, head, range, ...selection })) +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
-    `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
+    `\nColab app component suite PR selection (app, client, browser UI, workflow or relevant lockfile): ${colabApp}.\n` +
     `\nColab served/hosted PR selection (serve surface, Firebase pin/build config, hosting generator, hosted build or spec): ${colabHosted}.\n` +
     `\nColab cross-screen chrome spec selection (app suite inputs or native fallback chrome; required through Native package matrix): ${colabChrome}.\n` +
     `\nBrowser UI gallery audits selection (leaf, tokens or closed build inputs; required through Native package matrix): ${browserUi}.\n` +

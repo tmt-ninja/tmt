@@ -285,8 +285,12 @@ refusal, plus separate strict macOS WebKit corpus/interop. macOS never runs on P
 Rust restores never save; browser keys bind OS/architecture/pinned Playwright, and only
 successful main-ref runs save. Reports prove primitives, not product acceptance.
 
-`colab-app` uses `colab_app` for app/colab-client/browser-ui paths, its workflow,
-the shared Chromium dependency action and pnpm lockfile, plus weekly/manual events.
+`colab-app` uses `colab_app` for app/colab-client/browser-ui inputs, its workflow
+and the shared Chromium dependency action, plus weekly/manual events. The
+selector skips an otherwise unrelated lockfile change only when the merge base,
+PR base and head prove the same app importer and resolved package closure.
+Unknown references, parser failures and resolution configuration changes keep
+the suite selected. Standalone TUI docs tests stay in their gallery lane.
 `@tmt/colab-app test:browser` runs Chromium with one
 worker/no retries/no Rust; native-executable specs skip with a named reason, so
 the run proves the browser components only. Bounded logs/failure traces last seven days. Whole-file weights in

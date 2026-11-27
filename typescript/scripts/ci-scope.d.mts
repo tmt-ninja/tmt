@@ -113,7 +113,11 @@ export function explainCiSelection(
 ): readonly CiSelectionRow[];
 export function selectCiAreas(paths: readonly string[], map?: ComponentMap): CiAreas;
 export function selectColabHarness(paths: readonly string[], map?: ComponentMap): boolean;
-export function selectColabApp(paths: readonly string[], map?: ComponentMap): boolean;
+export function selectColabApp(
+  paths: readonly string[],
+  map?: ComponentMap,
+  lockfileAffectsApp?: () => boolean
+): boolean;
 export function selectColabHosted(paths: readonly string[]): boolean;
 export function selectColabChrome(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectBrowserUi(paths: readonly string[]): boolean;
