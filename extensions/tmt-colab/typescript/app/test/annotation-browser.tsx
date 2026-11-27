@@ -1,6 +1,9 @@
 import { ConversationPresentation } from '../src/components/conversation-presentation.js';
 /** Component-only send/keyboard double; durable writer and Remote proof lives in acceptance. */
 import { createRoot, type Root } from 'react-dom/client';
+import '@tmt/browser-ui/static.css';
+import '../src/colab-header.css';
+import '../src/style.css';
 import { ThreadWindow } from '../src/thread-panel.js';
 import { ChatPanel } from '../src/chat-panel.js';
 import { MessageComposer } from '../src/components/message-composer.js';
