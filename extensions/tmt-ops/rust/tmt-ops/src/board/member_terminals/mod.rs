@@ -67,11 +67,6 @@ pub(in crate::board) enum List {
 pub(in crate::board) enum Task {
     List(Vec<String>),
     Open(String),
-    Run {
-        identity: String,
-        terminal: Option<String>,
-        command: String,
-    },
     Close {
         identity: String,
         terminal: String,
@@ -85,7 +80,6 @@ impl Task {
         match self {
             Self::List(_) => None,
             Self::Open(_) => Some("Opening a terminal…"),
-            Self::Run { .. } => Some("Submitting the command…"),
             Self::Close { .. } => Some("Closing the terminal…"),
         }
     }
@@ -97,12 +91,6 @@ pub(in crate::board) enum Completed {
     Opened {
         identity: String,
         outcome: Result<Listed, String>,
-    },
-    Ran {
-        identity: String,
-        terminal: Option<String>,
-        opened: Option<Listed>,
-        outcome: Result<(), String>,
     },
     Closed {
         identity: String,
@@ -211,14 +199,6 @@ impl Terminals {
         self.typing = terminal.map(str::to_owned);
     }
 
-    pub(in crate::board) fn run(&mut self, identity: &str, terminal: Option<&str>, command: &str) {
-        self.queued.push_back(Task::Run {
-            identity: identity.into(),
-            terminal: terminal.map(str::to_owned),
-            command: command.into(),
-        });
-    }
-
     pub(in crate::board) fn open(&mut self, identity: &str) {
         self.queued.push_back(Task::Open(identity.to_owned()));
     }
@@ -302,25 +282,6 @@ impl Terminals {
                 Applied {
                     select: None,
                     notice: Some(message),
-                }
-            }
-            Completed::Ran {
-                identity,
-                terminal,
-                opened,
-                outcome,
-            } => {
-                if let Some(opened) = opened {
-                    self.add(&identity, opened);
-                }
-                self.expire(&identity);
-                Applied {
-                    select: terminal.map(|terminal| (identity, terminal)),
-                    notice: Some(
-                        outcome
-                            .err()
-                            .unwrap_or_else(|| "Command submitted to the terminal.".into()),
-                    ),
                 }
             }
             Completed::Closed {
@@ -436,56 +397,6 @@ pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
                     listed(&value).ok_or_else(|| "Core's answer named no terminal.".to_owned())
                 });
             Completed::Opened { identity, outcome }
-        }
-        Task::Run {
-            identity,
-            terminal,
-            command,
-        } => {
-            let opened = if terminal.is_none() {
-                match core
-                    .api_within(
-                        "terminal.open",
-                        serde_json::json!({"identityId": identity}),
-                        ACT_WITHIN,
-                    )
-                    .map_err(|error| crate::board::notes::single_line(&error.message))
-                    .and_then(|value| {
-                        listed(&value).ok_or_else(|| {
-                            "Core's answer named no terminal; do not open again automatically."
-                                .into()
-                        })
-                    }) {
-                    Ok(opened) => Some(opened),
-                    Err(message) => {
-                        return Completed::Ran {
-                            identity,
-                            terminal: None,
-                            opened: None,
-                            outcome: Err(message),
-                        };
-                    }
-                }
-            } else {
-                None
-            };
-            let terminal = terminal.or_else(|| opened.as_ref().map(|row| row.id.clone()));
-            let outcome = core.api_within("terminal.run", serde_json::json!({"identityId": identity, "terminalId": terminal, "command": command}), ACT_WITHIN)
-                .and_then(|value| {
-                    if value["submitted"] == true && value["identityId"] == identity.as_str()
-                        && terminal.as_ref().is_some_and(|id| value["terminalId"] == id.as_str()) {
-                        Ok(())
-                    } else {
-                        Err(crate::core::SquadError::new("TERMINAL_RUN_UNCONFIRMED", "The command submission was not confirmed; do not retry automatically."))
-                    }
-                })
-                .map_err(|error| crate::board::notes::single_line(&error.message));
-            Completed::Ran {
-                identity,
-                terminal,
-                opened,
-                outcome,
-            }
         }
         Task::Close {
             identity,

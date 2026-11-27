@@ -234,14 +234,6 @@ fn standalone_completion_racing_stop_preserves_output_without_staging() {
 }
 
 #[test]
-fn talk_shell_stop_keeps_the_existing_interrupt_path() {
-    let result = stopped_shell_exchange("shell.run", CANCELLATION_FRAME, |core, stop| {
-        core.shell_run(json!({"command":"sleep 60"}), stop)
-    });
-    assert!(result.unwrap_err().was_cancelled());
-}
-
-#[test]
 fn board_sessions_preserve_attribution_and_close_at_last_owner() {
     let fixture = Fixture::new();
     let core = session_fixture(&fixture);

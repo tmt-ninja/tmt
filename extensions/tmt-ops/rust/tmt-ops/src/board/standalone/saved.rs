@@ -582,6 +582,7 @@ impl App {
                     }],
                     member: None,
                     observing: false,
+                    talk: None,
                     selected: 0,
                     history: None,
                 }));

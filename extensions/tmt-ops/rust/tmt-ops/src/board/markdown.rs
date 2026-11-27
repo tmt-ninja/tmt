@@ -406,10 +406,8 @@ impl Renderer<'_> {
                 self.start(String::new(), 0);
             }
             let mut part = Part::new(
-                reference.command.shown.clone(),
-                self.style()
-                    .patch(self.look.role(Role::Code))
-                    .add_modifier(Modifier::UNDERLINED),
+                format!(" ▶ {} ", reference.command.text),
+                self.look.selection(),
                 source_line,
                 Some((
                     super::member_links::Target::Command(reference.command),
@@ -1149,6 +1147,43 @@ mod tests {
     use crate::look::Look;
 
     #[test]
+    fn command_chip_hits_include_padding_while_urls_keep_their_underline() {
+        use super::super::member_links::Target;
+        use tmt_cli_style::theme::Depth;
+        use unicode_width::UnicodeWidthStr;
+
+        let source = "Run `！ pwd` and read [docs](https://example.test).";
+        let chip = " ▶ pwd ";
+        for depth in [Depth::TrueColor, Depth::None] {
+            let look = Look {
+                depth,
+                ..Look::default()
+            };
+            let mapped = render_conversation_with_members(source, 80, look, None);
+            let span = mapped.lines[0]
+                .spans
+                .iter()
+                .find(|span| span.content == chip)
+                .expect("painted command chip");
+            assert_eq!(span.style, look.selection());
+            if depth == Depth::None {
+                assert!(span.style.add_modifier.contains(Modifier::REVERSED));
+            }
+            assert!(mapped.lines[0].spans.iter().any(|span| {
+                span.content.contains("docs")
+                    && span.style.add_modifier.contains(Modifier::UNDERLINED)
+            }));
+            let hit = mapped.mentions[0]
+                .iter()
+                .find(|hit| matches!(&hit.target, Target::Command(_)))
+                .expect("command target");
+            assert_eq!(hit.column, "Run ".width());
+            assert_eq!(hit.width, chip.width());
+            assert!(matches!(&hit.target, Target::Command(command) if command.text == "pwd"));
+        }
+    }
+
+    #[test]
     fn command_captions_keep_exact_content_ranges_and_fence_body_line_numbers() {
         use super::super::member_links::Target;
         let source = "Header\n\n```sh\n! printf first\nprintf second\n```";
@@ -1167,7 +1202,7 @@ mod tests {
         assert_eq!(commands.len(), 2);
         for ((row, link), (line, text)) in commands
             .into_iter()
-            .zip([(3, "! printf first"), (4, "printf second")])
+            .zip([(3, "printf first"), (4, "printf second")])
         {
             assert_eq!(mapped.sources[row], line);
             assert_eq!(&source[link.source.as_ref().unwrap().source.clone()], text);
@@ -1221,7 +1256,7 @@ mod tests {
                 assert_eq!(mapped.sources[row], 1);
                 fragments.push_str(&source[link.source.as_ref().unwrap().source.clone()]);
             }
-            assert_eq!(fragments, shown);
+            assert_eq!(fragments, command);
         }
     }
 

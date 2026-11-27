@@ -336,10 +336,6 @@ pub enum Effect {
     OpenWorkPage(super::work::OpenTarget),
     WorkOrder(super::work::OrderMove),
     AnswerProviderForm(super::provider_answer::Send),
-    Shell {
-        key: (String, String),
-        command: String,
-    },
     Checklist(super::checklist::load::Task),
     Recovery(super::recovery::load::Task),
     Discovery(super::discovery::load::Task),
@@ -389,13 +385,15 @@ pub enum Choice {
         identity: String,
         terminal: String,
     },
-    /// A command confirmed from the anchored popover for this member.
-    CommandRun {
+    CommandForm {
         target: super::workspace::OpsTarget,
-        terminal: Option<String>,
         command: String,
-        screen: ratatui::layout::Rect,
     },
+    CommandShow {
+        command: super::member_links::commands::Command,
+        anchor: ratatui::layout::Rect,
+    },
+    CommandCopy(super::member_links::commands::Command),
     /// A link's popover: open the address, copy it, or show all of it.
     LinkOpen(String),
     LinkCopy(String),
@@ -3485,12 +3483,9 @@ impl App {
                 self.close_terminal_confirmed(&identity, &terminal)
             }
             Choice::AddToNotes(seed) => self.add_to_notes(seed),
-            Choice::CommandRun {
-                target,
-                terminal,
-                command,
-                screen,
-            } => self.command_run(&target, terminal.as_deref(), &command, screen),
+            Choice::CommandForm { target, command } => self.command_form(&target, &command),
+            Choice::CommandShow { command, anchor } => self.command_show(command, anchor),
+            Choice::CommandCopy(command) => self.link_copy(command.text),
             Choice::LinkOpen(url) => self.link_open(url),
             Choice::LinkCopy(url) => self.link_copy(url),
             Choice::LinkShow { url, anchor } => self.link_show(&url, anchor),
@@ -3875,16 +3870,15 @@ impl App {
             if !matches!(input.compose, Compose::Talk { .. }) {
                 return None;
             }
-            let (private, command) = super::composer::shell_prefix(input.text.as_str())?;
+            let command = super::composer::shell_prefix(input.text.as_str())?;
             Some((
-                private,
                 command.to_owned(),
                 input.draft_key.clone(),
                 input.row_send.clone(),
-                input.text.folds().is_empty(),
+                input.text.folds().is_empty() && input.inline_quotes.is_empty(),
             ))
         });
-        if let Some((private, command, key, row_send, no_folds)) = shell {
+        if let Some((command, key, row_send, no_folds)) = shell {
             let Some(key) = key else {
                 return self.say("Select a member; nothing was run.");
             };
@@ -3907,15 +3901,8 @@ impl App {
             {
                 return self.say("The member changed; nothing was run. Draft retained.");
             }
-            if !self.shell_start(&key, &command, private) {
-                return self.say("A shell command is already running or this conversation is full; nothing was run.");
-            }
-            if let Some(input) = self.input.as_mut() {
-                input.text.clear();
-                input.inline_quotes.clear();
-            }
-            self.remember_draft();
-            return Effect::Shell { key, command };
+            let draft = self.input.as_ref().expect("admitted Talk draft").clone();
+            return self.open_talk_run(&command, draft);
         }
         let persistent = self
             .input
@@ -3998,7 +3985,7 @@ impl App {
             };
             body = expanded;
         }
-        let mut fallback =
+        let fallback =
             crate::requests::message::inline_body(row.map(|row| (squad, row)), &body, starts_quote);
         if input
             .row_send
@@ -4049,18 +4036,11 @@ impl App {
                 };
                 Some((send.sender_id.clone()?, recipient, send.name.clone()))
             });
-        let mut text = if chat.is_some() {
+        let text = if chat.is_some() {
             body
         } else {
             fallback.clone()
         };
-        let attachment_key = matches!(input.compose, Compose::Talk { .. })
-            .then_some(input.draft_key.as_ref())
-            .flatten();
-        if let Some(attachment) = attachment_key.and_then(|key| self.shell_attachment(key, false)) {
-            text = format!("{attachment}{text}");
-            fallback = format!("{attachment}{fallback}");
-        }
         let Some(me) = self.view.as_ref().and_then(|view| view.me.clone()) else {
             return Effect::None;
         };
@@ -4070,9 +4050,6 @@ impl App {
         if text.len() > MESSAGE_LIMIT {
             return self
                 .say("Message including quotes exceeds 1 MiB; nothing sent. Draft retained.");
-        }
-        if let Some(key) = attachment_key {
-            self.shell_attachment(key, true);
         }
         self.begin_outgoing(&input, &text);
         self.sending_draft(&input);

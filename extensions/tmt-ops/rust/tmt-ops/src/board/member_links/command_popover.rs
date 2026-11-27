@@ -1,4 +1,4 @@
-//! Human-confirmed commands use the existing anchored link menu and terminal task lane.
+//! A transcript command opens the shared Run form for explicit confirmation.
 use super::{
     commands, menu_area,
     popover::{LINE, chunks},
@@ -38,66 +38,42 @@ impl App {
             })
             .collect();
         let header = entries.len();
-        let mut add_run = |label: String, terminal: Option<String>, available: bool| {
-            let choice = target.as_ref().filter(|_| available).map_or_else(
-                || {
-                    Choice::Unavailable(
-                        "This terminal is unavailable or busy; nothing was submitted.".into(),
-                    )
-                },
-                |target| Choice::CommandRun {
-                    target: target.clone(),
-                    terminal,
-                    command: command.into(),
-                    screen,
-                },
-            );
-            entries.push(MenuEntry {
-                chip: None,
-                separator: false,
-                key: String::new(),
-                label,
-                choice,
-            });
+        let choice = match target {
+            Some(target) if tmt_pty_protocol::valid_command(command) => Choice::CommandForm {
+                target,
+                command: command.into(),
+            },
+            _ => Choice::Unavailable(
+                "Run needs a member and one visible command line; copy it instead.".into(),
+            ),
         };
-        if let Some(identity) = &identity {
-            let name = self
-                .references
-                .agents
-                .get(identity)
-                .map_or(identity.as_str(), |agent| agent.name.as_str());
-            for row in self.terminals.rows(identity) {
-                add_run(
-                    format!("Run in {} · {name}", row.title()),
-                    Some(row.id.clone()),
-                    !row.ended && !row.busy,
-                );
-            }
-        }
-        add_run(
-            "Run in a new terminal".into(),
-            None,
-            identity.as_deref().is_some_and(|id| self.bound_member(id)),
-        );
+        entries.push(MenuEntry {
+            chip: None,
+            separator: false,
+            key: String::new(),
+            label: "Run…".into(),
+            choice,
+        });
         entries.push(MenuEntry {
             chip: None,
             separator: false,
             key: "y".into(),
             label: "Copy command".into(),
-            choice: Choice::LinkCopy(command.into()),
+            choice: Choice::CommandCopy(mention.clone()),
+        });
+        entries.push(MenuEntry {
+            chip: None,
+            separator: false,
+            key: String::new(),
+            label: "Show full".into(),
+            choice: Choice::CommandShow {
+                command: mention.clone(),
+                anchor,
+            },
         });
         let desired = u16::try_from(entries.len() + 4).unwrap_or(u16::MAX);
-        let Some(area) = menu_area(screen, anchor, desired) else {
+        if menu_area(screen, anchor, desired).is_none() {
             return self.say("Not enough room beside this command; resize to open its actions.");
-        };
-        // A Run entry is confirmation only while every byte of the command is shown at once.
-        // Scrolling to an action must never hide part of what it will submit.
-        if area.width < 48 || area.height < desired || !tmt_pty_protocol::valid_command(command) {
-            for entry in entries.iter_mut().skip(header) {
-                if matches!(entry.choice, Choice::CommandRun { .. }) {
-                    entry.choice = Choice::Unavailable("Run unavailable unless the whole single-line command is shown; copy it instead.".into());
-                }
-            }
         }
         self.menu = Some(Menu {
             link: None,
@@ -111,36 +87,23 @@ impl App {
         Effect::None
     }
 
-    pub(in crate::board) fn command_run(
-        &mut self,
-        target: &OpsTarget,
-        terminal: Option<&str>,
-        command: &str,
-        screen: Rect,
-    ) -> Effect {
-        if screen != self.member_links.borrow().screen {
-            return self
-                .say("The command menu no longer fits; reopen it to confirm the whole command.");
-        }
-        let OpsTarget::Member { identity_id, .. } = target else {
+    pub(in crate::board) fn command_form(&mut self, target: &OpsTarget, command: &str) -> Effect {
+        let OpsTarget::Member {
+            identity_id,
+            room_id,
+        } = target
+        else {
             return Effect::None;
         };
-        if !self.member_link_valid(target)
-            || !self.bound_member(identity_id)
-            || !tmt_pty_protocol::valid_command(command)
-        {
+        if !self.member_link_valid(target) || !tmt_pty_protocol::valid_command(command) {
             return self.say("This member changed or is unavailable; reopen the command menu.");
         }
-        if let Some(terminal) = terminal
-            && !self
-                .terminals
-                .row(identity_id, terminal)
-                .is_some_and(|row| !row.ended && !row.busy)
-        {
-            return self.say("This terminal changed or is busy; nothing was submitted.");
-        }
-        self.terminals.run(identity_id, terminal, command);
-        Effect::None
+        let label = self
+            .references
+            .agents
+            .get(identity_id)
+            .map_or_else(|| identity_id.clone(), |agent| agent.name.clone());
+        self.open_prefilled_run((identity_id.clone(), room_id.clone(), label), command, None)
     }
 }
 
@@ -155,7 +118,6 @@ pub(super) fn capture_case(
     use crate::board::{
         app::workspace::tests::{MEMBER, board},
         inventory::Inventory,
-        member_terminals::{Completed, List, Listed},
     };
     use ratatui::{Terminal, backend::TestBackend};
     let mut app = board();
@@ -174,30 +136,6 @@ pub(super) fn capture_case(
     if !open {
         return app;
     }
-    app.terminals.finished(
-        Completed::Listed(vec![(
-            MEMBER.into(),
-            List::Terminals(vec![
-                Listed {
-                    id: format!("term_{}", "1".repeat(32)),
-                    socket: "/tmp/oracle-inert-terminal.sock".into(),
-                    busy: false,
-                    created_ms: 1,
-                    shell: Some("sh".into()),
-                    program: None,
-                },
-                Listed {
-                    id: format!("term_{}", "2".repeat(32)),
-                    socket: "/tmp/oracle-inert-busy.sock".into(),
-                    busy: true,
-                    created_ms: 2,
-                    shell: Some("sh".into()),
-                    program: Some("build".into()),
-                },
-            ]),
-        )]),
-        0,
-    );
     let draw = |app: &App| {
         Terminal::new(TestBackend::new(width, height))
             .unwrap()
@@ -228,7 +166,6 @@ mod tests {
         },
         inventory::Inventory,
         member_links::Target,
-        member_terminals::Task,
     };
     use ratatui::{
         Terminal,
@@ -290,10 +227,10 @@ mod tests {
             .collect();
         assert_eq!(labels, ["Run…"]);
 
-        assert_eq!(
+        assert!(matches!(
             press(&mut app, KeyCode::Enter),
-            Effect::Standalone(RunTask::Target(MEMBER.into()))
-        );
+            Effect::Standalone(RunTask::Target(_, ref member)) if member == MEMBER
+        ));
         assert!(app.terminals.offer(&[], None, 0).is_none());
         assert!(app.standalone.shown());
         let screen = draw(&app, 120, 40);
@@ -302,122 +239,35 @@ mod tests {
     }
 
     #[test]
-    fn selecting_and_opening_command_mentions_is_inert_then_run_queues_the_exact_command() {
-        let mut app = reader("Please run `! printf '%s' 'one quoted value'` then `! pwd`.");
-        let hits: Vec<_> = app
-            .member_links
-            .borrow()
-            .hits
-            .iter()
-            .filter(|hit| matches!(hit.target, Target::Command(_)))
-            .cloned()
-            .collect();
-        assert_eq!(hits.len(), 2);
-        assert!(app.terminals.offer(&[], None, 0).is_none());
-        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
-        assert!(
-            matches!(&app.member_links.borrow().focused.as_ref().unwrap().target, Target::Command(mention) if mention.shown == "! printf '%s' 'one quoted value'")
-        );
-        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let menu = app.menu.as_ref().expect("the shared menu opens");
-        assert_eq!(menu.title, "Command");
-        assert_eq!(menu.entries[0].label, "! printf '%s' 'one quoted value'");
-        assert!(app.terminals.offer(&[], None, 0).is_none());
-        assert!(draw(&app, 120, 40).contains("Run in a new terminal"));
-        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(
-            app.terminals.offer(&[], None, 0),
-            Some(Task::Run {
-                identity: MEMBER.into(),
-                terminal: None,
-                command: "printf '%s' 'one quoted value'".into()
-            })
-        );
-    }
-
-    #[test]
-    fn copy_drops_only_the_marker_and_run_cannot_hide_text_or_survive_resize() {
+    fn copy_and_show_full_use_the_exact_command() {
         let mut app = reader("`! printf '%s' 'a b'`");
+        let command = "printf '%s' 'a b'";
         let anchor = Rect::new(4, 5, 8, 1);
         app.command_popover(&marked_fixture("! printf '%s' 'a b'"), anchor);
-        let run = app
-            .menu
-            .as_ref()
-            .unwrap()
-            .entries
-            .iter()
-            .find_map(|entry| {
-                matches!(entry.choice, Choice::CommandRun { .. }).then(|| entry.choice.clone())
-            })
-            .unwrap();
-        let copy = app
-            .menu
-            .as_ref()
-            .unwrap()
-            .entries
-            .iter()
-            .find(|entry| entry.label == "Copy command")
-            .unwrap()
-            .choice
-            .clone();
-        assert!(
-            matches!(app.choose(copy), Effect::Act(Request::Copy { text, .. }) if text == "printf '%s' 'a b'")
-        );
-        app.member_links
-            .borrow_mut()
-            .begin_frame(Rect::new(0, 0, 80, 24));
-        app.choose(run);
-        assert!(app.terminals.offer(&[], None, 0).is_none());
-        let full = format!("! printf '%s' '{}'", "x".repeat(60));
-        app.member_links
-            .borrow_mut()
-            .begin_frame(Rect::new(0, 0, 120, 40));
-        app.command_popover(&marked_fixture(&full), anchor);
-        let menu = app.menu.as_ref().unwrap();
-        let header: Vec<_> = menu
-            .entries
-            .iter()
-            .filter(|entry| matches!(entry.choice, Choice::Heading))
-            .map(|entry| entry.label.clone())
-            .collect();
-        assert!(header.len() > 1);
-        assert_eq!(header.join(""), full);
-        assert!(
-            menu.entries
+        let choice = |label: &str| {
+            app.menu
+                .as_ref()
+                .unwrap()
+                .entries
                 .iter()
-                .any(|entry| matches!(entry.choice, Choice::CommandRun { .. }))
-        );
-        let painted = draw(&app, 120, 40);
-        assert!(
-            header.iter().all(|line| painted.contains(line)),
-            "the complete confirmation must be painted"
-        );
-        for (command, screen) in [
-            ("! echo first\necho second".into(), Rect::new(0, 0, 120, 40)),
-            (format!("! {}", "x".repeat(2000)), Rect::new(0, 0, 120, 40)),
-            ("! pwd".into(), Rect::new(0, 0, 40, 20)),
-        ] {
-            app.member_links.borrow_mut().begin_frame(screen);
-            app.command_popover(&marked_fixture(&command), anchor);
-            assert!(
-                !app.menu
-                    .as_ref()
-                    .unwrap()
-                    .entries
-                    .iter()
-                    .any(|entry| matches!(entry.choice, Choice::CommandRun { .. })),
-                "{command:?}"
-            );
-            assert!(
-                app.menu
-                    .as_ref()
-                    .unwrap()
-                    .entries
-                    .iter()
-                    .any(|entry| entry.label == "Copy command")
-            );
-        }
-        assert!(app.terminals.offer(&[], None, 0).is_none());
+                .find(|entry| entry.label == label)
+                .unwrap()
+                .choice
+                .clone()
+        };
+        let copy = choice("Copy command");
+        let show = choice("Show full");
+        assert!(matches!(
+            app.choose(copy),
+            Effect::Act(Request::Copy { text, .. }) if text == command
+        ));
+        assert_eq!(app.choose(show), Effect::None);
+        assert_eq!(app.menu.as_ref().unwrap().title, "Full command");
+        let entry = app.menu.as_ref().unwrap().entries[0].choice.clone();
+        assert!(matches!(
+            app.choose(entry),
+            Effect::Act(Request::Copy { text, .. }) if text == command
+        ));
     }
 
     #[test]

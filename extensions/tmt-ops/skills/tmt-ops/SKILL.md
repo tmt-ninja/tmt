@@ -292,12 +292,9 @@ A closed `sh`, `bash`, `shell` or `zsh` fence uses its whole body. A closed `con
 or `shell-session` fence uses each `$ ` prompt line separately and ignores output.
 An explicit leading marker takes precedence over the fence label.
 
-Select a mention to see the adjacent Command menu. Selecting Run confirms submission
-to that member's idle terminal shell. Run has no single-key accelerator. Press `y`
-to copy the exact command, with the recognized marker or prompt removed. Multiline
-commands are Copy only. For Run, the complete command must fit in the menu and the
-shell prompt must be empty. Resize or copy if the command does not fit. An uncertain
-submission stays unconfirmed.
+The ▶ chip opens the Command menu. Run… prefills Run command in that member's
+directory. Tab changes the target and Enter runs it. Copy drops the marker and
+Show full displays the command. Multiline commands can be copied.
 
 ## Reloading open boards
 
@@ -1019,13 +1016,11 @@ command and Ctrl-C requests Stop. Keep in list retains the result under Local or
 the confirmed member. On a kept row, Enter opens output, `r` confirms a rerun,
 `s` opens a shell in its directory, `m` moves the row, and `x` removes it.
 
-In a member's Talk composer, `! command` (or `！ command`) runs a shell command
-in that member's current verified local directory. Its result is shown in Talk and
-attached once to the next message to that member; it is dropped if the board exits
-first. `!! command` (or `！！ command`) shows the result only here and never attaches
-it to a message. The Shell marker shows while the prefix is being typed. A timeout,
-truncated output or unconfirmed outcome is shown; do not retry an unconfirmed run
-automatically.
+In Talk, submit `!command` or `！command` to run it in the member's verified
+directory. `!!` and `！！` are aliases. Refusals keep the draft. Output stays in
+Run command and never attaches to a Talk message. In the result, ↑↓ scrolls,
+Enter keeps it when available, `r` reruns immediately, `e` edits the next run,
+and Esc closes. A typing terminal receives these characters literally.
 `reply` focuses the same member message composer; Core settles questions after
 direct delivery as described below. Notes retain the actual lead or explicit member
 recipient, with the recipient and source rechecked at submission. Esc returns to

@@ -13,19 +13,14 @@ pub(super) mod paste;
 pub(super) use chat_quotes::{QuoteSource, normalized_quote};
 
 type DraftKey = (String, String);
-/// Shell prefixes are meaningful only to a selected member's Talk composer.
-/// The boolean selects the local-only result; the command bytes are preserved.
-pub(super) fn shell_prefix(text: &str) -> Option<(bool, &str)> {
-    let (private, rest) = if let Some(rest) = text
+/// A leading bang in a member Talk draft preserves the command bytes.
+pub(super) fn shell_prefix(text: &str) -> Option<&str> {
+    let rest = text
         .strip_prefix("!!")
         .or_else(|| text.strip_prefix("！！"))
-    {
-        (true, rest)
-    } else {
-        let rest = text.strip_prefix('!').or_else(|| text.strip_prefix('！'))?;
-        (false, rest)
-    };
-    Some((private, rest.strip_prefix(' ').unwrap_or(rest)))
+        .or_else(|| text.strip_prefix('!'))
+        .or_else(|| text.strip_prefix('！'))?;
+    Some(rest.strip_prefix(' ').unwrap_or(rest))
 }
 static EMPTY_QUOTES: BTreeMap<u64, QuoteSource> = BTreeMap::new();
 #[derive(Clone, PartialEq, Eq)]
@@ -151,17 +146,13 @@ impl App {
         });
         super::input_field::Info {
             name: projection.recipient,
-            shell: if self
+            shell: self
                 .input
                 .as_ref()
                 .is_none_or(|input| matches!(input.compose, Compose::Talk { .. }))
-            {
-                projection
+                && projection
                     .text
-                    .and_then(|text| shell_prefix(text.as_str()).map(|(private, _)| private))
-            } else {
-                None
-            },
+                    .is_some_and(|text| shell_prefix(text.as_str()).is_some()),
             newline: self.newline_key(),
             checklist: projection.focused
                 && !self.modal_open()

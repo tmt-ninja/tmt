@@ -100,6 +100,16 @@ impl Renderer<'_> {
         } else {
             (line, start)
         };
+        let (line, start) = match link {
+            Some((command, _)) if command.shown == line => {
+                if let Some(prefix) = line.strip_suffix(&command.text) {
+                    (command.text.as_str(), start.map(|at| at + prefix.len()))
+                } else {
+                    (line, start)
+                }
+            }
+            _ => (line, start),
+        };
         let mut used = 0;
         loop {
             let rest = &line[used..];
@@ -107,7 +117,19 @@ impl Renderer<'_> {
             let mut glyphs = span.styled_graphemes(Style::new()).peekable();
             let first = glyphs.peek().map_or(0, |glyph| glyph.symbol.width());
             let marker = used > 0 && first < self.width;
-            let room = self.width - usize::from(marker);
+            let chip = link.is_some() && !rest.trim().is_empty();
+            let chip_prefix = if chip && used == 0 {
+                match self.width {
+                    1 => "",
+                    2..=3 => "▶",
+                    _ => " ▶ ",
+                }
+            } else {
+                ""
+            };
+            let chip_suffix =
+                usize::from(chip && self.width > chip_prefix.width() + usize::from(marker) + 1);
+            let room = self.width - usize::from(marker) - chip_prefix.width() - chip_suffix;
             let mut width = 0;
             let mut bytes = 0;
             let fallback = first > room;
@@ -137,16 +159,18 @@ impl Renderer<'_> {
             } else {
                 0
             };
-            let mut part = Part::new(fragment.into(), style, source_line, None);
+            let fragment_start = shown_start + chip_prefix.len();
             let code_origin = start.map(|start| Origin {
                 source: start + used..start + used + bytes,
-                shown: shown_start..shown_start + fragment.len(),
+                shown: fragment_start..fragment_start + fragment.len(),
             });
+            let mut part = Part::new(fragment.into(), style, source_line, None);
             if let Some((command, occurrence)) = link
-                && !fragment.trim().is_empty()
+                && chip
             {
+                part.text = format!("{chip_prefix}{fragment}{}", " ".repeat(chip_suffix));
                 part.member = Some((Target::Command(command.clone()), occurrence));
-                part.style = style.add_modifier(Modifier::UNDERLINED);
+                part.style = self.look.selection();
                 if let Some(origin) = &code_origin {
                     part.source_range = Some(origin.source.clone());
                 }
