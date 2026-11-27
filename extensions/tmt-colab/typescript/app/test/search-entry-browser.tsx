@@ -108,7 +108,7 @@ export function mount(
   opener.id = 'search-opener';
   opener.textContent = 'Search TMT';
   const title = document.createElement('h1');
-  title.textContent = 'Ops agents';
+  title.textContent = 'Digest activity';
   bar.append(opener);
   const host = document.createElement('div');
   host.id = 'search-host';
@@ -118,19 +118,19 @@ export function mount(
       items: [
         route('home', 'Home', 'TMT home', 'house'),
         route('colab', 'Colab pages', 'Module', 'file-text'),
-        route('ops-agents', 'Ops agents', 'Section', 'users'),
+        route('digest-activity', 'Digest activity', 'Section', 'users'),
         route('digest', 'Digest', 'Module', 'chart-column'),
       ],
       listeners: new Set(),
     },
-    ops: {
+    digest: {
       items: [
         {
-          key: 'review-agent',
-          label: 'review-agent',
-          detail: 'Agent · available',
+          key: 'activity-window',
+          label: 'Activity window',
+          detail: 'Digest activity summary',
           icon: 'users',
-          href: '/ops/#agents',
+          href: '/digest/#summary',
         },
       ],
       listeners: new Set(),
@@ -139,7 +139,7 @@ export function mount(
   };
   const registry = createSearchRegistry();
   registry.register(provider('navigation', 'Navigation', state));
-  registry.register(provider('ops', 'Ops', state));
+  registry.register(provider('digest', 'Digest', state));
   registry.register(provider('remote', 'Remote', state));
   const entry = mountEntry(host, {
     transport,
@@ -166,10 +166,10 @@ function change(key: string, items: SearchItem[] | 'unavailable') {
 export function setRemote(items: SearchItem[] | 'unavailable') {
   change('remote', items);
 }
-export function removeOpsItem(key: string) {
-  const own = fixture!.state.ops!;
+export function removeDigestItem(key: string) {
+  const own = fixture!.state.digest!;
   change(
-    'ops',
+    'digest',
     own.items === 'unavailable' ? 'unavailable' : own.items.filter((item) => item.key !== key),
   );
 }

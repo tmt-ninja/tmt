@@ -4972,12 +4972,6 @@ var RAIL = [
 		path: "/remote/"
 	},
 	{
-		id: "ops",
-		label: "Ops",
-		icon: "users",
-		path: "/ops/"
-	},
-	{
 		id: "digest",
 		label: "Digest",
 		icon: "chart-column",
@@ -4991,13 +4985,9 @@ var RAIL = [
 */
 var shellModuleKey = (module) => module.module ? `${module.extension}:${module.module}` : module.extension;
 /** Served by the TMT host itself, so always reachable from the rail. */
-var HOST_SERVED = /* @__PURE__ */ new Set([
-	"remote",
-	"ops",
-	"digest"
-]);
+var HOST_SERVED = /* @__PURE__ */ new Set(["remote", "digest"]);
 /**
-* Home, the fixed modules (Colab, Design, Remote, Ops, Digest), any other described module in Remote's
+* Home, the fixed modules (Colab, Design, Remote, Digest), any other described module in Remote's
 * order, then TMT settings at the bottom. Colab is available
 * when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
 * The current item is the host's module, else the longest matching path.

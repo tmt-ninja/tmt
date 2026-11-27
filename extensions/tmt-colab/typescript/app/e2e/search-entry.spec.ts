@@ -71,26 +71,26 @@ for (const width of [1440, 390])
       await expect(dialog(page).getByRole('group')).toHaveCount(3);
       await expect(dialog(page).getByRole('group', { name: 'Navigation' })).toBeVisible();
       await expect(dialog(page).getByRole('group', { name: 'Colab' })).toBeVisible();
-      await expect(dialog(page).getByRole('group', { name: 'Ops' })).toBeVisible();
+      await expect(dialog(page).getByRole('group', { name: 'Digest' })).toBeVisible();
       // Remote has no admitted snapshot: no heading and no row, not a labelled empty.
       await expect(dialog(page).getByRole('group', { name: 'Remote' })).toHaveCount(0);
       // Headings are not options; one active descendant names the first option.
       expect(await names(page)).toEqual([
         'Home',
         'Colab pages',
-        'Ops agents',
+        'Digest activity',
         'Digest',
         'Beta review',
         'Alpha brief',
         'Design notes',
-        'review-agent',
+        'Activity window',
       ]);
       expect(await active(page)).toEqual({ title: 'Home', marked: ['Home'] });
       await expect(dialog(page).locator('.quick-switcher-scope')).toHaveText('Colab:');
       // The field names the groups that are ready, not Remote (no admitted snapshot) or devices.
       await expect(input(page)).toHaveAttribute(
         'data-placeholder',
-        'Search navigation, pages or ops…',
+        'Search navigation, pages or digest…',
       );
       // Each row draws the glyph its item names, and the arrow when the name is not one of the dialog's.
       const glyphs = await options(page).evaluateAll((nodes) =>
@@ -127,21 +127,21 @@ test('one active option crosses the group boundaries and a provider item opens i
   await mount(page);
   await opener(page).click();
   await expect(input(page)).toBeFocused();
-  for (const title of ['Colab pages', 'Ops agents', 'Digest', 'Beta review', 'Alpha brief']) {
+  for (const title of ['Colab pages', 'Digest activity', 'Digest', 'Beta review', 'Alpha brief']) {
     await page.keyboard.press('ArrowDown');
     expect(await active(page)).toEqual({ title, marked: [title] });
   }
   await page.keyboard.press('ArrowUp');
   expect(await active(page)).toEqual({ title: 'Beta review', marked: ['Beta review'] });
   await page.keyboard.press('End');
-  expect(await active(page)).toEqual({ title: 'review-agent', marked: ['review-agent'] });
+  expect(await active(page)).toEqual({ title: 'Activity window', marked: ['Activity window'] });
   await page.keyboard.press('Home');
   expect(await active(page)).toEqual({ title: 'Home', marked: ['Home'] });
   await page.keyboard.press('End');
   await page.keyboard.press('Enter');
   await expect(dialog(page)).toHaveCount(0);
   await expect(opener(page)).toBeFocused();
-  expect(await proof(page)).toMatchObject({ went: ['/ops/#agents'], navigated: [] });
+  expect(await proof(page)).toMatchObject({ went: ['/digest/#summary'], navigated: [] });
 });
 
 test('a Colab page opens through Colab navigation, never the host route', async ({ page }) => {
@@ -177,18 +177,18 @@ test('the project filter scopes Colab only and the text names projects and modul
   await opener(page).click();
   await dialog(page).getByRole('button', { name: 'Filter search by project', exact: true }).click();
   await page.getByRole('menuitemcheckbox', { name: 'ops', exact: true }).click();
-  // Colab's group is scoped to the ops project; Navigation and Ops are not.
+  // Colab's group is scoped to the ops project; Navigation and Digest are not.
   expect(await names(page)).toEqual([
     'Home',
     'Colab pages',
-    'Ops agents',
+    'Digest activity',
     'Digest',
     'Beta review',
-    'review-agent',
+    'Activity window',
   ]);
   await input(page).fill('ops');
-  // Navigation first, then Colab's page and the project the text names; the Ops agent's text has no ops.
-  expect(await names(page)).toEqual(['Ops agents', 'Beta review', 'ops']);
+  // The project text matches the page and the project, independently of the other groups.
+  expect(await names(page)).toEqual(['Beta review', 'ops']);
 });
 
 test('a provider that withdraws an item or its snapshot leaves the open list at once', async ({
@@ -196,10 +196,10 @@ test('a provider that withdraws an item or its snapshot leaves the open list at 
 }) => {
   await mount(page);
   await opener(page).click();
-  await expect(dialog(page).getByRole('group', { name: 'Ops' })).toBeVisible();
-  await call(page, 'removeOpsItem', 'review-agent');
-  await expect(dialog(page).getByRole('group', { name: 'Ops' })).toHaveCount(0);
-  expect(await names(page)).not.toContain('review-agent');
+  await expect(dialog(page).getByRole('group', { name: 'Digest' })).toBeVisible();
+  await call(page, 'removeDigestItem', 'activity-window');
+  await expect(dialog(page).getByRole('group', { name: 'Digest' })).toHaveCount(0);
+  expect(await names(page)).not.toContain('Activity window');
   await call(page, 'setRemote', [
     {
       key: 'mac',
@@ -212,7 +212,7 @@ test('a provider that withdraws an item or its snapshot leaves the open list at 
   await expect(dialog(page).getByRole('group', { name: 'Remote' })).toBeVisible();
   await expect(input(page)).toHaveAttribute(
     'data-placeholder',
-    'Search navigation, pages, ops or remote…',
+    'Search navigation, pages, digest or remote…',
   );
   await page.keyboard.press('End');
   await page.keyboard.press('Enter');

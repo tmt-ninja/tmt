@@ -93,14 +93,14 @@ it('a caller whose document is another module’s neither reads nor rewrites its
   await response([{ ...metadata, title: 'Alpha' }]);
   const reads: string[] = [];
   const replaceState = vi.fn();
-  // The global search on the Ops page: a fragment that is not Colab's, on a path that is not Colab's.
+  // The global search on the Digest page: a fragment that is not Colab's, on a path that is not Colab's.
   vi.stubGlobal('location', {
     origin: 'https://example.test',
-    pathname: '/ops/',
+    pathname: '/digest/',
     search: '',
     get hash() {
       reads.push('hash');
-      return '#agents';
+      return '#summary';
     },
   });
   vi.stubGlobal('history', { state: null, replaceState });

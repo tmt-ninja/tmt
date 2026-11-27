@@ -533,8 +533,8 @@ test.describe('the door serving the TMT app', () => {
         await expect(thisDevice, `round ${round}`).toBeVisible();
         await expect(page.locator('#access')).not.toContainText('connection limit');
         expect(await live(), `round ${round}`).toBeLessThanOrEqual(2);
-        await go('/ops');
-        await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+        await go('/digest');
+        await expect(page.locator('.tmt-ui-shell-main[data-route="digest"]')).toBeVisible();
         await go('/remote/my-devices');
         await expect(thisDevice).toBeVisible();
         await expect(page.locator('#access')).not.toContainText('connection limit');
@@ -613,8 +613,8 @@ test.describe('the door serving the TMT app', () => {
                 }),
             );
           await present();
-          await rail.locator('a[data-id="ops"]').click();
-          await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+          await rail.locator('a[data-id="digest"]').click();
+          await expect(page.locator('.tmt-ui-shell-main[data-route="digest"]')).toBeVisible();
           await present();
           await openRail();
           await rail.locator('a[data-id="colab"]').click();
@@ -625,7 +625,7 @@ test.describe('the door serving the TMT app', () => {
           ).toBeVisible();
           await present();
           await page.goBack();
-          await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+          await expect(page.locator('.tmt-ui-shell-main[data-route="digest"]')).toBeVisible();
           await present();
           await page.goForward();
           await expect(
@@ -695,8 +695,8 @@ test.describe('the door serving the TMT app', () => {
               .searchLifetime,
         );
       await expect.poll(proof).toEqual({ mounts: 1, closes: 0 });
-      await rail.locator('a[data-id="ops"]').click();
-      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      await rail.locator('a[data-id="digest"]').click();
+      await expect(page.locator('.tmt-ui-shell-main[data-route="digest"]')).toBeVisible();
       await rail.locator('a[data-id="colab"]').click();
       await expect(page.getByText('Search route')).toBeVisible();
       expect(await proof()).toEqual({ mounts: 1, closes: 0 });
@@ -784,8 +784,8 @@ test.describe('the door serving the TMT app', () => {
           return { aborted: route.signal.aborted, mounts: route.mounts, resumes: route.resumes };
         });
       const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
-      await rail.locator('a[data-id="ops"]').click();
-      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      await rail.locator('a[data-id="digest"]').click();
+      await expect(page.locator('.tmt-ui-shell-main[data-route="digest"]')).toBeVisible();
       expect(await proof()).toEqual({ aborted: false, mounts: 1, resumes: 0 });
       await rail.locator('a[data-id="colab"]').click();
       await expect(page.getByText('Kept route')).toBeVisible();
@@ -818,7 +818,7 @@ test.describe('the door serving the TMT app', () => {
     test('the rail remembers a page when browser history leaves its module', async ({ page }) => {
       const id = await door!.createPage('History page', '<h1>History content</h1>');
       await door!.pair(page);
-      await page.goto(`${door!.origin}/ops/`);
+      await page.goto(`${door!.origin}/digest/`);
       const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
       await rail.locator('a[data-id="colab"]').click();
       await showAllPages(page);
@@ -827,7 +827,7 @@ test.describe('the door serving the TMT app', () => {
         page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'History content' }),
       ).toBeVisible();
       await page.evaluate(() => history.go(-2));
-      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      await expect(page.locator('.tmt-ui-shell-main[data-route="digest"]')).toBeVisible();
       await rail.locator('a[data-id="colab"]').click();
       await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
     });
@@ -849,8 +849,8 @@ test.describe('the door serving the TMT app', () => {
         await original.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
         await renderer.evaluate(() => ((window as Window & { kept?: boolean }).kept = true));
         const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
-        await rail.locator('a[data-id="ops"]').click();
-        await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+        await rail.locator('a[data-id="digest"]').click();
+        await expect(page.locator('.tmt-ui-shell-main[data-route="digest"]')).toBeVisible();
         if (returnBy === 'rail') await rail.locator('a[data-id="colab"]').click();
         else await page.goBack();
         await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
@@ -949,8 +949,8 @@ test.describe('the door serving the TMT app', () => {
       const styles = page.locator('link[href$="/colab-module.css"]');
       const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
       // Leaving Colab through the rail suspends it: its sockets stay open and its styles are off.
-      await rail.locator('a[data-id="ops"]').click();
-      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      await rail.locator('a[data-id="digest"]').click();
+      await expect(page.locator('.tmt-ui-shell-main[data-route="digest"]')).toBeVisible();
       expect(await sockets()).toEqual(before);
       expect(await sessions()).toBe(registered);
       expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(true);
@@ -1061,8 +1061,8 @@ test('a rail switch keeps Colab in place and brings it back without opening agai
   const bar = await box('#spa-slot .tmt-ui-shell-bar');
   await route.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
   for (const round of [1, 2]) {
-    await go('/ops/');
-    await expect(page.getByText('Ops board')).toBeVisible();
+    await go('/digest/');
+    await expect(page.getByText('Digest activity')).toBeVisible();
     await expect(route).toBeHidden();
     // Suspended is a hidden document to Colab: its polling and observation pause.
     expect(
@@ -1073,7 +1073,7 @@ test('a rail switch keeps Colab in place and brings it back without opening agai
     ).toBe(true);
     await go('/colab/');
     await expect(route.locator('> *').first()).toBeVisible();
-    await expect(page.getByText('Ops board')).toHaveCount(0);
+    await expect(page.getByText('Digest activity')).toHaveCount(0);
     await expect(page.getByText('Opening space')).toHaveCount(0);
     expect(
       await page.evaluate(async (fixture) => (await import(fixture)).pageHidden(), fixture),

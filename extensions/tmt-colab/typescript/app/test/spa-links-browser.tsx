@@ -226,7 +226,7 @@ export function mountHostApp(url: string, crash?: 'route' | 'boundary', shared =
     });
 }
 
-/** The TMT app with Colab kept across rail switches (#5954) and a plain Ops route beside it;
+/** The TMT app with Colab kept across rail switches (#5954) and a plain Digest route beside it;
  * `mounts` counts how often Colab mounted. */
 export function mountKeptHostApp(url: string) {
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -253,13 +253,13 @@ export function mountKeptHostApp(url: string) {
       }),
     },
     {
-      id: 'ops',
-      paths: ['/ops', '/ops/'],
-      rail: 'ops',
+      id: 'digest',
+      paths: ['/digest', '/digest/'],
+      rail: 'digest',
       load: async () => ({
         mount(slot: ShellSlot) {
           slot.main.replaceChildren(
-            Object.assign(document.createElement('p'), { textContent: 'Ops board' }),
+            Object.assign(document.createElement('p'), { textContent: 'Digest activity' }),
           );
         },
       }),

@@ -104,7 +104,6 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
             current: false,
             count: shellCount(9, 'plain'),
           },
-          { id: 'ops', label: 'Ops', href: '/ops/', icon: 'users', current: false },
           { id: 'digest', label: 'Digest', href: '/digest/', icon: 'chart-column', current: false },
         ],
         bottom: [
@@ -180,14 +179,14 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
       },
     };
     if (tree) {
-      for (const item of result.rail.main) item.current = item.id === 'ops';
+      for (const item of result.rail.main) item.current = item.id === 'colab';
       const idle = document.createElement('span');
       idle.className = 'tmt-ui-state-mark';
       idle.dataset.shape = 'dashed';
       const entry = (id: string, label: string, extra: Partial<ShellMenuItem> = {}) => ({
         id,
         label,
-        href: `/ops/${id}`,
+        href: `/colab/projects/${id}`,
         current: selected === id,
         ...extra,
       });
@@ -202,7 +201,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
           ...extra,
         });
       result.menu = {
-        title: 'Ops',
+        title: 'Colab',
         groups: [
           {
             label: 'This machine',
@@ -224,7 +223,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
             ],
           },
         ],
-        settings: entry('ops-settings', 'Ops settings'),
+        settings: entry('colab-settings', 'Colab settings'),
       };
     }
     if (interactive) {

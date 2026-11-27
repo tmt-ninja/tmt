@@ -1208,7 +1208,6 @@ export const text = {
     answered: 'Answered',
     statusDetails: (item: string) => `${item}, show status details`,
     statusReading: 'Reading the latest status…',
-    talkTo: (name: string) => `Talk to ${name} in Ops`,
     title: 'Work',
     view: 'Work Home view',
     pagesOnly: 'Pages only',
