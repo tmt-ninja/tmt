@@ -309,34 +309,117 @@ fn run_window_is_centered_and_escape_leaves_the_run_stoppable() {
 }
 
 #[test]
-fn run_window_result_reports_exit_and_duration_and_defaults_to_close() {
+fn run_window_result_reports_exit_and_duration_with_enter_to_keep_and_escape_to_close() {
     use ratatui::{Terminal, backend::TestBackend};
 
-    for close in [KeyCode::Enter, KeyCode::Esc] {
-        let mut app = capture("run-command-result", crate::look::Look::default());
-        let mut screen = Terminal::new(TestBackend::new(100, 36)).unwrap();
-        screen
-            .draw(|frame| app.standalone.render(frame, &app, frame.area()))
-            .unwrap();
-        let text: String = screen
-            .backend()
-            .buffer()
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
-        for expected in ["✓ exited 0 after 41s", "Keep in list", "Run again", "Close"] {
-            assert!(text.contains(expected), "missing {expected:?}");
-        }
-
-        assert_eq!(
-            press(&mut app, close),
-            Effect::Standalone(Task::Discard),
-            "{close:?} closes the finished run"
-        );
-        assert!(!app.standalone.shown());
-        assert!(app.standalone.page.is_none());
+    let finished = || capture("run-command-result", crate::look::Look::default());
+    let mut app = finished();
+    let mut screen = Terminal::new(TestBackend::new(100, 36)).unwrap();
+    screen
+        .draw(|frame| app.standalone.render(frame, &app, frame.area()))
+        .unwrap();
+    let text: String = screen
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    for expected in ["✓ exited 0 after 41s", "Keep in list", "Run again", "Close"] {
+        assert!(text.contains(expected), "missing {expected:?}");
     }
+
+    assert_eq!(
+        press(&mut app, KeyCode::Enter),
+        Effect::Standalone(Task::Keep(result()["runId"].as_str().unwrap().into()))
+    );
+    let mut app = finished();
+    assert_eq!(
+        press(&mut app, KeyCode::Esc),
+        Effect::Standalone(Task::Discard)
+    );
+    assert!(!app.standalone.shown());
+    assert!(app.standalone.page.is_none());
+}
+
+#[test]
+fn kept_output_escape_closes_the_modal_and_keeps_the_row_selected() {
+    let mut app = capture("run-command-kept", crate::look::Look::default());
+    let selected = app.workspace.selected.clone();
+    let Effect::Standalone(Task::Saved(task @ super::SavedTask::Get(_))) =
+        press(&mut app, KeyCode::Enter)
+    else {
+        panic!("Enter opens the selected kept row");
+    };
+    app.standalone_completed(Completed::Saved(Box::new(task), Ok(result())));
+    assert!(matches!(app.standalone.page, Some(Page::Saved(_))));
+    let mut screen = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 36)).unwrap();
+    screen
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+
+    assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.standalone.shown());
+    assert!(app.standalone.page.is_none());
+    assert_eq!(app.workspace.selected, selected);
+}
+
+#[test]
+fn kept_move_escape_cancels_without_saving_the_proposed_placement() {
+    let mut app = capture("run-command-kept", crate::look::Look::default());
+    let selected = app.workspace.selected.clone();
+    let row = app.standalone.saved_rows[0].clone();
+    assert_eq!(press(&mut app, KeyCode::Char('m')), Effect::None);
+    assert_eq!(press(&mut app, KeyCode::Down), Effect::None);
+    assert!(app.standalone.moving());
+
+    assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.standalone.moving());
+    assert_eq!(app.workspace.selected, selected);
+    assert_eq!(app.standalone.saved_rows[0], row);
+}
+
+#[test]
+fn unavailable_member_directory_keeps_the_command_form_with_a_tab_hint() {
+    use crate::{board::app::workspace::tests::board, core::SquadError};
+
+    let mut app = board();
+    app.standalone.launch_directory = Some("/work/local".into());
+    let Effect::Standalone(Task::Target(identity)) = press(&mut app, KeyCode::Char('！')) else {
+        panic!("resolve the selected member");
+    };
+    for ch in "pwd".chars() {
+        assert_eq!(press(&mut app, KeyCode::Char(ch)), Effect::None);
+    }
+    app.standalone_completed(Completed::Target(
+        identity,
+        Err(SquadError::new(
+            "SHELL_RUN_UNAVAILABLE",
+            "The member's current local directory could not be verified. Nothing was started.",
+        )),
+    ));
+
+    assert!(app.standalone.shown());
+    let Some(Page::Form(form)) = &app.standalone.page else {
+        panic!("the refused lookup must keep the form");
+    };
+    assert!(!form.observing);
+    assert_eq!(form.command.as_str(), "pwd");
+    let notice = app.standalone.notice.as_deref().expect("target notice");
+    assert!(
+        notice.contains("worker") && notice.contains("Tab"),
+        "{notice}"
+    );
+    assert_eq!(press(&mut app, KeyCode::Tab), Effect::None);
+    assert!(
+        app.standalone
+            .lines()
+            .iter()
+            .any(|line| line.contains("/work/local"))
+    );
 }
 
 #[test]
