@@ -364,8 +364,10 @@ Intro/Scan/candidate/detail/form/confirmation/result presentation. Config
 supplies the Agents-list-only `discover-agents` default `s`; dispatch,
 footer/help/menu and the empty-pool action use the effective table. Only public
 `discover` precedes confirmation; known UUID examples reuse acquired/verified
-evidence, with explicit UUID input for other identities. The existing ordered
-lane owns finite Scan/guarded-add tasks and typed completions. One active scan
+evidence, with explicit UUID input for other identities. The scan leaves host
+selection to Core, except for the exact inherited tmux socket in a no-pane
+popup. Host agent names and Herdr approval hints are inert display. The
+existing ordered lane owns finite Scan/guarded-add tasks and typed completions. One active scan
 plus one coalesced latest scan owns its generation; submitted writes and
 partial/Unknown results survive close and defer reload. Shared modal/list/scroll
 geometry and Editor own current hit/caret authority. Full visible confirmation

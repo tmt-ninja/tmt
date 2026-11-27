@@ -58,10 +58,10 @@ impl super::app::App {
         let controller = self.discovery.get_or_insert_with(|| {
             Controller::new(
                 1,
-                ScanScope {
-                    host: None,
-                    socket: crate::effects::tmux_socket(),
-                },
+                ScanScope::for_caller(
+                    crate::effects::tmux_socket(),
+                    std::env::var("TMUX_PANE").ok().as_deref(),
+                ),
             )
         });
         controller.known = known;

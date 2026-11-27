@@ -50,6 +50,140 @@ fn document() -> Value {
         "display":{"title":"#{run-shell:never} $(never)\nnew row\tstill one title","command":"codex","cwd":"/tmp/private","truncated":false},"adoptable":true,"expect":DIGEST
     }]})
 }
+const HERDR_SOCKET: &str = "/tmp/herdr-fixture.sock";
+
+fn herdr_document() -> Value {
+    let mut value = document();
+    value["sources"][0]["host"] = json!("herdr");
+    value["sources"][0]["socket"] = json!(HERDR_SOCKET);
+    let candidate = &mut value["candidates"][0];
+    candidate["host"] = json!("herdr");
+    candidate["socket"] = json!(HERDR_SOCKET);
+    candidate["pane"] = json!("term_abc");
+    candidate["session"] = Value::Null;
+    candidate["window"] = Value::Null;
+    candidate["target"] = json!("w1:p1");
+    value
+}
+
+#[test]
+fn discovery_checks_host_keys_and_adoption_authority() {
+    for (host, key, accepted) in [
+        ("tmux", "%3".to_owned(), true),
+        ("tmux", "term_abc".into(), false),
+        ("herdr", "term_abc".into(), true),
+        ("herdr", "-".into(), true),
+        ("herdr", "x".repeat(81), true),
+        ("herdr", "x".repeat(82), false),
+        ("herdr", String::new(), false),
+        ("herdr", "x y".into(), false),
+        ("herdr", "x\u{1b}".into(), false),
+        ("herdr", "項".into(), false),
+    ] {
+        let mut value = if host == "tmux" {
+            document()
+        } else {
+            herdr_document()
+        };
+        value["candidates"][0]["pane"] = json!(key);
+        assert_eq!(
+            ScanObservation::decode(&value).is_ok(),
+            accepted,
+            "{host} {key:?}"
+        );
+    }
+    for field in ["host", "socket", "status"] {
+        let mut value = herdr_document();
+        value["sources"][0][field] = json!(if field == "status" {
+            "offline"
+        } else {
+            "other"
+        });
+        assert!(ScanObservation::decode(&value).is_err(), "{field}");
+    }
+    let mut value = herdr_document();
+    value["candidates"][0]["socket"] = Value::Null;
+    value["candidates"][0]["expect"] = Value::Null;
+    value["candidates"][0]["adoptable"] = json!(false);
+    let scan = ScanObservation::decode(&value).unwrap();
+    assert!(!scan.panes[0].adoptable);
+    assert!(scan.panes[0].key.socket.is_none());
+}
+
+#[test]
+fn naming_and_install_information_are_inert() {
+    let mut c = controller();
+    let mut value = document();
+    value["sources"].as_array_mut().unwrap().push(
+        json!({"host":"herdr","socket":null,"status":"unsupported","reason":"driver_not_approved"}),
+    );
+    value["candidates"][0]["display"]["agentName"] = json!("other-agent\u{1b}[31m");
+    c.screen = Screen::Candidates;
+    for (host, reason, offer) in [
+        ("herdr", "driver_not_approved", true),
+        ("herdr", "driver_approval_outdated", true),
+        ("herdr", "driver_not_shipped", true),
+        ("herdr", "driver_offline", false),
+        ("tmux", "driver_not_approved", false),
+    ] {
+        value["sources"][1]["host"] = json!(host);
+        value["sources"][1]["reason"] = json!(reason);
+        c.observation = Some(ScanObservation::decode(&value).unwrap());
+        assert_eq!(
+            c.notes()
+                .iter()
+                .any(|line| line.contains("tmt driver install herdr")),
+            offer,
+            "{host}: {reason}"
+        );
+        assert!(
+            c.rows()
+                .iter()
+                .all(|row| !row.label.contains("tmt driver install herdr"))
+        );
+    }
+    c.screen = Screen::Details;
+    let details = paint(&c, 160, 45);
+    assert!(details.contains("Host agent: other-agent"));
+    assert!(!details.contains('\u{1b}'));
+    assert!(c.choose("bind").is_none());
+    assert!(!c.existing);
+    assert!(c.editor.as_str().is_empty());
+
+    for (naming, line) in [
+        (
+            json!({"status":"set","name":"worker"}),
+            "Host agent name: worker",
+        ),
+        (
+            json!({"status":"not_linked"}),
+            "This host does not set agent names.",
+        ),
+        (
+            json!({"status":"refused","name":"worker","message":"already taken"}),
+            "Host did not set agent name worker: already taken",
+        ),
+    ] {
+        let mut c = controller();
+        let task = bind(&mut c);
+        let Job::Bind(selection) = &task.job else {
+            panic!("expected bind")
+        };
+        let result = BindReport::decode(
+            &json!({
+                "version":1,"status":"bound","bound":true,"id":UUID,"name":"worker",
+                "pane":"%3","lifetime":"temporary","agentName":naming
+            }),
+            selection,
+            true,
+        )
+        .unwrap();
+        let completion = finished(&mut c, task, Ok(Outcome::Bind(result)));
+        assert_eq!(completion.bound_uuid.as_deref(), Some(UUID));
+        assert!(paint(&c, 160, 45).contains(line), "{naming}");
+    }
+}
+
 fn scope() -> ScanScope {
     ScanScope {
         host: Some("tmux".into()),
@@ -297,6 +431,7 @@ fn successful_bound_uuid_returns_for_public_refresh_only_once() {
             pane: "%3".into(),
             lifetime: "temporary".into(),
             already_bound: false,
+            agent_name: None,
         })),
     );
     assert_eq!(completed.bound_uuid.as_deref(), Some(UUID));
@@ -321,13 +456,13 @@ fn literal_option_like_name_and_uuid_use_separate_operands() {
     assert!(c.review(AgentSelector::NewName("--identity=$(never)".into()), false));
     c.readable.set(true);
     let job = c.confirm().unwrap().job;
-    let (args, operands) = job.arguments();
+    let (args, operands) = job.arguments().unwrap();
     assert_eq!(operands, vec!["%3", "--identity=$(never)"]);
     assert!(!args.iter().any(|s| s.contains("never")));
     let mut c = controller();
     assert!(c.review(AgentSelector::ExistingUuid(UUID.into()), true));
     c.readable.set(true);
-    let (args, operands) = c.confirm().unwrap().job.arguments();
+    let (args, operands) = c.confirm().unwrap().job.arguments().unwrap();
     assert_eq!(operands, vec!["%3"]);
     assert!(args.windows(2).any(|s| s == ["--identity", UUID]));
     assert!(args.contains(&"--save".into()));
@@ -349,6 +484,7 @@ fn public_nonzero_partial_refused_and_idempotent_receipts_keep_their_meaning() {
         BindReport::decode(&v, &selection, true).unwrap(),
         BindReport::Bound {
             already_bound: true,
+            agent_name: None,
             ..
         }
     ));
@@ -770,6 +906,84 @@ fn public_scan_and_guarded_add_execute_literal_argv_and_preserve_nonzero_receipt
 }
 
 #[test]
+fn caller_scope_and_herdr_confirm_use_exact_public_arguments() {
+    for (socket, pane, pinned) in [
+        (None, None, None),
+        (Some(SOCKET), Some("%3"), None),
+        (Some(SOCKET), None, Some(SOCKET)),
+        (Some(SOCKET), Some(""), Some(SOCKET)),
+        (Some(SOCKET), Some("term_abc"), Some(SOCKET)),
+    ] {
+        let scope = ScanScope::for_caller(socket.map(str::to_owned), pane);
+        let fixture = PublicCommandFixture::new();
+        fixture.response(
+            &if pinned.is_some() {
+                document()
+            } else {
+                herdr_document()
+            },
+            0,
+        );
+        let mut c = Controller::new(1, scope.clone());
+        let task = c.scan(scope).unwrap();
+        c.loaded(load::complete(&fixture.core(), task));
+        let mut expected = vec!["discover"];
+        if let Some(socket) = pinned {
+            expected.extend(["--socket", socket]);
+        }
+        expected.push("--json");
+        assert_eq!(fixture.arguments(), expected);
+        assert!(c.observation.is_some());
+    }
+    for (selector, save, tail) in [
+        (
+            AgentSelector::NewName("--literal-name".into()),
+            false,
+            vec!["--json", "--", "term_abc", "--literal-name"],
+        ),
+        (
+            AgentSelector::ExistingUuid(UUID.into()),
+            true,
+            vec!["--identity", UUID, "--save", "--json", "--", "term_abc"],
+        ),
+    ] {
+        let fixture = PublicCommandFixture::new();
+        let mut c = Controller::new(1, ScanScope::default());
+        let task = c.scan(ScanScope::default()).unwrap();
+        fixture.response(&herdr_document(), 0);
+        c.loaded(load::complete(&fixture.core(), task));
+        std::fs::remove_file(fixture.0.join("calls")).unwrap();
+        let key = c.observation.as_ref().unwrap().panes[0].key.clone();
+        c.select(&key);
+        assert!(c.review(selector, save));
+        c.readable.set(true);
+        let task = c.confirm().unwrap();
+        fixture.response(
+            &json!({
+                "version":1, "status":"bound", "bound":true, "id":UUID, "name":"worker",
+                "pane":"term_abc", "lifetime":if save { "saved" } else { "temporary" }
+            }),
+            0,
+        );
+        let completion = c.loaded(load::complete(&fixture.core(), task));
+        let mut expected = vec!["add", "--expect", DIGEST, "--socket", HERDR_SOCKET];
+        expected.extend(tail);
+        assert_eq!(fixture.arguments(), expected);
+        assert_eq!(completion.bound_uuid.as_deref(), Some(UUID));
+        assert!(c.confirm().is_none());
+    }
+    let fixture = PublicCommandFixture::new();
+    let mut c = controller();
+    let mut task = bind(&mut c);
+    let Job::Bind(selection) = &mut task.job else {
+        panic!("expected bind")
+    };
+    selection.key.socket = None;
+    assert!(load::complete(&fixture.core(), task).result.is_err());
+    assert!(!fixture.0.join("calls").exists());
+}
+
+#[test]
 fn scoped_public_scan_rejects_another_socket_without_adoption_authority() {
     let fixture = PublicCommandFixture::new();
     fixture.response(&document(), 0);
@@ -807,6 +1021,7 @@ fn successful_public_refresh_reveals_the_exact_uuid_and_existing_membership() {
                 pane: "%3".into(),
                 lifetime: "temporary".into(),
                 already_bound: true,
+                agent_name: None,
             })),
         }),
         Effect::Refresh

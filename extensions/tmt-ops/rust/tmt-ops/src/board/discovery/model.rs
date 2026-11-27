@@ -40,6 +40,7 @@ pub(super) struct ObservedPane {
     pub title: String,
     pub command: String,
     pub cwd: String,
+    pub agent_name: Option<String>,
     pub text_truncated: bool,
     pub adoptable: bool,
     pub expect: Option<String>,
@@ -120,6 +121,11 @@ fn digest(value: &Value) -> Result<Option<String>, SquadError> {
     }
     Ok(result)
 }
+pub(super) fn tmux_pane_key(pane: &str) -> bool {
+    pane.strip_prefix('%')
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 impl ScanObservation {
     pub fn decode(value: &Value) -> Result<Self, SquadError> {
         if value["version"] != 1 {
@@ -163,12 +169,13 @@ impl ScanObservation {
                 socket: optional(&row["socket"])?,
                 pane: text(&row["pane"])?,
             };
-            if key
-                .pane
-                .strip_prefix('%')
-                .is_none_or(|n| n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()))
-                || !keys.insert(key.clone())
-            {
+            let valid_key = if key.host == "tmux" {
+                tmux_pane_key(&key.pane)
+            } else {
+                // The driver's grammar belongs to Core. Bound only the opaque argv operand.
+                (1..=81).contains(&key.pane.len()) && key.pane.bytes().all(|b| b.is_ascii_graphic())
+            };
+            if !valid_key || !keys.insert(key.clone()) {
                 return Err(invalid());
             }
             let state = text(&row["state"])?;
@@ -205,6 +212,7 @@ impl ScanObservation {
                 title: text(&row["display"]["title"])?,
                 command: text(&row["display"]["command"])?,
                 cwd: text(&row["display"]["cwd"])?,
+                agent_name: optional(&row["display"]["agentName"])?,
                 text_truncated: flag(&row["display"]["truncated"])?,
                 adoptable: flag(&row["adoptable"])?,
                 expect: digest(&row["expect"])?,
@@ -213,12 +221,12 @@ impl ScanObservation {
             if [&pane.title, &pane.command, &pane.cwd]
                 .iter()
                 .any(|s| s.len() > 1024)
+                || pane.agent_name.as_ref().is_some_and(|s| s.len() > 1024)
             {
                 return Err(invalid());
             }
             if pane.adoptable
                 && (truncated
-                    || pane.key.host != "tmux"
                     || pane.key.socket.as_ref().is_none_or(|s| s.is_empty())
                     || pane.server.is_none()
                     || pane.native.is_none()
@@ -257,6 +265,31 @@ pub(crate) struct BindSelection {
     pub save: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum AgentNaming {
+    Set(String),
+    NotLinked,
+    Refused { name: String, message: String },
+}
+impl AgentNaming {
+    fn decode(value: &Value) -> Option<Self> {
+        let bounded = |field: &str| {
+            value[field]
+                .as_str()
+                .filter(|s| s.len() <= 1024)
+                .map(str::to_owned)
+        };
+        match value["status"].as_str()? {
+            "set" => Some(Self::Set(bounded("name")?)),
+            "not_linked" => Some(Self::NotLinked),
+            "refused" => Some(Self::Refused {
+                name: bounded("name")?,
+                message: bounded("message")?,
+            }),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum BindReport {
     Bound {
         id: String,
@@ -264,6 +297,7 @@ pub(super) enum BindReport {
         pane: String,
         lifetime: String,
         already_bound: bool,
+        agent_name: Option<AgentNaming>,
     },
     Refused {
         code: String,
@@ -305,6 +339,7 @@ impl BindReport {
                     pane: selection.key.pane.clone(),
                     lifetime,
                     already_bound: value["status"] == "already_bound",
+                    agent_name: AgentNaming::decode(&value["agentName"]),
                 })
             }
             Some("refused" | "partial") if !success => {
