@@ -538,6 +538,68 @@ fn a_transcript_url_keeps_keyboard_focus_across_a_snapshot_and_recompose() {
 }
 
 #[test]
+fn a_transcript_url_keeps_keyboard_focus_after_terminal_resize() {
+    const RESPONSE: &str = "Read [the docs](https://example.com/docs) first.";
+    let look = crate::look::Look {
+        depth: tmt_cli_style::Depth::None,
+        ..crate::look::Look::default()
+    };
+    let mut app = fixture_with_look(RESPONSE, look);
+    focus_transcript_url(&mut app);
+
+    let (trace, bytes) = crate::board::timing::Trace::buffer();
+    app.navigation_trace = Some(trace);
+    crate::board::observe_navigation(
+        &mut app,
+        (),
+        |_| Some("Input::Resize"),
+        |app, ()| app.invalidate_resized_frame(),
+    );
+    assert!(
+        !app.member_link_owns_enter(),
+        "old geometry has no authority"
+    );
+
+    let resized = crate::board::observe_navigation(
+        &mut app,
+        (),
+        |_| Some("Paint"),
+        |app, ()| draw(app, 140, 32),
+    );
+    let link_ink = ratatui::style::Modifier::UNDERLINED | ratatui::style::Modifier::REVERSED;
+    assert!(
+        resized
+            .content
+            .iter()
+            .any(|cell| cell.modifier.contains(link_ink)),
+        "resize restores selection ink for the surviving transcript URL"
+    );
+    assert!(app.member_link_owns_enter(), "rebind the repainted URL");
+    let records: Vec<serde_json::Value> = std::str::from_utf8(&bytes.lock().unwrap())
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .filter(|row: &serde_json::Value| row["event"] == "transcript_focus")
+        .collect();
+    assert_eq!(records.len(), 2, "{records:?}");
+    assert_eq!(records[0]["cause"], "Input::Resize");
+    assert_eq!(
+        records[0]["current"],
+        json!({"reader_hits":0,"retained":true,"rebound":false})
+    );
+    assert_eq!(records[1]["cause"], "Paint");
+    assert!(records[1]["current"]["reader_hits"].as_u64().unwrap() > 0);
+    assert_eq!(records[1]["current"]["retained"], true);
+    assert_eq!(records[1]["current"]["rebound"], true);
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let menu = app.menu.as_ref().expect("Enter opens the repainted URL");
+    assert_eq!(menu.title, "Link");
+    assert!(menu.entries.iter().any(|entry| {
+        matches!(&entry.choice, Choice::LinkCopy(url) if url == "https://example.com/docs")
+    }));
+}
+
+#[test]
 fn a_snapshot_replacing_the_focused_transcript_url_clears_keyboard_selection() {
     const RESPONSE: &str = "Read [the docs](https://example.com/docs) first.";
     let mut app = fixture(RESPONSE);
