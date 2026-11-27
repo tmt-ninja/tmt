@@ -3099,6 +3099,36 @@ function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 var shellIconNodes = {
 	list: [["path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }]],
 	bookmark: [["path", { d: "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" }]],
+	"layout-grid": [
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "3",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "14",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "14",
+			y: "14",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "3",
+			y: "14",
+			rx: "1"
+		}]
+	],
 	"layout-dashboard": [
 		["rect", {
 			width: "7",
@@ -3293,6 +3323,28 @@ var shellIconNodes = {
 		ry: "2"
 	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
 	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
+	"panel-left-close": [
+		["rect", {
+			width: "18",
+			height: "18",
+			x: "3",
+			y: "3",
+			rx: "2"
+		}],
+		["path", { d: "M9 3v18" }],
+		["path", { d: "m16 15-3-3 3-3" }]
+	],
+	"panel-left-open": [
+		["rect", {
+			width: "18",
+			height: "18",
+			x: "3",
+			y: "3",
+			rx: "2"
+		}],
+		["path", { d: "M9 3v18" }],
+		["path", { d: "m14 9 3 3-3 3" }]
+	],
 	palette: [
 		["path", { d: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" }],
 		["circle", {
@@ -4448,7 +4500,7 @@ function trapScopedTab(event, dialog) {
 //#endregion
 //#region ../../../../design/browser-ui/src/topbar.ts
 /** Internal renderer shared by native and React shells. */
-function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
+function createShellTopBar(root, bar, navigation, railSearch, layerHost, goTo) {
 	const document = root.ownerDocument;
 	const view = document.defaultView;
 	let options;
@@ -4551,7 +4603,7 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 		const searchHelp = help(search, "Search TMT");
 		const remoteHelp = help(remote, "Remote: session count unconfirmed");
 		left.append(searchHelp.wrapper, title);
-		common.append(theme, remoteHelp.wrapper);
+		common.append(...goTo ? [goTo] : [], theme, remoteHelp.wrapper);
 		right.append(statusSlot, common, actions);
 		header.append(left, right);
 		const scope = layerHost?.root;
@@ -4764,6 +4816,47 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 		}
 	};
 }
+//#endregion
+//#region ../../../../design/browser-ui/src/rail-state.ts
+/**
+* Whether the wide screen's side menu (the shell's rail) is collapsed (#6833): one value per
+* device and origin, the shell's to apply and any host's to read, so a page's outline can follow
+* it. A browser without storage keeps the menu expanded and remembers nothing.
+*/
+var railStorageKey = "tmt-shell-rail";
+var listeners = /* @__PURE__ */ new Set();
+var collapsed = read();
+function read() {
+	try {
+		return globalThis.localStorage?.getItem(railStorageKey) === "collapsed";
+	} catch {
+		return false;
+	}
+}
+function railCollapsed() {
+	return collapsed;
+}
+/** Collapses or expands the side menu everywhere in this page, and remembers it. */
+function setRailCollapsed(next) {
+	if (next === collapsed) return;
+	collapsed = next;
+	try {
+		if (next) localStorage.setItem(railStorageKey, "collapsed");
+		else localStorage.removeItem(railStorageKey);
+	} catch {}
+	for (const listener of listeners) listener();
+}
+function subscribeRail(listener) {
+	listeners.add(listener);
+	return () => listeners.delete(listener);
+}
+globalThis.addEventListener?.("storage", (event) => {
+	if (event.key !== "tmt-shell-rail" && event.key !== null) return;
+	const next = read();
+	if (next === collapsed) return;
+	collapsed = next;
+	for (const listener of listeners) listener();
+});
 //#endregion
 //#region ../../../../design/browser-ui/src/shell.ts
 /**
@@ -5051,7 +5144,13 @@ function mountShell(root, view, select, layerHost) {
 	sub.className = "tmt-ui-shell-brand-sub";
 	sub.textContent = "terminal team";
 	text.append(word, sub);
-	brand.append(text);
+	const apple = /Mac|iPhone|iPad|iPod/.test(document.defaultView.navigator.platform);
+	const keys = apple ? "Meta+Backslash" : "Control+Backslash";
+	const collapse = document.createElement("button");
+	collapse.type = "button";
+	collapse.className = "tmt-ui-rail-collapse";
+	collapse.setAttribute("aria-keyshortcuts", keys);
+	brand.append(text, collapse);
 	const rail = document.createElement("nav");
 	rail.className = "tmt-ui-rail";
 	rail.setAttribute("aria-label", "TMT");
@@ -5063,7 +5162,9 @@ function mountShell(root, view, select, layerHost) {
 	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
 	const railSearch = document.createElement("div");
 	railSearch.className = "tmt-ui-rail-search-section";
-	const topBar = createShellTopBar(root, bar, open, railSearch, layerHost);
+	const goTo = document.createElement("span");
+	goTo.className = "tmt-ui-shell-goto";
+	const topBar = createShellTopBar(root, bar, open, railSearch, layerHost, goTo);
 	bar.after(menu);
 	const slotOf = (parent, name) => {
 		const existing = parent.querySelector(`:scope > .tmt-ui-shell-tools-${name}`);
@@ -5091,10 +5192,94 @@ function mountShell(root, view, select, layerHost) {
 	const watchTools = typeof ResizeObserver === "function" ? new ResizeObserver(reserve) : void 0;
 	watchTools?.observe(toolsRoot);
 	reserve();
+	let localCollapsed = false;
+	const local = /* @__PURE__ */ new Set();
+	const rail$ = layerHost ? {
+		get: () => localCollapsed,
+		set: (next) => {
+			localCollapsed = next;
+			for (const listener of local) listener();
+		},
+		subscribe: (listener) => (local.add(listener), () => local.delete(listener))
+	} : {
+		get: railCollapsed,
+		set: setRailCollapsed,
+		subscribe: subscribeRail
+	};
+	const win = document.defaultView;
+	const wide = win.matchMedia("(min-width: 901px)");
+	const icons = {
+		menu: icon(document, "menu"),
+		expand: icon(document, "panel-left-open"),
+		pin: icon(document, "panel-left-open"),
+		collapse: icon(document, "panel-left-close")
+	};
+	const hint = (label) => `${label} (${apple ? "⌘\\" : "Ctrl+\\"})`;
+	const syncOpen = () => {
+		const expand = wide.matches && rail$.get();
+		open.setAttribute("aria-label", expand ? "Expand side menu" : "Open navigation");
+		const collapseLabel = expand ? "Expand side menu" : "Collapse side menu";
+		collapse.setAttribute("aria-label", collapseLabel);
+		collapse.title = hint(collapseLabel);
+		collapse.replaceChildren(expand ? icons.pin : icons.collapse);
+		if (expand) {
+			open.setAttribute("aria-keyshortcuts", keys);
+			open.title = hint("Expand side menu");
+			open.setAttribute("aria-expanded", "false");
+		} else {
+			open.removeAttribute("aria-keyshortcuts");
+			open.removeAttribute("title");
+			open.setAttribute("aria-expanded", String(root.dataset.drawer === "open"));
+		}
+		open.replaceChildren(expand ? icons.expand : icons.menu);
+	};
 	const setDrawer = (shown) => {
 		root.dataset.drawer = shown ? "open" : "closed";
-		open.setAttribute("aria-expanded", String(shown));
+		open.setAttribute("aria-expanded", String(shown && !(wide.matches && rail$.get())));
 	};
+	const away = (event) => {
+		if (event.pointerType === "touch" || rail.contains(document.activeElement)) return;
+		if (event.clientX > rail.getBoundingClientRect().right) setPeek(false);
+	};
+	const setPeek = (shown) => {
+		if (shown === "railPeek" in root.dataset) return;
+		if (shown) root.dataset.railPeek = "";
+		else delete root.dataset.railPeek;
+		if (shown) document.addEventListener("pointermove", away);
+		else document.removeEventListener("pointermove", away);
+	};
+	const applyRail = () => {
+		const collapsed = rail$.get() && wide.matches;
+		root.dataset.rail = collapsed ? "collapsed" : "expanded";
+		if (!collapsed) setPeek(false);
+		syncOpen();
+	};
+	const stopRail = rail$.subscribe(applyRail);
+	wide.addEventListener("change", applyRail);
+	/** Collapses or expands the side menu, keeping focus on the control that stays drawn. */
+	const toggleRail = (next, keyboard) => {
+		const hadFocus = rail.contains(document.activeElement) || open === document.activeElement;
+		rail$.set(next);
+		if (!hadFocus && !keyboard) return;
+		(next ? open : collapse).focus({ focusVisible: keyboard });
+	};
+	collapse.onclick = (event) => toggleRail(!rail$.get(), event.detail === 0);
+	const shortcut = (event) => {
+		if (event.code !== "Backslash" || event.altKey || event.shiftKey || !(apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) || !wide.matches || event.defaultPrevented) return;
+		if (layerHost && (!(event.target instanceof Node) || !layerHost.root.contains(event.target))) return;
+		event.preventDefault();
+		toggleRail(!rail$.get(), true);
+	};
+	document.addEventListener("keydown", shortcut);
+	const edge = document.createElement("div");
+	edge.className = "tmt-ui-rail-edge";
+	edge.setAttribute("aria-hidden", "true");
+	edge.addEventListener("pointerenter", (event) => {
+		if (event.pointerType !== "touch" && root.dataset.rail === "collapsed") setPeek(true);
+	});
+	rail.addEventListener("focusout", (event) => {
+		if ("railPeek" in root.dataset && !rail.contains(event.relatedTarget)) setPeek(false);
+	});
 	const tip = document.createElement("div");
 	tip.className = "tmt-ui-rail-tip";
 	tip.setAttribute("role", "tooltip");
@@ -5165,6 +5350,7 @@ function mountShell(root, view, select, layerHost) {
 		anchor.dataset.note = text;
 	};
 	open.onclick = (event) => {
+		if (wide.matches && rail$.get()) return toggleRail(false, event.detail === 0);
 		const shown = root.dataset.drawer !== "open";
 		setDrawer(shown);
 		if (shown) (rail.querySelector("[aria-current=\"page\"]") ?? rail.querySelector("a[href]"))?.focus({ focusVisible: event.detail === 0 });
@@ -5174,6 +5360,11 @@ function mountShell(root, view, select, layerHost) {
 		if (event.key === "Escape" && root.dataset.drawer === "open") {
 			setDrawer(false);
 			open.focus();
+		}
+		if (event.key === "Escape" && "railPeek" in root.dataset) {
+			const inside = rail.contains(document.activeElement);
+			setPeek(false);
+			if (inside) open.focus();
 		}
 	};
 	document.addEventListener("keydown", close);
@@ -5194,6 +5385,7 @@ function mountShell(root, view, select, layerHost) {
 			if (anchor.getAttribute("aria-disabled") === "true") return event.preventDefault();
 			if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 			setDrawer(false);
+			setPeek(false);
 			if (select?.(anchor.dataset.id, anchor.getAttribute("href"))) event.preventDefault();
 		};
 		return anchor;
@@ -5492,7 +5684,91 @@ function mountShell(root, view, select, layerHost) {
 		}
 	};
 	setDrawer(false);
-	render(view);
+	root.prepend(edge);
+	applyRail();
+	let goToEntries = /* @__PURE__ */ new Map();
+	const goToOptions = (next) => {
+		const entries = /* @__PURE__ */ new Map();
+		const items = [];
+		const glyph = (name) => {
+			if (name) return icon(document, name);
+			const blank = icon(document, "list");
+			blank.replaceChildren();
+			return blank;
+		};
+		for (const place of [...next.rail.main, ...next.rail.bottom]) {
+			entries.set(`place:${place.id}`, { link: place });
+			items.push({
+				key: `place:${place.id}`,
+				label: place.label,
+				leadingIcon: icon(document, place.icon),
+				...place.disabled ? {
+					disabled: true,
+					disabledReason: place.note
+				} : {}
+			});
+		}
+		const menu = next.menu?.placeholder ? void 0 : next.menu;
+		menu?.groups.forEach((group, index) => {
+			let lead = group.label ?? (index === 0 ? menu.title : void 0) ? { heading: group.label ?? menu.title } : { separated: true };
+			const push = (key, entry, item) => {
+				entries.set(key, entry);
+				items.push({
+					key,
+					...item,
+					...lead
+				});
+				lead = {};
+			};
+			for (const item of group.items) push(`menu:${index}:${item.id}`, { link: item }, {
+				label: item.label,
+				leadingIcon: glyph(item.icon ?? group.fallbackIcon),
+				...item.disabled ? {
+					disabled: true,
+					disabledReason: item.note
+				} : {}
+			});
+			for (const [kind, action] of [["action", group.action], ["add", group.add]]) if (action) push(`${kind}:${index}`, { action }, {
+				label: action.label,
+				leadingIcon: glyph(kind === "add" ? "plus" : group.action?.icon),
+				...action.disabledReason ? {
+					disabled: true,
+					disabledReason: action.disabledReason
+				} : {}
+			});
+		});
+		if (menu?.settings) {
+			entries.set("settings", { link: menu.settings });
+			items.push({
+				key: "settings",
+				label: menu.settings.label,
+				leadingIcon: glyph(menu.settings.icon),
+				separated: true
+			});
+		}
+		goToEntries = entries;
+		return {
+			label: "Go to",
+			icon: icon(document, "layout-grid"),
+			items,
+			onSelect: (key) => {
+				const entry = goToEntries.get(key);
+				if (!entry) return;
+				if ("action" in entry) {
+					if (!entry.action.disabledReason) entry.action.onActivate();
+					return;
+				}
+				if (entry.link.disabled) return;
+				if (!select?.(entry.link.id, entry.link.href)) win.location.assign(entry.link.href);
+			}
+		};
+	};
+	const goToMenu = mountBrowserMenu(goTo, goToOptions(view));
+	const draw = (next) => {
+		render(next);
+		goToMenu.update(goToOptions(next));
+	};
+	draw(view);
 	/** The menu list measured last: an update that keeps it drew the same rows. */
 	let measured;
 	return {
@@ -5501,7 +5777,7 @@ function mountShell(root, view, select, layerHost) {
 		topBarReady: topBar.topBarReady,
 		setTopBar: topBar.setTopBar,
 		clearTopBar: topBar.clear,
-		update: render,
+		update: draw,
 		menuGeometry() {
 			const list = rail.querySelector("ul.tmt-ui-rail-sub:not([data-placeholder])");
 			if (!list?.getClientRects().length || list === measured) return void 0;
@@ -5517,7 +5793,15 @@ function mountShell(root, view, select, layerHost) {
 			root.style.removeProperty("--tmt-ui-shell-tools-width");
 			if (!drawn) toolsRoot.remove();
 			document.removeEventListener("keydown", close);
+			document.removeEventListener("keydown", shortcut);
 			document.removeEventListener("pointerdown", outside);
+			wide.removeEventListener("change", applyRail);
+			stopRail();
+			goToMenu.dispose();
+			goTo.remove();
+			edge.remove();
+			delete root.dataset.rail;
+			setPeek(false);
 			hideTip();
 			open.remove();
 			tip.remove();
@@ -7456,8 +7740,9 @@ function seriesModel(options, width) {
 		top: MARGIN.top,
 		bottom: height - MARGIN.bottom
 	};
-	const step = columns > 1 ? (inner.right - inner.left) / (columns - 1) : 0;
-	const xAt = (i) => columns > 1 ? inner.left + i * step : (inner.left + inner.right) / 2;
+	const banded = options.kind === "bars";
+	const step = banded ? (inner.right - inner.left) / Math.max(1, columns) : columns > 1 ? (inner.right - inner.left) / (columns - 1) : 0;
+	const xAt = (i) => banded ? inner.left + (i + .5) * step : columns > 1 ? inner.left + i * step : (inner.left + inner.right) / 2;
 	const yAt = (v) => inner.bottom - Math.min(v, max) / max * (inner.bottom - inner.top);
 	const xs = options.x.map((_, i) => xAt(i));
 	const marks = [];
@@ -7467,7 +7752,7 @@ function seriesModel(options, width) {
 		d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt), options.curve)
 	}));
 	else if (options.kind === "bars") {
-		const bar = Math.max(1, Math.min(24, (inner.right - inner.left) / columns - 2));
+		const bar = Math.max(1, Math.min(24, step - 2));
 		options.series[0].values.forEach((v, i) => {
 			if (v == null) return;
 			const y = yAt(v);
@@ -7540,7 +7825,7 @@ function seriesModel(options, width) {
 		top: inner.top,
 		bottom: inner.bottom,
 		step,
-		left: inner.left,
+		left: xAt(0),
 		values: (at) => options.series.map((layer) => cell(layer, at)),
 		readout: (at) => `${options.x[at]}: ${options.series.map((layer) => `${layer.label} ${cell(layer, at)}`).join(", ")}`,
 		legend: options.series.map((layer, i) => ({
@@ -7902,6 +8187,11 @@ var USAGE_RANGES = [
 	"7d",
 	"30d"
 ];
+var PRICING_BASIS = "standard-list";
+var isPriceDate = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+function pricingVersion(pricing) {
+	return pricing?.basis === PRICING_BASIS && isPriceDate(pricing.version) ? pricing.version : void 0;
+}
 var safeCount = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 function isTotals(value) {
 	const totals = value;
@@ -7913,13 +8203,13 @@ function providerRecords(doc) {
 	if (!Array.isArray(rows)) return void 0;
 	const seen = /* @__PURE__ */ new Set();
 	const parsed = [];
-	const priced = doc.pricing?.basis === "standard-base-input" && typeof doc.pricing.version === "string" && /^\d{4}-\d{2}-\d{2}$/.test(doc.pricing.version);
+	const priced = pricingVersion(doc.pricing) !== void 0;
 	for (const value of rows) {
 		const row = value;
 		if (!row || typeof row.driver !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(row.driver) || seen.has(row.driver) || !isTotals(row.totals) || !Array.isArray(row.seats) || !row.seats.every((id) => typeof id === "string") || !safeCount(row.partialSeats) || row.partialSeats > row.seats.length) return void 0;
 		seen.add(row.driver);
 		const reasons = row.costUnavailable;
-		const validReasons = Array.isArray(reasons) && reasons.every((reason) => typeof reason === "string" && /^[a-z_]{1,64}$/.test(reason));
+		const validReasons = isCostReasonList(reasons);
 		const validCost = validReasons && reasons.length === 0 && safeCount(row.inputCost?.usdMicros);
 		const inputCost = priced && validCost ? { usdMicros: row.inputCost.usdMicros } : null;
 		const costUnavailable = inputCost ? [] : row.inputCost === null && validReasons && reasons.length ? reasons : [validCost && !priced ? "pricing_unavailable" : "cost_evidence_invalid"];
@@ -7933,6 +8223,26 @@ function providerRecords(doc) {
 		});
 	}
 	return parsed.filter((row) => row.totals.input + row.totals.output > 0);
+}
+function isCostReasonList(value) {
+	return Array.isArray(value) && value.every((reason) => typeof reason === "string" && /^[a-z_]{1,64}$/.test(reason));
+}
+/** The browser consumes quotes from Digest. A bad or ambiguous row leaves that model unpriced. */
+function modelQuotes(doc) {
+	const quotes = /* @__PURE__ */ new Map();
+	const rows = doc.usage.models;
+	if (!pricingVersion(doc.pricing) || !Array.isArray(rows)) return quotes;
+	for (const value of rows) {
+		const row = record(value);
+		const model = row.modelId;
+		if (typeof model !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(model)) continue;
+		const { usdMicros, lowerBound } = record(row.cost);
+		quotes.set(model, !quotes.has(model) && isCostReasonList(row.costUnavailable) && row.costUnavailable.length === 0 && safeCount(usdMicros) && typeof lowerBound === "boolean" ? {
+			usdMicros,
+			lowerBound
+		} : null);
+	}
+	return quotes;
 }
 var ACCOUNT_KEY = /^[0-9a-f]{12}$/;
 var ACCOUNT_LABEL = /^[A-Za-z0-9._-]{1,32}$/;
@@ -8067,11 +8377,13 @@ function savingsFigures(row) {
 		} : null,
 		avoidedCost: {
 			usdMicros: whole(cost.usdMicros),
+			lowerBound: typeof cost.lowerBound === "boolean" ? cost.lowerBound : null,
 			reason: text(cost.reason),
 			covered: rows(cost.covered)?.map((entry) => ({
 				id: entry.id,
 				measuredSaved: whole(entry.measuredSaved),
-				usdMicros: whole(entry.usdMicros)
+				usdMicros: whole(entry.usdMicros),
+				lowerBound: typeof entry.lowerBound === "boolean" ? entry.lowerBound : null
 			})) ?? null,
 			unpriced: rows(cost.unpriced)?.map((entry) => ({
 				id: entry.id,
@@ -8121,7 +8433,7 @@ function savingsFromAnswer(range, answer) {
 				}];
 			}),
 			total: savingsFigures(record(report.total)),
-			pricing: typeof pricing.version === "string" && typeof pricing.asOf === "string" && typeof pricing.origin === "string" ? {
+			pricing: pricing.basis === PRICING_BASIS && isPriceDate(pricing.version) && isPriceDate(pricing.asOf) && typeof pricing.origin === "string" ? {
 				version: pricing.version,
 				asOf: pricing.asOf,
 				origin: pricing.origin
@@ -8397,12 +8709,17 @@ function historyCharts(doc, zone) {
 }
 function providers(doc, zone) {
 	const charts = new Map(historyCharts(doc, zone).map((chart) => [chart.series[0].key, chart]));
+	const histories = new Map((doc.limitHistory ?? []).map((history) => [windowKey(history), history]));
 	const styles = providerStyles(doc);
-	return allowance(doc).map((row) => ({
-		...row,
-		style: styles.get(row.source) ?? 0,
-		chart: charts.get(row.key)
-	}));
+	return allowance(doc).map((row) => {
+		const history = histories.get(row.key);
+		return {
+			...row,
+			style: styles.get(row.source) ?? 0,
+			chart: charts.get(row.key),
+			runway: history && !row.stale ? runway(history, doc.observedAtMs) : null
+		};
+	});
 }
 /**
 * One group per provider the report knows (#6751 A), in the sources' order: its windows with the
@@ -8461,6 +8778,228 @@ function resetsIn(resetsAtMs, nowMs) {
 	if (ms >= DAY) return `${Math.floor(ms / DAY)}d ${Math.floor(ms % DAY / HOUR)}h`;
 	return `${Math.max(1, Math.floor(ms / HOUR))}h`;
 }
+/** Cached input as a share of input, in percent to one decimal; null without input. */
+function cachedRatio(totals) {
+	return totals.input > 0 ? Math.round(totals.cached / totals.input * 1e3) / 10 : null;
+}
+var percentOf = (part, whole) => whole > 0 ? Math.round(part / whole * 1e3) / 10 : 0;
+var plus = (a, b) => ({
+	input: a.input + b.input,
+	output: a.output + b.output,
+	cached: a.cached + b.cached
+});
+var NONE = {
+	input: 0,
+	output: 0,
+	cached: 0
+};
+/** A seat's tokens by model as Core attributed them, and what no model row covers. A seat Core
+* attributed none of (`byModel` null or absent) is all unattributed: no model is guessed. */
+function attribution(seat) {
+	if (!Array.isArray(seat.byModel)) return {
+		models: [],
+		rest: seat.totals
+	};
+	return {
+		models: seat.byModel.map((row) => [row.modelId, {
+			input: row.input,
+			output: row.output,
+			cached: row.cached
+		}]),
+		rest: seat.unattributed ?? NONE
+	};
+}
+/** #6751 C: token share by model over every seat, with the cached-input ratio. */
+function modelShares(doc) {
+	const byModel = /* @__PURE__ */ new Map();
+	let rest = NONE;
+	let restSeats = 0;
+	let all = NONE;
+	for (const seat of doc.usage.seats) {
+		const { models, rest: own } = attribution(seat);
+		for (const [model, totals] of models) {
+			const row = byModel.get(model) ?? {
+				totals: NONE,
+				seats: 0
+			};
+			byModel.set(model, {
+				totals: plus(row.totals, totals),
+				seats: row.seats + 1
+			});
+		}
+		if (tokensOf(own) > 0) {
+			rest = plus(rest, own);
+			restSeats++;
+		}
+		all = plus(all, seat.totals);
+	}
+	const whole = tokensOf(all);
+	const shareOf = (totals) => ({
+		totals,
+		tokens: tokensOf(totals),
+		share: percentOf(tokensOf(totals), whole),
+		cachedRatio: cachedRatio(totals)
+	});
+	return {
+		models: [...byModel].map(([model, row]) => ({
+			model,
+			...shareOf(row.totals),
+			seats: row.seats
+		})).sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model)),
+		unattributed: tokensOf(rest) > 0 ? {
+			...shareOf(rest),
+			seats: restSeats
+		} : null,
+		cachedRatio: cachedRatio(all),
+		partial: doc.usage.seats.some((seat) => !seat.coverage.complete)
+	};
+}
+/** Shares are based on the report's priced models, including any estimates marked as floors. */
+function modelCostShares(doc, models) {
+	const quotes = modelQuotes(doc);
+	const rows = models.map(({ model }) => ({
+		model,
+		cost: quotes.get(model) ?? null
+	}));
+	const pricedTotal = rows.reduce((total, { cost }) => total + (cost?.usdMicros ?? 0), 0);
+	const hasDenominator = Number.isSafeInteger(pricedTotal) && pricedTotal > 0;
+	return {
+		rows: new Map(rows.map(({ model, cost }) => [model, {
+			cost,
+			share: cost && hasDenominator ? percentOf(cost.usdMicros, pricedTotal) : null
+		}])),
+		excluded: rows.filter(({ cost }) => cost === null).map(({ model }) => model),
+		hasFloors: rows.some(({ cost }) => cost?.lowerBound),
+		hasDenominator
+	};
+}
+/** #6751 C: each seat's share of the range and its model mix, largest seat first. */
+function seatMix(doc) {
+	const whole = doc.usage.seats.reduce((sum, seat) => sum + tokensOf(seat.totals), 0);
+	return doc.usage.seats.map((seat) => {
+		const tokens = tokensOf(seat.totals);
+		const { models, rest } = attribution(seat);
+		return {
+			id: seat.id,
+			name: seatName(seat),
+			tokens,
+			share: percentOf(tokens, whole),
+			cachedRatio: cachedRatio(seat.totals),
+			models: models.map(([model, totals]) => ({
+				model,
+				tokens: tokensOf(totals)
+			})).sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model)).map(({ model, tokens: own }) => ({
+				model,
+				share: percentOf(own, tokens)
+			})),
+			unattributed: percentOf(tokensOf(rest), tokens),
+			partial: !seat.coverage.complete
+		};
+	}).sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name));
+}
+/** Series buckets per range: hourly for a day, daily for longer. */
+var BUCKETS = {
+	"24h": 24,
+	"7d": 7,
+	"30d": 30
+};
+/** Every bucket's start in Core's window, so one that no seat has a reading for stays in place;
+* null without a window, or when a reading falls off its grid. */
+function bucketStarts(doc, observed) {
+	const window = doc.window;
+	if (!window || !(window.toMs > window.fromMs)) return null;
+	const step = (window.toMs - window.fromMs) / BUCKETS[doc.since];
+	if (!Number.isSafeInteger(step)) return null;
+	const starts = Array.from({ length: BUCKETS[doc.since] }, (_, at) => window.fromMs + at * step);
+	const grid = new Set(starts);
+	for (const at of observed) if (!grid.has(at)) return null;
+	return starts;
+}
+/** #6751 E: all seats together per bucket: hourly for `24h`, daily for `7d` and `30d`. A bucket
+* of Core's window that no seat has a reading for is null, never 0; an older report without the
+* window has only the buckets some seat read. */
+function trend(doc, zone) {
+	const buckets = /* @__PURE__ */ new Map();
+	for (const seat of doc.usage.seats) for (const point of seat.series) {
+		if (point.coveredMs === 0 && tokensOf(point) === 0) continue;
+		const bucket = buckets.get(point.fromMs) ?? {
+			totals: NONE,
+			partial: false
+		};
+		buckets.set(point.fromMs, {
+			totals: plus(bucket.totals, point),
+			partial: bucket.partial || !point.complete
+		});
+	}
+	const startsMs = bucketStarts(doc, buckets.keys()) ?? [...buckets.keys()].sort((a, b) => a - b);
+	const x = startsMs.map((at) => stamp(at, doc.since, zone));
+	const read = (at) => buckets.get(at);
+	const tokens = startsMs.map((at) => {
+		const bucket = read(at);
+		return bucket ? tokensOf(bucket.totals) : null;
+	});
+	let peak = null;
+	tokens.forEach((value, at) => {
+		if (value !== null && value > 0 && (!peak || value > peak.tokens)) peak = {
+			at: x[at],
+			tokens: value
+		};
+	});
+	return {
+		x,
+		startsMs,
+		tokens,
+		cachedRatio: startsMs.map((at) => {
+			const bucket = read(at);
+			return bucket ? cachedRatio(bucket.totals) : null;
+		}),
+		partial: startsMs.map((at) => read(at)?.partial ?? false),
+		peak
+	};
+}
+/** The recent pace looks back a day (ms), and needs six hours of samples (ms) to stand on. */
+var RUNWAY_RECENT_MS = 864e5;
+var RUNWAY_RECENT_MIN_MS = 216e5;
+/**
+* #6751 B: where a weekly window is headed from its sampled history. The pace is the change over
+* the last day of samples when they span six hours, else the window's average since its start
+* (every window starts full). Null without a sample inside the window before its reset.
+*/
+function runway(history, nowMs) {
+	const startsAtMs = history.resetsAtMs - history.windowMinutes * 6e4;
+	const points = history.points.filter((point) => point.atMs <= nowMs && point.atMs < history.resetsAtMs).filter((point) => point.atMs >= startsAtMs).sort((a, b) => a.atMs - b.atMs);
+	const last = points.at(-1);
+	if (!last) return null;
+	const recent = points.find((point) => point.atMs >= last.atMs - RUNWAY_RECENT_MS);
+	let basis;
+	let perMs;
+	if (last.atMs - recent.atMs >= RUNWAY_RECENT_MIN_MS) {
+		basis = "recent";
+		perMs = (recent.percentLeft - last.percentLeft) / (last.atMs - recent.atMs);
+	} else if (last.atMs > startsAtMs) {
+		basis = "window";
+		perMs = (100 - last.percentLeft) / (last.atMs - startsAtMs);
+	} else return null;
+	perMs = Math.max(0, perMs);
+	const projected = last.percentLeft - perMs * (history.resetsAtMs - last.atMs);
+	const emptyAtMs = projected < 0 ? Math.round(last.atMs + last.percentLeft / perMs) : null;
+	return {
+		basis,
+		perHour: Math.round(perMs * HOUR * 100) / 100,
+		fromAtMs: last.atMs,
+		fromLeft: last.percentLeft,
+		resetsAtMs: history.resetsAtMs,
+		leftAtReset: emptyAtMs === null ? Math.round(projected * 10) / 10 : 0,
+		emptyAtMs
+	};
+}
+/** The runway in words, against the owner's clock. */
+function runwayWords(projection, nowMs) {
+	const pace = projection.basis === "recent" ? "the last day's pace" : "this window's average pace";
+	if (projection.emptyAtMs !== null) return `At ${pace} it runs out in ${resetsIn(projection.emptyAtMs, nowMs)}, ${resetsIn(projection.resetsAtMs, projection.emptyAtMs)} before the reset.`;
+	if (projection.perHour === 0) return `No use at ${pace}: ${Math.round(projection.fromLeft)}% left at the reset.`;
+	return `At ${pace} about ${Math.round(projection.leftAtReset)}% is left at the reset.`;
+}
 /** A figure the report could not give: never shown as zero. */
 var UNKNOWN = "Unknown";
 /** A duration in ms as the page reads it: 45s, 2m 40s, 1h 5m. */
@@ -8472,15 +9011,14 @@ function durationText(ms) {
 	const hours = Math.floor(minutes / 60);
 	return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
 }
-/** US dollars from micro-dollars: cents from a dollar up, four places below it; a negative is
-* Digest adding wake-ups. */
+/** Format the reported micro-dollars exactly so a floor never rounds up. */
 function usdText(micros) {
 	if (micros < 0) return `−${usdText(-micros)}`;
-	const dollars = micros / 1e6;
-	return `$${dollars.toLocaleString("en-US", {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: dollars >= 1 ? 2 : 4
-	})}`;
+	return `$${Math.floor(micros / 1e6).toLocaleString("en-US")}.${String(micros % 1e6).padStart(6, "0").replace(/0+$/, "").padEnd(2, "0")}`;
+}
+function costEstimate({ usdMicros, lowerBound }) {
+	if (!lowerBound) return usdText(usdMicros);
+	return usdMicros < 0 ? `at least ${usdText(-usdMicros)} in added cost` : `at least ${usdText(usdMicros)}`;
 }
 /** Why the report could not estimate the avoided cost, in plain words; an unknown reason as is. */
 var COST_REASONS = {
@@ -8511,9 +9049,16 @@ function avoidedCost(doc) {
 		value: UNKNOWN,
 		note: `Cost unknown: ${why || reasonWords(cost.reason)}.`
 	};
+	if (!doc.pricing || cost.lowerBound === null) return {
+		value: UNKNOWN,
+		note: "Cost unknown: this report does not identify a pricing v2 estimate."
+	};
 	const members = cost.covered.length + cost.unpriced.length;
 	return {
-		value: usdText(cost.usdMicros),
+		value: costEstimate({
+			usdMicros: cost.usdMicros,
+			lowerBound: cost.lowerBound
+		}),
 		note: cost.unpriced.length ? `Covers ${cost.covered.length} of ${members} members; ${why}.` : null
 	};
 }
@@ -8543,7 +9088,7 @@ function savingsView(doc) {
 				value: messages
 			},
 			{
-				label: "Avoided cost (estimate)",
+				label: "Avoided cost (list price estimate)",
 				value: cost.value
 			}
 		],
@@ -8588,15 +9133,17 @@ function notAvailable(note, text) {
 //#endregion
 //#region src/digest-page.ts
 /**
-* The Digest usage report follows the concept website: provider allowance cards, the token
-* chart and seat legend, a full-width Messages heatmap, what Digest saved, and a coverage/method
-* footer. It depends only on DigestSource; product data comes from the existing owner reads. Samples are injected
+* The Digest usage report follows the concept website: provider allowance cards with each
+* window's runway, the token chart and seat legend, usage share by model and by seat, the trend,
+* a full-width Messages heatmap, what Digest saved, and a coverage/method footer. It depends only on DigestSource; product data comes from the existing owner reads. Samples are injected
 * by tests, the gallery and local development. Range and view state belong to this mounted page.
 */
 /** The terminal Digest's own cadence: the usage read refreshes once a minute. */
 var REFRESH_MS = 6e4;
 /** Distinct series a chart draws; the rest fold into one neutral `Other`. */
 var SERIES_KEPT = 6;
+/** Models the share card names; the rest fold into one `Other` row. */
+var MODELS_KEPT = 4;
 /** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
 var OTHER_STEP = 7;
 function el(name, className, text) {
@@ -8704,13 +9251,57 @@ function tabChoice(label, controls, options, initial, change) {
 	header.append(list);
 	return header;
 }
-/** One numeric fact inside a provider's history disclosure. */
-function tile(label, value) {
+/** One fact in a card: a number by default, a word or a time with `numeric: false`; a tone adds
+* the leaf's dot before the value. */
+function tile(label, value, options = {}) {
 	const node = el("div", browserUiClasses.statusTile);
-	const figure = el("dd", browserUiClasses.statusTileValue, value);
-	figure.dataset.numeric = value === "0" ? "zero" : "count";
+	const figure = el("dd", browserUiClasses.statusTileValue);
+	if (options.tone) {
+		node.dataset.tone = options.tone;
+		const dot = el("span", browserUiClasses.statusTileDot);
+		dot.setAttribute("aria-hidden", "true");
+		figure.append(dot);
+	}
+	figure.append(value);
+	if (options.numeric ?? true) figure.dataset.numeric = value === "0" ? "zero" : "count";
 	node.append(el("dt", browserUiClasses.statusTileLabel, label), figure);
 	return node;
+}
+/** A weekday, day and time in the owner's zone: when a window runs out. */
+function clock(ms) {
+	return new Date(ms).toLocaleString("en-GB", {
+		weekday: "short",
+		day: "numeric",
+		month: "short",
+		hour: "2-digit",
+		minute: "2-digit"
+	});
+}
+/** #6751 B: where the window is headed, in words, or why there is no runway. */
+function runwayText(view, nowMs) {
+	if (view.stale) return "No runway: the latest reading of this window is stale.";
+	if (view.runway) return view.runway.emptyAtMs === null ? `Lasts to the reset. ${runwayWords(view.runway, nowMs)}` : runwayWords(view.runway, nowMs);
+	return view.chart ? "No runway yet: this window has too few readings." : "No runway: the weekly history is not served yet.";
+}
+/** #6751 B: what is left, when it runs out or what is left at the reset, and when it resets. */
+function runwayTiles(view, nowMs) {
+	const runway = view.runway;
+	const empty = runway?.emptyAtMs ?? null;
+	const tone = runway ? empty === null ? "working" : "blocked" : void 0;
+	return [
+		tile("Left", `${view.leftPercent}%`, tone ? { tone } : {}),
+		empty !== null ? tile("Runs out", clock(empty), {
+			tone: "blocked",
+			numeric: false
+		}) : tile("At the reset", runway ? `${Math.round(runway.leftAtReset)}% left` : "—", {
+			...tone ? { tone } : {},
+			numeric: false
+		}),
+		tile("Resets in", view.stale ? "stale" : resetsIn(view.resetsAtMs, nowMs), {
+			tone: "muted",
+			numeric: false
+		})
+	];
 }
 /** A group of bare tiles for use inside a card. */
 function bareTiles(...tiles) {
@@ -8730,13 +9321,11 @@ function providerRow(view, nowMs) {
 	const fill = el("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${view.style}`);
 	fill.style.setProperty("--tmt-ui-meter-fill", String(Math.max(0, Math.min(100, view.leftPercent))));
 	meter.append(fill);
-	const details = el("details", `${browserUiClasses.disclosure} digest-provider-details`);
-	details.id = `${row.id}-history`;
-	const summary = el("summary", void 0, "Weekly history and pace");
-	summary.id = `${details.id}-summary`;
-	details.append(summary);
-	details.append(view.chart ? createSeriesChart(view.chart) : el("p", "usage-note", "The weekly history is not served yet; this shows the latest window."));
-	details.append(bareTiles(tile("Elapsed", view.elapsedPercent === null ? "—" : `${Math.round(view.elapsedPercent)}%`), tile("Pace", view.paceDeltaPoints === null ? "—" : `${view.paceDeltaPoints > 0 ? "+" : ""}${view.paceDeltaPoints.toFixed(1)} pts`), tile("Resets in", view.stale ? "stale" : resetsIn(view.resetsAtMs, nowMs))));
+	const words = el("p", "usage-note digest-runway", runwayText(view, nowMs));
+	const history = el("div", "digest-provider-history");
+	history.id = `${row.id}-history`;
+	if (view.chart) history.append(createSeriesChart(view.chart));
+	history.append(bareTiles(...runwayTiles(view, nowMs)));
 	const observation = el("p", "usage-note digest-window-observation", `Observed ${observedAgo(view.observedAtMs, nowMs)}`);
 	observation.dataset.observedAt = String(view.observedAtMs);
 	const reset = new Date(view.resetsAtMs).toLocaleString("en-GB", {
@@ -8748,7 +9337,7 @@ function providerRow(view, nowMs) {
 	});
 	const metadata = el("div", "digest-provider-metadata");
 	metadata.append(observation, el("p", "usage-note", `Resets ${reset}`), el("p", "usage-note digest-reporters", `Reported by ${view.reporters.join(", ") || "unknown seats"}`));
-	row.append(label, meter, metadata, details);
+	row.append(label, meter, words, history, metadata);
 	return row;
 }
 /** A provider's usage in the allowance week and, where the report carries it, its credits. */
@@ -8898,27 +9487,22 @@ function providerUsageCard(doc) {
 		cost_evidence_invalid: "The cost evidence could not be read."
 	};
 	const rows = [...records].sort((a, b) => b.totals.input + b.totals.output - (a.totals.input + a.totals.output) || a.driver.localeCompare(b.driver));
-	const money = new Intl.NumberFormat("en-US", {
-		style: "currency",
-		currency: "USD",
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 6
-	});
+	const estimateLabel = "Input cost estimate (list price)";
 	const grid = table([
 		"Provider",
 		"Input",
 		"Output",
 		"Cached input",
-		"Input cost estimate (list price)",
+		estimateLabel,
 		"Coverage"
 	], rows.map((row) => {
 		const name = el("span", void 0, providerLabel$1(row.driver));
 		name.title = row.driver;
-		const cost = el("span", row.inputCost ? browserUiClasses.tableMono : void 0, row.inputCost ? money.format(row.inputCost.usdMicros / 1e6) : "Unavailable");
+		const cost = el("span", row.inputCost ? browserUiClasses.tableMono : void 0, row.inputCost ? usdText(row.inputCost.usdMicros) : "Unavailable");
 		if (!row.inputCost) cost.append(el("span", "usage-note", ` — ${row.costUnavailable.map((reason) => Object.hasOwn(reasons, reason) ? reasons[reason] : reason).join(" ")}`));
 		const coverage = row.partialSeats ? `Partial (${row.partialSeats} ${row.partialSeats === 1 ? "seat" : "seats"})` : "Recorded";
 		const compact = el("span", browserUiClasses.tableCompactMeta);
-		compact.append("Input estimate: ", cost.cloneNode(true), ` · ${coverage}`);
+		compact.append(`${estimateLabel}: `, cost.cloneNode(true), ` · ${coverage}`);
 		name.append(compact);
 		return [
 			name,
@@ -8939,8 +9523,7 @@ function providerUsageCard(doc) {
 	scroll.setAttribute("role", "region");
 	scroll.setAttribute("aria-label", "Provider usage table");
 	scroll.append(grid);
-	const version = doc.pricing?.version;
-	const note = el("p", "usage-note", `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${typeof version === "string" && /^\d{4}-\d{2}-\d{2}$/.test(version) ? version : "unavailable"}. Incomplete records are lower bounds.`);
+	const note = el("p", "usage-note", `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${pricingVersion(doc.pricing) ?? "unavailable"}. Incomplete records are lower bounds.`);
 	note.append(remainder);
 	return card$1("digest-provider-usage", "Provider usage", [scroll, note]);
 }
@@ -9024,12 +9607,126 @@ function seatLabel(name, partial) {
 	if (partial) node.append(el("span", "digest-partial", "*"));
 	return node;
 }
+/** The seats the token chart draws as hues, with their step; the rest share the neutral one. */
+function seatHues(doc, lines) {
+	const layers = tokenSeries(doc).layers;
+	return new Map(topLayers(layers, lines ? layers.length : SERIES_KEPT).filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at % 7]));
+}
+/** One share as a labelled meter: the name and its percent over a bar, and a detail line. */
+function shareMeter(name, share, style, detail) {
+	const row = el("div", "digest-share");
+	const head = el("div", "digest-share-head");
+	const label = typeof name === "string" ? el("span", "digest-share-name", name) : name;
+	head.append(label, el("span", "digest-share-value", `${share}%`));
+	const meter = el("div", browserUiClasses.meter);
+	meter.setAttribute("role", "img");
+	meter.setAttribute("aria-label", `${label.textContent}: ${share}% of tokens`);
+	const fill = el("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${style}`);
+	fill.style.setProperty("--tmt-ui-meter-fill", String(Math.max(0, Math.min(100, share))));
+	meter.append(fill);
+	row.append(head, meter);
+	if (detail) row.append(el("p", "usage-note digest-share-detail", detail));
+	return row;
+}
+var shareSum = (rows) => Math.round(rows.reduce((sum, row) => sum + row.share, 0) * 10) / 10;
+/** A seat's model mix in one line: its two largest models, then the rest and what no model covers. */
+function mixText(seat) {
+	const parts = seat.models.slice(0, 2).map((model) => `${model.model} ${model.share}%`);
+	const rest = shareSum(seat.models.slice(2));
+	if (rest > 0) parts.push(`other ${rest}%`);
+	if (seat.unattributed > 0) parts.push(`no model ${seat.unattributed}%`);
+	return parts.length ? parts.join(" · ") : void 0;
+}
+/** #6751 C: token and cost shares by model, token share by seat, and the cached-input ratio. */
+function sharesCard(doc) {
+	const id = "digest-shares";
+	const title = "Usage share";
+	const subtitle = "Tokens by model and by seat. Cost estimates use standard list prices.";
+	const seats = seatMix(doc).filter((seat) => seat.tokens > 0);
+	if (!seats.length) return card$1(id, title, [el("p", "usage-note", "No token observations in this range.")], { subtitle });
+	const shares = modelShares(doc);
+	const byModel = el("div", "digest-share-group");
+	byModel.id = "digest-shares-models";
+	byModel.append(el("h3", "digest-share-title", "By model"));
+	const costs = modelCostShares(doc, shares.models);
+	const modelMeter = (model, tone) => {
+		const row = costs.rows.get(model.model);
+		const cost = row?.cost ? costEstimate(row.cost) : "No price";
+		const percent = row?.share == null ? "" : ` · ${row.share}% of priced cost`;
+		return shareMeter(model.model, model.share, tone, `${model.tokens.toLocaleString("en-US")} tokens · ${cost}${percent}`);
+	};
+	shares.models.slice(0, MODELS_KEPT).forEach((model, at) => byModel.append(modelMeter(model, at % 7)));
+	const restModels = shares.models.slice(MODELS_KEPT);
+	if (restModels.length) {
+		const rest = el("details");
+		const count = restModels.length;
+		rest.append(el("summary", void 0, `Other (${count} ${count === 1 ? "model" : "models"}): ${shareSum(restModels)}% of tokens`), ...restModels.map((model) => modelMeter(model, OTHER_STEP)));
+		byModel.append(rest);
+	}
+	if (shares.unattributed) byModel.append(shareMeter("No model recorded", shares.unattributed.share, OTHER_STEP, shares.models.length ? `Core recorded no model for part of ${shares.unattributed.seats} ${shares.unattributed.seats === 1 ? "seat's" : "seats'"} tokens.` : "Core recorded no model for these tokens."));
+	byModel.append(bareTiles(tile("Cached input", shares.cachedRatio === null ? "—" : `${shares.cachedRatio}% of input`, {
+		tone: "info",
+		numeric: false
+	})));
+	const bySeat = el("div", "digest-share-group tmt-ui-chart-seats");
+	bySeat.id = "digest-shares-seats";
+	bySeat.append(el("h3", "digest-share-title", "By seat"));
+	const hue = seatHues(doc, false);
+	for (const seat of seats.slice(0, SERIES_KEPT)) bySeat.append(shareMeter(seatLabel(seat.name, seat.partial), seat.share, hue.get(seat.id) ?? OTHER_STEP, [`${seat.tokens.toLocaleString("en-US")} tokens`, mixText(seat)].filter(Boolean).join(" · ")));
+	const restSeats = seats.slice(SERIES_KEPT);
+	if (restSeats.length) bySeat.append(shareMeter(`Other (${restSeats.length} seats)`, shareSum(restSeats), OTHER_STEP));
+	bySeat.append(el("p", "usage-note", "Per-seat cost needs seat-level quotes in the report."));
+	const groups = el("div", "digest-share-groups");
+	groups.append(byModel, bySeat);
+	const notes = [];
+	if (seats.some((seat) => seat.partial)) notes.push(el("p", "usage-note", "* Partial: some of this range has no data for the seat."));
+	if (doc.usage.unavailable.length) notes.push(el("p", "usage-note", "Unavailable seats are not included in these shares."));
+	const excluded = [...costs.excluded, ...shares.unattributed ? ["tokens with no recorded model"] : []];
+	const costNotes = [
+		costs.hasDenominator ? "Cost shares use only priced models." : "Cost shares are unavailable without a positive priced total.",
+		excluded.length ? `Excluded: ${excluded.join(", ")}.` : "",
+		costs.hasFloors ? "Cost shares include lower-bound estimates." : ""
+	];
+	notes.push(el("p", "usage-note digest-share-cost", costNotes.filter(Boolean).join(" ")));
+	return card$1(id, title, [groups, ...notes], { subtitle });
+}
+/** #6751 E: every seat together per bucket; a bucket no seat read stays blank, never 0. */
+function trendCard(doc) {
+	const id = "digest-trend";
+	const title = "Trend";
+	const hourly = doc.since === "24h";
+	const unit = hourly ? "hour" : "day";
+	const subtitle = `Every seat together, ${unit} by ${unit}.`;
+	const data = trend(doc);
+	if (!data.tokens.some((value) => value !== null)) return card$1(id, title, [el("p", "usage-note", "No token observations in this range.")], { subtitle });
+	const host = el("div", "digest-trend-chart");
+	host.append(createSeriesChart({
+		title: hourly ? "Tokens per hour" : "Tokens per day",
+		kind: "bars",
+		x: data.x,
+		series: [{
+			key: "tokens",
+			label: "tokens",
+			values: data.tokens
+		}],
+		empty: "No token observations in this range."
+	}));
+	const unread = data.tokens.filter((value) => value === null).length;
+	const read = data.tokens.filter((value) => value !== null);
+	const body = [host, bareTiles(tile(`Busiest ${unit}`, data.peak ? `${compactCount(data.peak.tokens)} at ${data.peak.at}` : "—", { numeric: false }), tile(`Average ${unit}`, compactCount(Math.round(read.reduce((sum, value) => sum + value, 0) / read.length)), { numeric: false }), ...unread ? [tile("No data", `${unread} ${unread === 1 ? unit : `${unit}s`}`, {
+		tone: "muted",
+		numeric: false
+	})] : [])];
+	if (unread) body.push(el("p", "usage-note", `No seat has a reading for ${unread} ${unread === 1 ? unit : `${unit}s`} of this range: ${unread === 1 ? "it is" : "they are"} left blank, never counted as zero.`));
+	if (data.partial.some(Boolean)) body.push(el("p", "usage-note", "Some buckets are incomplete: they are lower bounds."));
+	if (doc.usage.unavailable.length) body.push(el("p", "usage-note", "Unavailable seats are not included in this trend."));
+	return card$1(id, title, body, { subtitle });
+}
 function legendTable(doc, state) {
 	const ranked = rankRows(doc);
 	const rows = [...ranked].sort((a, b) => (state.order === "usage" ? b.tokens - a.tokens : 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 	const view = ranking(ranked, SERIES_KEPT);
-	const chartLayers = state.lines ? topLayers(tokenSeries(doc).layers, tokenSeries(doc).layers.length) : topLayers(tokenSeries(doc).layers, SERIES_KEPT);
-	const hue = new Map(chartLayers.filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at % 7]));
+	const hue = seatHues(doc, state.lines);
 	function legendSeat(id, name, partial) {
 		const label = el("span", "digest-legend-seat");
 		const dot = el("span", `tmt-ui-status-tile-dot tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
@@ -9354,7 +10051,7 @@ function digestPage(source = createDigestSource(), signal) {
 		state.dispose.splice(0).forEach((dispose) => dispose());
 		const covered = coverageNotice(doc);
 		const saved = savingsCard(report);
-		panel.replaceChildren(...covered ? [covered] : [], allowanceRow(report, state), providerUsageCard(doc), tokensCard(doc, state), exchangeCard(doc, state), ...saved ? [saved] : [], coverageCard());
+		panel.replaceChildren(...covered ? [covered] : [], allowanceRow(report, state), providerUsageCard(doc), tokensCard(doc, state), sharesCard(doc), trendCard(doc), exchangeCard(doc, state), ...saved ? [saved] : [], coverageCard());
 		for (const detail of panel.querySelectorAll("details[id]")) detail.open = disclosures.get(detail.id) ?? false;
 		const scroll = document.getElementById("digest-exchange-scroll");
 		if (scroll) scroll.scrollLeft = matrixLeft;
