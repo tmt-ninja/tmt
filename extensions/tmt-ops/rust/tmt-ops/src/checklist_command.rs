@@ -103,18 +103,6 @@ pub fn grammar() -> Command {
                 .arg(option("assignee", "UUID", "Filter an exact assignee UUID")),
         )
         .subcommand(
-            build(specs::CHECKLIST_COUNTS)
-                .arg(option("room", "UUID", "Exact Squad room UUID").required(true))
-                .arg(
-                    option(
-                        "member",
-                        "UUID",
-                        "Count this member's list; repeat it, at most 32 (default: the room's roster)",
-                    )
-                    .action(ArgAction::Append),
-                ),
-        )
-        .subcommand(
             room(build(specs::CHECKLIST_EVENTS))
                 .arg(
                     option(
@@ -280,8 +268,6 @@ pub struct ChecklistCommand {
 }
 enum Operation {
     List(Filter),
-    /// Open items per member for a board read; `None` counts the room's roster.
-    Counts(Option<Vec<Id>>),
     Events {
         after: u64,
         limit: u64,
@@ -490,24 +476,6 @@ pub fn parse(parent: &ArgMatches) -> Result<ChecklistCommand, Error> {
             }),
         });
     }
-    if name == "counts" {
-        let members = flags
-            .get_many::<String>("member")
-            .map(|values| {
-                values
-                    .map(|value| Id::parse(value))
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .transpose()?;
-        return Ok(ChecklistCommand {
-            room_id,
-            own: false,
-            member: None,
-            checklist_id: None,
-            action: "counts",
-            operation: Operation::Counts(members),
-        });
-    }
     if name == "events" {
         return Ok(ChecklistCommand {
             room_id,
@@ -633,10 +601,7 @@ pub fn run(core: &Core, config: &Config, invocation: ChecklistCommand) -> Outcom
             )
         };
         // Reads are admitted by the caller or Core's configured person and create nobody.
-        let reading = matches!(invocation.action, "list" | "show" | "events" | "counts");
-        if let Operation::Counts(members) = invocation.operation {
-            return counts(core, config, room_id, members);
-        }
+        let reading = matches!(invocation.action, "list" | "show" | "events");
         let build = |member: Option<Id>| -> Result<Service, Error> {
             match (reading, member) {
                 (true, member) => Service::reading(core, config, room_id.clone(), member)?
@@ -672,54 +637,6 @@ pub fn run(core: &Core, config: &Config, invocation: ChecklistCommand) -> Outcom
         )
     })())
 }
-/// One read of every given member's open items. Without a caller or a configured person the
-/// document is unavailable with reason `no-person` (`core-unsupported` when an older Core cannot
-/// say), and each named member's count is null with that reason: not an error, no one created.
-fn counts(
-    core: &Core,
-    config: &Config,
-    room_id: Id,
-    members: Option<Vec<Id>>,
-) -> Result<Value, Error> {
-    if members
-        .as_ref()
-        .is_some_and(|members| members.len() > checklist::COUNTS_LIMIT)
-    {
-        return Err(invalid(&format!(
-            "At most {} members per read.",
-            checklist::COUNTS_LIMIT
-        )));
-    }
-    let service = match Service::reading(core, config, room_id.clone(), None) {
-        Ok(Some(service)) => Ok(service),
-        Ok(None) => Err("no-person"),
-        Err(error) if error.code == checklist::Code::CoreUnsupported => Err("core-unsupported"),
-        Err(error) => return Err(error),
-    };
-    let (counted, unavailable) = match service {
-        Ok(service) => (service.counts(members)?, None),
-        Err(reason) => (
-            members
-                .unwrap_or_default()
-                .into_iter()
-                .map(|id| checklist::MemberCount {
-                    id,
-                    open: Err(reason),
-                })
-                .collect(),
-            Some(reason),
-        ),
-    };
-    let mut document = json!({"action":"counts","room":room_id.as_str(),"available":unavailable.is_none(),
-        "members":counted.iter().map(|member| match member.open {
-            Ok(open) => json!({"id":member.id.as_str(),"open":open}),
-            Err(reason) => json!({"id":member.id.as_str(),"open":null,"reason":reason}),
-        }).collect::<Vec<_>>()});
-    if let Some(reason) = unavailable {
-        document["reason"] = reason.into();
-    }
-    Ok(document)
-}
 fn execute(
     service: &Service,
     checklist_id: Option<Id>,
@@ -727,7 +644,6 @@ fn execute(
     operation: Operation,
 ) -> Result<Value, Error> {
     match operation {
-        Operation::Counts(_) => unreachable!("counts read before a service is built"),
         Operation::List(filter) => {
             let listed = service.list(&filter)?;
             Ok(
@@ -867,9 +783,6 @@ pub fn text_output(document: &Value, terminal: Terminal) -> String {
     if document["action"] == "events" {
         return events_output(document, terminal);
     }
-    if document["action"] == "counts" {
-        return counts_output(document, terminal);
-    }
     let view = &document["current"];
     let mut out = Vec::new();
     if let Some(verb) = match document["action"].as_str() {
@@ -998,31 +911,6 @@ pub fn text_output(document: &Value, terminal: Terminal) -> String {
     String::from_utf8(out).expect("checklist output is UTF-8")
 }
 
-fn counts_output(document: &Value, terminal: Terminal) -> String {
-    let mut out = Vec::new();
-    let mut rows = Table::new(&[Column::Fixed, Column::Detail]);
-    for member in document["members"].as_array().into_iter().flatten() {
-        rows.row([
-            Cell::from(display(&member["id"])),
-            match member["open"].as_u64() {
-                Some(open) => Cell::from(format!("{open} open")),
-                None => Cell::styled(
-                    format!("unavailable · {}", display(&member["reason"])),
-                    Token::Dim,
-                ),
-            },
-        ]);
-    }
-    let _ = Section {
-        title: &format!("CHECKLIST COUNTS {}", display(&document["room"])),
-        count: document["members"].as_array().map(Vec::len),
-        rows,
-        note: None,
-        hint: None,
-    }
-    .write(&mut out, terminal);
-    String::from_utf8(out).expect("checklist output is UTF-8")
-}
 fn events_output(document: &Value, terminal: Terminal) -> String {
     let mut out = Vec::new();
     let mut rows = Table::new(&[
