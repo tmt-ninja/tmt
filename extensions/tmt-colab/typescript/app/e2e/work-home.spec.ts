@@ -14,26 +14,26 @@ test('Work home counts open work, filters by a status and lists what was done', 
     await (await import(path)).mountPageList('work-home', '/work');
   });
   const home = page.locator('#list-fixture');
-  await expect(home.getByText('8 open · 3 agents moving · 18 done in 7 days')).toBeVisible();
-  await expect(home.locator('.tmt-ui-work-count')).toHaveText([
-    '3In progress',
-    '2Waiting for CI or release',
-    '1Needs you',
-    '1Blocked',
-    '1Possibly stalled',
+  const counts = home.getByRole('list', { name: 'Now' });
+  await expect(counts.getByRole('listitem')).toHaveText([
+    '3Pages in progress',
+    '1Pages waiting on you',
+    '1Blocked pages',
+    '18Pages done in 7 days',
   ]);
-  // Every ratio segment uses the tone of its count's dot (waiting shares the CI/release tone).
-  const dot = await home
-    .locator('.tmt-ui-work-count .tmt-ui-work-dot')
-    .nth(1)
-    .evaluate((node) => getComputedStyle(node).backgroundColor);
-  const segment = await home
-    .locator('.work-home-card .tmt-ui-work-ratio > span')
-    .nth(1)
-    .evaluate((node) => getComputedStyle(node).backgroundColor);
-  expect(segment).toBe(dot);
+  await expect(home.getByRole('button', { name: /^All/ }).locator('span')).toHaveText('8');
+  await expect(home.getByRole('region', { name: 'Colab', exact: true })).toContainText(
+    '4 pages · 1 waiting on you',
+  );
+  await expect(home.locator('.work-home-total')).toContainText('18 done');
+  await expect(home.getByText('Shipped inline work')).toHaveCount(0);
   const rows = home.locator('.tmt-ui-work-row');
   await expect(rows).toHaveCount(8);
+  await expect(
+    rows.filter({ hasText: 'COLAB-119' }).getByRole('img', {
+      name: '2 of 5 sub-pages done',
+    }),
+  ).toBeVisible();
   await expect(rows.filter({ hasText: 'OPS-33' }).locator('.tmt-ui-work-next')).toHaveText(
     'Waiting on a PR · Review PR #6461',
   );
@@ -54,6 +54,43 @@ test('Work home counts open work, filters by a status and lists what was done', 
   await expect(recent).toContainText('Fix the mockup that would not open');
   await expect(recent).toContainText('gui-3');
   await expect(recent).toContainText('alpha.453');
+});
+
+test('numbered to-dos are remembered and open their blocks on the parent page', async ({
+  page,
+}) => {
+  const mount = () =>
+    page.evaluate(async () => {
+      const path = '/test/page-list-browser.tsx';
+      await (await import(path)).mountPageList('work-home', '/colab/work');
+    });
+  await page.goto('/');
+  await mount();
+  const home = page.locator('#list-fixture');
+  const pages = home.getByRole('button', { name: 'Pages only' });
+  const todos = home.getByRole('button', { name: 'To-dos only' });
+  await expect(pages).toHaveAttribute('aria-pressed', 'true');
+  await expect(home.getByText('Review the approved mockup')).toHaveCount(0);
+  await todos.press('Enter');
+  await expect(home.getByText('2 open · 1 waiting on you')).toBeVisible();
+  const rows = home.locator('.work-home-todo');
+  await expect(rows).toHaveCount(2);
+  await expect(home.getByText('Shipped inline work')).toHaveCount(0);
+  const waiting = rows.first();
+  await expect(waiting).toContainText('Review the approved mockup');
+  await expect(waiting.locator('small')).toHaveText('A Colab page is the work');
+  await expect(home.getByText('Unassigned follow-up')).toHaveCount(0);
+  await page.reload();
+  await mount();
+  await expect(todos).toHaveAttribute('aria-pressed', 'true');
+  await waiting.click();
+  const blockId = 'c0000702-1111-4111-8111-000000000001';
+  await expect(page).toHaveURL(new RegExp(`anchor=${blockId}`));
+  await expect(page.locator(`[data-block-id="${blockId}"]`)).toBeInViewport();
+  await expect(page.getByText('Document line 1', { exact: true })).not.toBeInViewport();
+  await page.goBack();
+  await expect(todos).toHaveAttribute('aria-pressed', 'true');
+  await expect(waiting).toBeVisible();
 });
 
 // A working agent's activity time moves on every read; that alone must not read the list again,
@@ -148,6 +185,10 @@ async function mountOrder(page: import('@playwright/test').Page) {
     const path = '/test/page-list-browser.tsx';
     await (await import(path)).mountPageList('work-order', '/colab/work?project=Colab');
   });
+  await expect(page.getByRole('button', { name: 'Pages only' })).toBeVisible();
+  const order = page.getByRole('button', { name: 'Project order', exact: true });
+  await order.click();
+  await expect(page.getByRole('button', { name: 'Back to Home' })).toBeVisible();
 }
 
 test('keyboard reorder survives reload when the list omits the project order', async ({ page }) => {
@@ -239,7 +280,7 @@ test('Notify sends once to each explicitly chosen recipient', async ({ page }) =
   expect(messages[0].agentId).toBe('c0000501-1111-4111-8111-000000000001');
   expect(messages[0].message).toBe(
     'The work order for Colab has changed. Please arrange your work in the current order.\n' +
-      new URL('/colab/work?project=Colab', page.url()).href,
+      new URL('/colab/work?project=Colab&order=true', page.url()).href,
   );
 });
 
@@ -350,6 +391,16 @@ for (const width of [1440, 390])
         });
         await home.evaluate((button) => button.blur());
         await page.screenshot({ path: await capturePath(`work-home-${width}-${theme}.png`) });
+        const todoMode = branch.getByRole('button', { name: 'To-dos only' });
+        await todoMode.press('Enter');
+        await expect(branch.locator('.work-home-todo').first()).toBeVisible();
+        await page.screenshot({
+          path: await capturePath(`work-home-todos-focus-${width}-${theme}.png`),
+        });
+        await todoMode.blur();
+        await page.mouse.move(width - 4, 4);
+        await page.screenshot({ path: await capturePath(`work-home-todos-${width}-${theme}.png`) });
+        await branch.getByRole('button', { name: 'Pages only' }).click();
       }
       await page.goBack();
       await expect(page).toHaveURL(bookmark);

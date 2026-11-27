@@ -31,6 +31,7 @@ export function WorkOrderNotify({
   const [error, setError] = useState('');
   const url = new URL('/colab/work', window.location.origin);
   url.searchParams.set('project', project);
+  url.searchParams.set('order', 'true');
   const t = text.workHome.order;
   const quote = t.quote(project);
   const message = quote + '\n' + url.href;

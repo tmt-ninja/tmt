@@ -123,6 +123,32 @@ function work(stage: PageWorkRow['stage'], done: number, total: number): PageWor
 const idle = { comments: 0, waiting: false, needsYou: 0 };
 
 /** Work home's fixture (#6474): the spec mockup's projects and items, read at `listNow`. */
+const workHomeTodos = [
+  {
+    id: id(701),
+    number: 'COLAB-140-1',
+    text: 'Prepare the release',
+    assignee: 'gui-4',
+    checked: false,
+  },
+  {
+    id: id(702),
+    number: 'COLAB-140-2',
+    text: 'Review the approved mockup',
+    ask: 'needs-you' as const,
+    checked: false,
+  },
+  { id: id(703), number: 'COLAB-140-3', text: 'Unassigned follow-up', checked: false },
+  {
+    id: id(704),
+    number: 'COLAB-140-4',
+    text: 'Shipped inline work',
+    assignee: 'gui-4',
+    checked: true,
+    doneAtMs: listNow - 60_000,
+  },
+];
+
 function workHomePages(withOrder = false): PageSummary[] {
   const agents: Record<string, string> = {};
   const agent = (name: string) => ({
@@ -182,7 +208,7 @@ function workHomePages(withOrder = false): PageSummary[] {
         blocked: 'Waiting for Core to decide the protocol',
       },
       24 * 60,
-      { blockedSinceMs: minutes(26 * 60) },
+      { blockedSinceMs: minutes(26 * 60), work: work('in-progress', 2, 5) },
     ),
     item(
       'A Colab page is the work',
@@ -193,6 +219,7 @@ function workHomePages(withOrder = false): PageSummary[] {
       10,
       // Sections are progress (#6619): nine counted sections, four done, one waiting on a person.
       {
+        ...(!withOrder ? { todos: workHomeTodos } : {}),
         sections: [
           ['Goal', 'done'],
           ['Requirements', 'done'],
@@ -220,6 +247,7 @@ function workHomePages(withOrder = false): PageSummary[] {
       'working',
       { owner: agent('gui-3'), next: 'PR #6470 in review' },
       3,
+      { work: work('in-progress', 3, 5) },
     ),
     item(
       'Page field data format',
@@ -638,26 +666,50 @@ export async function mountPageList(
   /** The pages a lagging list read still shows. */
   let lagging: PageSummary[] | undefined;
   // An opened page is the owner's: it can be renamed from the list's Rename… (#6709).
-  const snapshots: PageSnapshot[] = state.pages.map((p) => ({
-    ...p,
-    source: '<h1>Fixture</h1>',
-    binding: {
-      subscribe(next) {
-        next({ title: p.title, source: '<h1>Fixture</h1>' });
-        return () => {};
+  const snapshots: PageSnapshot[] = state.pages.map((p) => {
+    const structured =
+      size === 'work-home' && p.workNumber === 'COLAB-140'
+        ? {
+            pageType: 'blocks' as const,
+            blocks: Object.fromEntries(
+              Array.from({ length: 80 }, (_, index) => {
+                const todo = workHomeTodos[index - 40];
+                return [
+                  todo?.id ?? id(800 + index),
+                  {
+                    type: todo ? 'todo' : 'paragraph',
+                    parent: 'root',
+                    pos: `p${String(index).padStart(2, '0')}`,
+                    props: todo ? { checked: todo.checked } : {},
+                    text: { s: todo?.text ?? `Document line ${index + 1}`, marks: [] },
+                  },
+                ];
+              }),
+            ),
+          }
+        : {};
+    return {
+      ...p,
+      ...structured,
+      source: '<h1>Fixture</h1>',
+      binding: {
+        subscribe(next) {
+          next({ title: p.title, source: '<h1>Fixture</h1>', ...structured });
+          return () => {};
+        },
+        canMetadata: () => true,
+        metadataRevision: async () => `v1:${'c'.repeat(64)}`,
+        metadata: async () => {},
+        async edit() {
+          return { merged: false };
+        },
+        async export() {
+          throw new Error('No export in this fixture');
+        },
+        close() {},
       },
-      canMetadata: () => true,
-      metadataRevision: async () => `v1:${'c'.repeat(64)}`,
-      metadata: async () => {},
-      async edit() {
-        return { merged: false };
-      },
-      async export() {
-        throw new Error('No export in this fixture');
-      },
-      close() {},
-    },
-  }));
+    };
+  });
   const transport = localTransport('Studio pages', snapshots);
   let templates = fixtureTemplates();
   const readOrder = (): { revision: number; items: string[] } =>
