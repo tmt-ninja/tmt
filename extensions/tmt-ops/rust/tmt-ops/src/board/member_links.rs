@@ -215,6 +215,26 @@ struct Hit {
     )>,
     reader: bool,
     occurrence: usize,
+    transcript: Option<super::conversation::ConversationKey>,
+}
+
+impl Hit {
+    fn same_transcript_url(&self, other: &Self) -> bool {
+        self.transcript.is_some()
+            && self.transcript == other.transcript
+            && self.target == other.target
+            && self.occurrence == other.occurrence
+    }
+
+    fn focuses(&self, other: &Self) -> bool {
+        if self.transcript.is_some() {
+            return self.same_transcript_url(other);
+        }
+        self.reader == other.reader
+            && self.surface == other.surface
+            && self.target == other.target
+            && self.occurrence == other.occurrence
+    }
 }
 struct Cached {
     text: String,
@@ -271,6 +291,22 @@ impl State {
         self.focused = None;
         self.pressed = None;
         self.hovered = None;
+    }
+    pub(super) fn invalidate_snapshot(&mut self) {
+        // Retain the keyboard intent only. The next paint must publish a new hit.
+        let focused = self.focused.take().filter(|hit| hit.transcript.is_some());
+        self.invalidate();
+        self.focused = focused;
+    }
+
+    pub(super) fn finish_frame(&mut self) {
+        if self
+            .focused
+            .as_ref()
+            .is_some_and(|hit| hit.transcript.is_some() && !self.hits.contains(hit))
+        {
+            self.focused = None;
+        }
     }
     fn cached(
         &mut self,
@@ -358,9 +394,10 @@ impl State {
 }
 
 /// Geometry is clipped to cells actually painted in the current viewport.
-pub(super) struct Paint {
+pub(super) struct Paint<'a> {
     pub reader: bool,
     pub role: tmt_cli_style::Role,
+    pub transcript: Option<&'a super::conversation::ConversationKey>,
 }
 
 pub(super) fn paint_hits(
@@ -370,7 +407,7 @@ pub(super) fn paint_hits(
     offset: usize,
     shown: usize,
     lines: &[Vec<Link>],
-    presentation: Paint,
+    presentation: Paint<'_>,
 ) {
     let mut state = app.member_links.borrow_mut();
     for (index, links) in lines
@@ -410,13 +447,25 @@ pub(super) fn paint_hits(
                 checklist,
                 reader: presentation.reader,
                 occurrence: link.occurrence,
+                transcript: presentation
+                    .transcript
+                    .filter(|_| matches!(link.target, Target::Url(_)))
+                    .cloned(),
             };
-            let focused = state.focused.as_ref().is_some_and(|focused| {
-                focused.reader == hit.reader
-                    && focused.surface == hit.surface
-                    && focused.target == hit.target
-                    && focused.occurrence == hit.occurrence
-            });
+            let focused = state
+                .focused
+                .as_ref()
+                .is_some_and(|focus| focus.focuses(&hit));
+            if focused
+                && hit.transcript.is_some()
+                && !state
+                    .hits
+                    .iter()
+                    .any(|shown| hit.same_transcript_url(shown))
+            {
+                // Bind to the first painted fragment, the same one keyboard cycling uses.
+                state.focused = Some(hit.clone());
+            }
             for x in hit.area.x..hit.area.right() {
                 let hover = state
                     .hovered
@@ -1028,6 +1077,7 @@ pub(super) fn paint_preview(
         Paint {
             reader: false,
             role,
+            transcript: None,
         },
     );
     true
@@ -1102,6 +1152,7 @@ pub(super) fn paint_plain_hits(
         Paint {
             reader,
             role: tmt_cli_style::Role::Text,
+            transcript: None,
         },
     );
 }

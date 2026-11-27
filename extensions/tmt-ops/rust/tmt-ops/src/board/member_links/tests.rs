@@ -573,6 +573,7 @@ mod additional_tests {
                     Paint {
                         reader: true,
                         role: tmt_cli_style::Role::Link,
+                        transcript: None,
                     },
                 );
             })
@@ -728,6 +729,7 @@ mod frozen_membership_tests {
             checklist: None,
             reader: true,
             occurrence: 0,
+            transcript: None,
         });
         let choice = app
             .menu
@@ -809,6 +811,7 @@ mod named_surface_tests {
             checklist: None,
             reader: false,
             occurrence: 0,
+            transcript: None,
         });
     }
     #[test]

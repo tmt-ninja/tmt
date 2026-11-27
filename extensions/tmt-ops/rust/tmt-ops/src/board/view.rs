@@ -231,6 +231,7 @@ pub(in crate::board) fn render_frame(
     app.scrolls.begin_frame();
     if app.framed() {
         super::terminal_tab::paint::frame(frame, app);
+        app.member_links.borrow_mut().finish_frame();
         return;
     }
     let home_history_pending = !app.loading()
@@ -335,6 +336,7 @@ pub(in crate::board) fn render_frame(
     }
     app.provider_answer.action_hit.set(None);
     panes::render_body(frame, app, body);
+    app.member_links.borrow_mut().finish_frame();
     waiting::inline_prompt(frame, app, body);
     if !app.modal_open()
         && app.input.is_none()

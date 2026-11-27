@@ -2632,29 +2632,50 @@ child.stdout.pipe(process.stdout);
         };
         // The board regression a_transcript_url_opens_after_recompose_only_if_the_pressed_hit_survives
         // owns the mouse gesture. Here the reader's keyboard selection opens the popover.
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
-        await fixture.waitForCapture(
-          (current) => current.includes('←→ mentions') && current.includes('Enter actions'),
-          shell.pane
-        );
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Right']);
         let selectedCapture = '';
+        const readLinkStyle = () => {
+          selectedCapture = fixture.tmux(['capture-pane', '-p', '-e', '-t', shell.pane]);
+          const sgr = /\u001b\[([\d;]*)m/g;
+          const response = selectedCapture
+            .split('\n')
+            .find((row) => row.replace(sgr, '').includes('Read the docs first.'));
+          const label = response?.indexOf('the docs') ?? -1;
+          let underlined = false;
+          let reversed = false;
+          if (response && label >= 0) {
+            for (const controls of response.slice(0, label).matchAll(sgr)) {
+              for (const code of controls[1]!.split(';')) {
+                if (code === '' || code === '0' || code === '24') underlined = false;
+                if (code === '' || code === '0' || code === '27') reversed = false;
+                if (code === '4') underlined = true;
+                if (code === '7') reversed = true;
+              }
+            }
+          }
+          return { underlined, reversed };
+        };
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
+        await fixture
+          .waitFor(
+            () =>
+              readLinkStyle().underlined &&
+              selectedCapture.includes('←→ mentions') &&
+              selectedCapture.includes('Enter actions'),
+            10_000,
+            'the reader paints the transcript URL as actionable'
+          )
+          .catch((cause: unknown) => {
+            throw new Error(`Link not ready. Last styled pane capture:\n${selectedCapture}`, {
+              cause,
+            });
+          });
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Right']);
         await fixture
           .waitFor(
             () => {
-              selectedCapture = fixture.tmux(['capture-pane', '-p', '-e', '-t', shell.pane]);
-              const response = selectedCapture.split('\n').find((row) => row.includes('the docs'));
-              if (!response) return false;
               // In NO_COLOR the focused link gets reverse video. A plain link is only underlined.
-              let reversed = false;
-              const beforeLabel = response.slice(0, response.indexOf('the docs'));
-              for (const sgr of beforeLabel.matchAll(/\u001b\[([\d;]*)m/g)) {
-                for (const code of sgr[1]!.split(';')) {
-                  if (code === '7') reversed = true;
-                  if (code === '' || code === '0' || code === '27') reversed = false;
-                }
-              }
-              return reversed;
+              const { underlined, reversed } = readLinkStyle();
+              return underlined && reversed;
             },
             5_000,
             'the transcript URL receives keyboard focus'

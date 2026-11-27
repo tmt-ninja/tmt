@@ -1,4 +1,5 @@
 use super::*;
+use crate::board::app::Choice;
 use crate::board::app::workspace::tests::MEMBER;
 use crate::board::scroll::Step;
 use ratatui::{
@@ -477,6 +478,85 @@ fn a_transcript_url_opens_after_recompose_only_if_the_pressed_hit_survives() {
     assert!(
         app.menu.is_none(),
         "release must not open a replacement URL"
+    );
+}
+
+fn focus_transcript_url(app: &mut App) {
+    app.focus = 1;
+    draw(app, 160, 36);
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert!(app.member_link_owns_enter());
+}
+
+fn refresh_transcript_url(app: &mut App, response: &str) {
+    let mut view = app.view.take().unwrap();
+    view.replies[0]["response"] = json!(response);
+    app.apply(crate::board::app::Snapshot {
+        view: Ok(view),
+        ..crate::board::app::tests::snapshot(crate::board::ALL, json!([]))
+    });
+}
+
+#[test]
+fn a_transcript_url_keeps_keyboard_focus_across_a_snapshot_and_recompose() {
+    const RESPONSE: &str = "Read [the docs](https://example.com/docs) first.";
+    let look = crate::look::Look {
+        depth: tmt_cli_style::Depth::None,
+        ..crate::look::Look::default()
+    };
+    let mut app = fixture_with_look(RESPONSE, look);
+    focus_transcript_url(&mut app);
+
+    refresh_transcript_url(&mut app, RESPONSE);
+    assert!(!app.member_link_owns_enter(), "the old hit is invalid");
+    let after = draw(&mut app, 160, 36);
+    assert!(app.member_link_owns_enter(), "rebind the unchanged URL");
+    let link_ink = ratatui::style::Modifier::UNDERLINED | ratatui::style::Modifier::REVERSED;
+    assert!(
+        after
+            .content
+            .iter()
+            .any(|cell| cell.modifier.contains(link_ink))
+    );
+
+    app.view.as_mut().unwrap().replies[0]["response"] =
+        json!(format!("{RESPONSE}\n\nMore details arrived."));
+    draw(&mut app, 160, 36);
+    assert!(app.member_link_owns_enter(), "height alone is immaterial");
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    let menu = app.menu.as_ref().expect("Enter opens the surviving URL");
+    assert_eq!(menu.title, "Link");
+    assert!(menu.entries.iter().any(|entry| {
+        matches!(&entry.choice, Choice::LinkCopy(url) if url == "https://example.com/docs")
+    }));
+}
+
+#[test]
+fn a_snapshot_replacing_the_focused_transcript_url_clears_keyboard_selection() {
+    const RESPONSE: &str = "Read [the docs](https://example.com/docs) first.";
+    let mut app = fixture(RESPONSE);
+    focus_transcript_url(&mut app);
+
+    refresh_transcript_url(
+        &mut app,
+        "Read [the docs](https://example.com/replacement) first.",
+    );
+    draw(&mut app, 160, 36);
+    assert!(!app.member_link_owns_enter());
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.menu.is_none(), "Enter must not open either URL");
+
+    refresh_transcript_url(&mut app, RESPONSE);
+    draw(&mut app, 160, 36);
+    assert!(
+        !app.member_link_owns_enter(),
+        "the old selection stays cleared"
     );
 }
 

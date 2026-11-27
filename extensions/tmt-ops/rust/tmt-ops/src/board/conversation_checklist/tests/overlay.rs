@@ -1972,6 +1972,7 @@ fn transcript_reference_only_offers_to_open_its_item() {
                 crate::board::member_links::Paint {
                     reader: true,
                     role: tmt_cli_style::Role::Text,
+                    transcript: None,
                 },
             );
         })
