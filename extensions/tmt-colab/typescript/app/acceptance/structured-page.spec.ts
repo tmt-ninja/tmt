@@ -117,7 +117,7 @@ test('the outline follows the live side menu on the same mounted block page', as
   });
 });
 
-test('Enter opens focused table column actions after escaping a cell edit', async () => {
+test('Enter opens table column actions and renames the column after escaping a cell edit', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const browser = await pairBrowser(world, 'table-menu-owner');
@@ -152,12 +152,12 @@ test('Enter opens focused table column actions after escaping a cell edit', asyn
     await actions.focus();
     await page.keyboard.press('Enter');
     const rename = page.getByRole('menuitem', { name: 'Rename', exact: true });
-    await expect(rename).toBeVisible();
-    await rename.click();
+    await expect(rename).toBeFocused();
+    await page.keyboard.press('Enter');
     const name = block.getByRole('textbox', { name: 'Column name' });
-    await expect(name).toBeVisible();
-    await name.fill('Status');
-    await name.press('Enter');
+    await expect(name).toBeFocused();
+    await page.keyboard.type('Status');
+    await page.keyboard.press('Enter');
     await expect
       .poll(() => {
         const listed = cli(['block', 'ls', created.pageId]).blocks;
