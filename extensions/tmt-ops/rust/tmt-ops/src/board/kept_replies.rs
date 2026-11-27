@@ -497,7 +497,15 @@ pub(in crate::board) mod tests {
         now_ms: u64,
     ) -> crate::board::app::App {
         let mut app = crate::board::app::workspace::tests::board();
-        app.view.as_mut().unwrap().look = look;
+        let view = app.view.as_mut().unwrap();
+        view.look = look;
+        if let Some(home) = view.home.as_mut() {
+            for squad in &home.workspace.roster.squads {
+                home.workspace
+                    .squad_looks
+                    .insert(squad.room_id.clone(), look);
+            }
+        }
         app.kept_replies.supported = Some(true);
         let member_id = app.conversation_member_id().unwrap();
         match scene {
