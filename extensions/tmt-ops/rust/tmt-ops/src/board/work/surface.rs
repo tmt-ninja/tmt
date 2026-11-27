@@ -1820,6 +1820,16 @@ impl App {
             self.work.searching = false;
             let prev_selected = self.workspace.selected.clone();
             self.workspace.selected = Some(target.clone());
+            self.workspace.reveal_member_ancestors(&target);
+            if let crate::board::workspace::OpsTarget::Member {
+                room_id: Some(room),
+                ..
+            } = &target
+            {
+                self.workspace.expanded.insert(room.clone());
+            } else {
+                self.workspace.pool_expanded = true;
+            }
             self.workspace_reconcile();
             self.work.talk_dialog = Some(WorkTalkDialog {
                 item_key: key,

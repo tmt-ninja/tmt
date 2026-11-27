@@ -1597,17 +1597,18 @@ fn work_talk_dialog_sends_only_to_bound_member_and_preserves_work_state() {
         Some("hello draft".to_owned())
     );
 
-    // Back to Work, reopen with t, and press Enter -> sends only to bound member via Request::Talk.
+    // Back to Work, reopen with t, and press Enter -> sends only to bound member via Request::Chat.
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
     key(&mut app, KeyCode::Char('2'));
     assert_eq!(key(&mut app, KeyCode::Char('t')), Effect::None);
     let effect = key(&mut app, KeyCode::Enter);
     assert!(
         matches!(
             &effect,
-            Effect::Act(crate::board::app::Request::Talk { to, text, .. })
-                if to == "worker" && text.contains("hello draft")
+            Effect::Act(crate::board::app::Request::Chat { recipient, name, text, .. })
+                if recipient == MEMBER && name == "worker" && text.contains("hello draft")
         ),
-        "expected Request::Talk to bound member worker, got {effect:?}"
+        "expected Request::Chat to bound member worker, got {effect:?}"
     );
 }
 
@@ -1620,7 +1621,7 @@ fn work_talk_no_owner_shows_notice_and_no_dialog() {
         .apply(Instant::now(), List::decode(&document).map_err(Into::into));
     let key = |app: &mut App, code: KeyCode| app.key(KeyEvent::new(code, KeyModifiers::NONE));
     key(&mut app, KeyCode::Char('2'));
-    app.work.selected = Some(UNCHECKED.into());
+    key(&mut app, KeyCode::End);
     assert_eq!(key(&mut app, KeyCode::Char('t')), Effect::None);
     assert_eq!(app.overlay(), None);
     assert_eq!(app.shell.tab, OpsTab::Work);

@@ -556,6 +556,11 @@ impl App {
     }
 
     pub(super) fn conversation_target(&self) -> Option<RowTarget> {
+        if let Some(dialog) = &self.work.talk_dialog {
+            let target = RowTarget::Workspace(dialog.target.clone());
+            self.target_row(&target)?["id"].as_str()?;
+            return Some(target);
+        }
         let target = self.row_target(self.selected)?;
         self.target_row(&target)?["id"].as_str()?;
         Some(target)
