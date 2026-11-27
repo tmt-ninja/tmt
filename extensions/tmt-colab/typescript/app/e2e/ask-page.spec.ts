@@ -1009,7 +1009,10 @@ for (const width of [1440, 390])
         body.append(heading);
       });
     if (width === 390) await toggle.click();
-    await expect(outline.getByRole('button', { name: 'Added section' })).toBeVisible();
+    // At the end of the scroll the added heading is also the current one, so the phone bar's
+    // toggle names it too: the row is the exact name.
+    await expect(outline.getByRole('button', { name: 'Added section', exact: true })).toBeVisible();
+    if (width === 390) await expect(toggle).toContainText('Added section');
     if (width === 1440) {
       // An open menu is never restored on load.
       await run(page, 'mount');
@@ -1048,6 +1051,159 @@ test('HTML outline follows and jumps within the bounded inner-scroll fallback', 
     'aria-current',
     'location',
   );
+});
+
+// #6833: with the shell's side menu collapsed, a wide screen's outline is a strip of bars at the
+// right edge, one per heading, that floats the whole list; the bar leads with the way back to Work,
+// and a phone keeps its outline bar.
+for (const width of [1440, 390])
+  test(`with the side menu collapsed the outline is a strip of bars at ${width}`, async ({
+    page,
+  }) => {
+    await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    // A new page's pointer starts wherever the platform puts it; at the left edge (Linux) it floats
+    // the rail over the page. This case reads the page with the pointer over it.
+    await page.mouse.move(width / 2, 450);
+    await run(page, 'mount', { structuredOutline: true, structuredKind: 'table' });
+    const outline = page.getByRole('navigation', { name: 'Page outline' });
+    await expect(outline).toBeVisible();
+    const strip = outline.getByRole('button', { name: 'Outline, 1/3 done', exact: true });
+    if (width === 390) {
+      await expect(page.locator('.tmt-ui-shell')).toHaveAttribute('data-rail', 'expanded');
+      await expect(strip).toHaveCount(0);
+      await expect(outline.locator('.page-outline-toggle')).toBeVisible();
+      return;
+    }
+    await expect(page.locator('.tmt-ui-shell')).toHaveAttribute('data-rail', 'collapsed');
+    await expect(page.locator('.tmt-ui-topbar').getByRole('link', { name: 'Work' })).toBeVisible();
+    // » leads the bar at its padding, before the way back (view B).
+    const expand = page
+      .locator('.tmt-ui-topbar')
+      .getByRole('button', { name: 'Expand side menu', exact: true });
+    expect((await expand.boundingBox())!.x).toBeLessThanOrEqual(40);
+    await expect(strip).toHaveAttribute('aria-expanded', 'false');
+    // Overview in progress (half), Details under it done, Decisions waiting on a person; the
+    // section being read is the longest bar and an H3 is shorter than an H2.
+    const bars = strip.locator('.page-outline-bar');
+    expect(
+      await bars.evaluateAll((nodes) =>
+        nodes.map((node) => [
+          (node as HTMLElement).dataset.state,
+          node.getBoundingClientRect().width,
+          node.getBoundingClientRect().height,
+        ]),
+      ),
+    ).toEqual([
+      ['half', 26, 4],
+      ['done', 10, 3],
+      ['waiting', 16, 3],
+    ]);
+    const stripBox = (await strip.boundingBox())!;
+    expect(stripBox.x + stripBox.width).toBeGreaterThan(width - 60);
+    // The page reads in a centred column, and the title starts where its text does.
+    const stage = (await page.locator('.structured-page-stage').boundingBox())!;
+    expect(stage.width).toBe(960);
+    expect(stage.x + stage.width).toBeLessThan(stripBox.x);
+    // A wide table keeps to the column, clear of the strip.
+    const table = (await page.locator('.tmt-block[data-kind="table"]').boundingBox())!;
+    expect(table.width).toBeGreaterThan(720);
+    expect(table.x + table.width).toBeLessThan(stripBox.x);
+    const text = await page
+      .locator('.structured-page-stage')
+      .getByRole('heading', { name: 'Overview' })
+      .evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return range.getBoundingClientRect().x;
+      });
+    const title = (await page.locator('.page-mobile-title h1').boundingBox())!;
+    expect(Math.abs(title.x - text)).toBeLessThanOrEqual(1);
+    // A pointer over the strip floats the list beside it; a pick jumps and closes it.
+    await strip.hover();
+    const float = outline.locator('.page-outline-float');
+    await expect(float).toBeVisible();
+    await expect(strip).toHaveAttribute('aria-expanded', 'true');
+    expect((await float.boundingBox())!.x + (await float.boundingBox())!.width).toBeLessThanOrEqual(
+      stripBox.x + 1,
+    );
+    // Details, not the last heading: the page cannot scroll the last section up to the bar, so the
+    // outline's scroll position never marks it (as in the expanded outline).
+    await float.getByRole('button', { name: /^Details/ }).click();
+    await expect(float).toBeHidden();
+    await expect(
+      page.locator('.structured-page-stage').getByRole('heading', { name: 'Details' }),
+    ).toBeInViewport();
+    await expect(bars.nth(1)).toHaveAttribute('data-current', '');
+    await expect(bars.nth(1)).toHaveCSS('width', '26px');
+    // The last section is shorter than the window, so it never reaches the bar: at the end of the
+    // scroll, the last heading in view is current, and a jump to it marks its bar.
+    await strip.hover();
+    await float.getByRole('button', { name: /^Decisions/ }).click();
+    await expect(float).toBeHidden();
+    // Once the jump has settled at the page's end (the scroll, not the click, decides).
+    const settled = () =>
+      page.evaluate(
+        () =>
+          new Promise<boolean>((resolve) => {
+            const before = scrollY;
+            setTimeout(
+              () =>
+                resolve(
+                  scrollY === before &&
+                    scrollY + innerHeight >= document.documentElement.scrollHeight - 2,
+                ),
+              150,
+            );
+          }),
+      );
+    await expect.poll(settled).toBe(true);
+    await expect(bars.nth(2)).toHaveAttribute('data-current', '');
+    await expect(bars.nth(1)).not.toHaveAttribute('data-current');
+    // Leaving closes it; from the keyboard Enter opens it and Escape closes it, back on the strip.
+    await strip.hover();
+    await expect(float).toBeVisible();
+    await page.mouse.move(700, 450);
+    await expect(float).toBeHidden();
+    await strip.focus();
+    await page.keyboard.press('Enter');
+    await expect(float).toBeVisible();
+    await page.keyboard.press('Tab');
+    await expect(float.getByRole('button').first()).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(float).toBeHidden();
+    await expect(strip).toBeFocused();
+  });
+
+test('with the side menu collapsed an HTML page keeps its strip over the right gutter', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  // As above: the pointer over the page, never resting on the rail's edge zone.
+  await page.mouse.move(720, 450);
+  await run(page, 'mount');
+  await run(page, 'setLayout', { layout: 'column' });
+  await run(page, 'authored', '<h2>First</h2><h3>Second</h3><h2>Third</h2>');
+  const outline = page.getByRole('navigation', { name: 'Page outline' });
+  const strip = outline.getByRole('button', { name: 'Outline', exact: true });
+  await expect(strip).toBeVisible();
+  await expect(strip.locator('.page-outline-bar')).toHaveCount(3);
+  const stripBox = (await strip.boundingBox())!;
+  const frame = (await page.locator('#ask-page-fixture iframe').boundingBox())!;
+  // It sits in the gutter, before the frame's 28px comment marker lane.
+  expect(stripBox.x + stripBox.width).toBeLessThanOrEqual(frame.x + frame.width - 28);
+  // The page's column (its first heading spans it) ends before the strip begins.
+  const first = page
+    .frameLocator('#ask-page-fixture iframe')
+    .getByRole('heading', { name: 'First', exact: true });
+  const content = (await first.boundingBox())!;
+  expect(content.x + content.width).toBeLessThan(stripBox.x);
+  await strip.hover();
+  await outline.getByRole('button', { name: 'Third', exact: true }).click();
+  await expect(outline.locator('.page-outline-float')).toBeHidden();
 });
 
 test('HTML outline uses a wide column gutter and keeps full pages at their original frame width', async ({

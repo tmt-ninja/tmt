@@ -13,6 +13,7 @@ export function PageOutline({
   locate,
   compact = false,
   sections,
+  collapsedRail = false,
 }: {
   headings: readonly { id: string; title: string; level: number }[];
   locate(id: string): { top(): number; scrollTo(keyboard: boolean): void } | undefined;
@@ -20,10 +21,20 @@ export function PageOutline({
   /** The page's counted sections by heading ID (#6619): a mark and count beside each, and the
    * total in the title row. A heading without one is an explanatory heading and gets no mark. */
   sections?: readonly SectionSummary[];
+  /** The shell around the page has its side menu collapsed (#6833): on a wide screen the outline is
+   * a strip of bars at the right edge that floats the whole list while a pointer is over it. */
+  collapsedRail?: boolean;
 }) {
   const bySection = new Map((sections ?? []).map((section) => [section.id, section]));
   const totals = sections?.length ? sectionTotals(sections) : undefined;
   const phone = useMedia('(max-width: 640px)');
+  const wide = useMedia('(min-width: 901px)');
+  const strip = collapsedRail && wide;
+  const [floating, setFloating] = useState(false);
+  const stripButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!strip) setFloating(false);
+  }, [strip]);
   const [preference, setPreference] = useState<boolean | undefined>(() => {
     try {
       const saved = localStorage.getItem('tmt:colab:outline');
@@ -80,7 +91,7 @@ export function PageOutline({
       observer.disconnect();
       node.removeEventListener('scroll', measure);
     };
-  }, [expanded, headings]);
+  }, [expanded, floating, headings]);
   useEffect(() => {
     if (headings.length < 3) return;
     const update = () => {
@@ -91,6 +102,16 @@ export function PageOutline({
         const node = locate(heading.id);
         if (node && node.top() <= edge) active = index;
       });
+      // A short last section never reaches the edge: once the page is scrolled to its end, the last
+      // heading in view is current, so jumping to it marks it (#6833).
+      const root = document.documentElement;
+      const end =
+        root.scrollHeight > innerHeight + 1 && scrollY + innerHeight >= root.scrollHeight - 2;
+      if (end)
+        headings.forEach((heading, index) => {
+          const node = locate(heading.id);
+          if (node && node.top() < innerHeight) active = Math.max(active, index);
+        });
       setCurrent(active);
     };
     update();
@@ -102,6 +123,111 @@ export function PageOutline({
     };
   }, [headings, locate]);
   if (headings.length < 3) return null;
+  // One list of headings: in the column, the phone bar, the compact menu and the strip's float.
+  function rows() {
+    return (
+      <ol className="page-outline-list" ref={list} data-more={more || undefined}>
+        {headings.map((heading, index) => (
+          <li key={heading.id} data-level={heading.level}>
+            <button
+              type="button"
+              title={heading.title}
+              aria-current={index === current ? 'location' : undefined}
+              onClick={(event) => {
+                const keyboard = event.detail === 0;
+                const target = locate(heading.id);
+                setCurrent(index);
+                if (strip) {
+                  setFloating(false);
+                  if (keyboard) stripButton.current?.focus();
+                  target?.scrollTo(keyboard);
+                } else if (menu) {
+                  setMenuOpen(false);
+                  toggle.current?.focus();
+                  target?.scrollTo(keyboard);
+                } else if (innerWidth <= 640) {
+                  setPreference(false);
+                  try {
+                    localStorage.setItem('tmt:colab:outline', 'closed');
+                  } catch {
+                    /* Optional preference. */
+                  }
+                  // Closing the phone list changes the target's position in the page.
+                  requestAnimationFrame(() => target?.scrollTo(keyboard));
+                } else target?.scrollTo(keyboard);
+              }}
+            >
+              <OutlineRow title={heading.title} section={bySection.get(heading.id)} />
+            </button>
+          </li>
+        ))}
+      </ol>
+    );
+  }
+  if (strip) {
+    const close = (refocus: boolean) => {
+      setFloating(false);
+      if (refocus) stripButton.current?.focus();
+    };
+    return (
+      <nav
+        className="page-outline"
+        data-strip=""
+        aria-label={text.pageOutline}
+        ref={nav}
+        onPointerEnter={(event) => {
+          if (event.pointerType !== 'touch') setFloating(true);
+        }}
+        onPointerLeave={(event) => {
+          if (event.pointerType !== 'touch' && !nav.current?.contains(document.activeElement))
+            setFloating(false);
+        }}
+        onBlur={(event) => {
+          if (!nav.current?.contains(event.relatedTarget as Node | null)) setFloating(false);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && floating) close(true);
+        }}
+      >
+        <button
+          ref={stripButton}
+          type="button"
+          className="page-outline-strip"
+          aria-expanded={floating}
+          aria-label={
+            totals
+              ? `${text.outline}, ${text.sections.outlineSummary(totals.done, totals.total)}`
+              : text.outline
+          }
+          // A pointer's hover has opened it already; a key toggles it.
+          onClick={(event) => setFloating(event.detail === 0 ? !floating : true)}
+        >
+          {headings.map((heading, index) => (
+            <span
+              key={heading.id}
+              className="page-outline-bar"
+              data-level={heading.level >= 3 ? 3 : 2}
+              data-state={barState(bySection.get(heading.id))}
+              data-current={index === current ? '' : undefined}
+            />
+          ))}
+        </button>
+        {floating && (
+          <div className="page-outline-float">
+            <div className="page-outline-float-head">
+              {text.outline}
+              {totals && (
+                <span className="page-outline-progress">
+                  {text.sections.outlineSummary(totals.done, totals.total)}
+                </span>
+              )}
+            </div>
+            {rows()}
+          </div>
+        )}
+      </nav>
+    );
+  }
   return (
     <nav className="page-outline" aria-label={text.pageOutline} ref={nav}>
       <button
@@ -146,40 +272,7 @@ export function PageOutline({
         </span>
         <ChevronDown className="page-outline-chevron" data-expanded={expanded} aria-hidden="true" />
       </button>
-      {expanded && (
-        <ol className="page-outline-list" ref={list} data-more={more || undefined}>
-          {headings.map((heading, index) => (
-            <li key={heading.id} data-level={heading.level}>
-              <button
-                type="button"
-                title={heading.title}
-                aria-current={index === current ? 'location' : undefined}
-                onClick={(event) => {
-                  const keyboard = event.detail === 0;
-                  const target = locate(heading.id);
-                  setCurrent(index);
-                  if (menu) {
-                    setMenuOpen(false);
-                    toggle.current?.focus();
-                    target?.scrollTo(keyboard);
-                  } else if (innerWidth <= 640) {
-                    setPreference(false);
-                    try {
-                      localStorage.setItem('tmt:colab:outline', 'closed');
-                    } catch {
-                      /* Optional preference. */
-                    }
-                    // Closing the phone list changes the target's position in the page.
-                    requestAnimationFrame(() => target?.scrollTo(keyboard));
-                  } else target?.scrollTo(keyboard);
-                }}
-              >
-                <OutlineRow title={heading.title} section={bySection.get(heading.id)} />
-              </button>
-            </li>
-          ))}
-        </ol>
-      )}
+      {expanded && rows()}
     </nav>
   );
 }
@@ -205,4 +298,16 @@ function OutlineRow({ title, section }: { title: string; section?: SectionSummar
       </span>
     </>
   );
+}
+
+/** A strip bar's state (#6833): done filled, in progress half, needs you or blocked in their tone,
+ * not started (or a plain heading) grey. */
+function barState(section?: SectionSummary): 'done' | 'half' | 'waiting' | 'blocked' | 'none' {
+  if (!section) return 'none';
+  const { state } = section;
+  if (state === 'done') return 'done';
+  if (state === 'needs-you') return 'waiting';
+  if (state === 'blocked') return 'blocked';
+  if (state === 'not-started' || state === 'unchecked') return 'none';
+  return 'half';
 }

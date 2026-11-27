@@ -162,3 +162,77 @@
   color: var(--tmt-ui-color-secondary);
   font-weight: 400;
 }
+
+/* With the wide screen's side menu collapsed (#6833), the outline is a strip of bars at the right
+   edge, one per heading: filled done, half in progress, the waiting tone needs you, grey not started,
+   the section being read the longest. A pointer over it floats the whole list beside it. */
+.page-outline[data-strip] {
+  align-items: flex-end;
+  overflow: visible;
+}
+.page-outline-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  /* Its 40px column holds the longest bar (26px) and the inset to the window edge, so the floating
+     list beside it never covers a bar. */
+  box-sizing: border-box;
+  width: 40px;
+  padding: var(--tmt-ui-space-s) 10px var(--tmt-ui-space-s) 4px;
+  border: 0;
+  border-radius: var(--tmt-ui-radius-s);
+  background: none;
+  cursor: pointer;
+}
+.page-outline-bar {
+  display: block;
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--tmt-ui-surface-rule);
+}
+.page-outline-bar[data-level='3'] {
+  width: 10px;
+}
+.page-outline-bar[data-state='done'] {
+  background: var(--tmt-ui-color-text);
+}
+.page-outline-bar[data-state='half'] {
+  background: linear-gradient(90deg, var(--tmt-ui-surface-rule) 50%, var(--tmt-ui-color-text) 50%);
+}
+.page-outline-bar[data-state='waiting'] {
+  background: var(--tmt-ui-color-waiting);
+}
+.page-outline-bar[data-state='blocked'] {
+  background: var(--tmt-ui-color-blocked);
+}
+.page-outline-bar[data-current] {
+  width: 26px;
+  height: 4px;
+}
+.page-outline-float {
+  position: absolute;
+  top: var(--tmt-ui-space-l);
+  right: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 240px;
+  max-height: calc(100dvh - var(--page-bar-size) - 2 * var(--tmt-ui-space-l));
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-s) var(--tmt-ui-space-s) 0;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+.page-outline-float-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-s);
+  margin: 0 0 var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  font-weight: 600;
+}
+.page-outline-float .page-outline-list {
+  margin-top: 0;
+}

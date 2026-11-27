@@ -435,9 +435,12 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   }
 }
 /* The marker lane the render frame reserves at the right edge of every page: page-frame.css declares
-   the same width for the frame, and e2e/column-frame.spec.ts holds the two equal. */
-.canvas {
+   the same width for the frame, and e2e/column-frame.spec.ts holds the two equal. It is declared on
+   the root, so the page and what sits outside .canvas beside it (the page title) read one value. */
+:root {
   --colab-lane: 28px;
+}
+.canvas {
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -2789,4 +2792,46 @@ p.question-history,
 
 .deleted-draft-notice {
   font-size: var(--tmt-ui-caption-size);
+}
+
+/* With the wide screen's side menu collapsed (#6833), the outline's strip takes a narrow column at
+   the page's right edge, and a page of blocks reads in a centred column as wide as it had beside the
+   side menu and the outline (about 900px at 1440), so nothing reflows much. An HTML page lays the
+   strip over the frame's right gutter. */
+.structured-layout[data-outline]:has(> .page-outline[data-strip]) {
+  grid-template-columns: minmax(0, 1fr) 40px;
+}
+.structured-layout[data-outline] > .page-outline[data-strip] {
+  grid-column: 2;
+  grid-row: 1;
+}
+.structured-layout[data-outline]:has(> .page-outline[data-strip]) > .structured-page-stage {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: center;
+  width: 100%;
+  max-width: 960px;
+}
+/* The title starts where the centred column does: the layout's start margin, then half of what the
+   column leaves of its track (the track is the width less the end lane, the gap and the strip). */
+.workspace:has(.structured-layout[data-outline] > .page-outline[data-strip]) > .page-mobile-title {
+  padding-inline-start: calc(
+    var(--tmt-ui-header-padding-inline) + var(--colab-block-inset) +
+      max(0px, (100% - var(--tmt-ui-header-padding-inline) - var(--colab-lane) - 92px - 960px) / 2)
+  );
+}
+/* The bar's start matches the block column's handle room only beside the side menu; collapsed, » and
+   the way back lead the bar as in the mockup (view B). */
+.tmt-ui-shell[data-rail='collapsed']:has(.structured-page-stage) .tmt-ui-topbar-navigation {
+  padding-inline-start: 0;
+}
+.html-outline:has(> .page-outline[data-strip]) {
+  inset: 0 var(--colab-lane) 0 auto;
+  width: 40px;
+}
+.html-outline .page-outline[data-strip] {
+  width: auto;
+  max-width: none;
+  padding-inline: 0;
+  background: none;
 }

@@ -211,7 +211,8 @@
   white-space: nowrap;
   pointer-events: none;
 }
-.tmt-ui-shell-open {
+.tmt-ui-shell-open,
+.tmt-ui-rail-collapse {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -224,10 +225,12 @@
   color: var(--tmt-ui-color-secondary);
   cursor: pointer;
 }
-.tmt-ui-shell-open:hover {
+.tmt-ui-shell-open:hover,
+.tmt-ui-rail-collapse:hover {
   background: var(--tmt-ui-surface-hover);
 }
 .tmt-ui-shell-open:focus-visible,
+.tmt-ui-rail-collapse:focus-visible,
 .tmt-ui-rail-item:focus-visible,
 .tmt-ui-rail-search:focus-visible,
 .tmt-ui-module-menu-item:focus-visible,
@@ -869,4 +872,45 @@ nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
   .tmt-ui-topbar-search kbd {
     display: none;
   }
+}
+
+/* The wide screen's side menu collapses (#6833): « ends the rail's head, » starts the bar while
+   collapsed. The shell marks the rail collapsed only on a wide screen, so a phone's drawer is never
+   affected and these need no width query. */
+.tmt-ui-rail-collapse {
+  margin-inline-start: auto;
+}
+.tmt-ui-rail-edge,
+.tmt-ui-shell-goto,
+[data-rail='collapsed'] > .tmt-ui-rail {
+  display: none;
+}
+/* A pointer at the window's left edge floats the rail over the page, without a scrim. */
+[data-rail='collapsed'] > .tmt-ui-rail-edge {
+  display: block;
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 55;
+  width: 8px;
+}
+[data-rail='collapsed'][data-rail-peek] > .tmt-ui-rail {
+  display: flex;
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 56;
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+[data-rail='collapsed'] .tmt-ui-shell-open,
+[data-rail='collapsed'] .tmt-ui-shell-goto {
+  display: flex;
+}
+/* A module bar without the shared header: » rides the bar's start, as a phone's does. */
+[data-rail='collapsed']:not([data-topbar]) > .tmt-ui-shell-open {
+  position: fixed;
+  top: calc((var(--tmt-ui-header-height) - var(--tmt-ui-control-size)) / 2);
+  left: var(--tmt-ui-space-s);
+  z-index: 53;
+}
+[data-rail='collapsed']:not([data-topbar]) .tmt-ui-shell-bar .tmt-ui-header {
+  padding-left: calc(var(--tmt-ui-control-size) + var(--tmt-ui-space-l));
 }

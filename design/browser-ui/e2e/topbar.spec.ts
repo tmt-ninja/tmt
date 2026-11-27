@@ -147,6 +147,14 @@ test('blocked storage preserves the current choice; untrusted Search opens nothi
   await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(page.getByRole('button', { name: 'Theme: dark', exact: true })).toBeVisible();
+  // Without storage the side menu starts expanded and still collapses for this page (#6833).
+  const shell = page.locator('.tmt-ui-shell[data-rail]');
+  await expect(shell).toHaveAttribute('data-rail', 'expanded');
+  await page
+    .locator('nav.tmt-ui-rail')
+    .getByRole('button', { name: 'Collapse side menu', exact: true })
+    .click();
+  await expect(shell).toHaveAttribute('data-rail', 'collapsed');
 });
 
 test('host route transition releases the old module action and installs one common bar', async ({
@@ -215,6 +223,219 @@ test('global search lives above Home and remains beside navigation on phones', a
   expect(mobileBox!.x).toBeGreaterThanOrEqual(navBox!.x + navBox!.width);
   expect(mobileBox!.x - navBox!.x - navBox!.width).toBeLessThanOrEqual(16);
 });
+
+const railShortcut = (page: Page) =>
+  page
+    .evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.platform))
+    .then((command) => (command ? 'Meta+Backslash' : 'Control+Backslash'));
+
+// #6833: the wide screen's side menu collapses from its head, comes back from the bar, Cmd/Ctrl+\
+// toggles it, a pointer at the left edge floats it, and the device remembers the choice. A phone's
+// drawer is unchanged.
+for (const renderer of ['react', 'native', 'hosted'])
+  test(`${renderer}: the side menu collapses, floats from the edge and is remembered`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(`/?frame=topbar&renderer=${renderer}`);
+    const shell = page.locator('.tmt-ui-shell[data-rail]');
+    const rail = page.locator('nav.tmt-ui-rail');
+    const bar = page.locator('.tmt-ui-topbar');
+    const collapse = rail.getByRole('button', { name: 'Collapse side menu', exact: true });
+    const expand = bar.getByRole('button', { name: 'Expand side menu', exact: true });
+    const goTo = bar.getByRole('button', { name: 'Go to', exact: true });
+    await expect(collapse).toBeVisible();
+    await expect(expand).toBeHidden();
+    await expect(goTo).toBeHidden();
+    await expect(collapse).toHaveAttribute('aria-keyshortcuts', /^(Meta|Control)\+Backslash$/);
+    const railPlaces = await rail
+      .locator('a.tmt-ui-rail-item .tmt-ui-rail-label')
+      .allTextContents();
+    expect(railPlaces).toContain('TMT settings');
+    await collapse.click();
+    await expect(shell).toHaveAttribute('data-rail', 'collapsed');
+    await expect(rail).toBeHidden();
+    // The control that collapsed it is gone, so focus moves to the one that brings it back.
+    await expect(expand).toBeFocused();
+    await expect(expand).toHaveAttribute('aria-expanded', 'false');
+    expect(await page.evaluate(() => localStorage.getItem('tmt-shell-rail'))).toBe('collapsed');
+    // The bar takes the shell's whole width, » first, and Go to leads the common controls.
+    const shellBox = (await shell.boundingBox())!;
+    expect((await bar.boundingBox())!.x).toBe(shellBox.x);
+    const [expandBox, goToBox, themeBox] = await Promise.all([
+      expand.boundingBox(),
+      goTo.boundingBox(),
+      bar.getByRole('button', { name: /^Theme:/ }).boundingBox(),
+    ]);
+    expect(expandBox!.x - shellBox.x).toBeLessThanOrEqual(40);
+    expect(goToBox!.x + goToBox!.width).toBeLessThanOrEqual(themeBox!.x);
+    await goTo.click();
+    const places = page.getByRole('menu', { name: 'Go to' }).getByRole('menuitem');
+    // Every place the rail lists, in its order (a host's rail may add one, as Design does).
+    await expect(places).toHaveText(railPlaces);
+    await page.keyboard.press('Escape');
+    await expect(goTo).toBeFocused();
+
+    // A reload draws it collapsed from the first frame: the rail never paints expanded.
+    await page.addInitScript(() => {
+      const widths: number[] = [];
+      (window as unknown as { railWidths: number[] }).railWidths = widths;
+      const frame = () => {
+        const node = document.querySelector('nav.tmt-ui-rail');
+        if (node) widths.push(node.getBoundingClientRect().width);
+        if (widths.length < 30) requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    });
+    await page.reload();
+    await expect(shell).toHaveAttribute('data-rail', 'collapsed');
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { railWidths: number[] }).railWidths))
+      .toHaveLength(30);
+    expect(
+      new Set(
+        await page.evaluate(() => (window as unknown as { railWidths: number[] }).railWidths),
+      ),
+    ).toEqual(new Set([0]));
+
+    // The pointer at the left edge floats the rail over the page; leaving it closes it.
+    await page.mouse.move(2, 450);
+    await expect(rail).toBeVisible();
+    await expect(rail).toHaveCSS('position', 'fixed');
+    await expect(shell).toHaveAttribute('data-rail', 'collapsed');
+    await page.mouse.move(900, 450);
+    await expect(rail).toBeHidden();
+    // Focus inside the floating rail keeps it; Escape closes it and returns to ».
+    await page.mouse.move(2, 450);
+    await rail.locator('a[data-id="colab"]').focus();
+    await page.mouse.move(900, 450);
+    await expect(rail).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(rail).toBeHidden();
+    await expect(expand).toBeFocused();
+    // The floating rail's own button keeps it open as a column.
+    await page.mouse.move(2, 450);
+    await rail.getByRole('button', { name: 'Expand side menu', exact: true }).click();
+    await expect(shell).toHaveAttribute('data-rail', 'expanded');
+    await expect(page.locator('.tmt-ui-shell[data-rail-peek]')).toHaveCount(0);
+    await expect(rail).toHaveCSS('position', 'sticky');
+    await expect(collapse).toBeFocused();
+    await collapse.click();
+    await expect(shell).toHaveAttribute('data-rail', 'collapsed');
+
+    // Cmd/Ctrl+\ expands it with focus on «, and collapses it again; Alt or Shift does nothing.
+    const keys = await railShortcut(page);
+    await page.keyboard.press(keys);
+    await expect(shell).toHaveAttribute('data-rail', 'expanded');
+    await expect(collapse).toBeFocused();
+    expect(await page.evaluate(() => localStorage.getItem('tmt-shell-rail'))).toBe(null);
+    await page.keyboard.press(keys.replace('+', '+Alt+'));
+    await page.keyboard.press(keys.replace('+', '+Shift+'));
+    await expect(shell).toHaveAttribute('data-rail', 'expanded');
+    await page.keyboard.press(keys);
+    await expect(shell).toHaveAttribute('data-rail', 'collapsed');
+    await expand.click();
+    await expect(shell).toHaveAttribute('data-rail', 'expanded');
+    await expect(collapse).toBeFocused();
+    await expect(rail).toHaveCSS('position', 'sticky');
+  });
+
+test('a phone keeps its drawer whatever the side menu remembers; another tab follows', async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+  await page.goto('/?frame=topbar&renderer=native');
+  const shell = page.locator('.tmt-ui-shell[data-rail]');
+  const bar = page.locator('.tmt-ui-topbar');
+  await expect(shell).toHaveAttribute('data-rail', 'expanded');
+  await expect(bar.getByRole('button', { name: 'Go to', exact: true })).toBeHidden();
+  await page.keyboard.press(await railShortcut(page));
+  await expect(shell).toHaveAttribute('data-rail', 'expanded');
+  const navigation = bar.getByRole('button', { name: 'Open navigation', exact: true });
+  await navigation.click();
+  await expect(page.locator('nav.tmt-ui-rail')).toBeVisible();
+  await expect(navigation).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(navigation).toBeFocused();
+  // Wide again, the remembered choice applies at once.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(shell).toHaveAttribute('data-rail', 'collapsed');
+  await expect(bar.getByRole('button', { name: 'Expand side menu', exact: true })).toBeVisible();
+  // Another tab of the same origin expands it; this one follows.
+  const other = await context.newPage();
+  await other.setViewportSize({ width: 1440, height: 900 });
+  await other.goto('/?frame=topbar&renderer=native');
+  // A new page's pointer starts wherever the platform puts it; at the left edge (Linux) it floats
+  // the rail. Over the page, the rail is closed and » is the one way to expand.
+  await other.mouse.move(720, 450);
+  await other
+    .locator('.tmt-ui-topbar')
+    .getByRole('button', { name: 'Expand side menu', exact: true })
+    .click();
+  await expect(shell).toHaveAttribute('data-rail', 'expanded');
+  await other.close();
+});
+
+// #6833: collapsed, Go to also carries the current module's own menu, from the view the rail draws:
+// the rows in the rail's order under its headings, links that select as the rail's do, and the
+// group commands.
+for (const renderer of ['react', 'native'])
+  test(`${renderer}: a collapsed side menu's Go to carries the module's own rows`, async ({
+    page,
+  }) => {
+    await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/?frame=rail&renderer=${renderer}`);
+    await page.mouse.move(720, 450);
+    const rail = page.locator('nav.tmt-ui-rail');
+    const goTo = page.locator('.tmt-ui-topbar').getByRole('button', { name: 'Go to', exact: true });
+    const menu = page.getByRole('menu', { name: 'Go to' });
+    const status = page.locator('[data-host-status]');
+    await expect(page.locator('.tmt-ui-shell[data-rail]')).toHaveAttribute(
+      'data-rail',
+      'collapsed',
+    );
+    const places = await rail.locator('a.tmt-ui-rail-item .tmt-ui-rail-label').allTextContents();
+    await expect(rail.locator('.tmt-ui-rail-sub .tmt-ui-module-menu-label')).toHaveText([
+      'All pages',
+      'Release planning and coordination',
+      'Empty project',
+      'Colab settings',
+    ]);
+    await goTo.click();
+    await expect(menu.getByRole('menuitem')).toHaveText([
+      ...places,
+      'All pages',
+      'Release planning and coordination',
+      'Empty project',
+      'Manage projects',
+      'New project',
+      'Colab settings',
+    ]);
+    await expect(menu.locator('.tmt-ui-menu-heading')).toHaveText([
+      'Colab sample pages',
+      'Projects',
+    ]);
+    const choose = async (name: string) => {
+      if (!(await menu.isVisible())) await goTo.click();
+      await menu.getByRole('menuitem', { name, exact: true }).click();
+      await expect(menu).toBeHidden();
+    };
+    await choose('Empty project');
+    await expect(rail.locator('[aria-current="page"]')).toHaveAttribute('data-id', 'empty');
+    await choose('Colab settings');
+    await expect(rail.locator('[aria-current="page"]')).toHaveAttribute(
+      'data-id',
+      'colab-settings',
+    );
+    await choose('Manage projects');
+    await expect(status).toHaveAttribute('data-command-calls', '1');
+    await choose('New project');
+    await expect(status).toHaveAttribute('data-add-calls', '1');
+  });
 
 for (const renderer of ['react', 'native', 'hosted'])
   test(`${renderer}: route title belongs to the top bar left group`, async ({ page }) => {

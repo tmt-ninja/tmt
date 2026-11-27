@@ -3277,6 +3277,36 @@ function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 var shellIconNodes = {
 	list: [["path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }]],
 	bookmark: [["path", { d: "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" }]],
+	"layout-grid": [
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "3",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "14",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "14",
+			y: "14",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "7",
+			x: "3",
+			y: "14",
+			rx: "1"
+		}]
+	],
 	"layout-dashboard": [
 		["rect", {
 			width: "7",
@@ -3471,6 +3501,28 @@ var shellIconNodes = {
 		ry: "2"
 	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
 	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
+	"panel-left-close": [
+		["rect", {
+			width: "18",
+			height: "18",
+			x: "3",
+			y: "3",
+			rx: "2"
+		}],
+		["path", { d: "M9 3v18" }],
+		["path", { d: "m16 15-3-3 3-3" }]
+	],
+	"panel-left-open": [
+		["rect", {
+			width: "18",
+			height: "18",
+			x: "3",
+			y: "3",
+			rx: "2"
+		}],
+		["path", { d: "M9 3v18" }],
+		["path", { d: "m14 9 3 3-3 3" }]
+	],
 	palette: [
 		["path", { d: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" }],
 		["circle", {
@@ -4630,7 +4682,7 @@ function trapScopedTab(event, dialog) {
 //#endregion
 //#region ../../../../design/browser-ui/src/topbar.ts
 /** Internal renderer shared by native and React shells. */
-function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
+function createShellTopBar(root, bar, navigation, railSearch, layerHost, goTo) {
 	const document = root.ownerDocument;
 	const view = document.defaultView;
 	let options;
@@ -4733,7 +4785,7 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 		const searchHelp = help(search, "Search TMT");
 		const remoteHelp = help(remote, "Remote: session count unconfirmed");
 		left.append(searchHelp.wrapper, title);
-		common.append(theme, remoteHelp.wrapper);
+		common.append(...goTo ? [goTo] : [], theme, remoteHelp.wrapper);
 		right.append(statusSlot, common, actions);
 		header.append(left, right);
 		const scope = layerHost?.root;
@@ -4946,6 +4998,47 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 		}
 	};
 }
+//#endregion
+//#region ../../../../design/browser-ui/src/rail-state.ts
+/**
+* Whether the wide screen's side menu (the shell's rail) is collapsed (#6833): one value per
+* device and origin, the shell's to apply and any host's to read, so a page's outline can follow
+* it. A browser without storage keeps the menu expanded and remembers nothing.
+*/
+var railStorageKey = "tmt-shell-rail";
+var listeners = /* @__PURE__ */ new Set();
+var collapsed = read$1();
+function read$1() {
+	try {
+		return globalThis.localStorage?.getItem(railStorageKey) === "collapsed";
+	} catch {
+		return false;
+	}
+}
+function railCollapsed() {
+	return collapsed;
+}
+/** Collapses or expands the side menu everywhere in this page, and remembers it. */
+function setRailCollapsed(next) {
+	if (next === collapsed) return;
+	collapsed = next;
+	try {
+		if (next) localStorage.setItem(railStorageKey, "collapsed");
+		else localStorage.removeItem(railStorageKey);
+	} catch {}
+	for (const listener of listeners) listener();
+}
+function subscribeRail(listener) {
+	listeners.add(listener);
+	return () => listeners.delete(listener);
+}
+globalThis.addEventListener?.("storage", (event) => {
+	if (event.key !== "tmt-shell-rail" && event.key !== null) return;
+	const next = read$1();
+	if (next === collapsed) return;
+	collapsed = next;
+	for (const listener of listeners) listener();
+});
 //#endregion
 //#region ../../../../design/browser-ui/src/shell.ts
 /**
@@ -5233,7 +5326,13 @@ function mountShell(root, view, select, layerHost) {
 	sub.className = "tmt-ui-shell-brand-sub";
 	sub.textContent = "terminal team";
 	text.append(word, sub);
-	brand.append(text);
+	const apple = /Mac|iPhone|iPad|iPod/.test(document.defaultView.navigator.platform);
+	const keys = apple ? "Meta+Backslash" : "Control+Backslash";
+	const collapse = document.createElement("button");
+	collapse.type = "button";
+	collapse.className = "tmt-ui-rail-collapse";
+	collapse.setAttribute("aria-keyshortcuts", keys);
+	brand.append(text, collapse);
 	const rail = document.createElement("nav");
 	rail.className = "tmt-ui-rail";
 	rail.setAttribute("aria-label", "TMT");
@@ -5245,7 +5344,9 @@ function mountShell(root, view, select, layerHost) {
 	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
 	const railSearch = document.createElement("div");
 	railSearch.className = "tmt-ui-rail-search-section";
-	const topBar = createShellTopBar(root, bar, open, railSearch, layerHost);
+	const goTo = document.createElement("span");
+	goTo.className = "tmt-ui-shell-goto";
+	const topBar = createShellTopBar(root, bar, open, railSearch, layerHost, goTo);
 	bar.after(menu);
 	const slotOf = (parent, name) => {
 		const existing = parent.querySelector(`:scope > .tmt-ui-shell-tools-${name}`);
@@ -5273,10 +5374,94 @@ function mountShell(root, view, select, layerHost) {
 	const watchTools = typeof ResizeObserver === "function" ? new ResizeObserver(reserve) : void 0;
 	watchTools?.observe(toolsRoot);
 	reserve();
+	let localCollapsed = false;
+	const local = /* @__PURE__ */ new Set();
+	const rail$ = layerHost ? {
+		get: () => localCollapsed,
+		set: (next) => {
+			localCollapsed = next;
+			for (const listener of local) listener();
+		},
+		subscribe: (listener) => (local.add(listener), () => local.delete(listener))
+	} : {
+		get: railCollapsed,
+		set: setRailCollapsed,
+		subscribe: subscribeRail
+	};
+	const win = document.defaultView;
+	const wide = win.matchMedia("(min-width: 901px)");
+	const icons = {
+		menu: icon(document, "menu"),
+		expand: icon(document, "panel-left-open"),
+		pin: icon(document, "panel-left-open"),
+		collapse: icon(document, "panel-left-close")
+	};
+	const hint = (label) => `${label} (${apple ? "⌘\\" : "Ctrl+\\"})`;
+	const syncOpen = () => {
+		const expand = wide.matches && rail$.get();
+		open.setAttribute("aria-label", expand ? "Expand side menu" : "Open navigation");
+		const collapseLabel = expand ? "Expand side menu" : "Collapse side menu";
+		collapse.setAttribute("aria-label", collapseLabel);
+		collapse.title = hint(collapseLabel);
+		collapse.replaceChildren(expand ? icons.pin : icons.collapse);
+		if (expand) {
+			open.setAttribute("aria-keyshortcuts", keys);
+			open.title = hint("Expand side menu");
+			open.setAttribute("aria-expanded", "false");
+		} else {
+			open.removeAttribute("aria-keyshortcuts");
+			open.removeAttribute("title");
+			open.setAttribute("aria-expanded", String(root.dataset.drawer === "open"));
+		}
+		open.replaceChildren(expand ? icons.expand : icons.menu);
+	};
 	const setDrawer = (shown) => {
 		root.dataset.drawer = shown ? "open" : "closed";
-		open.setAttribute("aria-expanded", String(shown));
+		open.setAttribute("aria-expanded", String(shown && !(wide.matches && rail$.get())));
 	};
+	const away = (event) => {
+		if (event.pointerType === "touch" || rail.contains(document.activeElement)) return;
+		if (event.clientX > rail.getBoundingClientRect().right) setPeek(false);
+	};
+	const setPeek = (shown) => {
+		if (shown === "railPeek" in root.dataset) return;
+		if (shown) root.dataset.railPeek = "";
+		else delete root.dataset.railPeek;
+		if (shown) document.addEventListener("pointermove", away);
+		else document.removeEventListener("pointermove", away);
+	};
+	const applyRail = () => {
+		const collapsed = rail$.get() && wide.matches;
+		root.dataset.rail = collapsed ? "collapsed" : "expanded";
+		if (!collapsed) setPeek(false);
+		syncOpen();
+	};
+	const stopRail = rail$.subscribe(applyRail);
+	wide.addEventListener("change", applyRail);
+	/** Collapses or expands the side menu, keeping focus on the control that stays drawn. */
+	const toggleRail = (next, keyboard) => {
+		const hadFocus = rail.contains(document.activeElement) || open === document.activeElement;
+		rail$.set(next);
+		if (!hadFocus && !keyboard) return;
+		(next ? open : collapse).focus({ focusVisible: keyboard });
+	};
+	collapse.onclick = (event) => toggleRail(!rail$.get(), event.detail === 0);
+	const shortcut = (event) => {
+		if (event.code !== "Backslash" || event.altKey || event.shiftKey || !(apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) || !wide.matches || event.defaultPrevented) return;
+		if (layerHost && (!(event.target instanceof Node) || !layerHost.root.contains(event.target))) return;
+		event.preventDefault();
+		toggleRail(!rail$.get(), true);
+	};
+	document.addEventListener("keydown", shortcut);
+	const edge = document.createElement("div");
+	edge.className = "tmt-ui-rail-edge";
+	edge.setAttribute("aria-hidden", "true");
+	edge.addEventListener("pointerenter", (event) => {
+		if (event.pointerType !== "touch" && root.dataset.rail === "collapsed") setPeek(true);
+	});
+	rail.addEventListener("focusout", (event) => {
+		if ("railPeek" in root.dataset && !rail.contains(event.relatedTarget)) setPeek(false);
+	});
 	const tip = document.createElement("div");
 	tip.className = "tmt-ui-rail-tip";
 	tip.setAttribute("role", "tooltip");
@@ -5347,6 +5532,7 @@ function mountShell(root, view, select, layerHost) {
 		anchor.dataset.note = text;
 	};
 	open.onclick = (event) => {
+		if (wide.matches && rail$.get()) return toggleRail(false, event.detail === 0);
 		const shown = root.dataset.drawer !== "open";
 		setDrawer(shown);
 		if (shown) (rail.querySelector("[aria-current=\"page\"]") ?? rail.querySelector("a[href]"))?.focus({ focusVisible: event.detail === 0 });
@@ -5356,6 +5542,11 @@ function mountShell(root, view, select, layerHost) {
 		if (event.key === "Escape" && root.dataset.drawer === "open") {
 			setDrawer(false);
 			open.focus();
+		}
+		if (event.key === "Escape" && "railPeek" in root.dataset) {
+			const inside = rail.contains(document.activeElement);
+			setPeek(false);
+			if (inside) open.focus();
 		}
 	};
 	document.addEventListener("keydown", close);
@@ -5376,6 +5567,7 @@ function mountShell(root, view, select, layerHost) {
 			if (anchor.getAttribute("aria-disabled") === "true") return event.preventDefault();
 			if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 			setDrawer(false);
+			setPeek(false);
 			if (select?.(anchor.dataset.id, anchor.getAttribute("href"))) event.preventDefault();
 		};
 		return anchor;
@@ -5674,7 +5866,91 @@ function mountShell(root, view, select, layerHost) {
 		}
 	};
 	setDrawer(false);
-	render(view);
+	root.prepend(edge);
+	applyRail();
+	let goToEntries = /* @__PURE__ */ new Map();
+	const goToOptions = (next) => {
+		const entries = /* @__PURE__ */ new Map();
+		const items = [];
+		const glyph = (name) => {
+			if (name) return icon(document, name);
+			const blank = icon(document, "list");
+			blank.replaceChildren();
+			return blank;
+		};
+		for (const place of [...next.rail.main, ...next.rail.bottom]) {
+			entries.set(`place:${place.id}`, { link: place });
+			items.push({
+				key: `place:${place.id}`,
+				label: place.label,
+				leadingIcon: icon(document, place.icon),
+				...place.disabled ? {
+					disabled: true,
+					disabledReason: place.note
+				} : {}
+			});
+		}
+		const menu = next.menu?.placeholder ? void 0 : next.menu;
+		menu?.groups.forEach((group, index) => {
+			let lead = group.label ?? (index === 0 ? menu.title : void 0) ? { heading: group.label ?? menu.title } : { separated: true };
+			const push = (key, entry, item) => {
+				entries.set(key, entry);
+				items.push({
+					key,
+					...item,
+					...lead
+				});
+				lead = {};
+			};
+			for (const item of group.items) push(`menu:${index}:${item.id}`, { link: item }, {
+				label: item.label,
+				leadingIcon: glyph(item.icon ?? group.fallbackIcon),
+				...item.disabled ? {
+					disabled: true,
+					disabledReason: item.note
+				} : {}
+			});
+			for (const [kind, action] of [["action", group.action], ["add", group.add]]) if (action) push(`${kind}:${index}`, { action }, {
+				label: action.label,
+				leadingIcon: glyph(kind === "add" ? "plus" : group.action?.icon),
+				...action.disabledReason ? {
+					disabled: true,
+					disabledReason: action.disabledReason
+				} : {}
+			});
+		});
+		if (menu?.settings) {
+			entries.set("settings", { link: menu.settings });
+			items.push({
+				key: "settings",
+				label: menu.settings.label,
+				leadingIcon: glyph(menu.settings.icon),
+				separated: true
+			});
+		}
+		goToEntries = entries;
+		return {
+			label: "Go to",
+			icon: icon(document, "layout-grid"),
+			items,
+			onSelect: (key) => {
+				const entry = goToEntries.get(key);
+				if (!entry) return;
+				if ("action" in entry) {
+					if (!entry.action.disabledReason) entry.action.onActivate();
+					return;
+				}
+				if (entry.link.disabled) return;
+				if (!select?.(entry.link.id, entry.link.href)) win.location.assign(entry.link.href);
+			}
+		};
+	};
+	const goToMenu = mountBrowserMenu(goTo, goToOptions(view));
+	const draw = (next) => {
+		render(next);
+		goToMenu.update(goToOptions(next));
+	};
+	draw(view);
 	/** The menu list measured last: an update that keeps it drew the same rows. */
 	let measured;
 	return {
@@ -5683,7 +5959,7 @@ function mountShell(root, view, select, layerHost) {
 		topBarReady: topBar.topBarReady,
 		setTopBar: topBar.setTopBar,
 		clearTopBar: topBar.clear,
-		update: render,
+		update: draw,
 		menuGeometry() {
 			const list = rail.querySelector("ul.tmt-ui-rail-sub:not([data-placeholder])");
 			if (!list?.getClientRects().length || list === measured) return void 0;
@@ -5699,7 +5975,15 @@ function mountShell(root, view, select, layerHost) {
 			root.style.removeProperty("--tmt-ui-shell-tools-width");
 			if (!drawn) toolsRoot.remove();
 			document.removeEventListener("keydown", close);
+			document.removeEventListener("keydown", shortcut);
 			document.removeEventListener("pointerdown", outside);
+			wide.removeEventListener("change", applyRail);
+			stopRail();
+			goToMenu.dispose();
+			goTo.remove();
+			edge.remove();
+			delete root.dataset.rail;
+			setPeek(false);
 			hideTip();
 			open.remove();
 			tip.remove();
