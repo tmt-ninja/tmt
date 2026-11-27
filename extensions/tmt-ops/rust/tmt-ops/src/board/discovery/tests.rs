@@ -50,6 +50,107 @@ fn document() -> Value {
         "display":{"title":"#{run-shell:never} $(never)\nnew row\tstill one title","command":"codex","cwd":"/tmp/private","truncated":false},"adoptable":true,"expect":DIGEST
     }]})
 }
+const HERDR_SOCKET: &str = "/tmp/herdr-fixture.sock";
+
+fn herdr_document() -> Value {
+    let mut value = document();
+    value["sources"][0]["host"] = json!("herdr");
+    value["sources"][0]["socket"] = json!(HERDR_SOCKET);
+    let candidate = &mut value["candidates"][0];
+    candidate["host"] = json!("herdr");
+    candidate["socket"] = json!(HERDR_SOCKET);
+    candidate["pane"] = json!("term_abc");
+    candidate["session"] = Value::Null;
+    candidate["window"] = Value::Null;
+    candidate["target"] = json!("w1:p1");
+    value
+}
+
+#[test]
+fn discovery_checks_host_keys_and_adoption_authority() {
+    for (host, key, accepted) in [
+        ("tmux", "%3".to_owned(), true),
+        ("tmux", "term_abc".into(), false),
+        ("herdr", "term_abc".into(), true),
+        ("herdr", "-".into(), true),
+        ("herdr", "x".repeat(81), true),
+        ("herdr", "x".repeat(82), false),
+        ("herdr", String::new(), false),
+        ("herdr", "x y".into(), false),
+        ("herdr", "x\u{1b}".into(), false),
+        ("herdr", "項".into(), false),
+    ] {
+        let mut value = if host == "tmux" {
+            document()
+        } else {
+            herdr_document()
+        };
+        value["candidates"][0]["pane"] = json!(key);
+        assert_eq!(
+            ScanObservation::decode(&value).is_ok(),
+            accepted,
+            "{host} {key:?}"
+        );
+    }
+    for field in ["host", "socket"] {
+        let mut value = herdr_document();
+        value["sources"][0][field] = json!("other");
+        assert!(ScanObservation::decode(&value).is_err(), "{field}");
+    }
+    let mut value = herdr_document();
+    value["candidates"][0]["socket"] = Value::Null;
+    value["candidates"][0]["expect"] = Value::Null;
+    value["candidates"][0]["adoptable"] = json!(false);
+    let scan = ScanObservation::decode(&value).unwrap();
+    assert!(!scan.panes[0].adoptable);
+    assert!(scan.panes[0].key.socket.is_none());
+}
+
+#[test]
+fn naming_and_install_information_are_inert() {
+    let mut c = controller();
+    let mut value = document();
+    value["sources"].as_array_mut().unwrap().push(
+        json!({"host":"herdr","socket":null,"status":"unsupported","reason":"driver_not_approved"}),
+    );
+    value["candidates"][0]["display"]["agentName"] = json!("other-agent\u{1b}[31m");
+    c.observation = Some(ScanObservation::decode(&value).unwrap());
+    c.screen = Screen::Candidates;
+    assert!(
+        c.notes()
+            .iter()
+            .any(|line| line.contains("tmt driver install herdr"))
+    );
+    assert!(
+        c.rows()
+            .iter()
+            .all(|row| !row.label.contains("tmt driver install herdr"))
+    );
+    c.screen = Screen::Details;
+    let details = paint(&c, 160, 45);
+    assert!(details.contains("Host agent: other-agent"));
+    assert!(!details.contains('\u{1b}'));
+    assert!(c.choose("bind").is_none());
+    assert!(!c.existing);
+    assert!(c.editor.as_str().is_empty());
+
+    let task = bind(&mut c);
+    let Job::Bind(selection) = &task.job else {
+        panic!("expected bind")
+    };
+    let result = BindReport::decode(
+        &json!({
+            "version":1,"status":"bound","bound":true,"id":UUID,"name":"worker",
+            "pane":"%3","lifetime":"temporary","agentName":{"status":"set","name":"worker"}
+        }),
+        selection,
+        true,
+    )
+    .unwrap();
+    finished(&mut c, task, Ok(Outcome::Bind(result)));
+    assert!(paint(&c, 160, 45).contains("Host agent name: worker"));
+}
+
 fn scope() -> ScanScope {
     ScanScope {
         host: Some("tmux".into()),
