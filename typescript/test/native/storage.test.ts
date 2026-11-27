@@ -180,6 +180,7 @@ function expectNativeSchema(
     { version: 96, name: 'admit PerLaunch runtimes (pi) in retained finals' },
     { version: 97, name: 'retain standalone terminal command results' },
     { version: 98, name: 'bound channel receipt evidence to its attempt deadline' },
+    { version: 99, name: 'widen driver_state cap from 1024 to 4096 bytes' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
