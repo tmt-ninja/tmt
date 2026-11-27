@@ -652,3 +652,45 @@ fn status_with_the_fetch_off_names_the_built_in_table_and_asks_for_nothing() {
     assert!(document["pricing"].get("fetchedAtMs").is_none());
     assert_eq!(document["pricing"]["models"].as_array().unwrap().len(), 35);
 }
+
+/// An upgrade over a shape-1 cache (a v1 table, as released builds wrote it): the new
+/// binary treats it as no cache, prices from its built-in table without an error, and its
+/// next attempt replaces the file with shape 2 even when the fetch fails.
+#[test]
+fn a_shape_one_cache_left_by_an_older_build_is_no_cache_and_is_replaced() {
+    let fixture = Fixture::new();
+    let cache = fixture.0.join("state/digest/pricing");
+    fs::create_dir_all(&cache).unwrap();
+    for path in [fixture.0.join("state/digest"), cache.clone()] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let file = cache.join("fetched-v1.json");
+    let old = json!({"version": 1, "attemptedAtMs": 1_000, "fetchedAtMs": 1_000, "file": {
+        "schema": "tmt-digest-pricing-v1", "version": "2026-11-15", "asOf": "2026-11-15",
+        "basis": "standard-base-input", "models": [{"modelId": "claude-opus-5-5",
+            "usdMicrosPerMillionInputTokens": 4_000_000,
+            "source": "https://platform.claude.com/docs/en/about-claude/pricing"}]}});
+    fs::write(&file, serde_json::to_vec(&old).unwrap()).unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+    // A server that answers nothing usable: the attempt fails.
+    let server = support::PriceServer::serve(support::Reply::Body(b"not a price file".to_vec()));
+    let output = fixture
+        .command(&["status", "--json"])
+        .env("TMT_DIGEST_PRICING_URL", &server.url)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output.stderr);
+    assert!(output.stderr.is_empty());
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["pricing"]["origin"], "built-in");
+    assert_eq!(document["pricing"]["version"], "2026-11-27");
+    assert_eq!(
+        server.hits(),
+        1,
+        "a shape-1 cache does not hold the attempt back"
+    );
+    let stored: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+    assert_eq!(stored["version"], 2);
+    assert_eq!(stored["file"], Value::Null);
+    assert_eq!(stored["fetchedAtMs"], Value::Null);
+}
