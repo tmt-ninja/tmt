@@ -51,6 +51,13 @@ export function mountComposer(options: { agents: string[]; pending?: 'refuse' | 
     deviceId: id(4),
     async createChat() {
       createChats++;
+      if (options.pending === 'refuse')
+        return {
+          thread: { writer: id(4), id: id(5) },
+          message: { writer: id(4), id: id(6) },
+          threadRevision: '1',
+          messageRevision: '1',
+        };
       throw new Error('Counted');
     },
   } as unknown as ThreadBinding;

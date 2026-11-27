@@ -241,15 +241,24 @@ it('does not complete a migration under an owner session that was replaced mid-w
 it('keeps interrupted message text encrypted until its own recovery entry is cleared', async () => {
   const pending = pendingMessageStore(store(), 'page');
   const chat = await pending.retain('chat', edit('Chat recovery', { edited: true }));
-  const comment = await pending.retain('comment', edit('Comment recovery', { edited: true }));
+  const quote = { exact: 'Private destination quote', prefix: '', suffix: '' };
+  const comment = await pending.retain(
+    'comment',
+    edit('Comment recovery', { edited: true }),
+    quote,
+  );
   expect(chat).toMatch(/^unconfirmed:chat:/);
-  expect(comment).toMatch(/^unconfirmed:comment:/);
+  expect(comment).toMatch(/^unconfirmed:comment:[a-f0-9-]{36}$/);
+  expect(JSON.stringify(stored.get(RECORD))).not.toContain(quote.exact);
   expect(JSON.stringify(stored.get(RECORD))).not.toContain('recovery');
   expect((await store().load('page'))?.get(chat!)).toEqual(edit('Chat recovery', { edited: true }));
   await pending.clear(chat!);
   const restored = await store().load('page');
   expect(restored?.has(chat!)).toBe(false);
-  expect(restored?.get(comment!)).toEqual(edit('Comment recovery', { edited: true }));
+  expect(restored?.get(comment!)).toEqual({
+    ...edit('Comment recovery', { edited: true }),
+    destination: quote,
+  });
   unavailable = true;
   expect(await pending.retain('chat', edit('Must not send'))).toBeUndefined();
 });

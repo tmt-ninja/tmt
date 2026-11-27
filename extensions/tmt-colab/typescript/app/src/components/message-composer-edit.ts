@@ -11,6 +11,13 @@ export type ComposerEdit = {
   edited?: boolean;
 };
 
+/** The editor may deliver fresh snapshots of the same text and recipient tokens. */
+export function sameComposerContent(a: ComposerEdit, b: ComposerEdit): boolean {
+  return (
+    a.value === b.value && JSON.stringify(a.mentions ?? []) === JSON.stringify(b.mentions ?? [])
+  );
+}
+
 /** One parent request consumed by the mounted editor without resetting its draft. */
 export type ComposerActivation = { id: string; insertMention: boolean; consumed(): void };
 

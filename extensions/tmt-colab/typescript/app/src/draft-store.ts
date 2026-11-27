@@ -4,21 +4,35 @@ import { draftKey } from './keyring.js';
 import { open, seal, type Sealed } from './local-seal.js';
 import { MESSAGE_RECIPIENT_LIMIT } from './message-recipient.js';
 import { record } from './storage.js';
-import { COMMENT_BYTES } from './thread-records.js';
+import {
+  COMMENT_BYTES,
+  validateAnchor,
+  validateRef,
+  type DiscussionRef,
+  type ThreadAnchor,
+} from './thread-records.js';
 import { createContext } from 'react';
+
+/** Recovery metadata is stored with the draft text, never in its identifier. */
+export type StoredDraft = ComposerEdit & { destination?: DiscussionRef | ThreadAnchor };
 
 /** Recovery text is device-local and never authorizes another publication. */
 export interface PendingMessageStore {
-  retain(kind: 'chat' | 'comment', edit: ComposerEdit): Promise<string | undefined>;
+  retain(
+    kind: 'chat' | 'comment',
+    edit: ComposerEdit,
+    destination?: DiscussionRef | ThreadAnchor,
+  ): Promise<string | undefined>;
   clear(key: string): Promise<void>;
 }
 export const PendingMessageContext = createContext<PendingMessageStore | undefined>(undefined);
 
 export function pendingMessageStore(store: DraftStore, page: string): PendingMessageStore {
   return {
-    async retain(kind, edit) {
+    async retain(kind, edit, destination) {
       const key = `unconfirmed:${kind}:${crypto.randomUUID()}`;
-      return (await store.apply(page, new Map([[key, edit]]))) ? key : undefined;
+      const draft = kind === 'comment' && destination ? { ...edit, destination } : edit;
+      return (await store.apply(page, new Map([[key, draft]]))) ? key : undefined;
     },
     async clear(key) {
       await store.apply(page, new Map([[key, null]]));
@@ -40,9 +54,9 @@ const WRITE_DELAY_MS = 400;
  */
 export interface DraftStore {
   /** The saved drafts, or `undefined` when device storage cannot be read. */
-  load(page: string): Promise<ReadonlyMap<string, ComposerEdit> | undefined>;
+  load(page: string): Promise<ReadonlyMap<string, StoredDraft> | undefined>;
   /** Applies the changes (`null` removes) on top of what is stored. True only once durable. */
-  apply(page: string, changes: ReadonlyMap<string, ComposerEdit | null>): Promise<boolean>;
+  apply(page: string, changes: ReadonlyMap<string, StoredDraft | null>): Promise<boolean>;
 }
 
 /** A nonblank, deliberately edited message is a draft; a creator seed alone is not. */
@@ -50,15 +64,21 @@ export function persistable(edit: ComposerEdit): boolean {
   return edit.edited !== false && edit.value.trim() !== '';
 }
 
-function validEdit(value: unknown): ComposerEdit {
+function validEdit(value: unknown, target: string): StoredDraft {
   requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
   const fields = value as Record<string, unknown>;
   requireValue(
-    Reflect.ownKeys(fields).every((k) => k === 'value' || k === 'mentions' || k === 'edited'),
+    Reflect.ownKeys(fields).every(
+      (k) =>
+        k === 'value' ||
+        k === 'mentions' ||
+        k === 'edited' ||
+        (k === 'destination' && target.startsWith('unconfirmed:comment:')),
+    ),
   );
   const body = fields.value;
   requireValue(typeof body === 'string' && text(body).length <= COMMENT_BYTES);
-  const edit: ComposerEdit = { value: body as string };
+  const edit: StoredDraft = { value: body as string };
   if (Object.hasOwn(fields, 'edited')) {
     requireValue(typeof fields.edited === 'boolean');
     edit.edited = fields.edited as boolean;
@@ -93,27 +113,34 @@ function validEdit(value: unknown): ComposerEdit {
       };
     });
   }
+  if (Object.hasOwn(fields, 'destination')) {
+    const destination = fields.destination;
+    if (destination && typeof destination === 'object' && Object.hasOwn(destination, 'writer'))
+      validateRef(destination);
+    else validateAnchor(destination);
+    edit.destination = destination;
+  }
   return edit;
 }
 
 /** A strict, ordered decode. Any malformed entry rejects the whole record. */
-function decodeRecord(bytes: Uint8Array): Map<string, ComposerEdit> {
+function decodeRecord(bytes: Uint8Array): Map<string, StoredDraft> {
   const parsed: unknown = JSON.parse(decodeText(bytes));
   exactKeys(parsed, ['v', 'drafts']);
   const { v, drafts } = parsed as { v: unknown; drafts: unknown };
   requireValue(v === 1 && Array.isArray(drafts) && drafts.length <= DRAFTS_PER_PAGE);
-  const result = new Map<string, ComposerEdit>();
+  const result = new Map<string, StoredDraft>();
   for (const entry of drafts as unknown[]) {
     exactKeys(entry, ['target', 'edit']);
     const { target, edit } = entry as { target: unknown; edit: unknown };
     requireValue(typeof target === 'string' && target.length > 0);
     requireValue(text(target as string).length <= TARGET_BYTES && !result.has(target as string));
-    result.set(target as string, validEdit(edit));
+    result.set(target as string, validEdit(edit, target as string));
   }
   return result;
 }
 
-function encodeRecord(drafts: ReadonlyMap<string, ComposerEdit>): Uint8Array<ArrayBuffer> {
+function encodeRecord(drafts: ReadonlyMap<string, StoredDraft>): Uint8Array<ArrayBuffer> {
   return text(
     JSON.stringify({
       v: 1,
@@ -123,13 +150,13 @@ function encodeRecord(drafts: ReadonlyMap<string, ComposerEdit>): Uint8Array<Arr
 }
 
 /** The newest drafts that fit the per-page count and byte bounds. */
-function bounded(drafts: Map<string, ComposerEdit>): Map<string, ComposerEdit> {
+function bounded(drafts: Map<string, StoredDraft>): Map<string, StoredDraft> {
   while (
     drafts.size > DRAFTS_PER_PAGE ||
     (drafts.size > 1 && encodeRecord(drafts).length > RECORD_BYTES)
   ) {
-    // Never silently evict an interrupted send. Refuse another recovery write instead if all
-    // entries are unconfirmed; sending itself remains available.
+    // Never silently evict an interrupted send. Refuse another recovery write if all entries
+    // are unconfirmed. A deliberate second Send can still publish without recovery.
     const oldest = [...drafts.keys()].find((key) => !key.startsWith('unconfirmed:'));
     if (oldest === undefined) throw new Error('Unconfirmed messages fill draft storage');
     drafts.delete(oldest);
@@ -149,7 +176,7 @@ export class LocalDraftStore implements DraftStore {
   #record(page: string) {
     return `drafts:${this.space}:${this.device}:${page}`;
   }
-  async #read(page: string): Promise<Map<string, ComposerEdit>> {
+  async #read(page: string): Promise<Map<string, StoredDraft>> {
     const stored = await record<Sealed>(this.#record(page));
     if (stored === undefined) return new Map();
     try {
@@ -169,7 +196,7 @@ export class LocalDraftStore implements DraftStore {
       return undefined;
     }
   }
-  async apply(page: string, changes: ReadonlyMap<string, ComposerEdit | null>) {
+  async apply(page: string, changes: ReadonlyMap<string, StoredDraft | null>) {
     try {
       return await navigator.locks.request(`colab-drafts:${this.#record(page)}`, async () => {
         const drafts = await this.#read(page);
@@ -179,16 +206,19 @@ export class LocalDraftStore implements DraftStore {
           if (edit !== null)
             drafts.set(
               target,
-              validEdit({
-                ...edit,
-                ...(edit.mentions
-                  ? {
-                      mentions: edit.mentions.map(
-                        ({ defaultCreator: _defaultCreator, ...mention }) => mention,
-                      ),
-                    }
-                  : {}),
-              }),
+              validEdit(
+                {
+                  ...edit,
+                  ...(edit.mentions
+                    ? {
+                        mentions: edit.mentions.map(
+                          ({ defaultCreator: _defaultCreator, ...mention }) => mention,
+                        ),
+                      }
+                    : {}),
+                },
+                target,
+              ),
             );
         }
         const kept = bounded(drafts);

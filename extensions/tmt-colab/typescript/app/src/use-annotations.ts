@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { ComposerEdit } from './components/message-composer-edit.js';
-import { DraftSession } from './draft-store.js';
+import { DraftSession, type StoredDraft } from './draft-store.js';
 import { usePageEnvironment } from './page-environment.js';
 import type { mountRenderer } from './renderer.js';
 import type { SelectionRect, UnsentHighlight } from './renderer.js';
@@ -82,7 +82,7 @@ export function useAnnotations({
   annotationRef.current = annotation;
   const popover = useRef<HTMLElement>(null);
   // An unsent draft lives in memory for this page only: never stored, never sent to the frame.
-  const drafts = useRef(new Map<string, ComposerEdit>());
+  const drafts = useRef(new Map<string, StoredDraft>());
   // Device-local persistence behind `drafts`: it restores text only and never sends or opens.
   const session = useRef<DraftSession | undefined>(undefined);
   const [draftsReady, setDraftsReady] = useState(!transport.drafts);
@@ -310,11 +310,13 @@ export function useAnnotations({
     if (revealInPage) renderer.current?.scrollAnchor(id);
   }
   /** An annotation's send recorded its thread: that window now shows the thread, shown or not. */
-  function continueAnnotation(key: string, ref: DiscussionRef) {
+  function continueAnnotation(key: string, ref: DiscussionRef, nextDraft?: ComposerEdit) {
     const value = annotationsRef.current.find((item) => item.key === key);
     if (!value) return;
     if (unsent.current.delete(key)) setSendVersion((n) => n + 1);
     keepDraft(JSON.stringify(value.selector), null);
+    if (nextDraft?.value.trim() && nextDraft.edited !== false)
+      keepDraft(`${ref.writer}:${ref.id}`, nextDraft);
     // The passage is the thread's mark now: the text selection and its Annotate control go.
     if (currentSelector.current && renderer.current) {
       clearingSent.current = true;

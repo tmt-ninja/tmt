@@ -12,7 +12,7 @@ import {
 } from 'lexical';
 import { resolveMessageMentions } from '../message-recipient.js';
 import { Listbox } from './listbox.js';
-import type { MessageComposerProps } from './message-composer-edit.js';
+import { sameComposerContent, type MessageComposerProps } from './message-composer-edit.js';
 import { MessageMentionContext, MessageMentionView } from './message-mention-chip.js';
 import { AgentChip } from './agent-chip.js';
 import {
@@ -54,11 +54,7 @@ const messageDocument = {
   replace(edit: ComposerEdit) {
     $replaceMessage(edit.value, edit.mentions);
   },
-  equal(a: ComposerEdit, b: ComposerEdit) {
-    return (
-      a.value === b.value && JSON.stringify(a.mentions ?? []) === JSON.stringify(b.mentions ?? [])
-    );
-  },
+  equal: sameComposerContent,
 };
 
 function MessageField(props: MessageComposerProps) {

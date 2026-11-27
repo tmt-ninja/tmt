@@ -6,6 +6,7 @@ import { BrowserAction, BrowserIconAction, type BrowserActionProps } from '@tmt/
 import { ArrowUp } from 'lucide-react';
 import {
   Fragment,
+  useCallback,
   useContext,
   useEffect,
   useId,
@@ -21,10 +22,11 @@ import { useAgentDirectory } from './agent-directory.js';
 import { AgentChip, agentSentence, agentsSentence } from './components/agent-chip.js';
 import { MessageComposer } from './components/message-composer.js';
 import { MessageToolbar } from './components/message-toolbar.js';
-import type {
-  ComposerActivation,
-  ComposerEdit,
-  ComposerRecovery,
+import {
+  sameComposerContent,
+  type ComposerActivation,
+  type ComposerEdit,
+  type ComposerRecovery,
 } from './components/message-composer-edit.js';
 import type { CreatorTarget } from './creator-default.js';
 import { messageRecipient } from './message-recipient.js';
@@ -36,6 +38,7 @@ import {
   type MessageSendReference,
   type MessageSendStage,
 } from './message-send-refusal.js';
+import { byteLength } from './closed.js';
 import { text } from './strings.js';
 import { CommentSendFailures } from './comment-send-failures.js';
 import { NoticeLine } from './components/notice-line.js';
@@ -47,6 +50,7 @@ import { captureConversation } from './thread-store.js';
 import { PendingMessageContext } from './draft-store.js';
 import {
   anchorContext,
+  COMMENT_BYTES,
   type DiscussionRef,
   type ThreadAnchor,
   type ThreadView,
@@ -114,7 +118,7 @@ export function AnnotationInput({
   archived?: boolean;
   cancel(): void;
   showCancel?: boolean;
-  committed(ref: DiscussionRef): void;
+  committed(ref: DiscussionRef, nextDraft?: ComposerEdit): void;
 }) {
   const presentation = useContext(ConversationPresentation);
   const chat = presentation === 'chat';
@@ -174,12 +178,25 @@ export function AnnotationInput({
   }
   const [resetKey, setResetKey] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [retention, setRetention] = useState<'pending' | 'failed'>();
+  const warnBeforeLeaving = useCallback((event: BeforeUnloadEvent) => {
+    event.preventDefault();
+    event.returnValue = true;
+  }, []);
+  useEffect(
+    () => () => window.removeEventListener('beforeunload', warnBeforeLeaving),
+    [warnBeforeLeaving],
+  );
   // While an echo shows the send, the composer stays as it is: no grey, no busy mark.
   const [echoing, setEchoing] = useState(false);
   const latestEdit = useRef(edit);
   latestEdit.current = edit;
   // The draft a failed row holds. While it exists the composer is inert; only Retry and Edit act.
-  const [unsent, setUnsent] = useState<{ edit: ComposerEdit; echo: MessageEcho }>();
+  const [unsent, setUnsent] = useState<{
+    edit: ComposerEdit;
+    echo: MessageEcho;
+    retained?: string;
+  }>();
   const unsentRef = useRef(unsent);
   unsentRef.current = unsent;
   const reportUnsent = useRef(onUnsent);
@@ -323,7 +340,9 @@ export function AnnotationInput({
   nextDraft.current = freshEdit;
   function clearDraft() {
     initialized.current = true;
-    setEdit(nextDraft.current());
+    const fresh = nextDraft.current();
+    latestEdit.current = fresh;
+    setEdit(fresh);
     setResetKey((key) => key + 1);
   }
   /** Edit: the failed row's full draft moves back into this composer and the row goes. */
@@ -364,7 +383,7 @@ export function AnnotationInput({
     let origin: Awaited<ReturnType<ThreadBinding['create']>> | undefined;
     let echoed: MessageEcho | undefined;
     let failedReference: MessageSendReference | undefined;
-    let retained: Promise<string | undefined> | undefined;
+    let retained: string | undefined;
     // With an echo, a failure before the record is reported once, on the failed row.
     const fail = (reference: MessageSendReference) => {
       if (echoed && !origin) failedReference = reference;
@@ -394,11 +413,26 @@ export function AnnotationInput({
       ownsSend = true;
       setFailures([]);
       setBusy(true);
-      if (pendingMessages) {
-        // Recovery is best effort: an unavailable or slow local store never holds up Send.
-        retained = pendingMessages
-          .retain(chat ? 'chat' : 'comment', { ...current, edited: true })
+      const oversized = byteLength(captured.value) > COMMENT_BYTES;
+      retained = fromUnsentRow ? unsentRef.current?.retained : undefined;
+      // After a refusal, an explicit second Send acknowledges the missing recovery copy.
+      if (!oversized && pendingMessages && !retained && retention !== 'failed') {
+        // The echo may replace the composer only after its text is recoverable on reload.
+        window.addEventListener('beforeunload', warnBeforeLeaving);
+        setRetention('pending');
+        retained = await pendingMessages
+          .retain(
+            chat ? 'chat' : 'comment',
+            { ...current, edited: true },
+            captured.thread ?? captured.anchor ?? undefined,
+          )
           .catch(() => undefined);
+        if (!retained) {
+          setRetention('failed');
+          return;
+        }
+        window.removeEventListener('beforeunload', warnBeforeLeaving);
+        setRetention(undefined);
       }
       if (echoHost) {
         const retried = unsentRef.current;
@@ -422,7 +456,13 @@ export function AnnotationInput({
         if (retried) echoed = { ...echoed, local: retried.echo.local, at: retried.echo.at };
         echoHost.show(echoed);
         setEchoing(true);
-        if (current.value === latestEdit.current.value) clearDraft();
+        if (sameComposerContent(current, latestEdit.current)) clearDraft();
+      }
+      // Oversized text cannot reach the discussion writer or its encrypted recovery store.
+      // It still gets the same local failed row and Edit path as a refused comment record.
+      if (oversized) {
+        fail('S12');
+        return;
       }
       stage = 'attachments';
       const prepared = await files.prepare();
@@ -437,12 +477,11 @@ export function AnnotationInput({
         : chat
           ? await discussion!.createChat(captured.value, attach)
           : await discussion!.create(captured.value, captured.anchor, attach);
-      if (retained)
-        void retained
-          .then((key) => {
-            if (key) return pendingMessages?.clear(key);
-          })
-          .catch(() => {});
+      if (retained) void pendingMessages?.clear(retained).catch(() => {});
+      if (retention === 'failed') {
+        window.removeEventListener('beforeunload', warnBeforeLeaving);
+        setRetention(undefined);
+      }
       onRecorded?.();
       stage = 'dispatch';
       if (echoed) {
@@ -474,9 +513,12 @@ export function AnnotationInput({
       );
       if (echoed) echoed = { ...echoed, deliveries };
       failures.forEach(recordFailure);
-      if (!echoed) clearDraft();
+      if (!echoed && sameComposerContent(current, latestEdit.current)) clearDraft();
       setError(undefined);
-      committed(origin.thread);
+      committed(
+        origin.thread,
+        sameComposerContent(current, latestEdit.current) ? undefined : latestEdit.current,
+      );
     } catch (failure) {
       if (!origin && failure instanceof AttachmentStaleError) {
         files.stale(failure.attachmentIds);
@@ -485,7 +527,7 @@ export function AnnotationInput({
       }
       fail(origin ? 'S13' : messageSendFailureReference(stage, failure));
       if (origin) {
-        if (!echoed) clearDraft();
+        if (!echoed && sameComposerContent(current, latestEdit.current)) clearDraft();
         setRecorded(origin.thread);
       }
     } finally {
@@ -507,7 +549,7 @@ export function AnnotationInput({
           },
         };
         echoHost?.show(failed);
-        unsentRef.current = { edit: current, echo: failed };
+        unsentRef.current = { edit: current, echo: failed, retained };
         setUnsent(unsentRef.current);
         // Reported directly: a composer closed mid-send never runs the draft effect again.
         onDraft?.(current.value, current);
@@ -528,15 +570,17 @@ export function AnnotationInput({
     >
       {connectionPresentation
         ? connectionPresentation.body
-        : unsent
-          ? text.messageUnsentFirst
-          : recoveryRequired
-            ? text.sendOnHold
-            : binding && directory.state === 'loading'
-              ? text.messageAgentsChecking
-              : binding && directory.state === 'failed'
-                ? `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
-                : status}
+        : retention === 'failed'
+          ? text.draftsNotSaved
+          : unsent
+            ? text.messageUnsentFirst
+            : recoveryRequired
+              ? text.sendOnHold
+              : binding && directory.state === 'loading'
+                ? text.messageAgentsChecking
+                : binding && directory.state === 'failed'
+                  ? `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
+                  : status}
       {!busy &&
         !recoveryRequired &&
         !connectionPresentation &&
@@ -581,17 +625,17 @@ export function AnnotationInput({
       </section>
     );
   // A send in flight fences the composer without greying it; any other reason keeps the disabled look.
-  const inFlight = busy && !echoing,
+  const inFlight = busy && !echoing && retention !== 'pending',
     inert = !!unsent || (blocked && !recoveryRequired) || !!recorded || !discussion;
   const sendActionProps = {
     type: 'button',
     label: text.askSend,
     variant: 'primary',
-    busy: busy && !echoing,
+    busy: inFlight,
     disabled:
       !!messageSendRefusal({
         ...sendGate(edit, decision.allowed, !!decision.agents.length),
-        sending: busy,
+        sending: busy && retention !== 'pending',
       }) ||
       !!unsent ||
       staged.chips.some((chip) => chip.state.kind === 'uploading'),
@@ -627,6 +671,10 @@ export function AnnotationInput({
           setEdit({ ...next, edited: !seedOnly });
           // Mention normalization can report a new edit object without any deliberate text edit.
           if (next.value !== value) setError(undefined);
+          if (!next.value.trim() && retention === 'failed') {
+            window.removeEventListener('beforeunload', warnBeforeLeaving);
+            setRetention(undefined);
+          }
         }}
         label={text.messageLabel}
         placeholder={text.messagePlaceholder}
