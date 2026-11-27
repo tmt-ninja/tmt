@@ -272,10 +272,7 @@ fn full_progress_sink() -> (
 
 #[test]
 fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
-    use crate::process::{
-        CLEANUP_TIMEOUT, ShellControl,
-        runtime::{ProcessObservation, observe_runtime_process},
-    };
+    use crate::process::{CLEANUP_TIMEOUT, ShellControl, runtime::observe_runtime_process};
 
     let root = TestDirectory::new();
     let pidfile = root.path.join("child");
@@ -288,6 +285,8 @@ fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
     let (_reader, writer) = full_progress_sink();
     let timeout = Duration::from_secs(2);
     let mut attempted = false;
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let mut member_exit = None;
     let started = Instant::now();
     let result = UnixCommandRunner
         .run_shell_in_interrupt(
@@ -298,7 +297,17 @@ fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
             ShellControl {
                 output: Some(&mut |_, _bytes, deadline, cancelled| {
                     attempted = true;
-                    assert!(kill(read_pid(&member_file), None).is_ok());
+                    let member = read_pid(&member_file);
+                    assert!(kill(member, None).is_ok());
+                    assert_eq!(
+                        nix::unistd::getpgid(Some(member)).unwrap(),
+                        read_pid(&pidfile),
+                        "the fixture member must belong to the shell's group"
+                    );
+                    #[cfg(any(target_os = "linux", target_os = "macos"))]
+                    {
+                        member_exit = Some(MemberExit::watch(member));
+                    }
                     crate::framed_stdio::publish_progress(
                         &writer,
                         b"progress",
@@ -320,18 +329,95 @@ fn shell_output_backpressure_cannot_outlive_the_command_deadline() {
         elapsed <= timeout + CLEANUP_TIMEOUT + CLEANUP_WAIT,
         "back-pressure exceeded the deadline and reap allowance: {elapsed:?}"
     );
-    assert!(
-        matches!(
-            observe_runtime_process(
-                &UnixCommandRunner,
-                read_pid(&member_file).as_raw() as u64,
-                Instant::now() + CLEANUP_WAIT,
-            )
-            .unwrap(),
-            ProcessObservation::Gone,
-        ),
-        "a live member survived verified group cleanup"
-    );
+    let member = read_pid(&member_file).as_raw() as u64;
+    let deadline = Instant::now() + CLEANUP_WAIT;
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        // Reaping the leader does not wait for the member to exit. Leave time
+        // within the same budget for a diagnostic if its exit event is missing.
+        let budget = deadline.saturating_duration_since(Instant::now());
+        let exited = member_exit
+            .expect("registered the member before blocking")
+            .exited(budget.saturating_sub(POLL_INTERVAL));
+        assert!(
+            matches!(exited, Ok(true)),
+            "no member exit after group cleanup: event {exited:?}, observed {:?}",
+            observe_runtime_process(&UnixCommandRunner, member, deadline)
+        );
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let observed = observe_runtime_process(&UnixCommandRunner, member, deadline).unwrap();
+        assert_eq!(
+            observed,
+            crate::process::runtime::ProcessObservation::Gone,
+            "a member survived group cleanup"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct MemberExit(std::os::fd::OwnedFd);
+
+#[cfg(target_os = "linux")]
+impl MemberExit {
+    fn watch(member: Pid) -> Self {
+        use rustix::process::{PidfdFlags, pidfd_open};
+        let member = rustix::process::Pid::from_raw(member.as_raw()).unwrap();
+        Self(pidfd_open(member, PidfdFlags::empty()).unwrap())
+    }
+
+    fn exited(self, budget: Duration) -> rustix::io::Result<bool> {
+        use rustix::event::{PollFd, PollFlags, Timespec, poll};
+        let mut interest = [PollFd::new(&self.0, PollFlags::IN)];
+        let ready = poll(&mut interest, Some(&Timespec::try_from(budget).unwrap()))?;
+        Ok(ready == 1
+            && interest[0]
+                .revents()
+                .intersects(PollFlags::IN | PollFlags::HUP))
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct MemberExit {
+    queue: nix::sys::event::Kqueue,
+    registration: nix::sys::event::KEvent,
+}
+
+#[cfg(target_os = "macos")]
+impl MemberExit {
+    fn watch(member: Pid) -> Self {
+        use nix::sys::event::{EvFlags, EventFilter, FilterFlag, KEvent, Kqueue};
+        let queue = Kqueue::new().unwrap();
+        let registration = KEvent::new(
+            usize::try_from(member.as_raw()).unwrap(),
+            EventFilter::EVFILT_PROC,
+            EvFlags::EV_ADD | EvFlags::EV_ONESHOT,
+            FilterFlag::NOTE_EXIT,
+            0,
+            0,
+        );
+        queue.kevent(&[registration], &mut [], None).unwrap();
+        Self {
+            queue,
+            registration,
+        }
+    }
+
+    fn exited(self, budget: Duration) -> nix::Result<bool> {
+        use nix::libc::timespec;
+        use nix::sys::event::{EvFlags, FilterFlag};
+        let mut events = [self.registration];
+        let timeout = timespec {
+            tv_sec: i64::try_from(budget.as_secs()).unwrap(),
+            tv_nsec: budget.subsec_nanos().into(),
+        };
+        let ready = self.queue.kevent(&[], &mut events, Some(timeout))?;
+        Ok(ready == 1
+            && events[0].ident() == self.registration.ident()
+            && !events[0].flags().contains(EvFlags::EV_ERROR)
+            && events[0].fflags().contains(FilterFlag::NOTE_EXIT))
+    }
 }
 
 #[test]
