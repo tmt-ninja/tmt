@@ -980,11 +980,21 @@ exec /opt/tmt-tests/claude "$@"
         writeSync(acquireFd, Buffer.from('go'));
         acquireReleased = true;
         await waitForFileContent(held, { description: 'launcher holding SQLite close lock' });
-        const locked = new Database(path.join(fixture.globalDir, 'tmt.db'), { timeout: 0 });
+        // The close holds only the log's checkpointer lock (#6313): a reader is
+        // never blocked, but another checkpoint is, so a launcher suspended here
+        // would stall every other process's checkpoint until it resumes.
+        const peer = new Database(path.join(fixture.globalDir, 'tmt.db'), { timeout: 0 });
         try {
-          expect(() => locked.prepare('SELECT * FROM bindings').all()).toThrow(/locked/);
+          expect(
+            (peer.prepare('SELECT pane_id FROM bindings').all() as { pane_id: string }[]).map(
+              (row) => row.pane_id
+            )
+          ).toContain(pane);
+          expect(peer.pragma('wal_checkpoint(PASSIVE)')).toEqual([
+            { busy: 1, log: -1, checkpointed: -1 },
+          ]);
         } finally {
-          locked.close();
+          peer.close();
         }
         const signalBit = (pid: number, field: string, signal: number) => {
           const value = readFileSync(`/proc/${pid}/status`, 'utf8').match(
@@ -1026,6 +1036,14 @@ exec /opt/tmt-tests/claude "$@"
         expect(processTreeHasOpenFile(first.owner, path.join(fixture.globalDir, 'tmt.db'))).toBe(
           false
         );
+        const released = new Database(path.join(fixture.globalDir, 'tmt.db'), { timeout: 0 });
+        try {
+          expect((released.pragma('wal_checkpoint(PASSIVE)') as { busy: number }[])[0]?.busy).toBe(
+            0
+          );
+        } finally {
+          released.close();
+        }
         expect(signalBit(first.owner, 'SigBlk', 20)).toBe(false);
         expect(signalBit(first.owner, 'SigIgn', 20)).toBe(false);
         expect(signalBit(first.owner, 'SigCgt', 20)).toBe(false);
