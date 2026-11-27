@@ -52,7 +52,6 @@ export const describedModules: ShellAnswer = {
   modules: [
     module('colab', 'Colab', 1),
     module('remote', 'Remote', 2),
-    module('ops', 'Ops', 3),
     module('digest', 'Digest', 4),
   ],
 };

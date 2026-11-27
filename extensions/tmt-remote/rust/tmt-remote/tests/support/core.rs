@@ -70,10 +70,8 @@ if args[0]=='check':
 wire=json.load(sys.stdin)
 receipt_file=root/('receipt-'+wire.get('input',{}).get('operationId','') if (root/'multi').exists() else 'receipt')
 with (root/'calls').open('a') as f: f.write(json.dumps(wire)+'\n')
-if wire['operation'] in ('identities.status','requests.list','requests.show','orchestration.read','dispatch.show','user.person','forms.list','changes.cursor'):
-    selected=root/'observation-operation'
-    if (not selected.exists() and wire['operation']!='user.person') or (selected.exists() and selected.read_text()==wire['operation']):
-        observation_gate()
+if wire['operation'] in ('identities.status','requests.show','dispatch.show'):
+    observation_gate()
 if wire['operation']=='storage.root':
     print(json.dumps({'dataRoot':(root/'storage-root').read_text()}));sys.exit(0)
 if wire['operation']=='dispatch.show':
@@ -82,7 +80,7 @@ if wire['operation']=='dispatch.show':
         print(json.dumps({'error':{'code':'DISPATCH_NOT_FOUND','message':'absent'}}));sys.exit(1)
 elif wire['operation']=='dispatch.create':
     if (root/'dispatch-error').exists():
-        print(json.dumps({'error':{'code':(root/'dispatch-error').read_text(),'message':'fixture roster refused'}}));sys.exit(1)
+        print(json.dumps({'error':{'code':(root/'dispatch-error').read_text(),'message':'fixture dispatch refused'}}));sys.exit(1)
     if (root/'gate').exists():
         (root/'entered').write_text('blocked')
         with (root/'gate').open() as gate: gate.readline()
@@ -96,35 +94,6 @@ elif wire['operation']=='dispatch.create':
     if (root/'lost').exists(): print('broken')
     else:
         receipt['wake']={'status':'uncertain','paneAttempted':True};print(json.dumps(receipt))
-elif wire['operation'] in ('terminal.list','terminal.open','terminal.run'):
-    op=wire['operation']
-    ident=wire['input']['identityId']
-    term='term_'+'1'*32
-    if op=='terminal.list':
-        assert set(wire['input'])=={'identityId'}
-        print(json.dumps({'identityId':ident,'terminals':[{'terminalId':term,'busy':False,'socket':'private-socket'}]}))
-    elif op=='terminal.open':
-        assert set(wire['input'])=={'identityId'}
-        if (root/'terminal-open-lost').exists():
-            print(json.dumps({'error':{'code':'TERMINAL_OPEN_UNCONFIRMED','message':'Terminal startup could not be confirmed','terminalId':term}}));sys.exit(1)
-        print(json.dumps({'identityId':ident,'terminalId':term,'directory':'private-directory'}))
-    else:
-        assert set(wire['input'])=={'identityId','terminalId','command'}
-        if (root/'terminal-lost').exists(): print('broken')
-        else: print(json.dumps({'identityId':ident,'terminalId':wire['input']['terminalId'],'submitted':True}))
-elif wire['operation']=='forms.list':
-    forms=json.loads((root/'forms').read_text()) if (root/'forms').exists() else {'forms':[]}
-    selected=wire.get('input',{}).get('identityId')
-    if selected: forms['forms']=[f for f in forms['forms'] if f['identityId']==selected]
-    print(json.dumps(forms))
-elif wire['operation']=='changes.cursor':
-    print((root/'forms-cursor').read_text() if (root/'forms-cursor').exists() else json.dumps({'cursor':7,'usage':3}))
-elif wire['operation']=='forms.answer':
-    assert set(wire['input'])=={'formId','answer'}
-    if (root/'forms-error').exists():
-        code,message=(root/'forms-error').read_text().split('|',1)
-        print(json.dumps({'error':{'code':code,'message':message}}));sys.exit(1)
-    print(json.dumps({'formId':wire['input']['formId'],'delivered':True}))
 elif wire['operation']=='user.identity':
     if (root/'identity-error').exists():
         code,message=(root/'identity-error').read_text().split('|',1)
@@ -132,16 +101,8 @@ elif wire['operation']=='user.identity':
     person={'identityId':'22222222-2222-4222-8222-222222222222','name':'owner','created':False}
     if (root/'identity-renamed').exists(): person.update({'name':'owner-user','renamedFrom':'owner'})
     print(json.dumps(person))
-elif wire['operation']=='user.person':
-    if (root/'person-error').exists():
-        print(json.dumps({'error':{'code':'API_UNAVAILABLE','message':'person unavailable'}}));sys.exit(1)
-    print((root/'person').read_text() if (root/'person').exists() else json.dumps({'person':{'identityId':'22222222-2222-4222-8222-222222222222','name':'owner'}}))
 elif wire['operation']=='identities.status':
     print(json.dumps({'identities':[{'id':id,'found':True,'status':{'state':'stale'}} for id in wire['input']['identityIds']]}))
-elif wire['operation']=='requests.list':
-    if (root/'conversation-error').exists():
-        print(json.dumps({'error':{'code':'API_INPUT_INVALID','message':(root/'conversation-error').read_text()}}));sys.exit(1)
-    print((root/'conversation').read_text())
 elif wire['operation']=='requests.show':
     final_path=root/('final-'+wire['input']['requestId'])
     if not final_path.exists(): final_path=root/'final'
@@ -149,16 +110,6 @@ elif wire['operation']=='requests.show':
     if (root/'prompt').exists(): detail['prompt']=json.loads((root/'prompt').read_text())
     if (root/'message-state').exists(): detail['messageState']=json.loads((root/'message-state').read_text())
     print(json.dumps(detail))
-elif wire['operation'] in ('orchestration.read','orchestration.write'):
-    if (root/'orchestration-error').exists():
-        code,message=(root/'orchestration-error').read_text().split('|',1)
-        print(json.dumps({'error':{'code':code,'message':message}}));sys.exit(1)
-    if wire['operation']=='orchestration.read' and wire['input'].get('view')=='plans' and (root/'orchestration-plans').exists():
-        print((root/'orchestration-plans').read_text())
-    elif wire['operation']=='orchestration.write' and (root/'orchestration-write').exists():
-        print((root/'orchestration-write').read_text())
-    else:
-        print(json.dumps({'echo':wire['input']}))
 elif wire['operation']=='requests.sendNow':
     answer=(root/'send-now').read_text() if (root/'send-now').exists() else 'ok|sent'
     kind,value=answer.split('|',1)

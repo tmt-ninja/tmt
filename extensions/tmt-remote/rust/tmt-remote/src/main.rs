@@ -957,30 +957,15 @@ fn approval_command(action: &str, arguments: &clap::ArgMatches) -> Result<(), Re
         }
         if !json_output {
             let terminal = output.terminal();
-            let mut details = vec![
+            let details = [
                 ("device", event["deviceName"].as_str().unwrap_or("").into()),
                 ("source", event["clientId"].as_str().unwrap_or("").into()),
                 (
                     "recipient",
-                    event["recipientIds"]
-                        .as_array()
-                        .map(|ids| {
-                            ids.iter()
-                                .filter_map(serde_json::Value::as_str)
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        })
-                        .unwrap_or_else(|| event["recipientId"].as_str().unwrap_or("").to_owned()),
+                    event["recipientId"].as_str().unwrap_or("").into(),
                 ),
                 ("message", event["message"].as_str().unwrap_or("").into()),
             ];
-            if let Some(room) = event["room"]["roomId"].as_str() {
-                details.push(("room", room.to_owned()));
-                details.push((
-                    "kind",
-                    event["kind"].as_str().unwrap_or("request").to_owned(),
-                ));
-            }
             tmt_cli_style::detail::write(&mut output, terminal, "HELD MESSAGE", &details)?;
             output.flush()?;
             let mut prompt = tmt_cli_style::stream::stderr();
@@ -1510,13 +1495,6 @@ mod tests {
                 "--json",
             ],
             vec!["tmt-remote", "members", "designate", "client-id", "--json"],
-            vec![
-                "tmt-remote",
-                "members",
-                "terminal-command",
-                "client-id",
-                "on",
-            ],
             vec!["tmt-remote", "members", "undesignate", "--json"],
         ] {
             assert!(grammar().try_get_matches_from(words).is_ok());
@@ -1537,6 +1515,17 @@ mod tests {
         ] {
             assert!(grammar().try_get_matches_from(words).is_err());
         }
+        assert!(
+            grammar()
+                .try_get_matches_from([
+                    "tmt-remote",
+                    "members",
+                    "terminal-command",
+                    "client-id",
+                    "on"
+                ])
+                .is_err()
+        );
         let help = grammar().render_long_help().to_string();
         assert!(!help.contains("\n  devices "));
         assert!(help.contains("members"));

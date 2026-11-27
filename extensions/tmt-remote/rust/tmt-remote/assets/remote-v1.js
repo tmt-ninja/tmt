@@ -10,16 +10,196 @@ var __exportAll = (all, no_symbols) => {
 	return target;
 };
 //#endregion
+//#region src/service-commands.ts
+/** Copy-only terminal references. Native grammar tests admit the same product catalog. */
+var serviceCommands = Object.freeze({
+	status: "tmt remote status --layers",
+	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
+	deploy: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
+	nodeVersion: "node --version",
+	firebaseVersion: "firebase --version",
+	firebaseInstall: "npm install -g firebase-tools@15.29.0",
+	firebaseLogin: "firebase login",
+	join: "tmt remote join <code>"
+});
+//#endregion
+//#region src/invite-page.ts
+/** Instructions only. Parsing is not authentication; native join owns admission. */
+var MAX_BYTES = 12288;
+var MAX_INVITATION_INPUT = Math.ceil(MAX_BYTES * 4 / 3) + 2048;
+var UUID$5 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+function valid$7(condition) {
+	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+}
+function object$3(value, keys) {
+	valid$7(value !== null && typeof value === "object" && !Array.isArray(value));
+	const row = value;
+	valid$7(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
+	return row;
+}
+function bytes(value, length) {
+	valid$7(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
+	valid$7(length === void 0 || value.length === length);
+	valid$7(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
+	return new Uint8Array(value);
+}
+function hasControl(value) {
+	return Array.from(value).some((char) => {
+		const point = char.codePointAt(0);
+		return point < 32 || point >= 127 && point <= 159;
+	});
+}
+var utf8$2 = new TextDecoder("utf-8", { fatal: true });
+/** Reads the native v2 carrier unchanged, with no network or authority inference. */
+function decodeDetails(token, now) {
+	valid$7(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
+	valid$7(/^[A-Za-z0-9_-]+$/.test(token));
+	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
+	const raw = atob(encoded);
+	valid$7(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
+	const text = utf8$2.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+	const value = JSON.parse(text);
+	valid$7(JSON.stringify(value) === text);
+	const invite = object$3(value, [
+		"version",
+		"context",
+		"publicConfig",
+		"machineName",
+		"code"
+	]);
+	valid$7(invite.version === 2);
+	bytes(invite.code, 16);
+	valid$7(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
+	const context = object$3(invite.context, [
+		"binding",
+		"owner",
+		"owner_key",
+		"offer",
+		"nonce",
+		"issued_at_ms",
+		"expires_at_ms"
+	]);
+	valid$7(typeof context.owner === "string" && UUID$5.test(context.owner));
+	valid$7(typeof context.offer === "string" && UUID$5.test(context.offer));
+	bytes(context.owner_key, 32);
+	bytes(context.nonce, 16);
+	const issued = context.issued_at_ms;
+	const expiry = context.expires_at_ms;
+	valid$7(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
+	valid$7(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
+	valid$7(issued <= now + 6e4 && now < expiry);
+	const binding = object$3(context.binding, [
+		"backend",
+		"reference",
+		"owner_principal"
+	]);
+	valid$7(binding.backend === "firestore");
+	const project = utf8$2.decode(bytes(binding.reference));
+	const principal = utf8$2.decode(bytes(binding.owner_principal));
+	valid$7(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
+	const config = invite.publicConfig;
+	valid$7(config !== null && typeof config === "object" && !Array.isArray(config));
+	valid$7(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
+	valid$7(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
+	valid$7(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
+	valid$7(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
+	return {
+		owner: context.owner,
+		offer: context.offer,
+		expiry
+	};
+}
+/** Public carrier facts only; these do not authenticate the inviter or grant access. */
+function invitationDetails(token, now = Date.now()) {
+	try {
+		return decodeDetails(token, now);
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+function invitationExpiry(token, now = Date.now()) {
+	try {
+		return invitationDetails(token, now).expiry;
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+/** Accept a native code or its hosted /join link without fetching or trusting the origin. */
+function invitationFromInput(input, now = Date.now()) {
+	try {
+		valid$7(input.length <= MAX_INVITATION_INPUT);
+		const value = input.trim();
+		let token = value;
+		if (value.includes("://")) {
+			const url = new URL(value);
+			valid$7((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && url.pathname === "/join" && !url.search && url.hash.length > 1);
+			token = url.hash.slice(1);
+		}
+		return {
+			token,
+			expiry: invitationExpiry(token, now)
+		};
+	} catch {
+		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
+	}
+}
+/** Copy the validated native command; this never runs a command or reads the provider. */
+async function copyInvitation(token) {
+	invitationExpiry(token);
+	await navigator.clipboard.writeText(serviceCommands.join.replace("<code>", token));
+}
+/** Owns one memory-only interaction; the bootstrap erases the fragment first. */
+function invitePage(initialToken) {
+	const button = document.getElementById("invite-copy");
+	const status = document.getElementById("invite-status");
+	const feedback = document.getElementById("invite-feedback");
+	let token = initialToken;
+	initialToken = "";
+	let disposed = false;
+	let timer;
+	const clear = () => {
+		disposed = true;
+		token = "";
+		button.disabled = true;
+		feedback.textContent = "";
+		if (timer !== void 0) clearTimeout(timer);
+		button.removeEventListener("click", copy);
+	};
+	const copy = async () => {
+		if (disposed) return;
+		try {
+			await copyInvitation(token);
+			if (!disposed) feedback.textContent = "Command copied. Run it in your terminal.";
+		} catch {
+			if (!disposed) feedback.textContent = "Could not copy. Use the original code in your terminal, or ask your inviter for a new one.";
+		}
+	};
+	try {
+		const expiry = invitationExpiry(token);
+		status.textContent = "Copy the command to continue in your terminal. This page has not checked whether the invitation is still available.";
+		button.disabled = false;
+		button.addEventListener("click", copy);
+		timer = setTimeout(() => {
+			clear();
+			status.textContent = "This invitation has reached its expiry. Ask your inviter for a new one. This page cannot confirm cloud cleanup.";
+		}, Math.max(0, expiry - Date.now()));
+	} catch {
+		clear();
+		status.textContent = "This invitation is missing, invalid or expired. Use the original code in your terminal, or ask your inviter for a new one.";
+	}
+	return clear;
+}
+//#endregion
 //#region src/canonical-bytes.ts
 var encoder$2 = new TextEncoder();
-var UUID$5 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var ADDON_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 var DOOR_ORIGIN = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/;
 var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 function requireValue$1(condition, label) {
 	if (!condition) throw new Error(`Invalid ${label}.`);
 }
-function text$3(value) {
+function text$1(value) {
 	requireValue$1(typeof value === "string", "text");
 	for (let index = 0; index < value.length; index++) {
 		const unit = value.charCodeAt(index);
@@ -50,9 +230,9 @@ function concat(parts) {
 function lp(value) {
 	return concat([count$2(value.length), value]);
 }
-var lpText = (value) => lp(text$3(value));
+var lpText = (value) => lp(text$1(value));
 function uuid(value) {
-	requireValue$1(value.length === 36 && UUID$5.test(value), "UUIDv4");
+	requireValue$1(value.length === 36 && UUID$4.test(value), "UUIDv4");
 }
 function binary(value, length) {
 	requireValue$1(value instanceof Uint8Array && value.length === length, `binary length ${length}`);
@@ -64,7 +244,7 @@ function doorOrigin(value) {
 	return port !== void 0 && Number(port) <= 65535;
 }
 function origin(value) {
-	requireValue$1(text$3(value).length <= 128 && (value === "cli" || addonOrigin(value) || doorOrigin(value)), "origin");
+	requireValue$1(text$1(value).length <= 128 && (value === "cli" || addonOrigin(value) || doorOrigin(value)), "origin");
 }
 /** Hash the exact supplied payload bytes, without parsing or reserializing them. */
 async function envelopeSigningBytes(value) {
@@ -97,7 +277,7 @@ async function envelopeSigningBytes(value) {
 	}
 	requireValue$1(Number.isSafeInteger(value.timestampMs) && value.timestampMs >= 0, "timestampMs");
 	origin(value.origin);
-	requireValue$1(text$3(value.operation).length > 0, "operation");
+	requireValue$1(text$1(value.operation).length > 0, "operation");
 	requireValue$1(value.payload instanceof Uint8Array, "payload bytes");
 	const payload = new Uint8Array(value.payload);
 	const fields = [
@@ -129,7 +309,7 @@ function enrollmentSigningBytes(value) {
 	]) uuid(id);
 	origin(value.origin);
 	requireValue$1(value.kind === "addon" && addonOrigin(value.origin) || value.kind === "browser" && doorOrigin(value.origin) || value.kind === "cli" && value.origin === "cli", "kind/origin");
-	const name = text$3(value.name);
+	const name = text$1(value.name);
 	requireValue$1(name.length >= 1 && name.length <= 64 && value.name.trim().length > 0 && !Array.from(value.name).some((character) => {
 		const point = character.codePointAt(0);
 		return point <= 31 || point >= 127 && point <= 159;
@@ -356,15 +536,13 @@ var RefusalError = class extends Error {
 	limit;
 	settingsUrl;
 	scope;
-	reason;
-	constructor(code, retryAfterMs, limit, settingsUrl, scope, reason) {
+	constructor(code, retryAfterMs, limit, settingsUrl, scope) {
 		super(`Remote operation refused: ${code}.`);
 		this.code = code;
 		this.retryAfterMs = retryAfterMs;
 		this.limit = limit;
 		this.settingsUrl = settingsUrl;
 		this.scope = scope;
-		this.reason = reason;
 		this.name = "RefusalError";
 	}
 };
@@ -394,33 +572,33 @@ var MANAGEMENT_PRE_EFFECT = /* @__PURE__ */ new Set([
 	"REMOTE_MEMBER_OWNER_REQUIRED",
 	"REMOTE_MEMBER_CONFLICT"
 ]);
-var UUID$4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var coreId = (value) => typeof value === "string" && UUID$4.test(value) && value !== "00000000-0000-0000-0000-000000000000";
+var coreId = (value) => typeof value === "string" && UUID$3.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 var requestId = (value) => typeof value === "string" && value.startsWith("req_") && coreId(value.slice(4));
-var utf8$7 = new TextEncoder();
+var utf8$1 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
-function valid$9(condition) {
+function valid$6(condition) {
 	if (!condition) throw new Error("Invalid operation response.");
 }
 function input$1(condition) {
 	if (!condition) throw new TypeError("Invalid Remote operation input.");
 }
 function record$1(value) {
-	valid$9(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$6(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid$9(typeof value.reason === "string" && utf8$7.encode(value.reason).length <= 256);
+	valid$6(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 /** One plain line of at most 256 bytes, sent with a `reason`: Core's sentence for its code. */
 function reasonText(value) {
 	if (value.reasonText === void 0) return {};
 	const text = value.reasonText;
-	valid$9(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$7.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
+	valid$6(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$1.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
 	return { reasonText: text };
 }
 var MESSAGE_STATES = [
@@ -440,9 +618,9 @@ function messageState(value) {
 	if (value.messageState === void 0) return {};
 	const state = record$1(value.messageState);
 	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
-	valid$9(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
+	valid$6(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
 	const why = record$1(state.reason);
-	valid$9(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$7.encode(why.text).length <= 256);
+	valid$6(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$1.encode(why.text).length <= 256);
 	return { messageState: {
 		state: state.state,
 		reason: {
@@ -459,8 +637,8 @@ var USER_NAME_REASONS = [
 	"USER_NAME_INVALID",
 	"USER_NAME_TAKEN"
 ];
-function text$2(value) {
-	return typeof value === "string" && value.length > 0 && utf8$7.encode(value).length <= 512;
+function text(value) {
+	return typeof value === "string" && value.length > 0 && utf8$1.encode(value).length <= 512;
 }
 /** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
 function identity$1(value) {
@@ -468,16 +646,16 @@ function identity$1(value) {
 	const notice = record$1(value.identity);
 	const keys = Object.keys(notice).sort().join();
 	if (notice.state === "anonymous") {
-		valid$9(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
-		valid$9(text$2(notice.message));
+		valid$6(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
+		valid$6(text(notice.message));
 		return { identity: {
 			state: "anonymous",
 			reason: notice.reason,
 			message: notice.message
 		} };
 	}
-	valid$9(notice.state === "person" && keys === "name,renamedFrom,state");
-	valid$9(text$2(notice.name) && text$2(notice.renamedFrom));
+	valid$6(notice.state === "person" && keys === "name,renamedFrom,state");
+	valid$6(text(notice.name) && text(notice.renamedFrom));
 	return { identity: {
 		state: "person",
 		name: notice.name,
@@ -492,23 +670,21 @@ function sendState(value, id) {
 }
 function sendStateBase(value, id) {
 	const state = record$1(value);
-	valid$9(state.operationId === id);
+	valid$6(state.operationId === id);
 	switch (state.state) {
 		case "held": return {
 			state: "held",
 			operationId: id
 		};
 		case "accepted":
-			valid$9(requestId(state.requestId));
-			if (state.requestIds !== void 0) valid$9(Array.isArray(state.requestIds) && state.requestIds.length >= 1 && state.requestIds.length <= 64 && state.requestIds.every(requestId) && new Set(state.requestIds).size === state.requestIds.length && state.requestIds[0] === state.requestId);
+			valid$6(requestId(state.requestId));
 			return {
 				state: "accepted",
 				operationId: id,
-				requestId: state.requestId,
-				...state.requestIds === void 0 ? {} : { requestIds: [...state.requestIds] }
+				requestId: state.requestId
 			};
 		case "uncertain":
-			valid$9(state.requestId === void 0 || requestId(state.requestId));
+			valid$6(state.requestId === void 0 || requestId(state.requestId));
 			return {
 				state: "uncertain",
 				operationId: id,
@@ -525,10 +701,10 @@ function sendStateBase(value, id) {
 }
 function resultState(value, id) {
 	const state = record$1(value);
-	valid$9(state.requestId === id);
+	valid$6(state.requestId === id);
 	const requestMessage = {};
 	if (Object.hasOwn(state, "requestMessage")) {
-		valid$9(state.requestMessage === null || typeof state.requestMessage === "string");
+		valid$6(state.requestMessage === null || typeof state.requestMessage === "string");
 		requestMessage.requestMessage = state.requestMessage;
 	}
 	switch (state.state) {
@@ -539,7 +715,7 @@ function resultState(value, id) {
 			...requestMessage
 		};
 		case "replied":
-			valid$9(typeof state.message === "string");
+			valid$6(typeof state.message === "string");
 			return {
 				state: "replied",
 				requestId: id,
@@ -566,7 +742,7 @@ var SEND_NOW_STATES = [
 * `unconfirmed`, so a future state can never read as `sent`. */
 function sendNowState(value, id) {
 	const state = record$1(value);
-	valid$9(state.requestId === id);
+	valid$6(state.requestId === id);
 	return {
 		state: SEND_NOW_STATES.includes(state.state) ? state.state : "unconfirmed",
 		requestId: id,
@@ -577,10 +753,10 @@ function sendNowState(value, id) {
 }
 function agents(value) {
 	const rows = record$1(value).identities;
-	valid$9(Array.isArray(rows));
+	valid$6(Array.isArray(rows));
 	return rows.map((value) => {
 		const row = record$1(value);
-		valid$9(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
+		valid$6(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
 		const activity = row.activity;
 		const observedAtMs = row.observedAtMs;
 		return {
@@ -600,26 +776,24 @@ function agents(value) {
 function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record$1(value.error);
-	valid$9(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	valid$6(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const scope = error.scope;
-	valid$9(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && (scope === "talk" || scope === "results.read"));
-	const readReason = error.reason;
-	valid$9(readReason === void 0 || scope === "results.read" && ["owner_browser_required", "all_agents_required"].includes(readReason));
+	valid$6(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
 	const limit = error.limit;
-	valid$9(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
-	valid$9(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
+	valid$6(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
+	valid$6(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
 	let settingsUrl;
 	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
-		valid$9(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
+		valid$6(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
 		const url = new URL(error.settingsUrl, address);
 		const door = new URL(address);
-		valid$9(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
+		valid$6(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
 		settingsUrl = url.href;
 	}
 	const retry = error.retryAfterMs;
-	valid$9(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
+	valid$6(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
-	valid$9(PRE_EFFECT.has(error.code) || [
+	valid$6(PRE_EFFECT.has(error.code) || [
 		"REMOTE_GRANT_CHANGED",
 		"REMOTE_SERVE_STOPPED",
 		"REMOTE_SESSION_LIMIT",
@@ -645,7 +819,7 @@ function remoteError(value, address) {
 		"REMOTE_MEMBER_OWNER_REQUIRED",
 		"REMOTE_MEMBER_CONFLICT"
 	].includes(error.code));
-	return new RefusalError(error.code, retry, limit, settingsUrl, scope, readReason);
+	return new RefusalError(error.code, retry, limit, settingsUrl, scope);
 }
 function enqueue(channel, action) {
 	const pending = channel.tail.then(action);
@@ -752,8 +926,8 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 }
 function parseCapabilities(value) {
 	const reply = record$1(value);
-	valid$9(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
-	valid$9(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
+	valid$6(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
+	valid$6(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
 	record$1(reply.limits);
 	return reply.operations;
 }
@@ -764,7 +938,7 @@ async function synchronize(channel, timeoutMs) {
 	const unavailable = () => new ClientError("sequence_unavailable", "Remote sequence recovery failed; reopen before observing the original operation.");
 	if (unresolved === "unavailable") throw unavailable();
 	const id = crypto.randomUUID();
-	const payload = utf8$7.encode("{}");
+	const payload = utf8$1.encode("{}");
 	try {
 		try {
 			await attempt(channel, timeoutMs, "capabilities", id, payload, channel.clientSequence, parseCapabilities);
@@ -805,7 +979,7 @@ function verifiedSessionRequest(session, options = {}) {
 	const timeoutMs = options.timeoutMs ?? 4e4;
 	input$1(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
 	return function call(operation, id, value, parse, mutationOutcome = false) {
-		const payload = utf8$7.encode(JSON.stringify(value));
+		const payload = utf8$1.encode(JSON.stringify(value));
 		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome));
 	};
 }
@@ -819,21 +993,11 @@ function operations(session, options = {}) {
 	return {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
-			const roomSend = "room" in value;
-			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$7.encode(value.message)) === value.message && (roomSend ? !("agentId" in value) && value.room !== null && typeof value.room === "object" && Object.keys(value.room).sort().join() === "revision,roomId" && coreId(value.room.roomId) && Number.isSafeInteger(value.room.revision) && value.room.revision > 0 && Array.isArray(value.recipientIds) && value.recipientIds.length >= 1 && value.recipientIds.length <= 64 && value.recipientIds.every(coreId) && new Set(value.recipientIds).size === value.recipientIds.length && (value.kind === void 0 || ["request", "announcement"].includes(value.kind)) : !("recipientIds" in value) && coreId(value.agentId)));
-			const { operationId, message } = value;
-			const frozen = roomSend ? {
+			const { operationId, agentId, message } = value;
+			input$1(typeof operationId === "string" && V4$1.test(operationId) && typeof message === "string" && strictUtf8$1.decode(utf8$1.encode(message)) === message && !("room" in value) && !("recipientIds" in value) && coreId(agentId));
+			const frozen = {
 				operationId,
-				message,
-				recipientIds: [...value.recipientIds],
-				kind: value.kind ?? "request",
-				room: {
-					kind: "roster",
-					...value.room
-				}
-			} : {
-				operationId,
-				recipientIds: [value.agentId],
+				recipientIds: [agentId],
 				message,
 				kind: "request"
 			};
@@ -843,11 +1007,7 @@ function operations(session, options = {}) {
 					operation: "dispatch.create",
 					originator: "anonymous",
 					input: frozen
-				}, (value) => {
-					const state = sendState(value, operationId);
-					if (roomSend && state.state === "accepted") valid$9(state.requestIds?.length === frozen.recipientIds.length);
-					return state;
-				});
+				}, (value) => sendState(value, operationId));
 			} catch (error) {
 				if (error instanceof RefusalError && PRE_EFFECT.has(error.code)) return {
 					state: "refused",
@@ -893,344 +1053,6 @@ function operations(session, options = {}) {
 	};
 }
 //#endregion
-//#region src/forms.ts
-var TEXT = 2048;
-var LABEL = 256;
-var PLAN = 65536;
-var RESPONSE = 1048576;
-var ANSWER = 16384;
-var QUESTIONS = 4;
-var OPTIONS = 8;
-var utf8$6 = new TextEncoder();
-var integer$2 = (v) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
-var text$1 = (v, max) => typeof v === "string" && utf8$6.encode(v).length <= max;
-function valid$8(v) {
-	if (!v) throw new TypeError("Invalid provider form document.");
-}
-function object$6(v) {
-	valid$8(v !== null && typeof v === "object" && !Array.isArray(v));
-	return v;
-}
-function keys$2(v, required, optional = []) {
-	valid$8(required.every((k) => Object.hasOwn(v, k)) && Object.keys(v).every((k) => required.includes(k) || optional.includes(k)));
-}
-function size(value, max) {
-	valid$8(utf8$6.encode(JSON.stringify(value)).length <= max);
-}
-function parseForm(value) {
-	const f = object$6(value);
-	keys$2(f, [
-		"formId",
-		"identityId",
-		"openedMs",
-		"kind",
-		"truncated",
-		"answerable",
-		"answerIn"
-	], [
-		"questions",
-		"tool",
-		"plan"
-	]);
-	valid$8(coreId(f.formId) && coreId(f.identityId) && integer$2(f.openedMs) && [
-		"question",
-		"permission",
-		"planApproval"
-	].includes(f.kind) && typeof f.truncated === "boolean" && typeof f.answerable === "boolean" && ["client", "terminal"].includes(f.answerIn) && f.answerable === (f.answerIn === "client"));
-	if (f.questions !== void 0) {
-		valid$8(Array.isArray(f.questions) && f.questions.length <= QUESTIONS);
-		for (const value of f.questions) {
-			const q = object$6(value);
-			keys$2(q, [
-				"text",
-				"choice",
-				"options",
-				"freeText"
-			], ["header"]);
-			valid$8(text$1(q.text, TEXT) && (q.header === void 0 || text$1(q.header, LABEL)) && ["single", "multiple"].includes(q.choice) && typeof q.freeText === "boolean" && Array.isArray(q.options) && q.options.length <= OPTIONS);
-			for (const value of q.options) {
-				const o = object$6(value);
-				keys$2(o, ["label"], ["description"]);
-				valid$8(text$1(o.label, LABEL) && (o.description === void 0 || text$1(o.description, TEXT)));
-			}
-		}
-	}
-	if (f.plan !== void 0) valid$8(text$1(f.plan, PLAN));
-	if (f.tool !== void 0) {
-		const t = object$6(f.tool);
-		keys$2(t, ["name", "summary"]);
-		valid$8(text$1(t.name, TEXT) && text$1(t.summary, TEXT));
-	}
-	return structuredClone(f);
-}
-function parseList(value, identityId) {
-	size(value, RESPONSE);
-	const v = object$6(value);
-	keys$2(v, ["forms"]);
-	valid$8(Array.isArray(v.forms));
-	const forms = v.forms.map(parseForm);
-	valid$8(new Set(forms.map((f) => f.formId)).size === forms.length);
-	valid$8(identityId === void 0 || forms.every((f) => f.identityId === identityId));
-	return { forms };
-}
-function parseCursor(value) {
-	const v = object$6(value);
-	keys$2(v, ["cursor"], ["usage"]);
-	valid$8(integer$2(v.cursor) && (v.usage === void 0 || integer$2(v.usage)));
-	return {
-		cursor: v.cursor,
-		...v.usage === void 0 ? {} : { usage: v.usage }
-	};
-}
-function parseState(value, operationId, formId) {
-	const v = object$6(value);
-	keys$2(v, [
-		"operationId",
-		"formId",
-		"state"
-	], v.state === "accepted" ? ["delivered"] : ["reason", "message"]);
-	valid$8(v.operationId === operationId && coreId(v.formId) && (formId === void 0 || v.formId === formId));
-	if (v.state === "accepted") valid$8(v.delivered === true);
-	else valid$8(["refused", "uncertain"].includes(v.state) && typeof v.reason === "string" && /^[A-Z_]{1,64}$/.test(v.reason) && (v.message === void 0 || text$1(v.message, TEXT) && [...v.message].every((char) => {
-		const code = char.codePointAt(0);
-		return code >= 32 && (code < 127 || code > 159);
-	})));
-	return { ...v };
-}
-function checkedAnswer(value) {
-	const v = object$6(value);
-	keys$2(v, [
-		"operationId",
-		"formId",
-		"answer"
-	]);
-	valid$8(coreId(v.operationId) && coreId(v.formId));
-	const a = object$6(v.answer);
-	size(a, ANSWER);
-	if (Object.hasOwn(a, "decision")) {
-		keys$2(a, ["decision"]);
-		valid$8(a.decision === "allow" || a.decision === "deny");
-	} else {
-		keys$2(a, ["choices"], ["other"]);
-		valid$8(Array.isArray(a.choices) && a.choices.length <= QUESTIONS);
-		for (const q of a.choices) valid$8(Array.isArray(q) && q.length <= OPTIONS && q.every(integer$2));
-		if (a.other !== void 0) valid$8(Array.isArray(a.other) && a.other.length <= QUESTIONS && a.other.every((t) => t === null || text$1(t, TEXT)));
-	}
-}
-function forms(session, options = {}) {
-	const call = verifiedSessionRequest(session, options);
-	return {
-		list(input = {}) {
-			keys$2(object$6(input), [], ["identityId"]);
-			valid$8(input.identityId === void 0 || coreId(input.identityId));
-			const scope = input.identityId;
-			return call("forms.list", crypto.randomUUID(), {
-				version: 1,
-				operation: "forms.list",
-				input: scope === void 0 ? {} : { identityId: scope }
-			}, (v) => parseList(v, scope));
-		},
-		cursor: () => call("changes.cursor", crypto.randomUUID(), {
-			version: 1,
-			operation: "changes.cursor",
-			input: {}
-		}, parseCursor),
-		answer(input) {
-			checkedAnswer(input);
-			const { operationId, formId } = input;
-			return call("forms.answer", operationId, {
-				version: 1,
-				operation: "forms.answer",
-				input
-			}, (v) => parseState(v, operationId, formId), true);
-		},
-		operation(operationId) {
-			valid$8(coreId(operationId));
-			return call("operation.show", crypto.randomUUID(), { operationId }, (v) => parseState(v, operationId));
-		}
-	};
-}
-//#endregion
-//#region src/service-commands.ts
-/** Copy-only terminal references. Native grammar tests admit the same product catalog. */
-var serviceCommands = Object.freeze({
-	status: "tmt remote status --layers",
-	preview: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults --json",
-	deploy: "tmt remote deploy firestore --project='<project-id>' --region='<region>' --defaults",
-	nodeVersion: "node --version",
-	firebaseVersion: "firebase --version",
-	firebaseInstall: "npm install -g firebase-tools@15.29.0",
-	firebaseLogin: "firebase login",
-	join: "tmt remote join <code>"
-});
-//#endregion
-//#region src/invite-page.ts
-/** Instructions only. Parsing is not authentication; native join owns admission. */
-var MAX_BYTES = 12288;
-var MAX_INVITATION_INPUT = Math.ceil(MAX_BYTES * 4 / 3) + 2048;
-var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-function valid$7(condition) {
-	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-}
-function object$5(value, keys) {
-	valid$7(value !== null && typeof value === "object" && !Array.isArray(value));
-	const row = value;
-	valid$7(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
-	return row;
-}
-function bytes(value, length) {
-	valid$7(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
-	valid$7(length === void 0 || value.length === length);
-	valid$7(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
-	return new Uint8Array(value);
-}
-function hasControl(value) {
-	return Array.from(value).some((char) => {
-		const point = char.codePointAt(0);
-		return point < 32 || point >= 127 && point <= 159;
-	});
-}
-var utf8$5 = new TextDecoder("utf-8", { fatal: true });
-/** Reads the native v2 carrier unchanged, with no network or authority inference. */
-function decodeDetails(token, now) {
-	valid$7(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
-	valid$7(/^[A-Za-z0-9_-]+$/.test(token));
-	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
-	const raw = atob(encoded);
-	valid$7(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
-	const text = utf8$5.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
-	const value = JSON.parse(text);
-	valid$7(JSON.stringify(value) === text);
-	const invite = object$5(value, [
-		"version",
-		"context",
-		"publicConfig",
-		"machineName",
-		"code"
-	]);
-	valid$7(invite.version === 2);
-	bytes(invite.code, 16);
-	valid$7(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
-	const context = object$5(invite.context, [
-		"binding",
-		"owner",
-		"owner_key",
-		"offer",
-		"nonce",
-		"issued_at_ms",
-		"expires_at_ms"
-	]);
-	valid$7(typeof context.owner === "string" && UUID$3.test(context.owner));
-	valid$7(typeof context.offer === "string" && UUID$3.test(context.offer));
-	bytes(context.owner_key, 32);
-	bytes(context.nonce, 16);
-	const issued = context.issued_at_ms;
-	const expiry = context.expires_at_ms;
-	valid$7(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
-	valid$7(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
-	valid$7(issued <= now + 6e4 && now < expiry);
-	const binding = object$5(context.binding, [
-		"backend",
-		"reference",
-		"owner_principal"
-	]);
-	valid$7(binding.backend === "firestore");
-	const project = utf8$5.decode(bytes(binding.reference));
-	const principal = utf8$5.decode(bytes(binding.owner_principal));
-	valid$7(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
-	const config = invite.publicConfig;
-	valid$7(config !== null && typeof config === "object" && !Array.isArray(config));
-	valid$7(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
-	valid$7(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
-	valid$7(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
-	valid$7(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
-	return {
-		owner: context.owner,
-		offer: context.offer,
-		expiry
-	};
-}
-/** Public carrier facts only; these do not authenticate the inviter or grant access. */
-function invitationDetails(token, now = Date.now()) {
-	try {
-		return decodeDetails(token, now);
-	} catch {
-		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-	}
-}
-function invitationExpiry(token, now = Date.now()) {
-	try {
-		return invitationDetails(token, now).expiry;
-	} catch {
-		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-	}
-}
-/** Accept a native code or its hosted /join link without fetching or trusting the origin. */
-function invitationFromInput(input, now = Date.now()) {
-	try {
-		valid$7(input.length <= MAX_INVITATION_INPUT);
-		const value = input.trim();
-		let token = value;
-		if (value.includes("://")) {
-			const url = new URL(value);
-			valid$7((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && url.pathname === "/join" && !url.search && url.hash.length > 1);
-			token = url.hash.slice(1);
-		}
-		return {
-			token,
-			expiry: invitationExpiry(token, now)
-		};
-	} catch {
-		throw new Error("This invitation cannot be read. Ask its owner for a new code.");
-	}
-}
-/** Copy the validated native command; this never runs a command or reads the provider. */
-async function copyInvitation(token) {
-	invitationExpiry(token);
-	await navigator.clipboard.writeText(serviceCommands.join.replace("<code>", token));
-}
-/** Owns one memory-only interaction; the bootstrap erases the fragment first. */
-function invitePage(initialToken) {
-	const button = document.getElementById("invite-copy");
-	const status = document.getElementById("invite-status");
-	const feedback = document.getElementById("invite-feedback");
-	let token = initialToken;
-	initialToken = "";
-	let disposed = false;
-	let timer;
-	const clear = () => {
-		disposed = true;
-		token = "";
-		button.disabled = true;
-		feedback.textContent = "";
-		if (timer !== void 0) clearTimeout(timer);
-		button.removeEventListener("click", copy);
-	};
-	const copy = async () => {
-		if (disposed) return;
-		try {
-			await copyInvitation(token);
-			if (!disposed) feedback.textContent = "Command copied. Run it in your terminal.";
-		} catch {
-			if (!disposed) feedback.textContent = "Could not copy. Use the original code in your terminal, or ask your inviter for a new one.";
-		}
-	};
-	try {
-		const expiry = invitationExpiry(token);
-		status.textContent = "Copy the command to continue in your terminal. This page has not checked whether the invitation is still available.";
-		button.disabled = false;
-		button.addEventListener("click", copy);
-		timer = setTimeout(() => {
-			clear();
-			status.textContent = "This invitation has reached its expiry. Ask your inviter for a new one. This page cannot confirm cloud cleanup.";
-		}, Math.max(0, expiry - Date.now()));
-	} catch {
-		clear();
-		status.textContent = "This invitation is missing, invalid or expired. Use the original code in your terminal, or ask your inviter for a new one.";
-	}
-	return clear;
-}
-//#endregion
 //#region src/management-mutation.ts
 /** Both management facades share the existing verified signing lane and never retry effects. */
 async function managementMutation(call, operation, value, decode) {
@@ -1249,20 +1071,20 @@ async function managementMutation(call, operation, value, decode) {
 }
 //#endregion
 //#region src/management-codec.ts
-function valid$6(condition) {
+function valid$5(condition) {
 	if (!condition) throw new Error("Invalid management response.");
 }
 function input(condition) {
 	if (!condition) throw new TypeError("Invalid management input.");
 }
-function object$4(value) {
-	valid$6(typeof value === "object" && value !== null && !Array.isArray(value));
+function object$2(value) {
+	valid$5(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function exact(value, keys) {
-	valid$6(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
+	valid$5(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
 }
-var integer$1 = (value) => Number.isSafeInteger(value) && value >= 0;
+var integer = (value) => Number.isSafeInteger(value) && value >= 0;
 /** The signed member service accepts nonblank names of at most 64 UTF-8 bytes. */
 function memberName(value) {
 	return typeof value === "string" && value.trim().length > 0 && new TextEncoder().encode(value).length <= 64 && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
@@ -1335,11 +1157,11 @@ var firestoreSpecs = [
 function requireValid(condition) {
 	if (!condition) throw new Error("Invalid Firestore readiness response.");
 }
-function object$3(value) {
+function object$1(value) {
 	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
-function keys$1(row, expected) {
+function keys(row, expected) {
 	requireValid(Object.keys(row).length === expected.length && expected.every((key) => Object.hasOwn(row, key)));
 }
 function parseFirestoreLayers(value) {
@@ -1347,8 +1169,8 @@ function parseFirestoreLayers(value) {
 	if (!value.length) return [];
 	requireValid(value.length === firestoreSpecs.length);
 	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
-		const row = object$3(value[index]);
-		keys$1(row, [
+		const row = object$1(value[index]);
+		keys(row, [
 			"layer",
 			"state",
 			"prerequisites"
@@ -1356,7 +1178,7 @@ function parseFirestoreLayers(value) {
 		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
 		const states = [];
 		for (const [i, item] of items.entries()) {
-			const entry = object$3(row.prerequisites[i]);
+			const entry = object$1(row.prerequisites[i]);
 			requireValid(entry.item === item && [
 				"enabled",
 				"not-enabled",
@@ -1364,13 +1186,13 @@ function parseFirestoreLayers(value) {
 			].includes(entry.state));
 			states.push(entry.state);
 			if (entry.state === "enabled") {
-				keys$1(entry, ["item", "state"]);
+				keys(entry, ["item", "state"]);
 				continue;
 			}
 			const reason = typeof entry.reason === "string" && Object.hasOwn(firestoreReasons[item], entry.reason) ? firestoreReasons[item][entry.reason] : void 0;
 			requireValid(reason && entry.state === "unknown" === (entry.reason === "not-checked"));
 			requireValid(entry.reason !== "paid-plan-required" || layer === "operations");
-			keys$1(entry, reason[1] ? [
+			keys(entry, reason[1] ? [
 				"item",
 				"state",
 				"reason",
@@ -1674,7 +1496,7 @@ function parsePublishedLimits(value) {
 var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
 function settings(value) {
-	const row = object$4(value);
+	const row = object$2(value);
 	exact(row, [
 		"open",
 		"source",
@@ -1682,14 +1504,14 @@ function settings(value) {
 		"sessionsPerDeviceSource",
 		"warning"
 	]);
-	valid$6(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
-	valid$6(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
-	valid$6(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
-	valid$6(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
+	valid$5(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
+	valid$5(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
+	valid$5(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
+	valid$5(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
 	return row;
 }
-function device$1(value, activity = false) {
-	const row = object$4(value);
+function device(value, activity = false) {
+	const row = object$2(value);
 	exact(row, [
 		"clientId",
 		"name",
@@ -1706,16 +1528,16 @@ function device$1(value, activity = false) {
 			"lastUsedAtMs"
 		] : []
 	]);
-	valid$6(typeof row.clientId === "string" && UUID$2.test(row.clientId));
-	valid$6(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
-	valid$6([
+	valid$5(typeof row.clientId === "string" && UUID$2.test(row.clientId));
+	valid$5(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+	valid$5([
 		"browser",
 		"addon",
 		"cli"
-	].includes(row.kind) && integer$1(row.issuedAtMs));
-	valid$6(row.expiresAtMs === null || integer$1(row.expiresAtMs));
-	valid$6(integer$1(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
-	if (activity) valid$6(typeof row.thisBrowser === "boolean" && integer$1(row.liveSessionCount) && (row.lastActivityAtMs === null || integer$1(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer$1(row.lastUsedAtMs)));
+	].includes(row.kind) && integer(row.issuedAtMs));
+	valid$5(row.expiresAtMs === null || integer(row.expiresAtMs));
+	valid$5(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
+	if (activity) valid$5(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer(row.lastUsedAtMs)));
 	return row;
 }
 var refusalCodes = /* @__PURE__ */ new Set([
@@ -1747,8 +1569,8 @@ var refusalCodes = /* @__PURE__ */ new Set([
 	"REMOTE_MEMBER_CONFLICT"
 ]);
 function parseManagementOutcome(value, operationId) {
-	const row = object$4(value);
-	valid$6(row.operationId === operationId);
+	const row = object$2(value);
+	valid$5(row.operationId === operationId);
 	if (row.state === "committed") {
 		exact(row, [
 			"operationId",
@@ -1756,20 +1578,20 @@ function parseManagementOutcome(value, operationId) {
 			"result",
 			"sessionEnded"
 		]);
-		valid$6(typeof row.sessionEnded === "boolean");
-		const result = object$4(row.result);
-		valid$6(Object.keys(result).length === 1);
+		valid$5(typeof row.sessionEnded === "boolean");
+		const result = object$2(row.result);
+		valid$5(Object.keys(result).length === 1);
 		if (Object.hasOwn(result, "settings")) settings(result.settings);
-		else if (Object.hasOwn(result, "removed")) valid$6(integer$1(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
-		else device$1(result.device);
+		else if (Object.hasOwn(result, "removed")) valid$5(integer(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
+		else device(result.device);
 	} else {
 		exact(row, [
 			"operationId",
 			"state",
 			"reason"
 		]);
-		if (row.state === "unknown") valid$6(row.reason === "effect_outcome_unconfirmed");
-		else valid$6(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
+		if (row.state === "unknown") valid$5(row.reason === "effect_outcome_unconfirmed");
+		else valid$5(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
 	}
 	return row;
 }
@@ -1786,13 +1608,13 @@ function management(session, options = {}) {
 		return managementMutation(call, operation, value, (reply) => {
 			const parsed = parseManagementOutcome(reply, operationId);
 			if (parsed.state === "committed") {
-				if (operation === "remote.settings.set") valid$6("settings" in parsed.result);
-				else if (operation === "remote.devices.remove-others") valid$6("removed" in parsed.result && parsed.sessionEnded === false);
+				if (operation === "remote.settings.set") valid$5("settings" in parsed.result);
+				else if (operation === "remote.devices.remove-others") valid$5("removed" in parsed.result && parsed.sessionEnded === false);
 				else {
-					valid$6("device" in parsed.result && parsed.result.device.clientId === value.clientId);
-					if (operation === "remote.devices.rename") valid$6(parsed.result.device.name === value.name);
-					if (operation === "remote.devices.revoke") valid$6(parsed.result.device.revoked);
-					if (operation === "remote.devices.talk") valid$6(parsed.result.device.talkEnabled === value.enabled);
+					valid$5("device" in parsed.result && parsed.result.device.clientId === value.clientId);
+					if (operation === "remote.devices.rename") valid$5(parsed.result.device.name === value.name);
+					if (operation === "remote.devices.revoke") valid$5(parsed.result.device.revoked);
+					if (operation === "remote.devices.talk") valid$5(parsed.result.device.talkEnabled === value.enabled);
 				}
 			}
 			return parsed;
@@ -1801,9 +1623,9 @@ function management(session, options = {}) {
 	return {
 		clientId,
 		previewRemoveOthers: () => call("remote.devices.remove-others.preview", crypto.randomUUID(), {}, (value) => {
-			const row = object$4(value);
+			const row = object$2(value);
 			exact(row, ["count", "fingerprint"]);
-			valid$6(integer$1(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
+			valid$5(integer(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
 			return row;
 		}),
 		removeOthers: (change) => {
@@ -1811,7 +1633,7 @@ function management(session, options = {}) {
 			return mutate("remote.devices.remove-others", { ...change });
 		},
 		settings: ((options) => call("remote.settings.show", crypto.randomUUID(), options ?? {}, (value) => {
-			const row = object$4(value);
+			const row = object$2(value);
 			exact(row, [
 				"settings",
 				"capabilities",
@@ -1823,26 +1645,26 @@ function management(session, options = {}) {
 				parsePublishedLimits(row.firestoreBudget);
 			}
 			settings(row.settings);
-			const capabilities = object$4(row.capabilities);
+			const capabilities = object$2(row.capabilities);
 			exact(capabilities, ["settingsWrite", "devicesWrite"]);
-			valid$6(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
-			valid$6(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
-			valid$6(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
+			valid$5(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
+			valid$5(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
+			valid$5(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
 			return row;
 		})),
 		devices: (page) => {
 			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
 			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
-				const row = object$4(value);
+				const row = object$2(value);
 				exact(row, ["devices", "nextCursor"]);
-				valid$6(Array.isArray(row.devices) && row.devices.length <= page.limit);
+				valid$5(Array.isArray(row.devices) && row.devices.length <= page.limit);
 				const ids = /* @__PURE__ */ new Set();
 				for (const entry of row.devices) {
-					const item = device$1(entry, true);
-					valid$6(!item.revoked && !ids.has(item.clientId));
+					const item = device(entry, true);
+					valid$5(!item.revoked && !ids.has(item.clientId));
 					ids.add(item.clientId);
 				}
-				valid$6(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
+				valid$5(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
 				return row;
 			});
 		},
@@ -1882,7 +1704,7 @@ var snapshot$1 = (value) => {
 	}
 };
 function parsePendingInvitation(value) {
-	const row = object$4(value);
+	const row = object$2(value);
 	if (row.state === "none") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -1894,8 +1716,8 @@ function parsePendingInvitation(value) {
 			"cleanup",
 			"candidate"
 		]);
-		valid$6(row.state === "current" && id$1(row.offerId) && integer$1(row.expiresAtMs) && typeof row.localConfirmationKnown === "boolean");
-		valid$6([
+		valid$5(row.state === "current" && id$1(row.offerId) && integer(row.expiresAtMs) && typeof row.localConfirmationKnown === "boolean");
+		valid$5([
 			"open",
 			"awaiting-owner",
 			"confirmed",
@@ -1904,28 +1726,28 @@ function parsePendingInvitation(value) {
 			"expired",
 			"unconfirmed"
 		].includes(row.phase));
-		valid$6([
+		valid$5([
 			"not-requested",
 			"acknowledged",
 			"unconfirmed"
 		].includes(row.cleanup));
 		if (row.candidate !== null) {
-			const candidate = object$4(row.candidate);
+			const candidate = object$2(row.candidate);
 			exact(candidate, [
 				"clientId",
 				"name",
 				"words",
 				"snapshot"
 			]);
-			valid$6(row.phase === "awaiting-owner" && id$1(candidate.clientId) && snapshot$1(candidate.snapshot));
-			valid$6(typeof candidate.name === "string" && candidate.name.length > 0 && candidate.name.length <= 256 && Array.from(candidate.name).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
-			valid$6(Array.isArray(candidate.words) && candidate.words.length === 4 && candidate.words.every((word) => typeof word === "string" && /^[a-z]+$/.test(word) && word.length <= 64));
+			valid$5(row.phase === "awaiting-owner" && id$1(candidate.clientId) && snapshot$1(candidate.snapshot));
+			valid$5(typeof candidate.name === "string" && candidate.name.length > 0 && candidate.name.length <= 256 && Array.from(candidate.name).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
+			valid$5(Array.isArray(candidate.words) && candidate.words.length === 4 && candidate.words.every((word) => typeof word === "string" && /^[a-z]+$/.test(word) && word.length <= 64));
 		}
 	}
 	return row;
 }
 function parseInvitationOutcome(value, operationId) {
-	const row = object$4(value);
+	const row = object$2(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
 	exact(row, [
 		"operationId",
@@ -1933,11 +1755,11 @@ function parseInvitationOutcome(value, operationId) {
 		"sessionEnded",
 		"result"
 	]);
-	valid$6(row.operationId === operationId && row.sessionEnded === false);
-	const result = object$4(row.result);
+	valid$5(row.operationId === operationId && row.sessionEnded === false);
+	const result = object$2(row.result);
 	exact(result, ["invitation"]);
-	const invitation = object$4(result.invitation);
-	valid$6(id$1(invitation.offerId) && id$1(invitation.clientId));
+	const invitation = object$2(result.invitation);
+	valid$5(id$1(invitation.offerId) && id$1(invitation.clientId));
 	if (invitation.state === "refused") exact(invitation, [
 		"offerId",
 		"clientId",
@@ -1951,22 +1773,22 @@ function parseInvitationOutcome(value, operationId) {
 			"state",
 			"sendingEnabled"
 		]);
-		valid$6(invitation.state === "confirmed" && typeof invitation.memberId === "string" && invitation.memberId.length > 0 && invitation.memberId.length <= 128 && typeof invitation.sendingEnabled === "boolean");
+		valid$5(invitation.state === "confirmed" && typeof invitation.memberId === "string" && invitation.memberId.length > 0 && invitation.memberId.length <= 128 && typeof invitation.sendingEnabled === "boolean");
 	}
 	return row;
 }
 function parseIssuedInvitationPage(value, remoteId) {
-	const page = object$4(value);
+	const page = object$2(value);
 	exact(page, [
 		"remoteId",
 		"invitations",
 		"nextCursor"
 	]);
-	valid$6(page.remoteId === remoteId && Array.isArray(page.invitations) && page.invitations.length <= 50);
-	valid$6(page.nextCursor === null || typeof page.nextCursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(page.nextCursor));
+	valid$5(page.remoteId === remoteId && Array.isArray(page.invitations) && page.invitations.length <= 50);
+	valid$5(page.nextCursor === null || typeof page.nextCursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(page.nextCursor));
 	const ids = /* @__PURE__ */ new Set();
 	for (const value of page.invitations) {
-		const row = object$4(value);
+		const row = object$2(value);
 		exact(row, [
 			"offerId",
 			"issuedAtMs",
@@ -1975,10 +1797,10 @@ function parseIssuedInvitationPage(value, remoteId) {
 			"localConfirmationKnown",
 			"cleanup"
 		]);
-		valid$6(id$1(row.offerId) && !ids.has(row.offerId));
+		valid$5(id$1(row.offerId) && !ids.has(row.offerId));
 		ids.add(row.offerId);
-		valid$6(integer$1(row.issuedAtMs) && integer$1(row.expiresAtMs) && row.expiresAtMs > row.issuedAtMs && row.expiresAtMs - row.issuedAtMs <= 6e5);
-		valid$6([
+		valid$5(integer(row.issuedAtMs) && integer(row.expiresAtMs) && row.expiresAtMs > row.issuedAtMs && row.expiresAtMs - row.issuedAtMs <= 6e5);
+		valid$5([
 			"open",
 			"awaiting-owner",
 			"confirmed",
@@ -1988,7 +1810,7 @@ function parseIssuedInvitationPage(value, remoteId) {
 			"unconfirmed",
 			"interrupted"
 		].includes(row.state));
-		valid$6(typeof row.localConfirmationKnown === "boolean" && [
+		valid$5(typeof row.localConfirmationKnown === "boolean" && [
 			"not-requested",
 			"acknowledged",
 			"unconfirmed"
@@ -1997,7 +1819,7 @@ function parseIssuedInvitationPage(value, remoteId) {
 	return page;
 }
 function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
-	const row = object$4(value);
+	const row = object$2(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
 	const secret = Object.hasOwn(row, "secret");
 	exact(row, [
@@ -2007,52 +1829,52 @@ function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
 		"result",
 		...secret ? ["secret"] : []
 	]);
-	valid$6(row.operationId === operationId && row.sessionEnded === false);
-	const result = object$4(row.result);
+	valid$5(row.operationId === operationId && row.sessionEnded === false);
+	const result = object$2(row.result);
 	exact(result, ["invitation"]);
-	const invite = object$4(result.invitation);
-	valid$6(id$1(invite.offerId));
-	if (creatingRemote !== void 0) valid$6(invite.state === "created");
+	const invite = object$2(result.invitation);
+	valid$5(id$1(invite.offerId));
+	if (creatingRemote !== void 0) valid$5(invite.state === "created");
 	if (invite.state === "created") {
 		exact(invite, [
 			"offerId",
 			"state",
 			"expiresAtMs"
 		]);
-		valid$6(invite.offerId !== operationId && integer$1(invite.expiresAtMs));
+		valid$5(invite.offerId !== operationId && integer(invite.expiresAtMs));
 	} else {
 		exact(invite, [
 			"offerId",
 			"state",
 			"code"
 		]);
-		valid$6(invite.state === "cancelled" && invite.code === "REMOTE_INVITATION_CANCELLED" || invite.state === "not-active" && invite.code === "REMOTE_INVITATION_NOT_ACTIVE");
+		valid$5(invite.state === "cancelled" && invite.code === "REMOTE_INVITATION_CANCELLED" || invite.state === "not-active" && invite.code === "REMOTE_INVITATION_NOT_ACTIVE");
 	}
 	if (secret) {
-		valid$6(creatingRemote !== void 0 && invite.state === "created");
-		const part = object$4(row.secret);
+		valid$5(creatingRemote !== void 0 && invite.state === "created");
+		const part = object$2(row.secret);
 		exact(part, ["code", "link"]);
-		valid$6(typeof part.code === "string" && (part.link === null || typeof part.link === "string"));
+		valid$5(typeof part.code === "string" && (part.link === null || typeof part.link === "string"));
 		const details = invitationDetails(part.code);
-		valid$6(details.owner === creatingRemote && details.offer === invite.offerId && details.expiry === invite.expiresAtMs);
-		if (part.link !== null) valid$6(invitationFromInput(part.link).token === part.code);
+		valid$5(details.owner === creatingRemote && details.offer === invite.offerId && details.expiry === invite.expiresAtMs);
+		if (part.link !== null) valid$5(invitationFromInput(part.link).token === part.code);
 	}
 	return row;
 }
 function parseOriginal(value, id) {
-	const row = object$4(value);
+	const row = object$2(value);
 	if (row.state === "committed" && [
 		"created",
 		"cancelled",
 		"not-active"
-	].includes(object$4(object$4(row.result).invitation).state)) return parseInvitationIssueOutcome(value, id);
+	].includes(object$2(object$2(row.result).invitation).state)) return parseInvitationIssueOutcome(value, id);
 	return parseInvitationOutcome(value, id);
 }
 /** A presenter over the current offer. No admission, provider call or retry is created here. */
 function invitations(session, options = {}) {
 	const call = verifiedSessionRequest(session, options);
 	const remoteId = channelFor(session)?.paired.machineId;
-	valid$6(typeof remoteId === "string");
+	valid$5(typeof remoteId === "string");
 	return {
 		create: (value) => {
 			input(Object.keys(value).length === 1 && Object.hasOwn(value, "operationId") && id$1(value.operationId));
@@ -2068,7 +1890,7 @@ function invitations(session, options = {}) {
 			const frozen = { ...value };
 			return managementMutation(call, "remote.invites.cancel", frozen, (reply) => {
 				const outcome = parseInvitationIssueOutcome(reply, frozen.operationId);
-				if (outcome.state === "committed") valid$6(outcome.result.invitation.offerId === frozen.offerId && outcome.result.invitation.state !== "created");
+				if (outcome.state === "committed") valid$5(outcome.result.invitation.offerId === frozen.offerId && outcome.result.invitation.state !== "created");
 				return outcome;
 			});
 		},
@@ -2091,8 +1913,8 @@ function invitations(session, options = {}) {
 				const outcome = parseInvitationOutcome(value, frozen.operationId);
 				if (outcome.state === "committed") {
 					const invitation = outcome.result.invitation;
-					valid$6(invitation.offerId === frozen.offerId && invitation.state === (frozen.matched ? "confirmed" : "refused"));
-					if (invitation.state === "confirmed") valid$6(invitation.sendingEnabled === frozen.sending);
+					valid$5(invitation.offerId === frozen.offerId && invitation.state === (frozen.matched ? "confirmed" : "refused"));
+					if (invitation.state === "confirmed") valid$5(invitation.sendingEnabled === frozen.sending);
 				}
 				return outcome;
 			});
@@ -2418,7 +2240,7 @@ async function originLink(origin, fetcher) {
 	const controller = new AbortController();
 	let timer;
 	try {
-		valid$5(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?\.web\.app$/.test(origin));
+		valid$4(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?\.web\.app$/.test(origin));
 		const deadline = new Promise((_, reject) => {
 			timer = setTimeout(() => {
 				controller.abort();
@@ -2444,7 +2266,7 @@ async function originLink(origin, fetcher) {
 				...body,
 				checksum: await checksum(body)
 			});
-			valid$5(!controller.signal.aborted);
+			valid$4(!controller.signal.aborted);
 			return `${origin}/pair#${base64url(encoder$1.encode(descriptor))}`;
 		})()]);
 	} catch {
@@ -2454,25 +2276,25 @@ async function originLink(origin, fetcher) {
 		controller.abort();
 	}
 }
-function valid$5(condition) {
+function valid$4(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function object$2(value, keys) {
-	valid$5(typeof value === "object" && value !== null && !Array.isArray(value));
+function object(value, keys) {
+	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
 	const record = value;
-	valid$5(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
+	valid$4(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
 	return record;
 }
 function parsePublicWebConfig(value) {
-	const r = object$2(value, [
+	const r = object(value, [
 		"apiKey",
 		"appId",
 		"authDomain",
 		"projectId"
 	]);
-	valid$5(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
-	valid$5(r.authDomain === `${r.projectId}.firebaseapp.com`);
-	for (const key of ["apiKey", "appId"]) valid$5(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
+	valid$4(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
+	valid$4(r.authDomain === `${r.projectId}.firebaseapp.com`);
+	for (const key of ["apiKey", "appId"]) valid$4(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
 	return Object.freeze(r);
 }
 function canonical$1(value) {
@@ -2485,38 +2307,38 @@ async function checksum(value) {
 }
 async function verifyHostedLink(link, origin) {
 	try {
-		valid$5(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
+		valid$4(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
 		const url = new URL(link);
-		valid$5(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
+		valid$4(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
 		const fragment = url.hash.slice(1);
-		valid$5(/^[A-Za-z0-9_-]+$/.test(fragment));
+		valid$4(/^[A-Za-z0-9_-]+$/.test(fragment));
 		const bytes = Uint8Array.from(atob(fragment.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 		const text = decoder$1.decode(bytes);
 		const raw = JSON.parse(text);
 		const hasSite = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "hostingSite");
-		const r = object$2(raw, [
+		const r = object(raw, [
 			"version",
 			"kind",
 			"publicWebConfig",
 			"checksum",
 			...hasSite ? ["hostingSite"] : []
 		]);
-		valid$5(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
+		valid$4(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
 		const publicConfig = parsePublicWebConfig(r.publicWebConfig);
 		let site = publicConfig.projectId;
 		if (hasSite) {
 			const selected = r.hostingSite;
-			valid$5(typeof selected === "string" && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) && selected !== publicConfig.projectId);
+			valid$4(typeof selected === "string" && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) && selected !== publicConfig.projectId);
 			site = selected;
 		}
-		valid$5(origin === `https://${site}.web.app`);
-		valid$5(await checksum({
+		valid$4(origin === `https://${site}.web.app`);
+		valid$4(await checksum({
 			kind: r.kind,
 			publicWebConfig: publicConfig,
 			version: r.version,
 			...hasSite ? { hostingSite: site } : {}
 		}) === r.checksum && text === canonical$1(r));
-		valid$5(link === `${origin}/pair#${base64url(bytes)}`);
+		valid$4(link === `${origin}/pair#${base64url(bytes)}`);
 		return Object.freeze({
 			origin,
 			publicWebConfig: publicConfig,
@@ -2571,17 +2393,17 @@ async function readHostedConfig(origin, fetcher, signal) {
 //#region src/sealed-sync-mapping.ts
 /** Frozen resource field/query mapping. Names are release data, never a Colab-specific list. */
 var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
-function valid$4(condition) {
+function valid$3(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 function row$2(value, keys) {
-	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$3(typeof value === "object" && value !== null && !Array.isArray(value));
 	const r = value;
-	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
+	valid$3(Object.keys(r).sort().join(",") === keys.sort().join(","));
 	return r;
 }
 function parseSyncMapping(value) {
-	valid$4(typeof value === "object" && value !== null);
+	valid$3(typeof value === "object" && value !== null);
 	const r = row$2(value, [
 		"fields",
 		"spaceField",
@@ -2589,19 +2411,19 @@ function parseSyncMapping(value) {
 		"query",
 		...Object.hasOwn(value, "writeModes") ? ["writeModes"] : []
 	]);
-	if (r.writeModes !== void 0) valid$4(Array.isArray(r.writeModes) && r.writeModes.length > 0 && new Set(r.writeModes).size === r.writeModes.length && r.writeModes.every((m) => [
+	if (r.writeModes !== void 0) valid$3(Array.isArray(r.writeModes) && r.writeModes.length > 0 && new Set(r.writeModes).size === r.writeModes.length && r.writeModes.every((m) => [
 		"create",
 		"put",
 		"delete"
 	].includes(m)));
-	valid$4(Array.isArray(r.fields) && r.fields.length > 0 && r.fields.length <= 64 && r.fields.every((f) => typeof f === "string" && syncFieldName(f)));
+	valid$3(Array.isArray(r.fields) && r.fields.length > 0 && r.fields.length <= 64 && r.fields.every((f) => typeof f === "string" && syncFieldName(f)));
 	const fields = new Set(r.fields);
-	valid$4(fields.size === r.fields.length);
+	valid$3(fields.size === r.fields.length);
 	const declared = (v) => typeof v === "string" && fields.has(v);
-	valid$4(declared(r.spaceField) && (r.uidField === null || declared(r.uidField) && r.uidField !== r.spaceField));
+	valid$3(declared(r.spaceField) && (r.uidField === null || declared(r.uidField) && r.uidField !== r.spaceField));
 	let query = null;
 	if (r.query !== null) {
-		valid$4(typeof r.query === "object" && r.query !== null);
+		valid$3(typeof r.query === "object" && r.query !== null);
 		const q = row$2(r.query, [
 			"scopeFields",
 			"streamField",
@@ -2609,10 +2431,10 @@ function parseSyncMapping(value) {
 			"order",
 			...Object.hasOwn(r.query, "discovery") ? ["discovery"] : []
 		]);
-		valid$4(Array.isArray(q.scopeFields) && q.scopeFields.length > 0 && q.scopeFields.length <= 8 && q.scopeFields.every(declared));
+		valid$3(Array.isArray(q.scopeFields) && q.scopeFields.length > 0 && q.scopeFields.length <= 8 && q.scopeFields.every(declared));
 		const scope = new Set(q.scopeFields);
-		valid$4(scope.size === q.scopeFields.length);
-		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
+		valid$3(scope.size === q.scopeFields.length);
+		valid$3(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
 		let discovery;
 		if (q.discovery !== void 0) {
 			const d = row$2(q.discovery, [
@@ -2620,9 +2442,9 @@ function parseSyncMapping(value) {
 				"scopeFields",
 				"seqEquals"
 			]);
-			valid$4(typeof d.name === "string" && syncFieldName(d.name) && d.name !== "stream" && Array.isArray(d.scopeFields) && d.scopeFields.every(declared) && new Set(d.scopeFields).size === d.scopeFields.length);
-			valid$4([...scope].filter((n) => n !== q.streamField).sort().join(",") === [...d.scopeFields].sort().join(","));
-			valid$4(d.seqEquals === null || typeof d.seqEquals === "string" && Number.isSafeInteger(Number(d.seqEquals)) && Number(d.seqEquals) >= 0 && String(Number(d.seqEquals)) === d.seqEquals);
+			valid$3(typeof d.name === "string" && syncFieldName(d.name) && d.name !== "stream" && Array.isArray(d.scopeFields) && d.scopeFields.every(declared) && new Set(d.scopeFields).size === d.scopeFields.length);
+			valid$3([...scope].filter((n) => n !== q.streamField).sort().join(",") === [...d.scopeFields].sort().join(","));
+			valid$3(d.seqEquals === null || typeof d.seqEquals === "string" && Number.isSafeInteger(Number(d.seqEquals)) && Number(d.seqEquals) >= 0 && String(Number(d.seqEquals)) === d.seqEquals);
 			discovery = Object.freeze({
 				name: d.name,
 				scopeFields: Object.freeze([...d.scopeFields]),
@@ -2746,7 +2568,7 @@ async function verifyHostedDeclaration(input) {
 }
 //#endregion
 //#region src/sealed-sync-codec.ts
-function valid$3(condition) {
+function valid$2(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 function timestamp(s) {
@@ -2783,9 +2605,9 @@ function validateSyncFields(bytes) {
 	try {
 		const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 		const row = JSON.parse(text);
-		valid$3(typeof row === "object" && row !== null && !Array.isArray(row) && canonical(row) === text);
+		valid$2(typeof row === "object" && row !== null && !Array.isArray(row) && canonical(row) === text);
 		const fields = row;
-		valid$3(Object.keys(fields).length <= 64 && Object.entries(fields).every(([key, v]) => syncFieldName(key) && field$1(v)));
+		valid$2(Object.keys(fields).length <= 64 && Object.entries(fields).every(([key, v]) => syncFieldName(key) && field$1(v)));
 		return fields;
 	} catch {
 		throw new RefusalError("REMOTE_INPUT_INVALID");
@@ -2796,46 +2618,46 @@ function textIs(value, expected) {
 }
 async function validateSyncDocument(context, document, access) {
 	const resource = context.resources.find((r) => r.name === document.target.resource);
-	valid$3(resource !== void 0 && /^[A-Za-z0-9_+-]{1,256}$/.test(document.target.id) && document.bytes.length <= resource.maxObjectBytes);
+	valid$2(resource !== void 0 && /^[A-Za-z0-9_+-]{1,256}$/.test(document.target.id) && document.bytes.length <= resource.maxObjectBytes);
 	const mapping = resource.sync;
 	if (!mapping) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	const bytes = new Uint8Array(document.bytes);
 	const expectedDigest = document.digest;
 	const row = validateSyncFields(bytes);
-	valid$3(Object.keys(row).length === mapping.fields.length && mapping.fields.every((key) => Object.hasOwn(row, key)));
+	valid$2(Object.keys(row).length === mapping.fields.length && mapping.fields.every((key) => Object.hasOwn(row, key)));
 	if (mapping.query) {
 		const stream = row[mapping.query.streamField];
 		const sequence = row[mapping.query.seqField];
-		valid$3(typeof stream.stringValue === "string" && /^[A-Za-z0-9_+-]{1,128}$/.test(stream.stringValue) && typeof sequence.integerValue === "string" && Number(sequence.integerValue) > 0);
+		valid$2(typeof stream.stringValue === "string" && /^[A-Za-z0-9_+-]{1,128}$/.test(stream.stringValue) && typeof sequence.integerValue === "string" && Number(sequence.integerValue) > 0);
 	}
-	valid$3(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === expectedDigest);
+	valid$2(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === expectedDigest);
 	if (!textIs(row[mapping.spaceField], context.space) || access === "publish" && mapping.uidField !== null && !textIs(row[mapping.uidField], context.uid)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 function validateSyncQuery(context, query) {
 	const resource = context.resources.find((r) => r.name === query.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	const spec = mapping?.query;
 	if (!mapping || !spec) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
-	valid$3(Object.keys(query.scope).length === spec.scopeFields.length && spec.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])) && /^[A-Za-z0-9_+-]{1,128}$/.test(query.stream));
+	valid$2(Object.keys(query.scope).length === spec.scopeFields.length && spec.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])) && /^[A-Za-z0-9_+-]{1,128}$/.test(query.stream));
 	if (!textIs(query.scope[mapping.spaceField], context.space) || !textIs(query.scope[spec.streamField], query.stream)) throw new RefusalError("REMOTE_SCOPE_DENIED");
-	valid$3(!query.cursor || query.cursor.stream === query.stream && Number.isSafeInteger(query.cursor.seq) && query.cursor.seq >= 0);
+	valid$2(!query.cursor || query.cursor.stream === query.stream && Number.isSafeInteger(query.cursor.seq) && query.cursor.seq >= 0);
 }
 function validateSyncDiscovery(context, query) {
 	const resource = context.resources.find((r) => r.name === query.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	const discovery = mapping?.query?.discovery;
 	if (!mapping) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	if (!discovery) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
-	valid$3(query.shape === discovery.name && (query.continuation === void 0 || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) && Object.keys(query.scope).length === discovery.scopeFields.length && discovery.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])));
+	valid$2(query.shape === discovery.name && (query.continuation === void 0 || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) && Object.keys(query.scope).length === discovery.scopeFields.length && discovery.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])));
 	if (!textIs(query.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 async function validateSyncMutation(context, mutation) {
 	const target = mutation.mode === "delete" ? mutation.target : mutation.document.target;
-	valid$3(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
+	valid$2(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
 	const resource = context.resources.find((r) => r.name === target.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	if (!mapping || !(mapping.writeModes ?? ["create"]).includes(mutation.mode)) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
 	if (mutation.mode !== "delete") await validateSyncDocument(context, mutation.document, "publish");
@@ -2843,12 +2665,12 @@ async function validateSyncMutation(context, mutation) {
 /** Page-scope registration, not a stream query or mandatory discovery shape. */
 function validateSyncInterest(context, interest) {
 	const resource = context.resources.find((r) => r.name === interest.resource);
-	valid$3(resource !== void 0);
+	valid$2(resource !== void 0);
 	const mapping = resource.sync;
 	const query = mapping?.query;
 	if (!mapping || !query) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	const fields = query.scopeFields.filter((key) => key !== query.streamField);
-	valid$3(Object.keys(interest.scope).length === fields.length && fields.every((key) => Object.hasOwn(interest.scope, key) && field$1(interest.scope[key])));
+	valid$2(Object.keys(interest.scope).length === fields.length && fields.every((key) => Object.hasOwn(interest.scope, key) && field$1(interest.scope[key])));
 	if (!textIs(interest.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 //#endregion
@@ -2856,20 +2678,20 @@ function validateSyncInterest(context, interest) {
 /** Extension-scoped sealed-document ports and pure binding. No credential storage. */
 var identity = /^[A-Za-z0-9_+-]{1,128}$/;
 var documentId = /^[A-Za-z0-9_+-]{1,256}$/;
-function valid$2(condition) {
+function valid$1(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 /** Caller supplies bootstrap-verified public config. This pure binding does not attest an origin. */
 async function bindSyncContext(config, declaration, space, auth) {
 	config = parsePublicWebConfig(config);
 	await verifyHostedDeclaration(declaration);
-	valid$2(identity.test(space) && identity.test(auth.identity.uid));
+	valid$1(identity.test(space) && identity.test(auth.identity.uid));
 	if (config.projectId !== auth.identity.projectId) throw new RefusalError("REMOTE_SCOPE_DENIED");
 	const row = JSON.parse(declaration.bytes);
 	for (const [i, resource] of row.resources.entries()) {
 		const segments = resource.path.split("/").length;
-		valid$2(segments <= 7 && segments % 2 === 1);
-		valid$2(!row.resources.slice(0, i).some((other) => resource.path === other.path || resource.path.startsWith(`${other.path}/`) || other.path.startsWith(`${resource.path}/`)));
+		valid$1(segments <= 7 && segments % 2 === 1);
+		valid$1(!row.resources.slice(0, i).some((other) => resource.path === other.path || resource.path.startsWith(`${other.path}/`) || other.path.startsWith(`${resource.path}/`)));
 	}
 	const resources = row.resources.map((r) => Object.freeze({
 		name: r.name,
@@ -2891,26 +2713,26 @@ async function bindSyncContext(config, declaration, space, auth) {
 /** A document target cannot escape its declared collection or select an operations route. */
 function syncDocumentPath(context, target) {
 	const resource = context.resources.find((r) => r.name === target.resource);
-	valid$2(resource !== void 0 && documentId.test(target.id));
+	valid$1(resource !== void 0 && documentId.test(target.id));
 	return `x/${context.extension}/${resource.path}/${target.id}`;
 }
 /** Pure complete-or-absent validation; never returns a truncated object. */
 async function verifySealedObject(original, manifest, chunks, maxObjectBytes) {
-	valid$2(documentId.test(original) && manifest.original === original);
-	valid$2(Number.isSafeInteger(maxObjectBytes) && maxObjectBytes > 0 && maxObjectBytes <= 16779264);
-	valid$2(Number.isSafeInteger(manifest.chunkBytes) && manifest.chunkBytes > 0 && manifest.chunkBytes <= maxObjectBytes);
-	valid$2(Number.isSafeInteger(manifest.bytes) && manifest.bytes >= 0 && manifest.bytes <= maxObjectBytes);
-	valid$2(Number.isSafeInteger(manifest.count) && manifest.count >= 0 && manifest.count <= 513 && manifest.count === Math.ceil(manifest.bytes / manifest.chunkBytes));
-	valid$2(chunks.length === manifest.count && /^[a-f0-9]{64}$/.test(manifest.digest));
+	valid$1(documentId.test(original) && manifest.original === original);
+	valid$1(Number.isSafeInteger(maxObjectBytes) && maxObjectBytes > 0 && maxObjectBytes <= 16779264);
+	valid$1(Number.isSafeInteger(manifest.chunkBytes) && manifest.chunkBytes > 0 && manifest.chunkBytes <= maxObjectBytes);
+	valid$1(Number.isSafeInteger(manifest.bytes) && manifest.bytes >= 0 && manifest.bytes <= maxObjectBytes);
+	valid$1(Number.isSafeInteger(manifest.count) && manifest.count >= 0 && manifest.count <= 513 && manifest.count === Math.ceil(manifest.bytes / manifest.chunkBytes));
+	valid$1(chunks.length === manifest.count && /^[a-f0-9]{64}$/.test(manifest.digest));
 	const bytes = new Uint8Array(manifest.bytes);
 	let offset = 0;
 	for (let i = 0; i < chunks.length; i++) {
 		const chunk = chunks[i];
-		valid$2(chunk.byteLength === Math.min(manifest.chunkBytes, manifest.bytes - offset));
+		valid$1(chunk.byteLength === Math.min(manifest.chunkBytes, manifest.bytes - offset));
 		bytes.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
-	valid$2(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === manifest.digest);
+	valid$1(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === manifest.digest);
 }
 //#endregion
 //#region src/browser-store.ts
@@ -3860,10 +3682,6 @@ var browserUiClasses = Object.freeze({
 /** A count as drawn in a chip or the rail: counts above 99 read `99+`. */
 function countText(value) {
 	return value > 99 ? "99+" : String(value);
-}
-/** The initials an avatar draws: the first letters of up to two words of a name or handle. */
-function avatarInitials(name) {
-	return name.split(/[\s\-_.@]+/u).filter(Boolean).slice(0, 2).map((word) => [...word][0]).join("").toLocaleUpperCase();
 }
 /**
 * The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
@@ -5007,8 +4825,8 @@ function createShellTopBar(root, bar, navigation, railSearch, layerHost, goTo) {
 */
 var railStorageKey = "tmt-shell-rail";
 var listeners = /* @__PURE__ */ new Set();
-var collapsed = read$1();
-function read$1() {
+var collapsed = read();
+function read() {
 	try {
 		return globalThis.localStorage?.getItem(railStorageKey) === "collapsed";
 	} catch {
@@ -5034,7 +4852,7 @@ function subscribeRail(listener) {
 }
 globalThis.addEventListener?.("storage", (event) => {
 	if (event.key !== "tmt-shell-rail" && event.key !== null) return;
-	const next = read$1();
+	const next = read();
 	if (next === collapsed) return;
 	collapsed = next;
 	for (const listener of listeners) listener();
@@ -5278,7 +5096,7 @@ function count$1(document, text) {
 	badge.setAttribute("aria-hidden", "true");
 	return badge;
 }
-function attention$1(document) {
+function attention(document) {
 	const dot = document.createElement("span");
 	dot.className = "tmt-ui-attention-dot";
 	dot.setAttribute("aria-hidden", "true");
@@ -5605,7 +5423,7 @@ function mountShell(root, view, select, layerHost) {
 			const counts = document.createElement("span");
 			counts.className = "tmt-ui-shell-counts";
 			for (const badge of badges) counts.append(count$1(document, badge));
-			if (waiting) counts.append(attention$1(document));
+			if (waiting) counts.append(attention(document));
 			if (total) counts.append(count$1(document, total.text));
 			anchor.append(counts);
 		}
@@ -5801,7 +5619,7 @@ function mountShell(root, view, select, layerHost) {
 			label.textContent = item.label;
 			anchor.append(icon(document, item.icon), label);
 			if (badge) {
-				anchor.append(attention$1(document));
+				anchor.append(attention(document));
 				tipFor(anchor, `${item.label}, ${badge.text} need you${item.note ? `: ${item.note}` : ""}`);
 			}
 			const row = document.createElement("li");
@@ -6410,33 +6228,33 @@ var empty = {
 	version: 1,
 	entries: []
 };
-function valid$1(condition, message = "The remote name or link is invalid") {
+function valid(condition, message = "The remote name or link is invalid") {
 	if (!condition) throw new RemoteRegistryError("REMOTE_SELECTOR_INVALID", message);
 }
 function fields(value, keys) {
-	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid(typeof value === "object" && value !== null && !Array.isArray(value));
 	const object = value;
-	valid$1(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
+	valid(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
 	return object;
 }
 function name(value) {
-	valid$1(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
+	valid(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
 }
-function target$1(entry) {
+function target(entry) {
 	return new URL(entry.url).href;
 }
 async function reference(alias, address) {
 	name(alias);
-	valid$1(typeof address === "string" && address.length <= LIMIT);
+	valid(typeof address === "string" && address.length <= LIMIT);
 	let url;
 	try {
 		url = new URL(address);
 	} catch {
-		valid$1(false);
+		valid(false);
 	}
 	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") {
 		const { publicWebConfig: config } = await verifyHostedLink(address, url.origin).catch(() => {
-			valid$1(false);
+			valid(false);
 		});
 		return {
 			name: alias,
@@ -6445,7 +6263,7 @@ async function reference(alias, address) {
 			project: config.projectId
 		};
 	}
-	valid$1(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
+	valid(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
 	return {
 		name: alias,
 		kind: "local",
@@ -6455,8 +6273,8 @@ async function reference(alias, address) {
 }
 async function parseCatalog(value) {
 	const row = fields(value, ["version", "entries"]);
-	valid$1(row.version === 1 && Array.isArray(row.entries));
-	valid$1(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
+	valid(row.version === 1 && Array.isArray(row.entries));
+	valid(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
 	const entries = [];
 	for (const raw of row.entries) {
 		const r = fields(raw, [
@@ -6466,51 +6284,51 @@ async function parseCatalog(value) {
 			"project"
 		]);
 		const entry = await reference(r.name, r.url);
-		valid$1(entry.kind === r.kind && entry.project === r.project);
-		valid$1(!entries.some((old) => old.name === entry.name || target$1(old) === target$1(entry)));
+		valid(entry.kind === r.kind && entry.project === r.project);
+		valid(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
 		entries.push(Object.freeze(entry));
 	}
 	const catalog = {
 		version: 1,
 		entries: Object.freeze(entries)
 	};
-	valid$1(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
+	valid(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
 	return Object.freeze(catalog);
 }
 function json(catalog) {
 	return JSON.stringify(catalog);
 }
 function decode$1(value) {
-	valid$1(/^[A-Za-z0-9_-]+$/.test(value));
+	valid(/^[A-Za-z0-9_-]+$/.test(value));
 	try {
 		const bytes = Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
-		valid$1(base64url(bytes) === value);
+		valid(base64url(bytes) === value);
 		return JSON.parse(decoder.decode(bytes));
 	} catch {
-		valid$1(false);
+		valid(false);
 	}
 }
 function hint(value) {
 	const r = fields(value, ["spaceId", "pageId"]);
-	valid$1(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
-	valid$1(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
+	valid(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
+	valid(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
 	return {
 		spaceId: r.spaceId,
 		pageId: r.pageId
 	};
 }
 async function parseHandoff(fragment) {
-	valid$1(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
+	valid(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
 	const params = new URLSearchParams(fragment.slice(1));
 	const keys = [...params.keys()];
-	valid$1(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
+	valid(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
 	const raw = params.get("tmt-remotes");
-	valid$1(raw !== null);
+	valid(raw !== null);
 	const catalog = await parseCatalog(decode$1(raw));
-	valid$1(base64url(encoder.encode(json(catalog))) === raw);
+	valid(base64url(encoder.encode(json(catalog))) === raw);
 	const page = params.get("tmt-page");
 	const checkedHint = page === null ? void 0 : hint(decode$1(page));
-	if (checkedHint) valid$1(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
+	if (checkedHint) valid(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
 	return {
 		catalog,
 		...checkedHint ? { hint: checkedHint } : {}
@@ -6518,12 +6336,12 @@ async function parseHandoff(fragment) {
 }
 async function buildHandoff(destination, value, page) {
 	const checked = await reference(destination.name, destination.url);
-	valid$1(checked.kind === destination.kind && checked.project === destination.project);
+	valid(checked.kind === destination.kind && checked.project === destination.project);
 	if (checked.kind === "firestore") return checked.url;
 	const catalog = await parseCatalog(value);
 	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
 	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
-	valid$1(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
+	valid(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
 	return `${new URL("/remote/overview", checked.url).href}#${params}`;
 }
 async function planImport(incoming, current) {
@@ -6533,7 +6351,7 @@ async function planImport(incoming, current) {
 		incoming: next,
 		current: before,
 		rows: next.entries.map((entry) => {
-			const same = before.entries.find((old) => target$1(old) === target$1(entry));
+			const same = before.entries.find((old) => target(old) === target(entry));
 			if (same) return {
 				entry,
 				status: "duplicate",
@@ -6562,7 +6380,7 @@ async function planImport(incoming, current) {
 }
 async function mergeImport(plan, choices) {
 	const checked = await planImport(plan.incoming, plan.current);
-	valid$1(choices.length === checked.rows.length);
+	valid(choices.length === checked.rows.length);
 	const entries = [...checked.current.entries];
 	for (const [index, row] of checked.rows.entries()) {
 		const alias = choices[index];
@@ -6582,9 +6400,9 @@ async function mergeImport(plan, choices) {
 async function snapshot() {
 	try {
 		const raw = await readRegistry();
-		valid$1(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
+		valid(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
 		const catalog = raw === void 0 ? empty : await parseCatalog(JSON.parse(raw));
-		valid$1(raw === void 0 || raw === json(catalog));
+		valid(raw === void 0 || raw === json(catalog));
 		return {
 			raw,
 			catalog
@@ -6619,14 +6437,14 @@ var remoteRegistry = {
 			version: 1,
 			entries: [entry]
 		}, latest.catalog);
-		valid$1(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
+		valid(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
 		await remoteRegistry.confirmImport(plan, [alias]);
 	},
 	async rename(previous, alias) {
 		name(alias);
 		const latest = await snapshot();
-		valid$1(latest.catalog.entries.some((entry) => entry.name === previous));
-		valid$1(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
+		valid(latest.catalog.entries.some((entry) => entry.name === previous));
+		valid(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
 		const next = await parseCatalog({
 			version: 1,
 			entries: latest.catalog.entries.map((entry) => entry.name === previous ? {
@@ -6638,7 +6456,7 @@ var remoteRegistry = {
 	},
 	async remove(alias) {
 		const latest = await snapshot();
-		valid$1(latest.catalog.entries.some((entry) => entry.name === alias));
+		valid(latest.catalog.entries.some((entry) => entry.name === alias));
 		await commit(latest.raw, {
 			version: 1,
 			entries: latest.catalog.entries.filter((entry) => entry.name !== alias)
@@ -7717,9 +7535,6 @@ var settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"setti
 //#region ../../rust/tmt-remote/assets/tmt-settings.html?raw
 var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"tmt-settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJ0bXQtYnJhbmQtbWFyayIgdmlld0JveD0iMCAwIDk2IDk2IiBhcmlhLWhpZGRlbj0idHJ1ZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2Ij48cmVjdCBjbGFzcz0idG10LWJyYW5kLW1hcmstdGlsZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMjUuNiIgZmlsbD0iIzBhMGEwYSIvPjxzdmcgeD0iMTEuNSIgeT0iMTEuNSIgdmlld0JveD0iMCAwIDcyMCA3NjAiIHdpZHRoPSI3MyIgaGVpZ2h0PSI3MyI+PHBhdGggZmlsbD0iI2YyZWZlOSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNIDEwIDM1MSBDIDMzIDI0NSA4MiAxNDMgMTYwIDg5IEMgMjEzIDUyIDI3NSAxMiAzMTkgMTEgQyA0MDMgOSA1MzYgNzggNjIyIDIwNyBMIDQ1OSAxNDQgQyA1MTggMjE3IDU0OCAyODIgNTU4IDMyNSBDIDU3OCA0MTAgNTA0IDQ0MCAzOTYgNDc2IEMgMzAxIDUwNyAxODkgNTQzIDExOSA1NzMgQyAyMTcgNTcwIDMxNyA1MzEgNDE0IDQ5NyBDIDUwNSA0NjUgNjE2IDQyNSA3MTYgNDE2IEwgNjM5IDU1MiBDIDU1MCA1NTAgNDY4IDU3NCA0MTQgNjEyIEMgNTE4IDU4NSA2NDYgNjMxIDcxMSA3NDYgQyA2MTEgNjk0IDUwNiA2ODAgNDA0IDY5MCBDIDMwMCA3MDEgMTk4IDcxMyAxMTcgNjk3IEMgMzUgNjgyIDAgNjM4IDIwIDU3NiBDIDI3IDU0OSAzOCA1MjkgNjAgNTA2IEMgMTcgNDc4IC0xIDQ0NSA1IDQwNyBDIDYgMzg5IDggMzcwIDEwIDM1MSBaIE0gMTAwIDM0NSBDIDEwMCAyNzMgMTg2IDIzNCAyOTAgMjM0IEMgMzk0IDIzNCA0ODAgMjczIDQ4MCAzNDUgQyA0ODAgNDE3IDM5NCA0NTYgMjkwIDQ1NiBDIDE4NiA0NTYgMTAwIDQxNyAxMDAgMzQ1IFoiLz48cGF0aCBkPSJNIDIxOSAzMTIgTCAyODMgMzUzIEwgMjE5IDM5NCBNIDMxNCAzOTIgSCAzODIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyZWZlOSIgc3Ryb2tlLXdpZHRoPSIyNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+PC9zdmc+Cg==\" />\n    <title>TMT settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-main\">\n    <main id=\"tmt-settings-page\" class=\"tmt-page tmt-settings\">\n      <p id=\"tmt-settings-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"tmt-settings-section\" class=\"tmt-settings-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
-//#region ../../rust/tmt-remote/assets/ops.html?raw
-var ops_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"ops\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJ0bXQtYnJhbmQtbWFyayIgdmlld0JveD0iMCAwIDk2IDk2IiBhcmlhLWhpZGRlbj0idHJ1ZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2Ij48cmVjdCBjbGFzcz0idG10LWJyYW5kLW1hcmstdGlsZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMjUuNiIgZmlsbD0iIzBhMGEwYSIvPjxzdmcgeD0iMTEuNSIgeT0iMTEuNSIgdmlld0JveD0iMCAwIDcyMCA3NjAiIHdpZHRoPSI3MyIgaGVpZ2h0PSI3MyI+PHBhdGggZmlsbD0iI2YyZWZlOSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNIDEwIDM1MSBDIDMzIDI0NSA4MiAxNDMgMTYwIDg5IEMgMjEzIDUyIDI3NSAxMiAzMTkgMTEgQyA0MDMgOSA1MzYgNzggNjIyIDIwNyBMIDQ1OSAxNDQgQyA1MTggMjE3IDU0OCAyODIgNTU4IDMyNSBDIDU3OCA0MTAgNTA0IDQ0MCAzOTYgNDc2IEMgMzAxIDUwNyAxODkgNTQzIDExOSA1NzMgQyAyMTcgNTcwIDMxNyA1MzEgNDE0IDQ5NyBDIDUwNSA0NjUgNjE2IDQyNSA3MTYgNDE2IEwgNjM5IDU1MiBDIDU1MCA1NTAgNDY4IDU3NCA0MTQgNjEyIEMgNTE4IDU4NSA2NDYgNjMxIDcxMSA3NDYgQyA2MTEgNjk0IDUwNiA2ODAgNDA0IDY5MCBDIDMwMCA3MDEgMTk4IDcxMyAxMTcgNjk3IEMgMzUgNjgyIDAgNjM4IDIwIDU3NiBDIDI3IDU0OSAzOCA1MjkgNjAgNTA2IEMgMTcgNDc4IC0xIDQ0NSA1IDQwNyBDIDYgMzg5IDggMzcwIDEwIDM1MSBaIE0gMTAwIDM0NSBDIDEwMCAyNzMgMTg2IDIzNCAyOTAgMjM0IEMgMzk0IDIzNCA0ODAgMjczIDQ4MCAzNDUgQyA0ODAgNDE3IDM5NCA0NTYgMjkwIDQ1NiBDIDE4NiA0NTYgMTAwIDQxNyAxMDAgMzQ1IFoiLz48cGF0aCBkPSJNIDIxOSAzMTIgTCAyODMgMzUzIEwgMjE5IDM5NCBNIDMxNCAzOTIgSCAzODIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyZWZlOSIgc3Ryb2tlLXdpZHRoPSIyNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+PC9zdmc+Cg==\" />\n    <title>Ops · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page ops\">\n      <p id=\"ops-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"ops-section\" class=\"ops-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
-//#endregion
 //#region ../../rust/tmt-remote/assets/digest.html?raw
 var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJ0bXQtYnJhbmQtbWFyayIgdmlld0JveD0iMCAwIDk2IDk2IiBhcmlhLWhpZGRlbj0idHJ1ZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2Ij48cmVjdCBjbGFzcz0idG10LWJyYW5kLW1hcmstdGlsZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMjUuNiIgZmlsbD0iIzBhMGEwYSIvPjxzdmcgeD0iMTEuNSIgeT0iMTEuNSIgdmlld0JveD0iMCAwIDcyMCA3NjAiIHdpZHRoPSI3MyIgaGVpZ2h0PSI3MyI+PHBhdGggZmlsbD0iI2YyZWZlOSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNIDEwIDM1MSBDIDMzIDI0NSA4MiAxNDMgMTYwIDg5IEMgMjEzIDUyIDI3NSAxMiAzMTkgMTEgQyA0MDMgOSA1MzYgNzggNjIyIDIwNyBMIDQ1OSAxNDQgQyA1MTggMjE3IDU0OCAyODIgNTU4IDMyNSBDIDU3OCA0MTAgNTA0IDQ0MCAzOTYgNDc2IEMgMzAxIDUwNyAxODkgNTQzIDExOSA1NzMgQyAyMTcgNTcwIDMxNyA1MzEgNDE0IDQ5NyBDIDUwNSA0NjUgNjE2IDQyNSA3MTYgNDE2IEwgNjM5IDU1MiBDIDU1MCA1NTAgNDY4IDU3NCA0MTQgNjEyIEMgNTE4IDU4NSA2NDYgNjMxIDcxMSA3NDYgQyA2MTEgNjk0IDUwNiA2ODAgNDA0IDY5MCBDIDMwMCA3MDEgMTk4IDcxMyAxMTcgNjk3IEMgMzUgNjgyIDAgNjM4IDIwIDU3NiBDIDI3IDU0OSAzOCA1MjkgNjAgNTA2IEMgMTcgNDc4IC0xIDQ0NSA1IDQwNyBDIDYgMzg5IDggMzcwIDEwIDM1MSBaIE0gMTAwIDM0NSBDIDEwMCAyNzMgMTg2IDIzNCAyOTAgMjM0IEMgMzk0IDIzNCA0ODAgMjczIDQ4MCAzNDUgQyA0ODAgNDE3IDM5NCA0NTYgMjkwIDQ1NiBDIDE4NiA0NTYgMTAwIDQxNyAxMDAgMzQ1IFoiLz48cGF0aCBkPSJNIDIxOSAzMTIgTCAyODMgMzUzIEwgMjE5IDM5NCBNIDMxNCAzOTIgSCAzODIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyZWZlOSIgc3Ryb2tlLXdpZHRoPSIyNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+PC9zdmc+Cg==\"\n    />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n      <div class=\"tmt-ui-shell-content\">\n        <div class=\"tmt-ui-shell-main\">\n          <main class=\"tmt-page usage digest\">\n            <div class=\"digest-head\">\n              <div>\n                <p class=\"tmt-ui-page-subtitle\">\n                  Token usage, allowance and the conversations between seats.\n                </p>\n              </div>\n              <div class=\"digest-controls\">\n                <div class=\"tmt-ui-tabs-header\">\n                  <div\n                    id=\"usage-ranges\"\n                    class=\"tmt-ui-tab-list\"\n                    role=\"tablist\"\n                    aria-label=\"Range\"\n                  ></div>\n                </div>\n              </div>\n            </div>\n            <div class=\"digest-observation\">\n              <span id=\"usage-badge\" class=\"tmt-ui-chip\" hidden\n                ><span class=\"tmt-ui-chip-label\"></span\n              ></span>\n              <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n            </div>\n            <div id=\"usage-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n              <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n            </div>\n          </main>\n        </div>\n      </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
@@ -7788,7 +7603,7 @@ function niceMax(max) {
 	return 10 * base;
 }
 /** `count + 1` evenly spaced ticks from 0 to `max`. */
-function ticks$1(max, count = 4) {
+function ticks(max, count = 4) {
 	return Array.from({ length: count + 1 }, (_, at) => max * at / count);
 }
 /** 1.9B, 48.2M, 310K, 940: compact token and message counts. */
@@ -7917,7 +7732,7 @@ function seriesModel(options, width) {
 	const dataMax = stack ? stack.max : Math.max(0, ...options.series.flatMap((layer) => layer.values.map((v) => v ?? 0)), ...options.reference?.values.map((v) => v ?? 0) ?? []);
 	const max = options.max ?? (share ? 100 : niceMax(dataMax));
 	const height = options.height ?? 200;
-	const tickLabels = ticks$1(max, 4).map(format);
+	const tickLabels = ticks(max, 4).map(format);
 	const left = Math.max(MARGIN.left, Math.max(...tickLabels.map((label) => label.length)) * TICK_CHARACTER + TICK_GAP + TICK_INSET);
 	const inner = {
 		left,
@@ -7982,7 +7797,7 @@ function seriesModel(options, width) {
 	return {
 		width,
 		height,
-		grid: ticks$1(max, 4).map((tick, at) => ({
+		grid: ticks(max, 4).map((tick, at) => ({
 			y: yAt(tick),
 			x1: inner.left,
 			x2: inner.right,
@@ -8437,7 +8252,7 @@ function isLimitAccount(value) {
 	return typeof account?.key === "string" && ACCOUNT_KEY.test(account.key) && typeof account.label === "string" && ACCOUNT_LABEL.test(account.label);
 }
 /** One plain sentence per reason, each saying what the person can do. */
-var REASONS$2 = {
+var REASONS$1 = {
 	not_installed: "Digest is not installed on your machine. Run `tmt extension install digest`, then reload this page.",
 	core_unavailable: "TMT on your machine did not answer. This page tries again shortly.",
 	timeout: "Your machine took too long to read usage. This page tries again shortly.",
@@ -8492,7 +8307,7 @@ function reportFromAnswers(range, digest, allowance) {
 			range,
 			sample: false,
 			...allowance,
-			unavailable: REASONS$2[reason]
+			unavailable: REASONS$1[reason]
 		};
 	}
 	const document = digest.payload.report;
@@ -8500,7 +8315,7 @@ function reportFromAnswers(range, digest, allowance) {
 		range,
 		sample: false,
 		...allowance,
-		unavailable: REASONS$2.unknown
+		unavailable: REASONS$1.unknown
 	};
 	return {
 		range,
@@ -8632,8 +8447,8 @@ async function readSavings(range, signal) {
 }
 //#endregion
 //#region src/digest-view.ts
-var HOUR$1 = 36e5;
-var DAY$1 = 24 * HOUR$1;
+var HOUR = 36e5;
+var DAY = 24 * HOUR;
 /** Input plus output; cached input is part of input and is never added. */
 var tokensOf = (point) => point.input + point.output;
 function seatName(seat) {
@@ -8795,7 +8610,7 @@ var CAUSES = {
 	no_sampler: "started outside tmt run, so only its Stop hook reports",
 	not_sampled: "running, but no sample accepted yet"
 };
-var REASONS$1 = {
+var REASONS = {
 	not_found: "not found",
 	read_failed: "could not be read"
 };
@@ -8821,7 +8636,7 @@ function coverage(doc) {
 			continue;
 		}
 		const id = cause ?? (typeof seat.reason === "string" ? seat.reason : "unknown");
-		const words = cause ? Object.hasOwn(CAUSES, cause) ? CAUSES[cause] : `cause "${cause}"` : Object.hasOwn(REASONS$1, id) ? REASONS$1[id] : "no usage evidence";
+		const words = cause ? Object.hasOwn(CAUSES, cause) ? CAUSES[cause] : `cause "${cause}"` : Object.hasOwn(REASONS, id) ? REASONS[id] : "no usage evidence";
 		const gap = groups.get(id) ?? {
 			id,
 			words,
@@ -8960,8 +8775,8 @@ function observedAgo(observedAtMs, nowMs) {
 function resetsIn(resetsAtMs, nowMs) {
 	const ms = resetsAtMs - nowMs;
 	if (ms <= 0) return "now";
-	if (ms >= DAY$1) return `${Math.floor(ms / DAY$1)}d ${Math.floor(ms % DAY$1 / HOUR$1)}h`;
-	return `${Math.max(1, Math.floor(ms / HOUR$1))}h`;
+	if (ms >= DAY) return `${Math.floor(ms / DAY)}d ${Math.floor(ms % DAY / HOUR)}h`;
+	return `${Math.max(1, Math.floor(ms / HOUR))}h`;
 }
 /** Cached input as a share of input, in percent to one decimal; null without input. */
 function cachedRatio(totals) {
@@ -9170,7 +8985,7 @@ function runway(history, nowMs) {
 	const emptyAtMs = projected < 0 ? Math.round(last.atMs + last.percentLeft / perMs) : null;
 	return {
 		basis,
-		perHour: Math.round(perMs * HOUR$1 * 100) / 100,
+		perHour: Math.round(perMs * HOUR * 100) / 100,
 		fromAtMs: last.atMs,
 		fromLeft: last.percentLeft,
 		resetsAtMs: history.resetsAtMs,
@@ -9186,7 +9001,7 @@ function runwayWords(projection, nowMs) {
 	return `At ${pace} about ${Math.round(projection.leftAtReset)}% is left at the reset.`;
 }
 /** A figure the report could not give: never shown as zero. */
-var UNKNOWN$1 = "Unknown";
+var UNKNOWN = "Unknown";
 /** A duration in ms as the page reads it: 45s, 2m 40s, 1h 5m. */
 function durationText(ms) {
 	const seconds = Math.round(ms / 1e3);
@@ -9213,7 +9028,7 @@ var COST_REASONS = {
 	unattributed: "some tokens name no model",
 	no_known_arrivals: "no message is known to have arrived while its member was idle"
 };
-var figure = (value) => value === null ? UNKNOWN$1 : value.toLocaleString("en-US");
+var figure = (value) => value === null ? UNKNOWN : value.toLocaleString("en-US");
 var reasonWords = (reason) => reason ? COST_REASONS[reason] ?? reason : "no estimate was reported";
 /**
 * The avoided cost exactly as the report gives it (#6794): the sum over the members whose own
@@ -9224,18 +9039,18 @@ var reasonWords = (reason) => reason ? COST_REASONS[reason] ?? reason : "no esti
 function avoidedCost(doc) {
 	const cost = doc.total.avoidedCost;
 	if (!cost.covered || !cost.unpriced) return {
-		value: UNKNOWN$1,
+		value: UNKNOWN,
 		note: "Cost unknown: Digest on your machine does not say which members it covers. Upgrade TMT to see it."
 	};
 	const models = [...new Set(cost.unpriced.flatMap((member) => member.models))].sort();
 	const others = new Set(cost.unpriced.filter((member) => !member.models.length).map((member) => reasonWords(member.reason ?? "no_price")));
 	const why = [...models.length ? [`no price for ${models.join(", ")}`] : [], ...others].join("; ");
 	if (cost.usdMicros === null) return {
-		value: UNKNOWN$1,
+		value: UNKNOWN,
 		note: `Cost unknown: ${why || reasonWords(cost.reason)}.`
 	};
 	if (!doc.pricing || cost.lowerBound === null) return {
-		value: UNKNOWN$1,
+		value: UNKNOWN,
 		note: "Cost unknown: this report does not identify a pricing v2 estimate."
 	};
 	const members = cost.covered.length + cost.unpriced.length;
@@ -9284,7 +9099,7 @@ function savingsView(doc) {
 			figure(member.deliveries),
 			figure(member.measuredSaved),
 			figure(member.turnsSaved),
-			member.delay ? durationText(member.delay.median) : UNKNOWN$1,
+			member.delay ? durationText(member.delay.median) : UNKNOWN,
 			member.complete === null ? "No record" : member.complete ? "Whole range" : "Partial"
 		]),
 		coverageNote: parts.length ? `${parts.join("; ")}. Figures are lower bounds.` : null,
@@ -9324,14 +9139,14 @@ function notAvailable(note, text) {
 * by tests, the gallery and local development. Range and view state belong to this mounted page.
 */
 /** The terminal Digest's own cadence: the usage read refreshes once a minute. */
-var REFRESH_MS$1 = 6e4;
+var REFRESH_MS = 6e4;
 /** Distinct series a chart draws; the rest fold into one neutral `Other`. */
 var SERIES_KEPT = 6;
 /** Models the share card names; the rest fold into one `Other` row. */
 var MODELS_KEPT = 4;
 /** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
 var OTHER_STEP = 7;
-function el$1(name, className, text) {
+function el(name, className, text) {
 	const node = document.createElement(name);
 	if (className) node.className = className;
 	if (text !== void 0) node.textContent = text;
@@ -9352,15 +9167,15 @@ function writeSeatOrder(value) {
 }
 /** A flat sheet with a sentence-case title and an optional right-hand slot in its head. */
 function card$1(id, title, body, options = {}) {
-	const node = el$1("section", options.className ? `${browserUiClasses.card} digest-card ${options.className}` : `${browserUiClasses.card} digest-card`);
+	const node = el("section", options.className ? `${browserUiClasses.card} digest-card ${options.className}` : `${browserUiClasses.card} digest-card`);
 	node.id = id;
 	node.setAttribute("aria-labelledby", `${id}-title`);
-	const heading = el$1("h2", browserUiClasses.cardTitle, title);
+	const heading = el("h2", browserUiClasses.cardTitle, title);
 	heading.id = `${id}-title`;
-	const head = el$1("div", browserUiClasses.cardHead);
+	const head = el("div", browserUiClasses.cardHead);
 	if (options.subtitle) {
-		const title = el$1("div", "digest-section-title");
-		title.append(heading, el$1("p", "digest-subtitle", options.subtitle));
+		const title = el("div", "digest-section-title");
+		title.append(heading, el("p", "digest-subtitle", options.subtitle));
 		head.append(title);
 	} else head.append(heading);
 	if (options.actions) head.append(options.actions);
@@ -9368,25 +9183,25 @@ function card$1(id, title, body, options = {}) {
 	return node;
 }
 function table(head, rows) {
-	const node = el$1("table", browserUiClasses.table);
+	const node = el("table", browserUiClasses.table);
 	node.dataset.numeric = "";
-	const header = el$1("tr");
+	const header = el("tr");
 	for (const text of head) {
-		const cell = el$1("th", void 0, text);
+		const cell = el("th", void 0, text);
 		cell.scope = "col";
 		header.append(cell);
 	}
-	const thead = el$1("thead");
+	const thead = el("thead");
 	thead.append(header);
 	node.append(thead);
-	const body = el$1("tbody");
+	const body = el("tbody");
 	for (const [first, ...rest] of rows) {
-		const line = el$1("tr");
-		const name = el$1("th");
+		const line = el("tr");
+		const name = el("th");
 		name.scope = "row";
 		name.append(first);
 		line.append(name, ...rest.map((value) => {
-			const cell = el$1("td");
+			const cell = el("td");
 			cell.append(value);
 			return cell;
 		}));
@@ -9397,12 +9212,12 @@ function table(head, rows) {
 }
 /** The leaf's boxed tabs as a two-way choice for one panel; `aria-selected` marks the active one. */
 function tabChoice(label, controls, options, initial, change) {
-	const header = el$1("div", browserUiClasses.tabsHeader);
-	const list = el$1("div", browserUiClasses.tabList);
+	const header = el("div", browserUiClasses.tabsHeader);
+	const list = el("div", browserUiClasses.tabList);
 	list.setAttribute("role", "tablist");
 	list.setAttribute("aria-label", label);
 	const buttons = options.map((option) => {
-		const button = el$1("button", browserUiClasses.tab, option.text);
+		const button = el("button", browserUiClasses.tab, option.text);
 		button.type = "button";
 		button.setAttribute("role", "tab");
 		button.setAttribute("aria-controls", controls);
@@ -9439,21 +9254,21 @@ function tabChoice(label, controls, options, initial, change) {
 /** One fact in a card: a number by default, a word or a time with `numeric: false`; a tone adds
 * the leaf's dot before the value. */
 function tile(label, value, options = {}) {
-	const node = el$1("div", browserUiClasses.statusTile);
-	const figure = el$1("dd", browserUiClasses.statusTileValue);
+	const node = el("div", browserUiClasses.statusTile);
+	const figure = el("dd", browserUiClasses.statusTileValue);
 	if (options.tone) {
 		node.dataset.tone = options.tone;
-		const dot = el$1("span", browserUiClasses.statusTileDot);
+		const dot = el("span", browserUiClasses.statusTileDot);
 		dot.setAttribute("aria-hidden", "true");
 		figure.append(dot);
 	}
 	figure.append(value);
 	if (options.numeric ?? true) figure.dataset.numeric = value === "0" ? "zero" : "count";
-	node.append(el$1("dt", browserUiClasses.statusTileLabel, label), figure);
+	node.append(el("dt", browserUiClasses.statusTileLabel, label), figure);
 	return node;
 }
 /** A weekday, day and time in the owner's zone: when a window runs out. */
-function clock$1(ms) {
+function clock(ms) {
 	return new Date(ms).toLocaleString("en-GB", {
 		weekday: "short",
 		day: "numeric",
@@ -9475,7 +9290,7 @@ function runwayTiles(view, nowMs) {
 	const tone = runway ? empty === null ? "working" : "blocked" : void 0;
 	return [
 		tile("Left", `${view.leftPercent}%`, tone ? { tone } : {}),
-		empty !== null ? tile("Runs out", clock$1(empty), {
+		empty !== null ? tile("Runs out", clock(empty), {
 			tone: "blocked",
 			numeric: false
 		}) : tile("At the reset", runway ? `${Math.round(runway.leftAtReset)}% left` : "—", {
@@ -9490,28 +9305,28 @@ function runwayTiles(view, nowMs) {
 }
 /** A group of bare tiles for use inside a card. */
 function bareTiles(...tiles) {
-	const group = el$1("dl", browserUiClasses.statusTiles);
+	const group = el("dl", browserUiClasses.statusTiles);
 	group.dataset.bare = "";
 	group.append(...tiles);
 	return group;
 }
 function providerRow(view, nowMs) {
-	const row = el$1("div", "digest-provider");
+	const row = el("div", "digest-provider");
 	row.id = `digest-window-${view.key}`;
-	const label = el$1("div", "digest-provider-label");
-	label.append(el$1("strong", void 0, view.provider), el$1("strong", void 0, `${view.leftPercent}% left${view.stale ? " (stale)" : ""}`));
-	const meter = el$1("div", browserUiClasses.meter);
+	const label = el("div", "digest-provider-label");
+	label.append(el("strong", void 0, view.provider), el("strong", void 0, `${view.leftPercent}% left${view.stale ? " (stale)" : ""}`));
+	const meter = el("div", browserUiClasses.meter);
 	meter.setAttribute("role", "img");
 	meter.setAttribute("aria-label", `${view.leftPercent}% of the weekly allowance left`);
-	const fill = el$1("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${view.style}`);
+	const fill = el("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${view.style}`);
 	fill.style.setProperty("--tmt-ui-meter-fill", String(Math.max(0, Math.min(100, view.leftPercent))));
 	meter.append(fill);
-	const words = el$1("p", "usage-note digest-runway", runwayText(view, nowMs));
-	const history = el$1("div", "digest-provider-history");
+	const words = el("p", "usage-note digest-runway", runwayText(view, nowMs));
+	const history = el("div", "digest-provider-history");
 	history.id = `${row.id}-history`;
 	if (view.chart) history.append(createSeriesChart(view.chart));
 	history.append(bareTiles(...runwayTiles(view, nowMs)));
-	const observation = el$1("p", "usage-note digest-window-observation", `Observed ${observedAgo(view.observedAtMs, nowMs)}`);
+	const observation = el("p", "usage-note digest-window-observation", `Observed ${observedAgo(view.observedAtMs, nowMs)}`);
 	observation.dataset.observedAt = String(view.observedAtMs);
 	const reset = new Date(view.resetsAtMs).toLocaleString("en-GB", {
 		month: "short",
@@ -9520,16 +9335,16 @@ function providerRow(view, nowMs) {
 		minute: "2-digit",
 		timeZoneName: "short"
 	});
-	const metadata = el$1("div", "digest-provider-metadata");
-	metadata.append(observation, el$1("p", "usage-note", `Resets ${reset}`), el$1("p", "usage-note digest-reporters", `Reported by ${view.reporters.join(", ") || "unknown seats"}`));
+	const metadata = el("div", "digest-provider-metadata");
+	metadata.append(observation, el("p", "usage-note", `Resets ${reset}`), el("p", "usage-note digest-reporters", `Reported by ${view.reporters.join(", ") || "unknown seats"}`));
 	row.append(label, meter, words, history, metadata);
 	return row;
 }
 /** A provider's usage in the allowance week and, where the report carries it, its credits. */
 function providerFacts(group, nowMs) {
 	const facts = [];
-	if (group.usage) facts.push(el$1("p", "usage-note digest-provider-usage", `${compactCount(tokensOf(group.usage))} tokens in the last 7 days`));
-	if (group.credits) facts.push(el$1("p", "usage-note digest-provider-credits", `${group.credits.balance === null ? "No credits" : `Credits: ${creditText(group.credits.balance)}`} · observed ${observedAgo(group.credits.observedAtMs, nowMs)}`));
+	if (group.usage) facts.push(el("p", "usage-note digest-provider-usage", `${compactCount(tokensOf(group.usage))} tokens in the last 7 days`));
+	if (group.credits) facts.push(el("p", "usage-note digest-provider-credits", `${group.credits.balance === null ? "No credits" : `Credits: ${creditText(group.credits.balance)}`} · observed ${observedAgo(group.credits.observedAtMs, nowMs)}`));
 	return facts;
 }
 /** Coverage first (#6751 F): which seats the report cannot see, and why, above every number. */
@@ -9537,11 +9352,11 @@ function coverageNotice(doc) {
 	const seen = coverage(doc);
 	if (!seen.missingSeats && !seen.partialSeats && !seen.idle.length) return void 0;
 	const gap = seen.missingSeats > 0 || seen.partialSeats > 0;
-	const node = el$1("section", `${browserUiClasses.banner} digest-coverage`);
+	const node = el("section", `${browserUiClasses.banner} digest-coverage`);
 	node.id = "digest-coverage";
 	if (gap) node.dataset.tone = "waiting";
-	const head = el$1("div", browserUiClasses.bannerHead);
-	const title = el$1("h2", "digest-coverage-title", coverageHeading(seen));
+	const head = el("div", browserUiClasses.bannerHead);
+	const title = el("h2", "digest-coverage-title", coverageHeading(seen));
 	title.id = "digest-coverage-title";
 	node.setAttribute("aria-labelledby", title.id);
 	head.append(title);
@@ -9556,11 +9371,11 @@ function coverageNotice(doc) {
 		seen.idle
 	]] : []];
 	if (rows.length) {
-		const list = el$1("ul", "digest-coverage-causes");
+		const list = el("ul", "digest-coverage-causes");
 		for (const [id, words, seats] of rows) {
-			const item = el$1("li", "digest-coverage-cause");
+			const item = el("li", "digest-coverage-cause");
 			item.dataset.cause = id;
-			item.append(el$1("strong", void 0, words), el$1("span", "usage-note", seats.join(", ")));
+			item.append(el("strong", void 0, words), el("span", "usage-note", seats.join(", ")));
 			list.append(item);
 		}
 		node.append(list);
@@ -9569,48 +9384,48 @@ function coverageNotice(doc) {
 }
 function allowanceRow(report, state) {
 	const doc = report.allowance;
-	const intro = el$1("div", "digest-allowance-intro");
-	intro.append(el$1("h2", browserUiClasses.cardTitle, "Allowance"), el$1("p", "digest-subtitle", "Latest known weekly windows. Independent of the usage range."));
-	const node = el$1("section", `${browserUiClasses.card} digest-card digest-allowance`);
+	const intro = el("div", "digest-allowance-intro");
+	intro.append(el("h2", browserUiClasses.cardTitle, "Allowance"), el("p", "digest-subtitle", "Latest known weekly windows. Independent of the usage range."));
+	const node = el("section", `${browserUiClasses.card} digest-card digest-allowance`);
 	node.id = "digest-allowance";
 	intro.querySelector("h2").id = "digest-allowance-title";
 	node.setAttribute("aria-labelledby", "digest-allowance-title");
-	const groups = el$1("div", "digest-provider-groups");
+	const groups = el("div", "digest-provider-groups");
 	groups.id = "digest-provider-groups";
 	groups.setAttribute("role", "region");
 	groups.setAttribute("aria-label", "Provider allowances");
 	const providers = providerGroups(doc);
 	if (!providers.length) {
-		node.append(intro, el$1("p", "usage-note", report.allowanceUnavailable ?? "No weekly allowance observations have been reported."));
+		node.append(intro, el("p", "usage-note", report.allowanceUnavailable ?? "No weekly allowance observations have been reported."));
 		return node;
 	}
 	for (const group of providers) {
-		const host = el$1("div", "digest-provider-group");
+		const host = el("div", "digest-provider-group");
 		host.id = `digest-provider-${encodeURIComponent(group.id)}`;
 		if (group.primary) host.append(providerRow(group.primary, doc.observedAtMs));
 		else {
-			const label = el$1("div", "digest-provider-label");
-			label.append(el$1("strong", void 0, group.label));
-			host.append(label, el$1("p", "usage-note", report.allowanceUnavailable ?? group.note ?? ""));
+			const label = el("div", "digest-provider-label");
+			label.append(el("strong", void 0, group.label));
+			host.append(label, el("p", "usage-note", report.allowanceUnavailable ?? group.note ?? ""));
 		}
 		host.append(...providerFacts(group, doc.observedAtMs));
 		if (group.other.length) {
-			const other = el$1("details", `${browserUiClasses.disclosure} digest-other-windows`);
+			const other = el("details", `${browserUiClasses.disclosure} digest-other-windows`);
 			other.id = `${host.id}-other`;
-			const summary = el$1("summary", void 0, `Other ${group.label} windows seen this week (${group.other.length})`);
+			const summary = el("summary", void 0, `Other ${group.label} windows seen this week (${group.other.length})`);
 			summary.id = `${other.id}-summary`;
 			other.append(summary, ...group.other.map((view) => providerRow(view, doc.observedAtMs)));
 			host.append(other);
 		}
-		const symbol = el$1("span", "digest-provider-symbol", group.primary ? group.primary.stale ? "◐" : "●" : "○");
+		const symbol = el("span", "digest-provider-symbol", group.primary ? group.primary.stale ? "◐" : "●" : "○");
 		symbol.setAttribute("aria-hidden", "true");
 		host.querySelector(".digest-provider-label")?.prepend(symbol);
 		groups.append(host);
 	}
-	const controls = el$1("div", "digest-carousel-controls");
-	const count = el$1("span", "digest-carousel-count");
-	const previous = el$1("button", browserUiClasses.action, "←");
-	const next = el$1("button", browserUiClasses.action, "→");
+	const controls = el("div", "digest-carousel-controls");
+	const count = el("span", "digest-carousel-count");
+	const previous = el("button", browserUiClasses.action, "←");
+	const next = el("button", browserUiClasses.action, "→");
 	const step = () => (groups.firstElementChild?.getBoundingClientRect().width ?? groups.clientWidth) + (Number.parseFloat(getComputedStyle(groups).columnGap) || 0);
 	for (const [button, name, direction] of [[
 		previous,
@@ -9651,18 +9466,18 @@ function allowanceRow(report, state) {
 	controls.append(count, previous, next);
 	intro.append(controls);
 	node.append(intro, groups);
-	if (report.allowanceUnavailable) node.append(el$1("p", "usage-note", report.allowanceUnavailable));
-	else if (doc?.limits.some((limit) => !limit.provider)) node.append(el$1("p", "usage-note", "Some allowance windows have no reported provider. Upgrade TMT on your machine to identify them."));
+	if (report.allowanceUnavailable) node.append(el("p", "usage-note", report.allowanceUnavailable));
+	else if (doc?.limits.some((limit) => !limit.provider)) node.append(el("p", "usage-note", "Some allowance windows have no reported provider. Upgrade TMT on your machine to identify them."));
 	return node;
 }
 /** Cost never decides membership or order: tokens are the primary evidence. */
 function providerUsageCard(doc) {
 	const records = providerRecords(doc);
-	if (!records) return card$1("digest-provider-usage", "Provider usage", [el$1("p", "usage-note", "Provider usage is unavailable in this report.")]);
+	if (!records) return card$1("digest-provider-usage", "Provider usage", [el("p", "usage-note", "Provider usage is unavailable in this report.")]);
 	const rest = doc.usage.providerUnattributed;
 	const restTokens = rest && Number.isSafeInteger(rest.input + rest.output) && rest.input + rest.output > 0 ? rest.input + rest.output : 0;
 	const remainder = restTokens ? ` Driver unattributed: ${compactCount(restTokens)} tokens.` : "";
-	if (!records.length) return card$1("digest-provider-usage", "Provider usage", [el$1("p", "usage-note", `No attributed provider usage was recorded in this range.${remainder}`)]);
+	if (!records.length) return card$1("digest-provider-usage", "Provider usage", [el("p", "usage-note", `No attributed provider usage was recorded in this range.${remainder}`)]);
 	const reasons = {
 		driver_model_attribution_unknown: "Driver and model shares cannot be matched.",
 		model_attribution_unknown: "Some input has no recorded model.",
@@ -9681,12 +9496,12 @@ function providerUsageCard(doc) {
 		estimateLabel,
 		"Coverage"
 	], rows.map((row) => {
-		const name = el$1("span", void 0, providerLabel$1(row.driver));
+		const name = el("span", void 0, providerLabel$1(row.driver));
 		name.title = row.driver;
-		const cost = el$1("span", row.inputCost ? browserUiClasses.tableMono : void 0, row.inputCost ? usdText(row.inputCost.usdMicros) : "Unavailable");
-		if (!row.inputCost) cost.append(el$1("span", "usage-note", ` — ${row.costUnavailable.map((reason) => Object.hasOwn(reasons, reason) ? reasons[reason] : reason).join(" ")}`));
+		const cost = el("span", row.inputCost ? browserUiClasses.tableMono : void 0, row.inputCost ? usdText(row.inputCost.usdMicros) : "Unavailable");
+		if (!row.inputCost) cost.append(el("span", "usage-note", ` — ${row.costUnavailable.map((reason) => Object.hasOwn(reasons, reason) ? reasons[reason] : reason).join(" ")}`));
 		const coverage = row.partialSeats ? `Partial (${row.partialSeats} ${row.partialSeats === 1 ? "seat" : "seats"})` : "Recorded";
-		const compact = el$1("span", browserUiClasses.tableCompactMeta);
+		const compact = el("span", browserUiClasses.tableCompactMeta);
 		compact.append(`${estimateLabel}: `, cost.cloneNode(true), ` · ${coverage}`);
 		name.append(compact);
 		return [
@@ -9698,7 +9513,7 @@ function providerUsageCard(doc) {
 			coverage
 		];
 	}));
-	const scroll = el$1("div", `${browserUiClasses.tableScroll} digest-provider-usage-scroll`);
+	const scroll = el("div", `${browserUiClasses.tableScroll} digest-provider-usage-scroll`);
 	grid.dataset.roomy = "";
 	for (const row of grid.rows) {
 		row.cells[4].dataset.compactHide = "";
@@ -9708,18 +9523,18 @@ function providerUsageCard(doc) {
 	scroll.setAttribute("role", "region");
 	scroll.setAttribute("aria-label", "Provider usage table");
 	scroll.append(grid);
-	const note = el$1("p", "usage-note", `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${pricingVersion(doc.pricing) ?? "unavailable"}. Incomplete records are lower bounds.`);
+	const note = el("p", "usage-note", `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${pricingVersion(doc.pricing) ?? "unavailable"}. Incomplete records are lower bounds.`);
 	note.append(remainder);
 	return card$1("digest-provider-usage", "Provider usage", [scroll, note]);
 }
 function tokensCard(doc, state) {
 	const data = tokenSeries(doc);
-	const body = el$1("div", "digest-token-grid tmt-ui-chart-seats");
-	const chart = el$1("div", "digest-token-chart");
+	const body = el("div", "digest-token-grid tmt-ui-chart-seats");
+	const chart = el("div", "digest-token-chart");
 	const rows = rankRows(doc);
 	const total = rows.reduce((sum, row) => sum + row.tokens, 0);
-	chart.append(el$1("p", "digest-total-label", `Total${data.partial || doc.usage.unavailable.length > 0 || rows.some((row) => row.partial) ? " (lower bound)" : ""} · ${doc.since}`), el$1("p", "digest-total", rows.length ? compactCount(total) : "—"));
-	const host = el$1("div");
+	chart.append(el("p", "digest-total-label", `Total${data.partial || doc.usage.unavailable.length > 0 || rows.some((row) => row.partial) ? " (lower bound)" : ""} · ${doc.since}`), el("p", "digest-total", rows.length ? compactCount(total) : "—"));
+	const host = el("div");
 	const draw = () => {
 		const layers = state.lines ? topLayers(data.layers, data.layers.length) : topLayers(data.layers, SERIES_KEPT);
 		const series = state.lines && state.share ? layers.map((layer) => ({
@@ -9750,8 +9565,8 @@ function tokensCard(doc, state) {
 	chart.append(host);
 	let legend = legendTable(doc, state);
 	body.append(chart, legend);
-	if (data.partial) chart.append(el$1("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
-	if (doc.usage.unavailable.length) chart.append(el$1("p", "usage-note", "Unavailable seats are not included in this total."));
+	if (data.partial) chart.append(el("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
+	if (doc.usage.unavailable.length) chart.append(el("p", "usage-note", "Unavailable seats are not included in this total."));
 	host.id = "digest-tokens-chart";
 	host.setAttribute("role", "tabpanel");
 	host.setAttribute("aria-label", "Token usage scale");
@@ -9778,7 +9593,7 @@ function tokensCard(doc, state) {
 		legend.replaceWith(next);
 		legend = next;
 	});
-	const controls = el$1("div", "digest-chart-controls");
+	const controls = el("div", "digest-chart-controls");
 	controls.append(control, style);
 	return card$1("digest-tokens", "Token usage", [body], {
 		actions: controls,
@@ -9787,9 +9602,9 @@ function tokensCard(doc, state) {
 }
 /** A seat's name on one line, the full name on hover, `*` after a partial one. */
 function seatLabel(name, partial) {
-	const node = el$1("span", "digest-seat", name);
+	const node = el("span", "digest-seat", name);
 	node.title = partial ? `${name} (partial)` : name;
-	if (partial) node.append(el$1("span", "digest-partial", "*"));
+	if (partial) node.append(el("span", "digest-partial", "*"));
 	return node;
 }
 /** The seats the token chart draws as hues, with their step; the rest share the neutral one. */
@@ -9799,18 +9614,18 @@ function seatHues(doc, lines) {
 }
 /** One share as a labelled meter: the name and its percent over a bar, and a detail line. */
 function shareMeter(name, share, style, detail) {
-	const row = el$1("div", "digest-share");
-	const head = el$1("div", "digest-share-head");
-	const label = typeof name === "string" ? el$1("span", "digest-share-name", name) : name;
-	head.append(label, el$1("span", "digest-share-value", `${share}%`));
-	const meter = el$1("div", browserUiClasses.meter);
+	const row = el("div", "digest-share");
+	const head = el("div", "digest-share-head");
+	const label = typeof name === "string" ? el("span", "digest-share-name", name) : name;
+	head.append(label, el("span", "digest-share-value", `${share}%`));
+	const meter = el("div", browserUiClasses.meter);
 	meter.setAttribute("role", "img");
 	meter.setAttribute("aria-label", `${label.textContent}: ${share}% of tokens`);
-	const fill = el$1("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${style}`);
+	const fill = el("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${style}`);
 	fill.style.setProperty("--tmt-ui-meter-fill", String(Math.max(0, Math.min(100, share))));
 	meter.append(fill);
 	row.append(head, meter);
-	if (detail) row.append(el$1("p", "usage-note digest-share-detail", detail));
+	if (detail) row.append(el("p", "usage-note digest-share-detail", detail));
 	return row;
 }
 var shareSum = (rows) => Math.round(rows.reduce((sum, row) => sum + row.share, 0) * 10) / 10;
@@ -9828,11 +9643,11 @@ function sharesCard(doc) {
 	const title = "Usage share";
 	const subtitle = "Tokens by model and by seat. Cost estimates use standard list prices.";
 	const seats = seatMix(doc).filter((seat) => seat.tokens > 0);
-	if (!seats.length) return card$1(id, title, [el$1("p", "usage-note", "No token observations in this range.")], { subtitle });
+	if (!seats.length) return card$1(id, title, [el("p", "usage-note", "No token observations in this range.")], { subtitle });
 	const shares = modelShares(doc);
-	const byModel = el$1("div", "digest-share-group");
+	const byModel = el("div", "digest-share-group");
 	byModel.id = "digest-shares-models";
-	byModel.append(el$1("h3", "digest-share-title", "By model"));
+	byModel.append(el("h3", "digest-share-title", "By model"));
 	const costs = modelCostShares(doc, shares.models);
 	const modelMeter = (model, tone) => {
 		const row = costs.rows.get(model.model);
@@ -9843,9 +9658,9 @@ function sharesCard(doc) {
 	shares.models.slice(0, MODELS_KEPT).forEach((model, at) => byModel.append(modelMeter(model, at % 7)));
 	const restModels = shares.models.slice(MODELS_KEPT);
 	if (restModels.length) {
-		const rest = el$1("details");
+		const rest = el("details");
 		const count = restModels.length;
-		rest.append(el$1("summary", void 0, `Other (${count} ${count === 1 ? "model" : "models"}): ${shareSum(restModels)}% of tokens`), ...restModels.map((model) => modelMeter(model, OTHER_STEP)));
+		rest.append(el("summary", void 0, `Other (${count} ${count === 1 ? "model" : "models"}): ${shareSum(restModels)}% of tokens`), ...restModels.map((model) => modelMeter(model, OTHER_STEP)));
 		byModel.append(rest);
 	}
 	if (shares.unattributed) byModel.append(shareMeter("No model recorded", shares.unattributed.share, OTHER_STEP, shares.models.length ? `Core recorded no model for part of ${shares.unattributed.seats} ${shares.unattributed.seats === 1 ? "seat's" : "seats'"} tokens.` : "Core recorded no model for these tokens."));
@@ -9853,26 +9668,26 @@ function sharesCard(doc) {
 		tone: "info",
 		numeric: false
 	})));
-	const bySeat = el$1("div", "digest-share-group tmt-ui-chart-seats");
+	const bySeat = el("div", "digest-share-group tmt-ui-chart-seats");
 	bySeat.id = "digest-shares-seats";
-	bySeat.append(el$1("h3", "digest-share-title", "By seat"));
+	bySeat.append(el("h3", "digest-share-title", "By seat"));
 	const hue = seatHues(doc, false);
 	for (const seat of seats.slice(0, SERIES_KEPT)) bySeat.append(shareMeter(seatLabel(seat.name, seat.partial), seat.share, hue.get(seat.id) ?? OTHER_STEP, [`${seat.tokens.toLocaleString("en-US")} tokens`, mixText(seat)].filter(Boolean).join(" · ")));
 	const restSeats = seats.slice(SERIES_KEPT);
 	if (restSeats.length) bySeat.append(shareMeter(`Other (${restSeats.length} seats)`, shareSum(restSeats), OTHER_STEP));
-	bySeat.append(el$1("p", "usage-note", "Per-seat cost needs seat-level quotes in the report."));
-	const groups = el$1("div", "digest-share-groups");
+	bySeat.append(el("p", "usage-note", "Per-seat cost needs seat-level quotes in the report."));
+	const groups = el("div", "digest-share-groups");
 	groups.append(byModel, bySeat);
 	const notes = [];
-	if (seats.some((seat) => seat.partial)) notes.push(el$1("p", "usage-note", "* Partial: some of this range has no data for the seat."));
-	if (doc.usage.unavailable.length) notes.push(el$1("p", "usage-note", "Unavailable seats are not included in these shares."));
+	if (seats.some((seat) => seat.partial)) notes.push(el("p", "usage-note", "* Partial: some of this range has no data for the seat."));
+	if (doc.usage.unavailable.length) notes.push(el("p", "usage-note", "Unavailable seats are not included in these shares."));
 	const excluded = [...costs.excluded, ...shares.unattributed ? ["tokens with no recorded model"] : []];
 	const costNotes = [
 		costs.hasDenominator ? "Cost shares use only priced models." : "Cost shares are unavailable without a positive priced total.",
 		excluded.length ? `Excluded: ${excluded.join(", ")}.` : "",
 		costs.hasFloors ? "Cost shares include lower-bound estimates." : ""
 	];
-	notes.push(el$1("p", "usage-note digest-share-cost", costNotes.filter(Boolean).join(" ")));
+	notes.push(el("p", "usage-note digest-share-cost", costNotes.filter(Boolean).join(" ")));
 	return card$1(id, title, [groups, ...notes], { subtitle });
 }
 /** #6751 E: every seat together per bucket; a bucket no seat read stays blank, never 0. */
@@ -9883,8 +9698,8 @@ function trendCard(doc) {
 	const unit = hourly ? "hour" : "day";
 	const subtitle = `Every seat together, ${unit} by ${unit}.`;
 	const data = trend(doc);
-	if (!data.tokens.some((value) => value !== null)) return card$1(id, title, [el$1("p", "usage-note", "No token observations in this range.")], { subtitle });
-	const host = el$1("div", "digest-trend-chart");
+	if (!data.tokens.some((value) => value !== null)) return card$1(id, title, [el("p", "usage-note", "No token observations in this range.")], { subtitle });
+	const host = el("div", "digest-trend-chart");
 	host.append(createSeriesChart({
 		title: hourly ? "Tokens per hour" : "Tokens per day",
 		kind: "bars",
@@ -9902,9 +9717,9 @@ function trendCard(doc) {
 		tone: "muted",
 		numeric: false
 	})] : [])];
-	if (unread) body.push(el$1("p", "usage-note", `No seat has a reading for ${unread} ${unread === 1 ? unit : `${unit}s`} of this range: ${unread === 1 ? "it is" : "they are"} left blank, never counted as zero.`));
-	if (data.partial.some(Boolean)) body.push(el$1("p", "usage-note", "Some buckets are incomplete: they are lower bounds."));
-	if (doc.usage.unavailable.length) body.push(el$1("p", "usage-note", "Unavailable seats are not included in this trend."));
+	if (unread) body.push(el("p", "usage-note", `No seat has a reading for ${unread} ${unread === 1 ? unit : `${unit}s`} of this range: ${unread === 1 ? "it is" : "they are"} left blank, never counted as zero.`));
+	if (data.partial.some(Boolean)) body.push(el("p", "usage-note", "Some buckets are incomplete: they are lower bounds."));
+	if (doc.usage.unavailable.length) body.push(el("p", "usage-note", "Unavailable seats are not included in this trend."));
 	return card$1(id, title, body, { subtitle });
 }
 function legendTable(doc, state) {
@@ -9913,13 +9728,13 @@ function legendTable(doc, state) {
 	const view = ranking(ranked, SERIES_KEPT);
 	const hue = seatHues(doc, state.lines);
 	function legendSeat(id, name, partial) {
-		const label = el$1("span", "digest-legend-seat");
-		const dot = el$1("span", `tmt-ui-status-tile-dot tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
+		const label = el("span", "digest-legend-seat");
+		const dot = el("span", `tmt-ui-status-tile-dot tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
 		dot.setAttribute("aria-hidden", "true");
 		label.append(dot, seatLabel(name, partial));
 		return label;
 	}
-	const host = el$1("div", "digest-ranking-table");
+	const host = el("div", "digest-ranking-table");
 	host.id = "digest-ranking-rows";
 	const draw = (all) => {
 		const lines = (all || state.lines ? rows : rows.filter((row) => view.top.some((top) => top.id === row.id))).map((entry) => [
@@ -9940,9 +9755,9 @@ function legendTable(doc, state) {
 	};
 	draw(state.allSeats);
 	const body = [host];
-	if (view.partial) body.push(el$1("p", "usage-note", "* Partial: some of this range has no data for the seat."));
+	if (view.partial) body.push(el("p", "usage-note", "* Partial: some of this range has no data for the seat."));
 	if (view.other && !state.lines) {
-		const toggle = el$1("button", browserUiClasses.action);
+		const toggle = el("button", browserUiClasses.action);
 		toggle.dataset.variant = "text";
 		toggle.type = "button";
 		toggle.id = "digest-ranking-toggle";
@@ -9960,7 +9775,7 @@ function legendTable(doc, state) {
 		});
 		body.push(toggle);
 	}
-	const legend = el$1("div", "digest-legend");
+	const legend = el("div", "digest-legend");
 	legend.id = "digest-ranking";
 	legend.append(...body);
 	return legend;
@@ -9968,31 +9783,31 @@ function legendTable(doc, state) {
 /** This one caller owns its count heatmap; report aggregation remains in exchange(). */
 function exchangeCard(doc, state) {
 	const flow = exchange(doc);
-	if (!flow) return card$1("digest-exchange", "Messages between seats", [el$1("p", "usage-note", "Message traffic is not available in this read.")]);
+	if (!flow) return card$1("digest-exchange", "Messages between seats", [el("p", "usage-note", "Message traffic is not available in this read.")]);
 	const totals = new Map(rankRows(doc).map((seat) => [seat.id, seat.tokens]));
 	const seats = [...flow.participants].sort((a, b) => (state.order === "usage" ? (totals.get(b.id) ?? 0) - (totals.get(a.id) ?? 0) : 0) || a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
 	const maximum = Math.max(0, ...seats.flatMap((from) => seats.map((to) => from.id === to.id ? 0 : flow.value(from.id, to.id) ?? 0)));
-	const matrix = el$1("table", "digest-messages");
+	const matrix = el("table", "digest-messages");
 	matrix.style.setProperty("--digest-message-columns", String(seats.length + 1));
 	if (seats.length > 6) matrix.dataset.large = "";
-	const caption = el$1("caption", "digest-visually-hidden", `Messages, last ${doc.since}`);
-	const header = el$1("tr");
-	const corner = el$1("th", void 0, "From →");
+	const caption = el("caption", "digest-visually-hidden", `Messages, last ${doc.since}`);
+	const header = el("tr");
+	const corner = el("th", void 0, "From →");
 	corner.scope = "col";
 	header.append(corner);
 	for (const seat of seats) {
-		const cell = el$1("th");
+		const cell = el("th");
 		cell.scope = "col";
 		cell.dataset.seatId = seat.id;
 		cell.append(messageName(seat.label));
 		header.append(cell);
 	}
-	const head = el$1("thead");
+	const head = el("thead");
 	head.append(header);
-	const body = el$1("tbody");
+	const body = el("tbody");
 	for (const from of seats) {
-		const row = el$1("tr");
-		const label = el$1("th");
+		const row = el("tr");
+		const label = el("th");
 		label.scope = "row";
 		label.dataset.seatId = from.id;
 		label.append(messageName(from.label));
@@ -10000,7 +9815,7 @@ function exchangeCard(doc, state) {
 		for (const to of seats) {
 			const self = from.id === to.id;
 			const count = self ? null : flow.value(from.id, to.id);
-			const cell = el$1("td", void 0, count === null ? "—" : compactCount(count));
+			const cell = el("td", void 0, count === null ? "—" : compactCount(count));
 			cell.dataset.from = from.id;
 			cell.dataset.to = to.id;
 			if (self) cell.dataset.self = "";
@@ -10014,13 +9829,13 @@ function exchangeCard(doc, state) {
 		body.append(row);
 	}
 	matrix.append(caption, head, body);
-	const viewport = el$1("div", "digest-messages-viewport");
-	const scroll = el$1("div", "digest-messages-scroll");
+	const viewport = el("div", "digest-messages-viewport");
+	const scroll = el("div", "digest-messages-scroll");
 	scroll.id = "digest-exchange-scroll";
 	scroll.setAttribute("role", "region");
 	scroll.setAttribute("aria-label", `Messages, last ${doc.since}`);
 	scroll.append(matrix);
-	const edge = el$1("span", "digest-messages-edge");
+	const edge = el("span", "digest-messages-edge");
 	edge.setAttribute("aria-hidden", "true");
 	const sync = () => {
 		const overflow = scroll.scrollWidth > scroll.clientWidth + 1;
@@ -10035,10 +9850,10 @@ function exchangeCard(doc, state) {
 		scroll.removeEventListener("scroll", sync);
 	});
 	viewport.append(scroll, edge);
-	return card$1("digest-exchange", "Messages between seats", [el$1("p", "digest-subtitle", `Talk and reply messages · ${doc.since}`), viewport]);
+	return card$1("digest-exchange", "Messages between seats", [el("p", "digest-subtitle", `Talk and reply messages · ${doc.since}`), viewport]);
 }
 function messageName(text) {
-	const label = el$1("span", "digest-message-name", text);
+	const label = el("span", "digest-message-name", text);
 	label.title = text;
 	return label;
 }
@@ -10050,17 +9865,17 @@ function savingsCard(report) {
 	const title = "What Digest saved";
 	const subtitle = "Wake-ups the delivered digests saved in this range.";
 	if (!savings.document) {
-		const why = el$1("p", "usage-note");
+		const why = el("p", "usage-note");
 		notAvailable(why, savings.unavailable ?? "What Digest saved is not available.");
 		return card$1(id, title, [why], { subtitle });
 	}
 	const view = savingsView(savings.document);
 	const body = [];
-	if (view.coverageNote) body.push(el$1("p", "usage-note digest-savings-coverage", view.coverageNote));
+	if (view.coverageNote) body.push(el("p", "usage-note digest-savings-coverage", view.coverageNote));
 	const tiles = view.tiles.map((figure) => tile(figure.label, figure.value));
-	if (view.costNote) tiles.at(-1).append(el$1("dd", "usage-note digest-cost-note", view.costNote));
+	if (view.costNote) tiles.at(-1).append(el("dd", "usage-note digest-cost-note", view.costNote));
 	body.push(bareTiles(...tiles));
-	if (!view.rows.length) body.push(el$1("p", "usage-note", "No member held messages for a digest in this range."));
+	if (!view.rows.length) body.push(el("p", "usage-note", "No member held messages for a digest in this range."));
 	else {
 		const grid = table([
 			"Member",
@@ -10071,10 +9886,10 @@ function savingsCard(report) {
 			"Median delay",
 			"Coverage"
 		], view.rows.map(([name, messages, deliveries, measured, bound, delay, covered]) => {
-			const label = el$1("span");
-			const member = el$1("span", "digest-seat", name);
+			const label = el("span");
+			const member = el("span", "digest-seat", name);
 			member.title = name;
-			label.append(member, el$1("span", browserUiClasses.tableCompactMeta, `${messages} messages in ${deliveries} deliveries · Upper bound ${bound} · Median ${delay} · ${covered}`));
+			label.append(member, el("span", browserUiClasses.tableCompactMeta, `${messages} messages in ${deliveries} deliveries · Upper bound ${bound} · Median ${delay} · ${covered}`));
 			return [
 				label,
 				messages,
@@ -10093,14 +9908,14 @@ function savingsCard(report) {
 			5,
 			6
 		]) row.cells[cell].dataset.compactHide = "";
-		const scroll = el$1("div", `${browserUiClasses.tableScroll} digest-savings-scroll`);
+		const scroll = el("div", `${browserUiClasses.tableScroll} digest-savings-scroll`);
 		scroll.tabIndex = 0;
 		scroll.setAttribute("role", "region");
 		scroll.setAttribute("aria-label", "What Digest saved, by member");
 		scroll.append(grid);
 		body.push(scroll);
 	}
-	body.push(el$1("p", "usage-note", `Measured counts only messages that arrived while their member was idle; the upper bound counts every held message as its own wake-up. Unknown is never counted as zero.${view.pricing ? ` ${view.pricing}` : ""}`));
+	body.push(el("p", "usage-note", `Measured counts only messages that arrived while their member was idle; the upper bound counts every held message as its own wake-up. Unknown is never counted as zero.${view.pricing ? ` ${view.pricing}` : ""}`));
 	return card$1(id, title, body, { subtitle });
 }
 /** The sources the usage read does not carry yet, one line each, with the method below. */
@@ -10111,31 +9926,31 @@ function coverageCard() {
 		["Cost per merged PR", "merged pull requests joined to the allowance points burned in the same window"],
 		["Machine", "load, free disk and the biggest worktrees with their owners"]
 	];
-	const list = el$1("dl", "digest-gaps");
+	const list = el("dl", "digest-gaps");
 	for (const [term, source] of gaps) {
-		const line = el$1("div", "digest-gap");
-		const status = el$1("dd");
-		status.append(el$1("span", "digest-subtitle", "Not connected"));
-		const name = el$1("dt", void 0, term === "Machine" ? "Machine load" : term);
-		const marker = el$1("span", "digest-coverage-marker");
+		const line = el("div", "digest-gap");
+		const status = el("dd");
+		status.append(el("span", "digest-subtitle", "Not connected"));
+		const name = el("dt", void 0, term === "Machine" ? "Machine load" : term);
+		const marker = el("span", "digest-coverage-marker");
 		marker.setAttribute("aria-hidden", "true");
 		name.prepend(marker);
 		line.append(name, status);
 		line.title = source;
 		list.append(line);
 	}
-	const method = el$1("details", browserUiClasses.disclosure);
+	const method = el("details", browserUiClasses.disclosure);
 	method.id = "digest-method";
-	const summary = el$1("summary", void 0, "Method & caveats");
+	const summary = el("summary", void 0, "Method & caveats");
 	summary.id = "digest-method-summary";
 	method.append(summary, ...[
 		"Tokens are input plus output as Core reports them; cached input is part of input and is not counted again.",
 		"An incomplete bucket is a lower bound. A seat with no evidence for part of the range is marked partial, never shown as zero.",
 		"Allowance windows are the account percent as the provider reports it, in whole percent; usage on other machines is not seen.",
 		"Message counts include talk and reply only."
-	].map((text) => el$1("p", "usage-note", text)));
-	const command = el$1("div", "digest-method-command");
-	command.append(el$1("span", void 0, "Current data on your machine:"), el$1("code", void 0, "tmt digest usage report"));
+	].map((text) => el("p", "usage-note", text)));
+	const command = el("div", "digest-method-command");
+	command.append(el("span", void 0, "Current data on your machine:"), el("code", void 0, "tmt digest usage report"));
 	method.append(command);
 	return card$1("digest-missing", "Data coverage", [list, method]);
 }
@@ -10175,9 +9990,9 @@ function digestPage(source = createDigestSource(), signal) {
 	signal?.addEventListener("abort", () => {
 		state.dispose.splice(0).forEach((dispose) => dispose());
 	}, { once: true });
-	const sort = el$1("div", "digest-seat-order");
+	const sort = el("div", "digest-seat-order");
 	const renderSort = () => {
-		sort.replaceChildren(el$1("span", "digest-sort-label", "Seat order"), tabChoice("Seat order", "usage-panel", [{
+		sort.replaceChildren(el("span", "digest-sort-label", "Seat order"), tabChoice("Seat order", "usage-panel", [{
 			value: "usage",
 			text: "Usage"
 		}, {
@@ -10202,7 +10017,7 @@ function digestPage(source = createDigestSource(), signal) {
 		providerLeft = document.getElementById("digest-provider-groups")?.scrollLeft ?? providerLeft;
 	}
 	const buttons = USAGE_RANGES.map((range) => {
-		const button = el$1("button", browserUiClasses.tab, range);
+		const button = el("button", browserUiClasses.tab, range);
 		button.type = "button";
 		button.setAttribute("role", "tab");
 		button.setAttribute("aria-controls", "usage-panel");
@@ -10289,7 +10104,7 @@ function digestPage(source = createDigestSource(), signal) {
 	}
 	show(current);
 	let first = true;
-	if (signal) whileVisible(REFRESH_MS$1, signal, async () => {
+	if (signal) whileVisible(REFRESH_MS, signal, async () => {
 		if (first) {
 			first = false;
 			return true;
@@ -10351,7 +10166,6 @@ function rootAppFamily(family) {
 	return /^\/[a-z0-9-]{1,32}$/.test(family) && ![
 		"colab",
 		"remote",
-		"ops",
 		"digest",
 		"settings",
 		"sdk",
@@ -10395,4526 +10209,20 @@ function extraModuleLoad(answer, family, here) {
 	};
 }
 //#endregion
-//#region src/command-copy.ts
-/** A terminal reference with best-effort Copy and inline status; it never executes the command. */
-function commandCopy(text) {
-	const command = document.createElement("div");
-	command.className = browserUiClasses.command;
-	const code = document.createElement("code");
-	code.className = browserUiClasses.commandText;
-	code.textContent = text;
-	const copy = document.createElement("button");
-	copy.className = browserUiClasses.commandCopy;
-	copy.type = "button";
-	copy.setAttribute("aria-label", `Copy ${text}`);
-	copy.append(createIcon("copy"), "Copy");
-	const feedback = document.createElement("span");
-	feedback.className = browserUiClasses.commandFeedback;
-	feedback.setAttribute("role", "status");
-	copy.addEventListener("click", async () => {
-		try {
-			await navigator.clipboard.writeText(text);
-			feedback.textContent = "Copied.";
-		} catch {
-			feedback.textContent = "Copy failed. Select the command and copy it manually.";
-		}
-	});
-	command.append(code, copy, feedback);
-	return command;
-}
-//#endregion
-//#region src/ops-composer-slot.ts
-/** The Ops message box slot (#5704): loads the composer island on first use and holds its place
-* with a still box of the same height until it arrives. */
-/** The composer's own module, served beside the SDK (see vite.composer.config.ts). */
-var COMPOSER = "/sdk/ops-composer-v1.js";
-/** Where this tab keeps unsent words, so a reload brings them back (#6757): plain text in this
-* tab's sessionStorage, like the members page's unsent names, gone when the tab closes and never
-* sent anywhere. The words are tagged with this browser's device (its Remote client id): after a
-* reload they show only once the page has read the same device, so a reload under another pairing
-* shows none. They are cleared when the session changes or the browser is no longer paired. */
-var STORE = "tmt-ops-drafts-v2";
-var OLD_STORES = ["tmt-ops-drafts-v1"];
-var utf8$4 = new TextEncoder();
-var keepable = (text) => text.trim() !== "" && utf8$4.encode(text).length <= 65536;
-function readStore() {
-	try {
-		const data = JSON.parse(sessionStorage.getItem(STORE) ?? "null");
-		if (!data || typeof data !== "object" || Array.isArray(data)) return void 0;
-		const { device, drafts: rows } = data;
-		if (typeof device !== "string" || !device || device.length > 128 || !Array.isArray(rows)) return void 0;
-		return {
-			device,
-			drafts: rows.filter((item) => Array.isArray(item) && item.length === 2 && typeof item[0] === "string" && typeof item[1] === "string" && keepable(item[1])).slice(-50)
-		};
-	} catch {
-		return;
-	}
-}
-/** The words kept from before a reload, held unshown until the page knows this browser's device. */
-var held = readStore();
-/** This browser's device once the page has read it; until then words stay in their boxes only. */
-var device;
-/** The unsent words of each place (`channel:<squad>` or a member id), for the rail's draft mark
-* and for the box after a reload; every box on the page reports here. */
-var drafts = /* @__PURE__ */ new Map();
-var draftListeners = /* @__PURE__ */ new Set();
-var changed = () => {
-	for (const listener of draftListeners) listener();
-};
-/** Saves the words for this device. A refused write (the tab's quota) drops the place typed in
-* longest ago and tries again, so the newest words that fit are kept. */
-function writeStore() {
-	if (device === void 0) return;
-	const kept = [...drafts].filter(([, text]) => keepable(text));
-	try {
-		for (const old of OLD_STORES) sessionStorage.removeItem(old);
-	} catch {}
-	for (let from = 0; from <= kept.length; from++) try {
-		if (from === kept.length) sessionStorage.removeItem(STORE);
-		else sessionStorage.setItem(STORE, JSON.stringify({
-			device,
-			drafts: kept.slice(from)
-		}));
-		return;
-	} catch {}
-}
-var hasDraft = (key) => drafts.has(key);
-/** Calls `listener` whenever a place gains or loses its draft; returns the unsubscribe. */
-function onDrafts(listener) {
-	draftListeners.add(listener);
-	return () => draftListeners.delete(listener);
-}
-/** The unsent words of the place `key` now; blank when it holds none. */
-function keepDraft(key, text) {
-	const had = drafts.has(key);
-	drafts.delete(key);
-	if (text.trim() !== "") drafts.set(key, text);
-	const dropped = [...drafts.keys()].slice(0, Math.max(0, drafts.size - 50));
-	for (const old of dropped) drafts.delete(old);
-	writeStore();
-	if (had !== drafts.has(key) || dropped.length) changed();
-}
-/** The page has read this browser's device: words kept for it come back (never over words typed
-* since), and words kept for another device are dropped. `null` is no pairing at all. */
-function draftsFor(id) {
-	if (id === null) return forgetDrafts();
-	device = id;
-	const restored = held?.device === id ? held.drafts.filter(([key]) => !drafts.has(key)) : [];
-	held = void 0;
-	const now = [...drafts];
-	drafts.clear();
-	for (const [key, text] of [...restored, ...now].slice(-50)) drafts.set(key, text);
-	writeStore();
-	if (restored.length) changed();
-}
-/** The session changed, or this browser is no longer paired: no unsent words stay for the next
-* one to see, and new words stay in their boxes until the page reads the device again. */
-function forgetDrafts() {
-	const had = drafts.size > 0;
-	drafts.clear();
-	held = void 0;
-	device = void 0;
-	try {
-		for (const key of [STORE, ...OLD_STORES]) sessionStorage.removeItem(key);
-	} catch {}
-	if (had) changed();
-}
-/** The composer is a lazily loaded React island, so pages that never open a channel skip it. */
-function composerSlot(host) {
-	let handle;
-	let wanted;
-	let loading = false;
-	onDrafts(() => {
-		if (!wanted) return;
-		wanted = {
-			...wanted,
-			saved: drafts.get(wanted.key)
-		};
-		handle?.update(wanted);
-	});
-	return { show(shown) {
-		const options = {
-			...shown,
-			saved: drafts.get(shown.key),
-			onDraft: keepDraft
-		};
-		wanted = options;
-		if (handle) return handle.update(options);
-		if (loading) return;
-		loading = true;
-		const still = el("div", "ops-composer-still");
-		still.setAttribute("aria-hidden", "true");
-		still.append(el("span", "ops-composer-still-text", options.placeholder));
-		host.replaceChildren(still);
-		import(
-			/* @vite-ignore */
-			COMPOSER
-).then(({ mountComposer }) => {
-			handle = mountComposer(host, wanted);
-		}, () => {
-			host.replaceChildren(el("p", "ops-empty", "The message box could not load. Reload the page to try again."));
-		});
-	} };
-}
-//#endregion
-//#region src/ops-source.ts
-/**
-* What the Ops web view (`/ops/`) reads: the owner's squad board through the owner browser read
-* `x/-/ops` (contracts/remote-channel-v1.md, Owner browser reads), read-only. The page depends only
-* on `OpsSource`; this module turns the read's allowlisted projection into the page's rows.
-*/
-/** Each state's mark, word and chip tone. Working and idle are both dots: working takes the
-* working colour (`markTone`), idle the text's own; offline is a ring and unknown a question mark.
-* A dashed ring read as loading. */
-var AGENT_STATES = {
-	working: {
-		mark: "dot",
-		markTone: "working",
-		word: "Working",
-		tone: "neutral"
-	},
-	idle: {
-		mark: "dot",
-		word: "Idle",
-		tone: "neutral"
-	},
-	offline: {
-		mark: "ring",
-		word: "Offline",
-		tone: "neutral"
-	},
-	unknown: {
-		mark: "unknown",
-		word: "Unknown",
-		tone: "neutral"
-	}
-};
-var TASK_TONES = {
-	working: "working",
-	green: "working",
-	waiting: "waiting",
-	amber: "waiting",
-	blocked: "blocked",
-	red: "blocked",
-	review: "review",
-	magenta: "review",
-	dim: "muted"
-};
-/** The four uncoloured states exposed by the board; pending is not presence. */
-function agentState(agent) {
-	if (agent.presence === "offline") return "offline";
-	const state = agent.activity?.state ?? agent.state;
-	return state === "working" || state === "idle" ? state : "unknown";
-}
-/** One plain sentence per reason, each saying what the person can do. */
-var REASONS = {
-	not_installed: "Ops is not installed on your machine. Run `tmt extension install ops`, then reload this page.",
-	core_unavailable: "TMT on your machine did not answer. This page tries again shortly.",
-	timeout: "Your machine took too long to read the board. This page tries again shortly.",
-	read_failed: "Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.",
-	too_large: "The board is too large for the browser. Run `tmt ops ui` in a terminal to see it.",
-	not_sampled: "Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.",
-	unknown: "The board is not available right now. Run `tmt ops ui` in a terminal to see it.",
-	"no-session": "This browser has no owner session for your machine. Pair it from Remote to see the board.",
-	unreachable: "Your machine did not answer. This page tries again shortly."
-};
-function unavailableBoard(reason) {
-	return {
-		agents: [],
-		squads: [],
-		schedules: [],
-		defaultIdleAlertMs: null,
-		truncated: false,
-		unavailable: REASONS[reason]
-	};
-}
-var safeNumber = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-function attention(value) {
-	if (!safeNumber(value.waiting) || !safeNumber(value.blocked)) return void 0;
-	const { state, waiting, blocked } = value;
-	return state === "normal" || state === "waiting" || state === "blocked" ? {
-		state,
-		waiting,
-		blocked
-	} : void 0;
-}
-function usage1d(value) {
-	return value && safeNumber(value.tokens) && typeof value.complete === "boolean" && (value.complete || value.tokens > 0) ? {
-		tokens: value.tokens,
-		complete: value.complete
-	} : null;
-}
-/** The page's board from one `ok` payload; a payload off the contract is a failed read. */
-function opsBoard(payload) {
-	if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents) || payload.agents.some((agent) => !agent || typeof agent.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(agent.id))) return unavailableBoard("read_failed");
-	return {
-		defaultIdleAlertMs: safeNumber(payload.defaultIdleAlertMs) && payload.defaultIdleAlertMs >= 3e5 && payload.defaultIdleAlertMs <= 864e5 ? payload.defaultIdleAlertMs : null,
-		squads: payload.squads.map((squad) => ({
-			name: squad.name,
-			room: squad.room && coreId(squad.room.roomId) && Number.isSafeInteger(squad.room.revision) && squad.room.revision > 0 ? {
-				roomId: squad.room.roomId,
-				revision: squad.room.revision
-			} : null,
-			...squad.lead ? { lead: squad.lead.name } : {},
-			...typeof squad.idleAlertMs === "number" && Number.isFinite(squad.idleAlertMs) ? { idleAlertMs: squad.idleAlertMs } : {},
-			...squad.attention && { attention: attention(squad.attention) }
-		})),
-		agents: payload.agents.map((agent) => {
-			const state = agentState(agent);
-			return {
-				id: agent.id,
-				...agent.presence ? { presence: agent.presence } : {},
-				...agent.activity ? { activity: {
-					state: agent.activity.state,
-					...safeNumber(agent.activity.sinceMs) ? { sinceMs: agent.activity.sinceMs } : {}
-				} } : {},
-				name: agent.name,
-				squad: agent.squad,
-				role: agent.role,
-				state,
-				...agent.state ? { taskState: agent.state } : {},
-				...agent.stateTone && Object.hasOwn(TASK_TONES, agent.stateTone) ? { taskTone: TASK_TONES[agent.stateTone] } : {},
-				...agent.staleness === "fresh" || agent.staleness === "stale" ? { staleness: agent.staleness } : {},
-				...agent.task ? { task: agent.task } : {},
-				...agent.next ? { next: agent.next } : {},
-				...agent.pending ? { pending: agent.pending } : {},
-				...agent.model ? { model: agent.model } : {},
-				waitingOnYou: agent.waitingOnYou ?? 0,
-				tokens1d: usage1d(agent.tokens1d),
-				checklistCount: safeNumber(agent.checklistCount) ? agent.checklistCount : null
-			};
-		}),
-		schedules: Array.isArray(payload.timers) ? payload.timers.map((timer) => ({
-			id: timer.id,
-			state: timer.state === "on" || timer.state === "paused" ? timer.state : null,
-			nextMs: timer.state === "on" && safeNumber(timer.nextMs) ? timer.nextMs : null,
-			squad: timer.squad,
-			when: timer.scheduleText,
-			what: timer.what ?? "",
-			...timer.owner ? { owner: timer.owner } : {}
-		})) : null,
-		truncated: payload.truncated === true
-	};
-}
-/** The board from an owner read's answer. */
-function boardFromAnswer(answer) {
-	if (answer.state === "ok") return opsBoard(answer.payload);
-	return unavailableBoard(answer.state === "unavailable" ? answer.reason : answer.state);
-}
-/** The source the page reads: the owner's board through `x/-/ops`. */
-var opsSource = { async board(signal) {
-	const answer = await ownerRead("ops", signal);
-	if (answer.state === "no-session") forgetDrafts();
-	return boardFromAnswer(answer);
-} };
-//#endregion
-//#region src/ops-parts.ts
-/** The pieces the Ops sections share: element and mark helpers, the state chip,
-* the page head and the board's squads in display order. */
-function el(tag, className, text) {
-	const node = document.createElement(tag);
-	if (className) node.className = className;
-	if (text !== void 0) node.textContent = text;
-	return node;
-}
-/** A sentence in place of a list: why there is nothing to show, with any command as code. */
-function sentence$1(text) {
-	const node = document.createElement("p");
-	node.className = "ops-empty";
-	notAvailable(node, text);
-	return node;
-}
-/** A state's mark, in its own colour. */
-function mark(shape, tone) {
-	const node = el("span", browserUiClasses.stateMark);
-	node.dataset.shape = shape;
-	if (tone) node.dataset.tone = tone === "neutral" ? "muted" : tone;
-	node.setAttribute("aria-hidden", "true");
-	return node;
-}
-/** The agents by squad in the order the pages draw them: squads as the board lists them (then any
-* squad only an agent names), each lead first; a squad with no agents only when asked for. */
-function bySquad(board, keepEmpty = false) {
-	return [...board.squads.map((squad) => squad.name), ...board.agents.map((agent) => agent.squad)].filter((name, at, all) => all.indexOf(name) === at).map((name) => ({
-		name,
-		agents: board.agents.filter((agent) => agent.squad === name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"))
-	})).filter((group) => keepEmpty || group.agents.length);
-}
-//#endregion
-//#region src/ops-timers.ts
-var DAYS = {
-	mon: "Mon",
-	tue: "Tue",
-	wed: "Wed",
-	thu: "Thu",
-	fri: "Fri",
-	sat: "Sat",
-	sun: "Sun"
-};
-var UNITS = {
-	s: ["second", "seconds"],
-	m: ["minute", "minutes"],
-	h: ["hour", "hours"],
-	d: ["day", "days"]
-};
-var two = (value) => value.padStart(2, "0");
-/**
-* A board schedule in words: `every 30m from 09:00`, `daily 09:00`, `weekdays 09:00`,
-* `mon,thu 10:00` and the simple cron shapes read as a sentence; anything else stays as written.
-*/
-function scheduleWords(text) {
-	const every = /^every (\d+)([smhd])(?: from (\S+))?$/.exec(text);
-	if (every) {
-		const [, count, unit, from] = every;
-		const [one, many] = UNITS[unit];
-		const step = count === "1" ? `Every ${one}` : `Every ${count} ${many}`;
-		return from ? `${step} from ${from}` : step;
-	}
-	const at = /^(daily|weekdays|[a-z]{3}(?:,[a-z]{3})*) (\d{1,2}:\d{2})$/.exec(text);
-	if (at) {
-		const [, on, time] = at;
-		if (on === "daily") return `Every day at ${time}`;
-		if (on === "weekdays") return `Weekdays at ${time}`;
-		const days = on.split(",").map((day) => DAYS[day]);
-		if (days.every(Boolean)) return `${days.join(", ")} at ${time}`;
-	}
-	const cron = /^cron (\S+) (\S+) (\S+) (\S+) (\S+)$/.exec(text);
-	if (cron) {
-		const [, minute, hour, dom, month, dow] = cron;
-		const plain = dom === "*" && month === "*";
-		const step = /^\*\/(\d+)$/.exec(minute);
-		if (plain && dow === "*" && hour === "*" && step) return `Every ${step[1]} minutes`;
-		if (plain && dow === "*" && hour === "*" && /^\d+$/.test(minute)) return `Every hour at :${two(minute)}`;
-		if (plain && /^\d+$/.test(minute) && /^\d+$/.test(hour)) {
-			const time = `${two(hour)}:${two(minute)}`;
-			if (dow === "*") return `Every day at ${time}`;
-			if (dow === "1-5") return `Weekdays at ${time}`;
-		}
-	}
-	return text;
-}
-/** One timer row: what it sends, its schedule in words, and whose it is. */
-function timerRow(job) {
-	const row = el("li", "ops-timer-row");
-	row.dataset.timerId = job.id;
-	const icon = el("span", "ops-timer-icon", "⏱");
-	icon.setAttribute("aria-hidden", "true");
-	const name = el("span", "ops-timer-name", job.what || job.id);
-	const words = scheduleWords(job.when);
-	const when = el("span", "ops-timer-when", words);
-	if (words !== job.when) when.title = job.when;
-	const meta = el("span", "ops-timer-meta");
-	meta.append(when);
-	if (job.nextMs !== null) {
-		const next = el("time", "ops-timer-next", nextIn(job.nextMs));
-		next.dateTime = new Date(job.nextMs).toISOString();
-		next.title = new Date(job.nextMs).toLocaleString();
-		meta.append(next);
-	}
-	if (job.owner) meta.append(el("span", "ops-timer-owner", job.owner));
-	row.append(icon, name, meta);
-	if (job.state) {
-		row.dataset.state = job.state;
-		row.append(el("span", "ops-timer-state", job.state === "on" ? "On" : "Paused"));
-	}
-	return row;
-}
-/** "Next in 20m", "Next in 3h 5m", or the day and time when it is further out. */
-function nextIn(at, now = Date.now()) {
-	const minutes = Math.round((at - now) / 6e4);
-	if (minutes <= 0) return "Due now";
-	if (minutes < 60) return `Next in ${minutes}m`;
-	if (minutes < 1440) return `Next in ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-	return `Next ${new Date(at).toLocaleString(void 0, {
-		weekday: "short",
-		hour: "2-digit",
-		minute: "2-digit"
-	})}`;
-}
-/** The panel's timers: a list, or a sentence that never reads an unknown as none. */
-function timerList(jobs, truncated) {
-	if (jobs === null) return sentence$1("Timers are unavailable from this machine right now.");
-	if (!jobs.length) return sentence$1(truncated ? "No timers in this partial read." : "No timers are set.");
-	const list = el("ul", "ops-timer-list");
-	list.setAttribute("aria-label", "Timers");
-	list.append(...jobs.map(timerRow));
-	return list;
-}
-//#endregion
-//#region src/orchestration-client.ts
-/** Core's own refusal of an orchestration call, relayed by the door as `{refused}`. */
-var OrchestrationRefused = class extends Error {
-	code;
-	detail;
-	constructor(code, detail) {
-		super(detail ?? `Orchestration refused: ${code}.`);
-		this.code = code;
-		this.detail = detail;
-		this.name = "OrchestrationRefused";
-	}
-};
-var object$1 = (value) => {
-	if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Orchestration answered with an unreadable document.");
-	return value;
-};
-function orchestrationApi(session, options = {}) {
-	const call = verifiedSessionRequest(session, options);
-	const parse = (value) => {
-		const answer = object$1(value);
-		if (answer.refused && typeof answer.refused === "object") {
-			const refused = answer.refused;
-			throw new OrchestrationRefused(typeof refused.code === "string" ? refused.code : "ORCH_REFUSED", typeof refused.message === "string" ? refused.message : void 0);
-		}
-		return answer;
-	};
-	const ask = (operation, input) => call(operation, crypto.randomUUID(), {
-		version: 1,
-		operation,
-		input
-	}, parse);
-	return {
-		read: (input) => ask("orchestration.read", input),
-		write: (input) => ask("orchestration.write", input)
-	};
-}
-var safe = (value) => Number.isSafeInteger(value) && Number(value) >= 0;
-var text = (value) => typeof value === "string";
-function source(value) {
-	if (!value || typeof value !== "object") return null;
-	const row = value;
-	return text(row.kind) ? {
-		kind: row.kind,
-		planId: text(row.planId) ? row.planId : null
-	} : null;
-}
-function target(value) {
-	const row = value && typeof value === "object" ? value : {};
-	if (row.kind === "all") return { kind: "all" };
-	if (row.kind === "identity" && text(row.id)) return {
-		kind: "identity",
-		id: row.id
-	};
-	if (row.kind === "pattern" && text(row.pattern)) return {
-		kind: "pattern",
-		pattern: row.pattern
-	};
-	return null;
-}
-var weekday = (day) => safe(day) && day >= 1 && day <= 7;
-function schedule(value) {
-	const row = value && typeof value === "object" ? value : {};
-	if (row.kind === "always") return { kind: "always" };
-	if (row.kind === "once" && safe(row.startMs) && safe(row.endMs)) return {
-		kind: "once",
-		startMs: row.startMs,
-		endMs: row.endMs
-	};
-	if (row.kind === "weekly" && safe(row.intervalWeeks) && Array.isArray(row.weekdays) && row.weekdays.every(weekday) && text(row.start) && text(row.end)) return {
-		kind: "weekly",
-		intervalWeeks: row.intervalWeeks,
-		weekdays: row.weekdays,
-		start: row.start,
-		end: row.end,
-		allDay: row.allDay === true
-	};
-	return null;
-}
-/** The overview the page draws, or a TypeError for a document it cannot read. */
-function decodeOverview(value) {
-	const range = object$1(value.range);
-	const members = Array.isArray(value.members) ? value.members : [];
-	const plans = Array.isArray(value.plans) ? value.plans : [];
-	const timeline = Array.isArray(value.timeline) ? value.timeline : [];
-	if (!safe(value.configurationRevision) || !safe(value.atMs) || !text(value.timeZone) || !safe(range.startMs) || !safe(range.endMs)) throw new TypeError("Orchestration answered with an unreadable overview.");
-	return {
-		configurationRevision: value.configurationRevision,
-		atMs: value.atMs,
-		timeZone: value.timeZone,
-		range: {
-			startMs: range.startMs,
-			endMs: range.endMs
-		},
-		selectedPlanId: text(value.selectedPlanId) ? value.selectedPlanId : null,
-		plans: plans.flatMap((plan) => {
-			const row = object$1(plan);
-			const targets = Array.isArray(row.targets) ? row.targets.map(target) : [null];
-			const rule = schedule(row.schedule);
-			if (!text(row.id) || !text(row.name) || !Number.isSafeInteger(row.priority) || typeof row.enabled !== "boolean" || targets.includes(null) || !rule) return [];
-			return [{
-				raw: structuredClone(row),
-				id: row.id,
-				name: row.name,
-				priority: Number(row.priority),
-				enabled: row.enabled,
-				targets,
-				schedule: rule
-			}];
-		}),
-		members: members.map((member) => {
-			const row = object$1(member);
-			const effective = object$1(row.effective);
-			const field = (name) => {
-				const entry = effective[name] && typeof effective[name] === "object" ? effective[name] : {};
-				return {
-					value: entry.value ?? null,
-					source: source(entry.source)
-				};
-			};
-			if (!text(row.identityId) || !text(row.name)) throw new TypeError("Orchestration answered with an unreadable member.");
-			return {
-				identityId: row.identityId,
-				name: row.name,
-				fields: {
-					state: field("state"),
-					receiving: field("receiving"),
-					sending: field("sending"),
-					routine: field("routine"),
-					talkLimit: field("talkLimit")
-				},
-				activePlans: Array.isArray(row.activePlans) ? row.activePlans.filter(text) : [],
-				nextChangeAtMs: safe(row.nextChangeAtMs) ? row.nextChangeAtMs : null
-			};
-		}),
-		timeline: timeline.flatMap((interval) => {
-			const row = object$1(interval);
-			return safe(row.startMs) && safe(row.endMs) && Array.isArray(row.planIds) ? [{
-				startMs: row.startMs,
-				endMs: row.endMs,
-				planIds: row.planIds.filter(text)
-			}] : [];
-		})
-	};
-}
-var VERDICTS = [
-	"allowed",
-	"blocked",
-	"needs_person"
-];
-function decodeRoutes(rows) {
-	const routes = /* @__PURE__ */ new Map();
-	for (const value of rows) {
-		const row = object$1(value);
-		const routeSource = source(row.source);
-		if (!text(row.from) || !text(row.to) || !VERDICTS.includes(row.verdict) || !routeSource) continue;
-		const grant = object$1(row.source).grantUntilMs;
-		routes.set(`${row.from}>${row.to}`, {
-			verdict: row.verdict,
-			source: {
-				...routeSource,
-				...safe(grant) ? { grantUntilMs: grant } : {}
-			}
-		});
-	}
-	return routes;
-}
-function decodeTalks(rows) {
-	return rows.flatMap((value) => {
-		const row = object$1(value);
-		const [a, b] = Array.isArray(row.members) ? row.members.map(object$1) : [];
-		if (!a || !b || !text(a.identityId) || !text(b.identityId) || !safe(row.count)) return [];
-		return [{
-			ids: [a.identityId, b.identityId],
-			names: [text(a.name) ? a.name : a.identityId, text(b.name) ? b.name : b.identityId],
-			count: row.count,
-			limit: safe(row.limit) ? row.limit : null,
-			held: row.state === "held",
-			heldCount: safe(row.heldCount) ? row.heldCount : 0
-		}];
-	});
-}
-/** Core refuses a view it does not know; the page reads that as not available. */
-var unknownView = (error) => error instanceof OrchestrationRefused && error.code === "ORCH_INPUT_INVALID";
-/** Every routes page Core offers (at most 32), then this hour's talk pairs. */
-async function readSending(api, memberQuery) {
-	const query = memberQuery ? { memberQuery } : {};
-	let routes = /* @__PURE__ */ new Map();
-	let truncated = false;
-	let after = void 0;
-	for (let page = 0; page < 32; page += 1) {
-		let answer;
-		try {
-			answer = await api.read({
-				view: "routes",
-				limit: 256,
-				...query,
-				...after === void 0 ? {} : { after }
-			});
-		} catch (error) {
-			if (page === 0 && unknownView(error)) {
-				routes = null;
-				break;
-			}
-			if (error instanceof OrchestrationRefused && error.code === "ORCH_LIMIT") {
-				truncated = true;
-				break;
-			}
-			throw error;
-		}
-		for (const [key, route] of decodeRoutes(Array.isArray(answer.routes) ? answer.routes : [])) routes.set(key, route);
-		after = answer.nextAfter ?? void 0;
-		if (after === void 0) break;
-		if (page === 31) truncated = true;
-	}
-	let talks;
-	try {
-		const answer = await api.read({
-			view: "talks",
-			limit: 256,
-			...query
-		});
-		talks = decodeTalks(Array.isArray(answer.pairs) ? answer.pairs : []);
-	} catch (error) {
-		if (!unknownView(error)) throw error;
-		talks = null;
-	}
-	return {
-		routes,
-		talks,
-		truncated
-	};
-}
-/** The confirm dialog's lines for a preview: Core's own effect, never a local guess. */
-function previewLines(preview, name) {
-	const lines = [];
-	if (object$1(preview.mutation ?? {}).kind === "talks.resume") {
-		const releases = safe(preview.releases) ? preview.releases : 0;
-		const held = Array.isArray(preview.held) ? preview.held.length : 0;
-		lines.push(`Releases ${releases} of ${held} held messages.`);
-		if (releases < held) lines.push("Expired held messages stay unsent.");
-		lines.push("They go out through normal delivery; the pair's hour restarts.");
-	} else {
-		const changes = Array.isArray(preview.changes) ? preview.changes.map(object$1) : [];
-		if (!changes.length) lines.push("No member's effective policy changes at this time.");
-		for (const change of changes.slice(0, 8)) {
-			const fields = Array.isArray(change.fields) ? change.fields.filter(text) : [];
-			lines.push(`${name(text(change.identityId) ? change.identityId : "?")} · ${fields.join(", ")}`);
-		}
-		if (changes.length > 8) lines.push(`… and ${changes.length - 8} more members`);
-	}
-	lines.push("Running work is never interrupted.");
-	return lines;
-}
-/** Apply exactly the preview the person confirmed. */
-function applyInput(preview) {
-	return {
-		phase: "apply",
-		mutation: preview.mutation,
-		expectedConfigurationRevision: preview.configurationRevision,
-		previewAtMs: preview.previewAtMs,
-		previewDigest: preview.previewDigest,
-		consent: true
-	};
-}
-/** Short receiving words for a matrix cell. */
-function receivingCell(value) {
-	if (!value || typeof value !== "object") return "·";
-	const row = value;
-	switch (row.mode) {
-		case "direct": return "Direct";
-		case "auto": return "Auto";
-		case "urgent": return "Urgent";
-		case "hold": return "Hold";
-		case "batch": return safe(row.intervalMs) ? `B${Math.round(row.intervalMs / 6e4)}` : "Batch";
-		default: return text(row.mode) ? row.mode : "·";
-	}
-}
-//#endregion
-//#region src/ops-orchestration.ts
-/** The Orchestration page (#4894, #5986): Core's plans on a timeline in Core's zone, each member's
-* effective policy at the selected time, who may message whom, this hour's talks and each member's
-* jobs. Every change shows Core's preview first and saves only that exact preview after the person
-* confirms. Nothing is computed here: each value and its source is Core's. */
-var HOUR = 36e5;
-var DAY = 24 * HOUR;
-var RANGES = [
-	1,
-	7,
-	30
-];
-var STATE = {
-	awake: "● Awake",
-	low: "◐ Low",
-	focus: "◑ Focus",
-	sleep: "◌ Sleep"
-};
-var SENDING = {
-	anyone: "Anyone",
-	leads: "Leads only",
-	paused: "Paused"
-};
-var ROUTINE = {
-	run: "Run",
-	hold: "Hold"
-};
-var WEEKDAYS = [
-	"Mon",
-	"Tue",
-	"Wed",
-	"Thu",
-	"Fri",
-	"Sat",
-	"Sun"
-];
-/** Core's receiving value in words for the member panel. */
-function receivingWords(value) {
-	if (!value || typeof value !== "object") return "—";
-	const row = value;
-	if (row.mode === "batch" && Number.isSafeInteger(row.intervalMs)) return `Batch ${Math.round(Number(row.intervalMs) / 6e4)} min`;
-	if (row.mode === "urgent") return "Urgent only";
-	return receivingCell(value);
-}
-function fieldWords(key, value) {
-	if (value === null || value === void 0) return key === "talkLimit" ? "No limit" : "—";
-	if (key === "receiving") return receivingWords(value);
-	if (key === "talkLimit" && typeof value === "number") return `${value} / h`;
-	return typeof value === "string" ? (key === "state" ? STATE : key === "sending" ? SENDING : ROUTINE)[value] ?? value : JSON.stringify(value);
-}
-function orchestrationView(connect, now = () => Date.now()) {
-	const node = el("div", "ops-orchestration-page");
-	const status = el("p", "ops-note");
-	status.setAttribute("role", "status");
-	const bar = el("div", "ops-orchestration-bar");
-	const rangeGroup = el("div", "ops-orchestration-range");
-	rangeGroup.setAttribute("role", "group");
-	rangeGroup.setAttribute("aria-label", "Time range");
-	const ranges = RANGES.map((days) => {
-		const button = el("button", void 0, days === 1 ? "1 day" : `${days} days`);
-		button.type = "button";
-		button.dataset.days = String(days);
-		rangeGroup.append(button);
-		return button;
-	});
-	const when = el("p", "ops-orchestration-when");
-	const planSelect = el("select", `${browserUiClasses.fieldControl} ops-orchestration-plan`);
-	planSelect.setAttribute("aria-label", "Plans");
-	const filter = el("input", browserUiClasses.fieldControl);
-	filter.type = "search";
-	filter.placeholder = "Members: prefix or contains";
-	filter.setAttribute("aria-label", "Filter members");
-	const search = el("div", browserUiClasses.searchField);
-	search.append(createIcon("search"), filter);
-	bar.append(rangeGroup, when, planSelect, search);
-	const plansCard = el("section", `${browserUiClasses.card} ops-orchestration-plans`);
-	plansCard.setAttribute("aria-label", "Plan list");
-	const plansHead = el("div", browserUiClasses.cardHead);
-	plansHead.append(el("h3", browserUiClasses.cardTitle, "Plans"));
-	const planList = el("ul", "ops-orchestration-plan-list");
-	plansCard.append(plansHead, planList);
-	const timelineCard = el("section", `${browserUiClasses.card} ops-orchestration-timeline`);
-	timelineCard.setAttribute("aria-label", "Timeline");
-	const axis = el("div", "ops-orchestration-axis");
-	axis.setAttribute("aria-hidden", "true");
-	const track = el("div", "ops-orchestration-track");
-	track.setAttribute("role", "group");
-	track.setAttribute("aria-label", "Plans in effect over the range");
-	const lanes = el("div", "ops-orchestration-lanes");
-	lanes.setAttribute("aria-hidden", "true");
-	const stepRow = el("div", "ops-orchestration-step");
-	const earlier = el("button", `${browserUiClasses.action} ops-orchestration-icon`);
-	const back = createIcon("chevron-right");
-	back.classList.add("ops-orchestration-back");
-	earlier.append(back);
-	earlier.setAttribute("aria-label", "Earlier");
-	earlier.title = "Earlier: the previous change";
-	const later = el("button", `${browserUiClasses.action} ops-orchestration-icon`);
-	later.append(createIcon("chevron-right"));
-	later.setAttribute("aria-label", "Later");
-	later.title = "Later: the next change";
-	const nowButton = el("button", browserUiClasses.action, "Now");
-	for (const button of [
-		earlier,
-		later,
-		nowButton
-	]) button.type = "button";
-	const atText = el("p", "ops-orchestration-at");
-	stepRow.append(earlier, atText, later, nowButton);
-	const legend = el("ul", "ops-orchestration-legend");
-	legend.setAttribute("aria-label", "Plans at the selected time");
-	timelineCard.append(axis, track, lanes, stepRow, legend);
-	const matrixCard = el("section", `${browserUiClasses.card} ops-orchestration-routes`);
-	const matrixHead = el("div", browserUiClasses.cardHead);
-	const matrixMeta = el("span", browserUiClasses.cardMeta);
-	const matrixCue = el("span", "ops-orchestration-scroll-cue", "Scroll ↔ ↕");
-	matrixHead.append(el("h3", browserUiClasses.cardTitle, "Who may message whom"), matrixMeta, matrixCue);
-	const matrixBody = el("div", "ops-orchestration-matrix-body");
-	const talks = el("div", "ops-orchestration-talks");
-	matrixCard.append(matrixHead, matrixBody, talks);
-	const inspector = el("section", `${browserUiClasses.card} ops-orchestration-inspector`);
-	inspector.setAttribute("aria-label", "Selected member and route");
-	const grid = el("div", "ops-grid");
-	grid.append(matrixCard, inspector);
-	const dialog = el("dialog", browserUiClasses.dialog);
-	timelineCard.hidden = true;
-	plansCard.hidden = true;
-	grid.hidden = true;
-	node.append(bar, status, plansCard, timelineCard, grid, dialog);
-	let api;
-	let days = 1;
-	let atMs = null;
-	let plan = null;
-	let memberQuery = "";
-	let overview;
-	let sending;
-	let selected;
-	let target;
-	let why;
-	let timers;
-	let generation = 0;
-	const say = (text) => {
-		status.textContent = text;
-	};
-	const zone = () => overview?.timeZone ?? "UTC";
-	/** Core's zone, 24-hour: `23:00`. */
-	const time = (ms) => new Intl.DateTimeFormat("en-GB", {
-		hour: "2-digit",
-		minute: "2-digit",
-		hourCycle: "h23",
-		timeZone: zone()
-	}).format(ms);
-	/** Core's zone: `Tue 10-27`. */
-	const date = (ms) => {
-		const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
-			weekday: "short",
-			month: "2-digit",
-			day: "2-digit",
-			timeZone: zone()
-		}).formatToParts(ms).map((part) => [part.type, part.value]));
-		return `${parts.weekday} ${parts.month}-${parts.day}`;
-	};
-	/** A time in the range, with its day when the range spans days. */
-	const moment = (ms) => days > 1 ? `${date(ms)} ${time(ms)}` : time(ms);
-	const member = (id) => overview?.members.find((m) => m.identityId === id);
-	const name = (id) => member(id)?.name ?? id;
-	const planOf = (id) => overview?.plans.find((p) => p.id === id);
-	const planName = (id) => planOf(id)?.name ?? "a plan";
-	const swatch = (id) => {
-		const index = overview?.plans.findIndex((p) => p.id === id) ?? 0;
-		return `var(--tmt-ui-color-series-${Math.max(0, index) % 7 + 1})`;
-	};
-	const from = (source) => {
-		switch (source?.kind) {
-			case "base": return "Base";
-			case "plan": return planName(source.planId);
-			case "member": return "member setting";
-			case "focus": return "focus";
-			case "grant": return "allowed once";
-			default: return "unknown";
-		}
-	};
-	/** A plan's schedule and who it covers, in Core's words: `every day 22:00–08:00 · everyone`. */
-	const planSummary = (p, includeState = true) => {
-		const rule = p.schedule;
-		let when = "always";
-		if (rule.kind === "once") when = `once ${date(rule.startMs)} ${time(rule.startMs)}–${time(rule.endMs)}`;
-		else if (rule.kind === "weekly") {
-			const set = [...rule.weekdays].sort();
-			const dayWords = set.length === 7 ? "every day" : set.join() === "1,2,3,4,5" ? "weekdays" : set.map((d) => WEEKDAYS[d - 1]).join(" ");
-			when = `${rule.intervalWeeks === 2 ? "every other week " : rule.intervalWeeks > 2 ? `every ${rule.intervalWeeks} weeks ` : ""}${dayWords} ${rule.allDay ? "all day" : `${rule.start}–${rule.end}`}`;
-		}
-		const who = p.targets.map((t) => t.kind === "all" ? "everyone" : t.kind === "identity" ? name(t.id) : t.pattern).join(", ");
-		return `${when} · ${who || "no one"}${includeState && !p.enabled ? " · off" : ""}`;
-	};
-	function drawPlans(view) {
-		const focused = document.activeElement instanceof HTMLElement && planList.contains(document.activeElement) ? document.activeElement.dataset.planId : void 0;
-		planList.replaceChildren(...view.plans.map((item) => {
-			const row = el("li", "ops-orchestration-plan-row");
-			const button = el("button", "ops-orchestration-plan-select");
-			button.type = "button";
-			button.dataset.planId = item.id;
-			button.ariaPressed = String(item.id === view.selectedPlanId);
-			const text = el("span", "ops-orchestration-plan-text");
-			text.append(el("strong", void 0, item.name), el("span", void 0, planSummary(item, false)));
-			button.append(text);
-			button.addEventListener("click", () => {
-				plan = item.id;
-				load();
-			});
-			const toggle = el("button", browserUiClasses.toggle);
-			toggle.type = "button";
-			toggle.setAttribute("aria-label", item.name);
-			toggle.setAttribute("aria-pressed", String(item.enabled));
-			const indicator = el("span", browserUiClasses.toggleIndicator, item.enabled ? "✓" : "");
-			indicator.setAttribute("aria-hidden", "true");
-			toggle.append(indicator, el("span", void 0, item.enabled ? "On" : "Off"));
-			toggle.addEventListener("click", () => {
-				toggle.disabled = true;
-				togglePlan(item).finally(() => {
-					toggle.disabled = false;
-				});
-			});
-			row.append(button, toggle);
-			return row;
-		}));
-		if (!view.plans.length) planList.append(el("li", void 0, "No plans yet."));
-		if (focused) [...planList.querySelectorAll("button")].find((button) => button.dataset.planId === focused)?.focus({ preventScroll: true });
-	}
-	async function togglePlan(item) {
-		try {
-			api ??= await connect();
-			const answer = await api.read({ view: "plans" });
-			if (!Array.isArray(answer.plans)) throw new Error("Invalid plans");
-			const rows = answer.plans.filter((row) => !!row && typeof row === "object" && !Array.isArray(row) && row.id === item.id);
-			const current = rows[0];
-			if (rows.length !== 1 || !current || typeof current.enabled !== "boolean") throw new Error("Invalid plan");
-			if (current.enabled !== item.enabled) {
-				await load();
-				say("Orchestration changed; review the current plan and try again.");
-				return;
-			}
-			await preview(`${item.enabled ? "Turn off" : "Turn on"} ${item.name}`, {
-				kind: "plan.set",
-				plan: item.id,
-				candidate: {
-					...current,
-					enabled: !current.enabled
-				}
-			});
-		} catch (error) {
-			say(error instanceof OrchestrationRefused ? error.detail ?? `Core refused the read (${error.code}).` : "Core could not read the plan; nothing was saved.");
-		}
-	}
-	async function load() {
-		const mine = ++generation;
-		if (!overview) say("Reading orchestration from Core…");
-		try {
-			api ??= await connect();
-			const input = {
-				view: "overview",
-				rangeDays: days,
-				...atMs === null ? {} : { atMs },
-				...plan === null ? {} : { plan },
-				...memberQuery ? { memberQuery } : {}
-			};
-			const next = decodeOverview(await api.read(input));
-			const nextSending = await readSending(api, memberQuery || void 0);
-			if (mine !== generation) return;
-			overview = next;
-			sending = nextSending;
-			if (!member(selected)) selected = next.members[0]?.identityId;
-			if (!member(target) || target === selected) target = next.members.find((m) => m.identityId !== selected)?.identityId;
-			say("");
-			draw();
-		} catch (error) {
-			if (mine !== generation) return;
-			api = void 0;
-			say(error instanceof OrchestrationRefused ? error.detail ?? `Core refused the read (${error.code}).` : "Orchestration is not available right now. `tmt orch` shows it in the terminal.");
-		}
-	}
-	function drawBar(view) {
-		for (const button of ranges) button.ariaPressed = String(button.dataset.days === String(days));
-		const last = view.range.endMs - 1;
-		when.replaceChildren(el("span", void 0, days === 1 ? date(view.range.startMs) : `${date(view.range.startMs)} – ${date(last)}`), el("span", "ops-orchestration-zone", view.timeZone));
-		const options = [Object.assign(el("option", void 0, `All plans (${view.plans.length})`), { value: "" }), ...view.plans.map((p) => Object.assign(el("option", void 0, p.name), { value: p.id }))];
-		planSelect.replaceChildren(...options);
-		planSelect.value = view.selectedPlanId ?? "";
-	}
-	/** Where a time sits on the range, as a share of its width. */
-	const share = (view, ms) => Math.min(1, Math.max(0, (ms - view.range.startMs) / Math.max(1, view.range.endMs - view.range.startMs)));
-	const place = (node, view, start, end) => {
-		node.style.left = `${share(view, start) * 100}%`;
-		node.style.width = `${(share(view, end) - share(view, start)) * 100}%`;
-	};
-	function drawTimeline(view) {
-		const step = days === 1 ? 3 * HOUR : days === 7 ? DAY : 7 * DAY;
-		const ticks = [];
-		for (let at = view.range.startMs, index = 0; at <= view.range.endMs; at += step, index++) {
-			if (days > 1 && at === view.range.endMs) break;
-			const [weekday, monthDay] = date(at).split(" ");
-			const tick = el("span", "ops-orchestration-tick", days === 1 ? at === view.range.endMs ? "24" : time(at).slice(0, 2) : days === 7 ? `${weekday} ${monthDay.slice(3)}` : monthDay);
-			tick.style.left = `${share(view, at) * 100}%`;
-			if (days > 1) tick.dataset.span = "";
-			if (index % 2) tick.dataset.minor = "";
-			ticks.push(tick);
-		}
-		axis.replaceChildren(...ticks);
-		const marker = () => {
-			const line = el("span", "ops-orchestration-marker");
-			line.style.left = `${share(view, view.atMs) * 100}%`;
-			return line;
-		};
-		const slots = view.timeline.map((interval) => {
-			const slot = el("button", "ops-orchestration-slot");
-			slot.type = "button";
-			place(slot, view, interval.startMs, interval.endMs);
-			const count = interval.planIds.length;
-			slot.textContent = count ? String(count) : "";
-			if (!count) slot.dataset.empty = "";
-			const plans = count ? interval.planIds.map(planName).join(", ") : "Base only";
-			slot.title = `${moment(interval.startMs)}–${moment(interval.endMs)} · ${plans}`;
-			slot.setAttribute("aria-label", `From ${moment(interval.startMs)}: ${plans}`);
-			if (view.atMs >= interval.startMs && view.atMs < interval.endMs) slot.ariaCurrent = "time";
-			slot.addEventListener("click", () => {
-				atMs = Math.max(interval.startMs, view.range.startMs);
-				load();
-			});
-			return slot;
-		});
-		track.dataset.days = String(days);
-		track.replaceChildren(...slots, marker());
-		const shown = view.plans.filter((p) => (!view.selectedPlanId || p.id === view.selectedPlanId) && view.timeline.some((interval) => interval.planIds.includes(p.id)));
-		lanes.dataset.days = String(days);
-		lanes.replaceChildren(...shown.map((p) => {
-			const lane = el("div", "ops-orchestration-lane");
-			lane.style.setProperty("--ops-orchestration-plan", swatch(p.id));
-			const segments = view.timeline.filter((interval) => interval.planIds.includes(p.id));
-			const widest = segments.reduce((best, interval) => interval.endMs - interval.startMs > best.endMs - best.startMs ? interval : best);
-			for (const interval of segments) {
-				const bar = el("span", "ops-orchestration-lane-bar", interval === widest ? p.name : "");
-				place(bar, view, interval.startMs, interval.endMs);
-				bar.title = `${p.name} · ${moment(interval.startMs)}–${moment(interval.endMs)}`;
-				lane.append(bar);
-			}
-			return lane;
-		}));
-		const ids = view.timeline.find((i) => view.atMs >= i.startMs && view.atMs < i.endMs)?.planIds ?? [];
-		const at = el("time", void 0, moment(view.atMs));
-		at.dateTime = new Date(view.atMs).toISOString();
-		atText.replaceChildren(at, ` · ${ids.length ? `${ids.length} plan${ids.length === 1 ? "" : "s"} in effect` : "Base only"}${atMs === null ? " · now" : ""}`);
-		const listed = [...ids.flatMap((id) => planOf(id) ? [planOf(id)] : []), ...shown.filter((p) => !ids.includes(p.id))];
-		legend.replaceChildren(...listed.map((p) => {
-			const item = el("li");
-			const mark = el("span", "ops-orchestration-swatch");
-			mark.style.background = swatch(p.id);
-			item.append(mark, el("strong", void 0, p.name), el("span", void 0, planSummary(p)));
-			if (!ids.includes(p.id)) {
-				item.dataset.later = "";
-				item.append(el("span", "ops-orchestration-source", "not at this time"));
-			}
-			return [item];
-		}).flat());
-		if (!view.plans.length) {
-			const item = el("li");
-			const help = el("span");
-			notAvailable(help, "Base only: no plans yet. `tmt orch plan add --help`");
-			item.append(help);
-			legend.replaceChildren(item);
-		}
-	}
-	function cellText(row, column) {
-		if (row.identityId === column.identityId) return {
-			text: "—",
-			label: "same member"
-		};
-		const route = sending?.routes?.get(`${row.identityId}>${column.identityId}`);
-		if (!route) return {
-			text: "·",
-			label: "not reported"
-		};
-		if (route.verdict === "blocked") return {
-			text: "✕",
-			label: `blocked by ${from(route.source)}`,
-			verdict: "blocked"
-		};
-		if (route.verdict === "needs_person") return {
-			text: "◆",
-			label: "needs a person",
-			verdict: "needs_person"
-		};
-		return {
-			text: receivingCell(column.fields.receiving.value),
-			label: `allowed · receives ${receivingWords(column.fields.receiving.value)}`
-		};
-	}
-	/** The one rule every pair follows, when every pair answers the same and nothing is blocked. */
-	function baseRule(members) {
-		const cells = members.flatMap((row) => members.filter((column) => column !== row).map((column) => cellText(row, column)));
-		if (!cells.length || cells.some((cell) => !cell.label.startsWith("allowed") || cell.text !== cells[0].text)) return void 0;
-		return `Base rule for everyone: anyone may message anyone · ${cells[0].text === "·" ? "delivery timing not reported" : `delivered ${receivingWords(members[1].fields.receiving.value).toLowerCase()}`}`;
-	}
-	let gridShown = false;
-	function drawMatrix(view) {
-		const count = view.members.length;
-		matrixMeta.textContent = memberQuery ? `${count} matching “${memberQuery}”` : `${count} × ${count}`;
-		if (!sending?.routes) {
-			matrixBody.replaceChildren(sentence$1("Routes are not available on this Core. Member policies are shown beside it."));
-			return;
-		}
-		if (!count) {
-			matrixBody.replaceChildren(sentence$1("No members match."));
-			return;
-		}
-		const scroll = el("div", "ops-orchestration-scroll");
-		scroll.tabIndex = 0;
-		scroll.setAttribute("role", "region");
-		scroll.setAttribute("aria-label", "Route matrix, scrolls both ways");
-		const table = el("table", "ops-orchestration-matrix");
-		const head = el("tr");
-		const corner = el("th", void 0, "From ↓ To →");
-		corner.scope = "col";
-		head.append(corner);
-		const columnAt = view.members.findIndex((m) => m.identityId === target);
-		view.members.forEach((column, index) => {
-			const th = el("th", void 0, column.name);
-			th.scope = "col";
-			th.title = column.name;
-			if (index === columnAt) th.dataset.cross = "";
-			head.append(th);
-		});
-		const thead = el("thead");
-		thead.append(head);
-		const body = el("tbody");
-		for (const row of view.members) {
-			const tr = el("tr");
-			const th = el("th", void 0, row.name);
-			th.scope = "row";
-			th.title = row.name;
-			const inRow = row.identityId === selected;
-			if (inRow) th.dataset.cross = "";
-			tr.append(th);
-			view.members.forEach((column, index) => {
-				const cell = cellText(row, column);
-				const td = el("td");
-				if (inRow || index === columnAt) td.dataset.cross = "";
-				const button = el("button", "ops-orchestration-cell", cell.text);
-				button.type = "button";
-				if (cell.verdict) button.dataset.verdict = cell.verdict;
-				button.setAttribute("aria-label", `${row.name} to ${column.name}: ${cell.label}`);
-				if (inRow && index === columnAt) {
-					button.ariaPressed = "true";
-					if (cell.verdict === "blocked") button.textContent = `✕ ${fieldWords("sending", row.fields.sending.value).toLowerCase()}`;
-				}
-				button.addEventListener("click", () => {
-					selected = row.identityId;
-					target = column.identityId === row.identityId ? target : column.identityId;
-					why = void 0;
-					draw();
-					if (matchMedia("(max-width: 1050px)").matches) {
-						const heading = inspector.querySelector("h3");
-						if (!heading) return;
-						heading.tabIndex = -1;
-						heading.scrollIntoView({
-							block: "start",
-							behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
-						});
-						heading.focus({ preventScroll: true });
-						return;
-					}
-					matrixBody.querySelector(`tbody tr:nth-child(${view.members.indexOf(row) + 1}) td:nth-of-type(${index + 1}) button`)?.focus({ preventScroll: true });
-				});
-				td.append(button);
-				tr.append(td);
-			});
-			body.append(tr);
-		}
-		table.append(thead, body);
-		table.addEventListener("keydown", (event) => {
-			const move = {
-				ArrowUp: [-1, 0],
-				ArrowDown: [1, 0],
-				ArrowLeft: [0, -1],
-				ArrowRight: [0, 1]
-			}[event.key];
-			const cell = event.target.closest("td");
-			if (!move || !cell) return;
-			const tr = cell.parentElement;
-			const rows = [...body.rows];
-			const r = rows.indexOf(tr) + move[0];
-			const col = cell.cellIndex + move[1];
-			const next = rows[r]?.cells[col]?.querySelector("button");
-			if (!next) return;
-			event.preventDefault();
-			next.focus();
-		});
-		scroll.append(table);
-		const key = el("dl", "ops-orchestration-key");
-		key.setAttribute("aria-label", "Matrix key");
-		for (const [glyph, meaning, verdict] of [
-			["B30", "batch every 30 min"],
-			["Direct", "right away"],
-			["Urgent", "urgent only"],
-			[
-				"✕",
-				"blocked by the sender rule",
-				"blocked"
-			],
-			[
-				"◆",
-				"needs a person",
-				"needs_person"
-			],
-			["·", "not reported"]
-		]) {
-			const item = el("div");
-			const term = el("dt", void 0, glyph);
-			if (verdict) term.dataset.verdict = verdict;
-			item.append(term, el("dd", void 0, meaning));
-			key.append(item);
-		}
-		const notes = [key];
-		if (atMs !== null) notes.push(el("p", "ops-orchestration-caption", `✕ and ◆ are Core’s verdicts for now; receiving is at ${moment(view.atMs)}.`));
-		if (sending.truncated) notes.push(el("p", "ops-orchestration-caption", "Core stopped at its page limit; filter members to see the rest."));
-		const keep = matrixBody.querySelector(".ops-orchestration-scroll");
-		const position = keep ? [keep.scrollLeft, keep.scrollTop] : [0, 0];
-		const rule = view.plans.length ? void 0 : baseRule(view.members);
-		if (rule) {
-			const fold = el("details", "ops-orchestration-grid-fold");
-			fold.open = gridShown;
-			fold.addEventListener("toggle", () => gridShown = fold.open);
-			fold.append(el("summary", void 0, "Show the grid"), scroll, ...notes);
-			matrixBody.replaceChildren(el("p", "ops-orchestration-base-rule", rule), fold);
-		} else matrixBody.replaceChildren(scroll, ...notes);
-		scroll.scrollLeft = position[0];
-		scroll.scrollTop = position[1];
-	}
-	function drawTalks() {
-		if (!sending?.talks) return talks.replaceChildren();
-		if (!sending.talks.length) return talks.replaceChildren(el("p", "ops-orchestration-caption", "Talks this hour: none counted."));
-		const list = el("ul", browserUiClasses.list);
-		list.setAttribute("aria-label", "Talks this hour");
-		for (const pair of sending.talks) {
-			const item = el("li", browserUiClasses.listRow);
-			const limit = pair.limit === null ? "" : `/${pair.limit}`;
-			item.append(el("span", browserUiClasses.listTitle, `${pair.held ? "◆ " : ""}${pair.names[0]} ⇄ ${pair.names[1]}`), el("span", browserUiClasses.listMeta, `${pair.count}${limit}${pair.held ? ` · ${pair.heldCount} held · needs a person` : ""}`));
-			if (pair.held) item.dataset.held = "";
-			list.append(item);
-		}
-		talks.replaceChildren(el("h4", browserUiClasses.sectionHeading, "Talks this hour"), list);
-	}
-	/** One action: its label stays on one line, cut with the full text as its title when long. */
-	const action = (label, run, accessible) => {
-		const button = el("button", browserUiClasses.action);
-		button.append(el("span", browserUiClasses.actionLabel, label));
-		button.title = accessible ?? label;
-		if (accessible) button.setAttribute("aria-label", accessible);
-		button.type = "button";
-		button.addEventListener("click", run);
-		return button;
-	};
-	/** Facts; a value's source follows it, muted: `Leads only ← Shift B`. */
-	const facts = (rows) => {
-		const list = el("dl", browserUiClasses.facts);
-		for (const [term, value, source] of rows) {
-			const dd = el("dd", void 0, value);
-			if (source) dd.append(el("span", "ops-orchestration-source", ` ← ${source}`));
-			list.append(el("dt", void 0, term), dd);
-		}
-		return list;
-	};
-	function drawTimers(row) {
-		if (timers === void 0) return [el("p", "ops-orchestration-caption", "Timers · reading…")];
-		const mine = timers.jobs && timers.jobs.filter((job) => job.owner === row.name);
-		return [el("h4", browserUiClasses.sectionHeading, mine ? `Timers ${mine.length}` : "Timers"), timerList(mine, timers.truncated)];
-	}
-	function drawInspector() {
-		const parts = [];
-		const row = member(selected);
-		const column = member(target);
-		const at = overview ? moment(overview.atMs) : "";
-		if (row && column) {
-			const route = sending?.routes?.get(`${row.identityId}>${column.identityId}`);
-			const head = el("div", "ops-orchestration-panel-head");
-			head.append(el("h3", browserUiClasses.cardTitle, `${row.name} → ${column.name}`), el("span", browserUiClasses.cardMeta, at));
-			parts.push(head);
-			parts.push(facts([[
-				"Sending",
-				fieldWords("sending", row.fields.sending.value),
-				from(row.fields.sending.source)
-			], ["Result", !route ? "not reported" : route.verdict === "blocked" ? "Blocked · explained" : route.verdict === "needs_person" ? "◆ held for a person" : `Allowed · ${receivingWords(column.fields.receiving.value)}`]]));
-			const actions = el("div", browserUiClasses.actions);
-			if (route?.verdict === "blocked") {
-				const end = Math.min(row.nextChangeAtMs ?? now() + DAY, now() + DAY);
-				actions.append(action(`Allow once until ${moment(end)}`, () => preview(`Allow ${row.name} → ${column.name} once`, {
-					kind: "route.allow",
-					fromId: row.identityId,
-					toId: column.identityId,
-					untilMs: end
-				})));
-			}
-			if ((sending?.talks?.find((p) => p.ids.includes(row.identityId) && p.ids.includes(column.identityId)))?.held) actions.append(action(`Resume ${row.name} ⇄ ${column.name}`, () => preview(`Resume ${row.name} ⇄ ${column.name}`, {
-				kind: "talks.resume",
-				aId: row.identityId,
-				bId: column.identityId
-			})));
-			if (actions.childElementCount) parts.push(actions);
-		}
-		if (row) {
-			const section = el("div", "ops-orchestration-member");
-			const head = el("div", "ops-orchestration-panel-head");
-			head.append(el("h3", browserUiClasses.cardTitle, row.name), action("Why", () => void explain(row), `Why · ${row.name}`));
-			section.append(head);
-			const value = (key, label) => [
-				label,
-				fieldWords(key, row.fields[key].value),
-				from(row.fields[key].source)
-			];
-			section.append(facts([
-				value("state", "State"),
-				value("receiving", "Receiving"),
-				value("sending", "Sending"),
-				value("routine", "Routine jobs"),
-				value("talkLimit", "Talk limit"),
-				["Plans", row.activePlans.length ? row.activePlans.map(planName).join(", ") : "Base only"],
-				["Next change", row.nextChangeAtMs === null ? "none in view" : moment(row.nextChangeAtMs)]
-			]));
-			const start = now();
-			const focus = el("div", "ops-orchestration-focus");
-			const focusActions = el("div", browserUiClasses.actions);
-			const focusFor = (hours) => action(`${hours}h`, () => preview(`Focus ${row.name} for ${hours === 1 ? "one hour" : `${hours} hours`}`, {
-				kind: "focus.set",
-				identityId: row.identityId,
-				startMs: start,
-				endMs: start + hours * HOUR
-			}), `Focus now ${hours}h`);
-			focusActions.append(focusFor(1), focusFor(2), action("End focus", () => preview(`End ${row.name}'s focus`, {
-				kind: "focus.clear",
-				identityId: row.identityId
-			})));
-			focus.append(el("span", "ops-orchestration-focus-label", "Focus now"), focusActions);
-			section.append(focus);
-			if (why?.id === row.identityId) {
-				const list = el("ul", browserUiClasses.list);
-				list.setAttribute("aria-label", `Why · ${row.name}`);
-				for (const line of why.lines) list.append(el("li", browserUiClasses.listRow, line));
-				section.append(list);
-			}
-			section.append(...drawTimers(row));
-			parts.push(section);
-		}
-		if (!parts.length) parts.push(sentence$1("No members match."));
-		const focused = document.activeElement;
-		const kept = focused instanceof HTMLHeadingElement && inspector.contains(focused) ? focused.textContent : null;
-		inspector.replaceChildren(...parts);
-		if (kept === null) return;
-		const heading = [...inspector.querySelectorAll("h3")].find((node) => node.textContent === kept);
-		if (!heading) return;
-		heading.tabIndex = -1;
-		heading.focus({ preventScroll: true });
-	}
-	function draw() {
-		for (const button of ranges) button.ariaPressed = String(button.dataset.days === String(days));
-		if (!overview) return;
-		plansCard.hidden = false;
-		timelineCard.hidden = false;
-		grid.hidden = false;
-		drawBar(overview);
-		drawPlans(overview);
-		drawTimeline(overview);
-		drawMatrix(overview);
-		drawTalks();
-		drawInspector();
-	}
-	async function explain(row) {
-		try {
-			api ??= await connect();
-			const page = await api.read({
-				view: "why",
-				subject: {
-					kind: "identity",
-					id: row.identityId
-				},
-				limit: 20
-			});
-			const items = Array.isArray(page.items) ? page.items : [];
-			why = {
-				id: row.identityId,
-				lines: items.length ? items.map((item) => `${String(item.action ?? "?")} ${String(item.outcome ?? "?")} · ${String(item.reason ?? "?")}`) : ["No recorded decision."]
-			};
-			drawInspector();
-		} catch {
-			say("Core could not read the decisions right now.");
-		}
-	}
-	/** Core's preview in a dialog; Save applies exactly that preview, Cancel sends nothing. */
-	async function preview(title, mutation) {
-		try {
-			api ??= await connect();
-			const answer = await api.write({
-				phase: "preview",
-				mutation
-			});
-			const head = el("div", browserUiClasses.dialogHeader);
-			head.append(el("h2", browserUiClasses.title, title));
-			const body = el("div", browserUiClasses.dialogBody);
-			for (const line of previewLines(answer, name)) body.append(el("p", void 0, line));
-			const actions = el("div", browserUiClasses.dialogActions);
-			const cancel = action("Cancel", () => dialog.close());
-			const save = action("Save", () => {
-				save.disabled = true;
-				apply(answer);
-			});
-			save.dataset.primary = "";
-			actions.append(cancel, save);
-			dialog.replaceChildren(head, body, actions);
-			dialog.showModal();
-		} catch (error) {
-			if (error instanceof OrchestrationRefused && error.code === "ORCH_CONFLICT") await load();
-			say(error instanceof OrchestrationRefused ? error.detail ?? `Core refused the change (${error.code}).` : "Core could not preview the change right now; nothing was saved.");
-		}
-	}
-	async function apply(previewed) {
-		try {
-			await api.write(applyInput(previewed));
-			dialog.close();
-			await load();
-			if (!status.textContent) say("Orchestration saved.");
-		} catch (error) {
-			dialog.close();
-			if (error instanceof OrchestrationRefused && error.code === "ORCH_CONFLICT") await load();
-			say(error instanceof OrchestrationRefused && error.code === "ORCH_CONFLICT" ? "Orchestration changed since the preview; nothing was saved. Try again." : error instanceof OrchestrationRefused ? error.detail ?? `Core refused the change (${error.code}).` : "The save could not be confirmed. Refresh to see what Core recorded.");
-		}
-	}
-	for (const button of ranges) button.addEventListener("click", () => {
-		days = Number(button.dataset.days);
-		load();
-	});
-	planSelect.addEventListener("change", () => {
-		plan = planSelect.value || null;
-		load();
-	});
-	const step = (direction) => {
-		if (!overview) return;
-		const boundaries = [...overview.timeline.flatMap((i) => [i.startMs, i.endMs]), ...overview.members.flatMap((m) => m.nextChangeAtMs === null ? [] : [m.nextChangeAtMs])].filter((value, at, all) => all.indexOf(value) === at && value < overview.range.endMs).sort((a, b) => a - b);
-		const next = direction < 0 ? boundaries.reverse().find((at) => at < overview.atMs) : boundaries.find((at) => at > overview.atMs);
-		if (next === void 0) return;
-		atMs = next;
-		load();
-	};
-	earlier.addEventListener("click", () => step(-1));
-	later.addEventListener("click", () => step(1));
-	nowButton.addEventListener("click", () => {
-		atMs = null;
-		load();
-	});
-	let typing;
-	filter.addEventListener("input", () => {
-		clearTimeout(typing);
-		typing = setTimeout(() => {
-			memberQuery = filter.value.trim();
-			load();
-		}, 300);
-	});
-	return {
-		node,
-		/** One refresh; the page's owner calls it while the section is visible. */
-		refresh: load,
-		/** The board's timers changed: the inspector shows the selected member's. */
-		timers(next) {
-			timers = next;
-			if (overview) drawInspector();
-		}
-	};
-}
-//#endregion
-//#region src/ops-menu.ts
-var OPS_SECTIONS = [{
-	id: "orchestration",
-	label: "Orchestration"
-}];
-function opsSection(hash) {
-	return OPS_SECTIONS.find((section) => `#${section.id}` === hash)?.id ?? "home";
-}
-function opsPlace(hash) {
-	try {
-		if (hash.startsWith("#channel/")) {
-			const squad = decodeURIComponent(hash.slice(9));
-			if (squad) return { squad };
-		}
-		const dm = /^#dm\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(.+)$/.exec(hash);
-		if (dm) return {
-			memberId: dm[1],
-			squad: decodeURIComponent(dm[2])
-		};
-		const bare = /^#dm\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(hash);
-		if (bare) return {
-			memberId: bare[1],
-			squad: ""
-		};
-	} catch {}
-	return opsSection(hash);
-}
-/**
-* A member-only DM place takes the member's squad from the loaded board. A member the board does not
-* list keeps the empty squad, which shows the unknown-member message.
-*/
-function resolveOpsPlace(place, board) {
-	if (typeof place === "string" || place.squad || !place.memberId || !board || board.unavailable) return place;
-	const member = board.agents.find((agent) => agent.id === place.memberId);
-	return member ? {
-		squad: member.squad,
-		memberId: member.id
-	} : place;
-}
-/**
-* The view's title. A member is named from a loaded board; "Member unavailable" only once a loaded
-* board does not list it, so a member-only link shows the loading page, not that message (#6474).
-*/
-function opsPlaceLabel(place, board) {
-	if (typeof place === "string") return OPS_SECTIONS.find((item) => item.id === place)?.label ?? "Ops";
-	if (!place.memberId) return `#${place.squad}`;
-	if (!board || board.unavailable) return "Ops";
-	return board.agents.find((agent) => agent.id === place.memberId && agent.squad === place.squad)?.name ?? "Member unavailable";
-}
-function opsHref(pathname, place) {
-	if (typeof place === "string") return `${pathname}#${place}`;
-	const squad = encodeURIComponent(place.squad);
-	return place.memberId ? `${pathname}#dm/${place.memberId}/${squad}` : `${pathname}#channel/${squad}`;
-}
-/** The rail's mark for a channel or DM whose message box holds unsent words. */
-var DRAFT = "✎ Draft";
-function opsMenu(section, board, pathname, disclosure, unread, hasDraft = () => false, formsWaiting = () => 0) {
-	const unreadItem = (id) => {
-		const value = unread?.get(id);
-		const forms = formsWaiting(id);
-		if (forms > 0) return {
-			...value?.state === "known" && value.count > 0 ? { emphasis: "unread" } : {},
-			count: {
-				text: String(forms),
-				needsYou: true
-			}
-		};
-		return value?.state === "known" && value.count > 0 ? {
-			emphasis: "unread",
-			count: {
-				text: value.more ? "50+" : String(value.count),
-				needsYou: false
-			}
-		} : hasDraft(id) ? { badges: [DRAFT] } : {};
-	};
-	const stateMark = (state) => {
-		const node = mark(AGENT_STATES[state].mark, AGENT_STATES[state].markTone);
-		node.style.width = "9px";
-		node.style.height = "9px";
-		return node;
-	};
-	const channelMark = () => {
-		const node = document.createElement("span");
-		node.textContent = "#";
-		return node;
-	};
-	const orchestration = { items: OPS_SECTIONS.map((item) => ({
-		id: item.id,
-		label: item.label,
-		icon: "clock",
-		href: opsHref(pathname, item.id),
-		current: section === item.id
-	})) };
-	return {
-		title: "Ops",
-		groups: [...!board?.unavailable && board ? [{
-			label: "THIS MACHINE",
-			items: bySquad(board, true).map((group) => {
-				const timers = !board.truncated && board.schedules ? board.schedules.filter((item) => item.squad === group.name).length : void 0;
-				const badges = hasDraft(`channel:${group.name}`) ? [DRAFT] : [];
-				if (timers) badges.push(`⏱ ${timers}`);
-				const idle = board.squads.find((squad) => squad.name === group.name)?.idleAlertMs;
-				if (idle !== void 0 && board.defaultIdleAlertMs !== null && idle !== board.defaultIdleAlertMs) badges.push(`Idle ${Math.round(idle / 6e4)}m`);
-				return {
-					id: `channel:${group.name}`,
-					label: group.name,
-					leading: {
-						node: channelMark(),
-						label: "Channel"
-					},
-					...badges.length ? { badges: badges.slice(0, 2) } : {},
-					href: opsHref(pathname, { squad: group.name }),
-					current: typeof section !== "string" && section.squad === group.name && !section.memberId,
-					expanded: !disclosure?.collapsed.has(group.name),
-					toggle: disclosure ? () => disclosure.toggle(group.name) : void 0,
-					children: group.agents.map((agent) => ({
-						id: `dm:${group.name}:${agent.id}`,
-						label: agent.name,
-						leading: {
-							node: stateMark(agent.state),
-							label: AGENT_STATES[agent.state].word
-						},
-						...unreadItem(agent.id),
-						href: opsHref(pathname, {
-							squad: group.name,
-							memberId: agent.id
-						}),
-						current: typeof section !== "string" && section.squad === group.name && section.memberId === agent.id
-					}))
-				};
-			})
-		}] : [], orchestration]
-	};
-}
-//#endregion
-//#region src/command-run.ts
-var terminalId = (value) => typeof value === "string" && /^term_[0-9a-f]{32}$/.test(value);
-var utf8$3 = new TextEncoder();
-function singleCommand(text) {
-	const bytes = utf8$3.encode(text);
-	return !!text.trim() && bytes.length <= 4096 && new TextDecoder().decode(bytes) === text && !text.includes("͏") && !/[\p{Cc}\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/u.test(text);
-}
-function document$1(value) {
-	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid terminal response.");
-	return value;
-}
-function targets(identity, member, value) {
-	const reply = document$1(value);
-	if (reply.identityId !== identity || !Array.isArray(reply.terminals) || reply.terminals.length > 8) throw new Error("Invalid terminal targets.");
-	const seen = /* @__PURE__ */ new Set();
-	return reply.terminals.map((value, index) => {
-		const row = document$1(value);
-		if (!terminalId(row.terminalId) || seen.has(row.terminalId) || row.ordinal !== index + 1 || typeof row.busy !== "boolean") throw new Error("Invalid terminal target.");
-		seen.add(row.terminalId);
-		return {
-			key: row.terminalId,
-			label: `Run in Terminal ${index + 1} · ${member}`,
-			disabled: row.busy
-		};
-	});
-}
-function outcome(id, identity, choice, value) {
-	const reply = document$1(value);
-	const terminal = reply.terminalId;
-	if (reply.operationId !== id || terminal !== void 0 && (!terminalId(terminal) || choice !== "new" && terminal !== choice)) throw new Error("Invalid command receipt.");
-	if (reply.state === "submitted" && reply.identityId === identity && terminalId(terminal)) return "submitted";
-	if ((reply.state === "refused" || reply.state === "unconfirmed") && [
-		"admission",
-		"open",
-		"run",
-		"unknown"
-	].includes(String(reply.stage)) && (reply.state !== "refused" || typeof reply.code === "string")) return reply.state;
-	throw new Error("Invalid command outcome.");
-}
-/** Only a current signed operation inventory enables Run; the server rechecks both effects. */
-function commandRun(shell) {
-	const getSession = shell.session;
-	if (!getSession) return;
-	return {
-		async options(identity, member) {
-			if (!coreId(identity)) return [];
-			const session = await getSession();
-			shell.signal.throwIfAborted();
-			const call = verifiedSessionRequest(session);
-			const offered = await call("capabilities", crypto.randomUUID(), {}, parseCapabilities);
-			if (!offered.includes("terminal.command.targets") || !offered.includes("terminal.command.run")) return [];
-			shell.signal.throwIfAborted();
-			return [...await call("terminal.command.targets", crypto.randomUUID(), {
-				version: 1,
-				operation: "terminal.command.targets",
-				input: { identityId: identity }
-			}, (value) => targets(identity, member, value)), {
-				key: "new",
-				label: "Run in a new terminal"
-			}];
-		},
-		async submit(identity, command, choice) {
-			if (!coreId(identity) || !singleCommand(command) || choice !== "new" && !terminalId(choice)) return "refused";
-			const target = choice === "new" ? { kind: "new" } : {
-				kind: "existing",
-				terminalId: choice
-			};
-			const session = await getSession();
-			shell.signal.throwIfAborted();
-			const call = verifiedSessionRequest(session);
-			const id = crypto.randomUUID();
-			const parse = (value) => outcome(id, identity, choice, value);
-			try {
-				return await call("terminal.command.run", id, {
-					version: 1,
-					operation: "terminal.command.run",
-					input: {
-						operationId: id,
-						identityId: identity,
-						target,
-						command
-					}
-				}, parse, true);
-			} catch (error) {
-				if (error instanceof RefusalError) return "refused";
-				if (shell.signal.aborted) return "unconfirmed";
-				try {
-					return await call("operation.show", crypto.randomUUID(), { operationId: id }, parse);
-				} catch {
-					return "unconfirmed";
-				}
-			}
-		}
-	};
-}
-//#endregion
-//#region src/conversations.ts
-var CONVERSATION_PAGE_MAX = 50;
-var CONVERSATION_PREVIEW_BYTES = 640;
-var CONVERSATION_WITHDRAWAL_BYTES = 1024;
-var utf8$2 = new TextEncoder();
-var conversationPosition = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);
-function valid(condition) {
-	if (!condition) throw new Error("Invalid conversation response.");
-}
-function object(value) {
-	valid(value !== null && typeof value === "object" && !Array.isArray(value));
-	return value;
-}
-function keys(row, required, optional = []) {
-	valid(required.every((key) => Object.hasOwn(row, key)) && Object.keys(row).every((key) => required.includes(key) || optional.includes(key)));
-}
-var integer = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-var preview = (value) => value === null || typeof value === "string" && [...value].length <= 160 && utf8$2.encode(value).length <= CONVERSATION_PREVIEW_BYTES;
-function cursor$1(value) {
-	const row = object(value);
-	keys(row, ["preparedAtMs", "requestId"]);
-	valid(integer(row.preparedAtMs) && requestId(row.requestId));
-	return {
-		preparedAtMs: row.preparedAtMs,
-		requestId: row.requestId
-	};
-}
-function final(value) {
-	const row = object(value);
-	switch (row.status) {
-		case "not_submitted":
-		case "not_required":
-			keys(row, ["status"]);
-			break;
-		case "withdrawn":
-			keys(row, [
-				"status",
-				"reason",
-				"withdrawnAtMs"
-			]);
-			valid(typeof row.reason === "string" && utf8$2.encode(row.reason).length <= CONVERSATION_WITHDRAWAL_BYTES && integer(row.withdrawnAtMs));
-			break;
-		case "retained":
-			keys(row, [
-				"status",
-				"submittedAtMs",
-				"expiresAtMs",
-				"bodyBytes"
-			]);
-			valid(integer(row.submittedAtMs) && integer(row.expiresAtMs) && integer(row.bodyBytes));
-			break;
-		case "expired":
-		case "unavailable":
-			keys(row, [
-				"status",
-				"submittedAtMs",
-				"expiresAtMs"
-			]);
-			valid(integer(row.submittedAtMs) && integer(row.expiresAtMs));
-			break;
-		default: throw new Error("Invalid conversation final.");
-	}
-	return { ...row };
-}
-/** Called only after signature/correlation verification by the shared Session lane. */
-function parseConversation(value, memberId, input) {
-	return parsePage(value, memberId, input, false);
-}
-function parseRoom(value, roomId, input) {
-	return parsePage(value, roomId, input, true);
-}
-function parsePage(value, scopeId, input, room) {
-	if (utf8$2.encode(JSON.stringify(value)).length > 820224) throw new Error("Conversation response exceeds byte limit.");
-	const row = object(value);
-	keys(row, room ? [
-		"roomId",
-		"items",
-		"nextBefore",
-		"changePosition"
-	] : [
-		"viewerId",
-		"member",
-		"items",
-		"nextBefore",
-		"changePosition"
-	], input.since === void 0 ? [] : ["changedSince"]);
-	valid((room ? row.roomId === scopeId : coreId(row.viewerId) && [
-		"active",
-		"unknown",
-		"retired"
-	].includes(row.member)) && conversationPosition(row.changePosition) && Array.isArray(row.items) && row.items.length <= (input.limit ?? 20));
-	valid(room || row.member === "active" || row.items.length === 0);
-	const ids = /* @__PURE__ */ new Set();
-	const items = row.items.map((value) => {
-		const item = object(value);
-		keys(item, [
-			"requestId",
-			"recipientId",
-			"sender",
-			"kind",
-			"origin",
-			"preparedAtMs",
-			"delivery",
-			"messageState",
-			"final",
-			"preview",
-			"responsePreview",
-			"previewTruncated",
-			"direction",
-			"changePosition"
-		].filter((key) => !room || !["direction", "changePosition"].includes(key)).concat(room ? [
-			"roomId",
-			"parentRequestId",
-			"replyCount"
-		] : []), room ? [] : ["responseId"]);
-		const sender = object(item.sender);
-		keys(sender, ["kind", "identityId"]);
-		valid(requestId(item.requestId) && !ids.has(item.requestId) && coreId(item.recipientId) && (coreId(sender.identityId) && ["explicit", "verified"].includes(sender.kind) || room && sender.kind === "unknown" && sender.identityId === null) && ["request", "announcement"].includes(item.kind) && [
-			"person",
-			"automation",
-			"unknown"
-		].includes(item.origin) && [
-			"prepared",
-			"sending",
-			"sent",
-			"queued",
-			"uncertain",
-			"definitely_failed"
-		].includes(item.delivery) && integer(item.preparedAtMs) && preview(item.preview) && preview(item.responsePreview) && typeof item.previewTruncated === "boolean" && (room ? item.roomId === scopeId && (item.parentRequestId === null || requestId(item.parentRequestId)) && integer(item.replyCount) : conversationPosition(item.changePosition)));
-		ids.add(item.requestId);
-		valid(room || (item.direction === "toMember" ? item.recipientId === scopeId && sender.identityId === row.viewerId : item.direction === "fromMember" && item.recipientId === row.viewerId && sender.identityId === scopeId));
-		const settled = final(item.final);
-		valid(settled.status === "retained" || item.responsePreview === null && item.previewTruncated === false);
-		if (item.responseId !== void 0) valid(typeof item.responseId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(item.responseId));
-		const { messageState: state } = messageState(item);
-		const { messageState: _rawState, ...rest } = item;
-		return {
-			...rest,
-			sender: { ...sender },
-			final: settled,
-			...state ? { messageState: state } : {}
-		};
-	});
-	let changedSince;
-	if (input.since !== void 0) {
-		valid(Object.hasOwn(row, "changedSince"));
-		if (row.changedSince === "unknown") changedSince = "unknown";
-		else {
-			const changes = object(row.changedSince);
-			keys(changes, ["count", "more"]);
-			valid(integer(changes.count) && changes.count <= CONVERSATION_PAGE_MAX && typeof changes.more === "boolean" && (!changes.more || changes.count === CONVERSATION_PAGE_MAX));
-			changedSince = {
-				count: changes.count,
-				more: changes.more
-			};
-		}
-	}
-	if (room) return {
-		roomId: scopeId,
-		items,
-		nextBefore: row.nextBefore === null ? null : cursor$1(row.nextBefore),
-		changePosition: row.changePosition,
-		...changedSince === void 0 ? {} : { changedSince }
-	};
-	return {
-		viewerId: row.viewerId,
-		member: row.member,
-		items,
-		nextBefore: row.nextBefore === null ? null : cursor$1(row.nextBefore),
-		changePosition: row.changePosition,
-		...changedSince === void 0 ? {} : { changedSince }
-	};
-}
-function conversations(session, options = {}) {
-	const channel = channelFor(session);
-	if (!channel) throw new TypeError("Use a verified Session.");
-	const call = verifiedSessionRequest(session, options);
-	function readScope(scopeId, value, room) {
-		const allowed = [
-			"limit",
-			"before",
-			"since"
-		];
-		if (!coreId(scopeId) || Object.keys(value).some((key) => !allowed.includes(key)) || value.limit !== void 0 && (!integer(value.limit) || value.limit < 1 || value.limit > CONVERSATION_PAGE_MAX) || value.since !== void 0 && !conversationPosition(value.since)) throw new TypeError("Invalid conversation input.");
-		let before;
-		if (value.before !== void 0) try {
-			before = cursor$1(value.before);
-		} catch {
-			throw new TypeError("Invalid conversation cursor.");
-		}
-		const frozen = {
-			limit: value.limit ?? 20,
-			...before ? { before } : {},
-			...value.since === void 0 ? {} : { since: value.since }
-		};
-		return call("requests.list", crypto.randomUUID(), {
-			version: 1,
-			operation: "requests.list",
-			input: {
-				[room ? "roomId" : "memberId"]: scopeId,
-				...frozen
-			}
-		}, (answer) => room ? parseRoom(answer, scopeId, frozen) : parseConversation(answer, scopeId, frozen));
-	}
-	return {
-		machineId: channel.paired.machineId,
-		read: (memberId, value = {}) => readScope(memberId, value, false),
-		readRoom: (roomId, value = {}) => readScope(roomId, value, true)
-	};
-}
-//#endregion
-//#region src/command-mentions.ts
-var marked = (words) => /^(?:!|！) /.test(words) ? words.slice(2) : void 0;
-var opening = /^( {0,3})(`{3,}|~{3,})([^\r\n]*)/;
-var ticks = /`+/g;
-function commandMentions(source) {
-	const mentions = [];
-	function add(start, end, from, text, command) {
-		if (command.trim()) mentions.push({
-			range: [start, end],
-			content: [from, from + text.length],
-			command
-		});
-	}
-	function inline(from, to) {
-		const words = source.slice(from, to);
-		const delimiters = [...words.matchAll(ticks)];
-		const next = /* @__PURE__ */ new Map();
-		const matching = /* @__PURE__ */ new Map();
-		for (let i = delimiters.length - 1; i >= 0; i--) {
-			const length = delimiters[i][0].length;
-			const close = next.get(length);
-			if (close !== void 0) matching.set(i, close);
-			next.set(length, i);
-		}
-		for (let i = 0; i < delimiters.length; i++) {
-			const token = delimiters[i];
-			let slashes = 0;
-			while (words[token.index - slashes - 1] === "\\") slashes++;
-			if (slashes % 2) continue;
-			const close = matching.get(i);
-			if (close === void 0) continue;
-			const end = delimiters[close];
-			const start = token.index + token[0].length;
-			const shown = words.slice(start, end.index);
-			const command = marked(shown);
-			if (command !== void 0) add(from + token.index, from + end.index + end[0].length, from + start, shown, command);
-			i = close;
-		}
-	}
-	const lines = [...source.matchAll(/[^\n]*(?:\n|$)/g)];
-	let inlineStart = 0;
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-		const match = opening.exec(line[0]);
-		if (!match || match[2][0] === "`" && match[3].includes("`")) {
-			if (/^(?: {4}|\t)/.test(line[0]) || !line[0].trim()) {
-				inline(inlineStart, line.index);
-				inlineStart = line.index + line[0].length;
-			}
-			continue;
-		}
-		inline(inlineStart, line.index);
-		const delimiter = match[2];
-		const close = new RegExp(`^ {0,3}${delimiter[0]}{${delimiter.length},}[ \t]*\r?\n?$`);
-		const from = line.index + line[0].length;
-		const label = match[3].trim().split(/\s+/, 1)[0].toLowerCase();
-		let closing = i + 1;
-		while (closing < lines.length && !close.test(lines[closing][0])) closing++;
-		if (closing === lines.length) return mentions;
-		const end = lines[closing];
-		const body = source.slice(from, end.index).replace(/\r?\n$/, "");
-		const command = marked(body);
-		if (command !== void 0 || [
-			"sh",
-			"bash",
-			"shell",
-			"zsh"
-		].includes(label)) add(line.index + match[1].length, end.index + end[0].replace(/\r?\n$/, "").length, from, body, command ?? body);
-		else if (label === "console" || label === "shell-session") for (let j = i + 1; j < closing; j++) {
-			const prompt = lines[j];
-			const shown = prompt[0].replace(/\r?\n$/, "");
-			if (shown.startsWith("$ ")) add(prompt.index, prompt.index + shown.length, prompt.index, shown, shown.slice(2));
-		}
-		i = closing;
-		inlineStart = end.index + end[0].length;
-	}
-	inline(inlineStart, source.length);
-	return mentions;
-}
-//#endregion
-//#region src/command-menu.ts
-function entireCaptionVisible(code) {
-	const surface = code.closest("dialog");
-	if (!surface) return false;
-	const caption = code.getBoundingClientRect();
-	const bounds = surface.getBoundingClientRect();
-	return caption.width > 0 && caption.height > 0 && code.scrollWidth <= code.clientWidth && caption.top >= Math.max(0, bounds.top) && caption.left >= Math.max(0, bounds.left) && caption.bottom <= Math.min(window.innerHeight, bounds.bottom) && caption.right <= Math.min(window.innerWidth, bounds.right);
-}
-function commandMenu(shown, command, author, member, run) {
-	const host = el("span", "ops-dm-command");
-	const description = el("span", "ops-dm-command-description");
-	const code = el("code", void 0, command);
-	description.append(el("strong", void 0, "Command"), code);
-	const status = el("span", "ops-dm-command-status");
-	status.setAttribute("role", "status");
-	const copy = {
-		key: "copy",
-		label: "Copy command"
-	};
-	let cycle = 0;
-	let held = false;
-	let verifiedSelection = false;
-	const options = {
-		label: `Command: ${shown}`,
-		triggerText: shown,
-		presentation: "compact",
-		description,
-		items: [copy],
-		onOpenChange(open) {
-			const version = ++cycle;
-			if (!open) return;
-			menu.update(options);
-			if (!run || held || !singleCommand(command)) return;
-			run.options(author, member).then((items) => {
-				if (version !== cycle || !host.isConnected || !entireCaptionVisible(code)) return;
-				menu.update({
-					...options,
-					items: [...items, copy]
-				});
-				if (!entireCaptionVisible(code)) menu.update(options);
-			}).catch(() => {});
-		},
-		onSelect(key) {
-			if (key === "copy") {
-				(async () => {
-					try {
-						await navigator.clipboard.writeText(command);
-						status.textContent = "Command copied.";
-					} catch {
-						status.textContent = "Could not copy the command.";
-					}
-				})();
-				return;
-			}
-			if (!run || !verifiedSelection || held) return;
-			held = true;
-			status.textContent = "Submitting command…";
-			run.submit(author, command, key).then((state) => {
-				held = state === "unconfirmed";
-				status.textContent = state === "submitted" ? "Command submitted." : state === "refused" ? "Command refused." : "Command submission unconfirmed.";
-			}, () => {
-				status.textContent = "Command submission unconfirmed.";
-			});
-		}
-	};
-	const menu = mountBrowserMenu(host, options);
-	host.addEventListener("click", () => {
-		verifiedSelection = entireCaptionVisible(code);
-	}, { capture: true });
-	host.append(status);
-	return host;
-}
-//#endregion
-//#region src/talk-stream.ts
-/** The talk stream shared by the Ops DM and channel (#5704, spec 8d17ce7c screens 1-3): messages
-* anchored at the bottom with day separators, each message's delivery under it and replies as their
-* own rows; and the one outbox both send through. The outbox keeps Talk's rules in one place: an
-* operation id frozen with its draft and reused by a retry of the same words while its outcome is
-* open, a refused or cancelled one retried under a new id (Remote replays a settled id and never
-* asks Core again), an unknown outcome only observed and never sent again, and a Talk-grant refusal answered with the setting, not a
-* retry. Untrusted words stay text. */
-/** Core's words start a line, so they start with a capital. */
-var sentence = (text) => text ? text.charAt(0).toUpperCase() + text.slice(1) : void 0;
-/** What a reply row says when there is no reply text to show. */
-var finalLabel = (item) => {
-	switch (item.final.status) {
-		case "not_submitted":
-		case "retained": return;
-		case "not_required": return "No reply needed";
-		case "withdrawn": return `Withdrawn · ${item.final.reason}`;
-		case "expired": return "The reply has expired";
-		case "unavailable": return "The reply is unavailable";
-	}
-};
-var deliveryText = (item) => (sentence(item.messageState?.reason.text) ?? deliveryWord(item)) + deliveryBy(item);
-/** When a message Core holds will go at the latest ("delivers by 23:30"), as Core says it. */
-var deliveryBy = (item) => {
-	const state = item.messageState;
-	return state?.latestMs != null && (state.state === "sent" || state.state === "batched") ? ` · delivers by ${clock(new Date(state.latestMs))}` : "";
-};
-var deliveryWord = (item) => ({
-	prepared: "Preparing",
-	sending: "Sending",
-	sent: "Sent",
-	queued: "Queued",
-	uncertain: "Delivery unknown",
-	definitely_failed: "Not delivered"
-})[item.delivery] ?? item.delivery;
-var deliveryMark = (item) => item.final.status !== "not_submitted" || item.messageState?.state === "answered" ? "answered" : item.delivery === "definitely_failed" ? "failed" : item.delivery === "uncertain" ? "unknown" : item.delivery === "sent" ? "done" : "wait";
-var dayKey = (at) => `${at.getFullYear()}-${at.getMonth()}-${at.getDate()}`;
-function dayLabel(at, now = /* @__PURE__ */ new Date()) {
-	if (dayKey(at) === dayKey(now)) return "Today";
-	const yesterday = new Date(now);
-	yesterday.setDate(now.getDate() - 1);
-	if (dayKey(at) === dayKey(yesterday)) return "Yesterday";
-	return at.toLocaleDateString(void 0, {
-		weekday: "long",
-		month: "long",
-		day: "numeric",
-		...at.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }
-	});
-}
-var clock = (at) => at.toLocaleTimeString(void 0, {
-	hour: "2-digit",
-	minute: "2-digit"
-});
-/** One sender's row: avatar, "who → whom", time, the words in a box and their delivery. */
-/**
-* Remote prepends `[remote: <device name>]` and LF to a browser's message (colab-v1). The chat
-* already says "You", so the bubble shows the words and the device moves to the header.
-*/
-function attributed(text) {
-	const match = text === null ? null : /^\[remote: ([^\]\n]+)\]\n/.exec(text);
-	return match ? {
-		device: match[1],
-		words: text.slice(match[0].length)
-	} : { words: text };
-}
-/** This browser's device name, once Remote says it; until then every device stays in a tooltip. */
-var ownDevice = null;
-/** Learn this browser's device name: a message names its device only when another one sent it. */
-function knowOwnDevice(name, root = document) {
-	ownDevice = name;
-	for (const node of root.querySelectorAll(".ops-dm-message-device")) node.hidden = ownDevice === null || node.dataset.device === ownDevice;
-}
-/** An announcement (a timer added, a member joined) is a quiet line in the stream, not a message
-* someone said, and it asks for no reply. */
-function noticeRow(text, at) {
-	const row = el("li", "ops-dm-notice");
-	const words = attributed(text).words?.replace(/^▚\s*/, "") ?? null;
-	row.append(el("span", "ops-dm-notice-text", words ?? "Notice unavailable"));
-	if (at && Number.isFinite(at.valueOf())) {
-		const time = el("time", "ops-dm-message-time", clock(at));
-		time.dateTime = at.toISOString();
-		time.title = at.toLocaleString();
-		row.append(time);
-	}
-	return row;
-}
-var escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/**
-* A message's words as nodes, never as HTML: an http or https address becomes a link that opens in
-* a new tab and shows its full address on hover; words between a pair of backticks on one line
-* become inline code (kept literal); an @mention of a known name is marked. Nothing else is read as
-* markup.
-*/
-function richText(words, mentions = [], commandAuthor, run, member) {
-	const out = [];
-	const named = mentions.length ? new RegExp(`(@(?:${[...mentions].sort((a, b) => b.length - a.length).map(escape).join("|")}))(?![\\w-])`) : void 0;
-	const plain = (text) => {
-		if (!text) return;
-		if (!named) return void out.push(text);
-		text.split(named).forEach((part, at) => {
-			if (part) out.push(at % 2 ? el("span", "ops-dm-mention", part) : part);
-		});
-	};
-	const linked = (text) => {
-		let from = 0;
-		for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/g)) {
-			const address = match[0].replace(/[.,;:!?)\]}'"]+$/, "");
-			let url;
-			try {
-				url = new URL(address);
-			} catch {
-				continue;
-			}
-			if (url.protocol !== "http:" && url.protocol !== "https:") continue;
-			plain(text.slice(from, match.index));
-			const link = el("a", "ops-dm-link", address);
-			link.href = url.href;
-			link.target = "_blank";
-			link.rel = "noopener noreferrer";
-			link.title = url.href;
-			out.push(link);
-			from = match.index + address.length;
-		}
-		plain(text.slice(from));
-	};
-	const ordinary = (text) => {
-		let from = 0;
-		for (const match of text.matchAll(/`([^`\n]+)`/g)) {
-			linked(text.slice(from, match.index));
-			out.push(el("code", "ops-dm-code", match[1]));
-			from = match.index + match[0].length;
-		}
-		linked(text.slice(from));
-	};
-	let from = 0;
-	for (const mention of commandAuthor ? commandMentions(words) : []) {
-		const [start, end] = mention.range;
-		ordinary(words.slice(from, start));
-		const shown = words.slice(...mention.content);
-		out.push(commandMenu(shown, mention.command, commandAuthor, member ?? commandAuthor, run));
-		from = end;
-	}
-	ordinary(words.slice(from));
-	return out;
-}
-function messageRow(options) {
-	const row = el("li", "ops-dm-message");
-	if (options.self) row.dataset.self = "";
-	const face = el("span", browserUiClasses.avatar, options.self ? "Y" : avatarInitials(options.who));
-	face.dataset.size = "s";
-	face.setAttribute("aria-hidden", "true");
-	const { device, words } = attributed(options.text);
-	const head = el("div", "ops-dm-message-head");
-	const who = el("strong", "ops-dm-message-who", options.self ? "You" : options.who);
-	head.append(who, el("span", "ops-dm-message-to", `→ ${options.to}`));
-	if (device) {
-		who.title = `Sent from ${device}`;
-		const from = el("span", "ops-dm-message-device", `· from ${device}`);
-		from.dataset.device = device;
-		from.hidden = ownDevice === null || device === ownDevice;
-		head.append(from);
-	}
-	row.dataset.group = JSON.stringify([
-		options.who,
-		options.to,
-		options.self,
-		device ?? ""
-	]);
-	const side = el("span", "ops-dm-message-side");
-	side.append(face);
-	if (options.at && Number.isFinite(options.at.valueOf())) {
-		const time = el("time", "ops-dm-message-time", clock(options.at));
-		time.dateTime = options.at.toISOString();
-		time.title = options.at.toLocaleString();
-		head.append(time);
-		row.dataset.at = String(options.at.valueOf());
-		const gutter = el("span", "ops-dm-message-gutter", clock(options.at));
-		gutter.setAttribute("aria-hidden", "true");
-		side.append(gutter);
-	}
-	const text = el("p", "ops-dm-message-text", words ?? "Message preview unavailable");
-	if (words === null || options.quiet) text.dataset.quiet = "";
-	else {
-		text.replaceChildren(...richText(words, options.mentions, device ? void 0 : options.commandAuthor, options.shortened ? void 0 : options.commandRun, options.who));
-		if (options.shortened) {
-			text.append("…");
-			text.title = options.shortened;
-		}
-	}
-	const content = el("div", "ops-dm-message-body");
-	content.append(head, text);
-	if (options.note) content.append(el("p", "ops-dm-message-note", options.note));
-	if (options.state) {
-		const state = el("p", "ops-dm-message-state", options.state);
-		state.dataset.mark = options.mark ?? "done";
-		content.append(state);
-	}
-	row.append(side, content);
-	return row;
-}
-/** The hover line of a post cut to its preview; Core does not say how long the whole post is. */
-var SHORTENED_POST = `Preview shortened · the full message is longer than 160 characters`;
-var utf8$1 = new TextEncoder();
-/** A reply preview shorter than the reply Core retained, or nothing when it is whole. */
-function shortenedReply(item) {
-	return item.final.status === "retained" && item.responsePreview !== null && item.final.bodyBytes > utf8$1.encode(item.responsePreview).length ? `Preview shortened · the full reply is ${item.final.bodyBytes.toLocaleString()} bytes` : void 0;
-}
-/** A sent exchange: the owner's words to `to`, then the recipient's reply when there is one; each
-* shows its full text once read (`fullPost`, `fullReply`), else its preview. */
-function exchangeRows(item, names, fullReply, fullPost, now, run) {
-	const { fromMe, them } = names;
-	if (item.kind === "announcement") return [noticeRow(item.preview, new Date(item.preparedAtMs))];
-	const out = [messageRow({
-		who: fromMe ? names.me : them,
-		to: fromMe ? them : "You",
-		self: fromMe,
-		at: new Date(item.preparedAtMs),
-		text: fullPost ?? item.preview,
-		...run && fullPost !== void 0 ? { commandRun: run } : {},
-		...!fromMe && item.sender.kind === "verified" ? { commandAuthor: item.sender.identityId } : {},
-		...item.previewTruncated && fullPost === void 0 ? { shortened: SHORTENED_POST } : {},
-		...fromMe ? {
-			state: deliveryText(item),
-			mark: deliveryMark(item)
-		} : {}
-	})];
-	if (now) out[0].querySelector(".ops-dm-message-state")?.append(now);
-	const replyWords = fullReply ?? item.responsePreview ?? finalLabel(item);
-	const replyShortened = fullReply === void 0 ? shortenedReply(item) : void 0;
-	if (replyWords !== void 0 && replyWords !== null) out.push(messageRow({
-		who: fromMe ? them : names.me,
-		to: fromMe ? "You" : them,
-		self: !fromMe,
-		...item.final.status === "retained" ? { at: new Date(item.final.submittedAtMs) } : {},
-		text: replyWords,
-		...run && fullReply !== void 0 ? { commandRun: run } : {},
-		...fromMe && item.final.status === "retained" ? { commandAuthor: item.recipientId } : {},
-		quiet: fullReply === void 0 && item.responsePreview === null,
-		...replyShortened ? { shortened: replyShortened } : {}
-	}));
-	return out;
-}
-/** The scrolling list: day separators, cached exchange rows, and a hold on the newest exchange
-* while the reader is there, also when the view resizes. Scrolling up releases it. */
-function talkList(label) {
-	const list = el("ol", "ops-dm-stream");
-	list.setAttribute("aria-label", label);
-	const rows = /* @__PURE__ */ new Map();
-	const days = /* @__PURE__ */ new Map();
-	let pinned = true;
-	let placed = -1;
-	let latest = -Infinity, seen = -Infinity, unseen = 0;
-	const jump = el("li", "ops-dm-jump");
-	const jumpButton = el("button", "ops-dm-jump-button");
-	jumpButton.type = "button";
-	jump.append(jumpButton);
-	jump.hidden = true;
-	const showJump = () => {
-		const far = list.scrollHeight - list.scrollTop - list.clientHeight > list.clientHeight;
-		jump.hidden = pinned || unseen === 0 && !far;
-		jumpButton.textContent = unseen ? `${unseen} new message${unseen === 1 ? "" : "s"} ↓` : "Jump to latest ↓";
-	};
-	const caughtUp = () => {
-		seen = latest;
-		unseen = 0;
-	};
-	const toBottom = () => {
-		list.scrollTop = list.scrollHeight;
-		placed = list.scrollTop;
-	};
-	jumpButton.addEventListener("click", () => {
-		pinned = true;
-		caughtUp();
-		jump.hidden = true;
-		toBottom();
-	});
-	let height = 0;
-	list.addEventListener("scroll", () => {
-		if (list.scrollTop === placed) return;
-		if (list.clientHeight !== height) {
-			height = list.clientHeight;
-			if (pinned) return toBottom();
-		}
-		pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
-		if (pinned) caughtUp();
-		showJump();
-	});
-	const sizes = new ResizeObserver(() => {
-		height = list.clientHeight;
-		if (pinned) toBottom();
-	});
-	sizes.observe(list);
-	return {
-		list,
-		reset() {
-			rows.clear();
-			days.clear();
-			list.replaceChildren();
-			sizes.disconnect();
-			sizes.observe(list);
-			pinned = true;
-			latest = seen = -Infinity;
-			unseen = 0;
-			jump.hidden = true;
-		},
-		forget() {
-			rows.clear();
-			days.clear();
-		},
-		draw(items, render, context, tail) {
-			const atBottom = pinned;
-			const ordered = [...items].sort((a, b) => a.preparedAtMs - b.preparedAtMs || a.requestId.localeCompare(b.requestId));
-			const blocks = [];
-			let day = "";
-			for (const item of ordered) {
-				const at = new Date(item.preparedAtMs);
-				const key = Number.isFinite(at.valueOf()) ? dayKey(at) : "unknown";
-				if (key !== day) {
-					day = key;
-					const label = key === "unknown" ? "Date unknown" : dayLabel(at);
-					let block = days.get(key);
-					if (!block) {
-						const node = el("li", "ops-dm-dayblock");
-						const line = el("div", "ops-dm-day");
-						const rows = el("ol", "ops-dm-day-rows");
-						node.append(line, rows);
-						block = {
-							node,
-							line,
-							rows
-						};
-						days.set(key, block);
-					}
-					if (block.line.textContent !== label) block.line.replaceChildren(el("span", void 0, label));
-					blocks.push({
-						block,
-						rows: []
-					});
-				}
-				const fingerprint = JSON.stringify([item, context]);
-				let row = rows.get(item.requestId);
-				if (!row || row.fingerprint !== fingerprint) {
-					const group = el("li", "ops-dm-exchange");
-					group.dataset.requestId = item.requestId;
-					const inner = el("ol", "ops-dm-exchange-rows");
-					inner.append(...render(item));
-					group.append(inner);
-					row = {
-						node: group,
-						fingerprint
-					};
-					rows.set(item.requestId, row);
-				}
-				blocks.at(-1).rows.push(row.node);
-			}
-			if (tail && blocks.length) blocks.at(-1).rows.push(tail);
-			const children = blocks.map(({ block }) => block.node);
-			if (tail && !blocks.length) children.push(tail);
-			group(blocks.flatMap(({ block, rows }) => [block.line, ...rows]));
-			children.push(jump);
-			latest = ordered.reduce((at, item) => Math.max(at, item.preparedAtMs), latest);
-			if (atBottom) caughtUp();
-			else unseen = ordered.filter((item) => item.preparedAtMs > seen).length;
-			const same = (parent, next) => next.length === parent.children.length && next.every((child, at) => parent.children[at] === child);
-			for (const { block, rows: next } of blocks) if (!same(block.rows, next)) {
-				block.rows.replaceChildren(...next);
-				for (const child of next) sizes.observe(child);
-			}
-			if (!same(list, children)) {
-				list.replaceChildren(...children);
-				for (const child of children) sizes.observe(child);
-			}
-			if (atBottom) toBottom();
-			showJump();
-		}
-	};
-}
-/** Five minutes: Slack's window for messages that read as one turn. */
-var GROUP_MS = 3e5;
-/** A message continues the one above it (no face, no header) when the same sender wrote to the same
-* people within `GROUP_MS`, with no day line or notice between them. */
-function group(children) {
-	let previous;
-	for (const child of children) {
-		const rows = child.matches(".ops-dm-exchange") ? child.querySelectorAll(":scope > ol > .ops-dm-message") : [];
-		if (!rows.length) previous = void 0;
-		for (const row of rows) {
-			const key = row.dataset.group ?? "";
-			const at = Number(row.dataset.at);
-			const continued = previous !== void 0 && previous.key === key && Number.isFinite(at) && at >= previous.at && at - previous.at <= GROUP_MS;
-			row.toggleAttribute("data-continued", continued);
-			previous = Number.isFinite(at) ? {
-				key,
-				at
-			} : void 0;
-		}
-	}
-}
-var GOING = [
-	"sending",
-	"held",
-	"uncertain"
-];
-/** The outbox: at most one post on its way. `changed` runs after every state change. */
-function outbox(port, changed) {
-	let pending;
-	let cleared = 0;
-	function settle(value) {
-		if (!pending || pending.operationId !== value.operationId) return;
-		if (value.state === "accepted") {
-			pending = {
-				...pending,
-				state: "accepted",
-				requestId: value.requestId
-			};
-			cleared++;
-		} else if (value.state === "held") pending = {
-			...pending,
-			state: "held"
-		};
-		else if (value.state === "uncertain") pending = {
-			...pending,
-			state: "uncertain",
-			...value.requestId ? { requestId: value.requestId } : {}
-		};
-		else if (value.state === "cancelled") pending = {
-			...pending,
-			state: "cancelled"
-		};
-		else pending = {
-			...pending,
-			state: "refused",
-			...value.reason ? { reason: value.reason } : {},
-			...value.settingsUrl ? { settingsUrl: value.settingsUrl } : {},
-			grant: value.scope === "talk"
-		};
-		changed(pending);
-	}
-	return {
-		get pending() {
-			return pending;
-		},
-		get cleared() {
-			return cleared;
-		},
-		async send(target, message, input, version = "") {
-			if (pending && GOING.includes(pending.state)) return;
-			pending = {
-				operationId: crypto.randomUUID(),
-				message,
-				target,
-				version,
-				state: "sending"
-			};
-			const { operationId } = pending;
-			changed(pending);
-			try {
-				settle(await port.send(input(operationId)));
-			} catch {
-				if (pending?.operationId === operationId) {
-					pending = {
-						...pending,
-						state: "uncertain"
-					};
-					changed(pending);
-				}
-			}
-		},
-		async observe() {
-			if (!pending || !["held", "uncertain"].includes(pending.state)) return;
-			try {
-				settle(await port.operation(pending.operationId));
-			} catch {}
-		},
-		/** The post for `target` that its stream does not list yet. */
-		unlisted(target, listed) {
-			return pending?.target === target && !(pending.requestId && listed(pending.requestId)) ? pending : void 0;
-		},
-		/** What the box can do for `target`, and the line under it. */
-		box(target, note) {
-			const mine = pending?.target === target ? pending : void 0;
-			const busy = !!mine && GOING.includes(mine.state);
-			note.replaceChildren();
-			if (mine?.grant) {
-				note.append(`${mine.reason ?? "Talk is off for this browser."} `);
-				if (mine.settingsUrl) {
-					const link = el("a", void 0, "Turn on Talk in Remote settings");
-					link.href = mine.settingsUrl;
-					note.append(link);
-				}
-			} else if (mine?.state === "refused") note.textContent = `Not sent: ${refusalWords(mine.reason)}`;
-			else if (mine?.state === "cancelled") note.textContent = "Not sent: it was cancelled on the machine. Send again to send it anew.";
-			else if (busy && mine.state !== "sending") note.textContent = mine.state === "uncertain" ? "Checking whether the message arrived. It is never sent twice." : "Waiting for approval on the machine.";
-			note.hidden = !note.textContent;
-			return {
-				canSend: !mine?.grant,
-				busy
-			};
-		}
-	};
-}
-/** Core's refusal in words, with what the person can do; an unknown code is named as it is. */
-function refusalWords(reason) {
-	switch (reason) {
-		case "ROOM_ROSTER_CHANGED": return "the squad changed. Check the recipients and send again.";
-		case void 0: return "the machine refused it. Send again to send it anew.";
-		default: return `the machine refused it (${reason}). Send again to send it anew.`;
-	}
-}
-/** The row of a post on its way, under the stream until the stream lists it. */
-function pendingRow(value, to, mentions = []) {
-	const group = el("li", "ops-dm-exchange");
-	group.dataset.pending = value.state;
-	const inner = el("ol", "ops-dm-exchange-rows");
-	inner.append(messageRow({
-		who: "You",
-		to,
-		self: true,
-		at: /* @__PURE__ */ new Date(),
-		text: value.message,
-		mentions,
-		state: value.state === "sending" ? "Sending…" : value.state === "held" ? "Waiting for approval on the machine" : value.state === "uncertain" ? "Delivery unknown · checking, nothing is sent again" : value.state === "accepted" ? "Sent" : "Not sent",
-		mark: value.state === "uncertain" ? "unknown" : value.state === "accepted" ? "done" : value.state === "refused" || value.state === "cancelled" ? "failed" : "wait"
-	}));
-	group.append(inner);
-	return group;
-}
-/** Send now (#4378): the person asks Core to type a message it holds, once per request. An asked
-* request is not offered again until its result has been read, whatever the ask came to (an
-* unconfirmed or failed ask may have typed it); that read's state then stands until a list read
-* that began after it. A refusal shows Core's own sentence. `changed` runs after each change. */
-function sendNowAsks(port, changed) {
-	const asked = /* @__PURE__ */ new Set();
-	const flying = /* @__PURE__ */ new Set();
-	const read = /* @__PURE__ */ new Map();
-	const notes = /* @__PURE__ */ new Map();
-	let reads = 0, version = 0;
-	const bump = () => {
-		version++;
-		changed();
-	};
-	async function settle(id) {
-		try {
-			const value = await port.result(id);
-			read.set(id, {
-				at: ++reads,
-				state: value.state === "pending" ? value.messageState : void 0
-			});
-			asked.delete(id);
-		} catch {}
-	}
-	async function ask(wanted) {
-		const ids = wanted.filter((id) => !asked.has(id));
-		if (!ids.length) return;
-		for (const id of ids) {
-			asked.add(id);
-			flying.add(id);
-			notes.delete(id);
-		}
-		bump();
-		for (const id of ids) {
-			try {
-				const value = await port.sendNow(id);
-				if (value.state === "refused" || value.state === "unavailable") notes.set(id, sentence(value.reasonText) ?? "It could not be sent now.");
-			} catch {}
-			flying.delete(id);
-			await settle(id);
-		}
-		bump();
-	}
-	/** An item as Core last said: the result read after an ask, until the list catches up. */
-	function current(item) {
-		const after = read.get(item.requestId);
-		if (!after) return item;
-		const state = after.state ?? (item.messageState && {
-			...item.messageState,
-			canSendNow: false
-		});
-		return {
-			...item,
-			...state ? { messageState: state } : {}
-		};
-	}
-	return {
-		current,
-		/** Where a list read starts: `listed` with it drops the result reads it has caught up with. */
-		mark: () => reads,
-		async listed(mark) {
-			let dropped = false;
-			for (const [id, after] of read) if (after.at <= mark) dropped = read.delete(id) || dropped;
-			for (const id of asked) if (!flying.has(id)) await settle(id);
-			if (dropped || read.size) bump();
-		},
-		/** What the draw depends on. */
-		version: () => version,
-		/** Send now for these requests, or where it stands, or nothing; `undefined` when none applies. */
-		control(items) {
-			const note = items.map((item) => notes.get(item.requestId)).find(Boolean);
-			const going = items.some((item) => flying.has(item.requestId));
-			const offered = items.filter((item) => !asked.has(item.requestId) && current(item).messageState?.canSendNow).map((item) => item.requestId);
-			if (!going && !note && !offered.length) return void 0;
-			const line = el("span", "ops-dm-send-now");
-			if (going) line.append(el("span", "ops-dm-send-now-state", "Sending now…"));
-			else if (offered.length) {
-				const button = el("button", "ops-dm-send-now-button", "Send now");
-				button.type = "button";
-				button.addEventListener("click", () => void ask(offered));
-				line.append(button);
-			}
-			if (note) line.append(el("span", "ops-dm-send-now-note", note));
-			return line;
-		}
-	};
-}
-//#endregion
-//#region src/conversation-seen.ts
-/** Browser-local positions only. Opening a visible newest page counts as seeing a DM. */
-function key(scope) {
-	if (![
-		scope.machineId,
-		scope.viewerId,
-		scope.memberId
-	].every(coreId)) throw new TypeError("Invalid conversation scope.");
-	return JSON.stringify([
-		"tmt.dm.seen.v1",
-		scope.machineId,
-		scope.viewerId,
-		scope.memberId
-	]);
-}
-function conversationSeen(storage) {
-	return {
-		read(scope) {
-			try {
-				if (!storage) return {
-					available: false,
-					position: null
-				};
-				const value = storage.getItem(key(scope));
-				return {
-					available: true,
-					position: conversationPosition(value) ? value : null
-				};
-			} catch {
-				return {
-					available: false,
-					position: null
-				};
-			}
-		},
-		markVisibleNewest(scope, page, view) {
-			if (!view.newest || !view.documentVisible || !view.panelVisible || page.viewerId !== scope.viewerId || !conversationPosition(page.changePosition)) return false;
-			try {
-				if (!storage) return false;
-				storage.setItem(key(scope), page.changePosition);
-				return true;
-			} catch {
-				return false;
-			}
-		}
-	};
-}
-/** No baseline or failed storage is unknown; only Core can prove a count, including zero. */
-function conversationUnread(baseline, changes) {
-	if (!baseline.available || baseline.position === null || !changes || changes === "unknown") return { state: "unknown" };
-	return {
-		state: "known",
-		count: changes.count,
-		more: changes.more
-	};
-}
-//#endregion
-//#region src/conversation-history.ts
-/** The DM (#5704; spec 8d17ce7c screen 3): the conversation as a chat anchored at the bottom, with
-* day separators, each message's delivery under it and the member's reply as its own row, and
-* the message box under it that sends through Talk (contracts/remote-channel-v1.md). One bounded
-* read at a time; positions and seen state never leave their owners. */
-/** Runs one read on the owner's signed Session, retiring that Session when the read shows it is
-* gone, so the next read opens a fresh one. Shared by the DM and the channel. */
-async function onSession(shell, run) {
-	if (!shell.session) throw new Error("No signed browser session.");
-	const session = await shell.session();
-	shell.signal.throwIfAborted();
-	try {
-		return await run(session);
-	} catch (error) {
-		if (error instanceof ClientError && [
-			"transport_failure",
-			"timeout",
-			"sequence_unavailable"
-		].includes(error.code) || error instanceof RefusalError && [
-			"REMOTE_SESSION_ENDED",
-			"REMOTE_SESSION_EVICTED",
-			"REMOTE_SERVE_STOPPED",
-			"REMOTE_GRANT_CHANGED"
-		].includes(error.code)) shell.forgetSession?.(session);
-		throw error;
-	}
-}
-function sessionRead(shell) {
-	return (memberId, input) => onSession(shell, async (session) => {
-		const client = conversations(session);
-		return {
-			machineId: client.machineId,
-			page: await client.read(memberId, input)
-		};
-	});
-}
-function sessionTalk(shell) {
-	const client = async () => {
-		if (!shell.session) throw new Error("No signed browser session.");
-		return operations(await shell.session());
-	};
-	return {
-		send: async (input) => (await client()).send(input),
-		operation: async (operationId) => (await client()).operation(operationId),
-		result: async (requestId) => (await client()).result(requestId),
-		sendNow: async (requestId) => (await client()).sendNow(requestId)
-	};
-}
-function storage() {
-	try {
-		return localStorage;
-	} catch {
-		return;
-	}
-}
-var UNKNOWN = { state: "unknown" };
-/** How many shortened replies one opened conversation reads in full. */
-var FULL_REPLIES = 10;
-function conversationHistory(shell, observed, read = sessionRead(shell), talk = sessionTalk(shell)) {
-	const node = el("section", "ops-dm");
-	node.setAttribute("aria-label", "Talk history");
-	const olderButton = el("button", "ops-dm-older", "Show older messages");
-	olderButton.type = "button";
-	const status = el("p", "ops-dm-status", "Choose a member to read the retained conversation.");
-	status.setAttribute("role", "status");
-	const stream = talkList("Conversation");
-	const run = commandRun(shell);
-	const list = stream.list;
-	const compose = el("section", "ops-channel-compose");
-	compose.setAttribute("aria-label", "Message");
-	const composerHost = el("div", "ops-composer-host");
-	const sendNote = el("p", "ops-channel-compose-reason");
-	sendNote.id = "ops-dm-send-note";
-	sendNote.setAttribute("aria-live", "polite");
-	compose.append(composerHost, sendNote);
-	node.append(olderButton, status, list, compose);
-	const composer = composerSlot(composerHost);
-	const seen = conversationSeen(storage());
-	const items = /* @__PURE__ */ new Map();
-	const fullReplies = /* @__PURE__ */ new Map();
-	const fullPosts = /* @__PURE__ */ new Map();
-	const asked = /* @__PURE__ */ new Set();
-	const now = sendNowAsks(talk, () => draw());
-	let memberId, memberName = "", panelVisible = false;
-	let generation = 0, running = false, wanted = false;
-	let scope;
-	let olderCursor;
-	let reported = "";
-	const box = outbox(talk, (value) => {
-		draw();
-		showComposer();
-		if (value.state === "accepted") {
-			wanted = true;
-			refresh();
-		}
-	});
-	function report(value) {
-		const fingerprint = JSON.stringify(value);
-		if (fingerprint !== reported) {
-			reported = fingerprint;
-			observed(value);
-		}
-	}
-	function controls() {
-		olderButton.hidden = !memberId || !olderCursor;
-		olderButton.disabled = running;
-		node.setAttribute("aria-busy", String(running));
-	}
-	function draw() {
-		const unlisted = memberId ? box.unlisted(memberId, (id) => items.has(id)) : void 0;
-		stream.draw(items.values(), (item) => exchangeRows(now.current(item), {
-			me: "You",
-			them: memberName,
-			fromMe: item.direction === "toMember"
-		}, fullReplies.get(item.requestId), fullPosts.get(item.requestId), item.direction === "toMember" ? now.control([item]) : void 0, run), [
-			memberName,
-			fullReplies.size,
-			fullPosts.size,
-			now.version()
-		], unlisted && pendingRow(unlisted, memberName));
-	}
-	function showComposer() {
-		if (!memberId) return;
-		const { canSend, busy } = box.box(memberId, sendNote);
-		composer.show({
-			key: memberId,
-			label: `Message ${memberName}`,
-			placeholder: `Message ${memberName}…`,
-			hint: "Enter sends · Shift+Enter for a new line",
-			describedBy: sendNote.id,
-			canSend,
-			busy,
-			cleared: box.cleared,
-			onSend: (message) => {
-				const agentId = memberId;
-				if (!agentId || shell.signal.aborted) return;
-				box.send(agentId, message, (operationId) => ({
-					operationId,
-					agentId,
-					message
-				}));
-			}
-		});
-	}
-	/** The full text of the newest shortened replies and of the person's own cut messages, one read
-	* at a time; a failed read keeps the shortened preview and is not asked again until the
-	* conversation opens again. */
-	async function readFullReplies(selected, ticket) {
-		const commandReply = (item) => run && item.direction === "toMember" && item.final.status === "retained" && item.responsePreview && commandMentions(item.responsePreview).length > 0;
-		const commandPost = (item) => run && item.direction === "fromMember" && item.sender.kind === "verified" && item.preview && commandMentions(item.preview).length > 0;
-		const wanted = [...items.values()].filter((item) => !asked.has(item.requestId) && (shortenedReply(item) || commandReply(item) || commandPost(item) || item.previewTruncated && item.direction === "toMember")).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_REPLIES - asked.size));
-		for (const item of wanted) {
-			asked.add(item.requestId);
-			try {
-				const value = await talk.result(item.requestId);
-				if (shell.signal.aborted || ticket !== generation || memberId !== selected) return;
-				if (value.state === "replied" && (shortenedReply(item) || commandReply(item))) fullReplies.set(item.requestId, value.message);
-				if (typeof value.requestMessage === "string" && (item.previewTruncated || commandPost(item))) fullPosts.set(item.requestId, value.requestMessage);
-				draw();
-			} catch {}
-		}
-	}
-	async function load(before) {
-		if (!memberId || shell.signal.aborted || document.visibilityState !== "visible") return true;
-		if (running) return true;
-		running = true;
-		controls();
-		const selected = memberId, ticket = generation;
-		const input = {
-			limit: 20,
-			...before ? { before } : {}
-		};
-		if (scope?.memberId === selected) {
-			const baseline = seen.read(scope);
-			if (baseline.available && baseline.position) input.since = baseline.position;
-		}
-		const current = () => !shell.signal.aborted && ticket === generation && memberId === selected;
-		const mark = now.mark();
-		try {
-			let next = await read(selected, input);
-			if (!current()) return false;
-			let nextScope = {
-				machineId: next.machineId,
-				viewerId: next.page.viewerId,
-				memberId: selected
-			};
-			let baseline = seen.read(nextScope);
-			if (baseline.available && baseline.position && input.since !== baseline.position) {
-				input.since = baseline.position;
-				next = await read(selected, input);
-				if (!current()) return false;
-				const secondScope = {
-					machineId: next.machineId,
-					viewerId: next.page.viewerId,
-					memberId: selected
-				};
-				if (JSON.stringify(secondScope) !== JSON.stringify(nextScope)) baseline = {
-					available: false,
-					position: null
-				};
-				nextScope = secondScope;
-			}
-			if (scope && (scope.machineId !== nextScope.machineId || scope.viewerId !== nextScope.viewerId)) {
-				items.clear();
-				fullReplies.clear();
-				fullPosts.clear();
-				asked.clear();
-				stream.reset();
-				olderCursor = void 0;
-			}
-			scope = nextScope;
-			let changes = input.since === baseline.position ? conversationUnread(baseline, next.page.changedSince) : UNKNOWN;
-			for (const item of next.page.items) items.set(item.requestId, item);
-			if (before || olderCursor === void 0) olderCursor = next.page.nextBefore;
-			status.textContent = next.page.member === "unknown" ? "This member is unknown on this machine." : next.page.member === "retired" ? "This member has been retired." : items.size ? "" : `No messages with ${memberName} yet. Say hello below.`;
-			status.hidden = status.textContent === "";
-			draw();
-			now.listed(mark);
-			readFullReplies(selected, ticket);
-			const visible = panelVisible && node.isConnected && document.visibilityState === "visible";
-			if (!before && visible && !seen.markVisibleNewest(scope, next.page, {
-				newest: true,
-				documentVisible: true,
-				panelVisible: true
-			})) changes = UNKNOWN;
-			report({
-				scope,
-				unread: changes
-			});
-			return true;
-		} catch {
-			if (current()) {
-				items.clear();
-				fullReplies.clear();
-				fullPosts.clear();
-				asked.clear();
-				stream.reset();
-				olderCursor = void 0;
-				status.hidden = false;
-				status.textContent = "The conversation is unavailable for this browser. Reload the page, or use Ops in this machine’s terminal.";
-				report({ unread: UNKNOWN });
-			}
-			return false;
-		} finally {
-			running = false;
-			controls();
-			if (wanted && !shell.signal.aborted) {
-				wanted = false;
-				refresh();
-			}
-		}
-	}
-	async function refresh() {
-		await box.observe();
-		return load();
-	}
-	olderButton.addEventListener("click", () => {
-		if (!olderCursor || running) return;
-		generation++;
-		load(olderCursor);
-	});
-	shell.signal.addEventListener("abort", () => {
-		generation++;
-		stream.forget();
-		items.clear();
-	}, { once: true });
-	whileVisible(5e3, shell.signal, refresh);
-	controls();
-	return {
-		node,
-		select(member) {
-			const wasVisible = panelVisible;
-			panelVisible = member !== void 0;
-			if (member && !wasVisible) asked.clear();
-			if (member && member.id !== memberId) {
-				memberId = member.id;
-				memberName = member.name;
-				generation++;
-				scope = void 0;
-				olderCursor = void 0;
-				items.clear();
-				fullReplies.clear();
-				fullPosts.clear();
-				asked.clear();
-				stream.reset();
-				status.hidden = false;
-				status.textContent = "Reading the conversation…";
-				report({ unread: UNKNOWN });
-				showComposer();
-				if (running) wanted = true;
-				else refresh();
-			} else if (member) {
-				if (member.name !== memberName) {
-					memberName = member.name;
-					stream.forget();
-					draw();
-					showComposer();
-				}
-				if (!wasVisible) refresh();
-			}
-			controls();
-		}
-	};
-}
-//#endregion
-//#region src/channel-stream.ts
-/** The channel stream (#5704 A4, spec 8d17ce7c screens 1-2): the squad room's posts, each with its
-* recipients' replies under it, and the box that posts to the room. A post goes to the squad lead,
-* or to each member it @mentions; it carries the room exactly as the board names it, so a stale
-* roster revision comes back refused with Core's reason and the person sends again after the board
-* refreshes. Room refreshes carry Core's last observed position; unknown change coverage still
-* uses the returned newest page, without inventing an unread count. */
-/** The channel's calls on the owner's signed Session. */
-function sessionChannel(shell) {
-	return {
-		readRoom: (roomId, input) => onSession(shell, (session) => conversations(session).readRoom(roomId, input)),
-		result: (requestId) => onSession(shell, (session) => operations(session).result(requestId)),
-		sendNow: (requestId) => onSession(shell, (session) => operations(session).sendNow(requestId)),
-		send: (input) => onSession(shell, (session) => operations(session).send(input)),
-		operation: (operationId) => onSession(shell, (session) => operations(session).operation(operationId))
-	};
-}
-/** How many cut posts one opened channel reads in full. */
-var FULL_POSTS = 10;
-var MENTION_GUIDANCE = "Mention a member with @name.";
-/** The members a post @mentions, or the lead when it mentions none. */
-function recipients(message, channel) {
-	const named = channel.members.filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(message));
-	if (named.length) return named;
-	return channel.lead ? [channel.lead] : [];
-}
-function posts(items) {
-	const out = /* @__PURE__ */ new Map();
-	for (const item of items) {
-		const key = `${item.preparedAtMs}\u0000${item.sender.identityId}\u0000${item.preview}`;
-		const post = out.get(key);
-		if (post) post.items.push(item);
-		else out.set(key, {
-			requestId: item.requestId,
-			preparedAtMs: item.preparedAtMs,
-			items: [item]
-		});
-	}
-	return [...out.values()];
-}
-function channelStream(shell, port = sessionChannel(shell), rereadBoard = () => {}) {
-	const node = el("section", "ops-dm");
-	node.setAttribute("aria-label", "Channel messages");
-	const olderButton = el("button", "ops-dm-older", "Show older messages");
-	olderButton.type = "button";
-	const empty = el("div", "ops-channel-empty");
-	const emptyTitle = el("p", "ops-channel-empty-title", "No channel messages yet");
-	const emptyText = el("p", "ops-channel-empty-text");
-	empty.append(emptyTitle, emptyText);
-	empty.setAttribute("role", "status");
-	const stream = talkList("Channel messages");
-	const run = commandRun(shell);
-	const compose = el("section", "ops-channel-compose");
-	compose.setAttribute("aria-label", "Message");
-	const composerHost = el("div", "ops-composer-host");
-	const sendNote = el("p", "ops-channel-compose-reason");
-	sendNote.id = "ops-channel-write-reason";
-	sendNote.setAttribute("aria-live", "polite");
-	compose.append(composerHost, sendNote);
-	node.append(olderButton, empty, stream.list, compose);
-	const composer = composerSlot(composerHost);
-	const items = /* @__PURE__ */ new Map();
-	const replies = /* @__PURE__ */ new Map();
-	const fullPosts = /* @__PURE__ */ new Map();
-	const askedPosts = /* @__PURE__ */ new Set();
-	const now = sendNowAsks(port, () => draw());
-	let channel;
-	let roomId;
-	let olderCursor;
-	let changePosition;
-	let generation = 0, running = false, wanted = false, visible = false, refused = false, known = "";
-	const box = outbox(port, (value) => {
-		if (value.state === "refused" && value.reason === "ROOM_ROSTER_CHANGED") rereadBoard();
-		draw();
-		showComposer();
-		if (value.state === "accepted") {
-			wanted = true;
-			refresh();
-		}
-	});
-	const names = () => new Map(channel?.members.map((member) => [member.id, member.name]) ?? []);
-	/** Each recipient's side of a post: their reply words, or why there are none. */
-	function answers(post) {
-		const who = names();
-		return post.items.map((item) => {
-			const reply = replies.get(item.requestId);
-			return {
-				item,
-				name: who.get(item.recipientId) ?? "a former member",
-				at: item.final.status === "retained" ? new Date(item.final.submittedAtMs) : void 0,
-				words: reply?.state === "replied" ? reply.message : item.final.status === "retained" ? reply?.state === "unavailable" ? "The reply is unavailable" : null : item.final.status === "expired" ? "The reply has expired" : void 0,
-				read: reply?.state === "replied"
-			};
-		});
-	}
-	const capped = (post) => {
-		const preview = post.items[0].preview;
-		return !!preview && [...preview].length >= 160;
-	};
-	const fullText = (post) => post.items.map((item) => fullPosts.get(item.requestId)).find((text) => text !== void 0);
-	function postRow(post, inThread = false) {
-		const first = post.items[0];
-		const whole = fullText(post);
-		const as = now.current(first);
-		if (!inThread && first.kind === "announcement") return noticeRow(first.preview, new Date(post.preparedAtMs));
-		const row = messageRow({
-			who: "You",
-			to: answers(post).map((side) => side.name).join(", "),
-			self: true,
-			at: new Date(post.preparedAtMs),
-			text: whole ?? first.preview,
-			mentions: channel?.members.map((member) => member.name) ?? [],
-			...whole === void 0 && capped(post) ? { shortened: SHORTENED_POST } : {}
-		});
-		if (inThread) return row;
-		const sides = answers(post).filter((side) => side.words !== void 0);
-		const last = sides.map((side) => side.at?.valueOf() ?? 0).reduce((a, b) => Math.max(a, b), 0);
-		const open = el("button", "ops-thread-open");
-		open.type = "button";
-		open.dataset.requestId = post.requestId;
-		const shown = sides.filter((side) => side.words !== null);
-		if (shown.length) {
-			const faces = el("span", "ops-thread-faces");
-			faces.setAttribute("aria-hidden", "true");
-			for (const side of shown.slice(0, 3)) {
-				const face = el("span", browserUiClasses.avatar, avatarInitials(side.name));
-				face.dataset.size = "s";
-				faces.append(face);
-			}
-			open.append(faces);
-		}
-		open.append(el("span", "ops-thread-count", sides.length ? `${sides.length} repl${sides.length === 1 ? "y" : "ies"}` : "No replies yet"));
-		if (last) open.append(el("span", "ops-thread-last", `Last reply ${new Date(last).toLocaleTimeString(void 0, {
-			hour: "2-digit",
-			minute: "2-digit"
-		})}`));
-		if (!shown.length) {
-			const state = el("span", "ops-dm-message-state", sides.length ? "Answered" : deliveryText(as));
-			state.dataset.mark = sides.length ? "answered" : deliveryMark(as);
-			open.append(state);
-		}
-		open.setAttribute("aria-expanded", String(threadKey === post.requestId));
-		open.addEventListener("click", () => openThread(post.requestId));
-		const threadLine = el("div", "ops-thread-line");
-		threadLine.append(open);
-		if (!sides.length) {
-			const control = now.control(post.items);
-			if (control) threadLine.append(control);
-		}
-		row.querySelector(".ops-dm-message-body").append(threadLine);
-		if (threadKey === post.requestId) row.dataset.selected = "";
-		return row;
-	}
-	const thread = el("aside", "ops-thread");
-	thread.hidden = true;
-	thread.setAttribute("aria-label", "Thread");
-	const threadHead = el("header", "ops-thread-head");
-	const threadTitle = el("h3", "ops-thread-title");
-	threadTitle.tabIndex = -1;
-	const threadClose = el("button", "ops-thread-close", "×");
-	threadClose.type = "button";
-	threadClose.setAttribute("aria-label", "Close thread");
-	const threadMeta = el("p", "ops-thread-meta");
-	threadHead.append(threadTitle, threadClose, threadMeta);
-	const threadList = el("ol", "ops-dm-stream ops-thread-stream");
-	threadList.setAttribute("aria-label", "Thread messages");
-	const threadNote = el("p", "ops-thread-note", "Each member answers a post once. To follow up, post again or open their DM.");
-	thread.append(threadHead, threadList, threadNote);
-	let threadKey;
-	let threadFrom = null;
-	function openThread(key) {
-		threadFrom = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-		threadKey = key;
-		draw();
-		threadTitle.focus();
-	}
-	function closeThread() {
-		if (!threadKey) return;
-		const key = threadKey;
-		threadKey = void 0;
-		draw();
-		(threadFrom?.isConnected ? threadFrom : node.querySelector(`.ops-thread-open[data-request-id="${key}"]`))?.focus();
-	}
-	threadClose.addEventListener("click", closeThread);
-	thread.addEventListener("keydown", (event) => {
-		if (event.key === "Escape") {
-			event.preventDefault();
-			closeThread();
-		}
-	});
-	function drawThread(shown) {
-		const post = threadKey ? shown.find((each) => each.requestId === threadKey) : void 0;
-		if (!post) threadKey = void 0;
-		thread.hidden = !post;
-		thread.parentElement?.toggleAttribute("data-thread", !!post);
-		if (!post) return;
-		const words = attributed(post.items[0].preview).words ?? "Message preview unavailable";
-		const line = words.split("\n")[0];
-		threadTitle.textContent = line.length > 60 ? `${line.slice(0, 60).trimEnd()}…` : line;
-		threadTitle.title = words;
-		const sides = answers(post);
-		const replied = sides.filter((side) => side.words !== void 0);
-		const waiting = sides.length - replied.length;
-		const state = el("span", "ops-dm-message-state", waiting ? `Waiting on ${waiting} of ${sides.length}` : "Answered");
-		state.dataset.mark = waiting ? "wait" : "answered";
-		threadMeta.replaceChildren(el("span", "ops-thread-count", replied.length ? `${replied.length} repl${replied.length === 1 ? "y" : "ies"}` : "No replies yet"), state);
-		const rows = [postRow(post, true)];
-		const divider = el("li", "ops-dm-day");
-		divider.append(el("span", void 0, replied.length ? `${replied.length} repl${replied.length === 1 ? "y" : "ies"}` : "No replies yet"));
-		rows.push(divider);
-		for (const side of sides) {
-			if (side.words === void 0) {
-				rows.push(el("li", "ops-thread-waiting", `Waiting on ${side.name}`));
-				continue;
-			}
-			rows.push(messageRow({
-				who: side.name,
-				to: "You",
-				self: false,
-				...side.at ? { at: side.at } : {},
-				text: side.words ?? "Reading the reply…",
-				quiet: !side.read,
-				...run && side.read ? { commandRun: run } : {},
-				...side.read && names().has(side.item.recipientId) ? { commandAuthor: side.item.recipientId } : {}
-			}));
-		}
-		threadList.replaceChildren(...rows);
-	}
-	function draw() {
-		const target = roomId ?? "";
-		const unlisted = box.unlisted(target, (id) => items.has(id));
-		const shown = posts(items.values());
-		stream.draw(shown, (post) => [postRow(post)], [
-			[...names()],
-			[...replies],
-			threadKey,
-			[...fullPosts],
-			now.version()
-		], unlisted && pendingRow(unlisted, recipientsLabel(unlisted.message), channel?.members.map((member) => member.name)));
-		empty.hidden = shown.length > 0 || !!unlisted;
-		drawThread(shown);
-	}
-	function recipientsLabel(message) {
-		return channel ? recipients(message, channel).map((member) => member.name).join(", ") : "";
-	}
-	function showComposer() {
-		if (!channel) return;
-		const name = `#${channel.squad}`;
-		const room = channel.room;
-		compose.hidden = !room;
-		if (!room) return;
-		const { canSend, busy } = box.box(room.roomId, sendNote);
-		composer.show({
-			key: `channel:${channel.squad}`,
-			label: `Message ${name}`,
-			placeholder: `Message ${name} — @ to mention agents`,
-			hint: "Enter sends · Shift+Enter for a new line",
-			describedBy: sendNote.id,
-			canSend,
-			busy,
-			cleared: box.cleared,
-			onSend: (message) => {
-				if (!channel?.room || shell.signal.aborted) return;
-				const target = channel.room;
-				const to = recipients(message, channel);
-				if (!to.length) {
-					sendNote.textContent = MENTION_GUIDANCE;
-					sendNote.hidden = false;
-					return;
-				}
-				box.send(target.roomId, message, (operationId) => ({
-					operationId,
-					message,
-					room: {
-						roomId: target.roomId,
-						revision: target.revision
-					},
-					recipientIds: to.map((member) => member.id),
-					kind: "request"
-				}), `${target.revision}:${to.map((member) => member.id).join(",")}`);
-			}
-		});
-	}
-	/** The whole text of the newest posts cut at the preview, one read at a time. */
-	async function readFullPosts(ticket) {
-		const wanted = posts(items.values()).filter((post) => capped(post) && fullText(post) === void 0 && !askedPosts.has(post.requestId)).sort((a, b) => b.preparedAtMs - a.preparedAtMs).slice(0, Math.max(0, FULL_POSTS - askedPosts.size));
-		for (const post of wanted) {
-			askedPosts.add(post.requestId);
-			try {
-				const value = await port.result(post.items[0].requestId);
-				if (ticket !== generation) return;
-				if (typeof value.requestMessage === "string") {
-					fullPosts.set(post.items[0].requestId, value.requestMessage);
-					draw();
-				}
-			} catch {}
-		}
-	}
-	async function readReplies(ticket) {
-		for (const item of items.values()) {
-			const known = replies.get(item.requestId)?.state;
-			if (item.final.status !== "retained" || known === "replied" || known === "unavailable") continue;
-			try {
-				const value = await port.result(item.requestId);
-				if (ticket !== generation) return;
-				replies.set(item.requestId, value);
-				if (typeof value.requestMessage === "string") fullPosts.set(item.requestId, value.requestMessage);
-			} catch {}
-		}
-	}
-	async function load(before) {
-		if (!roomId || !visible || refused || shell.signal.aborted) return true;
-		if (document.visibilityState !== "visible") return true;
-		if (running) {
-			wanted = true;
-			return true;
-		}
-		running = true;
-		olderButton.disabled = true;
-		const ticket = generation, reading = roomId, mark = now.mark();
-		try {
-			const page = await port.readRoom(reading, {
-				limit: 20,
-				...before ? { before } : changePosition ? { since: changePosition } : {}
-			});
-			if (ticket !== generation || reading !== roomId) return true;
-			if (!before) changePosition = page.changePosition;
-			for (const item of page.items) items.set(item.requestId, item);
-			if (before || olderCursor === void 0) olderCursor = page.nextBefore;
-			emptyTitle.textContent = "No channel messages yet";
-			const guidance = channel?.lead ? "Post to the lead, or @mention members." : MENTION_GUIDANCE;
-			emptyText.textContent = `${guidance} Their replies show under your post.`;
-			draw();
-			now.listed(mark);
-			await readReplies(ticket);
-			if (ticket === generation) draw();
-			await readFullPosts(ticket);
-			return true;
-		} catch (error) {
-			if (ticket === generation) {
-				empty.hidden = false;
-				if (error instanceof RefusalError) {
-					refused = true;
-					const reason = error.reason;
-					emptyTitle.textContent = "This browser cannot read the channel";
-					emptyText.replaceChildren(reason === "owner_browser_required" ? "Open this channel from your own browser, the one paired as the owner." : reason === "all_agents_required" ? "This browser needs access to every agent. Change it in Remote settings." : "This browser may not read replies and channel messages. Allow it in Remote settings.");
-					if (error.settingsUrl) {
-						const link = el("a", void 0, "Open Remote settings");
-						link.href = error.settingsUrl;
-						emptyText.append(" ", link);
-					}
-					return true;
-				}
-				emptyTitle.textContent = "The channel could not be read";
-				emptyText.textContent = "Reload the page, or use Ops in this machine’s terminal.";
-			}
-			return false;
-		} finally {
-			running = false;
-			olderButton.disabled = false;
-			olderButton.hidden = !olderCursor;
-			if (wanted && !shell.signal.aborted) {
-				wanted = false;
-				refresh();
-			}
-		}
-	}
-	async function refresh() {
-		await box.observe();
-		return load();
-	}
-	olderButton.hidden = true;
-	olderButton.addEventListener("click", () => {
-		if (olderCursor && !running) load(olderCursor);
-	});
-	whileVisible(5e3, shell.signal, refresh);
-	return {
-		node,
-		thread,
-		select(next) {
-			if (next && !visible) askedPosts.clear();
-			if (!next && threadKey) {
-				threadKey = void 0;
-				drawThread([]);
-			}
-			visible = next !== void 0;
-			channel = next;
-			const seen = JSON.stringify([next?.room, next?.members]);
-			if (seen !== known) {
-				known = seen;
-				refused = false;
-			}
-			const nextRoom = next?.room?.roomId;
-			if (nextRoom !== roomId) {
-				roomId = nextRoom;
-				generation++;
-				items.clear();
-				replies.clear();
-				fullPosts.clear();
-				askedPosts.clear();
-				threadKey = void 0;
-				drawThread([]);
-				olderCursor = void 0;
-				changePosition = void 0;
-				stream.reset();
-				olderButton.hidden = true;
-				emptyTitle.textContent = "No channel messages yet";
-				emptyText.textContent = next?.room === null ? "This squad has no channel room on this machine." : "Reading the channel…";
-				empty.hidden = false;
-				refresh();
-			} else draw();
-			if (next?.room === null) {
-				emptyTitle.textContent = "No channel room on this machine yet";
-				if (next.lead) {
-					const link = el("a", void 0, `Talk to ${next.lead.name}`);
-					link.href = opsHref(location.pathname, {
-						squad: next.squad,
-						memberId: next.lead.id
-					});
-					emptyText.replaceChildren(link, " directly instead.");
-				} else emptyText.textContent = "Choose a member from the sidebar to talk directly.";
-				empty.hidden = false;
-			}
-			showComposer();
-		}
-	};
-}
-//#endregion
-//#region src/ops-channel.ts
-/** The Ops channel and DM (#5704; spec Colab 8d17ce7c screens 1, 3 and 5): a header with the
-* channel's facts, a collapsible Members/Timers panel, the conversation stream anchored at the
-* bottom and the composer fixed under it. The board owns members and timers; admitted
-* conversation reads own the DM stream. Writes stay unavailable until Remote names them. */
-/** A state word's mark, as the rail draws it. */
-var stateMark = (word) => {
-	const info = AGENT_STATES[word.toLowerCase()];
-	return mark(info.mark, info.markTone);
-};
-function memberState(agent) {
-	return {
-		working: "Working",
-		idle: "Idle",
-		offline: "Offline",
-		unknown: "Unknown"
-	}[agent.state];
-}
-/** An unknown state is its mark alone, the word in the tooltip (the DM header and the member list). */
-function unknownMark() {
-	const alone = stateMark("Unknown");
-	alone.title = "State unknown";
-	alone.setAttribute("role", "img");
-	alone.setAttribute("aria-label", "State unknown");
-	alone.removeAttribute("aria-hidden");
-	return alone;
-}
-/** A member's state as the spec draws it: an uncoloured mark and its word. */
-function stateBadge(agent) {
-	const word = memberState(agent);
-	if (word === "Unknown") {
-		const alone = unknownMark();
-		alone.classList.add("ops-member-state");
-		alone.dataset.state = "unknown";
-		return alone;
-	}
-	const badge = el("span", `${browserUiClasses.chip} ops-member-state`);
-	badge.dataset.state = word.toLowerCase();
-	badge.append(stateMark(word), el("span", browserUiClasses.chipLabel, word));
-	return badge;
-}
-/** The last day's tokens (#6372) as "~1.4B 1d"; nothing when the machine did not say. */
-function usage(agent) {
-	if (!agent.tokens1d) return "";
-	return `~${new Intl.NumberFormat("en", {
-		notation: "compact",
-		maximumFractionDigits: 1
-	}).format(agent.tokens1d.tokens)} 1d${agent.tokens1d.complete ? "" : " (partial)"}`;
-}
-function avatar(name, size) {
-	const node = el("span", browserUiClasses.avatar, avatarInitials(name));
-	node.dataset.size = size;
-	node.setAttribute("aria-hidden", "true");
-	return node;
-}
-/** A member waiting on provider forms (#6445): what the row and the DM header say. */
-function formChip(count) {
-	const node = el("span", `${browserUiClasses.chip} ops-form-chip`);
-	node.dataset.tone = "waiting";
-	node.append(mark("dot", "waiting"), el("span", browserUiClasses.chipLabel, count === 1 ? "Form waiting" : `${count} forms waiting`));
-	return node;
-}
-function chip(text) {
-	const node = el("span", `${browserUiClasses.chip} ops-channel-chip`);
-	node.append(el("span", browserUiClasses.chipLabel, text));
-	return node;
-}
-function channelView(pathname, shell, port = void 0, rereadBoard = () => {}, forms) {
-	const page = el("div", "ops-channel");
-	/** The channel summary's forms words: a count, or that they could not be read. */
-	const formsWord = (people) => {
-		if (!forms) return [];
-		if (forms.unavailable()) return ["Forms unavailable"];
-		const count = people.reduce((sum, agent) => sum + forms.waiting(agent.id), 0);
-		return count ? [`${count} form${count === 1 ? "" : "s"} waiting`] : [];
-	};
-	const head = el("header", "ops-channel-head");
-	const titleRow = el("div", "ops-channel-titlebar");
-	const face = el("span", "ops-channel-face");
-	const title = el("h2", "ops-channel-name");
-	title.tabIndex = -1;
-	title.addEventListener("blur", () => title.removeAttribute("data-quiet-focus"));
-	const chips = el("span", "ops-channel-chips");
-	const back = el("a", "ops-channel-back", "‹");
-	back.hidden = true;
-	titleRow.append(back, face, title, chips);
-	const line = el("p", "ops-channel-line");
-	head.append(titleRow, line);
-	const panel = el("section", "ops-channel-panel");
-	const bar = el("div", "ops-channel-panel-bar");
-	const tabs = el("div", "ops-channel-tabs");
-	tabs.setAttribute("role", "tablist");
-	const membersPanel = el("div", "ops-channel-tabpanel");
-	membersPanel.id = "ops-channel-members";
-	membersPanel.setAttribute("role", "tabpanel");
-	const timersPanel = el("div", "ops-channel-tabpanel");
-	timersPanel.id = "ops-channel-timers";
-	timersPanel.setAttribute("role", "tabpanel");
-	const panels = [membersPanel, timersPanel];
-	const toggle = el("button", "ops-channel-collapse");
-	toggle.type = "button";
-	toggle.setAttribute("aria-label", "Hide details");
-	toggle.setAttribute("aria-controls", `${membersPanel.id} ${timersPanel.id}`);
-	let selected = 0;
-	let open = true;
-	const buttons = panels.map((target, index) => {
-		const button = el("button", "ops-channel-tab");
-		button.type = "button";
-		button.id = `ops-channel-tab-${index}`;
-		button.setAttribute("role", "tab");
-		button.setAttribute("aria-controls", target.id);
-		target.setAttribute("aria-labelledby", button.id);
-		button.addEventListener("click", () => {
-			select(index);
-			setOpen(true);
-		});
-		button.addEventListener("keydown", (event) => {
-			if (![
-				"ArrowLeft",
-				"ArrowRight",
-				"Home",
-				"End"
-			].includes(event.key)) return;
-			const shown = buttons.filter((other) => !other.hidden);
-			const at = shown.indexOf(button);
-			const next = event.key === "Home" ? shown[0] : event.key === "End" ? shown[shown.length - 1] : shown[(at + (event.key === "ArrowRight" ? 1 : -1) + shown.length) % shown.length];
-			if (!next || next === button) return;
-			event.preventDefault();
-			select(buttons.indexOf(next));
-			setOpen(true);
-			next.focus();
-		});
-		return button;
-	});
-	tabs.append(...buttons);
-	const summary = el("button", "ops-channel-summary");
-	summary.type = "button";
-	summary.setAttribute("aria-expanded", "false");
-	summary.setAttribute("aria-controls", `${membersPanel.id} ${timersPanel.id}`);
-	const summaryLabel = el("span", "ops-channel-summary-label", "Members and timers");
-	const summaryCounts = el("span", "ops-channel-summary-counts");
-	const chevron = el("span", "ops-channel-summary-chevron");
-	chevron.setAttribute("aria-hidden", "true");
-	const summaryText = el("span", "ops-channel-summary-text");
-	summaryText.append(summaryLabel, summaryCounts);
-	summary.append(chevron, summaryText);
-	summary.addEventListener("click", () => {
-		setOpen(true);
-		toggle.focus();
-	});
-	bar.append(summary, tabs, toggle);
-	panel.append(bar, ...panels);
-	function select(index) {
-		selected = index;
-		buttons.forEach((button, at) => {
-			button.tabIndex = at === index ? 0 : -1;
-			button.setAttribute("aria-selected", String(open && at === index));
-		});
-		panels.forEach((target, at) => target.hidden = !open || at !== index);
-	}
-	let oneTimer = false;
-	function setOpen(value) {
-		open = value;
-		if (oneTimer) panel.hidden = !value;
-		panel.dataset.open = String(value);
-		tabs.hidden = !value;
-		summary.hidden = value;
-		toggle.hidden = !value;
-		toggle.setAttribute("aria-expanded", String(value));
-		select(selected);
-	}
-	toggle.addEventListener("click", () => {
-		const focused = document.activeElement === toggle;
-		setOpen(!open);
-		if (focused && !open) summary.focus();
-	});
-	const history = el("section", "ops-channel-history");
-	const stream = channelStream(shell, port, rereadBoard);
-	const formsHost = el("div", "ops-forms-host");
-	page.append(head, panel, formsHost, history, stream.thread);
-	setOpen(false);
-	const viewHeight = () => visualViewport?.height ?? innerHeight;
-	const fit = () => {
-		if (!page.isConnected) return;
-		const top = page.getBoundingClientRect().top + scrollY;
-		const height = viewHeight() - top;
-		page.style.height = `${height}px`;
-		const below = document.documentElement.scrollHeight - innerHeight;
-		if (below > 0) page.style.height = `${Math.max(240, height - below)}px`;
-	};
-	addEventListener("resize", fit);
-	visualViewport?.addEventListener("resize", fit);
-	const missing = el("p", "ops-empty");
-	missing.dataset.opsChannelMissing = "";
-	let identity = "";
-	let fingerprint = "";
-	const memberList = el("ul", "ops-member-list");
-	memberList.setAttribute("aria-label", "Members");
-	const memberRows = /* @__PURE__ */ new Map();
-	function memberRow(agent) {
-		const row = el("li", "ops-member-row");
-		row.dataset.memberId = agent.id;
-		const name = el("a", "ops-member-name", agent.name);
-		name.href = opsHref(pathname, {
-			squad: agent.squad,
-			memberId: agent.id
-		});
-		const who = el("span", "ops-member-who");
-		who.append(avatar(agent.name, "s"), name);
-		if (agent.role === "lead") who.append(el("span", "ops-member-role", "Lead"));
-		const task = el("span", "ops-member-task", agent.task || "No task reported");
-		if (!agent.task) task.dataset.empty = "";
-		const state = stateBadge(agent);
-		const waiting = forms?.waiting(agent.id) ?? 0;
-		if (waiting) {
-			const flags = el("span", "ops-member-flags");
-			flags.append(formChip(waiting), state);
-			row.append(who, task, el("span", "ops-member-usage", usage(agent)), flags);
-		} else row.append(who, task, el("span", "ops-member-usage", usage(agent)), state);
-		return row;
-	}
-	function drawMembers(people, truncated) {
-		const ids = new Set(people.map((agent) => agent.id));
-		for (const [id, row] of memberRows) if (!ids.has(id)) {
-			const heldFocus = row.node.contains(document.activeElement);
-			row.node.remove();
-			memberRows.delete(id);
-			if (heldFocus) title.focus();
-		}
-		people.forEach((agent, index) => {
-			const seen = JSON.stringify([
-				agent.name,
-				agent.role,
-				agent.task,
-				memberState(agent),
-				agent.tokens1d,
-				agent.checklistCount,
-				forms?.waiting(agent.id) ?? 0
-			]);
-			let row = memberRows.get(agent.id);
-			if (!row || row.fingerprint !== seen) {
-				const next = memberRow(agent);
-				const heldFocus = row?.node.contains(document.activeElement);
-				if (row) row.node.replaceWith(next);
-				row = {
-					node: next,
-					fingerprint: seen
-				};
-				memberRows.set(agent.id, row);
-				if (heldFocus) next.querySelector("a").focus();
-			}
-			if (memberList.children[index] !== row.node) memberList.insertBefore(row.node, memberList.children[index] ?? null);
-		});
-		const content = people.length ? [memberList] : [el("p", "ops-empty", "No members listed.")];
-		if (truncated) content.push(el("p", "ops-detail-note", "Partial board; some members may be missing."));
-		if (membersPanel.firstChild !== content[0] || membersPanel.childNodes.length !== content.length) membersPanel.replaceChildren(...content);
-	}
-	function channelFacts(squad, people) {
-		const lead = people.find((agent) => agent.role === "lead")?.name ?? squad?.lead;
-		line.replaceChildren();
-		if (lead) line.append("Lead ", el("strong", void 0, lead), " · ");
-		line.append("This machine");
-	}
-	return {
-		node: page,
-		history,
-		/** After a route the person chose: the title takes focus, so reading starts at the new place. */
-		focusTitle(fromKeyboard) {
-			if (!title.isConnected || head.hidden) return;
-			title.toggleAttribute("data-quiet-focus", !fromKeyboard);
-			title.focus({ preventScroll: true });
-		},
-		update(board, place) {
-			requestAnimationFrame(fit);
-			const key = opsHref(pathname, place);
-			const people = board.agents.filter((agent) => agent.squad === place.squad).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
-			const member = place.memberId ? people.find((agent) => agent.id === place.memberId) : void 0;
-			const squad = board.squads.find((entry) => entry.name === place.squad);
-			const known = place.memberId ? !!member : !!squad || people.length > 0;
-			const squadJobs = board.schedules?.filter((job) => job.squad === place.squad) ?? null;
-			const jobs = squadJobs && member ? squadJobs.filter((job) => job.owner === member.name) : squadJobs;
-			const seen = JSON.stringify({
-				key,
-				people,
-				squad,
-				jobs,
-				known,
-				truncated: board.truncated,
-				forms: forms?.fingerprint()
-			});
-			if (seen === fingerprint) return;
-			fingerprint = seen;
-			if (identity !== key) {
-				identity = key;
-				memberRows.clear();
-				memberList.replaceChildren();
-				selected = place.memberId ? 1 : 0;
-				setOpen(false);
-			}
-			page.dataset.view = place.memberId ? "dm" : "channel";
-			for (const part of [
-				head,
-				panel,
-				history
-			]) part.hidden = !known;
-			formsHost.hidden = !known || !member || !forms;
-			if (member && forms) {
-				const view = forms.view(member.id, member.name);
-				if (formsHost.firstChild !== view) formsHost.replaceChildren(view);
-				formsHost.hidden = view.hidden;
-			} else formsHost.replaceChildren();
-			if (!known) {
-				stream.select(void 0);
-				missing.textContent = board.truncated ? "This selection is not in the partial board. Open Ops in the terminal to see the full list." : place.memberId ? "This member is no longer listed in this squad. Choose a current member from the sidebar." : "This squad is no longer listed. Choose a current squad from the sidebar.";
-				if (!missing.isConnected) page.append(missing);
-				memberRows.clear();
-				memberList.replaceChildren();
-				timersPanel.replaceChildren();
-				return;
-			}
-			missing.remove();
-			const timerCount = jobs === null ? void 0 : jobs.length;
-			chips.replaceChildren();
-			if (member) {
-				face.replaceChildren(avatar(member.name, "m"));
-				const waiting = forms?.waiting(member.id) ?? 0;
-				if (waiting) chips.append(formChip(waiting));
-				title.textContent = member.name;
-				const state = memberState(member);
-				const facts = el("span", "ops-channel-member-facts");
-				const marked = state === "Unknown" ? unknownMark() : stateMark(state);
-				const channelHref = opsHref(pathname, { squad: member.squad });
-				const squadLink = el("a", "ops-channel-squad-link", `#${member.squad}`);
-				squadLink.href = channelHref;
-				facts.append(marked, `${[
-					state === "Unknown" ? void 0 : state,
-					member.role === "lead" ? "Lead" : "Member",
-					member.model,
-					usage(member) || void 0
-				].filter(Boolean).join(" · ")} · `, squadLink, " · This machine");
-				if (member.task) facts.append(" · ", el("span", "ops-channel-line-task", `Task: ${member.task}`));
-				back.href = channelHref;
-				back.setAttribute("aria-label", `Back to #${member.squad}`);
-				back.hidden = false;
-				line.replaceChildren(facts);
-				if (jobs?.length === 1) {
-					const timer = el("button", `${browserUiClasses.chip} ops-channel-timer-chip`);
-					timer.type = "button";
-					timer.append(mark("clock", "neutral"), el("span", browserUiClasses.chipLabel, scheduleWords(jobs[0].when).toLowerCase()));
-					timer.setAttribute("aria-label", `Timer: ${jobs[0].what}. Show timers`);
-					timer.addEventListener("click", () => {
-						select(1);
-						setOpen(true);
-					});
-					line.append(timer);
-				}
-			} else {
-				back.hidden = true;
-				face.replaceChildren();
-				title.textContent = `#${place.squad}`;
-				if (squad?.idleAlertMs) chips.append(chip(`Idle alert ${Math.round(squad.idleAlertMs / 6e4)}m`));
-				channelFacts(squad, people);
-			}
-			oneTimer = !!member && timerCount === 1;
-			panel.hidden = !!member && timerCount === 0 || oneTimer && !open;
-			const working = people.filter((agent) => memberState(agent) === "Working").length;
-			const idle = people.filter((agent) => memberState(agent) === "Idle").length;
-			const timersWord = timerCount === void 0 ? "Timers unavailable" : `Timers ${timerCount}`;
-			summaryLabel.textContent = member ? "Timers" : "Members and timers";
-			summaryCounts.textContent = (member ? [timerCount === void 0 ? "unavailable" : String(timerCount)] : [
-				board.truncated ? "Members (partial)" : `${people.length} member${people.length === 1 ? "" : "s"}`,
-				`${working} working`,
-				`${idle} idle`,
-				...formsWord(people),
-				timersWord
-			]).join(" · ");
-			buttons[0].hidden = !!member;
-			buttons[0].textContent = board.truncated ? "Members" : `Members ${people.length}`;
-			buttons[1].textContent = timerCount === void 0 ? "Timers" : `Timers ${timerCount}`;
-			const label = member ? "Member details" : "Channel details";
-			tabs.setAttribute("aria-label", label);
-			panel.setAttribute("aria-label", label);
-			if (!member) drawMembers(people, board.truncated);
-			timersPanel.replaceChildren(timerList(jobs, board.truncated));
-			if (member) stream.select(void 0);
-			else {
-				if (stream.node.parentElement !== history) history.replaceChildren(stream.node);
-				const lead = people.find((agent) => agent.role === "lead");
-				stream.select({
-					squad: place.squad,
-					room: squad?.room ?? null,
-					...lead ? { lead: {
-						id: lead.id,
-						name: lead.name
-					} } : {},
-					members: people.map((agent) => ({
-						id: agent.id,
-						name: agent.name
-					}))
-				});
-			}
-			select(selected);
-		}
-	};
-}
-//#endregion
-//#region src/ops-forms.ts
-/** Provider forms in web Ops (#6445): a member waiting on a Claude Code, Codex or agy form shows
-* the form in its DM, and its row says so. Only the person answers, and only a form the board saw
-* whole and Core lets the client answer. An answer is stored before it is sent and is recovered by
-* its own operation ID only; nothing here retries delivery or allocates a second ID for it. */
-/** This browser may not read provider forms (no signed session); thrown by the connector. */
-var FormsNotAllowed = class extends Error {};
-var KEY = "tmt-ops-form-answer:";
-var KIND = {
-	question: "Question",
-	permission: "Permission",
-	planApproval: "Plan approval"
-};
-function stored() {
-	const found = /* @__PURE__ */ new Map();
-	try {
-		for (let i = 0; i < localStorage.length; i++) {
-			const key = localStorage.key(i);
-			if (!key?.startsWith(KEY)) continue;
-			const value = JSON.parse(localStorage.getItem(key) ?? "null");
-			if (value?.operationId && value.formId === key.slice(20)) found.set(value.formId, value);
-		}
-	} catch {}
-	return found;
-}
-/** False when the answer could not be kept; it is then not sent. */
-function keep(sent) {
-	try {
-		localStorage.setItem(KEY + sent.formId, JSON.stringify(sent));
-		return localStorage.getItem(KEY + sent.formId) === JSON.stringify(sent);
-	} catch {
-		return false;
-	}
-}
-function drop(formId) {
-	try {
-		localStorage.removeItem(KEY + formId);
-	} catch {}
-}
-/** A plan's first line of substance: headings are skipped, list marks dropped. */
-function planLine(plan) {
-	const lines = plan.split("\n").map((line) => line.trim()).filter(Boolean);
-	return (lines.find((line) => !line.startsWith("#")) ?? lines[0])?.replace(/^(#+|>|[*+-]|\d+[.)])\s*/, "") || void 0;
-}
-/** What a form asks, in one line: its first question, its tool, or its plan's first line. */
-var asked = (form) => form.questions?.[0]?.text ?? form.tool?.name ?? (form.plan === void 0 ? void 0 : planLine(form.plan)) ?? KIND[form.kind];
-function ago(ms) {
-	const minutes = Math.max(0, Math.round((Date.now() - ms) / 6e4));
-	if (minutes < 1) return "opened just now";
-	if (minutes < 60) return `opened ${minutes} min ago`;
-	const hours = Math.round(minutes / 60);
-	return hours < 24 ? `opened ${hours} h ago` : `opened ${Math.round(hours / 24)} d ago`;
-}
-/** A kept card with its opened time brought up to date, without rebuilding it. */
-function fresh(node, form) {
-	const time = node.querySelector(".ops-form-time");
-	const text = ago(form.openedMs);
-	if (time && time.textContent !== text) time.textContent = text;
-	return node;
-}
-function opsForms(connect, changed, newId = () => crypto.randomUUID()) {
-	let api;
-	/** `off`: this browser may not read forms (no session, not the owner browser, or a grant
-	* without every agent). Nothing is drawn and Remote is not asked again on this page. */
-	let status = "loading";
-	let cursor;
-	let list = [];
-	const sent = stored();
-	/** What is in flight for a form: its first send, or a check of the same ID. */
-	const busy = /* @__PURE__ */ new Map();
-	/** Stored answers from an earlier page are checked once by their own ID, then on request. */
-	const resumed = /* @__PURE__ */ new Set();
-	const cards = /* @__PURE__ */ new Map();
-	/** Forms the person opened; the oldest form is always open, so several never bury the talk. */
-	const opened = /* @__PURE__ */ new Set();
-	const views = /* @__PURE__ */ new Map();
-	/** Focus to put back after a rebuilt card is placed. */
-	let refocus;
-	let version = 0;
-	const bump = () => {
-		version++;
-		changed();
-	};
-	const client = () => api ??= connect().catch((error) => {
-		api = void 0;
-		throw error;
-	});
-	function settle(entry, state) {
-		if (state.state === "accepted") entry.state = "accepted";
-		else {
-			entry.state = state.state;
-			entry.reason = state.reason;
-			entry.message = state.message;
-		}
-		if (entry.state === "uncertain") keep(entry);
-		else drop(entry.formId);
-	}
-	async function check(entry) {
-		if (busy.has(entry.formId)) return;
-		busy.set(entry.formId, "check");
-		bump();
-		try {
-			settle(entry, await (await client()).operation(entry.operationId));
-		} catch {
-			entry.state = "uncertain";
-		} finally {
-			busy.delete(entry.formId);
-			bump();
-		}
-	}
-	async function send(form, answer) {
-		if (busy.has(form.formId)) return;
-		const previous = sent.get(form.formId);
-		if (previous && (previous.state !== "refused" || previous.reason === "FORM_DELIVERY_UNSUPPORTED")) return;
-		const entry = {
-			operationId: newId(),
-			formId: form.formId,
-			identityId: form.identityId,
-			asked: asked(form),
-			answer,
-			state: "uncertain"
-		};
-		if (!keep(entry)) {
-			sent.set(form.formId, {
-				...entry,
-				state: "refused",
-				reason: "LOCAL_STORAGE",
-				message: "This browser could not keep the answer, so it was not sent."
-			});
-			bump();
-			return;
-		}
-		sent.set(form.formId, entry);
-		busy.set(form.formId, "send");
-		bump();
-		try {
-			settle(entry, await (await client()).answer({
-				operationId: entry.operationId,
-				formId: form.formId,
-				answer
-			}));
-		} catch {
-			entry.state = "uncertain";
-		} finally {
-			busy.delete(form.formId);
-			bump();
-		}
-	}
-	function note(text, action) {
-		const line = el("p", "ops-form-note", text);
-		if (action) line.append(" ", action);
-		return line;
-	}
-	function outcome(entry, memberName) {
-		if (busy.has(entry.formId)) return note(busy.get(entry.formId) === "check" ? "Checking…" : "Sending…");
-		if (entry.state === "accepted") return note("Sent.");
-		if (entry.state === "uncertain") {
-			const again = el("button", browserUiClasses.action, "Check again");
-			again.type = "button";
-			again.dataset.variant = "text";
-			again.addEventListener("click", () => {
-				resumed.add(entry.formId);
-				check(entry);
-			});
-			return note("Not sure it arrived.", again);
-		}
-		if (entry.reason === "FORM_DELIVERY_UNSUPPORTED") return note(`This form can't be answered from the browser yet. Answer it in the terminal where ${memberName} runs.`);
-		if (entry.state === "refused") return note(`Not sent: ${entry.message ?? entry.reason ?? "refused"}.`);
-	}
-	function question(form, item, index, open) {
-		const part = el("div", "ops-form-question");
-		const text = el("p", `${browserUiClasses.cardTitle} ops-form-text`, item.text);
-		text.id = `ops-form-${form.formId}-${index}-text`;
-		if (open) {
-			part.setAttribute("role", "group");
-			part.setAttribute("aria-labelledby", text.id);
-		}
-		if (item.header) part.append(el("p", "ops-form-header", item.header));
-		part.append(text);
-		const options = el(open ? "div" : "ul", "ops-form-options");
-		item.options.forEach((option, at) => {
-			const words = el("span", "ops-form-option-words");
-			words.append(el("strong", void 0, option.label));
-			if (option.description) words.append(el("span", "ops-form-option-description", option.description));
-			if (!open) {
-				const row = el("li", "ops-form-option");
-				row.append(words);
-				options.append(row);
-				return;
-			}
-			const row = el("label", `${browserUiClasses.checkboxLabel} ops-form-option`);
-			const input = el("input", item.choice === "single" ? browserUiClasses.radio : browserUiClasses.checkbox);
-			input.type = item.choice === "single" ? "radio" : "checkbox";
-			input.name = `ops-form-${form.formId}-${index}`;
-			input.value = String(at);
-			row.append(input, words);
-			options.append(row);
-		});
-		part.append(options);
-		if (open && item.freeText) {
-			const row = el("label", `${browserUiClasses.field} ops-form-other`);
-			row.append(el("span", browserUiClasses.fieldLabel, "Other"));
-			const input = el("input", browserUiClasses.fieldControl);
-			input.type = "text";
-			input.name = `ops-form-${form.formId}-${index}-other`;
-			row.append(input);
-			part.append(row);
-		}
-		return part;
-	}
-	/** A form folded to one line: its kind, what it asks and when; a click opens it. */
-	function folded(form) {
-		const seen = JSON.stringify(["folded", form]);
-		const cached = cards.get(form.formId);
-		if (cached?.seen === seen) return fresh(cached.node, form);
-		const node = el("section", `${browserUiClasses.card} ops-form`);
-		node.dataset.formId = form.formId;
-		node.dataset.kind = form.kind;
-		node.dataset.folded = "";
-		node.setAttribute("aria-label", `${KIND[form.kind]} form`);
-		const toggle = el("button", "ops-form-toggle");
-		toggle.type = "button";
-		toggle.setAttribute("aria-expanded", "false");
-		const kind = el("span", browserUiClasses.chip);
-		kind.append(el("span", browserUiClasses.chipLabel, KIND[form.kind]));
-		toggle.append(kind, el("span", "ops-form-toggle-text", asked(form)), el("span", "ops-form-time", ago(form.openedMs)));
-		toggle.addEventListener("click", () => {
-			opened.add(form.formId);
-			bump();
-			cards.get(form.formId)?.node.focus();
-		});
-		node.append(toggle);
-		cards.set(form.formId, {
-			node,
-			seen
-		});
-		return node;
-	}
-	function card(form, memberName) {
-		const entry = sent.get(form.formId);
-		const inFlight = busy.has(form.formId);
-		const open = form.answerable && !form.truncated && form.kind !== "permission";
-		const locked = inFlight || !!entry && (entry.state !== "refused" || entry.reason === "FORM_DELIVERY_UNSUPPORTED");
-		const seen = JSON.stringify([
-			form,
-			entry,
-			inFlight,
-			memberName
-		]);
-		const cached = cards.get(form.formId);
-		if (cached?.seen === seen) return fresh(cached.node, form);
-		const node = el("section", `${browserUiClasses.card} ops-form`);
-		node.dataset.formId = form.formId;
-		node.dataset.kind = form.kind;
-		node.tabIndex = -1;
-		node.setAttribute("aria-label", `${KIND[form.kind]} form`);
-		const head = el("div", `${browserUiClasses.cardHead} ops-form-head`);
-		const kind = el("span", browserUiClasses.chip);
-		kind.append(el("span", browserUiClasses.chipLabel, KIND[form.kind]));
-		head.append(kind, el("span", "ops-form-time", ago(form.openedMs)));
-		node.append(head);
-		const body = el(open ? "form" : "div", "ops-form-body");
-		if (form.kind === "permission" && form.tool) {
-			body.append(el("p", `${browserUiClasses.cardTitle} ops-form-text`, form.tool.name));
-			body.append(el("p", "ops-form-summary", form.tool.summary));
-		}
-		if (form.kind === "planApproval") {
-			body.append(el("p", `${browserUiClasses.cardTitle} ops-form-text`, "Approve this plan?"));
-			if (form.plan !== void 0) body.append(el("pre", "ops-form-plan", form.plan));
-		}
-		form.questions?.forEach((item, index) => body.append(question(form, item, index, open)));
-		node.append(body);
-		const lines = [];
-		if (form.truncated) lines.push(note(`Only part of this form is shown here. Answer it in the terminal where ${memberName} runs.`));
-		else if (!open) lines.push(note(`Answer this in the terminal where ${memberName} runs.`));
-		const said = entry && outcome(entry, memberName);
-		if (said) lines.push(said);
-		if (open && body instanceof HTMLFormElement) {
-			const actions = el("div", "ops-form-actions");
-			if (form.kind === "planApproval") for (const [label, decision] of [["Approve", "allow"], ["Keep planning", "deny"]]) {
-				const button = el("button", browserUiClasses.action, label);
-				button.type = "button";
-				if (decision === "allow") button.dataset.variant = "primary";
-				button.disabled = locked;
-				button.addEventListener("click", () => void send(form, { decision }));
-				actions.append(button);
-			}
-			else {
-				const button = el("button", browserUiClasses.action, "Send answer");
-				button.type = "submit";
-				button.dataset.variant = "primary";
-				const ready = () => {
-					const answer = read(body, form);
-					button.disabled = locked || !answer;
-				};
-				body.addEventListener("input", ready);
-				body.addEventListener("submit", (event) => {
-					event.preventDefault();
-					const answer = read(body, form);
-					if (answer && !locked) send(form, answer);
-				});
-				actions.append(button);
-				ready();
-			}
-			for (const control of body.querySelectorAll("input")) control.disabled = locked;
-			body.append(actions);
-		}
-		node.append(...lines);
-		if (cached && open && !("folded" in cached.node.dataset)) refocus = carry(cached.node, node) ?? refocus;
-		cards.set(form.formId, {
-			node,
-			seen
-		});
-		return node;
-	}
-	function gone(entry, memberName) {
-		const node = el("section", `${browserUiClasses.card} ops-form`);
-		node.dataset.formId = entry.formId;
-		node.setAttribute("aria-label", "Answered form");
-		node.append(el("p", `${browserUiClasses.cardTitle} ops-form-text`, entry.asked));
-		const said = outcome(entry, memberName);
-		if (said) node.append(said);
-		if (!busy.has(entry.formId)) {
-			const dismiss = el("button", browserUiClasses.action, "Dismiss");
-			dismiss.type = "button";
-			dismiss.dataset.variant = "text";
-			dismiss.addEventListener("click", () => {
-				sent.delete(entry.formId);
-				drop(entry.formId);
-				bump();
-			});
-			node.append(dismiss);
-		}
-		return node;
-	}
-	return {
-		async refresh() {
-			if (status === "off") return true;
-			try {
-				const forms = await client();
-				const next = await forms.cursor();
-				if (status !== "ready" || next.cursor !== cursor) {
-					list = [...(await forms.list()).forms].sort((a, b) => a.openedMs - b.openedMs);
-					cursor = next.cursor;
-					status = "ready";
-					const live = new Set(list.map((form) => form.formId));
-					for (const id of cards.keys()) if (!live.has(id)) cards.delete(id);
-					for (const id of opened) if (!live.has(id)) opened.delete(id);
-					for (const [id, entry] of sent) if (!live.has(id) && entry.state !== "uncertain") {
-						sent.delete(id);
-						drop(id);
-					}
-					bump();
-				}
-				for (const entry of sent.values()) if (entry.state === "uncertain" && !resumed.has(entry.formId) && !busy.has(entry.formId)) {
-					resumed.add(entry.formId);
-					check(entry);
-				}
-				return true;
-			} catch (error) {
-				const was = status;
-				if (error instanceof FormsNotAllowed || error instanceof RefusalError && error.code === "REMOTE_SCOPE_DENIED") {
-					status = "off";
-					list = [];
-					cards.clear();
-					bump();
-					return true;
-				}
-				status = "unavailable";
-				cursor = void 0;
-				list = [];
-				cards.clear();
-				if (was !== "unavailable") bump();
-				return false;
-			}
-		},
-		waiting(identityId) {
-			if (status === "off") return 0;
-			return list.filter((form) => form.identityId === identityId).length + [...sent.values()].filter((entry) => entry.identityId === identityId && entry.state === "uncertain" && !list.some((form) => form.formId === entry.formId)).length;
-		},
-		unavailable: () => status === "unavailable",
-		fingerprint: () => `${status}:${version}`,
-		view(identityId, memberName) {
-			let slot = views.get(identityId);
-			if (!slot) {
-				slot = el("div", "ops-forms");
-				slot.setAttribute("aria-label", "Provider forms");
-				slot.append(el("div", "ops-forms-open"), el("div", "ops-forms-folded"));
-				views.set(identityId, slot);
-			}
-			const [openBox, foldedBox] = [...slot.children];
-			const open = [];
-			const rows = [];
-			if (status === "off") {
-				slot.hidden = true;
-				return slot;
-			}
-			if (status === "unavailable") open.push(el("p", "ops-detail-note", "Provider forms unavailable. This page tries again shortly."));
-			list.filter((form) => form.identityId === identityId).forEach((form, index) => index === 0 || opened.has(form.formId) || sent.has(form.formId) ? open.push(card(form, memberName)) : rows.push(folded(form)));
-			for (const entry of sent.values()) if (entry.identityId === identityId && entry.state === "uncertain" && !list.some((form) => form.formId === entry.formId)) open.push(gone(entry, memberName));
-			for (const [box, parts] of [[openBox, open], [foldedBox, rows]]) {
-				if (parts.length !== box.children.length || parts.some((part, i) => box.children[i] !== part)) box.replaceChildren(...parts);
-				box.hidden = parts.length === 0;
-			}
-			slot.hidden = open.length + rows.length === 0;
-			refocus?.();
-			refocus = void 0;
-			return slot;
-		}
-	};
-}
-/** The answer the controls hold, or nothing until every question has one. */
-function read(body, form) {
-	const questions = form.questions ?? [];
-	const choices = [];
-	const other = [];
-	for (let index = 0; index < questions.length; index++) {
-		const name = `ops-form-${form.formId}-${index}`;
-		const picked = [...body.querySelectorAll(`input[name="${name}"]`)].filter((input) => input.checked).map((input) => Number(input.value));
-		const typed = body.querySelector(`input[name="${name}-other"]`)?.value.trim();
-		if (!picked.length && !typed) return void 0;
-		choices.push(picked);
-		other.push(typed || null);
-	}
-	return other.some((text) => text !== null) ? {
-		choices,
-		other
-	} : { choices };
-}
-/** Copies unsent choices to the rebuilt card; returns how to put the person's focus back once
-* the new card is in place. */
-function carry(from, to) {
-	let restore;
-	for (const input of from.querySelectorAll("input")) {
-		const twin = [...to.querySelectorAll("input")].find((candidate) => candidate.name === input.name && (input.type === "text" || candidate.value === input.value));
-		if (!twin) continue;
-		if (input.type === "text") twin.value = input.value;
-		else twin.checked = input.checked;
-		if (input === document.activeElement) {
-			const [start, end] = [input.selectionStart, input.selectionEnd];
-			restore = () => {
-				twin.focus({ preventScroll: true });
-				if (twin.type === "text") twin.setSelectionRange(start, end);
-			};
-		}
-	}
-	to.querySelector("form")?.dispatchEvent(new Event("input"));
-	return restore;
-}
-//#endregion
-//#region src/ops-page.ts
-/** The Ops web view: local squad channels and Orchestration, one section at a time
-* from the module menu. Only Orchestration changes anything, through Core's own preview and confirm
-* (#4894). Every state is a mark and a word; what the reader sets on a section stays across the
-* board's refreshes. */
-/** The board's own reload cadence (`tmt ops ui`). */
-var REFRESH_MS = 5e3;
-/** Orchestration changes by configuration, not by turn: a slower reread while it is shown. */
-var ORCHESTRATION_REFRESH_MS = 3e4;
-function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = async () => {
-	if (!shell.session) throw new Error("No signed browser session.");
-	return orchestrationApi(await shell.session());
-}, historyTalk, channelPort, ownDevice = async () => {
-	if (!shell.session) return null;
-	const own = (await management(await shell.session()).devices({
-		cursor: null,
-		limit: 100
-	})).devices.find((device) => device.thisBrowser);
-	return own && {
-		name: own.name,
-		id: own.clientId
-	};
-}, formsConnect = async () => {
-	if (!shell.session) throw new FormsNotAllowed("No signed browser session.");
-	return forms(await shell.session());
-}) {
-	const main = document.getElementById("ops-section");
-	const note = document.getElementById("ops-note");
-	if (!main || !note) return;
-	ownDevice().then((own) => {
-		knowOwnDevice(own?.name ?? null);
-		if (own !== void 0) draftsFor(own && own.id);
-	}, () => knowOwnDevice(null));
-	let board;
-	const current = () => {
-		const asked = opsPlace(location.hash);
-		const place = resolveOpsPlace(asked, board);
-		if (place !== asked) window.history.replaceState(window.history.state, "", opsHref(location.pathname, place));
-		if (place !== "home" || !board || board.unavailable) return place;
-		const first = bySquad(board, true)[0];
-		return first ? { squad: first.name } : "home";
-	};
-	const orchestration = orchestrationView(orchestrationConnect);
-	let orchestrationAt = 0;
-	const refreshOrchestration = () => {
-		orchestrationAt = Date.now();
-		return orchestration.refresh();
-	};
-	let rereadBoard = () => {};
-	const providerForms = opsForms(formsConnect, () => paint());
-	const channel = channelView(location.pathname, shell, channelPort, () => rereadBoard(), providerForms);
-	const collapsedSquads = /* @__PURE__ */ new Set();
-	const unread = /* @__PURE__ */ new Map();
-	let unreadScope = "";
-	const history = conversationHistory(shell, (value) => {
-		const next = value.scope ? `${value.scope.machineId}/${value.scope.viewerId}` : "";
-		if (next !== unreadScope || !value.scope) {
-			unread.clear();
-			unreadScope = next;
-		}
-		if (value.scope) unread.set(value.scope.memberId, value.unread);
-		paintMenu();
-	}, historyRead, historyTalk);
-	const paintMenu = () => {
-		if (!board) return;
-		const section = current();
-		shell.setMenu(opsMenu(section, board, location.pathname, {
-			collapsed: collapsedSquads,
-			toggle(squad) {
-				if (collapsedSquads.has(squad)) collapsedSquads.delete(squad);
-				else collapsedSquads.add(squad);
-				paint();
-			}
-		}, unread, hasDraft, (memberId) => providerForms.waiting(memberId)));
-	};
-	const paint = () => {
-		const section = current();
-		paintMenu();
-		const member = board && !board.unavailable && typeof section !== "string" && section.memberId ? board.agents.find((agent) => agent.id === section.memberId && agent.squad === section.squad) : void 0;
-		history.select(member ? {
-			id: member.id,
-			name: member.name
-		} : void 0);
-		const label = opsPlaceLabel(section, board);
-		shell.setTitle(label, label === "Ops" ? [] : ["Ops"], "Ops");
-		if (!board) main.replaceChildren(pageLoading());
-		else if (board.unavailable) main.replaceChildren();
-		else if (typeof section !== "string") {
-			if (channel.node.parentElement !== main) main.replaceChildren(channel.node);
-			channel.update(board, section);
-			if (member && history.node.parentElement !== channel.history) channel.history.replaceChildren(history.node);
-		} else if (section === "orchestration") {
-			if (orchestration.node.parentElement !== main) {
-				main.replaceChildren(orchestration.node);
-				refreshOrchestration();
-			}
-		} else {
-			const empty = document.createElement("p");
-			empty.className = "ops-empty";
-			empty.textContent = "No squads yet.";
-			main.replaceChildren(empty);
-		}
-	};
-	let fromKeyboard = false;
-	window.addEventListener("keydown", () => fromKeyboard = true, {
-		capture: true,
-		signal: shell.signal
-	});
-	window.addEventListener("pointerdown", () => fromKeyboard = false, {
-		capture: true,
-		signal: shell.signal
-	});
-	window.addEventListener("hashchange", () => {
-		paint();
-		if (!document.activeElement?.closest(".ops-composer-host")) channel.focusTitle(fromKeyboard);
-	}, { signal: shell.signal });
-	shell.signal.addEventListener("abort", onDrafts(paintMenu));
-	paint();
-	whileVisible(ORCHESTRATION_REFRESH_MS, shell.signal, async () => {
-		if (Date.now() - orchestrationAt >= ORCHESTRATION_REFRESH_MS && current() === "orchestration" && orchestration.node.parentElement === main) await refreshOrchestration();
-		return true;
-	});
-	let last = "";
-	const readBoard = async () => {
-		const next = await source.board(shell.signal);
-		if (shell.signal.aborted) return true;
-		const seen = JSON.stringify(next);
-		if (seen !== last) {
-			last = seen;
-			board = next;
-			orchestration.timers({
-				jobs: next.unavailable ? null : next.schedules,
-				truncated: next.truncated
-			});
-			if (next.unavailable) notAvailable(note, next.unavailable);
-			else if (next.truncated) notAvailable(note, "The board is larger than the browser shows. `tmt ops ui` shows all of it.");
-			else {
-				note.textContent = "";
-				note.hidden = true;
-			}
-			paint();
-		}
-		return next.unavailable === void 0;
-	};
-	rereadBoard = () => void readBoard();
-	whileVisible(REFRESH_MS, shell.signal, readBoard);
-	whileVisible(REFRESH_MS, shell.signal, () => providerForms.refresh());
-}
-//#endregion
 //#region src/members.ts
 var V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var cursor = (v) => v === null || typeof v === "string" && /^[A-Za-z0-9_-]{54}$/.test(v);
 var id = (v) => typeof v === "string" && v.length > 0;
-var revision = (v) => integer$1(v) && v > 0;
-var time = (v) => v === null || integer$1(v);
+var revision = (v) => integer(v) && v > 0;
+var time = (v) => v === null || integer(v);
 function inputKeys(value, keys) {
 	input(Object.keys(value).length === keys.length && keys.every((k) => Object.hasOwn(value, k)));
 }
 function page(value) {
-	input(cursor(value.cursor) && integer$1(value.limit) && value.limit >= 1 && value.limit <= 50);
+	input(cursor(value.cursor) && integer(value.limit) && value.limit >= 1 && value.limit <= 50);
 }
 function person(value) {
-	const row = object$4(value);
+	const row = object$2(value);
 	exact(row, [
 		"remoteId",
 		"memberId",
@@ -14925,11 +10233,11 @@ function person(value) {
 		"createdAtMs",
 		"revokedAtMs"
 	]);
-	valid$6(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && memberName(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer$1(row.createdAtMs) && time(row.revokedAtMs));
+	valid$5(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && memberName(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer(row.createdAtMs) && time(row.revokedAtMs));
 	return row;
 }
 function invitation(value) {
-	const row = object$4(value);
+	const row = object$2(value);
 	if (row.state === "unavailable" || row.state === "no-current-offer") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -14939,7 +10247,7 @@ function invitation(value) {
 			"localConfirmationKnown",
 			"cleanup"
 		]);
-		valid$6(row.state === "current" && time(row.expiresAtMs) && [
+		valid$5(row.state === "current" && time(row.expiresAtMs) && [
 			"open",
 			"awaiting-owner",
 			"confirmed",
@@ -14956,7 +10264,7 @@ function invitation(value) {
 	return row;
 }
 function routes$1(value) {
-	const row = object$4(value);
+	const row = object$2(value);
 	if (row.state === "unavailable" || row.state === "not-recorded") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -14964,12 +10272,12 @@ function routes$1(value) {
 			"publicationPending",
 			"removalPending"
 		]);
-		valid$6(row.state === "recorded" && typeof row.publicationPending === "boolean" && typeof row.removalPending === "boolean");
+		valid$5(row.state === "recorded" && typeof row.publicationPending === "boolean" && typeof row.removalPending === "boolean");
 	}
 	return row;
 }
 function machine(value, caller) {
-	const row = object$4(value);
+	const row = object$2(value);
 	exact(row, [
 		"clientId",
 		"name",
@@ -14986,19 +10294,19 @@ function machine(value, caller) {
 		"liveSessionCount",
 		"lastActivityAtMs"
 	]);
-	valid$6(id(row.clientId) && memberName(row.name) && [
+	valid$5(id(row.clientId) && memberName(row.name) && [
 		"browser",
 		"addon",
 		"cli"
 	].includes(row.kind) && revision(row.revision) && typeof row.revoked === "boolean" && time(row.expiresAtMs) && typeof row.sendingScope === "boolean" && ["direct", "hold"].includes(row.delivery) && ["all", "restricted"].includes(row.recipientAccess) && typeof row.grantLive === "boolean" && time(row.lastUsedAtMs) && row.thisBrowser === (row.clientId === caller) && time(row.liveSessionCount) && time(row.lastActivityAtMs));
-	valid$6(!row.revoked || !row.grantLive);
-	valid$6(row.liveSessionCount === null || row.liveSessionCount === 0 ? row.lastActivityAtMs === null : integer$1(row.lastActivityAtMs));
+	valid$5(!row.revoked || !row.grantLive);
+	valid$5(row.liveSessionCount === null || row.liveSessionCount === 0 ? row.lastActivityAtMs === null : integer(row.lastActivityAtMs));
 	return row;
 }
 function original(value, operationId) {
-	const row = object$4(value);
+	const row = object$2(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
-	const result = object$4(row.result);
+	const result = object$2(row.result);
 	if (!Object.hasOwn(result, "member") && !Object.hasOwn(result, "remote")) return parseManagementOutcome(value, operationId);
 	exact(row, [
 		"operationId",
@@ -15006,15 +10314,15 @@ function original(value, operationId) {
 		"result",
 		"sessionEnded"
 	]);
-	valid$6(row.operationId === operationId && typeof row.sessionEnded === "boolean");
+	valid$5(row.operationId === operationId && typeof row.sessionEnded === "boolean");
 	if (Object.hasOwn(result, "member")) {
 		exact(result, ["member"]);
 		person(result.member);
 	} else {
 		exact(result, ["remote"]);
-		const remote = object$4(result.remote);
+		const remote = object$2(result.remote);
 		exact(remote, ["remoteId", "displayName"]);
-		valid$6(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && memberName(remote.displayName) && row.sessionEnded === false);
+		valid$5(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && memberName(remote.displayName) && row.sessionEnded === false);
 	}
 	return row;
 }
@@ -15030,12 +10338,12 @@ function members(session, options = {}) {
 		return managementMutation(call, operation, frozen, (value) => {
 			const parsed = original(value, frozen.operationId);
 			if (parsed.state === "committed") {
-				if (kind === "remote") valid$6("remote" in parsed.result && parsed.result.remote.remoteId === frozen.remoteId && parsed.result.remote.displayName === frozen.name);
+				if (kind === "remote") valid$5("remote" in parsed.result && parsed.result.remote.remoteId === frozen.remoteId && parsed.result.remote.displayName === frozen.name);
 				else {
-					valid$6("member" in parsed.result && "memberId" in frozen && parsed.result.member.remoteId === frozen.remoteId && parsed.result.member.memberId === frozen.memberId && parsed.result.member.revision >= frozen.memberRevision);
-					if (operation === "remote.members.rename") valid$6(parsed.result.member.displayName === frozen.name && parsed.sessionEnded === false);
-					if (operation === "remote.members.sending") valid$6(parsed.result.member.sendingEnabled === frozen.enabled);
-					if (operation === "remote.members.revoke") valid$6(parsed.result.member.revokedAtMs !== null && !parsed.result.member.sendingEnabled);
+					valid$5("member" in parsed.result && "memberId" in frozen && parsed.result.member.remoteId === frozen.remoteId && parsed.result.member.memberId === frozen.memberId && parsed.result.member.revision >= frozen.memberRevision);
+					if (operation === "remote.members.rename") valid$5(parsed.result.member.displayName === frozen.name && parsed.sessionEnded === false);
+					if (operation === "remote.members.sending") valid$5(parsed.result.member.sendingEnabled === frozen.enabled);
+					if (operation === "remote.members.revoke") valid$5(parsed.result.member.revokedAtMs !== null && !parsed.result.member.sendingEnabled);
 				}
 			}
 			return parsed;
@@ -15047,13 +10355,13 @@ function members(session, options = {}) {
 	return {
 		clientId,
 		summary: () => call("remote.members.summary", crypto.randomUUID(), {}, (value) => {
-			const row = object$4(value);
+			const row = object$2(value);
 			exact(row, [
 				"remoteId",
 				"memberCount",
 				"lastActiveAtMs"
 			]);
-			valid$6(row.remoteId === remoteId && time(row.memberCount) && time(row.lastActiveAtMs));
+			valid$5(row.remoteId === remoteId && time(row.memberCount) && time(row.lastActiveAtMs));
 			return row;
 		}),
 		list: (value) => {
@@ -15061,7 +10369,7 @@ function members(session, options = {}) {
 			page(value);
 			const frozen = { ...value };
 			return call("remote.members.list", crypto.randomUUID(), frozen, (value) => {
-				const row = object$4(value);
+				const row = object$2(value);
 				exact(row, [
 					"remoteId",
 					"administrator",
@@ -15071,18 +10379,18 @@ function members(session, options = {}) {
 					"invitation",
 					"routes"
 				]);
-				valid$6(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
+				valid$5(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.members) {
-					const observed = object$4(entry);
-					valid$6(Object.hasOwn(observed, "lastUsedAtMs") && time(observed.lastUsedAtMs));
+					const observed = object$2(entry);
+					valid$5(Object.hasOwn(observed, "lastUsedAtMs") && time(observed.lastUsedAtMs));
 					const { lastUsedAtMs: _lastUsedAtMs, ...base } = observed;
 					const member = person(base);
-					valid$6(member.remoteId === row.remoteId && !seen.has(member.memberId));
+					valid$5(member.remoteId === row.remoteId && !seen.has(member.memberId));
 					seen.add(member.memberId);
 				}
 				if (row.administrator) invitation(row.invitation);
-				else valid$6(row.members.length <= 1 && row.invitation === null);
+				else valid$5(row.members.length <= 1 && row.invitation === null);
 				routes$1(row.routes);
 				return row;
 			});
@@ -15097,18 +10405,18 @@ function members(session, options = {}) {
 			input(id(value.memberId));
 			const frozen = { ...value };
 			return call("remote.members.machines", crypto.randomUUID(), frozen, (value) => {
-				const row = object$4(value);
+				const row = object$2(value);
 				exact(row, [
 					"remoteId",
 					"memberId",
 					"machines",
 					"nextCursor"
 				]);
-				valid$6(row.remoteId === remoteId && row.memberId === frozen.memberId && Array.isArray(row.machines) && row.machines.length <= frozen.limit && cursor(row.nextCursor));
+				valid$5(row.remoteId === remoteId && row.memberId === frozen.memberId && Array.isArray(row.machines) && row.machines.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.machines) {
 					const item = machine(entry, clientId);
-					valid$6(!seen.has(item.clientId));
+					valid$5(!seen.has(item.clientId));
 					seen.add(item.clientId);
 				}
 				return row;
@@ -15162,13 +10470,41 @@ function members(session, options = {}) {
 			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => {
 				const parsed = original(value, operationId);
 				if (parsed.state === "committed") {
-					if ("member" in parsed.result) valid$6(parsed.result.member.remoteId === remoteId);
-					if ("remote" in parsed.result) valid$6(parsed.result.remote.remoteId === remoteId);
+					if ("member" in parsed.result) valid$5(parsed.result.member.remoteId === remoteId);
+					if ("remote" in parsed.result) valid$5(parsed.result.remote.remoteId === remoteId);
 				}
 				return parsed;
 			});
 		}
 	};
+}
+//#endregion
+//#region src/command-copy.ts
+/** A terminal reference with best-effort Copy and inline status; it never executes the command. */
+function commandCopy(text) {
+	const command = document.createElement("div");
+	command.className = browserUiClasses.command;
+	const code = document.createElement("code");
+	code.className = browserUiClasses.commandText;
+	code.textContent = text;
+	const copy = document.createElement("button");
+	copy.className = browserUiClasses.commandCopy;
+	copy.type = "button";
+	copy.setAttribute("aria-label", `Copy ${text}`);
+	copy.append(createIcon("copy"), "Copy");
+	const feedback = document.createElement("span");
+	feedback.className = browserUiClasses.commandFeedback;
+	feedback.setAttribute("role", "status");
+	copy.addEventListener("click", async () => {
+		try {
+			await navigator.clipboard.writeText(text);
+			feedback.textContent = "Copied.";
+		} catch {
+			feedback.textContent = "Copy failed. Select the command and copy it manually.";
+		}
+	});
+	command.append(code, copy, feedback);
+	return command;
 }
 //#endregion
 //#region src/join-page.ts
@@ -17053,12 +12389,6 @@ var routes = [
 		}
 	},
 	{
-		id: "ops",
-		paths: ["/ops", "/ops/"],
-		rail: "ops",
-		load: async () => remotePage(ops_default, () => opsPage(remoteShell()))
-	},
-	{
 		id: "digest",
 		paths: ["/digest", "/digest/"],
 		rail: "digest",
@@ -17113,10 +12443,9 @@ var observed = false;
 var publishSearch;
 var heldBy;
 /** The session is about to change: modules the shell keeps suspended hold the old one, so release
-* them first; and no unsent Ops words stay for the next session to see (#6757). */
+* them first. */
 function sessionChanging() {
 	started?.sessionChanging();
-	forgetDrafts();
 }
 /** A verified replacement retires the old search transport/providers; it grants no access. */
 function observedSession(next) {
@@ -19250,4 +14579,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, conversations, firebaseRemote, forms, invitationPage, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, invitationPage, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };

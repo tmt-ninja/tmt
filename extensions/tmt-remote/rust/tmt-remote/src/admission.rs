@@ -157,8 +157,6 @@ impl MessagePermit {
             } else {
                 "dispatching"
             }
-        } else if matches!(input.operation, "forms.answer" | "terminal.command.run") {
-            "uncertain"
         } else {
             "observed"
         };
@@ -262,15 +260,7 @@ pub(crate) enum RemoteOperation {
     DispatchShow,
     OperationShow,
     RequestsShow,
-    RequestsList,
     RequestsSendNow,
-    OrchestrationRead,
-    OrchestrationWrite,
-    FormsList,
-    FormsAnswer,
-    TerminalCommandTargets,
-    TerminalCommandRun,
-    ChangesCursor,
     Result,
     Final,
     SquadsSummary,
@@ -311,15 +301,7 @@ impl RemoteOperation {
         ("dispatch.show", Self::DispatchShow),
         ("operation.show", Self::OperationShow),
         ("requests.show", Self::RequestsShow),
-        ("requests.list", Self::RequestsList),
         ("requests.sendNow", Self::RequestsSendNow),
-        ("orchestration.read", Self::OrchestrationRead),
-        ("orchestration.write", Self::OrchestrationWrite),
-        ("forms.list", Self::FormsList),
-        ("forms.answer", Self::FormsAnswer),
-        ("terminal.command.targets", Self::TerminalCommandTargets),
-        ("terminal.command.run", Self::TerminalCommandRun),
-        ("changes.cursor", Self::ChangesCursor),
         ("result", Self::Result),
         ("final", Self::Final),
         ("squads.summary", Self::SquadsSummary),
@@ -362,14 +344,8 @@ impl RemoteOperation {
             Self::DispatchCreate => OperationClass::Effect,
             Self::DispatchShow => OperationClass::Read,
             Self::OperationShow => OperationClass::RecoveryObservation,
-            Self::RequestsShow | Self::RequestsList => OperationClass::Read,
+            Self::RequestsShow => OperationClass::Read,
             Self::RequestsSendNow => OperationClass::Effect,
-            Self::OrchestrationRead => OperationClass::Read,
-            Self::OrchestrationWrite | Self::FormsAnswer => OperationClass::Effect,
-            Self::FormsList | Self::ChangesCursor | Self::TerminalCommandTargets => {
-                OperationClass::Read
-            }
-            Self::TerminalCommandRun => OperationClass::Effect,
             Self::Result => OperationClass::Read,
             Self::Final => OperationClass::Effect,
             Self::SquadsSummary => OperationClass::Effect,
@@ -406,14 +382,8 @@ impl RemoteOperation {
             Self::DispatchCreate => Some("talk"),
             Self::DispatchShow => Some("talk"),
             Self::OperationShow => Some("talk"),
-            Self::RequestsShow | Self::RequestsList => Some("results.read"),
+            Self::RequestsShow => Some("results.read"),
             Self::RequestsSendNow => Some("talk"),
-            Self::OrchestrationRead => Some("agents.read"),
-            Self::OrchestrationWrite | Self::FormsAnswer => Some("talk"),
-            Self::FormsList | Self::ChangesCursor => Some("agents.read"),
-            Self::TerminalCommandTargets | Self::TerminalCommandRun => {
-                Some(crate::store::TERMINAL_COMMAND_SCOPE)
-            }
             Self::Result => Some("results.read"),
             Self::Final => Some("results.read"),
             Self::SquadsSummary => Some("agents.read"),
@@ -443,19 +413,6 @@ pub(crate) fn refusal_with_limit(
         message,
         json!({"code":code,"message":text}),
         limit,
-    )
-}
-
-pub(crate) fn missing_room_results(
-    sessions: &DoorSessions,
-    message: &SignedMessage,
-) -> MessageRefusal {
-    signed_refusal(
-        sessions,
-        message,
-        json!({"code":"REMOTE_SCOPE_DENIED","message":"Room history requires results.read.",
-            "scope":"results.read"}),
-        None,
     )
 }
 
@@ -498,6 +455,18 @@ mod tests {
                 operation.class()
             );
         }
-        assert!(scope("future.operation").is_none());
+        for name in [
+            "future.operation",
+            "requests.list",
+            "orchestration.read",
+            "orchestration.write",
+            "forms.list",
+            "forms.answer",
+            "changes.cursor",
+            "terminal.command.targets",
+            "terminal.command.run",
+        ] {
+            assert!(scope(name).is_none(), "{name} must not be admitted");
+        }
     }
 }

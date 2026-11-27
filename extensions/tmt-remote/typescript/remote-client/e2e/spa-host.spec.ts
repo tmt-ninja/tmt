@@ -93,8 +93,6 @@ const APP_ROUTES = [
   '/remote/my-devices',
   '/remote/service',
   '/remote/settings',
-  '/ops',
-  '/ops/',
   '/digest',
   '/digest/',
   '/colab',
@@ -106,6 +104,8 @@ const APP_ROUTES = [
 const NOT_APP_ROUTES = [
   '/nope',
   '/remote/other',
+  '/ops',
+  '/ops/',
   '/ops/x',
   '/digest/x',
   '/settings/x',
@@ -371,7 +371,7 @@ const beyondAssets = (requests: Request[]) =>
     .map((request) => `${request.method()} ${new URL(request.url()).pathname}`)
     .filter(
       (entry) =>
-        !/^GET \/sdk\/(pages\.css|settings\.css|shell\.js|remote-v1\.js|settings-v1\.js|ops-composer-v1\.js)$/.test(
+        !/^GET \/sdk\/(pages\.css|settings\.css|shell\.js|remote-v1\.js|settings-v1\.js)$/.test(
           entry,
         ),
     );
@@ -397,8 +397,6 @@ test.describe('route identities in the shared top bar', () => {
           ['/remote/settings', 'Settings'],
           ['/remote/create', 'Create a Remote'],
           ['/remote/join', 'Join a Remote'],
-          ['/ops#channel/tmt-core', '#tmt-core'],
-          ['/ops#orchestration', 'Orchestration'],
           ['/digest', 'Digest'],
           ['/settings#general', 'General'],
           ['/settings#identities', 'Identities'],
@@ -516,7 +514,7 @@ test.describe('the app in a browser', () => {
     const problems: string[] = [];
     for (const scheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: scheme });
-      for (const path of ['/', '/remote/', '/remote/settings', '/settings', '/ops', '/digest']) {
+      for (const path of ['/', '/remote/', '/remote/settings', '/settings', '/digest']) {
         await page.goto(`${origin}${path}`);
         // The route's own markup is in place and no first read is still painting.
         await expect(page.locator('.tmt-ui-shell-main > :not([hidden])').first()).toBeVisible();
@@ -745,8 +743,8 @@ test.describe('the app in a browser', () => {
 
   test('the Remote rail never retains invitation query or fragment', async () => {
     const { page } = await openApp('/remote/join?token=private-query#private-fragment');
-    await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
-    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
+    await page.locator('nav.tmt-ui-rail a[data-id="digest"]').click();
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'digest');
     const remote = page.locator('nav.tmt-ui-rail a[data-id="remote"]');
     const href = new URL((await remote.getAttribute('href'))!, page.url());
     expect(href.pathname).toBe('/remote/join');
@@ -761,8 +759,8 @@ test.describe('the app in a browser', () => {
 
   test('the rail returns to the last Remote location and My Remotes remains explicit', async () => {
     const { page } = await openApp('/remote/settings');
-    await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
-    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
+    await page.locator('nav.tmt-ui-rail a[data-id="digest"]').click();
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'digest');
     await page.locator('nav.tmt-ui-rail a[data-id="remote"]').click();
     await expectView(
       page,
@@ -785,8 +783,8 @@ test.describe('the app in a browser', () => {
     await expect(sheet).toHaveCount(1);
     // Its rules apply before the markup shows: the page's choice control keeps its arrow room.
     await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'remote');
-    await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
-    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
+    await page.locator('nav.tmt-ui-rail a[data-id="digest"]').click();
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'digest');
     await expect(sheet).toHaveCount(0);
     await page.goBack();
     await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'remote');
@@ -808,19 +806,18 @@ test.describe('the app in a browser', () => {
         })),
       );
     const first = await rail();
-    expect(first.map((item) => item.id)).toEqual([
+    expect(first.filter((item) => item.id !== 'ops').map((item) => item.id)).toEqual([
       'home',
       'colab',
       'design',
       'remote',
-      'ops',
       'digest',
       'settings',
     ]);
     const stable = (items: typeof first) => items.map(({ current: _current, ...item }) => item);
     expect(first.filter((item) => item.current).map((item) => item.id)).toEqual(['home']);
     // Follow the rail through every route this app serves itself, then walk back.
-    for (const id of ['remote', 'ops', 'digest', 'settings', 'home']) {
+    for (const id of ['remote', 'digest', 'settings', 'home']) {
       await page.locator(`nav.tmt-ui-rail a[data-id="${id}"]`).click();
       const route = id === 'settings' ? 'settings' : id;
       await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', route);
@@ -841,7 +838,7 @@ test.describe('the app in a browser', () => {
   });
 
   test('keeps the full rail and selected sub-page despite an old preference, with the phone drawer unchanged', async () => {
-    const { page } = await openApp('/ops', async (page) => {
+    const { page } = await openApp('/digest', async (page) => {
       await page.addInitScript(() => localStorage.setItem('tmt.shell.rail', 'collapsed'));
     });
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -851,7 +848,7 @@ test.describe('the app in a browser', () => {
     // The brand stays in the rail; the single route heading is in the top bar's left group.
     await expect(page.locator('.root-title-row')).toHaveCount(0);
     await expect(brand).toContainText('tmt');
-    await expect(header).toHaveText('Ops');
+    await expect(header).toHaveText('Digest');
     const [railBox, brandBox, headerBox] = await Promise.all(
       [rail, brand, header].map(async (node) => (await node.boundingBox())!),
     );
@@ -865,7 +862,7 @@ test.describe('the app in a browser', () => {
     await expect(header).toHaveCSS('font-size', '16px');
     // The route heading includes its module prefix without repeating the rail brand.
     await expect(header.locator('.tmt-ui-wordmark, .tmt-ui-brand')).toHaveCount(0);
-    await expect(header).toHaveText('Ops');
+    await expect(header).toHaveText('Digest');
     await expect(page.locator('.tmt-ui-module-menu-title')).toHaveCount(0);
     await expect(rail).toHaveCSS('width', '232px');
     await expect(page.getByRole('button', { name: /sidebar/i })).toHaveCount(0);
@@ -1128,253 +1125,6 @@ test.describe('a module entry', () => {
   test('falls back to the module link when its entry is refused', async () => {
     const { page } = await openColab(composed(MOUNT, 'https://evil.example/colab.js'));
     await expect(page.locator(`.tmt-ui-shell-main a[href$="${MOUNT}"]`)).toBeVisible();
-    await page.close();
-  });
-});
-
-/**
- * The Ops route on the owner browser read `x/-/ops` (#4381). The door's read needs a live owner
- * session, so these stub the mount answer and the read: the page's own fetch, timer and states are
- * what is under test (the door's read has its own Rust tests and vectors).
- */
-test.describe('the Ops route on the owner read', () => {
-  const vectors = JSON.parse(
-    readFileSync(new URL('../../../../../contracts/owner-reads-v1.json', import.meta.url), 'utf8'),
-  ) as { cases: { target: string; expect: Record<string, unknown> }[] };
-  const board = vectors.cases.find((vector) => vector.target === 'ops')!.expect;
-  async function stub(page: Page, answers: Record<string, unknown>[]) {
-    const reads: number[] = [];
-    await page.route(`${origin}/sdk/mount`, (route) =>
-      route.fulfill({ json: { address: `${origin}/r/owner` } }),
-    );
-    await page.route(`${origin}/r/owner/x/-/ops`, (route) => {
-      reads.push(Date.now());
-      const next = answers.length > 1 ? answers.shift()! : answers[0]!;
-      return route.fulfill({ json: { ...next, observedAtMs: Date.now() } });
-    });
-    return reads;
-  }
-
-  for (const width of [1440, 390])
-    for (const colorScheme of ['light', 'dark'] as const)
-      test(`fixed menu children at ${width} ${colorScheme}`, async ({ browserName }, testInfo) => {
-        expect(browserName).toBe('chromium');
-        const observed = structuredClone(board) as {
-          agents: { presence: string }[];
-          timers: unknown;
-        };
-        observed.agents[1]!.presence = 'active';
-        observed.timers = null;
-        const { page } = await openApp('/ops#channel/tmt-core', async (page) => {
-          await page.setViewportSize({ width, height: 900 });
-          await page.emulateMedia({ colorScheme });
-          await page.addInitScript(
-            (theme) => localStorage.setItem('tmt-ui-theme', theme),
-            colorScheme,
-          );
-          await stub(page, [observed]);
-        });
-        const rail = page.locator('nav.tmt-ui-rail');
-        const openMenu = async () => {
-          if (width <= 900) {
-            const open = page.getByRole('button', { name: 'Open navigation', exact: true });
-            if ((await open.getAttribute('aria-expanded')) !== 'true') await open.click();
-          }
-        };
-        const inspect = async (labels: string[], selected: string) => {
-          await openMenu();
-          const tree = modulePages(page);
-          await expect(tree.locator('a .tmt-ui-module-menu-label')).toHaveText(labels);
-          await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
-          await expect(tree.locator(`a[data-id="${selected}"]`)).toHaveAttribute(
-            'aria-current',
-            'page',
-          );
-          await expect(tree.locator(':scope > li:last-child')).toHaveClass('tmt-ui-rail-settings');
-          await expect(tree.locator('button.tmt-ui-rail-add')).toHaveCount(0);
-          const geometry = await tree.evaluate((node) => ({
-            indents: [...node.querySelectorAll('a.tmt-ui-rail-sub-item')]
-              .filter((item) => !item.closest('.tmt-ui-rail-sub-children'))
-              .map((item) => getComputedStyle(item).paddingLeft),
-            nestedIndents: [...node.querySelectorAll('.tmt-ui-rail-sub-children a')].map(
-              (item) => getComputedStyle(item).paddingLeft,
-            ),
-            nestedPadding: getComputedStyle(node)
-              .getPropertyValue('--tmt-ui-rail-sub-padding-inline')
-              .trim(),
-            branches: [...node.querySelectorAll('.tmt-ui-rail-sub-children')].map((item) => ({
-              indent: getComputedStyle(item).paddingLeft,
-              rule: getComputedStyle(item).borderLeftStyle,
-              edge: getComputedStyle(item).borderLeftWidth,
-            })),
-            edge: getComputedStyle(node.querySelector('[aria-current="page"]')!).borderLeftWidth,
-            rule: getComputedStyle(node.lastElementChild!, '::before').borderTopStyle,
-            overflow: document.documentElement.scrollWidth > innerWidth,
-          }));
-          expect(new Set(geometry.indents)).toEqual(new Set(['36px']));
-          const nested = labels.includes('#tmt-core');
-          expect(geometry.nestedIndents).toEqual(
-            nested ? [geometry.nestedPadding, geometry.nestedPadding] : [],
-          );
-          expect(geometry.branches).toEqual(
-            nested ? [{ indent: '8px', rule: 'solid', edge: '1px' }] : [],
-          );
-          expect(geometry.edge).toBe('0px');
-          expect(geometry.rule).toBe('solid');
-          expect(geometry.overflow).toBe(false);
-        };
-        try {
-          await openMenu();
-          const tree = modulePages(page);
-          await expect(tree.locator('a .tmt-ui-module-menu-label')).toHaveText([
-            'tmt-core',
-            'tmt-lead',
-            'core-3',
-            'Orchestration',
-          ]);
-          await expect(tree.locator('a[data-id="orchestration"]')).not.toHaveAttribute(
-            'aria-current',
-            'page',
-          );
-          await expect(tree.locator('.tmt-ui-rail-sub-group')).toContainText('THIS MACHINE');
-          await expect(tree.locator('a[data-id="channel:tmt-core"]')).toHaveAttribute(
-            'aria-current',
-            'page',
-          );
-          await expect(tree.locator('.tmt-ui-attention-dot')).toHaveCount(0);
-          await expect(
-            tree.locator('a[data-id="channel:tmt-core"] .tmt-ui-shell-count'),
-          ).toHaveCount(0);
-          expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
-            false,
-          );
-          await page.mouse.move(width - 1, 899);
-          await page.screenshot({
-            path: testInfo.outputPath(`rail-ops-${width}-${colorScheme}.png`),
-          });
-          await page.goto(`${origin}/remote/`);
-          await page.evaluate(async () => {
-            const { remoteRegistry } = (await import(
-              '/sdk/remote-v1.js' as string
-            )) as typeof import('../src/browser.js');
-            await remoteRegistry.add('other-remote', 'https://other.invalid/');
-          });
-          await page.goto(`${origin}/remote/members`);
-          const remoteLabels = ['My Remotes', 'People', 'My devices', 'Remote settings'];
-          await inspect(remoteLabels, 'members');
-          await expect(
-            modulePages(page).locator('a[data-id="remotes"] .tmt-ui-shell-count'),
-          ).toHaveText('2');
-          await expect(
-            modulePages(page).locator('a[data-id="members"] .tmt-ui-shell-count'),
-          ).toHaveCount(0);
-          await expect(modulePages(page).locator('.tmt-ui-rail-sub-group')).toContainText(
-            'This machine',
-          );
-          await expect(
-            modulePages(page).getByRole('button', { name: 'Pair again', exact: true }),
-          ).toBeVisible();
-          await page.mouse.move(width - 1, 899);
-          await page.screenshot({
-            path: testInfo.outputPath(`rail-remote-${width}-${colorScheme}.png`),
-          });
-          for (const id of ['my-devices', 'settings', 'members']) {
-            await openMenu();
-            await modulePages(page).locator(`a[data-id="${id}"]`).click();
-            await inspect(remoteLabels, id);
-          }
-        } finally {
-          await page.close();
-        }
-      });
-
-  test('serves the local channel and UUID DM through the existing owner-read route', async () => {
-    const { page, requests } = await openApp('/ops#channel/tmt-core', async (page) => {
-      await stub(page, [board]);
-    });
-    try {
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #tmt-core');
-      await expect(page.locator('.ops-member-row .ops-member-state')).toHaveText([
-        'Working',
-        'Offline',
-      ]);
-      await page.getByRole('button', { name: /^Members and timers/ }).click();
-      await page.getByRole('tab', { name: /^Timers/ }).click();
-      await expect(page.getByRole('tabpanel', { name: /^Timers/ })).toContainText('Hourly pass');
-      await modulePages(page).getByRole('link', { name: 'core-3 · Offline', exact: true }).click();
-      await expect(page).toHaveURL(
-        `${origin}/ops#dm/00000000-0000-4000-8000-000000000002/tmt-core`,
-      );
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / core-3');
-      await expect(page.getByRole('region', { name: 'Talk history' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-      expect(
-        requests.some((request) => /requests\.list|dispatch\.create/.test(request.url())),
-      ).toBe(false);
-    } finally {
-      await page.close();
-    }
-  });
-
-  test('refreshes the channel board while visible and stops on leaving the route', async () => {
-    let reads: number[] = [];
-    const changed = structuredClone(board) as { agents: { name: string }[] };
-    changed.agents[0]!.name = 'renamed-lead';
-    const { page } = await openApp('/ops', async (page) => {
-      reads = await stub(page, [board, changed]);
-    });
-    await expect(page.locator('.tmt-ui-topbar-title-current')).toHaveText('#tmt-core');
-    await expect(page.locator('#ops-channel-members .ops-member-row')).toHaveCount(2);
-    await expect(page.locator('#ops-channel-members')).toContainText('renamed-lead', {
-      timeout: 8000,
-    });
-    await page.locator('nav.tmt-ui-rail a[data-id="digest"]').click();
-    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'digest');
-    const left = reads.length;
-    await page.waitForTimeout(6000);
-    expect(reads).toHaveLength(left);
-    await page.close();
-  });
-
-  test('a door that stops answering mid-route is retried, never a reason to pair again', async () => {
-    let down = false;
-    const { page } = await openApp('/ops', async (page) => {
-      await stub(page, [board]);
-      // The door stops: the read fails on the network, as a restart or a blip does.
-      await page.route(`${origin}/r/owner/x/-/ops`, (route) =>
-        down ? route.abort('connectionrefused') : route.fallback(),
-      );
-    });
-    const rows = page.locator('#ops-channel-members .ops-member-row');
-    await expect(rows).toHaveCount(2);
-    down = true;
-    await expect(page.locator('#ops-note')).toHaveText(
-      'Your machine did not answer. This page tries again shortly.',
-      { timeout: 8000 },
-    );
-    await expect(page.locator('#ops-note')).not.toContainText('Pair');
-    // Back up: the next read (after the doubled wait) shows the board again and clears the note.
-    down = false;
-    await expect(rows).toHaveCount(2, { timeout: 15_000 });
-    await expect(page.locator('#ops-note')).toBeHidden();
-    await page.close();
-  });
-
-  test('says why there is no board, never an empty list', async () => {
-    const { page } = await openApp('/ops', async (page) => {
-      await stub(page, [{ version: 1, state: 'unavailable', reason: 'not_installed' }]);
-    });
-    await expect(page.locator('#ops-note')).toHaveText(
-      'Ops is not installed on your machine. Run tmt extension install ops, then reload this page.',
-    );
-    await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
-    await page.close();
-  });
-
-  test('without an owner session it asks to pair', async () => {
-    const { page } = await openApp('/ops');
-    await expect(page.locator('#ops-note')).toContainText('Pair it from Remote');
-    await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
     await page.close();
   });
 });

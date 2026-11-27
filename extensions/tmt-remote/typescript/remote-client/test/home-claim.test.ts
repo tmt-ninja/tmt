@@ -13,19 +13,19 @@ const module = (extension: string, homePage?: string, extra?: string): ShellModu
 const answer = (...modules: ShellModule[]): ShellAnswer => ({ version: 1, modules });
 
 it('opens the one module that claims Home', () => {
-  expect(claimedHome(answer(module('colab', 'https://door/r/a/x/colab/work'), module('ops')))).toBe(
-    'https://door/r/a/x/colab/work',
-  );
+  expect(
+    claimedHome(answer(module('colab', 'https://door/r/a/x/colab/work'), module('digest'))),
+  ).toBe('https://door/r/a/x/colab/work');
 });
 it('keeps Remote Home with no claim or no answer', () => {
-  expect(claimedHome(answer(module('colab'), module('ops')))).toBeUndefined();
+  expect(claimedHome(answer(module('colab'), module('digest')))).toBeUndefined();
   expect(claimedHome(undefined)).toBeUndefined();
 });
 it('keeps Remote Home for an invalid claim', () => {
   for (const home of [
-    'https://door/r/a/x/ops/work',
+    'https://door/r/a/x/digest/work',
     'https://elsewhere/r/a/x/colab/work',
-    'https://door/r/a/x/colab/../ops/',
+    'https://door/r/a/x/colab/../digest/',
     'https://door/r/a/x/colab/work?next=/',
   ])
     expect(claimedHome(answer(module('colab', home))), home).toBeUndefined();
@@ -38,7 +38,7 @@ it('keeps Remote Home when two modules claim it', () => {
     claimedHome(
       answer(
         module('colab', 'https://door/r/a/x/colab/work'),
-        module('ops', 'https://door/r/a/x/ops/home'),
+        module('digest', 'https://door/r/a/x/digest/home'),
       ),
     ),
   ).toBeUndefined();

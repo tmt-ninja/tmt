@@ -1,6 +1,5 @@
-//! Real-socket acceptance of the owner browser reads (`x/-/ops`, `x/-/digest`,
-//! `x/-/digest/savings`): the composed
-//! shell's admission, the exact query grammar, and that a rejected request costs no read.
+//! Real-socket acceptance of Digest usage, savings, and limits reads: the composed shell's
+//! admission, the exact query grammar, and that a rejected request costs no read.
 use std::{
     fs,
     io::{Read, Write},
@@ -94,9 +93,6 @@ impl Fixture {
             &format!(
                 "cd '{0}'\necho \"$*\" >> calls\n\
                  case \"$*\" in\n\
-                 'ops squad ls --json') printf '{{\"squads\":[]}}';;\n\
-                 'ops squad cron ls --json') printf '{{\"jobs\":[]}}';;\n\
-                 'ops squad config show --json') printf '{{\"context\":null,\"entries\":[{{\"key\":\"idle_alert.after\",\"value\":\"1800s\"}}]}}';;\n\
                  'ops limits --json') printf '{{\"version\":1,\"limitHistory\":[{{\"provider\":\"codex\"}}]}}';;\n\
                  'digest usage report --since 7d --json') printf '{{\"version\":1,\"since\":\"7d\"}}';;\n\
                  'digest usage report --since 24h --json') printf '{{\"version\":1,\"since\":\"24h\"}}';;\n\
@@ -175,20 +171,8 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn an_owner_session_reads_the_board_and_the_requested_usage_range() {
+fn an_owner_session_reads_limits_usage_and_savings() {
     let door = Fixture::new(Owner::steady(), true);
-    let (status, body) = door.get("/x/-/ops");
-    assert_eq!(status, 200, "{body}");
-    let board: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(
-        (board["version"].clone(), board["state"].clone()),
-        (1.into(), "ok".into())
-    );
-    assert_eq!(board["squads"], serde_json::json!([]));
-    assert_eq!(
-        board["defaultIdleAlertMs"], 1_800_000,
-        "the exact public config argv supplies the workspace default"
-    );
     let (status, body) = door.get("/x/-/limits");
     assert_eq!(status, 200, "{body}");
     assert_eq!(
@@ -247,7 +231,7 @@ fn the_reply_is_json_with_the_door_security_headers() {
     let mut stream = TcpStream::connect(door.addr).unwrap();
     write!(
         stream,
-        "GET {}/x/-/ops HTTP/1.1\r\nHost: {}\r\nCookie: {OWNER}\r\n\r\n",
+        "GET {}/x/-/digest/24h HTTP/1.1\r\nHost: {}\r\nCookie: {OWNER}\r\n\r\n",
         door.prefix, door.addr
     )
     .unwrap();
@@ -263,7 +247,7 @@ fn the_reply_is_json_with_the_door_security_headers() {
 fn without_a_live_owner_session_every_read_is_the_generic_404_and_runs_nothing() {
     let door = Fixture::new(Arc::new(NoSessions), true);
     for path in [
-        "/x/-/ops",
+        "/x/-/limits",
         "/x/-/digest/24h",
         "/x/-/digest/7d",
         "/x/-/digest/bad",
@@ -282,13 +266,13 @@ fn cross_site_and_non_get_requests_are_refused_before_any_read() {
     let door = Fixture::new(Owner::steady(), true);
     let (status, _) = door.send(
         "GET",
-        "/x/-/ops",
+        "/x/-/digest/24h",
         &format!("Cookie: {OWNER}\r\nSec-Fetch-Site: cross-site\r\n"),
     );
     assert_eq!(status, 403);
     let (status, _) = door.send(
         "GET",
-        "/x/-/ops",
+        "/x/-/digest/24h",
         &format!("Cookie: {OWNER}\r\nOrigin: http://evil.example\r\n"),
     );
     assert_eq!(status, 403);
@@ -301,14 +285,14 @@ fn cross_site_and_non_get_requests_are_refused_before_any_read() {
     for method in ["POST", "PUT", "DELETE", "PATCH"] {
         let (status, _) = door.send(
             method,
-            "/x/-/ops",
+            "/x/-/digest/24h",
             &format!("Cookie: {OWNER}\r\nContent-Length: 0\r\n"),
         );
         assert_eq!(status, 404, "{method}");
     }
     let (status, _) = door.send(
         "GET",
-        "/x/-/ops",
+        "/x/-/digest/24h",
         &format!("Cookie: {OWNER}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n"),
     );
     assert_eq!(status, 404);
@@ -353,24 +337,14 @@ fn a_session_revoked_or_regranted_during_the_read_gets_the_generic_404_not_the_d
             }),
             true,
         );
-        let (status, body) = door.get("/x/-/ops");
+        let (status, body) = door.get("/x/-/digest/24h");
         assert_eq!(
             (status, body.as_str()),
             (404, "{}"),
             "{change_after:?} {end_after:?}"
         );
-        // The read itself ran once; only its answer was withheld.
-        let mut calls = door.calls();
-        calls.sort();
-        assert_eq!(
-            calls,
-            [
-                "ops squad config show --json",
-                "ops squad cron ls --json",
-                "ops squad ls --json"
-            ],
-            "an empty roster starts exactly the three fixed reads, even when disclosure is revoked"
-        );
+        // The read ran once; only its answer was withheld.
+        assert_eq!(door.calls(), ["digest usage report --since 24h --json"]);
     }
 }
 
@@ -402,7 +376,7 @@ fn a_savings_read_whose_session_ends_or_is_regranted_during_it_answers_the_gener
 fn without_a_configured_read_source_the_routes_do_not_exist_and_other_mounts_are_unchanged() {
     let door = Fixture::new(Owner::steady(), false);
     for path in [
-        "/x/-/ops",
+        "/x/-/limits",
         "/x/-/digest/24h",
         "/x/-/digest/7d",
         "/x/-/digest/savings/24h",
@@ -417,6 +391,7 @@ fn without_a_configured_read_source_the_routes_do_not_exist_and_other_mounts_are
 fn only_the_named_reads_exist_under_the_reserved_segment() {
     let door = Fixture::new(Owner::steady(), true);
     for path in [
+        "/x/-/ops",
         "/x/-/limits/",
         "/x/-/Limits",
         "/x/-/ops/",

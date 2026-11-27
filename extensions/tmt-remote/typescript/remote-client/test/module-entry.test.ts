@@ -28,11 +28,11 @@ it('loads the default entry, or a named file, under the module mount', () => {
 
 it('gives a module that names no entry and has no fallback only its link', () => {
   // The Colab-named script is for Colab alone; another module's mount is never asked for it.
-  expect(moduleLoad('/r/abcdefghijklmnop/x/ops/', undefined, HERE)).toEqual({
-    link: '/r/abcdefghijklmnop/x/ops/',
+  expect(moduleLoad('/r/abcdefghijklmnop/x/digest/', undefined, HERE)).toEqual({
+    link: '/r/abcdefghijklmnop/x/digest/',
   });
-  expect(moduleLoad('/r/abcdefghijklmnop/x/ops/', 'app.js', HERE).entry).toBe(
-    'http://127.0.0.1:4000/r/abcdefghijklmnop/x/ops/app.js',
+  expect(moduleLoad('/r/abcdefghijklmnop/x/digest/', 'app.js', HERE).entry).toBe(
+    'http://127.0.0.1:4000/r/abcdefghijklmnop/x/digest/app.js',
   );
 });
 
@@ -127,7 +127,7 @@ it('confines Design script entries and refuses navigation outside its owned fami
   for (const entry of [
     '/sdk/shell.js',
     '/design/evil.js',
-    ENTRY.replace('/colab/', '/ops/'),
+    ENTRY.replace('/colab/', '/digest/'),
     ENTRY + '?x=1',
     'https://evil.example/x.js',
   ])
@@ -202,7 +202,6 @@ it('refuses undeclared, reserved and malformed root families', () => {
     '/p',
     '/join',
     '/remote',
-    '/ops',
     '/digest',
     '/settings',
     '/colab',

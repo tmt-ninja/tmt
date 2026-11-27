@@ -3,6 +3,7 @@ use crate::core::tests::executable_fixture;
 use std::{
     fs,
     sync::atomic::{AtomicUsize, Ordering},
+    thread,
 };
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -56,61 +57,15 @@ impl Drop for Fake {
 }
 
 const LS: &str = "ops squad ls --json";
-const CRON: &str = "ops squad cron ls --json";
 const DIGEST: &str = "digest usage report --since 24h --json";
 
 fn body(reads: &Reads, target: Target) -> Value {
     serde_json::from_slice(&reads.body(target)).unwrap()
 }
 
-/// One squad as `tmt ops squad ls --json` prints it, including everything the projection
-/// must not forward: the pane address and cwd, room IDs, unlisted fields and a message path.
-fn board() -> Value {
-    let row = |id: &str, name: &str, task: &str| {
-        json!({
-            "id": id, "name": name, "lifetime": "saved", "presence": "active",
-            "pane": {"id": "%10", "target": "tmt-core:2.1", "cwd": "/Users/secret/work",
-                     "location": {"host": "tmux", "session": "tmt-core", "window": "2"}},
-            "activity": {"state": "working", "sinceMs": 1700000000000u64, "lastActivityMs": 5},
-            "state": "working", "pending": "approve the plan", "failed": [],
-            "fields": {"task": task, "next": "then merge", "model": "sol",
-                       "link": "https://github.com/pj-tmt/tmt/issues/4325",
-                       "secret": "SECRET-FIELD", "cwd": "/Users/secret/work"},
-            "staleness": {"state": "fresh", "reasons": ["x"]},
-            "colors": {"state": "working"}, "annotation": "ANNOTATION",
-            "waitingOnYou": [{"id": "r1"}, {"id": "r2"}],
-            "digest": {"active": true, "digestUntilMs": 9, "remainingMs": 1000, "heldCount": 2},
-        })
-    };
-    json!({
-        "squads": [{
-            "squad": {
-                "name": "tmt-core", "roomId": "ROOM-SECRET", "layout": "team",
-                "lead": row("00000000-0000-4000-8000-000000000001", "tmt-lead", "lead task"),
-                "idleAlert": {"enabled": true, "afterMs": 1800000},
-                "attention": {"state": "normal", "waiting": 1, "blocked": 0},
-            },
-            "columns": [{"field": "member"}], "lines": [[{"field": "member"}]],
-            "sections": [{"title": "Members", "rows": [
-                row("00000000-0000-4000-8000-000000000002", "core-3", "plan\u{202e}\nnow"),
-            ]}],
-        }],
-        "you": {"id": "YOU-SECRET", "name": "ben", "source": "recorded"},
-    })
-}
-fn cron() -> Value {
-    json!({"action": "ls", "jobs": [{
-        "id": "c1", "squad": "tmt-core", "roomId": "ROOM-SECRET", "ownerId": "OWNER-SECRET",
-        "message": "Hourly pass\nfollow /Users/secret/runbook.md SECOND-SECRET",
-        "schedule": {"kind": "cron", "zone": "Asia/Tokyo", "expression": "35 * * * *"},
-        "state": "on", "owner": "tmt-core-pm", "scheduleText": "cron 35 * * * *",
-        "nextMs": [1792636500000u64, 1792640100000u64], "warnings": [],
-    }]})
-}
-
 #[test]
 fn routes_accept_exactly_the_named_reads_and_no_query_or_other_path() {
-    assert_eq!(Target::route("ops"), Some(Target::Ops));
+    assert_eq!(Target::route("ops"), None);
     assert_eq!(Target::route("limits"), Some(Target::Limits));
     for (segment, range) in [
         ("24h", Range::Day),
@@ -159,376 +114,6 @@ fn routes_accept_exactly_the_named_reads_and_no_query_or_other_path() {
     ] {
         assert_eq!(Target::route(unrouted), None, "{unrouted}");
     }
-}
-
-#[test]
-fn the_ops_board_is_a_projection_that_forwards_no_pane_cwd_room_or_unlisted_field() {
-    let fake = Fake::new();
-    fake.answer(LS, &board().to_string());
-    fake.answer(CRON, &cron().to_string());
-    let reads = fake.reads();
-    let wire = reads.body(Target::Ops);
-    let text = String::from_utf8(wire.to_vec()).unwrap();
-    for secret in [
-        "SECRET",
-        "/Users/",
-        "%10",
-        "tmt-core:2.1",
-        "tmux",
-        "lastActivityMs",
-        "ANNOTATION",
-        "roomId",
-        "ROOM",
-        "OWNER",
-        "YOU-",
-        "runbook",
-        "follow",
-    ] {
-        assert!(!text.contains(secret), "{secret} leaked: {text}");
-    }
-    let document: Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(document["version"], 1);
-    assert_eq!(document["state"], "ok");
-    assert!(document["observedAtMs"].as_u64().unwrap() > 0);
-    assert_eq!(document["truncated"], false);
-    let mut with_room = board();
-    let room_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-    with_room["squads"][0]["squad"]["roomId"] = json!(room_id);
-    fake.answer(LS, &with_room.to_string());
-    for (revision, retired, expected) in [
-        (3, false, json!({"roomId":room_id,"revision":3})),
-        (0, false, Value::Null),
-        (3, true, Value::Null),
-    ] {
-        fake.answer("room list --json", &json!({"rooms":[{"id":room_id,"name":"squad-tmt-core","revision":revision,"retired":retired}]}).to_string());
-        let room_board = body(&fake.reads(), Target::Ops);
-        assert_eq!(room_board["squads"][0]["room"], expected);
-    }
-    assert!(document["defaultIdleAlertMs"].is_null());
-    assert!(document["agents"][0]["tokens1d"].is_null());
-    assert!(document["agents"][0]["checklistCount"].is_null());
-    assert_eq!(
-        document["squads"],
-        json!([{"name": "tmt-core", "room":null, "layout": "team",
-                "lead": {"id": "00000000-0000-4000-8000-000000000001", "name": "tmt-lead"},
-                "idleAlertMs": 1800000,
-                "attention": {"state": "normal", "waiting": 1, "blocked": 0}}])
-    );
-    assert_eq!(document["agents"].as_array().unwrap().len(), 2);
-    assert_eq!(
-        document["agents"][0],
-        json!({"id": "00000000-0000-4000-8000-000000000001", "name": "tmt-lead",
-               "squad": "tmt-core", "role": "lead", "presence": "active",
-               "activity": {"state": "working", "sinceMs": 1700000000000u64},
-               "state": "working", "stateTone": "working", "task": "lead task",
-               "next": "then merge", "model": "sol",
-               "link": "https://github.com/pj-tmt/tmt/issues/4325",
-               "pending": "approve the plan", "waitingOnYou": 2,"tokens1d":null,"checklistCount":null,
-               "digest": {"active": true, "remainingMs": 1000, "heldCount": 2},
-               "staleness": "fresh"})
-    );
-    // Control and bidi characters never reach the browser as text.
-    assert_eq!(document["agents"][1]["role"], "member");
-    assert_eq!(document["agents"][1]["task"], "plan now");
-    assert_eq!(
-        document["timers"],
-        json!([{"id": "c1", "squad": "tmt-core", "owner": "tmt-core-pm", "state": "on",
-                "scheduleText": "cron 35 * * * *", "nextMs": 1792636500000u64,
-                "what": "Hourly pass"}])
-    );
-    let mut paused = cron();
-    paused["jobs"][0]["state"] = json!("paused");
-    fake.answer(CRON, &paused.to_string());
-    fake.answer(
-        "ops squad config show --json",
-        &json!({"context":null,"entries":[{"key":"idle_alert.after","value":"1200s"}]}).to_string(),
-    );
-    fake.answer(
-        "room list --json",
-        &json!({"rooms":[{"id":room_id,"name":"squad-tmt-core","revision":4,"retired":false}]})
-            .to_string(),
-    );
-    let paused_board = body(&fake.reads(), Target::Ops);
-    assert_eq!(
-        paused_board["squads"][0]["room"],
-        json!({"roomId":room_id,"revision":4})
-    );
-    assert_eq!(paused_board["defaultIdleAlertMs"], 1_200_000);
-    assert!(
-        fake.calls()
-            .iter()
-            .filter(|argv| argv.contains("config"))
-            .all(|argv| argv == "ops squad config show --json"),
-        "configuration is read only through the exact public Ops squad route"
-    );
-    assert_eq!(paused_board["timers"][0]["state"], "paused");
-    assert!(
-        paused_board["timers"][0]["nextMs"].is_null(),
-        "paused schedules never keep a stale future time"
-    );
-    paused["jobs"][0]["state"] = json!("future-state");
-    fake.answer(CRON, &paused.to_string());
-    fake.answer(
-        "ops squad config show --json",
-        &json!({"context":"other-squad","entries":[{"key":"idle_alert.after","value":"1200s"}]})
-            .to_string(),
-    );
-    let unknown = body(&fake.reads(), Target::Ops);
-    assert_eq!(unknown["state"], "ok");
-    assert!(unknown["defaultIdleAlertMs"].is_null());
-    assert!(unknown["timers"][0]["state"].is_null());
-    let count_argv = format!("ops squad checklist counts --room {room_id} --json");
-    let counts = json!({"action":"counts", "room":room_id, "available":true,
-        "members":[{"id":"00000000-0000-4000-8000-000000000001","open":2},
-                   {"id":"00000000-0000-4000-8000-000000000002","open":0}]});
-    fake.answer(&count_argv, &counts.to_string());
-    // Checklist observations do not depend on Core's optional composer revision.
-    fake.set("room list --json", "exit", "1");
-    let counted = body(&fake.reads(), Target::Ops);
-    assert!(counted["squads"][0]["room"].is_null());
-    assert_eq!(counted["agents"][0]["checklistCount"], 2);
-    assert_eq!(counted["agents"][1]["checklistCount"], 0);
-    for reason in [
-        "no-person",
-        "core-unsupported",
-        "member-unavailable",
-        "room-unavailable",
-        "future",
-    ] {
-        let mut refused = counts.clone();
-        refused["members"][0]["reason"] = json!(reason);
-        fake.answer(&count_argv, &refused.to_string());
-        let projected = body(&fake.reads(), Target::Ops);
-        assert!(projected["agents"][0]["checklistCount"].is_null());
-        assert_eq!(projected["agents"][1]["checklistCount"], 0);
-        refused = counts.clone();
-        refused["available"] = json!(false);
-        refused["reason"] = json!(reason);
-        fake.answer(&count_argv, &refused.to_string());
-        let projected = body(&fake.reads(), Target::Ops);
-        assert!(
-            projected["agents"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|agent| agent["checklistCount"].is_null())
-        );
-    }
-    for invalid in [
-        json!(-1),
-        json!(0.5),
-        json!(9007199254740992u64),
-        Value::Null,
-    ] {
-        let mut malformed = counts.clone();
-        malformed["members"][0]["open"] = invalid;
-        fake.answer(&count_argv, &malformed.to_string());
-        assert!(body(&fake.reads(), Target::Ops)["agents"][0]["checklistCount"].is_null());
-    }
-    for malformed in [
-        json!({"action":"counts","room":"other","available":true,"members":counts["members"]}),
-        json!({"action":"ls","room":room_id,"available":true,"members":counts["members"]}),
-        json!({"action":"counts","room":room_id,"available":true,"members":[]}),
-        json!({"action":"counts","room":room_id,"available":true,"members":[counts["members"][0],counts["members"][0]]}),
-    ] {
-        fake.answer(&count_argv, &malformed.to_string());
-        assert!(body(&fake.reads(), Target::Ops)["agents"][0]["checklistCount"].is_null());
-    }
-    // The same member in two rooms has independent counts; a failed room call
-    // (including an older Ops' unknown command) never blanks the other room.
-    let second_room = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-    let mut two = with_room.clone();
-    let mut second = two["squads"][0].clone();
-    second["squad"]["name"] = json!("tmt-other");
-    second["squad"]["roomId"] = json!(second_room);
-    two["squads"].as_array_mut().unwrap().push(second);
-    fake.answer(LS, &two.to_string());
-    fake.answer(&count_argv, &counts.to_string());
-    let second_argv = format!("ops squad checklist counts --room {second_room} --json");
-    fake.answer(
-        &second_argv,
-        &json!({"action":"counts","room":second_room,"available":true,
-        "members":[{"id":"00000000-0000-4000-8000-000000000001","open":7}]})
-        .to_string(),
-    );
-    let independent = body(&fake.reads(), Target::Ops);
-    assert_eq!(independent["agents"][0]["checklistCount"], 2);
-    assert_eq!(independent["agents"][2]["checklistCount"], 7);
-    fake.set(&second_argv, "exit", "1");
-    fake.answer(&second_argv, r#"{"error":{"code":"USAGE_ERROR"}}"#);
-    let failed_room = body(&fake.reads(), Target::Ops);
-    assert_eq!(failed_room["state"], "ok");
-    assert_eq!(failed_room["agents"][0]["checklistCount"], 2);
-    assert!(failed_room["agents"][2]["checklistCount"].is_null());
-    assert!(
-        fake.calls()
-            .iter()
-            .filter(|argv| argv.contains("checklist"))
-            .all(|argv| argv == &count_argv || argv == &second_argv)
-    );
-
-    // The board cap needs at most eight 32-UUID Core reads, never per-member calls.
-    // This existing case crosses one chunk boundary and refuses only the tail chunk.
-    let mut many = board();
-    let template = many["squads"][0]["sections"][0]["rows"][0].clone();
-    let rows: Vec<_> = (2..=33)
-        .map(|index| {
-            let mut row = template.clone();
-            row["id"] = json!(format!("00000000-0000-4000-8000-{index:012x}"));
-            row
-        })
-        .collect();
-    many["squads"][0]["sections"][0]["rows"] = json!(rows);
-    fake.answer(LS, &many.to_string());
-    fs::write(fake.0.join("api.py"), r#"import json,sys,pathlib,os
-root=pathlib.Path(__file__).parent
-request=json.load(sys.stdin)
-(root/('input-'+str(os.getpid())+'.json')).write_text(json.dumps(request))
-assert request['operation']=='consumption.history'
-ids=request['input']['identityIds']
-assert 1<=len(ids)<=32
-assert request['input']['windowsMs']==[86400000] and request['input']['maxBuckets']==1
-if len(ids)==1: sys.exit(1)
-through=172800000
-bucket={'fromMs':86400000,'toMs':through,'inputTokens':9,'outputTokens':3,'cachedInputTokens':4,'coveredMs':10,'complete':False}
-window={'windowMs':86400000,'fromMs':86400000,'toMs':through,'availableFromMs':86400000,'buckets':[bucket]}
-print(json.dumps({'asOfMs':through+1000,'throughMs':through,'identities':[{'id':id,'found':True,'reporting':True,'windows':[window]} for id in ids]}))
-"#).unwrap();
-    let chunked = body(&fake.reads(), Target::Ops);
-    let agents = chunked["agents"].as_array().unwrap();
-    assert_eq!(agents.len(), 33);
-    assert!(
-        agents[..32]
-            .iter()
-            .all(|agent| agent["tokens1d"] == json!({"tokens":12,"complete":false}))
-    );
-    assert!(
-        agents[32]["tokens1d"].is_null(),
-        "one failed chunk leaves only that chunk unavailable"
-    );
-    assert!(agents.iter().all(|agent| agent["checklistCount"].is_null()));
-    let inputs: Vec<_> = fs::read_dir(&fake.0)
-        .unwrap()
-        .map(Result::unwrap)
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with("input-"))
-        .collect();
-    assert_eq!(
-        inputs.len(),
-        2,
-        "33 distinct members use two chunks, never 33 reads"
-    );
-}
-
-#[test]
-fn an_unusable_cron_read_leaves_timers_null_and_never_an_empty_list() {
-    let fake = Fake::new();
-    fake.answer(LS, &board().to_string());
-    fake.set(CRON, "exit", "1");
-    let document = body(&fake.reads(), Target::Ops);
-    assert_eq!(document["state"], "ok");
-    assert!(document["timers"].is_null());
-    assert_eq!(document["agents"].as_array().unwrap().len(), 2);
-    assert!(
-        document["squads"][0]["room"].is_null(),
-        "failed room evidence never fails the board"
-    );
-}
-
-#[test]
-fn text_fields_are_cut_to_their_limits_and_links_must_be_https_without_spaces() {
-    let fake = Fake::new();
-    let mut ls = board();
-    let fields = &mut ls["squads"][0]["sections"][0]["rows"][0]["fields"];
-    fields["task"] = json!("字".repeat(500));
-    fields["link"] = json!("http://insecure.example/x");
-    ls["squads"][0]["sections"][0]["rows"][0]["state"] = json!("x".repeat(500));
-    fake.answer(LS, &ls.to_string());
-    let agent = &body(&fake.reads(), Target::Ops)["agents"][1];
-    assert_eq!(
-        agent["task"].as_str().unwrap().chars().count(),
-        limits::READ_OPS_TEXT
-    );
-    assert_eq!(
-        agent["state"].as_str().unwrap().chars().count(),
-        limits::READ_OPS_STATE
-    );
-    assert!(agent.get("link").is_none(), "http link forwarded");
-    let mut ls = board();
-    ls["squads"][0]["sections"][0]["rows"][0]["fields"]["link"] = json!("https://a b");
-    let fake = Fake::new();
-    fake.answer(LS, &ls.to_string());
-    assert!(
-        body(&fake.reads(), Target::Ops)["agents"][1]
-            .get("link")
-            .is_none()
-    );
-}
-
-#[test]
-fn the_board_is_capped_by_squads_agents_and_timers_and_says_so() {
-    let fake = Fake::new();
-    let one = board()["squads"][0].clone();
-    let mut many = Vec::new();
-    for index in 0..limits::READ_OPS_SQUADS + 3 {
-        let mut squad = one.clone();
-        squad["squad"]["name"] = json!(format!("s{index}"));
-        squad["squad"]["roomId"] = json!(format!("aaaaaaaa-aaaa-4aaa-8aaa-{index:012x}"));
-        many.push(squad);
-    }
-    fake.answer(LS, &json!({"squads": many}).to_string());
-    let jobs: Vec<Value> = (0..limits::READ_OPS_TIMERS + 3)
-        .map(|index| {
-            let mut job = cron()["jobs"][0].clone();
-            job["id"] = json!(format!("c{index}"));
-            job
-        })
-        .collect();
-    fake.answer(CRON, &json!({"jobs": jobs}).to_string());
-    let document = body(&fake.reads(), Target::Ops);
-    assert_eq!(
-        document["squads"].as_array().unwrap().len(),
-        limits::READ_OPS_SQUADS
-    );
-    assert_eq!(
-        document["timers"].as_array().unwrap().len(),
-        limits::READ_OPS_TIMERS
-    );
-    assert!(document["agents"].as_array().unwrap().len() <= limits::READ_OPS_AGENTS);
-    assert_eq!(document["truncated"], true);
-    let calls = fake.calls();
-    let checklist: Vec<_> = calls
-        .iter()
-        .filter(|argv| argv.contains("checklist"))
-        .collect();
-    assert_eq!(checklist.len(), limits::READ_OPS_SQUADS);
-    for index in 0..limits::READ_OPS_SQUADS {
-        assert!(checklist.contains(&&format!(
-            "ops squad checklist counts --room aaaaaaaa-aaaa-4aaa-8aaa-{index:012x} --json"
-        )));
-    }
-}
-
-#[test]
-fn one_large_squad_is_cut_at_the_agent_limit() {
-    let fake = Fake::new();
-    let mut ls = board();
-    let row = ls["squads"][0]["sections"][0]["rows"][0].clone();
-    let rows: Vec<Value> = (0..limits::READ_OPS_AGENTS + 20)
-        .map(|index| {
-            let mut row = row.clone();
-            row["id"] = json!(format!("00000000-0000-4000-8000-{index:012}"));
-            row["name"] = json!(format!("m{index}"));
-            row
-        })
-        .collect();
-    ls["squads"][0]["sections"][0]["rows"] = json!(rows);
-    fake.answer(LS, &ls.to_string());
-    let document = body(&fake.reads(), Target::Ops);
-    assert_eq!(
-        document["agents"].as_array().unwrap().len(),
-        limits::READ_OPS_AGENTS
-    );
-    assert_eq!(document["truncated"], true);
 }
 
 #[test]
@@ -669,15 +254,12 @@ fn every_failure_maps_to_one_closed_reason_and_never_to_an_empty_ok() {
         body(&reads, Target::Digest(Range::Month))["reason"],
         "read_failed"
     );
-    fake.answer(LS, r#"{"version":2}"#);
-    assert_eq!(body(&reads, Target::Ops)["reason"], "read_failed");
-    for document in [
-        body(&reads, Target::Digest(Range::Day)),
-        body(&reads, Target::Ops),
-    ] {
+    let day = body(&reads, Target::Digest(Range::Day));
+    let month = body(&reads, Target::Digest(Range::Month));
+    for document in [day, month] {
         assert_eq!(document["version"], 1);
         assert_eq!(document["state"], "unavailable");
-        assert!(document.get("agents").is_none() && document.get("report").is_none());
+        assert!(document.get("report").is_none());
     }
 }
 
@@ -901,24 +483,18 @@ fn the_vector_bounds_are_the_door_bounds() {
         bounds["subprocessStdoutBytes"],
         limits::READ_SUBPROCESS_BYTES
     );
-    assert_eq!(bounds["opsBytes"], limits::READ_OPS_BYTES);
     assert_eq!(bounds["digestBytes"], limits::READ_DIGEST_BYTES);
     assert_eq!(bounds["limitsBytes"], limits::READ_LIMITS_BYTES);
-    assert_eq!(bounds["opsSquads"], limits::READ_OPS_SQUADS);
-    assert_eq!(bounds["opsAgents"], limits::READ_OPS_AGENTS);
-    assert_eq!(bounds["opsTimers"], limits::READ_OPS_TIMERS);
-    assert_eq!(bounds["text"]["name"], limits::READ_OPS_NAME);
-    assert_eq!(bounds["text"]["state"], limits::READ_OPS_STATE);
-    assert_eq!(bounds["text"]["text"], limits::READ_OPS_TEXT);
-    assert_eq!(bounds["text"]["link"], limits::READ_OPS_LINK);
-    assert_eq!(bounds["text"]["what"], limits::READ_OPS_WHAT);
 }
 
 #[test]
 fn squad_summary_uses_only_the_public_roster_and_reports_missing_failed_or_changed_ops_as_unavailable()
  {
     let fake = Fake::new();
-    fake.answer(LS, &board().to_string());
+    fake.answer(
+        LS,
+        r#"{"squads":[{"squad":{"name":"tmt-core","lead":null},"sections":[]}]}"#,
+    );
     // The background roster budget is independent of the browser's wait.
     let summary = fake
         .reads()

@@ -49,7 +49,6 @@ fn root_claims_refuse_reserved_unbounded_and_non_segment_families() {
         "/join",
         "/colab",
         "/remote",
-        "/ops",
         "/digest",
         "/settings",
     ] {
@@ -157,7 +156,7 @@ fn invalid_extra_refuses_the_entire_description_and_reuses_primary_limits() {
         ("/modules/0/id", json!("Design")),
         ("/modules/0/id", json!("x".repeat(33))),
         ("/modules/0/rail/path", json!("//elsewhere/")),
-        ("/modules/0/rail/path", json!("/../ops/")),
+        ("/modules/0/rail/path", json!("/../digest/")),
         ("/modules/0/menu/0/path", json!("https://elsewhere/")),
         ("/modules/0/settings/0/path", json!("/%2e%2e/")),
         ("/modules/0/rail/label", json!("x".repeat(17))),

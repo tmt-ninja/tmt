@@ -7,7 +7,6 @@ const here = 'https://door.test/remote/';
 const rail: ShellItem[] = [
   { id: 'home', label: 'Home', href: '/', icon: 'house', current: false },
   { id: 'colab', label: 'Colab', href: '/colab/', icon: 'file-text', current: false },
-  { id: 'ops', label: 'Ops', href: '/ops/', icon: 'users', current: false, disabled: true },
   { id: 'remote', label: 'Remote', href: '/remote/', icon: 'monitor-smartphone', current: true },
   { id: 'settings', label: 'TMT settings', href: '/settings/', icon: 'settings', current: false },
 ];

@@ -30,10 +30,6 @@ pub enum MemberMachineMutation {
     Designate {
         target: MemberMachineTarget,
     },
-    TerminalCommand {
-        target: MemberMachineTarget,
-        enabled: bool,
-    },
     Undesignate {
         expected: Option<MemberMachineTarget>,
     },
@@ -127,30 +123,6 @@ impl Store {
                 }
                 (json!({"designatedClientId":before.client_id}), changed)
             }
-            MemberMachineMutation::TerminalCommand { target, enabled } => {
-                let before = checked(&tx, target)?;
-                let scope =
-                    super::service::scope(&tx, super::service::Caller::Browser(&before), now);
-                if *enabled
-                    && (Some(before.origin.as_str()) != origin
-                        || !scope.is_ok_and(|scope| scope.administrator())
-                        || before.mode != "direct"
-                        || before.agents != "all"
-                        || !before.permits_scope("talk"))
-                {
-                    return Err(super::service::denied());
-                }
-                let before_revision = before.revision;
-                let after = crate::store::terminal_command_grant_in(&tx, before, *enabled)?;
-                let changed = before_revision != after.revision;
-                if changed {
-                    ended.push(after.client_id.clone());
-                }
-                (
-                    json!({"machine":{"clientId":after.client_id,"name":after.name,"revision":after.revision,"revoked":after.disabled,"terminalCommand":enabled}}),
-                    changed,
-                )
-            }
             MemberMachineMutation::Undesignate { expected } => {
                 let current = management::designation_in(&tx)?;
                 match (expected, current) {
@@ -184,18 +156,14 @@ pub fn mutate(
     let (answer, ended) = {
         let mut store =
             devices.terminal_store(std::time::Instant::now() + crate::limits::AUTHORITY_WAIT)?;
-        let remembered = if origin.is_none()
-            && matches!(
-                request,
-                MemberMachineMutation::Designate { .. }
-                    | MemberMachineMutation::TerminalCommand { .. }
-            ) {
-            store
-                .remembered_port()?
-                .map(|port| format!("http://127.0.0.1:{port}"))
-        } else {
-            None
-        };
+        let remembered =
+            if origin.is_none() && matches!(request, MemberMachineMutation::Designate { .. }) {
+                store
+                    .remembered_port()?
+                    .map(|port| format!("http://127.0.0.1:{port}"))
+            } else {
+                None
+            };
         store.terminal_machine_effect(request, origin.or(remembered.as_deref()))?
     };
     for client in &ended {

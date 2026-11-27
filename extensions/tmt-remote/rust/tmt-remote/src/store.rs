@@ -103,7 +103,7 @@ impl Store {
     ) -> Result<Self, RemoteError> {
         let layout = serving.layout();
         let mut connection = open_connection(serving, "remote.db")?;
-        migrate(&mut connection)?;
+        migrate(&mut connection, &MIGRATIONS)?;
         // The held serving lease proves there is no surviving memory ceremony.
         crate::invitations::history::interrupt(&connection, crate::pairing::now_ms()?)?;
         Ok(Self {
@@ -198,7 +198,7 @@ pub(crate) fn machine_in(connection: &Connection) -> Result<Machine, RemoteError
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 17] = [
+const MIGRATIONS: [(&str, &str); 18] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -358,6 +358,14 @@ const MIGRATIONS: [(&str, &str); 17] = [
         terminal INTEGER NOT NULL CHECK(terminal IN (0,1)), updated_ms INTEGER NOT NULL,
         PRIMARY KEY(remote_id,offer_id));
      CREATE INDEX issued_invitations_page ON issued_invitations(remote_id,issued_ms DESC,offer_id DESC);"),
+    // Match a whole token and discard the added padding. No live session survives the serve lease.
+    (
+        "retire_terminal_command_scope",
+        "UPDATE grants
+         SET scopes=substr(replace(' ' || scopes || ' ', ' terminal.command ', ' '),
+                           2, max(0, length(scopes) - length(' terminal.command')))
+         WHERE instr(' ' || scopes || ' ', ' terminal.command ') > 0;",
+    ),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection
@@ -377,15 +385,13 @@ fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     .transpose()
 }
 /// Supported scopes, sorted bytewise; existing grants keep this vocabulary.
-pub const SUPPORTED_SCOPES: [&str; 6] = [
+pub const SUPPORTED_SCOPES: [&str; 5] = [
     "agents.read",
     "check.read",
     "results.read",
     "status.read",
     "talk",
-    TERMINAL_COMMAND_SCOPE,
 ];
-pub(crate) const TERMINAL_COMMAND_SCOPE: &str = "terminal.command";
 /// Read-only scopes issued by a bare pairing, sorted bytewise.
 pub const DEFAULT_SCOPES: [&str; 4] = ["agents.read", "check.read", "results.read", "status.read"];
 /// A trusted device grant as the channel contract names its fields.
@@ -695,33 +701,6 @@ pub(crate) fn talk_in(
 ) -> Result<Option<Grant>, RemoteError> {
     crate::members::sending_for_client(connection, client_id, enabled)
 }
-/// The local machine command owns this toggle. Callers already hold the writer transaction.
-pub(crate) fn terminal_command_grant_in(
-    connection: &Connection,
-    mut grant: Grant,
-    enabled: bool,
-) -> Result<Grant, RemoteError> {
-    if grant.permits_scope(TERMINAL_COMMAND_SCOPE) == enabled {
-        return Ok(grant);
-    }
-    if grant.revision >= 9_007_199_254_740_990 {
-        return Err(database("grant revision exhausted"));
-    }
-    grant.scopes.retain(|scope| scope != TERMINAL_COMMAND_SCOPE);
-    if enabled {
-        grant.scopes.push(TERMINAL_COMMAND_SCOPE.into());
-        grant.scopes.sort();
-    }
-    connection
-        .execute(
-            "UPDATE grants SET scopes=?2,revision=revision+1 WHERE client_id=?1",
-            params![grant.client_id, grant.scopes.join(" ")],
-        )
-        .map_err(database)?;
-    grant.revision += 1;
-    Ok(grant)
-}
-
 /// Change only the explicit sending scope. Other authority remains frozen.
 pub(crate) fn talk_grant_in(
     connection: &Connection,
@@ -737,15 +716,11 @@ pub(crate) fn talk_grant_in(
             "A revoked device cannot grant sending.",
         ));
     }
-    if grant.permits_scope("talk") != enabled
-        || (!enabled && grant.permits_scope(TERMINAL_COMMAND_SCOPE))
-    {
+    if grant.permits_scope("talk") != enabled {
         if grant.revision >= 9_007_199_254_740_990 {
             return Err(database("grant revision exhausted"));
         }
-        grant
-            .scopes
-            .retain(|scope| scope != "talk" && (enabled || scope != TERMINAL_COMMAND_SCOPE));
+        grant.scopes.retain(|scope| scope != "talk");
         if enabled {
             grant.scopes.push("talk".into());
             grant.scopes.sort();
@@ -986,14 +961,14 @@ pub(crate) fn grant_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Grant> {
         disabled: r.get(11)?,
     })
 }
-fn migrate(connection: &mut Connection) -> Result<(), RemoteError> {
+fn migrate(connection: &mut Connection, migrations: &[(&str, &str)]) -> Result<(), RemoteError> {
     connection
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)",
         )
         .map_err(database)?;
     let applied = migration_count(connection)?;
-    for (index, (name, sql)) in MIGRATIONS.iter().enumerate().skip(applied) {
+    for (index, (name, sql)) in migrations.iter().enumerate().skip(applied) {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
@@ -1223,6 +1198,75 @@ mod tests {
         assert_eq!(
             crate::pairing::receipt(&reopened, &machine.id, &[9; 32]).unwrap(),
             receipt
+        );
+        drop(store);
+        drop(serving);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retired_terminal_command_scope_is_removed_before_a_designated_browser_reopens() {
+        let root = std::env::temp_dir().join(format!("tmt-retired-scope-{}", uuid_v4().unwrap()));
+        let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+        let prior = MIGRATIONS
+            .iter()
+            .position(|(name, _)| *name == "retire_terminal_command_scope")
+            .unwrap();
+        let mut connection = open_connection(&serving, "remote.db").unwrap();
+        migrate(&mut connection, &MIGRATIONS[..prior]).unwrap();
+        let mut store = Store {
+            connection,
+            data_root: root.clone(),
+            carrier_capacity: crate::journal::OPERATIONS,
+        };
+        store.machine().unwrap();
+        let grant = Grant {
+            client_id: uuid_v4().unwrap(),
+            public_key: [7; 32],
+            kind: "browser".into(),
+            origin: "http://127.0.0.1:32100".into(),
+            name: "Designated browser".into(),
+            agents: "all".into(),
+            scopes: SUPPORTED_SCOPES.map(str::to_owned).into(),
+            mode: "direct".into(),
+            issued_at_ms: 1,
+            expires_at_ms: None,
+            revision: 7,
+            disabled: false,
+        };
+        store.insert_grant(&grant).unwrap();
+        store.designate(&grant.client_id, &grant.origin, 2).unwrap();
+        store
+            .connection
+            .execute(
+                "UPDATE grants SET scopes=scopes || ' terminal.command' WHERE client_id=?1",
+                [&grant.client_id],
+            )
+            .unwrap();
+        let session = uuid_v4().unwrap();
+        let window = uuid_v4().unwrap();
+        assert_eq!(
+            store
+                .start_session(&grant, &session, &window, 3)
+                .unwrap_err()
+                .code,
+            "REMOTE_CLOSED"
+        );
+        drop(store);
+
+        let mut store = Store::open(&serving).unwrap();
+        let reopened = store.grant(&grant.client_id).unwrap().unwrap();
+        assert_eq!(reopened, grant);
+        assert_eq!(
+            crate::management::designation_in(&store.connection).unwrap(),
+            Some(grant)
+        );
+        store
+            .start_session(&reopened, &session, &window, 3)
+            .unwrap();
+        assert_eq!(
+            migration_count(&store.connection).unwrap(),
+            MIGRATIONS.len()
         );
         drop(store);
         drop(serving);

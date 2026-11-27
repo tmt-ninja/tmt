@@ -210,9 +210,7 @@ Behavior: [channel contract](contracts/remote-channel-v1.md) and
 
 - **Core.** Core distrusts Remote. Remote calls only public Core JSON through the absolute
   `TMT_EXECUTABLE`/`tmt-invoke`. `talk --remote` reaches the serving owner, which dispatches
-  to Core under the same ID; finals are receipt-bound Core `reply`s. Web Ops terminal
-  commands use an opt-in Local designated-browser grant, with one journal claim
-  and separate live-authority transactions for Core open and run.
+  to Core under the same ID; finals are receipt-bound Core `reply`s.
 - **Extensions.** Only Remote's public CLI, browser SDK and `tmt-extension-objects`; no
   private Remote state.
 - **Colab.** Owner-installed at `/r/<prefix>/x/colab/`; see [Colab](#colab-extension).

@@ -1,8 +1,4 @@
 //! Direct/held dispatch and same-ID observation through the public core API.
-mod conversation;
-mod forms;
-mod orchestration;
-mod terminal_command;
 use crate::{
     admission::MessagePermit,
     audit, canonical,
@@ -43,17 +39,9 @@ pub(crate) struct Intent {
     #[serde(default)]
     pub(crate) recipient_ids: Vec<String>,
     pub(crate) message: String,
-    pub(crate) kind: String,
-    pub(crate) room: Option<RosterRoom>,
+    kind: String,
     #[serde(default)]
     expected_name: Option<String>,
-}
-#[derive(Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct RosterRoom {
-    kind: String,
-    room_id: String,
-    revision: u64,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -226,24 +214,7 @@ fn parsed_dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
         || value.operation != "dispatch.create"
         || !attribution
         || !matches!(value.input.kind.as_str(), "request" | "announcement")
-        || value.input.recipient_ids.len() > crate::limits::DISPATCH_RECIPIENTS
-        || value
-            .input
-            .recipient_ids
-            .iter()
-            .collect::<std::collections::HashSet<_>>()
-            .len()
-            != value.input.recipient_ids.len()
-        || (value.input.room.is_none() && value.input.recipient_ids.len() > 1)
-        || value.input.room.as_ref().is_some_and(|room| {
-            room.kind != "roster"
-                || !canonical::is_core_id(&room.room_id)
-                || room.revision == 0
-                || room.revision > 9_007_199_254_740_991
-                || value.input.recipient_ids.is_empty()
-                || value.input.expected_name.is_some()
-                || value.created_at_ms.is_some()
-        })
+        || value.input.recipient_ids.len() > 1
         || (value.input.recipient_ids.is_empty()
             && (value.input.expected_name.is_none() || value.created_at_ms.is_none()))
         || !canonical::is_core_id(&value.input.operation_id)
@@ -280,41 +251,25 @@ fn uncertain(id: &str) -> Value {
     json!({"state":"uncertain","operationId":id})
 }
 fn accepted(id: &str, intent: &Intent, receipt: &Value) -> Result<Value, RemoteError> {
-    let items = receipt["items"]
-        .as_array()
-        .filter(|items| items.len() == intent.recipient_ids.len())
-        .ok_or_else(invalid)?;
-    if receipt["operationId"] != id {
+    let items = receipt["items"].as_array().ok_or_else(invalid)?;
+    let [item] = items.as_slice() else {
+        return Err(invalid());
+    };
+    let request = item["requestId"].as_str().ok_or_else(invalid)?;
+    request_reference(request)?;
+    if receipt["operationId"] != id
+        || intent
+            .recipient_ids
+            .first()
+            .is_none_or(|id| item["recipientId"] != *id)
+        || !matches!(
+            item["acceptance"].as_str(),
+            Some("queued" | "recipientUnavailable")
+        )
+    {
         return Err(invalid());
     }
-    let mut requests = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for recipient in &intent.recipient_ids {
-        let matches: Vec<_> = items
-            .iter()
-            .filter(|item| item["recipientId"] == *recipient)
-            .collect();
-        let [item] = matches.as_slice() else {
-            return Err(invalid());
-        };
-        let request = item["requestId"].as_str().ok_or_else(invalid)?;
-        request_reference(request)?;
-        if !seen.insert(request)
-            || !matches!(
-                item["acceptance"].as_str(),
-                Some("queued" | "recipientUnavailable")
-            )
-        {
-            return Err(invalid());
-        }
-        requests.push(request);
-    }
-    // Receipt order is Core-owned; expose requestIds in the client's frozen recipient order.
-    let mut result = json!({"state":"accepted","operationId":id,"requestId":requests[0]});
-    if intent.room.is_some() {
-        result["requestIds"] = json!(requests);
-    }
-    Ok(result)
+    Ok(json!({"state":"accepted","operationId":id,"requestId":request}))
 }
 
 pub struct Operations {
@@ -381,10 +336,9 @@ impl Operations {
         self
     }
     fn api(&self, input: &[u8]) -> Result<Value, RemoteError> {
-        self.api_with_limit(input, crate::core::OUTPUT_LIMIT)
-    }
-    fn api_with_limit(&self, input: &[u8], limit: usize) -> Result<Value, RemoteError> {
-        let result = self.core.api_with_limit(input, &self.stop, limit);
+        let result = self
+            .core
+            .api_with_limit(input, &self.stop, crate::core::OUTPUT_LIMIT);
         if result
             .as_ref()
             .is_err_and(|e| e.code == "REMOTE_CORE_UNCERTAIN")
@@ -489,21 +443,8 @@ impl Operations {
             if permit.cloud() && permit.grant.permits_scope("agents.read") {
                 supported.push("squads.summary");
             }
-            if permit.owner_browser() && permit.grant.permits_scope("results.read") {
-                supported.push("requests.list");
-            }
             if permit.owner_browser() && permit.grant.permits_scope("talk") {
                 supported.push("requests.sendNow");
-            }
-            let every_agent = permit.authority.agents == crate::authority::PermittedAgents::All;
-            if permit.owner_browser() && every_agent && permit.grant.permits_scope("agents.read") {
-                supported.extend(["orchestration.read", "forms.list", "changes.cursor"]);
-            }
-            if permit.owner_browser() && every_agent && permit.grant.permits_scope("talk") {
-                supported.extend(["orchestration.write", "forms.answer"]);
-            }
-            if terminal_command::admit(permit).is_ok() {
-                supported.extend(["terminal.command.targets", "terminal.command.run"]);
             }
             if self.management.is_some() && permit.owner_browser() {
                 supported.extend([
@@ -533,9 +474,6 @@ impl Operations {
                     "callsPerDevicePerMinute":crate::budgets::CALLS,"newSendsPerDevicePerMinute":crate::budgets::SENDS,
                     "outstandingHeldPerDevice":crate::budgets::HELDS,"approvalsPerRecipientPerMinute":crate::budgets::APPROVALS}}));
         }
-        if operation == "terminal.command.targets" {
-            return self.terminal_command_targets(permit);
-        }
         if crate::admission::RemoteOperation::parse(operation).is_some_and(|operation| {
             matches!(
                 operation.class(),
@@ -545,39 +483,8 @@ impl Operations {
         }) {
             return self.read(permit);
         }
-        if operation == "terminal.command.run" {
-            return self.terminal_command_run(permit);
-        }
-        if operation == "forms.answer" {
-            return self.forms_answer(permit);
-        }
         if operation == "requests.sendNow" {
             return self.send_now(permit);
-        }
-        if operation == "orchestration.write" {
-            let answer = orchestration::outcome((|| {
-                let (request, revision) = orchestration::write(permit, || {
-                    // This observation owns no write; keep it outside the effect fence and
-                    // revalidate even when Core fails, as for the other Core reads.
-                    permit.revalidate()?;
-                    let plans = self.api_with_limit(
-                        br#"{"version":1,"operation":"orchestration.read","input":{"view":"plans"}}"#,
-                        crate::limits::ORCHESTRATION_RESPONSE_BYTES,
-                    );
-                    permit.revalidate()?;
-                    plans
-                })?;
-                // Core effects stay under the store lock: a grant revoked after admission
-                // cannot still apply a change (#5890 review).
-                permit.with_store(|_| {
-                    let answer = self.api_with_limit(
-                        request.to_string().as_bytes(),
-                        crate::limits::ORCHESTRATION_RESPONSE_BYTES,
-                    )?;
-                    orchestration::preview_revision(answer, revision)
-                })
-            })())?;
-            return permit.response(&answer);
         }
         let (id, notice) = match operation {
             "dispatch.create" => {
@@ -634,9 +541,6 @@ impl Operations {
                 let mut wire = json!({"version":1,"operation":"dispatch.create","originator":"anonymous",
                     "input":{"operationId":value.input.operation_id,"recipientIds":value.input.recipient_ids,
                     "message":value.input.message,"kind":value.input.kind}});
-                if let Some(room) = value.input.room {
-                    wire["input"]["room"] = serde_json::to_value(room).map_err(|_| invalid())?;
-                }
                 if let Some(name) = value.input.expected_name {
                     wire["input"]["expectedName"] = json!(name);
                 }
@@ -729,9 +633,6 @@ impl Operations {
         let mut agent = None;
         let mut request = None;
         let mut owned = None;
-        let mut conversation = None;
-        let mut orchestration = None;
-        let mut form_read = None;
         match operation {
             "agents.list" if permit.message.input == json!({}) => {}
             "identities.status" => {
@@ -750,30 +651,6 @@ impl Operations {
                 resources.push(input.agent_id.clone());
                 agent = Some(input);
             }
-            "requests.list" => {
-                let input: Value = read_input(permit)?;
-                if !permit.owner_browser() {
-                    return Err(if input.get("roomId").is_some() {
-                        RemoteError::room_history_denied("owner_browser_required")
-                    } else {
-                        RemoteError::new(
-                            "REMOTE_SCOPE_DENIED",
-                            "Conversation requires the owner browser.",
-                        )
-                    });
-                }
-                let query = conversation::request(&input)?;
-                if let Some(member) = query["input"]["memberId"].as_str() {
-                    resources.push(member.to_owned());
-                } else if permit.authority.agents != crate::authority::PermittedAgents::All {
-                    // A room page can include any roster member; a subset grant cannot
-                    // authorize disclosing the rest of the room through a broader read.
-                    return Err(RemoteError::room_history_denied("all_agents_required"));
-                }
-                conversation = Some(query);
-            }
-            "orchestration.read" => orchestration = Some(orchestration::read(permit)?),
-            "forms.list" | "changes.cursor" => form_read = Some(forms::read_request(permit)?),
             "requests.show" | "result" => {
                 let input: ResultInput = if operation == "requests.show" {
                     read_input(permit)?
@@ -795,19 +672,14 @@ impl Operations {
                 let value = permit.with_store(|store| {
                     store.owned(&permit.grant, &input.operation_id, now_ms()?)
                 })?;
-                if value.operation == "forms.answer" && operation == "operation.show" {
-                    forms::admit(permit)?;
-                } else if value.operation == "terminal.command.run" && operation == "operation.show"
-                {
-                    terminal_command::admit(permit)?;
-                } else if value.operation != "dispatch.create" {
+                if value.operation != "dispatch.create" {
                     return Err(invalid());
                 }
                 owned = Some(value);
             }
             _ => return Err(invalid()),
         }
-        if matches!(operation, "identities.status" | "check" | "requests.list") {
+        if matches!(operation, "identities.status" | "check") {
             if resources.iter().any(|id| !canonical::is_core_id(id)) {
                 return Err(invalid());
             }
@@ -821,24 +693,23 @@ impl Operations {
         // Core observations own no durable write. Keep both fences short, and capture
         // fallible Core results so authority is rechecked even when the read fails.
         permit.revalidate()?;
-        let payload = (|| {
-            match operation {
-                "agents.list" => {
-                    let value = self.core.agents(&self.stop)?;
-                    let observed_at_ms = now_ms()?;
-                    let rows = value["identities"].as_array().ok_or_else(invalid)?;
-                    let mut agents = Vec::new();
-                    for row in rows {
-                        let id = row["id"].as_str().ok_or_else(invalid)?;
-                        if !permit.authority.permits(id) {
-                            continue;
-                        }
-                        let mut projected = json!({"id":id,"name":row["name"].as_str().ok_or_else(invalid)?,"presence":row["presence"].as_str().ok_or_else(invalid)?});
-                        if let Some(delivery) = row.get("delivery") {
-                            projected["delivery"] = delivery.clone();
-                        }
-                        if let Some(driver) = row
-                            .get("runningDriver")
+        let payload = (|| match operation {
+            "agents.list" => {
+                let value = self.core.agents(&self.stop)?;
+                let observed_at_ms = now_ms()?;
+                let rows = value["identities"].as_array().ok_or_else(invalid)?;
+                let mut agents = Vec::new();
+                for row in rows {
+                    let id = row["id"].as_str().ok_or_else(invalid)?;
+                    if !permit.authority.permits(id) {
+                        continue;
+                    }
+                    let mut projected = json!({"id":id,"name":row["name"].as_str().ok_or_else(invalid)?,"presence":row["presence"].as_str().ok_or_else(invalid)?});
+                    if let Some(delivery) = row.get("delivery") {
+                        projected["delivery"] = delivery.clone();
+                    }
+                    if let Some(driver) =
+                        row.get("runningDriver")
                             .and_then(Value::as_str)
                             .filter(|driver| {
                                 !driver.is_empty()
@@ -849,150 +720,82 @@ impl Operations {
                                             || byte == b'-'
                                     })
                             })
-                        {
-                            projected["runningDriver"] = json!(driver);
-                        }
-                        if let Some(activity) =
-                            row.pointer("/session/activity").filter(|activity| {
-                                matches!(
-                                    activity["state"].as_str(),
-                                    Some("working" | "idle" | "unknown" | "ended")
-                                ) && activity.get("sinceMs").is_some_and(|since| {
-                                    since.is_null()
-                                        || since
-                                            .as_u64()
-                                            .is_some_and(|value| value <= 9_007_199_254_740_991)
-                                })
-                            })
-                        {
-                            projected["activity"] =
-                                json!({"state":activity["state"],"sinceMs":activity["sinceMs"]});
-                        }
-                        projected["observedAtMs"] = json!(observed_at_ms);
-                        agents.push(projected);
+                    {
+                        projected["runningDriver"] = json!(driver);
                     }
-                    Ok(json!({"identities":agents}))
-                }
-                "requests.list" => {
-                    let query = conversation.as_ref().expect("validated conversation input");
-                    let core = self
-                        .api_with_limit(
-                            query.to_string().as_bytes(),
-                            crate::limits::CONVERSATION_RESPONSE_BYTES,
-                        )
-                        .map_err(|_| {
-                            RemoteError::new(
-                                "REMOTE_CORE_UNAVAILABLE",
-                                "Conversation is unavailable.",
-                            )
-                        })?;
-                    conversation::response(&core, query)
-                }
-                "forms.list" | "changes.cursor" => {
-                    let request = form_read.as_ref().expect("admitted form read");
-                    let answer = self.api_with_limit(
-                        request.to_string().as_bytes(),
-                        crate::limits::FORMS_RESPONSE_BYTES,
-                    )?;
-                    forms::read_response(operation, &answer)
-                }
-                "orchestration.read" => {
-                    let request = orchestration.as_ref().expect("admitted orchestration read");
-                    orchestration::outcome((|| {
-                        let mut answer = self.api_with_limit(
-                            request.to_string().as_bytes(),
-                            crate::limits::ORCHESTRATION_RESPONSE_BYTES,
-                        )?;
-                        // This second observation is read-only: unlike user.identity it never
-                        // creates or marks the configured person. Refuse lost authority before
-                        // asking again; the outer post-check also covers this lookup.
-                        permit.revalidate()?;
-                        let person = self
-                            .api(br#"{"version":1,"operation":"user.person","input":{}}"#)
-                            .ok()
-                            .and_then(|value| {
-                                value["person"]["identityId"]
-                                    .as_str()
-                                    .filter(|id| canonical::is_core_id(id))
-                                    .map(str::to_owned)
-                            });
-                        answer
-                            .as_object_mut()
-                            .ok_or_else(invalid)?
-                            .insert("personId".into(), json!(person));
-                        if serde_json::to_vec(&answer).map_err(|_| invalid())?.len()
-                            > crate::limits::ORCHESTRATION_RESPONSE_BYTES
-                        {
-                            return Err(RemoteError::new(
-                                "REMOTE_CORE_UNAVAILABLE",
-                                "Orchestration is unavailable.",
-                            ));
-                        }
-                        Ok(answer)
-                    })())
-                }
-                "identities.status" => self.api(&permit.message.payload),
-                "requests.show" => self.api(&permit.message.payload).map(|mut detail| {
-                    let projected = message_state(&detail, permit.owner_browser());
-                    if let Some(fields) = detail.as_object_mut() {
-                        match projected {
-                            Some(state) => fields.insert("messageState".into(), state),
-                            None => fields.remove("messageState"),
-                        };
+                    if let Some(activity) = row.pointer("/session/activity").filter(|activity| {
+                        matches!(
+                            activity["state"].as_str(),
+                            Some("working" | "idle" | "unknown" | "ended")
+                        ) && activity.get("sinceMs").is_some_and(|since| {
+                            since.is_null()
+                                || since
+                                    .as_u64()
+                                    .is_some_and(|value| value <= 9_007_199_254_740_991)
+                        })
+                    }) {
+                        projected["activity"] =
+                            json!({"state":activity["state"],"sinceMs":activity["sinceMs"]});
                     }
-                    detail
-                }),
-                "check" => {
-                    let input = agent.as_ref().expect("validated check input");
-                    self.core.check(&input.agent_id, input.lines, &self.stop)
+                    projected["observedAtMs"] = json!(observed_at_ms);
+                    agents.push(projected);
                 }
-                "result" => {
-                    let id = request.as_deref().expect("validated request input");
-                    let api =
-                        json!({"version":1,"operation":"requests.show","input":{"requestId":id}});
-                    result_state(
-                        id,
-                        self.api(api.to_string().as_bytes()),
-                        permit.owner_browser(),
-                    )
-                }
-                "operation.show" => {
-                    let owned = owned.as_ref().expect("owned operation");
-                    if matches!(
-                        owned.operation.as_str(),
-                        "forms.answer" | "terminal.command.run"
-                    ) {
-                        return Ok(owned.receipt.clone());
-                    }
-                    if matches!(
-                        owned.phase.as_str(),
-                        "held" | "accepted" | "cancelled" | "refused"
-                    ) {
-                        return Ok(state(owned));
-                    }
-                    let frozen = owned
-                        .frozen
-                        .as_deref()
-                        .ok_or_else(|| database("owned frozen intent absent"))?;
-                    held_intent(&permit.grant, &owned.id, frozen)?;
-                    // Missing/malformed core receipts stay uncertain; observation never sends.
-                    Ok(self
-                        .resolve(frozen, false, &permit.grant)
-                        .unwrap_or_else(|_| uncertain(&owned.id)))
-                }
-                "dispatch.show" => {
-                    let owned = owned.as_ref().expect("owned operation");
-                    if matches!(owned.phase.as_str(), "held" | "cancelled" | "refused") {
-                        return Ok(state(owned));
-                    }
-                    match self.api(&permit.message.payload) {
-                        Ok(receipt) if receipt["operationId"] == owned.id => Ok(receipt),
-                        Ok(_) => Err(invalid()),
-                        Err(_) => Ok(uncertain(&owned.id)),
-                    }
-                }
-                _ => unreachable!(),
+                Ok(json!({"identities":agents}))
             }
+            "identities.status" => self.api(&permit.message.payload),
+            "requests.show" => self.api(&permit.message.payload).map(|mut detail| {
+                let projected = message_state(&detail, permit.owner_browser());
+                if let Some(fields) = detail.as_object_mut() {
+                    match projected {
+                        Some(state) => fields.insert("messageState".into(), state),
+                        None => fields.remove("messageState"),
+                    };
+                }
+                detail
+            }),
+            "check" => {
+                let input = agent.as_ref().expect("validated check input");
+                self.core.check(&input.agent_id, input.lines, &self.stop)
+            }
+            "result" => {
+                let id = request.as_deref().expect("validated request input");
+                let api = json!({"version":1,"operation":"requests.show","input":{"requestId":id}});
+                result_state(
+                    id,
+                    self.api(api.to_string().as_bytes()),
+                    permit.owner_browser(),
+                )
+            }
+            "operation.show" => {
+                let owned = owned.as_ref().expect("owned operation");
+                if matches!(
+                    owned.phase.as_str(),
+                    "held" | "accepted" | "cancelled" | "refused"
+                ) {
+                    return Ok(state(owned));
+                }
+                let frozen = owned
+                    .frozen
+                    .as_deref()
+                    .ok_or_else(|| database("owned frozen intent absent"))?;
+                held_intent(&permit.grant, &owned.id, frozen)?;
+                // Missing/malformed core receipts stay uncertain; observation never sends.
+                Ok(self
+                    .resolve(frozen, false, &permit.grant)
+                    .unwrap_or_else(|_| uncertain(&owned.id)))
+            }
+            "dispatch.show" => {
+                let owned = owned.as_ref().expect("owned operation");
+                if matches!(owned.phase.as_str(), "held" | "cancelled" | "refused") {
+                    return Ok(state(owned));
+                }
+                match self.api(&permit.message.payload) {
+                    Ok(receipt) if receipt["operationId"] == owned.id => Ok(receipt),
+                    Ok(_) => Err(invalid()),
+                    Err(_) => Ok(uncertain(&owned.id)),
+                }
+            }
+            _ => unreachable!(),
         })();
         permit.revalidate()?;
         let payload = payload?;
@@ -1205,14 +1008,7 @@ impl Operations {
                 };
                 match self.api(&core_wire) {
                     Ok(receipt) => accepted(id, &intent, &receipt),
-                    Err(error)
-                        if matches!(
-                            error.code.as_str(),
-                            "ROOM_ROSTER_CHANGED"
-                                | "ROOM_RECIPIENT_NOT_MEMBER"
-                                | "DISPATCH_INVALID"
-                        ) =>
-                    {
+                    Err(error) if error.code == "DISPATCH_INVALID" => {
                         Ok(json!({"state":"refused","operationId":id,"reason":error.code}))
                     }
                     Err(_) => Ok(uncertain(id)),
@@ -1239,9 +1035,6 @@ struct SendNowAnswer {
     text: Option<String>,
 }
 fn state(owned: &Owned) -> Value {
-    if owned.operation == "forms.answer" {
-        return owned.receipt.clone();
-    }
     if matches!(owned.phase.as_str(), "accepted" | "cancelled" | "refused") {
         owned.receipt.clone()
     } else {
@@ -1422,7 +1215,7 @@ impl Store {
             .optional()
             .map_err(database)?
             .ok_or_else(|| database("owned state absent"))?;
-        if old == phase && operation != "forms.answer" {
+        if old == phase {
             return Ok(());
         }
         if matches!(old.as_str(), "accepted" | "cancelled" | "refused")
@@ -1432,11 +1225,7 @@ impl Store {
             return Err(invalid());
         }
         let mut resources: Vec<String> = serde_json::from_str(&refs).map_err(database)?;
-        if let Some(requests) = payload["requestIds"].as_array() {
-            for request in requests {
-                resources.push(request_reference(request.as_str().ok_or_else(invalid)?)?);
-            }
-        } else if let Some(request) = payload["requestId"].as_str() {
+        if let Some(request) = payload["requestId"].as_str() {
             resources.push(request_reference(request)?);
         }
         audit::append(
