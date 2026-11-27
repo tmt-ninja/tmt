@@ -3,9 +3,9 @@ description: >-
   Updates the package index and installs packages on a Linux runner, with the
   network steps under a bounded retry and per-attempt timeout. It downloads the
   packages first and unpacks them in a separate, longer bound, so a network
-  timeout never interrupts dpkg. It first drops
-  the runner image's Google Chrome apt source: no job here uses it, and its index has failed with a hash
-  mismatch that failed the whole update. Does nothing on other operating systems.
+  timeout never interrupts dpkg. It first drops the runner image's unused Google
+  Chrome (dl.google.com) and Microsoft (packages.microsoft.com) apt sources so
+  their index failures do not block Ubuntu packages. Does nothing on other operating systems.
 inputs:
   packages:
     description: Space-separated package names.
@@ -21,7 +21,7 @@ runs:
         APT_SOURCES: /etc/apt/sources.list.d/ubuntu.sources
         APT_MIRRORS: /etc/apt/apt-mirrors.txt
       run: |
-        for source in $(grep -l dl.google.com /etc/apt/sources.list.d/* 2>/dev/null || true); do
+        for source in $(grep -lF -e dl.google.com -e packages.microsoft.com /etc/apt/sources.list.d/* 2>/dev/null || true); do
           sudo rm -f "$source"
         done
         if [ -f "$APT_MIRRORS" ] && [ ! -L "$APT_MIRRORS" ] && [ -r "$APT_MIRRORS" ]; then
