@@ -500,6 +500,7 @@ impl From<&str> for ActionOutcome {
         Self::Message(message.into())
     }
 }
+#[allow(clippy::too_many_arguments)]
 fn chat_send(
     core: &Core,
     sender: &str,

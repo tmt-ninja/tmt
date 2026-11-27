@@ -986,9 +986,11 @@ fn render_target(
         Line::styled(text, look.role(role))
     };
     let runtime_known = runtime != "–" || model != "–";
-    let kept_count = (app.kept_replies.member_id.as_deref() == Some(identity.1.as_str()))
-        .then_some(app.kept_replies.items.len())
-        .unwrap_or(0);
+    let kept_count = if app.kept_replies.member_id.as_deref() == Some(identity.1.as_str()) {
+        app.kept_replies.items.len()
+    } else {
+        0
+    };
     let state_text = if kept_count > 0 {
         format!(
             "{state_words} · {} · {role} · ⚑ {kept_count} kept",
