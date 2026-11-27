@@ -119,6 +119,10 @@ static int invoke(const char *symbol, int fd, int command, va_list args) {
     if (length >= 0 && named > 0 && (size_t)named < sizeof shm) {
       actual[length] = 0;
       if (!strcmp(actual, shm) && lock->l_type == F_WRLCK &&
+          /* Fixture fact, read from the bundled sqlite3.c of the pinned
+           * libsqlite3-sys 0.38.2 (rust/Cargo.lock): UNIX_SHM_BASE is
+           * (22 + SQLITE_SHM_NLOCK 8) * 4 = 120 and WAL_CKPT_LOCK is 1.
+           * Recheck both when that crate or its SQLite is bumped. */
           lock->l_start == 121 && lock->l_len == 1 && has_child()) {
         used = 1;
         marker("TMT_CLOSE_BEFORE");
