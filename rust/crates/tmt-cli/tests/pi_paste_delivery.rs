@@ -1033,6 +1033,13 @@ fn enrolled_pi_delivers_original_request_and_fences_a_replaced_session() {
         let show = || tmux.tmt_json(&["x", "show", request_id, "--identity", "sender", "--json"]);
         let pending = show().to_string();
         assert!(pending.contains("waiting_for_delivery"), "{pending}");
+        let start = || {
+            assert!(
+                tmux.tmux(&["send-keys", "-t", &tmux.pane_id, "START", "Enter"])
+                    .status
+                    .success()
+            );
+        };
         if abandon {
             caller.kill().unwrap();
             caller.wait().unwrap();
@@ -1046,13 +1053,10 @@ fn enrolled_pi_delivers_original_request_and_fences_a_replaced_session() {
                 String::from_utf8_lossy(&retry.stdout).contains("SEND_NOW_UNCONFIRMED")
                     || String::from_utf8_lossy(&retry.stderr).contains("SEND_NOW_UNCONFIRMED")
             );
-        }
-        assert!(
-            tmux.tmux(&["send-keys", "-t", &tmux.pane_id, "START", "Enter"])
-                .status
-                .success()
-        );
-        if !abandon {
+            start();
+            assert!(show().to_string().contains("unconfirmed"));
+        } else {
+            start();
             let sent = caller.wait_with_output().unwrap();
             assert!(
                 sent.status.success(),
@@ -1060,8 +1064,6 @@ fn enrolled_pi_delivers_original_request_and_fences_a_replaced_session() {
                 String::from_utf8_lossy(&sent.stderr)
             );
             assert_eq!(tmux.db().query_row("SELECT wake_state FROM request_attempts WHERE request_id=? AND receipt_deadline_ms IS NULL",[request_id],|r|r.get::<_,String>(0)).unwrap(),"sent");
-        } else {
-            assert!(show().to_string().contains("unconfirmed"));
         }
     }
     let text = fs::read_to_string(root.join("submissions")).unwrap();
