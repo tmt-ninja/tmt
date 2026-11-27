@@ -129,20 +129,21 @@ impl<R: CommandRunner + Clone> Host<R> {
         runner: R,
         records: Vec<crate::driver_protocol::registry::DriverRecord>,
         ids: &mut I,
-        deadline: Instant,
+        discovery_deadline: Instant,
+        hook_deadline: Instant,
     ) -> Result<Self, HostError> {
         let set =
             |value: &Option<std::ffi::OsString>| value.as_ref().is_some_and(|v| !v.is_empty());
         if !(set(&environment.tmux) && set(&environment.pane)) {
             return Err(unverified("the caller's tmux variables are partial"));
         }
-        let (chain, callers) = builtin.pinned_callers(environment, deadline)?;
+        let (chain, callers) = builtin.pinned_callers(environment, discovery_deadline)?;
         if !callers.conclusive {
             return Err(unverified("an approved driver did not answer"));
         }
         let tmux = builtin
             .tmux
-            .proven_caller_pane(environment, deadline)
+            .proven_caller_pane(environment, discovery_deadline)
             .map_err(|error| {
                 if error.cleanup_failed() {
                     HostError::Tmux(error)
@@ -166,9 +167,11 @@ impl<R: CommandRunner + Clone> Host<R> {
             (None, Some(tmux)) => tmux,
             (None, None) => return Err(unverified("no host's pane is an ancestor of the caller")),
         };
-        let pane = Self::unchanged(&runner, &chain, owner, deadline)?;
+        let pane = Self::unchanged(&runner, &chain, owner, discovery_deadline)?;
         let host = match external {
-            Some(external) => Self::for_external_caller(external, runner, records, ids)?,
+            Some(external) => {
+                Self::for_external_caller(external, runner, records, ids, hook_deadline)?
+            }
             None => builtin,
         };
         Ok(Self {

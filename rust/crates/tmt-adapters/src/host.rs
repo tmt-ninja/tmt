@@ -691,10 +691,11 @@ impl<R: CommandRunner + Clone> Host<R> {
         runner: R,
         records: Vec<crate::driver_protocol::registry::DriverRecord>,
         ids: &mut I,
+        deadline: Instant,
     ) -> Result<Self, HostError> {
         let unverified =
             |reason: &str| HostError::Unavailable(format!("caller host unverified: {reason}"));
-        let deadline = Instant::now() + Duration::from_secs(1);
+        let discovery_deadline = deadline.min(Instant::now() + Duration::from_secs(1));
         let mut builtin = Self::of(HostKind::Tmux, runner.clone()).with_drivers(records.clone());
         builtin.tmux = builtin.tmux.with_caller(environment);
         match environment.named_host(&records) {
@@ -707,6 +708,7 @@ impl<R: CommandRunner + Clone> Host<R> {
                     runner,
                     records,
                     ids,
+                    discovery_deadline,
                     deadline,
                 );
             }
@@ -714,12 +716,14 @@ impl<R: CommandRunner + Clone> Host<R> {
                 return Err(unverified("the caller's locators name more than one host"));
             }
         }
-        let callers = builtin.external.callers(environment, None, deadline)?;
+        let callers = builtin
+            .external
+            .callers(environment, None, discovery_deadline)?;
         let [external] = <[ExternalCaller; 1]>::try_from(callers.found)
             .ok()
             .filter(|_| callers.conclusive)
             .ok_or_else(|| unverified("no approved driver verified the caller's pane"))?;
-        Self::for_external_caller(external, runner, records, ids)
+        Self::for_external_caller(external, runner, records, ids, deadline)
     }
 
     /// The handle for a verified external caller pane, whose server must be
@@ -729,11 +733,12 @@ impl<R: CommandRunner + Clone> Host<R> {
         runner: R,
         records: Vec<crate::driver_protocol::registry::DriverRecord>,
         ids: &mut I,
+        deadline: Instant,
     ) -> Result<Self, HostError> {
         let name = external.host;
         let host = Self::of(HostKind::External(name), runner).with_drivers(records);
         host.external.set_caller(external);
-        host.resolve_servers(ids)?;
+        host.external.resolve_server(name, ids, Some(deadline))?;
         match host.external.resolved() {
             Some(_) => Ok(host),
             None => Err(HostError::Evidence {
@@ -932,7 +937,7 @@ impl<R: CommandRunner> Host<R> {
     pub fn resolve_servers<I: HostServerIds>(&self, ids: &mut I) -> Result<(), HostError> {
         match self.primary {
             HostKind::Tmux => Ok(()),
-            HostKind::External(host) => self.external.resolve_server(host, ids),
+            HostKind::External(host) => self.external.resolve_server(host, ids, None),
         }
     }
     /// The core binding and driver ports.

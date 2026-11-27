@@ -568,6 +568,66 @@ impl<R: CommandRunner> CommandRunner for Counting<R> {
 }
 
 #[test]
+fn hook_deadline_bounds_caller_and_server_requests() {
+    #[derive(Clone)]
+    struct Capture<'a> {
+        world: World,
+        deadlines: &'a RefCell<Vec<(OsString, Instant)>>,
+    }
+
+    impl CommandRunner for Capture<'_> {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            if request
+                .args
+                .first()
+                .is_some_and(|a| a == "TMT_DRIVER_CALL=1")
+            {
+                let op = request.args.last().unwrap();
+                self.deadlines
+                    .borrow_mut()
+                    .push((op.clone(), request.deadline));
+                // The approved fixture's canned replies keep worker scheduling out of
+                // the deadline assertion. The world below supplies the process evidence.
+                let file = PathBuf::from(&request.args[1]).with_extension(op);
+                return Ok(CommandOutput {
+                    stdout: fs::read(file).unwrap(),
+                    stderr: vec![],
+                });
+            }
+            self.world.execute(request)
+        }
+    }
+    let pid = u64::from(std::process::id());
+    with_caller(
+        Pane::Shell(pid),
+        TmuxEnv::Absent,
+        pid,
+        false,
+        |env, records| {
+            let deadlines = RefCell::default();
+            let runner = Capture {
+                world: World::chain(&[pid, 1]),
+                deadlines: &deadlines,
+            };
+            let deadline = Instant::now() + Duration::from_millis(500);
+            let host = crate::host::Host::for_verified_caller(
+                env,
+                runner.clone(),
+                records,
+                &mut Ids::default(),
+                deadline,
+            )
+            .unwrap();
+            assert_eq!(host.primary, HostKind::External(fake()));
+            assert_eq!(
+                *deadlines.borrow(),
+                [("caller".into(), deadline), ("server".into(), deadline)]
+            );
+        },
+    );
+}
+
+#[test]
 fn a_caller_named_by_one_host_or_none_reads_no_pinned_chain() {
     use crate::host::{CallerEnvironment, Host};
     let chain = ancestors();
@@ -593,8 +653,14 @@ fn a_caller_named_by_one_host_or_none_reads_no_pinned_chain() {
         process_id: pid,
         driver_env: Default::default(),
     };
-    let host = Host::for_verified_caller(&caller, builtin.clone(), Vec::new(), &mut Ids::default())
-        .unwrap();
+    let host = Host::for_verified_caller(
+        &caller,
+        builtin.clone(),
+        Vec::new(),
+        &mut Ids::default(),
+        soon(),
+    )
+    .unwrap();
     assert_eq!(
         (host.primary, host.pinned_caller_pane()),
         (HostKind::Tmux, None)
