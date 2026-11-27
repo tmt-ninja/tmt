@@ -595,7 +595,7 @@ impl Storage {
     }
 
     /// The account the newest sample named for `id`'s remembered session (#5274): sampled
-    /// readings carry it, the 1024-byte remembered state cannot. None when nothing was sampled
+    /// readings carry it, the 4096-byte remembered state cannot. None when nothing was sampled
     /// or the sample names no account.
     pub fn sampled_rate_account(&self, id: &str) -> Result<Option<SampledAccount>, StorageError> {
         let latest: Option<String> = self

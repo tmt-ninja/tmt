@@ -7,7 +7,7 @@
 //! family is first scanned (rollouts that already existed are baselined at
 //! their current totals), and a rollout found later counts from zero. The
 //! per-file cursors live in storage because the sampler is a fresh process each
-//! tick; the 1 KiB driver state only carries the sum.
+//! tick; the 4 KiB driver state only carries the sum.
 use super::{
     Consumption, Counts, Growth, MAX_MODELS, ModelUsage, SourceCursor, State, codex_growth,
     codex_with, transcript,

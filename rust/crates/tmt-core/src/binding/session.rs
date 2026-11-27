@@ -256,7 +256,7 @@ pub struct DriverState {
 }
 
 impl DriverState {
-    pub const MAXIMUM_BYTES: usize = 1024;
+    pub const MAXIMUM_BYTES: usize = 4096;
 
     pub fn new(version: u16, document: &str) -> Result<Self, SessionValueError> {
         if version == 0

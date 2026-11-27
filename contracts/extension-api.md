@@ -1182,7 +1182,7 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   `codex`. `account` is `{key,label}` and present only when the source names its account
   (Claude; absent for Codex and agy, which have one implicit account, and for every value
   stored before the field, so absence reads as that one account). Core attaches it when a
-  reading is sampled, because the remembered state is capped at 1024 bytes and never holds
+  reading is sampled, because the remembered state is capped at 4096 bytes and never holds
   it: the history (`latest` and buckets) carries it, and `resume.consumption.rateLimits`
   shows the newest sample's account when that sample is of the same driver, session and
   provider, and none otherwise. `key` is the first 12
