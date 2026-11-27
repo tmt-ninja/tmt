@@ -339,12 +339,20 @@ interface FocusRestore {
 export function StructuredPage(props: StructuredPageProps) {
   const root = useRef<HTMLDivElement>(null);
   const anchor = props.anchorBlock;
+  const jumpedToAnchor = useRef(false);
   useEffect(() => {
-    if (anchor)
-      root.current
-        ?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(anchor)}"]`)
-        ?.scrollIntoView({ block: 'start' });
+    jumpedToAnchor.current = false;
   }, [anchor]);
+  useEffect(() => {
+    if (!anchor || jumpedToAnchor.current) return;
+    const target = root.current?.querySelector<HTMLElement>(
+      `[data-block-id="${CSS.escape(anchor)}"]`,
+    );
+    // During a same-tab navigation the anchor can arrive before the new page's blocks.
+    if (!target) return;
+    jumpedToAnchor.current = true;
+    target.scrollIntoView({ block: 'start' });
+  }, [anchor, props.tree]);
   const [hovered, setHovered] = useState<string>();
   // The last block the pointer entered: typing hides its handle, and the next move shows it again.
   const entered = useRef<string>(undefined);

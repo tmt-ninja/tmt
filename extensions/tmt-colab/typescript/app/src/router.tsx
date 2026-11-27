@@ -1659,7 +1659,12 @@ function PagePath({ routing, project }: { routing: PageRouting; project?: string
 function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
   return {
     open(route, anchor) {
-      void router.navigate({ to: route, search: anchor ? { anchor } : {} });
+      void router.navigate({
+        to: route,
+        search: anchor ? { anchor } : {},
+        // The mounted block positions the page. The route's top reset would undo that jump.
+        resetScroll: anchor?.startsWith('block-') ? false : undefined,
+      });
     },
     pageHref: (pageId, hint) =>
       router.history.createHref(
