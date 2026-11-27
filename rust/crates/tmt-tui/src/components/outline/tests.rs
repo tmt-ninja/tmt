@@ -41,6 +41,65 @@ fn draws_square_borders_and_a_title_without_clearing_the_inside() {
 }
 
 #[test]
+fn rounded_and_thick_frames_support_right_aligned_notes_and_ascii() {
+    let area = Rect::new(0, 0, 18, 4);
+    let mut rounded = Buffer::empty(area);
+    let note = Line::styled(" note ", Style::new().fg(Color::DarkGray));
+    outline(Line::raw(" Work ")).paint_noted(
+        area,
+        &mut rounded,
+        OutlineFrame::Rounded,
+        Some(&note),
+        false,
+    );
+    assert_eq!(
+        rows(&rounded),
+        [
+            "╭ Work ──── note ╮",
+            "│                │",
+            "│                │",
+            "╰────────────────╯",
+        ]
+    );
+
+    let mut thick = Buffer::empty(area);
+    outline(Line::raw(" Work ")).paint_noted(
+        area,
+        &mut thick,
+        OutlineFrame::Thick,
+        Some(&note),
+        false,
+    );
+    assert_eq!(
+        rows(&thick),
+        [
+            "┏ Work ━━━━ note ┓",
+            "┃                ┃",
+            "┃                ┃",
+            "┗━━━━━━━━━━━━━━━━┛",
+        ]
+    );
+
+    let mut ascii_thick = Buffer::empty(area);
+    outline(Line::raw(" Work ")).paint_noted(
+        area,
+        &mut ascii_thick,
+        OutlineFrame::Thick,
+        Some(&note),
+        true,
+    );
+    assert_eq!(
+        rows(&ascii_thick),
+        [
+            "+ Work ==== note +",
+            "#                #",
+            "#                #",
+            "+================+",
+        ]
+    );
+}
+
+#[test]
 fn an_empty_title_draws_none_and_titles_are_escaped() {
     let mut buffer = Buffer::empty(Rect::new(0, 0, 8, 3));
     outline(Line::default()).paint(Rect::new(0, 0, 8, 3), &mut buffer);

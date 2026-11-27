@@ -3,7 +3,7 @@
 //! so it frames panes of a base layer rather than an overlay.
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::Style,
     symbols::border,
     text::{Line, Span},
@@ -11,18 +11,62 @@ use ratatui::{
 };
 use tmt_cli_style::table::escape;
 
-/// Both frame styles reserve every edge; flat framing changes paint alone.
-#[derive(Clone, Copy)]
-pub(super) enum Frame {
+/// Border geometry for `Outline`; flat framing changes paint alone.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutlineFrame {
     Square,
+    Rounded,
+    Thick,
     Flat,
 }
 
-pub(super) fn frame_block(frame: Frame) -> Block<'static> {
+pub(super) type Frame = OutlineFrame;
+
+pub(super) fn frame_block(frame: OutlineFrame) -> Block<'static> {
+    frame_block_with_ascii(frame, false)
+}
+
+fn frame_block_with_ascii(frame: OutlineFrame, ascii: bool) -> Block<'static> {
     let block = Block::new().borders(Borders::ALL);
+    if ascii {
+        return match frame {
+            OutlineFrame::Thick => block.border_set(border::Set {
+                top_left: "+",
+                top_right: "+",
+                bottom_left: "+",
+                bottom_right: "+",
+                vertical_left: "#",
+                vertical_right: "#",
+                horizontal_top: "=",
+                horizontal_bottom: "=",
+            }),
+            OutlineFrame::Flat => block.border_set(border::Set {
+                top_left: "-",
+                top_right: "-",
+                bottom_left: "-",
+                bottom_right: "-",
+                vertical_left: " ",
+                vertical_right: " ",
+                horizontal_top: "-",
+                horizontal_bottom: "-",
+            }),
+            OutlineFrame::Square | OutlineFrame::Rounded => block.border_set(border::Set {
+                top_left: "+",
+                top_right: "+",
+                bottom_left: "+",
+                bottom_right: "+",
+                vertical_left: "|",
+                vertical_right: "|",
+                horizontal_top: "-",
+                horizontal_bottom: "-",
+            }),
+        };
+    }
     match frame {
-        Frame::Square => block,
-        Frame::Flat => block.border_set(border::Set {
+        OutlineFrame::Square => block,
+        OutlineFrame::Rounded => block.border_set(border::ROUNDED),
+        OutlineFrame::Thick => block.border_set(border::THICK),
+        OutlineFrame::Flat => block.border_set(border::Set {
             top_left: "─",
             top_right: "─",
             bottom_left: "─",
@@ -32,6 +76,15 @@ pub(super) fn frame_block(frame: Frame) -> Block<'static> {
             ..border::PLAIN
         }),
     }
+}
+
+fn escaped_line<'a>(line: &Line<'_>) -> Line<'a> {
+    Line::from(
+        line.spans
+            .iter()
+            .map(|span| Span::styled(escape(&span.content), span.style))
+            .collect::<Vec<_>>(),
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -49,27 +102,55 @@ impl Outline<'_> {
     }
 
     pub fn paint(&self, area: Rect, buffer: &mut Buffer) {
-        self.paint_frame(area, buffer, Frame::Square);
+        self.paint_frame(area, buffer, OutlineFrame::Square, None, false);
+    }
+
+    /// Rounded corners (`╭─╮` / `╰─╯`), with the same inner and title areas.
+    pub fn paint_rounded(&self, area: Rect, buffer: &mut Buffer) {
+        self.paint_frame(area, buffer, OutlineFrame::Rounded, None, false);
+    }
+
+    /// Heavy corners (`┏━┓` / `┗━┛`), with the same inner and title areas.
+    pub fn paint_thick(&self, area: Rect, buffer: &mut Buffer) {
+        self.paint_frame(area, buffer, OutlineFrame::Thick, None, false);
     }
 
     /// Horizontal rules and blank side slots, with the same inner and title areas.
     pub fn paint_flat(&self, area: Rect, buffer: &mut Buffer) {
-        self.paint_frame(area, buffer, Frame::Flat);
+        self.paint_frame(area, buffer, OutlineFrame::Flat, None, false);
     }
 
-    fn paint_frame(&self, area: Rect, buffer: &mut Buffer, frame: Frame) {
-        let mut block = frame_block(frame)
+    /// Paint a chosen frame with an optional right-aligned top-border note.
+    pub fn paint_noted(
+        &self,
+        area: Rect,
+        buffer: &mut Buffer,
+        frame: OutlineFrame,
+        note: Option<&Line<'_>>,
+        ascii: bool,
+    ) {
+        self.paint_frame(area, buffer, frame, note, ascii);
+    }
+
+    fn paint_frame(
+        &self,
+        area: Rect,
+        buffer: &mut Buffer,
+        frame: OutlineFrame,
+        note: Option<&Line<'_>>,
+        ascii: bool,
+    ) {
+        let mut block = frame_block_with_ascii(frame, ascii)
             .border_style(self.border)
             .title_style(self.title_style);
         if !self.title.spans.is_empty() {
             // Titles carry user data (names): shown escaped, never interpreted.
-            block = block.title(Line::from(
-                self.title
-                    .spans
-                    .iter()
-                    .map(|span| Span::styled(escape(&span.content), span.style))
-                    .collect::<Vec<_>>(),
-            ));
+            block = block.title(escaped_line(&self.title));
+        }
+        if let Some(note) = note
+            && !note.spans.is_empty()
+        {
+            block = block.title_top(escaped_line(note).alignment(Alignment::Right));
         }
         block.render(area.intersection(buffer.area), buffer);
     }

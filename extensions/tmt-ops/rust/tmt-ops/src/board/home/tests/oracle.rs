@@ -1555,39 +1555,13 @@ fn work_frames(styles: &mut Styles) -> Vec<Value> {
     frames
 }
 
-fn talk_work_frames(styles: &mut Styles) -> Vec<Value> {
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut frames = Vec::new();
-    for (look_name, look) in looks() {
-        for width in [160, 100] {
-            let mut app = crate::board::agents_focus::tests::talk_with_work();
-            app.view.as_mut().unwrap().look = look;
-            app.local_zone = Some(jiff::tz::TimeZone::UTC);
-            crate::board::app::workspace::tests::disable_motion(&mut app);
-            crate::board::view::prepare(&mut app, ratatui::layout::Rect::new(0, 0, width, 36));
-            for state in ["talk-work-collapsed", "talk-work-expanded"] {
-                if state == "talk-work-expanded" {
-                    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
-                }
-                let mut frame = capture_frame(&app, state, look_name, width, 36, styles);
-                let (toggle, open) = app.talk_work.borrow().captured_hits();
-                assert!(toggle.is_some(), "{state}: {look_name} at {width}");
-                assert_eq!(open.is_some(), state == "talk-work-expanded");
-                frame["talkWorkHits"] = json!(format!("{toggle:?} {open:?}"));
-                frames.push(frame);
-            }
-        }
-    }
-    frames
-}
-
 #[test]
-#[ignore = "exports only the W-168 Talk cases for decoded review"]
-fn dump_talk_work_oracle() {
+#[ignore = "exports only the work-* scenes to HOME_ORACLE_OUT without recording"]
+fn dump_work_oracle() {
     let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
     let captured = crate::status::with_now_ms(NOW, || {
         let mut styles = Styles::default();
-        let frames = talk_work_frames(&mut styles);
+        let frames = work_frames(&mut styles);
         let styles = styles
             .0
             .into_iter()
@@ -1921,8 +1895,7 @@ macro_rules! oracle_groups {
         $group!(7, 360, skills_picker_frames($styles));
         $group!(7, 32, visibility_frames($styles));
         $group!(7, 608, orchestration_frames($styles));
-        $group!(7, 92, work_frames($styles));
-        $group!(7, 16, talk_work_frames($styles));
+        $group!(7, 100, work_frames($styles));
         $group!(7, 12, opening_frames($styles));
     };
 }

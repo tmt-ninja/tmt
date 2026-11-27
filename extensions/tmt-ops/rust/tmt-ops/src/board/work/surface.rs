@@ -9,11 +9,12 @@ use ratatui::{
 };
 use tmt_cli_style::Role;
 use tmt_tui::components::{
-    Button, Dialog, DialogInput, DialogKind, DialogLook, DialogState, FieldKind, Focus,
+    Button, Dialog, DialogInput, DialogKind, DialogLook, DialogState, FieldKind, Focus, Outline,
+    OutlineFrame,
     design_system::{
         self as ds, CellGrid, Chip, ChipRow, ChipRowProps, Component, Gauge, GaugeProps,
-        MoreDirection, MoreHint, MoreHintProps, PaneRule, PaneRuleProps, SectionRule,
-        SectionRuleProps, Sparkline, SparklineProps, Token,
+        MoreDirection, MoreHint, MoreHintProps, SectionRule, SectionRuleProps, Sparkline,
+        SparklineProps, Token,
     },
     design_system_ratatui, strip,
 };
@@ -465,6 +466,49 @@ fn ascii_mode(app: &App) -> bool {
     )
 }
 
+fn paint_pane_box(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    title: &str,
+    note: Option<&str>,
+    focused: bool,
+) -> Rect {
+    let look = app.look();
+    let frame_kind = if focused {
+        OutlineFrame::Thick
+    } else {
+        OutlineFrame::Rounded
+    };
+    let border = look.role(if focused { Role::Accent } else { Role::Dim });
+    let title_style = if focused {
+        look.role(Role::Accent).add_modifier(Modifier::BOLD)
+    } else {
+        look.role(Role::Muted)
+    };
+    let note_line = note
+        .filter(|value| !value.is_empty())
+        .map(|value| Line::styled(format!(" {value} "), look.role(Role::Dim)));
+    let outline = Outline {
+        title: Line::raw(format!(" {title} ")),
+        border,
+        title_style,
+    };
+    outline.paint_noted(
+        area,
+        frame.buffer_mut(),
+        frame_kind,
+        note_line.as_ref(),
+        ascii_mode(app),
+    );
+    let inner = outline.inner(area);
+    if inner.width > 2 {
+        Rect::new(inner.x + 1, inner.y, inner.width - 2, inner.height)
+    } else {
+        inner
+    }
+}
+
 fn paint_dashboard_band(
     frame: &mut Frame,
     app: &App,
@@ -524,41 +568,35 @@ fn paint_dashboard_band(
     let left_w = (area.width / 2).saturating_sub(1);
     let right_x = area.x + left_w + 1;
     let right_w = area.width.saturating_sub(left_w + 1);
-    let ascii = ascii_mode(app);
     let look = app.look();
+    let band_h = 6_u16;
 
-    paint_ds::<PaneRule>(
+    let left_inner = paint_pane_box(
         frame,
         app,
-        Rect::new(area.x, area.y, left_w, 1),
-        &PaneRuleProps {
-            title: "Projects".into(),
-            note: Some("chapters".into()),
-            note_role: Some(Token(Role::Dim)),
-            focused: false,
-            ascii,
-        },
+        Rect::new(area.x, area.y, left_w, band_h),
+        "Projects",
+        Some("chapters"),
+        false,
     );
-    paint_ds::<PaneRule>(
+    let right_inner = paint_pane_box(
         frame,
         app,
-        Rect::new(right_x, area.y, right_w, 1),
-        &PaneRuleProps {
-            title: "Squad Pulse".into(),
-            note: Some(PERIODS[state.period].into()),
-            note_role: Some(Token(Role::Dim)),
-            focused: false,
-            ascii,
-        },
+        Rect::new(right_x, area.y, right_w, band_h),
+        "Squad Pulse",
+        Some(PERIODS[state.period]),
+        false,
     );
 
     let projects: Vec<&str> = match filter {
         Some(name) => vec![name],
         None => list.projects.iter().take(4).map(String::as_str).collect(),
     };
-    let rows_used = 4_u16;
     for (idx, project) in projects.iter().enumerate() {
-        let y = area.y + 1 + idx as u16;
+        let y = left_inner.y + idx as u16;
+        if y >= left_inner.bottom() {
+            break;
+        }
         let progress = list.project_progress(project);
         let ratio = match progress {
             Some(p) => format!("{}/{}", p.done, p.total),
@@ -592,7 +630,7 @@ fn paint_dashboard_band(
             paint_ds::<Gauge>(
                 frame,
                 app,
-                Rect::new(area.x, y, left_w, 1),
+                Rect::new(left_inner.x, y, left_inner.width, 1),
                 &GaugeProps {
                     label: (*project).into(),
                     label_width: 8,
@@ -607,7 +645,7 @@ fn paint_dashboard_band(
             let badges = total.into_iter().skip(1).collect::<Vec<_>>().join(" ");
             let badge_w = unicode_width::UnicodeWidthStr::width(badges.as_str());
             let numbers_col = 9_usize;
-            let bar_w = usize::from(left_w)
+            let bar_w = usize::from(left_inner.width)
                 .saturating_sub(8 + 1 + 2 + numbers_col + 1 + badge_w)
                 .min(24);
             let line = if badges.is_empty() {
@@ -621,27 +659,35 @@ fn paint_dashboard_band(
             };
             strip::paint_left(
                 frame.buffer_mut(),
-                Rect::new(area.x, y, left_w, 1),
-                Line::styled(fit(&line, usize::from(left_w)), look.role(Role::Muted)),
+                Rect::new(left_inner.x, y, left_inner.width, 1),
+                Line::styled(
+                    fit(&line, usize::from(left_inner.width)),
+                    look.role(Role::Muted),
+                ),
             );
         }
     }
 
     // Right column: Velocity Sparkline + status counts + Active + Stuck.
     let (points, scale) = done_buckets(list, state, now, zone);
-    let label = " Velocity ";
+    let label = "Velocity ";
     let label_w = label.len() as u16;
     strip::paint_left(
         frame.buffer_mut(),
-        Rect::new(right_x, area.y + 1, label_w.min(right_w), 1),
+        Rect::new(
+            right_inner.x,
+            right_inner.y,
+            label_w.min(right_inner.width),
+            1,
+        ),
         Line::styled(label, look.role(Role::Muted)),
     );
-    if right_w > label_w {
-        let spark_w = (right_w - label_w).min(40);
+    if right_inner.width > label_w {
+        let spark_w = (right_inner.width - label_w).min(40);
         paint_ds::<Sparkline>(
             frame,
             app,
-            Rect::new(right_x + label_w, area.y + 1, spark_w, 1),
+            Rect::new(right_inner.x + label_w, right_inner.y, spark_w, 1),
             &SparklineProps {
                 points,
                 scale,
@@ -655,9 +701,9 @@ fn paint_dashboard_band(
     let blocked_count = visible().filter(|i| i.status == Status::Blocked).count();
     strip::paint_left(
         frame.buffer_mut(),
-        Rect::new(right_x, area.y + 2, right_w, 1),
+        Rect::new(right_inner.x, right_inner.y + 1, right_inner.width, 1),
         Line::from(vec![
-            Span::styled(" ● ", look.role(Role::Working)),
+            Span::styled("● ", look.role(Role::Working)),
             Span::styled(format!("{working_count} working  "), look.role(Role::Muted)),
             Span::styled("◆ ", look.role(Role::Waiting)),
             Span::styled(format!("{needs_count} needs you  "), look.role(Role::Muted)),
@@ -676,9 +722,12 @@ fn paint_dashboard_band(
     };
     strip::paint_left(
         frame.buffer_mut(),
-        Rect::new(right_x, area.y + 3, right_w, 1),
+        Rect::new(right_inner.x, right_inner.y + 2, right_inner.width, 1),
         Line::styled(
-            fit(&format!(" Active   {active_text}"), usize::from(right_w)),
+            fit(
+                &format!("Active   {active_text}"),
+                usize::from(right_inner.width),
+            ),
             look.role(Role::Muted),
         ),
     );
@@ -694,14 +743,14 @@ fn paint_dashboard_band(
         .unwrap_or_else(|| "—".into());
     strip::paint_left(
         frame.buffer_mut(),
-        Rect::new(right_x, area.y + 4, right_w, 1),
+        Rect::new(right_inner.x, right_inner.y + 3, right_inner.width, 1),
         Line::styled(
-            fit(&format!(" Stuck    {stuck}"), usize::from(right_w)),
+            fit(&format!("Stuck    {stuck}"), usize::from(right_inner.width)),
             look.role(Role::Muted),
         ),
     );
 
-    1 + rows_used
+    band_h
 }
 
 fn inspector_line(frame: &mut Frame, area: Rect, y: &mut u16, line: Line<'static>) {
@@ -718,7 +767,7 @@ fn inspector_line(frame: &mut Frame, area: Rect, y: &mut u16, line: Line<'static
 fn paint_inspector(
     frame: &mut Frame,
     app: &App,
-    state: &super::State,
+    list: &List,
     item: &Item,
     area: Rect,
     roster: Option<&crate::board::workspace::OpsRoster>,
@@ -727,39 +776,128 @@ fn paint_inspector(
     if area.is_empty() {
         return;
     }
+    let state = &app.work;
     let look = app.look();
-    let width = usize::from(area.width);
     let number = item.number.as_deref().unwrap_or(&item.title);
-    paint_ds::<PaneRule>(
+    let area = paint_pane_box(
         frame,
         app,
-        Rect::new(area.x, area.y, area.width, 1),
-        &PaneRuleProps {
-            title: format!("Detail · {number}"),
-            note: Some("Tab focus · Space collapse".into()),
-            note_role: Some(Token(Role::Dim)),
-            focused: state.inspector_focused,
-            ascii: ascii_mode(app),
-        },
+        area,
+        &format!("Detail · {number}"),
+        Some("Tab focus · Space hide"),
+        state.inspector_focused,
     );
-    let mut y = area.y + 1;
+    if area.is_empty() {
+        return;
+    }
+    let width = usize::from(area.width);
+    let mut y = area.y;
 
     let needs_answer = item.needs_you > 0 || item.status == Status::NeedsYou;
-    let mut status_spans = vec![Span::styled(
-        format!(" {}", item.status.marked_label().to_uppercase()),
-        look.role(role(item.status)).add_modifier(Modifier::BOLD),
-    )];
+    let ask_todos: Vec<&Item> = if item.todo {
+        (item.status == Status::NeedsYou)
+            .then_some(item)
+            .into_iter()
+            .collect()
+    } else {
+        list.items
+            .iter()
+            .filter(|candidate| {
+                candidate.todo
+                    && candidate.page == item.page
+                    && candidate.status == Status::NeedsYou
+            })
+            .collect()
+    };
+    let ask_count = item.needs_you.max(ask_todos.len() as u64);
     if needs_answer {
-        status_spans.push(Span::styled("  answer in Colab", look.role(Role::Muted)));
-    }
-    inspector_line(frame, area, &mut y, Line::from(status_spans));
-    if let Some(next) = &item.next {
+        let count_label = if ask_count > 0 {
+            let noun = if ask_count == 1 {
+                "confirmation"
+            } else {
+                "confirmations"
+            };
+            format!("  ({ask_count} {noun})")
+        } else {
+            "  answer in Colab".into()
+        };
         inspector_line(
             frame,
             area,
             &mut y,
-            Line::styled(fit(&format!(" {next}"), width), look.role(Role::Text)),
+            Line::from(vec![
+                Span::styled(
+                    Status::NeedsYou.marked_label().to_uppercase(),
+                    look.role(Role::Waiting).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(count_label, look.role(Role::Muted)),
+            ]),
         );
+        if !ask_todos.is_empty() {
+            for (idx, todo) in ask_todos.iter().take(3).enumerate() {
+                let marker = if idx == 0 { "▸" } else { " " };
+                let label = format!("{marker} #{}  {}", idx + 1, todo.title);
+                inspector_line(
+                    frame,
+                    area,
+                    &mut y,
+                    Line::styled(fit(&label, width), look.role(Role::Text)),
+                );
+                if let Some(prompt) = todo
+                    .next
+                    .as_deref()
+                    .or((idx == 0).then_some(item.next.as_deref()).flatten())
+                {
+                    inspector_line(
+                        frame,
+                        area,
+                        &mut y,
+                        Line::styled(
+                            fit(&format!("  \"{prompt}\""), width),
+                            look.role(Role::Muted),
+                        ),
+                    );
+                }
+            }
+            let shown_asks = ask_todos.len().min(3);
+            let extra_asks = ask_count.saturating_sub(shown_asks as u64);
+            if extra_asks > 0 {
+                inspector_line(
+                    frame,
+                    area,
+                    &mut y,
+                    Line::styled(
+                        fit(&format!("  +{extra_asks} more · answer in Colab"), width),
+                        look.role(Role::Muted),
+                    ),
+                );
+            }
+        } else if let Some(next) = &item.next {
+            inspector_line(
+                frame,
+                area,
+                &mut y,
+                Line::styled(fit(&format!("  \"{next}\""), width), look.role(Role::Muted)),
+            );
+        }
+    } else {
+        inspector_line(
+            frame,
+            area,
+            &mut y,
+            Line::from(vec![Span::styled(
+                item.status.marked_label().to_uppercase(),
+                look.role(role(item.status)).add_modifier(Modifier::BOLD),
+            )]),
+        );
+        if let Some(next) = &item.next {
+            inspector_line(
+                frame,
+                area,
+                &mut y,
+                Line::styled(fit(next, width), look.role(Role::Text)),
+            );
+        }
     }
 
     if y < area.bottom() {
@@ -769,8 +907,8 @@ fn paint_inspector(
                 app,
                 Rect::new(area.x, y, area.width, 1),
                 &GaugeProps {
-                    label: " Chapters".into(),
-                    label_width: 10,
+                    label: "Chapters".into(),
+                    label_width: 9,
                     numerator: p.done,
                     denominator: p.total,
                     total: Some(format!("{}/{} verified", p.done, p.total)),
@@ -782,7 +920,7 @@ fn paint_inspector(
             strip::paint_left(
                 frame.buffer_mut(),
                 Rect::new(area.x, y, area.width, 1),
-                Line::styled(" Chapters  —", look.role(Role::Muted)),
+                Line::styled("Chapters  —", look.role(Role::Muted)),
             );
         }
         y += 1;
@@ -790,9 +928,9 @@ fn paint_inspector(
 
     if item.sections.is_empty() {
         let msg = if item.sections_omitted || item.progress.is_some() {
-            "   More sections in Colab · o open"
+            "  More sections in Colab · o open"
         } else {
-            "   No sections"
+            "  No sections"
         };
         inspector_line(
             frame,
@@ -815,7 +953,7 @@ fn paint_inspector(
         let end = start + shown;
         for (idx, section) in item.sections.iter().enumerate().take(end).skip(start) {
             let active = state.inspector_focused && cursor == idx;
-            let cursor = if active { " ▸ " } else { "   " };
+            let cursor = if active { "▸ " } else { "  " };
             let mark = section.state.mark();
             let waiting_note = if matches!(section.state, Status::NeedsYou | Status::Working) {
                 "  ← waiting"
@@ -860,7 +998,7 @@ fn paint_inspector(
                 area,
                 &mut y,
                 Line::styled(
-                    fit("   More sections in Colab · o open", width),
+                    fit("  More sections in Colab · o open", width),
                     look.role(Role::Muted),
                 ),
             );
@@ -874,14 +1012,14 @@ fn paint_inspector(
             area,
             &mut y,
             Line::styled(
-                fit(&format!(" Owner   ● {owner}"), width),
+                fit(&format!("Owner   ● {owner}"), width),
                 look.role(Role::Muted),
             ),
         );
     }
     if y < area.bottom() {
         let section = selected_section(state, item);
-        let action = format!("  o / ⏎  {}", item.open_label(section));
+        let action = format!("o / ⏎  {}", item.open_label(section));
         let mut actions = vec![Span::styled(action, look.role(Role::Text))];
         if roster.is_some_and(|r| item.owner_target(r).is_some()) {
             actions.push(Span::styled("   t  Talk", look.role(Role::Text)));
@@ -1202,20 +1340,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             note_parts.push("j/k move".into());
             note_parts.join(" · ")
         };
-        paint_ds::<PaneRule>(
+        let list_inner = paint_pane_box(
             frame,
             app,
-            Rect::new(list_area.x, list_area.y, list_area.width, 1),
-            &PaneRuleProps {
-                title: list_title,
-                note: Some(list_note),
-                note_role: Some(Token(Role::Dim)),
-                focused: !state.inspector_focused,
-                ascii: ascii_mode(app),
-            },
+            list_area,
+            &list_title,
+            Some(&list_note),
+            !state.inspector_focused,
         );
-        let content_top = list_area.y + 1;
-        let content_bottom = list_area.bottom();
+        let content_top = list_inner.y;
+        let content_bottom = list_inner.bottom();
         let row_height = |row: &Row<'_>| if row.item.is_some() { 3_u16 } else { 1_u16 };
         let avail_h = content_bottom.saturating_sub(content_top);
         let mut offset = 0_usize;
@@ -1243,7 +1377,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
             if let Some(item) = row.item {
                 let active = selected == Some(index);
-                let prefix = if active { " ▸ " } else { "   " };
+                let prefix = if active { "▸ " } else { "  " };
                 let mark = item.status.mark();
                 let number = item.number.as_deref().unwrap_or("—");
                 let owner = item
@@ -1252,9 +1386,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     .unwrap_or_else(|| "—".into());
                 let progress_label = mini_bar(item.progress, 6);
                 let age = age_label(item.last, now);
-                let line1_rect = Rect::new(list_area.x, y, list_area.width, 1);
-                let line2_rect = Rect::new(list_area.x, y + 1, list_area.width, 1);
-                let lw = usize::from(list_area.width);
+                let line1_rect = Rect::new(list_inner.x, y, list_inner.width, 1);
+                let line2_rect = Rect::new(list_inner.x, y + 1, list_inner.width, 1);
+                let lw = usize::from(list_inner.width);
                 let right_meta = format!("{owner}  {progress_label}  {age}");
                 let left_title = format!("{prefix}{mark} {number:<8} {}", item.title);
                 let line1_text = if !split && lw > right_meta.len() + 20 {
@@ -1281,10 +1415,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                         .or(item.release.as_deref())
                         .or(item.parent.as_deref())
                         .unwrap_or_else(|| item.status.label());
-                    fit(&format!("            {reason}"), lw)
+                    fit(&format!("           {reason}"), lw)
                 } else {
                     fit(
-                        &format!("            {owner:<12} {progress_label:<11} {age}"),
+                        &format!("           {owner:<12} {progress_label:<11} {age}"),
                         lw,
                     )
                 };
@@ -1295,18 +1429,18 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 );
                 if let Some(key) = &row.selection {
                     hits.push((
-                        Rect::new(list_area.x, y, list_area.width, 2),
+                        Rect::new(list_inner.x, y, list_inner.width, 2),
                         Hit::Row(key.clone()),
                     ));
                 }
                 y += 3;
             } else {
-                let line_rect = Rect::new(list_area.x, y, list_area.width, 1);
+                let line_rect = Rect::new(list_inner.x, y, list_inner.width, 1);
                 strip::paint_left(
                     frame.buffer_mut(),
                     line_rect,
                     Line::styled(
-                        fit(&format!(" {}", row.label), usize::from(list_area.width)),
+                        fit(&row.label, usize::from(list_inner.width)),
                         look.selected(selected == Some(index), look.role(row.role)),
                     ),
                 );
@@ -1320,7 +1454,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             paint_ds::<MoreHint>(
                 frame,
                 app,
-                Rect::new(list_area.x, content_bottom - 1, list_area.width, 1),
+                Rect::new(list_inner.x, content_bottom - 1, list_inner.width, 1),
                 &MoreHintProps {
                     count: clipped_below,
                     direction: MoreDirection::Down,
@@ -1336,7 +1470,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         paint_inspector(
             frame,
             app,
-            state,
+            list,
             item,
             Rect::new(right_x, area.y + top, right_w, body_h),
             roster,

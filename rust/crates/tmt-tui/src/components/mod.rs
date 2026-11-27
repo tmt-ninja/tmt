@@ -27,7 +27,7 @@ pub mod terminal;
 
 pub use key_help::{KeyHelp, KeyHelpEntry, KeyHelpSection, KeyHint, footer};
 pub use modal::{Modal, ModalAreas, Placement};
-pub use outline::Outline;
+pub use outline::{Outline, OutlineFrame};
 pub use scroll::{ScrollState, Step};
 pub use status::{StatusLabel, StatusSlot};
 
