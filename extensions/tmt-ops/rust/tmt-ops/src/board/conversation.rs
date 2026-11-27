@@ -1170,6 +1170,7 @@ fn render_target(
             super::member_links::Paint {
                 reader: true,
                 role: Role::Text,
+                transcript: Some(&identity),
             },
         );
     }

@@ -1924,7 +1924,8 @@ impl App {
         }
         self.squad_keys = snapshot.squad_keys;
 
-        self.invalidate_frame_geometry();
+        self.member_links.borrow_mut().invalidate_snapshot();
+        self.invalidate_geometry();
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
@@ -4832,6 +4833,11 @@ impl App {
     /// Refuse pointer and viewport authority from a superseded frame. Offsets
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
+        self.member_links.borrow_mut().invalidate();
+        self.invalidate_geometry();
+    }
+
+    fn invalidate_geometry(&self) {
         self.standalone.invalidate();
         self.provider_answer.invalidate();
         self.orchestration.invalidate();
@@ -4847,7 +4853,6 @@ impl App {
         {
             surface.invalidate();
         }
-        self.member_links.borrow_mut().invalidate();
         self.composer.invalidate();
         if self.usage_panel_hidden() && !self.usage_controls {
             self.usage_chart.borrow_mut().release_focus();

@@ -431,6 +431,7 @@ pub(in crate::board) fn capture_case(
         checklist: None,
         reader: true,
         occurrence: 0,
+        transcript: None,
     };
     app.open_url_link(&hit);
     if scene == "link-no-browser" {

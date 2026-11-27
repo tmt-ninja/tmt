@@ -176,6 +176,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
             super::super::member_links::Paint {
                 reader: true,
                 role: Role::Text,
+                transcript: Some(&identity),
             },
         );
     }

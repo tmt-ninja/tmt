@@ -12,7 +12,24 @@ pub(in crate::board) const FILE_SCENES: &[&str] = &[
 ];
 
 pub(in crate::board) fn capture_reference_hits(app: &App) -> String {
-    format!("{:?}", app.member_links.borrow().hits)
+    // The oracle records painted hit geometry and actions, not keyboard focus identity.
+    struct PaintedHit<'a>(&'a Hit);
+    impl std::fmt::Debug for PaintedHit<'_> {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let hit = self.0;
+            formatter
+                .debug_struct("Hit")
+                .field("area", &hit.area)
+                .field("surface", &hit.surface)
+                .field("target", &hit.target)
+                .field("checklist", &hit.checklist)
+                .field("reader", &hit.reader)
+                .field("occurrence", &hit.occurrence)
+                .finish()
+        }
+    }
+    let hits = app.member_links.borrow();
+    format!("{:?}", hits.hits.iter().map(PaintedHit).collect::<Vec<_>>())
 }
 
 pub(in crate::board) fn capture_file_case(
@@ -573,6 +590,7 @@ mod additional_tests {
                     Paint {
                         reader: true,
                         role: tmt_cli_style::Role::Link,
+                        transcript: None,
                     },
                 );
             })
@@ -728,6 +746,7 @@ mod frozen_membership_tests {
             checklist: None,
             reader: true,
             occurrence: 0,
+            transcript: None,
         });
         let choice = app
             .menu
@@ -809,6 +828,7 @@ mod named_surface_tests {
             checklist: None,
             reader: false,
             occurrence: 0,
+            transcript: None,
         });
     }
     #[test]
