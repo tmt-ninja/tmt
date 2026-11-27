@@ -693,6 +693,44 @@ fn a_transcript_url_keeps_keyboard_focus_across_a_snapshot_and_recompose() {
 }
 
 #[test]
+fn a_saved_terminal_list_keeps_the_focused_transcript_url() {
+    use crate::board::standalone::{Completed, SavedTask, Task, scenes};
+
+    let mut app = fixture("Read [the docs](https://example.com/docs) first.");
+    app.standalone.start(Some("/work".into()));
+    let Some(Task::Saved(task @ SavedTask::List { .. })) = app.standalone.offer_list() else {
+        panic!("expected the initial saved terminal list request");
+    };
+    focus_transcript_url(&mut app);
+    let selected = app.workspace.selected.clone();
+
+    assert_eq!(
+        app.standalone_completed(Completed::Saved(
+            Box::new(task),
+            Ok(json!({"terminals": [scenes::result()]})),
+        )),
+        Effect::None
+    );
+    assert_eq!(app.workspace.selected, selected);
+    assert_eq!(app.standalone.saved_rows.len(), 1);
+    assert!(
+        !app.member_link_owns_enter(),
+        "retired hits have no authority"
+    );
+    draw(&mut app, 160, 36);
+
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    let menu = app.menu.as_ref().expect("Enter opens the focused URL");
+    assert_eq!(menu.title, "Link");
+    assert!(menu.entries.iter().any(|entry| {
+        matches!(&entry.choice, Choice::LinkCopy(url) if url == "https://example.com/docs")
+    }));
+}
+
+#[test]
 fn a_transcript_url_keeps_keyboard_focus_after_terminal_resize() {
     const RESPONSE: &str = "Read [the docs](https://example.com/docs) first.";
     let look = crate::look::Look {
@@ -708,7 +746,7 @@ fn a_transcript_url_keeps_keyboard_focus_after_terminal_resize() {
         &mut app,
         (),
         |_| Some("Input::Resize"),
-        |app, ()| app.invalidate_resized_frame(),
+        |app, ()| app.invalidate_frame_preserving_transcript_focus(),
     );
     assert!(
         !app.member_link_owns_enter(),

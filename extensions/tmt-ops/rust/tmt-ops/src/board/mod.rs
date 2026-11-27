@@ -155,15 +155,7 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// with the process, and a read error disconnects the channel.
 pub(in crate::board) enum BoardEvent {
     ProviderAnswer(provider_answer::Completed),
-    ShellCancelled {
-        key: (String, String),
-        confirmed: bool,
-    },
     Standalone(standalone::Completed),
-    ShellDone {
-        key: (String, String),
-        result: Result<serde_json::Value, String>,
-    },
     WorkRead {
         result: Result<work::List, work::ReadFailure>,
         cancellation: crate::runner::Cancellation,
@@ -332,8 +324,6 @@ pub(in crate::board) enum BoardEvent {
 impl BoardEvent {
     fn trace_cause(&self) -> &'static str {
         match self {
-            Self::ShellCancelled { .. } => "ShellCancelled",
-            Self::ShellDone { .. } => "ShellDone",
             Self::Standalone(_) => "Standalone",
             Self::ProviderAnswer(_) => "ProviderAnswer",
             Self::Migration(_) => "Migration",
@@ -1171,24 +1161,9 @@ fn session(
                         app.caller_failure = Some(why);
                         Effect::None
                     }
-                    Ok(BoardEvent::ShellCancelled { key, confirmed }) => {
-                        if confirmed {
-                            app.shell_cancelled(&key);
-                        } else {
-                            app.shell_cancel_unconfirmed(&key);
-                        }
-                        dirty = true;
-                        Effect::None
-                    }
                     Ok(BoardEvent::Standalone(completed)) => {
-                        app.standalone_completed(completed);
                         dirty = true;
-                        Effect::None
-                    }
-                    Ok(BoardEvent::ShellDone { key, result }) => {
-                        app.shell_finished(key, result);
-                        dirty = true;
-                        Effect::None
+                        app.standalone_completed(completed)
                     }
                     Ok(BoardEvent::ProviderAnswer(completed)) => {
                         app.in_flight = app.in_flight.saturating_sub(1);
@@ -1774,7 +1749,7 @@ fn session(
                         }
                         app.meter_hover = None;
                         app.header_hover = None;
-                        app.invalidate_resized_frame();
+                        app.invalidate_frame_preserving_transcript_focus();
                         dirty = true;
                         Effect::None
                     }
@@ -1947,9 +1922,6 @@ fn session(
                         }
                     }
                     Effect::Standalone(task) => io(lane::Job::Standalone(task)),
-                    Effect::Shell { key, command } => {
-                        io(lane::Job::Shell { key, command });
-                    }
                     Effect::Act(action) => {
                         let job = if let Some(ticket) = app.outgoing_ticket(&action) {
                             lane::Job::Send {
@@ -2298,7 +2270,7 @@ pub fn run(
         |task| worker.checklist(task),
         |job| {
             if let lane::Job::Standalone(
-                task @ (standalone::Task::Target(_)
+                task @ (standalone::Task::Target(..)
                 | standalone::Task::Saved(
                     standalone::SavedTask::List { .. } | standalone::SavedTask::Preview(_, _),
                 )),

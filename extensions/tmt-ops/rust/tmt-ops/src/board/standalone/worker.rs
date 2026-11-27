@@ -153,7 +153,7 @@ impl Worker {
                 self.stop();
                 return;
             }
-            Task::Target(_) | Task::Saved(_) => unreachable!("not a session request"),
+            Task::Target(..) | Task::Saved(_) => unreachable!("not a session request"),
         };
         let _ = self.requests.send(request);
     }

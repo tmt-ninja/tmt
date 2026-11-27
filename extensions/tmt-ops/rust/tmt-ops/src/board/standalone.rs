@@ -19,11 +19,12 @@ use tmt_tui::components::{
     Button, Dialog, DialogHits, DialogInput, DialogKind, DialogState, Editor, FieldKind, Placement,
     strip,
 };
+use unicode_width::UnicodeWidthStr;
 pub(super) use worker::Worker;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Task {
-    Target(String),
+    Target(u64, String),
     Saved(SavedTask),
     Run(u64, Value),
     Keep(String),
@@ -32,7 +33,7 @@ pub enum Task {
 }
 
 pub(super) enum Completed {
-    Target(String, Result<Value, SquadError>),
+    Target(u64, String, Result<Value, SquadError>),
     Saved(Box<SavedTask>, Result<Value, SquadError>),
     Output(u64, worker::Output),
     Run(u64, Result<Value, SquadError>),
@@ -41,9 +42,9 @@ pub(super) enum Completed {
 
 pub(super) fn complete_read(core: &Core, task: Task) -> Completed {
     match task {
-        Task::Target(identity) => {
+        Task::Target(generation, identity) => {
             let result = core.api("terminal.command.target", json!({"identityId": identity}));
-            Completed::Target(identity, result)
+            Completed::Target(generation, identity, result)
         }
         Task::Saved(task @ (SavedTask::List { .. } | SavedTask::Preview(_, _))) => {
             let result = task.complete(core);
@@ -66,11 +67,12 @@ struct Form {
     selected: usize,
     member: Option<(String, Option<String>, String)>,
     observing: bool,
+    talk: Option<super::app::Input>,
     history: Option<usize>,
 }
 
 enum Page {
-    Form(Form),
+    Form(Box<Form>),
     Running {
         command: String,
         cwd: String,
@@ -118,6 +120,8 @@ pub(super) struct Controller {
     follow_output: bool,
     live: String,
     run_id: u64,
+    target_generation: u64,
+    run_draft: Option<super::app::Input>,
     elapsed: std::cell::Cell<u64>,
     notice: Option<String>,
 }
@@ -171,36 +175,67 @@ impl Controller {
         Effect::None
     }
 
-    fn open(&mut self, member: Option<(String, Option<String>, String)>) -> Effect {
-        if self.pending {
-            return Effect::None;
-        }
-        self.shown = true;
-        if self.page.is_some() {
-            return Effect::None;
-        }
-        let targets = self
-            .launch_directory
-            .as_ref()
-            .map(|cwd| Target {
-                label: "Local".into(),
-                input: json!({"kind":"local","cwd":cwd}),
-            })
-            .into_iter()
-            .collect();
+    fn local_target(&self) -> Option<Target> {
+        self.launch_directory.as_ref().map(|cwd| Target {
+            label: "Local".into(),
+            input: json!({"kind":"local","cwd":cwd}),
+        })
+    }
+
+    fn open_form(
+        &mut self,
+        member: Option<(String, Option<String>, String)>,
+        command: Editor,
+        talk: Option<super::app::Input>,
+    ) -> Effect {
+        self.target_generation = self.target_generation.wrapping_add(1);
         let effect = member.as_ref().map_or(Effect::None, |(identity, _, _)| {
-            Effect::Standalone(Task::Target(identity.clone()))
+            Effect::Standalone(Task::Target(self.target_generation, identity.clone()))
         });
-        self.show(Page::Form(Form {
+        let targets = if talk.is_none() {
+            self.local_target().into_iter().collect()
+        } else {
+            Vec::new()
+        };
+        self.show(Page::Form(Box::new(Form {
             saved: None,
-            command: Editor::default(),
+            command,
             targets,
             selected: 0,
             observing: member.is_some(),
             member,
+            talk,
             history: None,
-        }));
+        })));
         effect
+    }
+
+    fn edit_result(&mut self) -> Effect {
+        let Some(mut request) = self.request.take() else {
+            return Effect::None;
+        };
+        let input = request["target"].take();
+        let command = Editor::from(request["command"].as_str().unwrap_or_default());
+        let mut targets = vec![Target {
+            label: self.run_label.clone(),
+            input,
+        }];
+        if let Some(local) = self.local_target()
+            && targets[0].input != local.input
+        {
+            targets.push(local);
+        }
+        self.show(Page::Form(Box::new(Form {
+            command,
+            saved: None,
+            targets,
+            selected: 0,
+            member: None,
+            observing: false,
+            talk: None,
+            history: None,
+        })));
+        Effect::Standalone(Task::Discard)
     }
 
     fn show(&mut self, page: Page) {
@@ -303,6 +338,7 @@ impl Controller {
                 self.history.retain(|previous| previous != &command);
                 self.history.insert(0, command.clone());
                 self.history.truncate(32);
+                self.run_draft = form.talk.take();
                 self.run(request, command, cwd)
             }
             (Some(Page::Running { .. }), 0) => self.stop(),
@@ -327,6 +363,17 @@ impl Controller {
                     .clone()
                     .map_or(Effect::None, |request| self.run(request, command, cwd))
             }
+            (Some(Page::Finished { keeping: false, .. }), 3) => {
+                if self
+                    .request
+                    .as_ref()
+                    .is_some_and(|request| request["command"].is_string())
+                {
+                    self.edit_result()
+                } else {
+                    Effect::None
+                }
+            }
             (Some(Page::Remove { row }), 1) if !self.pending => {
                 self.pending = true;
                 Effect::Standalone(Task::Saved(SavedTask::Remove(row.clone(), true)))
@@ -338,11 +385,16 @@ impl Controller {
     fn input(&mut self, event: &Event) -> Effect {
         if let Some(Page::Form(form)) = &mut self.page
             && form.saved.is_none()
+            && form.talk.is_none()
         {
             match event {
                 Event::Key(key) if key.modifiers.is_empty() && key.code == KeyCode::Tab => {
                     if !form.targets.is_empty() {
-                        form.selected = (form.selected + 1) % form.targets.len();
+                        form.selected = if form.selected + 1 < form.targets.len() {
+                            form.selected + 1
+                        } else {
+                            0
+                        };
                     }
                     return Effect::None;
                 }
@@ -376,6 +428,7 @@ impl Controller {
                 match key.code {
                     KeyCode::Char('k') => return self.choose(0),
                     KeyCode::Char('r') => return self.choose(1),
+                    KeyCode::Char('e') => return self.choose(3),
                     _ => {}
                 }
             }
@@ -436,7 +489,9 @@ impl Controller {
             DialogInput::Choose(index) => self.choose(index),
             DialogInput::Cancel => self.close(),
             DialogInput::Field(_, key) => {
-                if let Some(Page::Form(form)) = &mut self.page {
+                if let Some(Page::Form(form)) = &mut self.page
+                    && form.talk.is_none()
+                {
                     let width = self.hits.borrow().content.width.saturating_sub(2).max(1);
                     form.command.key(key, width, MAX_COMMAND);
                 }
@@ -454,7 +509,7 @@ impl Controller {
                 vec![
                     Button::primary("Run").enabled(
                         !form.observing
-                            && !form.targets.is_empty()
+                            && form.targets.get(form.selected).is_some()
                             && tmt_pty_protocol::valid_command(form.command.as_str()),
                     ),
                     Button::secondary("Cancel"),
@@ -488,8 +543,15 @@ impl Controller {
                         .enabled(!keeping && result["runId"].is_string()),
                     Button::secondary("Run again").enabled(!keeping),
                     Button::secondary("Close").enabled(!keeping),
+                    Button::secondary("Edit").enabled(
+                        !keeping
+                            && self
+                                .request
+                                .as_ref()
+                                .is_some_and(|request| request["command"].is_string()),
+                    ),
                 ],
-                "k keep · r run again · Esc close",
+                "",
                 &[][..],
             ),
             Some(Page::Remove { .. }) => (
@@ -560,9 +622,40 @@ impl Controller {
             state,
             Overlay::Standalone,
         );
-        if form {
-            // The form uses the otherwise empty position row immediately above its buttons.
+        let finished = matches!(self.page, Some(Page::Finished { .. }));
+        if form || finished {
+            // The position row above the buttons carries content on these pages.
             hits.content.height += area.position.height;
+        }
+        if finished {
+            let hints = if self
+                .request
+                .as_ref()
+                .is_some_and(|request| request["command"].is_string())
+            {
+                "↑↓ scroll · k keep · r run again · e edit · Esc close"
+            } else {
+                "↑↓ scroll · k keep · r run again · Esc close"
+            };
+            let button_end = hits
+                .buttons
+                .iter()
+                .flatten()
+                .map(|rect| rect.right())
+                .max()
+                .unwrap_or(area.footer.x);
+            let available = area
+                .footer
+                .right()
+                .saturating_sub(button_end)
+                .saturating_sub(2);
+            if let Some(hint) = result_hints_that_fit(hints, available) {
+                strip::paint_right(
+                    frame.buffer_mut(),
+                    area.footer,
+                    Line::styled(hint, look.role(tmt_cli_style::Role::Dim)),
+                );
+            }
         }
         let mut content = hits.content;
         let role = look.role(tmt_cli_style::Role::Text);
@@ -653,7 +746,13 @@ impl Controller {
                         "In  Resolving member directory…".into()
                     } else {
                         target.map_or_else(
-                            || "In  No local directory".into(),
+                            || {
+                                if form.targets.is_empty() {
+                                    "In  No local directory".into()
+                                } else {
+                                    "In  Choose a place with Tab".into()
+                                }
+                            },
                             |target| {
                                 let suffix = if form.saved.is_none() { "  ▾" } else { "" };
                                 format!(
@@ -696,6 +795,13 @@ impl Controller {
             None => Vec::new(),
         }
     }
+}
+
+fn result_hints_that_fit(mut hints: &str, width: u16) -> Option<&str> {
+    while hints.width() > usize::from(width) {
+        hints = hints.split_once(" · ")?.1;
+    }
+    Some(hints)
 }
 
 fn wrapped_output<'a>(
@@ -766,6 +872,13 @@ fn output_lines(result: &Value) -> Vec<String> {
 
 impl App {
     pub(super) fn open_standalone(&mut self) -> Effect {
+        if self.standalone.pending {
+            return Effect::None;
+        }
+        if self.standalone.page.is_some() {
+            self.standalone.shown = true;
+            return Effect::None;
+        }
         let member = match self.workspace_selected_member() {
             Some(super::workspace::OpsTarget::Member {
                 identity_id,
@@ -780,36 +893,133 @@ impl App {
             }
             _ => None,
         };
-        self.standalone.open(member)
+        self.open_run_form(member, Editor::default(), None)
     }
 
     pub(super) fn standalone_event(&mut self, event: &Event) -> Effect {
         self.standalone.input(event)
     }
 
-    pub(super) fn standalone_completed(&mut self, completed: Completed) {
+    pub(super) fn open_talk_run(&mut self, command: &str, draft: super::app::Input) -> Effect {
+        let Some((_, identity)) = draft.draft_key.as_ref() else {
+            return self.say("Select a member; nothing was run.");
+        };
+        let room = match draft.target() {
+            Some(super::app::RowTarget::Workspace(super::workspace::OpsTarget::Member {
+                room_id,
+                ..
+            })) => room_id.clone(),
+            _ => None,
+        };
+        let label = draft
+            .row_send
+            .as_ref()
+            .expect("admitted Talk draft")
+            .name
+            .clone();
+        let member = (identity.clone(), room, label);
+        self.open_prefilled_run(member, command, Some(draft))
+    }
+
+    pub(super) fn open_prefilled_run(
+        &mut self,
+        member: (String, Option<String>, String),
+        command: &str,
+        talk: Option<super::app::Input>,
+    ) -> Effect {
+        if self.standalone.pending || self.standalone.page.is_some() {
+            return self.say("Open or close the current command result first. Nothing was run.");
+        }
+        self.open_run_form(Some(member), Editor::from(command), talk)
+    }
+
+    fn open_run_form(
+        &mut self,
+        member: Option<(String, Option<String>, String)>,
+        command: Editor,
+        talk: Option<super::app::Input>,
+    ) -> Effect {
+        let offline = member.as_ref().is_some_and(|(identity, _, _)| {
+            self.workspace_snapshot()
+                .and_then(|snapshot| snapshot.roster.members.get(identity))
+                .is_some_and(|member| member.presence == Some(false))
+        });
+        let effect = self.standalone.open_form(member, command, talk);
+        if offline && let Effect::Standalone(Task::Target(generation, identity)) = effect {
+            return self.standalone_completed(Completed::Target(
+                generation,
+                identity,
+                Err(SquadError::new(
+                    "SHELL_RUN_UNAVAILABLE",
+                    "No live terminal.",
+                )),
+            ));
+        }
+        effect
+    }
+
+    fn same_talk_run_draft(&self, draft: &super::app::Input) -> bool {
+        self.input.as_ref().is_some_and(|input| {
+            input.draft_key == draft.draft_key
+                && input.text == draft.text
+                && input.inline_quotes == draft.inline_quotes
+                && self.draft_identity(input) == draft.draft_key
+                && draft
+                    .row_send
+                    .as_ref()
+                    .is_some_and(|send| send.valid(self, input))
+        })
+    }
+
+    pub(super) fn standalone_completed(&mut self, completed: Completed) -> Effect {
         match completed {
-            Completed::Target(identity, result) => {
-                if let Some(Page::Form(form)) = &mut self.standalone.page
-                    && let Some((id, room, label)) = &form.member
-                    && *id == identity
-                {
-                    form.observing = false;
-                    match result {
-                        Ok(mut input) => {
-                            input["kind"] = "member".into();
-                            input["identityId"] = json!(identity);
-                            input["roomId"] = json!(room);
-                            form.targets.insert(
-                                0,
-                                Target {
-                                    label: label.clone(),
-                                    input,
-                                },
+            Completed::Target(generation, identity, result) => {
+                if generation != self.standalone.target_generation {
+                    return Effect::None;
+                }
+                let Some(Page::Form(form)) = &mut self.standalone.page else {
+                    return Effect::None;
+                };
+                let Some((id, room, label)) = &form.member else {
+                    return Effect::None;
+                };
+                if *id != identity || !form.observing {
+                    return Effect::None;
+                }
+                let label = label.clone();
+                form.observing = false;
+                match result {
+                    Ok(mut input) => {
+                        input["kind"] = "member".into();
+                        input["identityId"] = json!(identity);
+                        input["roomId"] = json!(room);
+                        form.targets.insert(0, Target { label, input });
+                        form.selected = 0;
+                        let talk = form.talk.clone();
+                        if let Some(draft) = talk {
+                            if self.same_talk_run_draft(&draft) {
+                                return self.standalone.choose(0);
+                            }
+                            self.standalone.close();
+                            return self.say(
+                                "The member or draft changed; nothing was run. Draft retained.",
                             );
-                            form.selected = 0;
                         }
-                        Err(error) => self.standalone.notice = Some(error.message),
+                    }
+                    Err(error) => {
+                        let message = if form.talk.is_some() {
+                            format!("{label}: {} Draft retained.", error.message)
+                        } else if error.code == "SHELL_RUN_UNAVAILABLE" {
+                            format!("{label}: no live terminal directory · Tab choose a place")
+                        } else {
+                            format!("{label}: {} Choose another place with Tab.", error.message)
+                        };
+                        if form.talk.is_some() {
+                            self.standalone.close();
+                            return self.say(message);
+                        }
+                        form.selected = form.targets.len();
+                        self.standalone.notice = Some(message);
                     }
                 }
             }
@@ -820,7 +1030,16 @@ impl App {
             }
             Completed::Run(run, result) => {
                 if self.standalone.run_id != run || !self.standalone.running() {
-                    return;
+                    return Effect::None;
+                }
+                if let Some(draft) = self.standalone.run_draft.take()
+                    && result.is_ok()
+                    && self.same_talk_run_draft(&draft)
+                    && let Some(input) = self.input.as_mut()
+                {
+                    input.text.clear();
+                    input.inline_quotes.clear();
+                    self.remember_draft();
                 }
                 let was_shown = self.standalone.shown;
                 let legacy = self.standalone.notice.as_deref() == Some(LEGACY_OUTPUT);
@@ -861,6 +1080,7 @@ impl App {
                 }
             },
         }
+        Effect::None
     }
 }
 

@@ -29,7 +29,7 @@ impl Renderer<'_> {
                     first + offset,
                     Some(start),
                     style,
-                    Some((&reference.command, occurrence)),
+                    Some((&reference.command, occurrence, offset == 0)),
                 );
                 start += line.len() + 1;
             }
@@ -72,7 +72,7 @@ impl Renderer<'_> {
                     let occurrence = self.next_mention;
                     self.next_mention += 1;
                     self.next_command += 1;
-                    (command, occurrence)
+                    (command, occurrence, true)
                 });
                 self.code_line(line, index, start, style, link);
                 painted = true;
@@ -89,7 +89,7 @@ impl Renderer<'_> {
         source_line: usize,
         start: Option<usize>,
         style: Style,
-        link: Option<(&Command, usize)>,
+        link: Option<(&Command, usize, bool)>,
     ) {
         // The conversation already sanitizes its source. Keep non-conversation
         // uses inert as well, and omit exact offsets if that changes the bytes.
@@ -100,6 +100,17 @@ impl Renderer<'_> {
         } else {
             (line, start)
         };
+        let (line, start) = match link {
+            Some((command, _, true)) if command.shown.lines().next() == Some(line) => {
+                let text = command.text.split('\n').next().unwrap_or_default();
+                if let Some(prefix) = line.strip_suffix(text) {
+                    (text, start.map(|at| at + prefix.len()))
+                } else {
+                    (line, start)
+                }
+            }
+            _ => (line, start),
+        };
         let mut used = 0;
         loop {
             let rest = &line[used..];
@@ -107,7 +118,19 @@ impl Renderer<'_> {
             let mut glyphs = span.styled_graphemes(Style::new()).peekable();
             let first = glyphs.peek().map_or(0, |glyph| glyph.symbol.width());
             let marker = used > 0 && first < self.width;
-            let room = self.width - usize::from(marker);
+            let chip = link.is_some() && !rest.trim().is_empty();
+            let chip_prefix = if link.is_some_and(|(_, _, first)| first) && chip && used == 0 {
+                match self.width {
+                    1 => "",
+                    2..=3 => "▶",
+                    _ => " ▶ ",
+                }
+            } else {
+                ""
+            };
+            let chip_suffix =
+                usize::from(chip && self.width > chip_prefix.width() + usize::from(marker) + 1);
+            let room = self.width - usize::from(marker) - chip_prefix.width() - chip_suffix;
             let mut width = 0;
             let mut bytes = 0;
             let fallback = first > room;
@@ -137,16 +160,18 @@ impl Renderer<'_> {
             } else {
                 0
             };
-            let mut part = Part::new(fragment.into(), style, source_line, None);
+            let fragment_start = shown_start + chip_prefix.len();
             let code_origin = start.map(|start| Origin {
                 source: start + used..start + used + bytes,
-                shown: shown_start..shown_start + fragment.len(),
+                shown: fragment_start..fragment_start + fragment.len(),
             });
-            if let Some((command, occurrence)) = link
-                && !fragment.trim().is_empty()
+            let mut part = Part::new(fragment.into(), style, source_line, None);
+            if let Some((command, occurrence, _)) = link
+                && chip
             {
+                part.text = format!("{chip_prefix}{fragment}{}", " ".repeat(chip_suffix));
                 part.member = Some((Target::Command(command.clone()), occurrence));
-                part.style = style.add_modifier(Modifier::UNDERLINED);
+                part.style = self.look.selection();
                 if let Some(origin) = &code_origin {
                     part.source_range = Some(origin.source.clone());
                 }

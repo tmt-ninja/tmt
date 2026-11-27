@@ -1093,37 +1093,19 @@ fn dump_provider_answer_dialogs() {
     });
 }
 
-/// Shell mode and its owner-local member conversation, without running commands.
-fn shell_composer_frames(styles: &mut Styles) -> Vec<Value> {
+/// A Talk draft and the shared Run window, with replayed worker events.
+fn talk_run_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
         styles,
         &[
-            "shell-marker",
-            "shell-running",
-            "shell-done",
-            "shell-failed",
+            "talk-run-marker",
+            "talk-run-running",
+            "talk-run-result",
+            "talk-run-closed",
         ],
         |_| grid(&[160, 100], &[36]),
         |state, look, width, _| {
-            let mut app = capture_case("overview", look);
-            app.focus_composer();
-            let key = app.input.as_ref().unwrap().draft_key.clone().unwrap();
-            if state == "shell-marker" {
-                app.input.as_mut().unwrap().text = if width == 100 {
-                    "！！ pwd"
-                } else {
-                    "！ pwd"
-                }
-                .into();
-            } else {
-                assert!(app.shell_start(&key, "pwd", false));
-                if state == "shell-done" {
-                    app.shell_finished(key, Ok(json!({"identityId":MEMBER,"cwd":"/work","stdout":"/work\n","stderr":"","exitCode":0,"signal":null,"timedOut":false,"truncated":false})));
-                } else if state == "shell-failed" {
-                    app.shell_finished(key, Err("Could not start; nothing was run.".into()));
-                }
-            }
-            app
+            crate::board::standalone::scenes::capture_talk_run(state, look, width)
         },
         |captured, app| {
             captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()))
@@ -1193,7 +1175,10 @@ fn link_popover_frames(styles: &mut Styles) -> Vec<Value> {
         |_| grid(&[160, 100, 60], &[36]),
         crate::board::member_links::popover::capture_case,
         |frame, app| {
-            if frame["state"] == "command-forms" {
+            if matches!(
+                frame["state"].as_str(),
+                Some("command-forms" | "command-popover" | "command-prefilled")
+            ) {
                 frame["commandHits"] =
                     crate::board::member_links::popover::capture_command_hits(app);
             }
@@ -1846,11 +1831,11 @@ macro_rules! oracle_groups {
         $group!(7, 36, measure_exchanges_frames($styles));
         $group!(7, 156, agents_activity_frames($styles));
         $group!(7, 40, provider_form_frames($styles));
-        $group!(7, 32, shell_composer_frames($styles));
+        $group!(7, 32, talk_run_frames($styles));
         $group!(8, 228, paste_frames($styles));
         $group!(7, 60, file_chip_frames($styles));
         $group!(7, 144, quote_frames($styles));
-        $group!(7, 60, link_popover_frames($styles));
+        $group!(7, 72, link_popover_frames($styles));
         $group!(7, 80, link_file_frames($styles));
         $group!(7, 60, talk_screen_frames($styles));
         $group!(7, 96, conversation_refresh_frames($styles));

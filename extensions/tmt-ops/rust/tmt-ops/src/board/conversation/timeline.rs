@@ -682,40 +682,6 @@ impl Session {
             paint.separate();
             self.timeline_local(&mut paint, entry);
         }
-        for run in &self.shell_runs {
-            paint.separate();
-            let label = if run.result.as_ref().is_some_and(Result::is_err) {
-                "Shell · failed"
-            } else if run.private {
-                "Shell · only you"
-            } else if run.attached {
-                "Shell · attached"
-            } else {
-                "Shell · sent with your next message"
-            };
-            paint.caption(label);
-            if !run.command.is_empty() {
-                paint.body(
-                    &format!("$ {}", run.command),
-                    false,
-                    note_source::Source::Unavailable,
-                );
-            }
-            match &run.result {
-                None => paint.caption("◷ Running…"),
-                Some(Err(error)) => {
-                    paint.body(
-                        &format!("✗ {error}"),
-                        true,
-                        note_source::Source::Unavailable,
-                    );
-                }
-                Some(Ok(value)) => {
-                    let details = super::shell::display_result(value);
-                    paint.body(&details, false, note_source::Source::Unavailable);
-                }
-            };
-        }
         if paint.lines.is_empty() {
             match context.exchanges {
                 transcript::Exchanges::Observed => paint.notice("(no response in loaded history)"),

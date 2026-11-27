@@ -248,6 +248,13 @@ impl App {
             {
                 Some((Target::File(path.to_string()), anchor))
             }
+            Choice::CommandCopy(command)
+                if menu.entries.iter().all(|entry| {
+                    matches!(&entry.choice, Choice::CommandCopy(other) if other == &command)
+                }) =>
+            {
+                Some((Target::Command(command), anchor))
+            }
             _ => None,
         }
     }
@@ -279,11 +286,24 @@ impl App {
         self.show_destination(Target::File(path.to_owned()), anchor)
     }
 
+    pub(in crate::board) fn command_show(
+        &mut self,
+        command: super::commands::Command,
+        anchor: Rect,
+    ) -> Effect {
+        self.show_destination(Target::Command(command), anchor)
+    }
+
     fn show_destination(&mut self, target: Target, anchor: Rect) -> Effect {
         let (text, title, copy) = match target {
             Target::Url(url) => (url.clone(), "Full link", Choice::LinkCopy(url)),
             Target::File(path) => (path.clone(), "Full path", Choice::FileCopy(path.into())),
-            Target::Member(_) | Target::Work(_) | Target::Checklist(_) | Target::Command(_) => {
+            Target::Command(command) => (
+                command.text.clone(),
+                "Full command",
+                Choice::CommandCopy(command),
+            ),
+            Target::Member(_) | Target::Work(_) | Target::Checklist(_) => {
                 return Effect::None;
             }
         };
@@ -350,6 +370,7 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "link-no-browser",
     "link-full",
     "command-popover",
+    "command-prefilled",
     "command-forms",
 ];
 
@@ -361,14 +382,33 @@ pub(in crate::board) fn capture_case(
     height: u16,
 ) -> App {
     match scene {
-        "command-popover" => {
-            return super::command_popover::capture_case(
+        "command-popover" | "command-prefilled" => {
+            let mut app = super::command_popover::capture_case(
                 look,
                 width,
                 height,
                 "Please run `! printf '%s' 'hello from the terminal'`.",
                 true,
             );
+            if scene == "command-prefilled" {
+                use crate::board::standalone::{Completed, Task, scenes::press};
+                use ratatui::crossterm::event::KeyCode;
+                let Effect::Standalone(Task::Target(generation, identity)) =
+                    press(&mut app, KeyCode::Enter)
+                else {
+                    panic!("Run opens the prefilled form and resolves the member");
+                };
+                app.standalone_completed(Completed::Target(
+                    generation,
+                    identity,
+                    Ok(serde_json::json!({
+                        "cwd":"/work/core-ops-spinner",
+                        "bindingId":"00000000-0000-4000-8000-000000006755",
+                        "paneIncarnation":"fixture",
+                    })),
+                ));
+            }
+            return app;
         }
         "command-forms" => {
             return super::command_popover::capture_case(

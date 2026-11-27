@@ -26,10 +26,6 @@ pub(super) enum Opening {
 pub(super) enum Job {
     AnswerProviderForm(super::provider_answer::Send),
     Standalone(super::standalone::Task),
-    Shell {
-        key: (String, String),
-        command: String,
-    },
     Act(Request),
     OpenWorkPage(super::work::OpenTarget),
     WorkOrder(super::work::OrderJob),
@@ -88,7 +84,6 @@ impl Job {
     /// What the board shows until the job's event arrives.
     pub fn progress(&self) -> &'static str {
         match self {
-            Self::Shell { .. } => "Running shell…",
             Self::Standalone(_) => "Working with the command…",
             Self::OpenWorkPage(target) if target.block.is_some() => "Opening Colab block…",
             Self::OpenWorkPage(_) => "Opening Colab page…",
@@ -139,7 +134,6 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         Job::AnswerProviderForm(answer) => {
             BoardEvent::ProviderAnswer(super::provider_answer::send(core, answer))
         }
-        Job::Shell { .. } => unreachable!("shell has a dedicated worker"),
         Job::Standalone(super::standalone::Task::Saved(task)) => {
             let result = task.complete(core);
             BoardEvent::Standalone(super::standalone::Completed::Saved(Box::new(task), result))
@@ -245,17 +239,15 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
 pub(super) struct Lane {
     jobs: Option<Sender<Job>>,
     thread: Option<JoinHandle<()>>,
-    shell_core: Core,
+    standalone_core: Core,
     standalone: std::cell::OnceCell<super::standalone::Worker>,
-    shell_events: Sender<BoardEvent>,
-    shell_threads: std::cell::RefCell<Vec<JoinHandle<()>>>,
-    shell_stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    standalone_events: Sender<BoardEvent>,
 }
 
 impl Lane {
     pub fn spawn(core: Core, labels: Option<Refresh>, events: Sender<BoardEvent>) -> Self {
-        let shell_core = core.one_shot();
-        let shell_events = events.clone();
+        let standalone_core = core.one_shot();
+        let standalone_events = events.clone();
         let core = core.interactive();
         let (jobs, queue) = channel();
         let thread = std::thread::spawn(move || {
@@ -268,11 +260,9 @@ impl Lane {
         Self {
             jobs: Some(jobs),
             thread: Some(thread),
-            shell_core,
+            standalone_core,
             standalone: Default::default(),
-            shell_events,
-            shell_threads: Default::default(),
-            shell_stop: Default::default(),
+            standalone_events,
         }
     }
 
@@ -287,82 +277,11 @@ impl Lane {
             self.standalone
                 .get_or_init(|| {
                     super::standalone::Worker::spawn(
-                        self.shell_core.clone(),
-                        self.shell_events.clone(),
+                        self.standalone_core.clone(),
+                        self.standalone_events.clone(),
                     )
                 })
                 .submit(task);
-            return;
-        }
-        if let Job::Shell { key, command } = job {
-            let core = self.shell_core.clone();
-            let events = self.shell_events.clone();
-            let stopped = self.shell_stop.clone();
-            let mut threads = self.shell_threads.borrow_mut();
-            let mut index = 0;
-            while index < threads.len() {
-                if threads[index].is_finished() {
-                    let _ = threads.swap_remove(index).join();
-                } else {
-                    index += 1;
-                }
-            }
-            let failure_key = key.clone();
-            let worker = std::thread::Builder::new()
-                .name("ops-shell".into())
-                .spawn(move || {
-                    let result = core.shell_run(
-                        serde_json::json!({"identityId":key.1,"command":command}),
-                        &stopped,
-                    );
-                    let event = match result {
-                        Err(error) if error.code == "SHELL_RUN_CANCELLED" => {
-                            BoardEvent::ShellCancelled {
-                                key,
-                                confirmed: true,
-                            }
-                        }
-                        Err(error)
-                            if !matches!(
-                                error.code.as_str(),
-                                "SHELL_RUN_UNAVAILABLE" | "SHELL_RUN_FAILED" | "API_INPUT_INVALID"
-                            ) =>
-                        {
-                            BoardEvent::ShellCancelled {
-                                key,
-                                confirmed: false,
-                            }
-                        }
-                        Err(error) => BoardEvent::ShellDone {
-                            key,
-                            result: Err(if error.code == "SHELL_RUN_FAILED" {
-                                "Could not start; nothing was run.".into()
-                            } else {
-                                error.message
-                            }),
-                        },
-                        Ok(value) if super::conversation::shell::valid_result(&key.1, &value) => {
-                            BoardEvent::ShellDone {
-                                key,
-                                result: Ok(value),
-                            }
-                        }
-                        Ok(_) => BoardEvent::ShellCancelled {
-                            key,
-                            confirmed: false,
-                        },
-                    };
-                    let _ = events.send(event);
-                });
-            match worker {
-                Ok(thread) => threads.push(thread),
-                Err(_) => {
-                    let _ = self.shell_events.send(BoardEvent::ShellDone {
-                        key: failure_key,
-                        result: Err("Shell could not start; nothing was run.".into()),
-                    });
-                }
-            }
             return;
         }
         if let Some(jobs) = &self.jobs {
@@ -372,15 +291,11 @@ impl Lane {
 
     /// Ends the lane once its queued jobs finish; each command has its own deadline.
     pub fn finish(mut self) {
-        self.shell_stop
-            .store(true, std::sync::atomic::Ordering::Release);
         self.standalone.take();
         self.jobs = None;
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
-        // The CLOEXEC request pipe closes on board exit or reload; Core reaps.
-        drop(self.shell_threads.into_inner());
     }
 }
 

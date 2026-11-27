@@ -355,44 +355,6 @@ impl Core {
         document(self.json_finished_with_operands(args, operands, TIMEOUT)?)
     }
 
-    /// A dedicated session keeps its request pipe open as the shell's lifeline.
-    pub(crate) fn shell_run(
-        &self,
-        input: Value,
-        stopped: &std::sync::atomic::AtomicBool,
-    ) -> Result<Value, SquadError> {
-        runner::assert_commands_allowed("shell API request");
-        let deadline = Instant::now() + Duration::from_secs(130);
-        let (mut channel, pid) = self.start_shell_channel(deadline, stopped)?;
-        let unregister = || {
-            shell_spawn_guard().remove(&pid);
-        };
-        let request = json!({"version": 1, "operation": "shell.run", "input": input}).to_string();
-        let response = channel.exchange_lifeline(
-            request.as_bytes(),
-            deadline,
-            || stopped.load(std::sync::atomic::Ordering::Acquire),
-            unregister,
-        );
-        unregister();
-        let response = response.map_err(|e| invocation_error(runner::run_error(e.kind)))?;
-        let exit = channel
-            .close(deadline, || false)
-            .map_err(|e| invocation_error(runner::run_error(e.kind)))?;
-        if !exit.status.success() {
-            return Err(unavailable(
-                "Shell result unconfirmed; do not retry automatically.",
-            ));
-        }
-        let document: Value = serde_json::from_slice(&response)
-            .map_err(|_| unavailable("Shell result unconfirmed; do not retry automatically."))?;
-        if document.get("error").is_some() {
-            resource_error(&document)
-        } else {
-            Ok(document)
-        }
-    }
-
     pub(crate) fn standalone_session(
         &self,
         stopped: &std::sync::atomic::AtomicBool,

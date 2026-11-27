@@ -573,7 +573,7 @@ impl App {
             KeyCode::Char('r') => {
                 let mut target = row.expected();
                 target["kind"] = "saved".into();
-                self.standalone.show(Page::Form(Form {
+                self.standalone.show(Page::Form(Box::new(Form {
                     command: Editor::from(row.command),
                     saved: Some(json!({"target": target})),
                     targets: vec![Target {
@@ -582,9 +582,10 @@ impl App {
                     }],
                     member: None,
                     observing: false,
+                    talk: None,
                     selected: 0,
                     history: None,
-                }));
+                })));
                 return Some(Effect::None);
             }
             KeyCode::Char('s') => SavedTask::Shell(row),
@@ -688,6 +689,7 @@ impl App {
             }
             return;
         }
+        let selected_before = self.workspace.selected.clone();
         if let SavedTask::List { generation, .. } = task {
             self.standalone.list_pending = false;
             if generation != self.standalone.saved_generation {
@@ -783,6 +785,10 @@ impl App {
             }
         }
         self.workspace_reconcile();
-        self.invalidate_frame_geometry();
+        if self.workspace.selected == selected_before {
+            self.invalidate_frame_preserving_transcript_focus();
+        } else {
+            self.invalidate_frame_geometry();
+        }
     }
 }

@@ -55,10 +55,11 @@ pub(in crate::board) fn capture(scene: &str, look: crate::look::Look) -> App {
     if local {
         assert_eq!(open, Effect::None);
     } else {
-        let Effect::Standalone(Task::Target(identity)) = open else {
+        let Effect::Standalone(Task::Target(generation, identity)) = open else {
             panic!("resolve the selected worker");
         };
         app.standalone_completed(Completed::Target(
+            generation,
             identity,
             Ok(json!({
                 "cwd":"/work/core-ops-spinner", "bindingId":"00000000-0000-4000-8000-000000006755",
@@ -113,6 +114,92 @@ pub(in crate::board) fn capture(scene: &str, look: crate::look::Look) -> App {
     }
     assert!(!matches!(app.standalone.page, Some(Page::Finished { .. })));
     app
+}
+
+pub(in crate::board) fn capture_talk_run(state: &str, look: crate::look::Look, width: u16) -> App {
+    let mut app = crate::board::app::workspace::tests::board();
+    let view = app.view.as_mut().expect("fixture view");
+    view.look = look;
+    view.home
+        .as_mut()
+        .expect("fixture workspace")
+        .workspace
+        .squad_looks
+        .clear();
+    app.focus_composer();
+    let draft = if width == 100 { "！！pwd" } else { "!pwd" };
+    app.input.as_mut().expect("Talk composer").text = draft.into();
+    if state == "talk-run-marker" {
+        return app;
+    }
+
+    let Effect::Standalone(Task::Target(generation, identity)) = press(&mut app, KeyCode::Enter)
+    else {
+        panic!("Talk must resolve the member before running");
+    };
+    let effect = app.standalone_completed(Completed::Target(
+        generation,
+        identity.clone(),
+        Ok(json!({
+            "cwd":"/work/core-ops-spinner",
+            "bindingId":"00000000-0000-4000-8000-000000006755",
+            "paneIncarnation":"fixture",
+        })),
+    ));
+    let Effect::Standalone(Task::Run(run, request)) = effect else {
+        panic!("the matching member must start the submitted command");
+    };
+    assert_eq!(request["target"]["identityId"], identity.as_str());
+    assert_eq!(request["target"]["cwd"], "/work/core-ops-spinner");
+    assert_eq!(request["command"], "pwd");
+    app.standalone.elapsed.set(12);
+    app.standalone
+        .progress(run, "/work/core-ops-spinner\n", false);
+    if state == "talk-run-running" {
+        return app;
+    }
+    let mut finished = result();
+    finished["command"] = "pwd".into();
+    finished["stdout"] = "/work/core-ops-spinner\n".into();
+    app.standalone_completed(Completed::Run(run, Ok(finished)));
+    assert!(app.input.as_ref().unwrap().text.as_str().is_empty());
+    if state == "talk-run-closed" {
+        assert_eq!(
+            press(&mut app, KeyCode::Esc),
+            Effect::Standalone(Task::Discard)
+        );
+    }
+    app
+}
+
+#[test]
+fn finished_edit_preserves_the_member_and_waits_for_confirmation() {
+    let mut app = capture("run-command-result", crate::look::Look::default());
+    let request = app.standalone.request.clone().expect("completed request");
+    assert_eq!(
+        press(&mut app, KeyCode::Char('e')),
+        Effect::Standalone(Task::Discard)
+    );
+    assert!(app.standalone.editing());
+    assert!(!app.standalone.running());
+    let Some(Page::Form(form)) = &app.standalone.page else {
+        panic!("Edit must reopen the form");
+    };
+    let target = &form.targets[form.selected];
+    assert_eq!(target.input, request["target"]);
+    assert_eq!(form.command.as_str(), request["command"].as_str().unwrap());
+    press(&mut app, KeyCode::End);
+    assert_eq!(press(&mut app, KeyCode::Char('s')), Effect::None);
+    let Effect::Standalone(Task::Run(_, edited)) = press(&mut app, KeyCode::Enter) else {
+        panic!("only confirmation runs the edited command");
+    };
+    assert_eq!(edited["target"], request["target"]);
+    assert_ne!(edited["command"], request["command"]);
+
+    let mut app = capture("run-command-result", crate::look::Look::default());
+    assert!(
+        matches!(press(&mut app, KeyCode::Char('r')), Effect::Standalone(Task::Run(_, value)) if value == request)
+    );
 }
 
 #[test]
@@ -270,6 +357,316 @@ fn standalone_command_form_and_running_screen_show_content_with_their_buttons() 
             .collect();
         for word in expected {
             assert!(text.contains(word), "{scene} must show {word:?}");
+        }
+    }
+}
+
+#[test]
+fn run_window_is_centered_and_escape_leaves_the_run_stoppable() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut app = capture("run-command-running", crate::look::Look::default());
+    let mut screen = Terminal::new(TestBackend::new(100, 36)).unwrap();
+    screen
+        .draw(|frame| app.standalone.render(frame, &app, frame.area()))
+        .unwrap();
+    let outer = app.standalone.outer();
+    assert!(!outer.is_empty());
+    assert!(u16::abs_diff(2 * outer.x + outer.width, 100) <= 1);
+    assert!(u16::abs_diff(2 * outer.y + outer.height, 36) <= 1);
+    let text: String = screen
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains("worker · /work/core-ops-spinner"));
+    assert!(text.contains("Stop"));
+
+    assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.standalone.shown());
+    assert!(app.standalone.running());
+    assert_eq!(press(&mut app, KeyCode::Char('!')), Effect::None);
+    assert!(app.standalone.shown());
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+        Effect::Standalone(Task::Stop)
+    );
+}
+
+#[test]
+fn run_window_result_reports_exit_and_duration_with_enter_to_keep_and_escape_to_close() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let finished = || capture("run-command-result", crate::look::Look::default());
+    let mut app = finished();
+    let mut screen = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    screen
+        .draw(|frame| app.standalone.render(frame, &app, frame.area()))
+        .unwrap();
+    let text: String = screen
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    for expected in [
+        "✓ exited 0 after 41s",
+        "Keep in list",
+        "Run again",
+        "Close",
+        "Edit",
+        "↑↓ scroll · k keep · r run again · e edit · Esc close",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?}");
+    }
+
+    assert_eq!(
+        press(&mut app, KeyCode::Enter),
+        Effect::Standalone(Task::Keep(result()["runId"].as_str().unwrap().into()))
+    );
+    let mut app = finished();
+    assert_eq!(
+        press(&mut app, KeyCode::Esc),
+        Effect::Standalone(Task::Discard)
+    );
+    assert!(!app.standalone.shown());
+    assert!(app.standalone.page.is_none());
+}
+
+#[test]
+fn run_result_hints_shorten_from_the_left_and_share_the_button_row() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut app = capture("run-command-result", crate::look::Look::default());
+    let Some(Page::Finished { result, .. }) = app.standalone.page.as_mut() else {
+        panic!("finished command");
+    };
+    result["stdout"] = (0..20)
+        .map(|number| format!("output row {number:02}\n"))
+        .collect::<String>()
+        .into();
+    let mut screen = Terminal::new(TestBackend::new(100, 36)).unwrap();
+    screen
+        .draw(|frame| app.standalone.render(frame, &app, frame.area()))
+        .unwrap();
+    let buffer = screen.backend().buffer();
+    let row = |y| {
+        (0..100)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect::<String>()
+    };
+    let footer = (1..36).find(|y| row(*y).contains("Keep in list")).unwrap();
+    assert!(row(footer).contains("e edit · Esc close"));
+    assert!(!row(footer).contains("↑↓ scroll"));
+    assert!(row(footer - 1).contains("output row"));
+}
+
+#[test]
+fn kept_output_escape_closes_the_modal_and_keeps_the_row_selected() {
+    let mut app = capture("run-command-kept", crate::look::Look::default());
+    let selected = app.workspace.selected.clone();
+    let Effect::Standalone(Task::Saved(task @ super::SavedTask::Get(_))) =
+        press(&mut app, KeyCode::Enter)
+    else {
+        panic!("Enter opens the selected kept row");
+    };
+    app.standalone_completed(Completed::Saved(Box::new(task), Ok(result())));
+    assert!(matches!(app.standalone.page, Some(Page::Saved(_))));
+    let mut screen = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 36)).unwrap();
+    screen
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+
+    assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.standalone.shown());
+    assert!(app.standalone.page.is_none());
+    assert_eq!(app.workspace.selected, selected);
+}
+
+#[test]
+fn kept_move_escape_cancels_without_saving_the_proposed_placement() {
+    let mut app = capture("run-command-kept", crate::look::Look::default());
+    let selected = app.workspace.selected.clone();
+    let row = app.standalone.saved_rows[0].clone();
+    assert_eq!(press(&mut app, KeyCode::Char('m')), Effect::None);
+    assert_eq!(press(&mut app, KeyCode::Down), Effect::None);
+    assert!(app.standalone.moving());
+
+    assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+    assert!(!app.standalone.moving());
+    assert_eq!(app.workspace.selected, selected);
+    assert_eq!(app.standalone.saved_rows[0], row);
+}
+
+#[test]
+fn unavailable_member_directory_keeps_the_command_form_with_a_tab_hint() {
+    use crate::{board::app::workspace::tests::board, core::SquadError};
+
+    let mut app = board();
+    app.standalone.launch_directory = Some("/work/local".into());
+    let Effect::Standalone(Task::Target(generation, identity)) =
+        press(&mut app, KeyCode::Char('！'))
+    else {
+        panic!("resolve the selected member");
+    };
+    for ch in "pwd".chars() {
+        assert_eq!(press(&mut app, KeyCode::Char(ch)), Effect::None);
+    }
+    app.standalone_completed(Completed::Target(
+        generation,
+        identity,
+        Err(SquadError::new(
+            "SHELL_RUN_UNAVAILABLE",
+            "The member's current local directory could not be verified. Nothing was started.",
+        )),
+    ));
+
+    assert!(app.standalone.shown());
+    let Some(Page::Form(form)) = &app.standalone.page else {
+        panic!("the refused lookup must keep the form");
+    };
+    assert!(!form.observing);
+    assert_eq!(form.command.as_str(), "pwd");
+    let notice = app.standalone.notice.as_deref().expect("target notice");
+    assert!(
+        notice.contains("worker") && notice.contains("Tab"),
+        "{notice}"
+    );
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    assert!(!app.standalone.running());
+    assert_eq!(press(&mut app, KeyCode::Tab), Effect::None);
+    assert!(
+        app.standalone
+            .lines()
+            .iter()
+            .any(|line| line.contains("/work/local"))
+    );
+}
+
+#[test]
+fn cancelled_talk_lookup_cannot_launch_a_new_draft_for_the_same_member() {
+    let mut app = crate::board::app::workspace::tests::board();
+    app.focus_composer();
+    app.input.as_mut().unwrap().text = "!pwd".into();
+    let Effect::Standalone(Task::Target(old, member)) = press(&mut app, KeyCode::Enter) else {
+        panic!("Talk must resolve a member");
+    };
+    assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "!pwd");
+    app.input.as_mut().unwrap().text = "！！ls".into();
+    let Effect::Standalone(Task::Target(current, same_member)) = press(&mut app, KeyCode::Enter)
+    else {
+        panic!("the new draft must have its own observation");
+    };
+    assert_eq!(same_member, member);
+    assert_ne!(current, old);
+    let target = || {
+        json!({
+            "cwd":"/work",
+            "bindingId":"00000000-0000-4000-8000-000000006755",
+            "paneIncarnation":"fixture",
+        })
+    };
+    assert_eq!(
+        app.standalone_completed(Completed::Target(old, member.clone(), Ok(target()))),
+        Effect::None
+    );
+    let Effect::Standalone(Task::Run(run, request)) =
+        app.standalone_completed(Completed::Target(current, member, Ok(target())))
+    else {
+        panic!("only the current observation launches");
+    };
+    assert_eq!(request["command"], "ls");
+    app.standalone_completed(Completed::Run(
+        run,
+        Err(crate::core::SquadError::new(
+            "TERMINAL_COMMAND_TARGET_CHANGED",
+            "The member's directory changed.",
+        )),
+    ));
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "！！ls");
+}
+
+#[test]
+fn closing_talk_run_restores_the_scrolled_transcript_without_pinning_output() {
+    use crate::{
+        board::{
+            app::workspace::tests::{MEMBER, board},
+            scroll::Step,
+        },
+        config::Pane,
+    };
+    use ratatui::{Terminal, backend::TestBackend};
+
+    for close in [KeyCode::Esc, KeyCode::Right] {
+        let mut app = board();
+        app.view.as_mut().unwrap().replies = vec![json!({
+            "recipientId": MEMBER, "requestId": "retained",
+            "response": (0..80).map(|n| format!("Retained paragraph {n:02}\n\n")).collect::<String>(),
+        })];
+        app.focus_composer();
+        let mut screen = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        let mut paint = |app: &mut App| {
+            screen
+                .draw(|frame| {
+                    crate::board::view::prepare(app, frame.area());
+                    crate::board::view::render(frame, app);
+                })
+                .unwrap();
+            screen
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+        };
+        paint(&mut app);
+        app.scroll_pane(Pane::Replies, Step::Top);
+        app.scroll_pane(Pane::Replies, Step::Lines(8));
+        let before = paint(&mut app);
+        let offset = app.scrolls.offset(Pane::Replies);
+        assert!(offset > 0);
+
+        app.input.as_mut().unwrap().text = "!pwd".into();
+        let Effect::Standalone(Task::Target(generation, member)) = press(&mut app, KeyCode::Enter)
+        else {
+            panic!("Talk resolves the member");
+        };
+        let Effect::Standalone(Task::Run(run, _)) = app.standalone_completed(Completed::Target(
+            generation,
+            member,
+            Ok(json!({
+                "cwd":"/work", "bindingId":"00000000-0000-4000-8000-000000006755",
+                "paneIncarnation":"fixture",
+            })),
+        )) else {
+            panic!("the directory admits the Run");
+        };
+        let mut done = result();
+        done["command"] = "pwd".into();
+        done["stdout"] = "private output from the Run window".into();
+        app.standalone_completed(Completed::Run(run, Ok(done)));
+        assert!(paint(&mut app).contains("private output from the Run window"));
+        let dismissed = if close == KeyCode::Esc {
+            press(&mut app, KeyCode::Esc)
+        } else {
+            press(&mut app, KeyCode::Right);
+            press(&mut app, KeyCode::Right);
+            press(&mut app, KeyCode::Enter)
+        };
+        assert_eq!(dismissed, Effect::Standalone(Task::Discard));
+        let after = paint(&mut app);
+        assert_eq!(app.scrolls.offset(Pane::Replies), offset);
+        assert!(!after.contains("private output from the Run window"));
+        for line in (0..80).map(|n| format!("Retained paragraph {n:02}")) {
+            assert_eq!(after.contains(&line), before.contains(&line), "{line}");
         }
     }
 }
