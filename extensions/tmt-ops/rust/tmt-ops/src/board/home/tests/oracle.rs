@@ -1904,7 +1904,7 @@ macro_rules! oracle_groups {
         $group!(7, 360, skills_picker_frames($styles));
         $group!(7, 32, visibility_frames($styles));
         $group!(7, 608, orchestration_frames($styles));
-        $group!(7, 100, work_frames($styles));
+        $group!(7, 116, work_frames($styles));
         $group!(7, 12, opening_frames($styles));
     };
 }

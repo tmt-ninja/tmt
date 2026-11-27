@@ -1426,6 +1426,7 @@ impl App {
         let editing = match overlay {
             Some(Overlay::ProviderAnswer) => self.provider_answer.owns_typing(),
             Some(Overlay::NewMember | Overlay::SwitchTool | Overlay::IdleAlert) => true,
+            Some(Overlay::WorkTalk) => self.input.is_some(),
             Some(Overlay::Standalone) => self.standalone.editing(),
             Some(Overlay::Workspace) => self.input.is_some(),
             Some(Overlay::Settings) => self

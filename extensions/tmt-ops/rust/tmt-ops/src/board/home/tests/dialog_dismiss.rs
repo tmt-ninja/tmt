@@ -160,6 +160,7 @@ fn close_rule_test(overlay: Overlay) -> &'static str {
         Overlay::OfflineResume => {
             "offline_resume::tests::the_offline_resume_dialog_follows_the_close_rule"
         }
+        Overlay::WorkTalk => "work::tests::the_work_talk_dialog_follows_the_close_rule",
         Overlay::WorkViews => "work::tests::the_work_views_dialog_follows_the_close_rule",
     }
 }
