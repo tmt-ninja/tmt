@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 82c2e3156e35e8af41b4837e2466d285366a9b84
+sourceRevision: 77a50857f882b2be4b83150ad72ca479503c9181
 title: Ops：lead、成员与工作区
 ---
 
@@ -30,7 +30,7 @@ Ops 看板使用你配置的用户身份。`tmt ops squad me` 显示该身份；
 
 <Mdx.h3 id="the-workspace">工作区</Mdx.h3>
 
-**Agents** 在 squad／成员树状列表与所选对话上方，显示横跨整个宽度的 Usage 区域。选择 squad 可查看成员；选择成员可查看 **Talk**、**Measure** 与 **Checklist**。Common pool 收录未加入任何 Ops squad 的身份；其中的成员没有 squad 对话清单。**Digest** 单独显示消息批处理与用量。**Orchestration** 显示 Core 的计划及生效策略；请参阅 [Orchestration](/working/orchestration)。
+**Agents** 在 squad／成员树状列表与所选对话上方，显示横跨整个宽度的 Usage 区域。选择 squad 可查看成员；选择成员可查看 **Talk**、**Measure** 与 **Checklist**。Common pool 收录未加入任何 Ops squad 的身份；其中的成员没有 squad 对话清单。**Work** 显示 Colab 的工作列表。**Digest** 单独显示消息批处理与用量。**Orchestration** 显示 Core 的计划及生效策略；请参阅 [Orchestration](/working/orchestration)。
 
 <Code>{`
 OPS / UI · Agents
@@ -46,18 +46,22 @@ Common pool            │ Message to builder
 
 看板在后台更新信息。缺少读数表示未知，不代表空闲或零。切换视图时，注意事项摘要仍会显示。
 
-| 默认按键        | 工作区中的操作                                            |
-| --------------- | --------------------------------------------------------- |
-| `1` / `2` / `3` | Agents / Digest / Orchestration；编辑器未处理该按键时生效 |
-| `T` / `M` / `C` | Talk / Measure / 所选成员的 Checklist                     |
-| Enter           | 聚焦所选对话的输入框                                      |
-| Tab / Shift+Tab | 移动窗格焦点；活动编辑器或对话框会优先处理自己的按键      |
-| `e`             | 编辑所选成员或 squad                                      |
-| `l`             | 为成员选择私有看板标签                                    |
-| `,` / `?`       | 设置 / 当前生效的操作说明                                 |
-| Ctrl+R          | 刷新                                                      |
+| 默认按键              | 工作区中的操作                                                   |
+| --------------------- | ---------------------------------------------------------------- |
+| `1` / `2` / `3` / `4` | Agents / Work / Digest / Orchestration；编辑器未处理该按键时生效 |
+| `T` / `M` / `C`       | Talk / Measure / 所选成员的 Checklist                            |
+| Enter                 | 聚焦所选对话的输入框                                             |
+| Tab / Shift+Tab       | 移动窗格焦点；活动编辑器或对话框会优先处理自己的按键             |
+| `r`                   | 重命名所选成员或 squad                                           |
+| `l`                   | 为成员选择私有看板标签                                           |
+| `,` / `?`             | 设置 / 当前生效的操作说明                                        |
+| Ctrl+R                | 刷新                                                             |
 
 查看页脚和 `?`，了解所选目标可用的按键。你配置的按键绑定优先。点击窗格可聚焦；当前操作控件标有 `▸`。
+
+<Mdx.h3 id="colab-work-on-the-board">在看板查看 Colab 工作</Mdx.h3>
+
+在 **Work** 中，按 `p` 选择项目、`d` 选择 Done 的时间范围、`c` 显示最近完成的工作。有链接时，Enter 会打开所选页面。在选定项目中，`m` 可移动符合条件的编号工作，确认后才会执行。若其他地方已更改顺序，看板会显示当前顺序，不会重试移动。Work 需要 Colab 0.1.0-alpha.478 或更新版本；排序需要 alpha.481 或更新版本。
 
 <Mdx.h3 id="talk-without-losing-your-place">对话不中断工作位置</Mdx.h3>
 
@@ -65,11 +69,15 @@ Common pool            │ Message to builder
 
 阅读较早的输出会暂停自动跟随。**Jump to latest** 或 End 可回到最新消息。回复与窗格输出会分别标注。若送达状态不确定，请先检查请求再决定是否重发。
 
+成员有待回答的提供方表单时，会显示 **◆ form**。按 `f` 或选择 **Answer form**，可回答 Core 支持的完整表单。只有人可以回答这些表单。被截断、过时或只能在终端回答的表单保持只读；终端专用表单请到成员的终端回答。发送未获确认时，请先在该终端检查；Ops 不会重发。
+
 <Mdx.h3 id="checklists-belong-to-a-room">清单属于 room</Mdx.h3>
 
 每个 room 都有清单，每位成员也可以在其中拥有独立的对话清单。重新命名后，清单仍属于原来的 room 和成员。
 
 选择成员并按 **C** 打开 Checklist。在聊天编辑器中，**Ctrl+L** 打开该清单并保留草稿和光标位置；Esc 返回编辑器。链接和待办事项会显示作者及经过时间。已归档的项目会隐藏。
+
+在 Talk 输入 `#` 可从该成员的 Checklist 选择项目，按 Enter 或 Tab 插入引用。在 Checklist 按 `r` 可将所选项目引用到 Talk。对话中可解析的引用会提供 **Open in checklist**。
 
 <Code>{`
 Checklist · builder
@@ -104,9 +112,11 @@ $ tmt ops squad checklist ls --room 44444444-4444-4444-8444-444444444444 --membe
 
 <Mdx.h3 id="read-usage-as-observations">把用量视为观测结果</Mdx.h3>
 
-在 Settings 选择 **Token window**，查看已完成请求的总量。输入加输出只会把缓存输入计算一次。请同时查看覆盖标记：缺少读数不代表零，token 总量也不等于费用。
+Agents 树状列表只有一个 **TOK** 列。**Range** 依次切换 5m、10m、1h、3h、6h、1d、7d；Settings 中的 **TOK range** 也可选择同样的时间范围。近期观测到增长时，数值会加粗。输入加输出只会把缓存输入计算一次。缺少读数不代表零，token 总量也不等于费用。点击 **TOK** 列标题或数值，可在 token 数与按未缓存输入标价计算的估算费用之间切换；估算费用不是账单。
 
 Digest 的 **Est. ctx avoided** 是通过批处理省下多少上下文输入的估计，不是实测的计费 token、轮次或金额节省。它的范围与 Agents 的 token 时间窗独立。读取任何总量时，都要一起看覆盖范围。
+
+Digest 的 **Saved** 详情也会显示所选时间范围内已结算的消息数和批次数。覆盖不完整或数据过时会在旁边标明。
 
 <Mdx.h3 id="make-it-yours">按你的方式配置</Mdx.h3>
 
@@ -148,4 +158,4 @@ $ tmt ops squad back
 
 <Mdx.h3 id="where-state-lives">状态存放在哪里</Mdx.h3>
 
-使用 `tmt notes path` 查找成员的笔记本。将持续需要的工作上下文保存在其中，并用 task、state 和 pending 字段概括当前情况。
+使用 `tmt notes path` 查找成员的笔记本，并将持续需要的工作上下文保存在其中。在看板设置成员的 `state`，在 issue 记录进展；需要用户回答时，使用请求或 Colab 问题。

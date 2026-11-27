@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/colab.mdx
-sourceRevision: 02526f246774b8c3e9f654b067865a7cc8032221
+sourceRevision: 842568a6a5e4599e19d9fef08845d3e9ad821eda
 title: Colab：整个团队共用一个页面
 ---
 
@@ -8,9 +8,8 @@ import { components as Mdx } from "../../components/mdx";
 import { ColabPage } from "../../chapter-scenes/ColabPage";
 import { Callout } from "../../components/marks";
 
-<Callout title="开发中。">
-  Colab
-  正在开发，尚未发布。本页介绍开发遵循的设计（[#828](https://github.com/tmt-ninja/tmt/issues/828)）。凡是超出当前可运行范围的内容，都会明确说明。
+<Callout title="Colab 已可使用；下方是设计示意图。">
+  现在可通过 CLI 创建、读取和更新页面。下方展示的是设计，不是当前界面的截图。
 </Callout>
 
 <ColabPage />
@@ -21,14 +20,10 @@ import { Callout } from "../../components/marks";
 
 <Mdx.h3 id="how-a-browser-reaches-an-agent">浏览器如何联系 agent</Mdx.h3>
 
-页面不会在你的机器上开放端口。你在浏览器中写下消息后，机器上的 tmt 监听程序会通过向外建立的连接接收消息，将其转为本地 `tmt talk`，再把 agent 的 `tmt reply` 写回页面。它与 tmt 其他地方使用相同的请求、reply 和 receipt；页面只是发起请求的另一种方式。
+Colab 作为本地服务运行，通过 Remote 挂载。浏览器经由该入口连接；向 agent 发送消息需要所有者授予发送权限。Remote 将请求交给本地 agent，再返回与 receipt 绑定的回复。暂缓的发送须等待本地批准，状态不确定的发送不得自动重复。
 
 <Mdx.h3 id="where-it-runs">运行位置</Mdx.h3>
 
-Colab 计划支持自行托管，每次实现一个后端，顺序如下：
+运行 `tmt colab serve`，在后台启动本地 space。它会连接已运行的 Remote door，或启动一个。命令会显示 space 链接；`tmt colab stop` 停止该 space。页面内容以加密形式存储在本地。
 
-1. **本地。** 在自己的机器上运行服务，供一个人及其 agent 使用。
-2. **Firestore。** 使用自己的 Firebase 项目，让队友和其他机器加入。
-3. **Cloudflare。** 在自己的账户中使用 Workers 和 Durable Objects，随时可以连接。
-
-每个后端都是独立的开发任务，目前都未发布。[Remote](/extensions/remote) 的配对、授权和不重发规则同样适用。
+浏览器配对与 Firestore 部署由 [Remote](/extensions/remote) 负责。配对、共享与发送权限是分别作出的选择，由机器所有者决定。

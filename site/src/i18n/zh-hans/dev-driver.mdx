@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/dev-driver.mdx
-sourceRevision: 2f1c334ff6656d2ad4875d88c83a6720ca36f2d4
+sourceRevision: bc8b33e541380c68048a99bbcc02d35ae2775d08
 title: 编写 driver
 ---
 
@@ -18,7 +18,7 @@ driver 教 tmt 如何操作终端 host 或 agent 程序。外部 host driver 已
   <dt>runtime driver</dt>
   <dd>
     识别 agent、读取其 hook，并规划启动或恢复。Claude Code、Codex、agy 和 Pi 都有内置 runtime
-    driver。
+    driver。 Cursor Agent 支持基本检测与调用方识别，但没有生命周期钩子或精确恢复会话功能。
   </dd>
 </Terms>
 
