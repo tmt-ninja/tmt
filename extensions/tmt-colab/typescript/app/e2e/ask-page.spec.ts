@@ -797,6 +797,61 @@ for (const gesture of ['drag', 'completed selection C'] as const)
     expect((await run(page, 'proof')).sends).toEqual([]);
   });
 
+for (const [width, theme] of [
+  [1280, 'light'],
+  [1440, 'light'],
+  [1440, 'dark'],
+  [390, 'light'],
+  [390, 'dark'],
+  [2200, 'light'],
+] as const)
+  test(`an open Discussion leaves the low block comment reachable at ${width} ${theme}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await run(page, 'mount', { structuredOutline: true, commentOnly: true });
+    await run(page, 'seedStructuredDiscussion');
+    const stage = page.locator('.structured-page-stage');
+    const first = stage.getByRole('button', { name: 'Open comment 1', exact: true });
+    const low = stage.getByRole('button', { name: 'Open comment 2', exact: true });
+    const discussion = page.locator('[data-panel="comments"][data-floating-discussion]');
+    await expect(first).toBeVisible();
+    const before = (await stage.boundingBox())!;
+    await first.click();
+    await expect(discussion.getByText('Comment on paragraph 0.', { exact: true })).toBeVisible();
+    if (width === 2200 || width === 390) {
+      const after = (await stage.boundingBox())!;
+      expect([after.x, after.width]).toEqual([before.x, before.width]);
+    }
+    const card = (await discussion.boundingBox())!;
+    // On desktop the marker can stay vertically alongside the card. On the phone,
+    // a reader scrolls the last marker into the exposed part of the page.
+    const target = width === 390 ? Math.max(150, card.y - 36) : card.y + card.height / 2;
+    await low.evaluate((button, y) => {
+      const box = button.getBoundingClientRect();
+      window.scrollBy({ top: box.top + box.height / 2 - y, behavior: 'instant' });
+    }, target);
+    await expect(low).toBeInViewport();
+    if (width === 1440 || width === 390) {
+      await page.screenshot({ path: capturePath(`6832-discussion-${width}-${theme}.png`) });
+    }
+    const hit = await low.evaluate((button) => {
+      const box = button.getBoundingClientRect();
+      const target = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return {
+        marker: target === button,
+        target: target?.className,
+        at: box.toJSON(),
+        stage: button.closest('.structured-page-stage')?.getBoundingClientRect().toJSON(),
+      };
+    });
+    expect(hit.marker, JSON.stringify({ ...hit, card })).toBe(true);
+    await low.click();
+    await expect(discussion.getByText('Comment on paragraph 1.', { exact: true })).toBeVisible();
+  });
+
 for (const width of [1440, 390])
   test(`structured page outline navigates headings and remembers collapse at ${width}`, async ({
     page,

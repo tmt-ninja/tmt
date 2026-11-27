@@ -1816,6 +1816,17 @@ function largeThread(index: number, comments = 1): ThreadView {
   }
   return thread;
 }
+export function seedStructuredDiscussion() {
+  current = {
+    ...current,
+    threads: [102, 106].map((block, index) => ({
+      ...largeThread(index),
+      anchor: { block: id(block) },
+    })),
+  };
+  emit();
+}
+
 /** A large page: `paragraphs` paragraphs of prose with a thread on each of the first `threads`. */
 export function largePage(options: { paragraphs: number; threads: number }) {
   const source = Array.from(
