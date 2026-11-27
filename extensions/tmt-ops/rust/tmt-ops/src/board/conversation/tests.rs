@@ -2338,3 +2338,16 @@ fn the_reply_reader_follows_the_close_rule() {
         crate::board::app::Overlay::ReplyReader,
     );
 }
+
+#[test]
+fn red_first_keep_reply_action_and_list_contract() {
+    assert_eq!(
+        crate::action::OpsUiAction::parse("keep-reply"),
+        Some(crate::action::OpsUiAction::KeepReply)
+    );
+    let mut app = fixture();
+    app.kept_replies.supported = Some(true);
+    app.focus_composer();
+    let _ = app.toggle_keep_reply();
+    assert!(app.input.as_ref().unwrap().keep_reply);
+}
