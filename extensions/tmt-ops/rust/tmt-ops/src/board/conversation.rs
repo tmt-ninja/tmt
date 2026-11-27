@@ -677,6 +677,134 @@ pub(super) fn render_retained(
     );
 }
 
+pub(in crate::board) fn paint_kept_replies(
+    frame: &mut Frame,
+    app: &App,
+    body: Rect,
+    member_id: &str,
+    look: Look,
+    interactive: bool,
+) -> Rect {
+    if app.kept_replies.member_id.as_deref() != Some(member_id)
+        || app.kept_replies.items.is_empty()
+        || body.height <= 4
+    {
+        return body;
+    }
+    let max_kept = body.height.saturating_sub(3);
+    let visible_rows = app
+        .kept_replies
+        .items
+        .len()
+        .min(4)
+        .min(usize::from(max_kept.saturating_sub(2)));
+    if visible_rows == 0 {
+        return body;
+    }
+    let total_height = 2 + visible_rows as u16;
+    let kept_area = Rect::new(
+        body.x.saturating_add(1),
+        body.y,
+        body.width.saturating_sub(1),
+        total_height,
+    );
+    if kept_area.is_empty() {
+        return body;
+    }
+    let rule_area = Rect::new(kept_area.x, kept_area.y, kept_area.width, 1);
+    let note = if app.kept_replies.focused {
+        "⏎ open · x remove · Esc back"
+    } else {
+        "↑ select"
+    };
+    let title = "⚑ Kept replies";
+    let rule_line = if title.width() + note.width() + 4 <= usize::from(rule_area.width) {
+        let fill = usize::from(rule_area.width) - title.width() - note.width() - 2;
+        format!("{title} {} {note}", "─".repeat(fill))
+    } else if title.width() + 2 <= usize::from(rule_area.width) {
+        let fill = usize::from(rule_area.width) - title.width() - 1;
+        format!("{title} {}", "─".repeat(fill))
+    } else {
+        super::view::fit(title, usize::from(rule_area.width))
+    };
+    strip::paint_left(
+        frame.buffer_mut(),
+        rule_area,
+        Line::styled(
+            rule_line,
+            look.role(if app.kept_replies.focused {
+                Role::Accent
+            } else {
+                Role::Dim
+            }),
+        ),
+    );
+    let now = crate::status::now_ms();
+    for (index, item) in app.kept_replies.items.iter().take(visible_rows).enumerate() {
+        let row_rect = Rect::new(
+            kept_area.x,
+            kept_area.y + 1 + index as u16,
+            kept_area.width,
+            1,
+        );
+        let selected = app
+            .kept_replies
+            .selected_key
+            .as_deref()
+            .is_some_and(|key| key == item.key);
+        let marker = if selected { "▸ " } else { "  " };
+        let age = crate::requests::age(now, item.at_ms);
+        let text = super::view::fit(
+            &format!("{marker}{age}  {}", sanitize(&item.excerpt)),
+            usize::from(row_rect.width),
+        );
+        let style = if selected && app.kept_replies.focused {
+            look.role(Role::Selection)
+        } else if selected {
+            look.role(Role::Accent)
+        } else {
+            look.role(Role::Text)
+        };
+        strip::paint_left(frame.buffer_mut(), row_rect, Line::styled(text, style));
+        if interactive {
+            app.kept_replies
+                .hits
+                .borrow_mut()
+                .push(super::kept_replies::RowHit {
+                    area: row_rect.intersection(kept_area),
+                    member_id: member_id.to_owned(),
+                    key: item.key.clone(),
+                });
+        }
+    }
+    let conv_rule_rect = Rect::new(
+        kept_area.x,
+        kept_area.y + 1 + visible_rows as u16,
+        kept_area.width,
+        1,
+    );
+    let conv_title = "Conversation";
+    let conv_rule = if conv_title.width() + 2 <= usize::from(conv_rule_rect.width) {
+        format!(
+            "{conv_title} {}",
+            "─".repeat(usize::from(conv_rule_rect.width) - conv_title.width() - 1)
+        )
+    } else {
+        super::view::fit(conv_title, usize::from(conv_rule_rect.width))
+    };
+    strip::paint_left(
+        frame.buffer_mut(),
+        conv_rule_rect,
+        Line::styled(conv_rule, look.role(Role::Dim)),
+    );
+    Rect::new(
+        body.x,
+        body.y + total_height,
+        body.width,
+        body.height - total_height,
+    )
+}
+
 fn render_target(
     frame: &mut Frame,
     app: &App,
@@ -690,6 +818,7 @@ fn render_target(
     app.conversation.borrow_mut().jump_hit = None;
     app.conversation.borrow_mut().response_area = None;
     app.conversation.borrow_mut().painted_answers.clear();
+    app.kept_replies.invalidate_hits();
     let row = target
         .as_ref()
         .and_then(|target| app.target_row(target))
@@ -857,7 +986,14 @@ fn render_target(
         Line::styled(text, look.role(role))
     };
     let runtime_known = runtime != "–" || model != "–";
-    let state_text = format!("{state_words} · {} · {role}", sanitize(&squad));
+    let kept_count = (app.kept_replies.member_id.as_deref() == Some(identity.1.as_str()))
+        .then_some(app.kept_replies.items.len())
+        .unwrap_or(0);
+    let state_text = if kept_count > 0 {
+        format!("{state_words} · {} · {role} · ⚑ {kept_count} kept", sanitize(&squad))
+    } else {
+        format!("{state_words} · {} · {role}", sanitize(&squad))
+    };
     let state_text = if !full && !runtime_known {
         super::view::fit(
             &state_text,
@@ -1159,6 +1295,7 @@ fn render_target(
         state.header_hits = painted_controls;
         return;
     }
+    let body = paint_kept_replies(frame, app, body, &identity.1, look, interactive);
     // Acquisition stays held, but a local send/outcome must update that held session.
     // `prepare` clears stale, so repeat Retained paints reuse the same mapped text.
     let rebuilt = (refresh == Refresh::Current || session.needs_outgoing_prepare())

@@ -50,6 +50,8 @@ pub(super) struct Projection {
     sent: Option<Result<Vec<Value>, String>>,
     bodies: Vec<(MessageKey, Result<String, String>)>,
     pane: Option<recent_responses::Observation>,
+    kept_supported: Option<bool>,
+    kept: Option<Result<Vec<super::kept_replies::KeptReplySummary>, String>>,
 }
 
 /// A published timeline owns its request-keyed bodies, including unavailable
@@ -113,6 +115,8 @@ impl Plan {
                     }])
                 })
             }),
+            kept_supported: None,
+            kept: None,
         }
     }
 
@@ -138,6 +142,27 @@ impl Plan {
         // entries. Keep the one bounded metadata list, never its body.
         let finals = (self.finals && !cancellation.cancelled())
             .then(|| self.key.read(core).map_err(|error| error.to_string()));
+        let (kept_supported, kept) = if !cancellation.cancelled() && (self.finals || self.sent) {
+            let caps = core.api("capabilities", serde_json::json!({}));
+            match caps {
+                Ok(doc) => {
+                    let supported = doc["operations"]
+                        .as_array()
+                        .is_some_and(|ops| super::kept_replies::capability_supported(ops));
+                    let items = supported.then(|| {
+                        super::kept_replies::list(
+                            core,
+                            &self.key.agent,
+                            super::kept_replies::DEFAULT_LIST_LIMIT,
+                        )
+                    });
+                    (Some(supported), items)
+                }
+                Err(_) => (None, None),
+            }
+        } else {
+            (None, None)
+        };
         if let Some(timeline) = timeline {
             // The committed stream owns its inputs and replies, including an
             // unavailable body. A legacy show must not replace that observation.
@@ -207,6 +232,8 @@ impl Plan {
                 sent,
                 bodies,
                 pane,
+                kept_supported,
+                kept,
             };
         }
         let mut documents = BTreeMap::new();
@@ -276,6 +303,8 @@ impl Plan {
             sent,
             bodies,
             pane,
+            kept_supported,
+            kept,
         }
     }
 }
@@ -331,6 +360,14 @@ impl App {
         // The event owner checks the entire plan, revision and cancellation before
         // admission. Apply without painting between parts, under the same source checks
         // used by compact details and readers.
+        if let Some(supported) = projection.kept_supported {
+            self.kept_replies.supported = Some(supported);
+        }
+        if let Some(Ok(items)) = projection.kept {
+            self.kept_replies
+                .clear_for_switch(Some(plan.key.agent.clone()));
+            self.kept_replies.publish(&plan.key.agent, items);
+        }
         if let Some(result) = projection.finals {
             self.apply_finals(plan.key.clone(), result);
         }

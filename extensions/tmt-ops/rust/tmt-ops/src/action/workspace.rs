@@ -23,6 +23,7 @@ pub enum OpsUiAction {
     MemberLabel,
     MarkRead,
     Unread,
+    KeepReply,
     MemberBack,
     TerminalNew,
     TerminalType,
@@ -619,6 +620,13 @@ const SPECS: &[OpsUiSpec] = &[
         "move",
         "add or move the selected member to a squad",
         9
+    ),
+    spec!(
+        KeepReply,
+        "keep-reply",
+        "keep reply",
+        "toggle keeping the reply to this message in Talk",
+        7
     ),
 ];
 impl OpsUiAction {

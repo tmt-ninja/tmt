@@ -37,6 +37,7 @@ mod inventory;
 mod key_hints;
 mod key_value;
 mod keycap;
+mod kept_replies;
 mod lane;
 mod limits;
 mod local_time;
@@ -476,6 +477,15 @@ pub(super) enum ActionOutcome {
     LabelEdit(Box<Result<crate::config::OpsPreferences, String>>),
     Send(Box<conversation::outgoing::Completed>),
     SendNow(Box<conversation::SendNowDone>),
+    KeptShow {
+        member_id: String,
+        result: Result<kept_replies::KeptReplyDetail, String>,
+    },
+    KeptRemove {
+        member_id: String,
+        key: String,
+        result: Result<String, String>,
+    },
     Status(Box<crate::membership::status_update::Outcome>),
     /// Core agreed that the person at the board may change a member's digest.
     Digest(Box<digest::Granted>),
@@ -497,12 +507,13 @@ fn chat_send(
     name: String,
     text: &str,
     fallback: &str,
+    keep_reply: bool,
     what: String,
 ) -> ActionOutcome {
     ActionOutcome::Send(Box::new(conversation::outgoing::Completed {
         ticket: None,
         outcome: Config::load(core)
-            .and_then(|config| send::chat(core, &config, sender, recipient, text, fallback)),
+            .and_then(|config| send::chat(core, &config, sender, recipient, text, fallback, keep_reply)),
         what,
         to: name,
     }))
@@ -656,7 +667,7 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 crate::requests::message::inline_body(Some((&squad, &name)), text, false);
             let what = format!("Checklist update/{recipient}");
             return Ok(chat_send(
-                core, &sender, &recipient, name, text, &fallback, what,
+                core, &sender, &recipient, name, text, &fallback, false, what,
             ));
         }
         Request::Chat {
@@ -665,6 +676,7 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             name,
             text,
             fallback,
+            keep_reply,
         } => {
             return Ok(chat_send(
                 core,
@@ -673,6 +685,7 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 name,
                 &text,
                 &fallback,
+                keep_reply,
                 "Message".into(),
             ));
         }
@@ -698,6 +711,19 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             return Ok(ActionOutcome::SendNow(Box::new(
                 conversation::SendNowDone { request, outcome },
             )));
+        }
+        Request::KeptShow { member_id, key } => {
+            return Ok(ActionOutcome::KeptShow {
+                member_id,
+                result: kept_replies::show(core, &key),
+            });
+        }
+        Request::KeptRemove { member_id, key } => {
+            return Ok(ActionOutcome::KeptRemove {
+                member_id,
+                result: kept_replies::remove(core, &key),
+                key,
+            });
         }
         Request::MemberPlacement(save) => {
             let result = crate::migration::state_root(core)
@@ -1561,6 +1587,16 @@ fn session(
                             }
                             Ok(ActionOutcome::Send(completed)) => app.finished_send(*completed),
                             Ok(ActionOutcome::SendNow(done)) => app.finished_send_now(*done),
+                            Ok(ActionOutcome::KeptShow { member_id, result }) => {
+                                app.finished_kept_show(&member_id, result);
+                            }
+                            Ok(ActionOutcome::KeptRemove {
+                                member_id,
+                                key,
+                                result,
+                            }) => {
+                                app.finished_kept_remove(&member_id, &key, result);
+                            }
                             Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
                             Err(error) => app.finished(Err(error)),
                         }
@@ -4726,6 +4762,7 @@ print(json.dumps(out))
             draft_key: None,
 
             inline_quotes: Default::default(),
+            keep_reply: false,
 
             row_send: None,
             link: None,

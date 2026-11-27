@@ -1179,6 +1179,7 @@ impl App {
             UsageControls if self.shell.tab == OpsTab::Digest => return self.digest_bars_menu(),
             UsageControls => return super::super::overview::chart::host::focus(self),
             Unread => return self.workspace_unread(),
+            KeepReply => return self.toggle_keep_reply(),
             Help => {
                 self.open_help(false);
                 return Effect::None;
@@ -1225,6 +1226,7 @@ impl App {
             return self.say("Loading the workspace…");
         }
         match action {
+            KeepReply => return self.toggle_keep_reply(),
             TerminalNew | TerminalType | TerminalFullScreen | TerminalClose => {
                 return self.terminal_action(action);
             }

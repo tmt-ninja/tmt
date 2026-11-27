@@ -2252,6 +2252,7 @@ fn notes_sources_follow_message_ids_not_equal_text_and_keep_pane_observations_di
             message_state_label: None,
             can_send_now: false,
             working: false,
+            keep_reply: None,
         }],
         pane_output: Observation::observed(vec![Item {
             response_id: None,
@@ -2337,17 +2338,4 @@ fn the_reply_reader_follows_the_close_rule() {
         &mut open(),
         crate::board::app::Overlay::ReplyReader,
     );
-}
-
-#[test]
-fn red_first_keep_reply_action_and_list_contract() {
-    assert_eq!(
-        crate::action::OpsUiAction::parse("keep-reply"),
-        Some(crate::action::OpsUiAction::KeepReply)
-    );
-    let mut app = fixture();
-    app.kept_replies.supported = Some(true);
-    app.focus_composer();
-    let _ = app.toggle_keep_reply();
-    assert!(app.input.as_ref().unwrap().keep_reply);
 }

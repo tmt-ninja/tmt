@@ -2072,6 +2072,7 @@ fn the_pm_row_composer_never_copies_the_squad_lead() {
             name: "tmt-core-pm".into(),
             text: "PM only".into(),
             fallback: "[product · tmt-core-pm] PM only".into(),
+            keep_reply: false,
         })
     );
 }
@@ -2104,6 +2105,7 @@ fn a_newer_request_arriving_mid_draft_does_not_gain_local_settlement_authority()
             name: "worker".into(),
             text: "Answer the current request".into(),
             fallback: "[product · worker] Answer the current request".into(),
+            keep_reply: false,
         })
     );
     assert_eq!(
@@ -2165,6 +2167,7 @@ fn a_request_settling_while_drafting_still_sends_to_the_member() {
             name: "worker".into(),
             text: "The exact draft stays deliverable.".into(),
             fallback: "[product · worker] The exact draft stays deliverable.".into(),
+            keep_reply: false,
         })
     );
 }
@@ -2231,6 +2234,7 @@ fn a_successful_reply_refresh_keeps_the_exact_member_and_feedback_until_the_next
                 name: "worker".into(),
                 text: "y".into(),
                 fallback: "[product · worker] y".into(),
+                keep_reply: false,
             })
         );
         assert_eq!(app.workspace.selected.as_ref(), Some(&selected));

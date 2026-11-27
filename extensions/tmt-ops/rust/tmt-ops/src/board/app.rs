@@ -206,6 +206,7 @@ pub enum Request {
         name: String,
         text: String,
         fallback: String,
+        keep_reply: bool,
     },
     Annotate {
         me: String,
@@ -220,6 +221,14 @@ pub enum Request {
         me: String,
         request: String,
         to: String,
+    },
+    KeptShow {
+        member_id: String,
+        key: String,
+    },
+    KeptRemove {
+        member_id: String,
+        key: String,
     },
     Status(Box<super::status_update::Action>),
     /// Save this tab order to `[tabs] order` (tab keys, in order).
@@ -277,6 +286,8 @@ impl Request {
             | Self::Annotate { .. }
             | Self::ChecklistAsk { .. } => "Sending…",
             Self::SendNow { .. } => "Sending now…",
+            Self::KeptShow { .. } => "Loading kept reply…",
+            Self::KeptRemove { .. } => "Removing kept reply…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
             Self::WorkViews { .. } => "Saving work views…",
@@ -662,6 +673,7 @@ pub struct Input {
     pub(super) row_send: Option<RowSend>,
 
     pub(super) inline_quotes: std::collections::BTreeMap<u64, super::composer::QuoteSource>,
+    pub(super) keep_reply: bool,
 
     pub link: Option<LinkSend>,
     pub prompt: String,
@@ -956,6 +968,7 @@ pub struct App {
     pub(super) initial_look: Option<crate::look::Look>,
     pub(super) cron: super::cronboard::State,
     pub(super) home_leads: super::home_leads::State,
+    pub(in crate::board) kept_replies: super::kept_replies::KeptRepliesState,
     pub(super) unread: super::unread::publish::Session,
     /// What the configured label sources last supplied for member rows.
     pub(super) labels: crate::labels::Supplied,
@@ -3149,6 +3162,7 @@ impl App {
             draft_key: None,
 
             inline_quotes: Default::default(),
+            keep_reply: false,
 
             row_send: None,
             link: None,
@@ -3668,6 +3682,7 @@ impl App {
         }
         self.composer.paste_preview.get_mut().take();
         self.composer.invalidate();
+        self.kept_replies.invalidate_hits();
         if self.checklist_shown()
             || self.provider_answer.shown()
             || self.recovery_shown()
@@ -3813,6 +3828,7 @@ impl App {
                 if message {
                     input.text.insert("\n", limit);
                     self.composer.invalidate();
+        self.kept_replies.invalidate_hits();
                 }
                 return Effect::None;
             }
@@ -3836,6 +3852,7 @@ impl App {
                 if message {
                     input.text.insert("\n", limit);
                     self.composer.invalidate();
+        self.kept_replies.invalidate_hits();
                 }
                 return Effect::None;
             }
@@ -3844,6 +3861,7 @@ impl App {
                 let width = self.input_viewport.get().map_or(80, |(area, _)| area.width);
                 input.text.key(key, width, limit);
                 self.composer.invalidate();
+        self.kept_replies.invalidate_hits();
                 return Effect::None;
             }
         }
@@ -4048,6 +4066,15 @@ impl App {
             return self
                 .say("Message including quotes exceeds 1 MiB; nothing sent. Draft retained.");
         }
+        if input.keep_reply
+            && matches!(input.compose, Compose::Talk { .. })
+            && chat.is_some()
+            && !self.keep_reply_capable()
+        {
+            return self.say(
+                "Kept replies require a newer Core; unmark keep reply before sending. Draft retained.",
+            );
+        }
         self.begin_outgoing(&input, &text);
         self.sending_draft(&input);
         if persistent {
@@ -4055,12 +4082,14 @@ impl App {
                 text: Default::default(),
 
                 inline_quotes: Default::default(),
+                keep_reply: false,
 
                 compose: input.compose.clone(),
                 ..input.clone()
             });
         }
         let squad = input.squad;
+        let keep_reply = input.keep_reply;
         Effect::Act(match input.compose {
             Compose::Talk { .. } if chat.is_some() => {
                 let (sender, recipient, name) = chat.unwrap();
@@ -4070,6 +4099,7 @@ impl App {
                     name,
                     text,
                     fallback,
+                    keep_reply,
                 }
             }
             Compose::Talk { to } | Compose::AskLead { to, .. } => Request::Talk {
@@ -4721,6 +4751,16 @@ impl App {
         {
             return self.perform(&action);
         }
+        if self.input.is_some()
+            && !self.modal_open()
+            && self
+                .composer_projection()
+                .is_some_and(|projection| projection.focused)
+            && let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name))
+            && action.verb == Verb::Ui(crate::action::OpsUiAction::KeepReply)
+        {
+            return self.perform(&action);
+        }
         // An explicitly bound chord retains its action while the composer owns input.
         if self.input.is_some()
             && key.code == KeyCode::Char('l')
@@ -4817,6 +4857,9 @@ impl App {
         if let Some(effect) = self.provider_answer_key(key) {
             return effect;
         }
+        if let Some(effect) = self.kept_replies_key(key) {
+            return effect;
+        }
         if key.code == KeyCode::Esc
             && key.kind != ratatui::crossterm::event::KeyEventKind::Release
             && self.conversation_source_escape()
@@ -4857,6 +4900,7 @@ impl App {
             surface.invalidate();
         }
         self.composer.invalidate();
+        self.kept_replies.invalidate_hits();
         if self.usage_panel_hidden() && !self.usage_controls {
             self.usage_chart.borrow_mut().release_focus();
         }
@@ -5453,6 +5497,12 @@ impl App {
             }
         }
 
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.loading()
+            && let Some(effect) = self.kept_replies_click(event.column, event.row)
+        {
+            return effect;
+        }
         if event.kind == MouseEventKind::Down(MouseButton::Left)
             && !self.loading()
             && self
@@ -6127,6 +6177,7 @@ pub(crate) mod tests {
                     name: "auth-fix".into(),
                     text: "q j -rf; $(x)".into(),
                     fallback: "[product · auth-fix] q j -rf; $(x)".into(),
+                    keep_reply: false,
                 })
             );
             app.finish_draft(true);
@@ -6531,6 +6582,7 @@ pub(crate) mod tests {
                     draft_key: None,
 
                     inline_quotes: Default::default(),
+                    keep_reply: false,
 
                     row_send: None,
                     link: None,
@@ -7575,6 +7627,7 @@ mod token_window_tests {
                 draft_key: None,
 
                 inline_quotes: Default::default(),
+                keep_reply: false,
 
                 row_send: None,
                 link: None,

@@ -130,6 +130,7 @@ pub(super) struct Sent {
     pub can_send_now: bool,
     /// Core's `messageState.state == "working"`, from the same `messageState` as the label.
     pub working: bool,
+    pub keep_reply: Option<crate::board::kept_replies::KeepReplyState>,
 }
 
 /// Core's captured turn, independent of ordinary replies and pane observations.
@@ -401,6 +402,7 @@ impl App {
                     message_state_label: crate::requests::message_state_label(send),
                     can_send_now: crate::requests::can_send_now(send),
                     working: crate::requests::is_working(send),
+                    keep_reply: crate::board::kept_replies::KeepReplyState::from_wire(&send["keepReply"]),
                 })
             })
             .collect()

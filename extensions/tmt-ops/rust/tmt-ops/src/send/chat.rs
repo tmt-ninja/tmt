@@ -40,6 +40,7 @@ pub(crate) fn chat(
     recipient: &str,
     text: &str,
     fallback: &str,
+    keep_reply: bool,
 ) -> Result<Accepted, SquadError> {
     if text.trim().is_empty() {
         return Err(refused("Nothing to send."));
@@ -75,6 +76,9 @@ pub(crate) fn chat(
     )?;
     if passthrough {
         intent.input["mode"] = json!("passthrough");
+    }
+    if keep_reply {
+        intent.input["keepReply"] = json!(true);
     }
     // No fallback/retry after a send-time refusal or uncertainty: the mode and
     // source are frozen in the private journal before dispatch.create runs.
@@ -157,6 +161,7 @@ mod tests {
                 LEAD,
                 "hello",
                 "fallback",
+                false,
             )
             .unwrap();
             assert_eq!(
@@ -214,7 +219,7 @@ mod tests {
     #[test]
     fn chat_freezes_mode_and_raw_text_and_keeps_a_request_fallback() {
         use crate::cron_service::test_support::{Fixture, LEAD, USER};
-        for direct in [false, true] {
+        for (direct, marked) in [(false, false), (false, true), (true, false), (true, true)] {
             let fixture = Fixture::new();
             fixture.change_model(|model| {
                 model["canPassthrough"] = json!({"available":direct});
@@ -228,6 +233,7 @@ mod tests {
                 LEAD,
                 "/yes!\n漢字",
                 "[product · Sol] /yes!\n漢字",
+                marked,
             )
             .unwrap();
             assert_eq!(sent.passthrough, direct);
@@ -244,6 +250,10 @@ mod tests {
             let request = &calls[0]["request"];
             assert_eq!(request["identity"], USER);
             assert_eq!(request["input"]["recipientIds"], json!([LEAD]));
+            assert_eq!(
+                request["input"].get("keepReply"),
+                marked.then_some(&Value::Bool(true)),
+            );
             assert!(request["input"].get("room").is_none());
             assert_eq!(
                 request["input"]["message"],
@@ -282,6 +292,7 @@ mod tests {
                 LEAD,
                 "hello",
                 "tagged hello",
+                false,
             )
             .unwrap();
             assert_eq!(sent.passthrough, person);
@@ -293,7 +304,12 @@ mod tests {
     #[test]
     fn a_send_time_refusal_does_not_fall_back_or_store_a_second_intent() {
         use crate::cron_service::test_support::{Fixture, LEAD, USER};
-        for code in ["PASSTHROUGH_NOT_ALLOWED", "PASSTHROUGH_UNAVAILABLE"] {
+        for code in [
+            "PASSTHROUGH_NOT_ALLOWED",
+            "PASSTHROUGH_UNAVAILABLE",
+            "KEEP_REPLY_LIMIT",
+        ] {
+            let marked = code == "KEEP_REPLY_LIMIT";
             let fixture = Fixture::new();
             fixture.change_model(|model| {
                 model["canPassthrough"] = json!({"available":true});
@@ -307,6 +323,7 @@ mod tests {
                 LEAD,
                 "raw",
                 "fallback",
+                marked,
             )
             .unwrap_err();
             assert_eq!(error.code, code);
@@ -319,6 +336,10 @@ mod tests {
                 .collect();
             assert_eq!(attempts.len(), 1);
             assert_eq!(attempts[0]["request"]["input"]["mode"], "passthrough");
+            assert_eq!(
+                attempts[0]["request"]["input"].get("keepReply"),
+                marked.then_some(&Value::Bool(true)),
+            );
             assert!(model["dispatches"].is_null());
             assert!(model["wakes"].is_null());
             assert_eq!(
@@ -347,6 +368,7 @@ mod tests {
             LEAD,
             "hello",
             "tagged hello",
+            false,
         )
         .unwrap();
         assert_eq!(sent.disposition, Disposition::Sent);
@@ -375,6 +397,7 @@ mod tests {
             LEAD,
             "hello",
             "tagged hello",
+            true,
         )
         .unwrap();
         assert!(sent.passthrough);
@@ -389,6 +412,7 @@ mod tests {
             .unwrap();
         assert_eq!(dispatch["intent"]["input"]["mode"], "passthrough");
         assert_eq!(dispatch["intent"]["input"]["message"], "hello");
+        assert_eq!(dispatch["intent"]["input"]["keepReply"], true);
     }
     #[test]
     fn an_oversized_request_fallback_is_refused_before_any_dispatch() {
@@ -401,6 +425,7 @@ mod tests {
             LEAD,
             "short",
             &"x".repeat(crate::requests::message::MESSAGE_LIMIT + 1),
+            false,
         )
         .unwrap_err();
         assert!(error.message.contains("Draft retained"));

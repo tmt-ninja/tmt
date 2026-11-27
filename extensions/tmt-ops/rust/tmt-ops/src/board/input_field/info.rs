@@ -12,6 +12,8 @@ pub(in crate::board) struct Info<'a> {
     pub newline: crate::board::app::NewlineKey,
     pub checklist: bool,
     pub checklist_reference: bool,
+    pub keep_reply: bool,
+    pub keep_reply_key: Option<String>,
     pub unread: Option<Count>,
     pub open: Option<usize>,
     pub context: Option<ContextUsage>,
@@ -77,6 +79,13 @@ impl Info<'_> {
             };
             spans.push(Span::styled(text, look.role(Role::Muted)));
         }
+        if self.keep_reply {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                if words { " ⚑ keep reply " } else { " ⚑ " },
+                screen::chip(&look.theme, ChipKind::Primary, ChipState::Hot, look.depth),
+            ));
+        }
         Line::from(spans)
     }
     pub(in crate::board) fn paint(
@@ -95,19 +104,32 @@ impl Info<'_> {
         }
         let line = Rect::new(area.x, area.bottom() - 1, area.width, 1);
         let newline = self.newline.glyph();
+        let keep_full = self
+            .keep_reply_key
+            .as_deref()
+            .map(|k| format!("  {k} keep reply"))
+            .unwrap_or_default();
+        let keep_short = self
+            .keep_reply_key
+            .as_deref()
+            .map(|k| format!("  {k}"))
+            .unwrap_or_default();
         let full = format!(
-            "⏎ send  {newline} new line  {} mention{}",
+            "⏎ send  {newline} new line  {} mention{}{}",
             crate::board::mentions::PRIMARY_TRIGGER,
-            if self.checklist { "  ^L checklist" } else { "" }
+            if self.checklist { "  ^L checklist" } else { "" },
+            keep_full,
         );
         let shortened = format!(
-            "⏎ send  {newline} new line  {} mention  ^L",
-            crate::board::mentions::PRIMARY_TRIGGER
+            "⏎ send  {newline} new line  {} mention  ^L{}",
+            crate::board::mentions::PRIMARY_TRIGGER,
+            keep_short,
         );
         let keys = format!(
-            "⏎  {newline}  {}{}",
+            "⏎  {newline}  {}{}{}",
             crate::board::mentions::PRIMARY_TRIGGER,
-            if self.checklist { "  ^L" } else { "" }
+            if self.checklist { "  ^L" } else { "" },
+            keep_short,
         );
         let (full, shortened, keys) = (full.as_str(), shortened.as_str(), keys.as_str());
         let full_left = self.left(true, true, look);
@@ -206,6 +228,8 @@ mod tests {
                 shell: false,
                 checklist: true,
                 checklist_reference: true,
+                keep_reply: false,
+                keep_reply_key: None,
                 newline,
                 unread: Some(Count::default()),
                 open: Some(0),
@@ -249,6 +273,8 @@ mod tests {
             shell: false,
             checklist: false,
             checklist_reference: false,
+            keep_reply: false,
+            keep_reply_key: None,
             newline: crate::board::app::NewlineKey::Alt,
             unread: Some(Count::default()),
             open: Some(0),
@@ -293,6 +319,8 @@ mod tests {
                 shell: false,
                 checklist: false,
                 checklist_reference: false,
+                keep_reply: false,
+                keep_reply_key: None,
                 newline: key,
                 unread: Some(Count::default()),
                 open: Some(0),
@@ -325,6 +353,8 @@ mod tests {
                 shell: false,
                 checklist: false,
                 checklist_reference: false,
+                keep_reply: false,
+                keep_reply_key: None,
                 newline: key,
                 unread: Some(Count::default()),
                 open: Some(0),

@@ -73,12 +73,19 @@ pub(super) fn motion_allowed(app: &App, target: &super::RowTarget) -> bool {
     !reduced
 }
 
+impl Entry {
+    pub(in crate::board) fn keep_reply(&self) -> bool {
+        self.ticket.keep_reply
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ticket {
     pub key: (String, String),
     pub sequence: u64,
     pub text: String,
     pub squad: String,
+    pub keep_reply: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -739,6 +746,8 @@ impl App {
             sequence: state.sequence,
             text,
             squad: input.squad.clone(),
+            keep_reply: input.keep_reply
+                && matches!(input.compose, crate::board::app::Compose::Talk { .. }),
         };
         let identity: ConversationKey = (Some(key.0), key.1);
         let session = state.sessions.entry(identity).or_default();

@@ -507,12 +507,25 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             &surface.target,
         );
     } else {
+        let content_area = Rect::new(area.x, y, area.width, available.saturating_sub(input + gap));
+        let content_area = if let OpsTarget::Member { identity_id, .. } = selected {
+            conversation::paint_kept_replies(
+                frame,
+                app,
+                content_area,
+                identity_id,
+                app.look(),
+                retained.is_none(),
+            )
+        } else {
+            content_area
+        };
         let height = conversation::exchange::desired_height(app, area.width, &surface)
-            .min(available.saturating_sub(input + gap));
+            .min(content_area.height);
         conversation::exchange::render(
             frame,
             app,
-            Rect::new(area.x, y, area.width, height),
+            Rect::new(content_area.x, content_area.y, content_area.width, height),
             &surface,
         );
     }
