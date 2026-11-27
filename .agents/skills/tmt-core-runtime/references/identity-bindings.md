@@ -584,6 +584,9 @@ pane ([list detected panes](../../../../contracts/identity-status-v1.md#list-det
   unapproved driver, or a recorded server incarnation that is missing or replaced, gives no
   consumption observation. The worker leads its own process group, so its failure abort ends
   only the worker and its supervised probes, never the foreground.
+  The foreground E2E fixture opts into `TMT_SAMPLE_DEBUG=1` and captures the pane on failure.
+  The trace reports wait admission and the first four ticks with fixed outcomes. The read-only
+  source row confirms which counter advanced. No transcript or provider data enters the trace.
 - `storage::consumption_history` keeps five-second buckets for two hours (at most 1,440 closed
   plus one open per identity), stores no transcript content or absolute path, and commits cursor,
   counter and history in one transaction. The same transaction folds every accepted read into

@@ -996,18 +996,34 @@ pub(super) fn run_bound(
             "signal observation degraded; waiting for the original command without restarting it.",
         )
     };
+    let mut sample_debug_ticks = crate::consumption_sample_command::debug_ticks();
     let waited = if storage_closed
         && admitted.is_some()
         && !already_exited
         && let Some(owner) = owner.as_ref()
         && claim.is_some()
     {
+        if sample_debug_ticks > 0 {
+            diagnostic("sampler wait admitted");
+        }
         child.wait_with_ticks(
             Duration::from_millis(tmt_adapters::runtime::sampling::CADENCE_MS),
-            || crate::consumption_sample_command::tick(&binding.identity_id, &binding.id, owner),
+            || {
+                let debug = sample_debug_ticks > 0;
+                sample_debug_ticks = sample_debug_ticks.saturating_sub(1);
+                crate::consumption_sample_command::tick(
+                    &binding.identity_id,
+                    &binding.id,
+                    owner,
+                    debug,
+                );
+            },
             on_degraded,
         )
     } else {
+        if sample_debug_ticks > 0 {
+            diagnostic("sampler wait not admitted");
+        }
         child.wait(on_degraded)
     };
     // The child has ended and given the terminal back, so a cleanup failure

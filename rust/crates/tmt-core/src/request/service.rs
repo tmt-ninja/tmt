@@ -460,7 +460,12 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         &mut self,
         attempt: &RequestAttempt,
     ) -> Result<Option<crate::request::history::ThreadRoot>, RequestError<R::Error>> {
-        self.read(|records, now| thread_root(records, attempt, now))
+        if attempt.thread_root_request_id.is_none() {
+            return Ok(None);
+        }
+        let clock = &self.clock;
+        self.repository
+            .with_request_observation(|records| thread_root(records, attempt, positive(clock())?))
     }
 }
 

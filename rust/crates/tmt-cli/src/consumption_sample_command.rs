@@ -1,7 +1,7 @@
 //! Foreground-owned supervised sampling; no new provider hook or daemon.
 use std::{
-    ffi::OsString,
-    io,
+    ffi::{OsStr, OsString},
+    io::{self, Write},
     time::{Duration, Instant},
 };
 use tmt_adapters::runtime::sampling::SamplingRequest;
@@ -28,31 +28,88 @@ use tmt_core::{
 };
 
 const BUDGET: Duration = Duration::from_secs(2);
+const SAMPLE_DEBUG: &str = "TMT_SAMPLE_DEBUG";
+
+pub(super) fn debug_ticks() -> u8 {
+    if std::env::var_os(SAMPLE_DEBUG).as_deref() == Some(OsStr::new("1")) {
+        4
+    } else {
+        0
+    }
+}
+
+#[derive(Debug)]
+enum SampleOutcome {
+    Skipped,
+    CommitDeclined,
+    NoCounter,
+    CounterCommitted,
+}
+
 /// The wait callback delegates all potentially slow source/storage work to the
 /// existing hard-deadline process owner; it never changes the command's result.
-pub fn tick(identity: &str, binding: &str, owner: &ProcessIncarnation) {
+pub fn tick(identity: &str, binding: &str, owner: &ProcessIncarnation, debug: bool) {
+    if debug {
+        let at = tmt_adapters::request_runtime::wall_time_ms();
+        let _ = writeln!(tmt_cli_style::stream::stderr(), "tmt: sampler tick at {at}");
+    }
     let Ok(executable) = std::env::current_exe() else {
+        if debug {
+            let _ = writeln!(
+                tmt_cli_style::stream::stderr(),
+                "tmt: sampler executable unavailable"
+            );
+        }
         return;
     };
     let input=serde_json::json!({"identityId":identity,"bindingId":binding,"ownerPid":owner.pid(),"ownerStart":owner.start_identity()}).to_string();
-    let _ = UnixCommandRunner.execute(CommandRequest {
+    let request = CommandRequest {
         program: executable.as_os_str(),
         args: &[OsString::from("__consumption-sample")],
         input: input.as_bytes(),
         deadline: Instant::now() + BUDGET,
         max_output_bytes: 4096,
-    });
+    };
+    if debug {
+        let result = UnixCommandRunner
+            .execute_with_environment(request, &[(SAMPLE_DEBUG.into(), "worker".into())]);
+        let mut stderr = tmt_cli_style::stream::stderr();
+        match result {
+            Ok(output) => {
+                let outcome = match output.stdout.as_slice() {
+                    b"Skipped" => "skipped",
+                    b"CommitDeclined" => "commit declined",
+                    b"NoCounter" => "commit without a counter",
+                    b"CounterCommitted" => "counter committed",
+                    _ => "worker exited without a report",
+                };
+                let _ = writeln!(stderr, "tmt: sampler {outcome}");
+            }
+            Err(error) => {
+                let _ = writeln!(stderr, "tmt: sampler worker {:?}", error.kind);
+            }
+        }
+    } else {
+        let _ = UnixCommandRunner.execute(request);
+    }
 }
 
 pub fn execute() -> io::Result<u8> {
-    let result = sample(Instant::now() + BUDGET - Duration::from_millis(200));
-    if result.is_err() {
-        let _ = SupervisedProbeRunner::abort_worker_group();
+    match sample(Instant::now() + BUDGET - Duration::from_millis(200)) {
+        Ok(outcome) => {
+            if std::env::var_os(SAMPLE_DEBUG).as_deref() == Some(OsStr::new("worker")) {
+                let _ = write!(tmt_cli_style::stream::stdout(true), "{outcome:?}");
+            }
+            Ok(0)
+        }
+        Err(()) => {
+            let _ = SupervisedProbeRunner::abort_worker_group();
+            Ok(1)
+        }
     }
-    Ok(u8::from(result.is_err()))
 }
 
-fn sample(deadline: Instant) -> Result<(), ()> {
+fn sample(deadline: Instant) -> Result<SampleOutcome, ()> {
     let input = read_stdin_bounded(deadline.saturating_duration_since(Instant::now()), 4096)
         .map_err(|_| ())?;
     let request: SamplingRequest = serde_json::from_str(&input).map_err(|_| ())?;
@@ -67,36 +124,36 @@ fn sample(deadline: Instant) -> Result<(), ()> {
     let Some(stored) =
         Storage::context_by_identity(&paths.database, &request.identity_id, now).map_err(|_| ())?
     else {
-        return Ok(());
+        return Ok(SampleOutcome::Skipped);
     };
     let Some(binding) = stored.entry.binding.as_ref() else {
-        return Ok(());
+        return Ok(SampleOutcome::Skipped);
     };
     if binding.id != request.binding_id
         || binding.session.launch_owner.as_ref() != Some(&owner)
         || binding.session.state != RuntimeState::Running
     {
-        return Ok(());
+        return Ok(SampleOutcome::Skipped);
     }
     let Some(key) = binding.session.key.as_ref() else {
-        return Ok(());
+        return Ok(SampleOutcome::Skipped);
     };
     let Some(remembered) =
         stored.preferences.remembered.as_ref().filter(|remembered| {
             key.provider_session.as_ref() == Some(&remembered.provider_session)
         })
     else {
-        return Ok(());
+        return Ok(SampleOutcome::Skipped);
     };
     let registry = RuntimeRegistry::first_party();
     let Some(lifecycle) = registry.lifecycle(&remembered.harness) else {
-        return Ok(());
+        return Ok(SampleOutcome::Skipped);
     };
     if !Registry::builtin()
         .find(remembered.harness.as_str())
         .is_some_and(usage_consented)
     {
-        return Ok(());
+        return Ok(SampleOutcome::Skipped);
     }
     for process in [&owner, &key.incarnation] {
         if observe_runtime_process(&SupervisedProbeRunner, process.pid(), deadline)
@@ -104,7 +161,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
             .matches(process)
             != RuntimeLiveness::Alive
         {
-            return Ok(());
+            return Ok(SampleOutcome::Skipped);
         }
     }
     let host = Host::for_server_with(&binding.server, SupervisedProbeRunner)
@@ -119,7 +176,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
         evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot)),
         BindingEvidence::Active(_)
     ) {
-        return Ok(());
+        return Ok(SampleOutcome::Skipped);
     }
     let environment = ProviderEnvironment::capture()
         .map_err(|_| ())?
@@ -186,6 +243,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
     let consumption = next
         .as_ref()
         .and_then(|state| lifecycle.sampled_consumption(state, &environment));
+    let has_counter = consumption.is_some();
     let mut preferences = stored.preferences.clone();
     if let Some(next) = next {
         preferences.remembered.as_mut().ok_or(())?.state = Some(next);
@@ -199,7 +257,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
             .matches(process)
             != RuntimeLiveness::Alive
         {
-            return Ok(());
+            return Ok(SampleOutcome::Skipped);
         }
     }
     if Instant::now() + Duration::from_millis(100) >= deadline {
@@ -223,5 +281,11 @@ fn sample(deadline: Instant) -> Result<(), ()> {
         })
         .map_err(|_| ());
     let closed = storage.close().map_err(|_| ());
-    pending.and(closed).map(|_| ())
+    let committed = pending?;
+    closed?;
+    Ok(match (committed, has_counter) {
+        (false, _) => SampleOutcome::CommitDeclined,
+        (true, false) => SampleOutcome::NoCounter,
+        (true, true) => SampleOutcome::CounterCommitted,
+    })
 }

@@ -350,6 +350,68 @@ mod tests {
     }
 
     #[test]
+    fn stop_fits_replyable_items_while_another_connection_holds_the_writer() {
+        for has_thread_root in [false, true] {
+            let world = fixture();
+            let (mut storage, expected) = opened(&world);
+            let database = storage.connection().unwrap();
+            database
+                .execute(
+                    "UPDATE request_attempts SET message_text='Held request', message_bytes=12,
+                     message_expires_at_ms=9007199254740991",
+                    [],
+                )
+                .unwrap();
+            if has_thread_root {
+                let root = format!("req_{}", tmt_core::operation::new_operation_id());
+                database.execute(
+                    "INSERT INTO request_attempts(attempt_id,request_id,route_kind,wait_active,status,
+                     inject_preamble,cadence_reserved,prepared_at_ms,expires_at_ms,retention_expires_at_ms,
+                     originator_kind,recipient_identity_id,message_text,message_bytes,message_expires_at_ms)
+                     VALUES(?1,?1,'inbox',0,'queued',0,0,1,9007199254740991,9007199254740991,
+                     'unknown',?2,'Thread root',11,9007199254740991)",
+                    [&root, &world.2],
+                ).unwrap();
+                database
+                    .execute(
+                        "UPDATE request_attempts SET thread_root_request_id=?1 WHERE request_id<>?1",
+                        [&root],
+                    )
+                    .unwrap();
+            }
+            database.busy_timeout(std::time::Duration::ZERO).unwrap();
+            let mut writer = rusqlite::Connection::open(&world.1).unwrap();
+            let locked = writer
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .unwrap();
+            let through = crate::digest::fitting_through(
+                &mut storage,
+                &world.2,
+                DigestOpportunity::TurnBoundary,
+                false,
+            )
+            .expect("sizing a replyable request needs no writer");
+            assert_eq!(through, Some(1));
+            assert_eq!(
+                locked
+                    .query_row("SELECT COUNT(*) FROM focus_checklists", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            locked.rollback().unwrap();
+
+            let checklist = boundary(&mut storage, &expected).unwrap();
+            let text = crate::digest::text(&mut storage, &checklist).unwrap();
+            assert!(text.contains("Held request"), "{text}");
+            assert_eq!(text.contains("Thread root"), has_thread_root, "{text}");
+            assert_eq!(text.matches("tmt reply ").count(), 1, "{text}");
+            assert!(boundary(&mut storage, &expected).is_err());
+            storage.close().unwrap();
+        }
+    }
+
+    #[test]
     fn ordinary_holding_names_nothing_and_only_due_references_are_evidence() {
         // Nothing held.
         let world = fixture();
